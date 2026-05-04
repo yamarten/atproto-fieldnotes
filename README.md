@@ -23,7 +23,7 @@
 - [prompts/project-triage.md](prompts/project-triage.md): local LLM 用プロンプト
 - [scripts/discover.py](scripts/discover.py): collection / GitHub / Tangled の snapshot 取得と差分検出
 - [scripts/add_manual_candidate.py](scripts/add_manual_candidate.py): 手動候補の JSONL 追記
-- [scripts/project_registry.py](scripts/project_registry.py): 手動 seed 登録と project record 補完
+- [scripts/project_registry.py](scripts/project_registry.py): 手動 seed 登録、本格調査、GitHub/Bluesky 調査、LLM 審査、canonical project record への昇格
 - [config/sources.json](config/sources.json): 情報源設定
 
 ## いまの推奨構成
@@ -78,17 +78,62 @@ python3 scripts/add_manual_candidate.py \
   --summary "short summary"
 ```
 
-project seed を直接登録して調査したい場合:
+project seed を直接登録して、本線 project record として育てたい場合:
 
 ```bash
 python3 scripts/project_registry.py add-seed sh.tangled.repo
 python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
 ```
 
+local LLM を使う場合:
+
+```bash
+export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
+export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
+```
+
+endpoint 直指定でも動きます:
+
+```bash
+python3 scripts/project_registry.py enrich \
+  --seed sh.tangled.repo \
+  --type nsid \
+  --llm-endpoint http://127.0.0.1:1234/v1 \
+  --llm-model qwen/qwen3.5-35b-a3b
+```
+
+`ATPROTO_SURVEY_LLM_COMMAND` も `ATPROTO_SURVEY_LLM_ENDPOINT` も無い場合、`enrich` は事実収集だけ行い、record は `draft` のまま残ります。
+
+LLM が埋める `tagline` / `summary` / `features` / 判定理由は日本語出力を前提にしています。`tagline` は助詞を含まない短い名詞句として扱い、最大 30 文字に丸めます。
+
+Bluesky の post 検索を安定させたい場合は app password も設定します。
+
+```bash
+export BSKY_HANDLE='your-handle.bsky.social'
+export BSKY_APP_PASSWORD='xxxx-xxxx-xxxx'
+```
+
+merge recommendation を見るだけなら dry-run:
+
+```bash
+python3 scripts/project_registry.py merge \
+  --project-key nsid:app.bsky.feed.post \
+  --use-recommendation
+```
+
+そのまま recommendation を使って統合するなら:
+
+```bash
+python3 scripts/project_registry.py merge \
+  --project-key nsid:app.bsky.feed.post \
+  --use-recommendation \
+  --execute
+```
+
 ## 次にやること
 
 - changed collection に対する追加調査を入れる
 - GitHub / Tangled 由来の候補を `project_record` に統合する
-- `project_record` 形式で保存する
+- 手動 seed 以外から `project_registry.py add-seed` へ橋渡しする
 - watchlist 再巡回を追加する
-- local LLM 連携を追加する

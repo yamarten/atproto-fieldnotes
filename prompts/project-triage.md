@@ -8,6 +8,8 @@ You are classifying newly discovered AT Protocol projects.
 Return JSON only.
 Be conservative.
 Do not invent facts that are not present in the evidence.
+For human-readable text fields, write in Japanese.
+Keep schema enums, URLs, handles, DIDs, and NSIDs unchanged.
 
 ## User Template
 
@@ -25,6 +27,7 @@ Output schema:
   "status": "candidate | tracked | published | invite_only | beta | inactive | rejected",
   "name": "string",
   "tagline": "string",
+  "tagline_is_provisional": true,
   "summary": "string",
   "features": ["string"],
   "inspired_by": ["string"],
@@ -37,6 +40,17 @@ Output schema:
   "watch_reason": "string",
   "confidence": 0.0
 }
+
+Language requirements:
+- `name`: keep the original project name when evidence suggests one
+- `tagline`: Japanese short noun phrase, ideally one compound word, no particles, max 30 characters
+- `tagline_is_provisional`: true when the tagline is inferred or tentative rather than directly evidenced
+- `summary`: Japanese
+- `features`: Japanese short bullet-style strings
+- `inspired_by`: common service names may stay in their original language
+- `why_keep`: Japanese
+- `why_reject`: Japanese
+- `watch_reason`: Japanese
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep

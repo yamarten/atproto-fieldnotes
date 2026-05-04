@@ -1,68 +1,88 @@
 # Project Record Schema
 
-自動化後に 1 プロジェクトごとに保持したい項目です。
+当面は最小コアを優先する。
 
-## 識別
+## 最小コア
 
-- `project_key`
-  - 内部キー。`preferred_url` または `primary_nsid` から生成
-- `status`
-  - `candidate`, `tracked`, `published`, `invite_only`, `beta`, `inactive`, `rejected`
-- `category`
-  - `project`, `infra_tool`, `name_only`, `library`, `personal_tool`, `auth_only`
-
-## 基本情報
+優先して埋める対象は次の通り。
 
 - `name`
+- `website_url`
+  - 代表 URL を 1 件
+- `service_urls`
+  - confirmed な利用先 URL
+  - `website_url` と実質同一でもよい
+  - `website_url` があれば同じ URL を含める
 - `tagline`
+- `tagline_is_provisional`
+  - `bool`
+  - 自動生成や未確認の暫定値なら `true`
+- `service_status`
+- `source_code_urls`
+  - confirmed なコード置き場
+  - 1 件あれば十分
+- `introduced`
+  - `bool`
+  - 初期値は `false`
+- `introduced_url`
+  - 紹介先 URL
+  - 未紹介なら空
+
+## `service_status`
+
+現時点の基本 enum はこれで扱う。
+
+- `unknown`
+  - まだ判定できない
+- `live`
+  - 一般に利用可能
+- `invite_only`
+  - 招待制
+- `beta`
+  - ベータ公開
+- `private`
+  - 存在は見えるが一般利用前提ではない
+- `dead`
+  - 死んでいる
+- `none`
+  - サービス URL を持たない
+
+追加候補として迷うのは次。
+
+- `unreleased`
+  - 公開前や coming soon を `private` と分けたい場合
+- `paused`
+  - dead ではないが停止中を区別したい場合
+
+当面は増やさず、必要になるまで上の 7 値で回す。
+
+## 内部管理フィールド
+
+公開コアとは別に、運用上これだけは残す。
+
+- `project_key`
+- `manual_seeds`
+- `duplicate_candidates`
+- `merge_recommendation`
+- `notes`
+- `last_enriched_at`
+
+## まだ保留でよいもの
+
+今は空でもよい、または後で詰めればよい項目。
+
+- `app_category`
+- `category`
 - `summary`
 - `features`
-  - 箇条書き 3-6 個
 - `inspired_by`
-  - 例: `Twitter`, `GitHub`, `Notion`
-
-## 発見根拠
-
-- `discovery_sources`
-  - 例: `github_search`, `tangled_repo`, `lexicon_schema`, `lexicon_garden`, `ufos`
-- `first_seen_at`
-- `last_seen_at`
-- `evidence_urls`
-  - 人が見返す URL
-
-## atproto 関連
-
-- `primary_nsid`
-- `lexicons`
-  - NSID 配列
-- `lexicon_count`
-- `record_creators`
-  - DID / handle 配列
-- `authority_domains`
-  - NSID から抽出したドメイン配列
-
-## アカウント/コード
-
-- `website_url`
-- `service_urls`
-- `service_status`
-  - `none`, `unknown`, `live`, `invite_only`, `beta`, `private`, `dead`
-- `source_code_urls`
-- `github_repo_urls`
-- `tangled_repo_urls`
+- `developer_accounts`
+- `tags`
+- `platforms`
+- `project_state`
+- `brand_did`
+- `ownership_signal`
 - `bluesky_handles`
 - `tangled_handles`
-
-## 判定補助
-
-- `classification_reason`
-- `exclude_reason`
-- `watch_reason`
-- `confidence`
-  - 0.0-1.0
-
-## 運用メモ
-
-- `last_llm_review_at`
-- `next_check_at`
-- `notes`
+- `recorded_lexicon_namespaces`
+- `duplicate_candidates`

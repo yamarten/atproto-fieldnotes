@@ -1,13 +1,36 @@
 # Project Registry
 
-一次ソース取得とは別に、手動で見つけた seed を登録して project record を育てるための仕組みです。
+一次ソース取得とは別に、手動で見つけた seed を登録して canonical project record に昇格させるための仕組みです。
+
+現時点では schema を 2 層で考えるが、当面は最小コアを優先する。
+
+- `app core`
+  - `name`
+  - `website_url`
+  - `service_urls`
+  - `tagline`
+  - `tagline_is_provisional`
+  - `service_status`
+  - `source_code_urls`
+  - `introduced`
+  - `introduced_url`
+- `registry / investigation`
+  - このツール固有の調査・追跡フィールド
+
+`introduced` は必須の bool として扱う。初期値は `false`。
+
+今の merge 自動化は「候補検出と recommendation」に加えて、dry-run 付きの merge 実行まで入っている。標準は dry-run。
 
 ## できること
 
 - NSID / repository URL / service URL のいずれかを seed として登録
 - 既知 seed と重ならなければ新規 project として記録
 - 既知 project に `--project-key` で seed を追加
-- 登録済み project を調査して、残りフィールドを自動補完
+- 登録済み project を調査して、確認済み情報と候補情報を分離
+- local LLM で `summary/tagline/features/category/service_status` を生成
+- 条件を満たした record を `draft` から本線 status に昇格
+- duplicate / merge 候補を機械判定する
+- recommendation を使って project merge を dry-run / 実行する
 
 ## 確認済みと候補の区別
 
@@ -17,14 +40,28 @@
   - NSID authority や GitHub homepage などから推定した未確認 URL
 - `service_urls`
   - 確認済み URL
+  - `website_url` が確定していれば同じ URL を含める
 - `service_url_candidates`
   - 未確認 URL
 - `failed_service_urls`
   - probe したが正常応答しなかった URL
+- `source_code_urls`
+  - 確認済みのコード置き場
+- `candidate_source_code_urls`
+  - 調査段で見つけたが、まだ確定していないコード置き場候補
+- `source_repo_records`
+  - confirmed/candidate のコード置き場と、その発見 source を持つ内部レコード
+  - `reason`, `evidence_kind`, `evidence_url` を含み、first-party link / README / GitHub search / Bluesky reference / LLM suggestion を区別する
 - `summary` / `tagline`
-  - 将来的に LLM や手動確認で確定した値
+  - LLM 審査を通して確定した値
+- `tagline_is_provisional`
+  - `true` のとき、その tagline は暫定値
 - `summary_candidates` / `tagline_candidates`
   - lexicon description, GitHub description, meta description などの予備情報
+- `llm_source`
+  - model, prompt version, generated_at, evidence bundle
+- `llm_output`
+  - LLM の生出力 JSON
 
 ## NSID の区別
 
@@ -32,11 +69,141 @@
   - 手動 seed として渡された NSID
 - `resolved_nsids`
   - 実際に lexicon 解決できた NSID
+- `lexicons`
+  - canonical に採用した解決済み full NSID
 - `recorded_lexicon_namespaces`
   - project 単位で記録する namespace
   - 1件だけなら `app.bsky.feed.post` -> `app.bsky`
   - 複数件あれば、同じ lexicon repository に属する解決済み NSID 群の共通 prefix を優先
   - 共通 prefix が弱すぎる場合は無理にまとめず、各 NSID の先頭 2 要素へ戻す
+
+## enrich の流れ
+
+`enrich` は次の順で動く。
+
+1. seed 由来の事実収集
+2. service / repo / lexicon の確認済み情報を更新
+3. lexicon repository 単位で namespace 集約
+4. LLM に調査クエリを提案させる
+5. GitHub / Bluesky の公開検索を実行して候補 repo / account を集める
+6. evidence bundle を作成
+7. local LLM で project summary を生成
+8. 昇格ゲートを判定
+9. 通れば `tracked` / `published` / `invite_only` / `beta` / `inactive` / `rejected` へ、足りなければ `draft` のまま残す
+
+## 昇格ゲート
+
+`enrich` 後に以下を満たすと本線扱いにする。
+
+- seed が 1 件以上ある
+- 確認済み識別子が 1 件以上ある
+  - `website_url`
+  - confirmed repository URL
+  - resolved lexicon
+- `service_status` が `unknown` ではない
+- `summary` と `tagline` が埋まっている
+- `features` が 3 件以上ある
+- `category` が決まっている
+
+満たさない場合は `status=draft` のまま、`promotion_blockers` と `watch_reason` に理由を残す。
+
+## LLM の接続
+
+昇格には local LLM が必須。`enrich` は command 方式か endpoint 方式のどちらかを使う。
+
+- `ATPROTO_SURVEY_LLM_COMMAND`
+  - 任意。stdin で prompt を受け、stdout に JSON だけ返すコマンド
+- `ATPROTO_SURVEY_LLM_ENDPOINT`
+  - 任意。OpenAI 互換の `chat/completions` endpoint か、その base URL
+- `ATPROTO_SURVEY_LLM_MODEL`
+  - 任意。endpoint 方式で使う model 名。未指定なら `local-model`
+- `ATPROTO_SURVEY_LLM_API_KEY`
+  - 任意。endpoint 方式の Bearer token
+- `ATPROTO_SURVEY_LLM_PROMPT_VERSION`
+  - 任意。未指定時は `project-triage-v1`
+
+command 方式:
+
+```bash
+export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
+export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
+```
+
+endpoint 方式:
+
+```bash
+python3 scripts/project_registry.py enrich \
+  --seed sh.tangled.repo \
+  --type nsid \
+  --llm-endpoint http://127.0.0.1:1234/v1 \
+  --llm-model qwen/qwen3.5-35b-a3b
+```
+
+または:
+
+```bash
+export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
+export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
+```
+
+command が無く、endpoint も無い場合は、事実収集だけ行って `draft` のまま残す。
+
+LLM には、人が読む説明系フィールドを日本語で出すよう指示している。enum、URL、handle、DID、NSID はそのまま保持する。`tagline` は助詞を含まない短い名詞句を想定し、最大 30 文字に丸める。
+
+## 調査フェーズ
+
+コード置き場の探索は、`enrich` の中で次の順に行う。
+
+- LLM に検索クエリ案を出させる
+- GitHub repository search を叩く
+- Bluesky actor search / post search を叩く
+- 見つかった actor の recent posts を少数だけ見る
+- そこから見つかった repo URL は `candidate_source_code_urls` に積む
+
+この段階では source repo を自動確定しない。confirmed に入るのは、seed 由来か、公式 service page / README などの強い根拠で見つかったものだけ。
+
+`investigation_queries` と `investigation_log` は append-only ではなく、直近の `enrich` run の内容だけを保持する。
+
+## first-party collector
+
+service URL を probe したときは、検索 fallback より先に first-party の導線を優先して追う。
+
+- service page の `<a href>` を相対 URL 解決つきで抽出
+- `source` / `view source` / `repo` / `monorepo` などの導線を repo 根拠として記録
+- `docs` / `blog` は同一サイト系なら follow-up probe する
+- `bsky.app/profile/...` は `bluesky_handles` / `developer_accounts` に入れる
+
+これで、検索 API でたまたま見つかった候補と、公式ページから辿れた repo を区別できる。
+
+## Bluesky 認証
+
+`app.bsky.feed.searchPosts` は認証が必要になることがあるので、調査フェーズでは app password を使えるようにしている。
+
+- `BSKY_HANDLE`
+- `BSKY_APP_PASSWORD`
+- `BSKY_AUTH_HOST`
+  - 任意。未指定時は `https://bsky.social`
+
+例:
+
+```bash
+export BSKY_HANDLE='your-handle.bsky.social'
+export BSKY_APP_PASSWORD='xxxx-xxxx-xxxx'
+python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
+```
+
+`searchPosts` はまず認証付きで試し、失敗した場合だけ public AppView に fallback する。
+
+## 重複候補
+
+自動マージはしない。代わりに次の一致材料から `duplicate_candidates` を計算する。
+
+- 同一 GitHub repo
+- 同一 confirmed service URL
+- 同一 lexicon repository DID
+- 同一 `recorded_lexicon_namespaces`
 
 ## 使うスクリプト
 
@@ -50,13 +217,41 @@ python3 scripts/project_registry.py add-seed https://github.com/example/project
 python3 scripts/project_registry.py add-seed https://example.com
 ```
 
-既存 project に seed をマージする場合:
+既存 project に seed を足す場合:
 
 ```bash
 python3 scripts/project_registry.py add-seed https://example.com --project-key github:example/project
 ```
 
-## 調査
+## merge
+
+recommendation を使った dry-run:
+
+```bash
+python3 scripts/project_registry.py merge \
+  --project-key nsid:app.bsky.feed.post \
+  --use-recommendation
+```
+
+recommendation をそのまま実行:
+
+```bash
+python3 scripts/project_registry.py merge \
+  --project-key nsid:app.bsky.feed.post \
+  --use-recommendation \
+  --execute
+```
+
+target を明示して merge:
+
+```bash
+python3 scripts/project_registry.py merge \
+  --project-key nsid:app.bsky.feed.post \
+  --target-seed https://bsky.app \
+  --execute
+```
+
+## 調査と昇格
 
 1 件だけ:
 
@@ -76,6 +271,8 @@ python3 scripts/project_registry.py enrich --all
 python3 scripts/project_registry.py show --all
 python3 scripts/project_registry.py show --project-key github:example/project --format json
 ```
+
+JSON には `promotion_ready`, `promotion_blockers`, `duplicate_candidates`, `llm_source`, `llm_output` も含まれる。
 
 ## 権限
 
