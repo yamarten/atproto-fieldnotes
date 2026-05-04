@@ -19,9 +19,11 @@
 - [docs/automation-architecture.md](docs/automation-architecture.md): 推奨アーキテクチャ
 - [docs/project-record.md](docs/project-record.md): 保持したい項目
 - [docs/manual-candidates.md](docs/manual-candidates.md): 手動候補の追加方法
+- [docs/project-registry.md](docs/project-registry.md): 手動 seed 登録と project 調査
 - [prompts/project-triage.md](prompts/project-triage.md): local LLM 用プロンプト
 - [scripts/discover.py](scripts/discover.py): collection / GitHub / Tangled の snapshot 取得と差分検出
 - [scripts/add_manual_candidate.py](scripts/add_manual_candidate.py): 手動候補の JSONL 追記
+- [scripts/project_registry.py](scripts/project_registry.py): 手動 seed 登録と project record 補完
 - [config/sources.json](config/sources.json): 情報源設定
 
 ## いまの推奨構成
@@ -74,6 +76,13 @@ python3 scripts/add_manual_candidate.py \
   --name "example" \
   --url "https://example.com" \
   --summary "short summary"
+```
+
+project seed を直接登録して調査したい場合:
+
+```bash
+python3 scripts/project_registry.py add-seed sh.tangled.repo
+python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
 ```
 
 ## 次にやること
