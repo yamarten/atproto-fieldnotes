@@ -1,0 +1,51 @@
+# Project Triage Prompt
+
+local LLM に渡すための最小プロンプトです。
+
+## System
+
+You are classifying newly discovered AT Protocol projects.
+Return JSON only.
+Be conservative.
+Do not invent facts that are not present in the evidence.
+
+## User Template
+
+```text
+Classify this candidate.
+
+Goal:
+- Keep independent atproto projects
+- Keep infra tools separately
+- Exclude libraries, auth-only services, and personal-only tools unless name-only tracking is useful
+
+Output schema:
+{
+  "category": "project | infra_tool | name_only | library | personal_tool | auth_only | reject",
+  "status": "candidate | tracked | published | invite_only | beta | inactive | rejected",
+  "name": "string",
+  "tagline": "string",
+  "summary": "string",
+  "features": ["string"],
+  "inspired_by": ["string"],
+  "source_code_urls": ["string"],
+  "service_urls": ["string"],
+  "service_status": "none | unknown | live | invite_only | beta | private | dead",
+  "lexicons": ["string"],
+  "why_keep": "string",
+  "why_reject": "string",
+  "watch_reason": "string",
+  "confidence": 0.0
+}
+
+Decision hints:
+- If it mainly exposes a new service, app, or infra component on atproto, prefer keep
+- If it is just a library, prefer library
+- If it only uses atproto for sign-in and not data model / records, prefer auth_only
+- If evidence suggests only the author uses it, prefer personal_tool
+- If evidence is too thin but the name should be remembered, prefer name_only
+- If it is PDS / relay / moderation / dashboard / hosting / indexing infra, prefer infra_tool
+
+Evidence:
+{{evidence_json}}
+```

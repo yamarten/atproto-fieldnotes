@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+data/*.db
+data/manual_candidates.jsonl
+
+reports/*.md

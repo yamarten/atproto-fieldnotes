@@ -1,0 +1,34 @@
+{
+  "collection_inventory": {
+    "url": "https://collectiondata.usounds.work/collection_count_view",
+    "builtin_prefixes": [
+      "app.bsky.",
+      "chat.bsky.",
+      "com.atproto."
+    ],
+    "infra_keywords": [
+      "pds",
+      "relay",
+      "feed",
+      "labeler",
+      "moderation",
+      "index",
+      "firehose",
+      "jetstream"
+    ]
+  },
+  "github_repo_search": {
+    "enabled": true,
+    "queries": [
+      "atproto OR \"AT protocol\" OR atprotocol"
+    ],
+    "pages": 2,
+    "per_page": 50
+  },
+  "tangled_repo_discovery": {
+    "enabled": true,
+    "ufos_api_url": "https://ufos-api.microcosm.blue/records",
+    "collection": "sh.tangled.repo",
+    "limit": 100
+  }
+}
