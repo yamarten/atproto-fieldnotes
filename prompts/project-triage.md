@@ -10,6 +10,7 @@ Be conservative.
 Do not invent facts that are not present in the evidence.
 For human-readable text fields, write in Japanese.
 Keep schema enums, URLs, handles, DIDs, and NSIDs unchanged.
+Do not insert spaces between Japanese text and adjacent English words or digits.
 
 ## User Template
 
@@ -23,7 +24,7 @@ Goal:
 
 Output schema:
 {
-  "category": "project | infra_tool | name_only | library | personal_tool | auth_only | reject",
+  "category": "project | lexicon | infra_tool | name_only | library | personal_tool | auth_only | reject",
   "status": "candidate | tracked | published | invite_only | beta | inactive | rejected",
   "name": "string",
   "tagline": "string",
@@ -46,7 +47,9 @@ Language requirements:
 - `tagline`: Japanese short noun phrase, ideally one compound word, no particles, max 30 characters
 - `tagline_is_provisional`: true when the tagline is inferred or tentative rather than directly evidenced
 - `summary`: Japanese
+- `summary`: Japanese, and do not insert spaces between Japanese text and adjacent English words or digits
 - `features`: Japanese short bullet-style strings
+- `features`: Japanese short bullet-style strings, and do not insert spaces between Japanese text and adjacent English words or digits
 - `inspired_by`: common service names may stay in their original language
 - `why_keep`: Japanese
 - `why_reject`: Japanese
@@ -54,6 +57,7 @@ Language requirements:
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
+- If it mainly defines lexicons or schema conventions for third parties to implement, prefer lexicon
 - If it is just a library, prefer library
 - If it only uses atproto for sign-in and not data model / records, prefer auth_only
 - If evidence suggests only the author uses it, prefer personal_tool

@@ -14,10 +14,12 @@
   - `source_code_urls`
   - `introduced`
   - `introduced_url`
+  - `tracking_state`
+  - `tracking_note`
 - `registry / investigation`
   - このツール固有の調査・追跡フィールド
 
-`introduced` は必須の bool として扱う。初期値は `false`。
+`introduced` は必須の bool として扱う。初期値は `false`。`tracking_state` は継続調査の対象管理に使い、初期値は `active`。`project_key` は内部 ID で、`proj:xxxxxxxxxxxx` 形式の opaque key を使う。
 
 今の merge 自動化は「候補検出と recommendation」に加えて、dry-run 付きの merge 実行まで入っている。標準は dry-run。
 
@@ -26,6 +28,7 @@
 - NSID / repository URL / service URL のいずれかを seed として登録
 - 既知 seed と重ならなければ新規 project として記録
 - 既知 project に `--project-key` で seed を追加
+- 新規 project は seed 由来ではない opaque `project_key` を持つ
 - 登録済み project を調査して、確認済み情報と候補情報を分離
 - local LLM で `summary/tagline/features/category/service_status` を生成
 - 条件を満たした record を `draft` から本線 status に昇格
@@ -62,6 +65,14 @@
   - model, prompt version, generated_at, evidence bundle
 - `llm_output`
   - LLM の生出力 JSON
+- `tracking_state`
+  - `active`, `watchlist`, `stable`, `archived`, `ignore`
+- `tracking_note`
+  - 手動で付ける追跡方針メモ
+- `notes`
+  - 手動メモ用
+- `last_run_errors`
+  - 直近の `enrich` run で出たエラーだけを保持する
 
 ## NSID の区別
 
@@ -91,6 +102,8 @@
 8. 昇格ゲートを判定
 9. 通れば `tracked` / `published` / `invite_only` / `beta` / `inactive` / `rejected` へ、足りなければ `draft` のまま残す
 
+`enrich --all` は既定で `tracking_state=active|watchlist` の project だけを対象にする。`stable` / `archived` / `ignore` は明示的に含めたときだけ回す。
+
 ## 昇格ゲート
 
 `enrich` 後に以下を満たすと本線扱いにする。
@@ -105,7 +118,11 @@
 - `features` が 3 件以上ある
 - `category` が決まっている
 
-満たさない場合は `status=draft` のまま、`promotion_blockers` と `watch_reason` に理由を残す。
+満たさない場合は `status=draft` のまま、`promotion_blockers` と `watch_reason` に理由を残す。runtime error は `notes` ではなく `last_run_errors` に入る。
+
+`category` の想定値には `lexicon` も含む。これは、主に lexicon / schema 定義を提供し、実装や運用はサードパーティに委ねるタイプの project を表す。例として `standard.site` のようなものをここへ入れる。
+
+`draft -> 非draft` に初めて上がったときは、`promoted_now=true` がその run の出力に含まれる。あわせて `last_promoted_at` と `promotion_events` を project record に保存するので、後からでも昇格履歴を追える。
 
 ## LLM の接続
 
@@ -213,9 +230,12 @@ python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
 
 ```bash
 python3 scripts/project_registry.py add-seed sh.tangled.repo
+python3 scripts/project_registry.py add-seed https://pdsls.dev/at://did:plc:3wng2qnttvtg23546ar6bawo/ink.henry.annotate.mark
 python3 scripts/project_registry.py add-seed https://github.com/example/project
 python3 scripts/project_registry.py add-seed https://example.com
 ```
+
+`pdsls.dev` / `pds.ls` の URL や direct `at://did.../collection[/rkey]` を渡した場合は、collection NSID を抜いて `nsid` seed として扱う。
 
 既存 project に seed を足す場合:
 
@@ -251,6 +271,79 @@ python3 scripts/project_registry.py merge \
   --execute
 ```
 
+保守的な条件で一括マージ候補を見る:
+
+```bash
+python3 scripts/project_registry.py merge-batch
+```
+
+実際に流す:
+
+```bash
+python3 scripts/project_registry.py merge-batch --execute
+```
+
+この一括マージはかなり保守的で、少なくとも次のどれかが必要。
+
+- 同一 `repo_did`
+- 同一 manual `repo_url`
+- 同一 manual `service_url` host
+
+さらに recommendation が相互であることを要求する。`service_urls` や alias だけの一致では自動マージしない。
+
+## applog import
+
+`applog.json` のような連結 JSON から、root service URL / exact repo root を抽出して紹介済み情報を取り込む。
+
+dry-run:
+
+```bash
+python3 scripts/project_registry.py import-applog applog.json
+```
+
+既存 record にだけ反映:
+
+```bash
+python3 scripts/project_registry.py import-applog applog.json --execute
+```
+
+未一致 seed も新規作成する:
+
+```bash
+python3 scripts/project_registry.py import-applog applog.json --execute --create-unmatched
+```
+
+`list.json` のような WhiteWind 記事本文から、Markdown link を既存 project へ寄せて紹介済み情報を補完する:
+
+```bash
+python3 scripts/project_registry.py import-list list.json
+python3 scripts/project_registry.py import-list list.json --execute
+```
+
+`services.json` のような Markdown table から、`name / NSID / service URL / repo URL` を project に補完する:
+
+```bash
+python3 scripts/project_registry.py import-services services.json
+python3 scripts/project_registry.py import-services services.json --execute --create-unmatched
+```
+
+GUI や SQL で直接 `projects` を触った後は、`data_json` の正規化、派生フィールドの再計算、重複衝突の確認のために次を回す。`project_identifiers` テーブルはもう使わない:
+
+```bash
+python3 scripts/project_registry.py repair-db
+python3 scripts/project_registry.py repair-db --salvage-json --clean-notes
+```
+
+このコマンドは次を自動修復する。
+
+- orphan identifiers
+- stale identifiers
+- missing identifiers
+- `--salvage-json` を付けると、trailing comma のような軽微な JSON 崩れを直してから監査する
+- `--clean-notes` を付けると、過去の自動エラー行だけを `notes` から落とす
+
+複数 project が同じ identifier を要求している collision は、直さずレポートだけ出す。
+
 ## 調査と昇格
 
 1 件だけ:
@@ -263,16 +356,27 @@ python3 scripts/project_registry.py enrich --seed sh.tangled.repo --type nsid
 
 ```bash
 python3 scripts/project_registry.py enrich --all
+python3 scripts/project_registry.py enrich --all --include-stable
 ```
 
 ## 確認
 
 ```bash
 python3 scripts/project_registry.py show --all
+python3 scripts/project_registry.py show --all --tracking-states active watchlist
 python3 scripts/project_registry.py show --project-key github:example/project --format json
 ```
 
 JSON には `promotion_ready`, `promotion_blockers`, `duplicate_candidates`, `llm_source`, `llm_output` も含まれる。
+
+追跡対象から外したいとき:
+
+```bash
+python3 scripts/project_registry.py set-tracking-state \
+  --project-key service:https-example-com \
+  --tracking-state stable \
+  --note "安定運営"
+```
 
 ## 権限
 

@@ -131,6 +131,56 @@ python3 scripts/project_registry.py merge \
   --execute
 ```
 
+危ない候補を除いた一括マージ候補だけ見たい場合:
+
+```bash
+python3 scripts/project_registry.py merge-batch
+```
+
+実行する場合:
+
+```bash
+python3 scripts/project_registry.py merge-batch --execute
+```
+
+`applog.json` から紹介済み URL を取り込む場合:
+
+```bash
+python3 scripts/project_registry.py import-applog applog.json
+python3 scripts/project_registry.py import-applog applog.json --execute
+python3 scripts/project_registry.py import-applog applog.json --execute --create-unmatched
+```
+
+WhiteWind のリンク記事を既存 project へ寄せる場合:
+
+```bash
+python3 scripts/project_registry.py import-list list.json
+python3 scripts/project_registry.py import-list list.json --execute
+```
+
+構造化されたサービス一覧から補完する場合:
+
+```bash
+python3 scripts/project_registry.py import-services services.json
+python3 scripts/project_registry.py import-services services.json --execute --create-unmatched
+```
+
+PDSls の URL を seed 候補として使っている場合も、そのまま `add-seed` / `enrich --seed` に渡せます。`https://pdsls.dev/at://.../collection[/rkey]` や `at://did.../collection[/rkey]` は collection NSID に変換して扱います。
+
+新規に作られる project の `project_key` は seed 由来ではなく、`proj:xxxxxxxxxxxx` 形式の opaque ID です。
+
+CLI では `--project-key` に `proj:` を含む完全キーのほか、`proj:` を省略した先頭一致 prefix も使えます。例えば `2f2acb` や `proj:2f2acb` のように指定できます。
+
+`enrich --all` は既定で `tracking_state=active|watchlist` の project だけを回します。`stable` / `archived` / `ignore` も回したい場合は `--include-stable` などを付けます。各 project の JSON には `promoted_now` が出ます。複数件を回した場合は最後に `promoted_now` 一覧の summary も出ます。後から確認したい場合は `show --format json` で `last_promoted_at` と `promotion_events` を見ます。
+
+GUI で DB を直接編集した後は、`data_json` の正規化、派生フィールドの再計算、重複衝突の確認のためにこれを回します。`project_identifiers` テーブルはもう使っていません。
+
+```bash
+python3 scripts/project_registry.py repair-db
+python3 scripts/project_registry.py repair-db --salvage-json --clean-notes
+python3 scripts/project_registry.py set-tracking-state --project-key service:https-example-com --tracking-state stable --note "安定運営"
+```
+
 ## 次にやること
 
 - changed collection に対する追加調査を入れる

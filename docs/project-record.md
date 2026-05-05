@@ -27,6 +27,26 @@
 - `introduced_url`
   - 紹介先 URL
   - 未紹介なら空
+- `tracking_state`
+  - 継続調査の対象状態
+  - 初期値は `active`
+- `tracking_note`
+  - 手動での除外理由や運用メモ
+
+## `tracking_state`
+
+継続調査の対象を制御する enum。
+
+- `active`
+  - 通常の継続調査対象
+- `watchlist`
+  - 情報不足、招待制、未公開などで追跡したい
+- `stable`
+  - 安定運営。通常の `enrich --all` からは外す
+- `archived`
+  - 開発終了や追跡完了。通常の `enrich --all` からは外す
+- `ignore`
+  - ノイズまたは対象外。通常の `enrich --all` からは外す
 
 ## `service_status`
 
@@ -65,6 +85,7 @@
 - `duplicate_candidates`
 - `merge_recommendation`
 - `notes`
+- `last_run_errors`
 - `last_enriched_at`
 
 ## まだ保留でよいもの
@@ -73,6 +94,16 @@
 
 - `app_category`
 - `category`
+  - 想定 enum:
+    - `project`
+    - `lexicon`
+    - `infra_tool`
+    - `name_only`
+    - `library`
+    - `personal_tool`
+    - `auth_only`
+    - `reject`
+  - `lexicon` は、主にスキーマや lexicon 定義を提供し、実装や運営はサードパーティに委ねるプロジェクト向け
 - `summary`
 - `features`
 - `inspired_by`
