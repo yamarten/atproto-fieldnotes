@@ -14,13 +14,9 @@
 
 - 収集
   - `collection_count_view`
-  - GitHub repository search
-  - Tangled repo discovery
-    - UFOs Record samples API
-  - 補助的に Lexicon Garden / ATProto Dashboard / UFOs
+  - `applog.json`
 - 保存
   - SQLite
-  - manual candidates JSONL
 - 要約/分類
   - ルールベース + local LLM
 - 出力
@@ -34,21 +30,16 @@
 ### A. 新規 lexicon 発見
 
 - `collection_count_view`
-- Lexicon Garden
-- ATProto Dashboard
-- UFOs
 
-### B. GitHub / Tangled プロジェクト発見
+### B. 既知紹介済み候補の取り込み
 
-- GitHub repository search
-- `sh.tangled.repo` via UFOs Record samples API
+- `applog.json`
 
 ### C. 候補の裏取り
 
 - changed collection に対する `com.atproto.sync.listReposByCollection`
 - NSID authority domain の HTTP probe
 - Bluesky profile / author feed
-- Tangled profile
 - GitHub name search
 
 ## 最小構成
@@ -66,9 +57,7 @@
 ### Weekly
 
 - `collection_count_view` snapshot の収集
-- GitHub search snapshot の収集
-- Tangled repo snapshot の収集
-- manual candidate のマージ
+- `applog.json` 取り込み
 - new / changed collection の report 更新
 - watchlist 再確認
 - LLM summary の再生成
@@ -103,7 +92,7 @@ LLM は discovery の主役ではなく、整理の補助に使う。
 
 ## 実装優先順位
 
-1. `collection_count_view` と GitHub / Tangled で候補収集
+1. `collection_count_view` と `applog` で候補収集
 2. changed collection と changed repo に対して lexicon / repo / profile / domain の証拠集め
 3. ルールベース分類
 4. local LLM による summary と曖昧候補判定

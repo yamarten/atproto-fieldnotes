@@ -3,6 +3,7 @@ __pycache__/
 .DS_Store
 
 data/*.db
+data/*.json
 data/manual_candidates.jsonl
 
 reports/*.md

@@ -15,17 +15,18 @@
 
 - `https://collectiondata.usounds.work/collection_count_view`
   - collection 単位の inventory と activity snapshot として使う
-- GitHub repository search
-- Tangled repo discovery
-  - UFOs Record samples API for `sh.tangled.repo`
+- `applog.json`
+  - 紹介済み候補と紹介元 URL の取り込みに使う
 
 ### 補助情報
 
+- GitHub repository search
+- Tangled repo discovery
 - Lexicon Garden
 - ATProto Dashboard
 - UFOs
 
-補助情報は UI として便利だが、機械取得の主軸は `collection_count_view` と GitHub / Tangled の snapshot に寄せる。
+機械取得の主軸は `collection_count_view` と `applog` に寄せる。GitHub / Tangled / UFOs は補助的な discovery や深掘りに使う。
 atproto の sync / repo endpoint は changed collection の深掘りに使う。
 
 ## 2. Enrichment
@@ -94,23 +95,21 @@ LLM を常時オンラインに置く必要はない。
 ## データフロー
 
 1. `collection_count_view` の full snapshot を取得
-2. GitHub search snapshot を取得
-3. Tangled repo snapshot を取得
-4. source ごとに差分判定
-5. changed collection / repo を深掘り
-6. `project_key` 単位で統合
-7. ルールベース分類
-8. あいまい候補だけ LLM へ
-9. レポート出力
-10. watchlist 更新
+2. `applog.json` を取り込む
+3. source ごとに差分判定
+4. changed collection / repo を深掘り
+5. `project_key` 単位で統合
+6. ルールベース分類
+7. あいまい候補だけ LLM へ
+8. レポート出力
+9. watchlist 更新
 
 ## 実装優先順位
 
 ### Phase 1
 
 - `collection_count_view` snapshot 収集
-- GitHub search snapshot 収集
-- Tangled repo snapshot 収集
+- `applog` 取り込み
 - SQLite 永続化
 - Markdown レポート
 

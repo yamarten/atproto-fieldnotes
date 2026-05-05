@@ -69,79 +69,8 @@ PROJECT_SCALAR_FIELDS = (
     "last_enriched_at",
 )
 
-
-AUTO_ERROR_NOTE_PATTERNS = [
-    re.compile(r"^(?:lexicon|github|service|LLM|Bluesky|GitHub)\b.*\bfailed\b", re.IGNORECASE),
-    re.compile(r"^[a-z][a-z0-9 _-]* failed(?::| for )", re.IGNORECASE),
-]
-
-
 def ensure_dirs() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
-
-
-def strip_json_trailing_commas(text: str) -> str:
-    output: list[str] = []
-    in_string = False
-    escape = False
-    i = 0
-    length = len(text)
-    while i < length:
-        ch = text[i]
-        if in_string:
-            output.append(ch)
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-        if ch == '"':
-            in_string = True
-            output.append(ch)
-            i += 1
-            continue
-        if ch == ",":
-            j = i + 1
-            while j < length and text[j] in " \t\r\n":
-                j += 1
-            if j < length and text[j] in "}]":
-                i += 1
-                continue
-        output.append(ch)
-        i += 1
-    return "".join(output)
-
-
-def salvage_json_text(text: str) -> str | None:
-    candidate = str(text or "")
-    try:
-        json.loads(candidate)
-        return candidate
-    except json.JSONDecodeError:
-        pass
-    cleaned = candidate.lstrip("\ufeff")
-    cleaned = strip_json_trailing_commas(cleaned)
-    try:
-        json.loads(cleaned)
-        return cleaned
-    except json.JSONDecodeError:
-        return None
-
-
-def clean_notes_text(value: str) -> str:
-    lines = [line.rstrip() for line in str(value or "").splitlines()]
-    kept: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if any(pattern.search(stripped) for pattern in AUTO_ERROR_NOTE_PATTERNS):
-            continue
-        kept.append(stripped)
-    return "\n".join(kept)
 
 
 def request_bytes(
@@ -149,12 +78,13 @@ def request_bytes(
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
     method: str | None = None,
+    timeout: float = 60,
 ) -> tuple[int, bytes, dict[str, str]]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
     req = urllib.request.Request(url, headers=merged_headers, data=data, method=method)
-    with urllib.request.urlopen(req, timeout=60) as response:
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         status = getattr(response, "status", 200)
         body = response.read()
         response_headers = {key.lower(): value for key, value in response.headers.items()}
@@ -267,6 +197,13 @@ def derive_authority_domain(nsid: str) -> str:
     return ".".join(reversed(authority))
 
 
+def derive_authority_domain_from_namespace(namespace: str) -> str:
+    parts = [part for part in normalize_nsid(namespace).split(".") if part]
+    if len(parts) < 2:
+        return ""
+    return ".".join(reversed(parts))
+
+
 def normalize_nsid(nsid: str) -> str:
     value = nsid.strip()
     if value.startswith("at://"):
@@ -324,6 +261,25 @@ def common_nsid_prefix(nsids: list[str]) -> str:
         else:
             break
     return ".".join(prefix)
+
+
+def namespace_from_collection_nsid(nsid: str) -> str:
+    normalized = normalize_nsid(nsid)
+    parts = [part for part in normalized.split(".") if part]
+    if len(parts) < 3:
+        return ""
+    return ".".join(parts[:-1])
+
+
+def registrable_namespace_from_namespace(namespace: str) -> str:
+    normalized = normalize_nsid(namespace)
+    if not normalized:
+        return ""
+    authority_domain = derive_authority_domain_from_namespace(normalized)
+    registrable = root_domain(authority_domain)
+    if not registrable or "." not in registrable:
+        return ""
+    return normalize_nsid(".".join(reversed(registrable.split("."))))
 
 
 def detect_seed_type(seed: str, explicit_type: str | None = None) -> str:
@@ -408,6 +364,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "promotion_events": [],
         "duplicate_candidates": [],
         "merge_recommendation": {},
+        "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
         "manual_seeds": [],
@@ -453,6 +410,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["llm_output"] = dict(defaults.get("llm_output") or {})
     defaults["duplicate_candidates"] = list(defaults.get("duplicate_candidates") or [])
     defaults["merge_recommendation"] = dict(defaults.get("merge_recommendation") or {})
+    defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["investigation_log"] = list(defaults.get("investigation_log") or [])
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
@@ -667,6 +625,141 @@ def find_project_key_by_identifier(conn: sqlite3.Connection, identifier_type: st
     matches.sort(key=lambda item: (item[0], item[1]))
     return matches[0][1]
 
+
+def load_known_icann_tlds() -> set[str]:
+    global _KNOWN_ICANN_TLDS
+    if _KNOWN_ICANN_TLDS is not None:
+        return _KNOWN_ICANN_TLDS
+
+    known: set[str] = set()
+    for path in PUBLIC_SUFFIX_DATA_CANDIDATES:
+        if not path.exists():
+            continue
+        try:
+            in_private = False
+            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("// ===BEGIN PRIVATE DOMAINS==="):
+                    in_private = line.startswith("// ===BEGIN PRIVATE DOMAINS===")
+                    continue
+                if line.startswith("//"):
+                    continue
+                if in_private:
+                    continue
+                rule = line.lstrip("!.")
+                label = rule.rsplit(".", 1)[-1].lower()
+                if re.fullmatch(r"[a-z]{2,24}", label):
+                    known.add(label)
+            if known:
+                break
+        except Exception:
+            continue
+
+    _KNOWN_ICANN_TLDS = known
+    return known
+
+
+def authority_domain_allowed_for_import(domain: str) -> bool:
+    lowered = str(domain or "").strip().lower().rstrip(".")
+    if not lowered or "." not in lowered:
+        return False
+    tld = lowered.rsplit(".", 1)[-1]
+    if tld in SPECIAL_USE_TLDS:
+        return False
+    if not re.fullmatch(r"[a-z]{2,24}", tld):
+        return False
+    known_tlds = load_known_icann_tlds()
+    if known_tlds and tld not in known_tlds:
+        return False
+    return True
+
+
+def find_project_key_by_collection_namespace(projects: list[dict[str, Any]], namespace: str) -> str | None:
+    normalized = normalize_nsid(namespace)
+    for project in projects:
+        candidates = unique_list(
+            ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
+            + list(project.get("input_nsids", []))
+            + list(project.get("resolved_nsids", []))
+            + list(project.get("recorded_lexicon_namespaces", []))
+        )
+        if normalized in [normalize_nsid(str(item)) for item in candidates if item]:
+            return str(project["project_key"])
+    return None
+
+
+def build_unique_lookup(pairs: list[tuple[str, str]]) -> dict[str, str]:
+    grouped: dict[str, set[str]] = {}
+    for key, value in pairs:
+        normalized_key = str(key or "").strip().lower()
+        normalized_value = str(value or "").strip()
+        if not normalized_key or not normalized_value:
+            continue
+        grouped.setdefault(normalized_key, set()).add(normalized_value)
+    return {key: next(iter(values)) for key, values in grouped.items() if len(values) == 1}
+
+
+def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    namespace_pairs: list[tuple[str, str]] = []
+    registrable_namespace_pairs: list[tuple[str, str]] = []
+    service_host_pairs: list[tuple[str, str]] = []
+    for project in projects:
+        project_key = str(project["project_key"])
+        namespace_candidates = unique_list(
+            ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
+            + list(project.get("input_nsids", []))
+            + list(project.get("resolved_nsids", []))
+            + list(project.get("recorded_lexicon_namespaces", []))
+        )
+        for namespace in namespace_candidates:
+            normalized = normalize_nsid(str(namespace or ""))
+            if not normalized:
+                continue
+            namespace_pairs.append((normalized, project_key))
+            registrable = registrable_namespace_from_namespace(normalized)
+            if registrable:
+                registrable_namespace_pairs.append((registrable, project_key))
+        service_urls = unique_list(
+            ([project.get("website_url")] if project.get("website_url") else [])
+            + list(project.get("service_urls", []))
+        )
+        for service_url in service_urls:
+            normalized_service = normalize_url(str(service_url or ""))
+            host = urllib.parse.urlparse(normalized_service).netloc.lower()
+            registrable_host = root_domain(host)
+            if registrable_host:
+                service_host_pairs.append((registrable_host, project_key))
+    return (
+        build_unique_lookup(namespace_pairs),
+        build_unique_lookup(registrable_namespace_pairs),
+        build_unique_lookup(service_host_pairs),
+    )
+
+
+def find_project_key_for_nsid_seed(projects: list[dict[str, Any]], nsid: str) -> tuple[str | None, str]:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return None, ""
+    namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(projects)
+    project_key = namespace_lookup.get(normalized)
+    if project_key:
+        return project_key, "exact_namespace"
+    project_key = find_project_key_by_collection_namespace(projects, normalized)
+    if project_key:
+        return project_key, "exact_namespace_scan"
+    registrable_namespace = registrable_namespace_from_namespace(normalized)
+    if registrable_namespace:
+        project_key = registrable_namespace_lookup.get(registrable_namespace)
+        if project_key:
+            return project_key, "registrable_namespace"
+    authority_domain = derive_authority_domain_from_namespace(normalized)
+    service_host_key = root_domain(authority_domain)
+    if service_host_key:
+        project_key = service_host_lookup.get(service_host_key)
+        if project_key:
+            return project_key, "service_host_family"
+    return None, ""
+
 def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bool = False) -> None:
     now = iso_now()
     project = ensure_project_shape(project)
@@ -789,6 +882,9 @@ def ensure_project_for_seed(
     identifier_value = normalized_value
     resolved_project_key = resolve_project_key_input(conn, project_key) if project_key else None
     target_project_key = resolved_project_key or find_project_key_by_identifier(conn, seed_type, identifier_value)
+    match_kind = ""
+    if target_project_key is None and seed_type == "nsid":
+        target_project_key, match_kind = find_project_key_for_nsid_seed(all_projects(conn), identifier_value)
     if target_project_key is None:
         target_project_key = allocate_new_project_key(conn)
     project = fetch_project(conn, target_project_key)
@@ -798,6 +894,11 @@ def ensure_project_for_seed(
     project["manual_seeds"].append({"type": seed_type, "value": identifier_value, "added_at": iso_now()})
     project["manual_seeds"] = [dict(item) for item in project["manual_seeds"]]
     apply_seed_to_project(project, seed_type, identifier_value)
+    if match_kind:
+        note = f"seed matched by {match_kind}: {identifier_value}"
+        existing_note = str(project.get("notes") or "").strip()
+        if note not in existing_note.splitlines():
+            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
     save_project(conn, project, enriched=False)
     conn.commit()
     return project
@@ -838,7 +939,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             host = urllib.parse.urlparse(normalized).netloc
             project["name"] = host
 
-def expected_project_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
+def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
     if project.get("primary_nsid"):
         identifiers.add(("nsid", normalize_nsid(project["primary_nsid"])))
@@ -877,9 +978,6 @@ def github_headers() -> dict[str, str]:
 
 def preprocess_project_json_rows(
     conn: sqlite3.Connection,
-    *,
-    salvage_json: bool,
-    clean_notes: bool,
 ) -> dict[str, Any]:
     rows = conn.execute(
         """
@@ -888,38 +986,17 @@ def preprocess_project_json_rows(
         ORDER BY project_key ASC
         """
     ).fetchall()
-    salvaged_rows: list[str] = []
-    cleaned_note_rows: list[str] = []
-    unsalvageable_rows: list[dict[str, str]] = []
     updated = 0
 
     for row in rows:
         project_key = str(row["project_key"])
         raw_text = str(row["data_json"] or "")
-        parsed_text = raw_text
         try:
-            data = json.loads(parsed_text)
+            data = json.loads(raw_text)
         except json.JSONDecodeError as exc:
-            if not salvage_json:
-                unsalvageable_rows.append({"project_key": project_key, "error": str(exc)})
-                continue
-            salvaged = salvage_json_text(parsed_text)
-            if salvaged is None:
-                unsalvageable_rows.append({"project_key": project_key, "error": str(exc)})
-                continue
-            parsed_text = salvaged
-            data = json.loads(parsed_text)
-            if parsed_text != raw_text:
-                salvaged_rows.append(project_key)
+            raise ValueError(f"invalid project JSON in {project_key}: {exc}") from exc
 
-        changed = parsed_text != raw_text
-        if clean_notes and isinstance(data, dict):
-            original_notes = str(data.get("notes") or "")
-            cleaned_notes = clean_notes_text(original_notes)
-            if cleaned_notes != original_notes:
-                data["notes"] = cleaned_notes
-                cleaned_note_rows.append(project_key)
-                changed = True
+        changed = False
         if isinstance(data, dict):
             for field in PROJECT_SCALAR_FIELDS:
                 if field in data:
@@ -938,12 +1015,6 @@ def preprocess_project_json_rows(
 
     return {
         "updated_rows": updated,
-        "salvaged_json_count": len(salvaged_rows),
-        "salvaged_json_rows": salvaged_rows[:100],
-        "cleaned_notes_count": len(cleaned_note_rows),
-        "cleaned_notes_rows": cleaned_note_rows[:100],
-        "unsalvageable_count": len(unsalvageable_rows),
-        "unsalvageable_rows": unsalvageable_rows[:100],
     }
 
 
@@ -970,7 +1041,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
         project_map[normalized["project_key"]] = normalized
 
     expected_by_project: dict[str, set[tuple[str, str]]] = {
-        project_key: expected_project_identifiers(project)
+        project_key: project_lookup_identifiers(project)
         for project_key, project in project_map.items()
     }
 
@@ -1010,9 +1081,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
                 }
             )
 
-    conn.execute("DROP TABLE IF EXISTS project_identifiers")
-    conn.commit()
-
     return {
         "project_count": len(rows),
         "normalized_project_count": normalized_projects,
@@ -1026,7 +1094,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             "deleted_orphans": 0,
             "deleted_stale": 0,
             "inserted_missing": 0,
-            "dropped_project_identifiers_table": True,
         },
         "orphan_rows": [],
         "stale_rows": [],
@@ -1171,6 +1238,24 @@ KNOWN_MULTI_TENANT_SUFFIXES = {
     "workers.dev",
     "github.io",
 }
+SPECIAL_USE_TLDS = {
+    "test",
+    "example",
+    "invalid",
+    "localhost",
+    "local",
+    "internal",
+    "alt",
+    "onion",
+    "home",
+    "corp",
+    "lan",
+}
+PUBLIC_SUFFIX_DATA_CANDIDATES = [
+    Path("/opt/homebrew/lib/ruby/gems/3.2.0/gems/domain_name-0.6.20231109/data/public_suffix_list.dat"),
+    Path("/opt/homebrew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/public_suffix-7.0.5/data/list.txt"),
+]
+_KNOWN_ICANN_TLDS: set[str] | None = None
 
 
 def sanitize_extracted_url(raw_url: str) -> str:
@@ -2149,61 +2234,6 @@ def import_seed_from_url(url: str, *, accept_service_root_paths: bool) -> tuple[
     return ("service_url", f"{parsed.scheme}://{parsed.netloc}")
 
 
-def extract_markdown_links(text: str) -> list[dict[str, str]]:
-    output: list[dict[str, str]] = []
-    for match in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", text):
-        label = clean_imported_name(unescape(match.group(1)))
-        url = normalize_url(unescape(match.group(2)))
-        if not url:
-            continue
-        output.append({"label": label, "url": url})
-    return output
-
-
-def markdown_link_labels(text: str) -> list[str]:
-    return [item["label"] for item in extract_markdown_links(text) if item["label"]]
-
-
-def markdown_link_urls(text: str, *, accept_service_root_paths: bool) -> list[tuple[str, str]]:
-    output: list[tuple[str, str]] = []
-    for item in extract_markdown_links(text):
-        seed = import_seed_from_url(item["url"], accept_service_root_paths=accept_service_root_paths)
-        if seed is None:
-            continue
-        output.append(seed)
-    return output
-
-
-def repo_seed_from_any_repo_url(url: str) -> tuple[str, str] | None:
-    normalized = normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return None
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if parsed.netloc == "github.com" and len(segments) >= 2:
-        repo_url = normalize_github_repo_url(f"{parsed.scheme}://{parsed.netloc}/{segments[0]}/{segments[1]}")
-        return ("repo_url", repo_url) if repo_url else None
-    if parsed.netloc == "tangled.org" and len(segments) >= 2:
-        repo_url = normalize_tangled_repo_url(f"{parsed.scheme}://{parsed.netloc}/{segments[0]}/{segments[1]}")
-        return ("repo_url", repo_url) if repo_url else None
-    return None
-
-
-def markdown_table_rows(text: str) -> list[list[str]]:
-    rows: list[list[str]] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|") or not stripped.endswith("|"):
-            continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if not cells:
-            continue
-        if all(re.fullmatch(r"[-:]+", cell.replace(" ", "")) for cell in cells):
-            continue
-        rows.append(cells)
-    return rows
-
-
 def clean_imported_name(label: str) -> str:
     text = str(label or "").strip()
     text = text.strip("* ")
@@ -2283,14 +2313,180 @@ def resolve_import_project_key(
     return None
 
 
-def preferred_seed_for_import(identifiers: list[tuple[str, str]]) -> tuple[str, str]:
-    for preferred_type in ("service_url", "repo_url", "nsid"):
-        for identifier_type, identifier_value in identifiers:
-            if identifier_type == preferred_type:
-                return identifier_type, identifier_value
-    if not identifiers:
-        raise ValueError("at least one identifier is required")
-    return identifiers[0]
+def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any], *, source: str) -> None:
+    nsid = normalize_nsid(str(item.get("collection") or ""))
+    if not nsid:
+        return
+    observation = {
+        "collection": nsid,
+        "count": int(item.get("count") or 0),
+        "recent_count": int(item.get("recent_count") or 0),
+        "min": str(item.get("min") or ""),
+        "max": str(item.get("max") or ""),
+        "members": [normalize_nsid(str(member)) for member in item.get("members", []) if normalize_nsid(str(member))],
+        "source": source,
+        "observed_at": iso_now(),
+    }
+    existing = [dict(entry) for entry in project.get("collection_observations", []) if isinstance(entry, dict)]
+    replaced = False
+    for index, entry in enumerate(existing):
+        if normalize_nsid(str(entry.get("collection") or "")) == nsid:
+            existing[index] = observation
+            replaced = True
+            break
+    if not replaced:
+        existing.append(observation)
+    project["collection_observations"] = existing
+
+
+def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text())
+    if not isinstance(payload, list):
+        raise ValueError("collection inventory must be a JSON array")
+
+    existing_projects = list_projects(conn)
+    existing_keys = {str(project["project_key"]) for project in existing_projects}
+    namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(existing_projects)
+
+    aggregated: dict[str, dict[str, Any]] = {}
+    rejected_entries: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        collection_nsid = normalize_nsid(str(item.get("collection") or ""))
+        namespace = namespace_from_collection_nsid(collection_nsid)
+        if not namespace:
+            rejected_entries.append({"collection": collection_nsid, "reason": "namespace_too_short"})
+            continue
+        registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
+        authority_domain = derive_authority_domain_from_namespace(registrable_namespace)
+        if not authority_domain_allowed_for_import(authority_domain):
+            rejected_entries.append({"collection": collection_nsid, "namespace": registrable_namespace, "reason": f"rejected_authority_domain:{authority_domain}"})
+            continue
+        bucket = aggregated.setdefault(
+            registrable_namespace,
+            {
+                "collection": registrable_namespace,
+                "count": 0,
+                "recent_count": 0,
+                "min": str(item.get("min") or ""),
+                "max": str(item.get("max") or ""),
+                "members": [],
+            },
+        )
+        bucket["count"] += int(item.get("count") or 0)
+        bucket["recent_count"] += int(item.get("recent_count") or 0)
+        item_min = str(item.get("min") or "")
+        item_max = str(item.get("max") or "")
+        if item_min and (not bucket["min"] or item_min < bucket["min"]):
+            bucket["min"] = item_min
+        if item_max and (not bucket["max"] or item_max > bucket["max"]):
+            bucket["max"] = item_max
+        bucket["members"] = add_unique(bucket.get("members", []), collection_nsid)
+
+    created = 0
+    updated = 0
+    unmatched = 0
+    imported_project_keys: list[str] = []
+    unmatched_entries: list[dict[str, Any]] = []
+    merge_candidates: list[dict[str, Any]] = []
+
+    for namespace, item in aggregated.items():
+        authority_domain = derive_authority_domain_from_namespace(namespace)
+        registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
+        service_host_key = root_domain(authority_domain)
+        match_kind = ""
+        project_key = namespace_lookup.get(namespace)
+        if project_key:
+            match_kind = "exact_namespace"
+        if not project_key:
+            project_key = find_project_key_by_collection_namespace(existing_projects, namespace)
+        if project_key:
+            match_kind = "exact_namespace_scan"
+        if not project_key and registrable_namespace:
+            project_key = registrable_namespace_lookup.get(registrable_namespace)
+            if project_key:
+                match_kind = "registrable_namespace"
+        if not project_key and service_host_key:
+            project_key = service_host_lookup.get(service_host_key)
+            if project_key:
+                match_kind = "service_host_family"
+        is_new = project_key is None
+        if is_new and not create_unmatched:
+            unmatched += 1
+            unmatched_entries.append(
+                {
+                    "seed_type": "nsid",
+                    "seed_value": namespace,
+                    "representative_nsid": item.get("members", [namespace])[0] if item.get("members") else namespace,
+                    "count": int(item.get("count") or 0),
+                    "recent_count": int(item.get("recent_count") or 0),
+                    "registrable_namespace": registrable_namespace,
+                    "service_host_family": service_host_key,
+                }
+            )
+            continue
+        if project_key is None:
+            project_key = generate_project_key(existing_keys)
+            existing_keys.add(project_key)
+        representative_nsid = item.get("members", [namespace])[0] if item.get("members") else namespace
+        project = fetch_project(conn, project_key) or default_project_record(project_key, "nsid", representative_nsid)
+        add_manual_seed(project, "nsid", representative_nsid, source="collection_inventory_import")
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "collection_inventory_import")
+        upsert_collection_observation(project, item, source="collection_inventory_import")
+        if match_kind:
+            note = f"collection import matched by {match_kind}: {namespace}"
+            existing_note = str(project.get("notes") or "").strip()
+            if note not in existing_note.splitlines():
+                project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
+        project = finalize_project_shape(project)
+        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+        project["merge_recommendation"] = compute_merge_recommendation(project)
+        imported_project_keys.append(project["project_key"])
+        if project.get("merge_recommendation"):
+            merge_candidates.append(
+                {
+                    "project_key": project["project_key"],
+                    "name": project.get("name", ""),
+                    "merge_recommendation": project.get("merge_recommendation", {}),
+                }
+            )
+        if execute:
+            save_project(conn, project, enriched=False)
+            namespace_lookup[namespace] = project["project_key"]
+            if registrable_namespace:
+                registrable_namespace_lookup[registrable_namespace] = project["project_key"]
+            if service_host_key:
+                service_host_lookup[service_host_key] = project["project_key"]
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    if execute:
+        conn.commit()
+
+    merge_candidates.sort(
+        key=lambda item: (
+            -int(item.get("merge_recommendation", {}).get("score", 0) or 0),
+            item.get("project_key", ""),
+        )
+    )
+    return {
+        "source": "collection_inventory",
+        "entries": len(payload),
+        "namespaces": len(aggregated),
+        "created": created,
+        "updated": updated,
+        "unmatched": unmatched,
+        "rejected": len(rejected_entries),
+        "mode": "execute" if execute else "dry_run",
+        "create_unmatched": create_unmatched,
+        "imported_project_keys": imported_project_keys,
+        "merge_candidates": merge_candidates[:50],
+        "unmatched_entries": unmatched_entries[:100],
+        "rejected_entries": rejected_entries[:100],
+    }
 
 
 def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
@@ -2392,235 +2588,6 @@ def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool,
         "objects": len(objects),
         "posts": len(posts),
         "entries": len(entries_by_seed),
-        "created": created,
-        "updated": updated,
-        "unmatched": unmatched,
-        "mode": "execute" if execute else "dry_run",
-        "create_unmatched": create_unmatched,
-        "imported_project_keys": imported_project_keys,
-        "merge_candidates": merge_candidates[:50],
-        "unmatched_entries": unmatched_entries[:100],
-    }
-
-
-def import_whtwnd_list_entries(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text())
-    content = str(payload.get("content") or "")
-    links = extract_markdown_links(content)
-    entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
-    for item in links:
-        seed = import_seed_from_url(item["url"], accept_service_root_paths=True)
-        if seed is None:
-            continue
-        key = (seed[0], seed[1])
-        bucket = entries_by_seed.setdefault(
-            key,
-            {
-                "seed_type": seed[0],
-                "seed_value": seed[1],
-                "labels": [],
-                "evidence_urls": [],
-            },
-        )
-        if item["label"] and item["label"] not in bucket["labels"]:
-            bucket["labels"].append(item["label"])
-        if item["url"] not in bucket["evidence_urls"]:
-            bucket["evidence_urls"].append(item["url"])
-
-    created = 0
-    updated = 0
-    unmatched = 0
-    imported_project_keys: list[str] = []
-    unmatched_entries: list[dict[str, Any]] = []
-    merge_candidates: list[dict[str, Any]] = []
-
-    for item in entries_by_seed.values():
-        exact_identifiers = [(str(item["seed_type"]), str(item["seed_value"]))]
-        project_key = resolve_import_project_key(conn, exact_identifiers=exact_identifiers, names=list(item["labels"]))
-        is_new = project_key is None
-        if is_new and not create_unmatched:
-            unmatched += 1
-            unmatched_entries.append(
-                {
-                    "seed_type": item["seed_type"],
-                    "seed_value": item["seed_value"],
-                    "label": item["labels"][0] if item["labels"] else "",
-                }
-            )
-            continue
-        if project_key is None:
-            seed_type, seed_value = preferred_seed_for_import(exact_identifiers)
-            project_key = allocate_new_project_key(conn)
-        project = fetch_project(conn, project_key) or default_project_record(project_key, exact_identifiers[0][0], exact_identifiers[0][1])
-        for seed_type, seed_value in exact_identifiers:
-            add_manual_seed(project, seed_type, seed_value, source="list_import")
-        project["introduced"] = True
-        project["evidence_urls"] = unique_list(list(project.get("evidence_urls", [])) + list(item["evidence_urls"]))
-        if item["labels"] and should_replace_project_name(project, item["labels"][0]):
-            project["name"] = item["labels"][0]
-        project = finalize_project_shape(project)
-        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-        project["merge_recommendation"] = compute_merge_recommendation(project)
-        imported_project_keys.append(project["project_key"])
-        if project.get("merge_recommendation"):
-            merge_candidates.append(
-                {
-                    "project_key": project["project_key"],
-                    "name": project.get("name", ""),
-                    "merge_recommendation": project.get("merge_recommendation", {}),
-                }
-            )
-        if execute:
-            save_project(conn, project, enriched=False)
-        if is_new:
-            created += 1
-        else:
-            updated += 1
-
-    if execute:
-        conn.commit()
-
-    merge_candidates.sort(
-        key=lambda item: (
-            -int(item.get("merge_recommendation", {}).get("score", 0) or 0),
-            item.get("project_key", ""),
-        )
-    )
-    return {
-        "source": "whtwnd_list",
-        "title": str(payload.get("title") or ""),
-        "links": len(links),
-        "entries": len(entries_by_seed),
-        "created": created,
-        "updated": updated,
-        "unmatched": unmatched,
-        "mode": "execute" if execute else "dry_run",
-        "create_unmatched": create_unmatched,
-        "imported_project_keys": imported_project_keys,
-        "merge_candidates": merge_candidates[:50],
-        "unmatched_entries": unmatched_entries[:100],
-    }
-
-
-def import_services_table_entries(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text())
-    content = str(payload.get("content") or "")
-    rows = markdown_table_rows(content)
-    data_rows = [row for row in rows if len(row) >= 4 and "サービス名" not in row[0]]
-
-    created = 0
-    updated = 0
-    unmatched = 0
-    imported_project_keys: list[str] = []
-    unmatched_entries: list[dict[str, Any]] = []
-    merge_candidates: list[dict[str, Any]] = []
-
-    for row in data_rows:
-        name_cell, account_cell, nsid_cell, service_cell = row[:4]
-        name_links = extract_markdown_links(name_cell)
-        account_links = extract_markdown_links(account_cell)
-        nsid_links = extract_markdown_links(nsid_cell)
-        service_links = extract_markdown_links(service_cell)
-
-        display_name = ""
-        if name_links:
-            display_name = clean_imported_name(name_links[0]["label"])
-        if not display_name:
-            display_name = clean_imported_name(re.sub(r"\[[^\]]+\]\(([^)]+)\)", "", name_cell))
-
-        nsid_text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", nsid_cell)
-        nsids = unique_list([normalize_nsid(item) for item in re.findall(r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?:\.[a-z0-9]+(?:[.-][a-z0-9]+)*)+", nsid_text)])
-
-        exact_identifiers: list[tuple[str, str]] = []
-        evidence_urls: list[str] = []
-        for link in name_links + service_links:
-            evidence_urls.append(link["url"])
-            seed = import_seed_from_url(link["url"], accept_service_root_paths=True)
-            if seed is not None:
-                exact_identifiers.append(seed)
-            repo_seed = repo_seed_from_any_repo_url(link["url"])
-            if repo_seed is not None:
-                exact_identifiers.append(repo_seed)
-        for link in nsid_links:
-            evidence_urls.append(link["url"])
-            repo_seed = repo_seed_from_any_repo_url(link["url"])
-            if repo_seed is not None:
-                exact_identifiers.append(repo_seed)
-        for link in account_links:
-            evidence_urls.append(link["url"])
-        for nsid in nsids:
-            exact_identifiers.append(("nsid", nsid))
-        exact_identifiers = list(dict.fromkeys(exact_identifiers))
-
-        project_key = resolve_import_project_key(
-            conn,
-            exact_identifiers=exact_identifiers,
-            names=[display_name] + [item["label"] for item in name_links if item["label"]],
-        )
-        is_new = project_key is None
-        if is_new and not create_unmatched:
-            unmatched += 1
-            unmatched_entries.append(
-                {
-                    "name": display_name,
-                    "identifiers": exact_identifiers,
-                }
-            )
-            continue
-        if project_key is None:
-            seed_type, seed_value = preferred_seed_for_import(exact_identifiers or [("service_url", f"https://{slugify(display_name)}")])
-            project_key = allocate_new_project_key(conn)
-        if exact_identifiers:
-            seed_type, seed_value = exact_identifiers[0]
-        else:
-            seed_type, seed_value = "service_url", f"https://{slugify(display_name)}"
-        project = fetch_project(conn, project_key) or default_project_record(project_key, seed_type, seed_value)
-        for identifier_type, identifier_value in exact_identifiers:
-            add_manual_seed(project, identifier_type, identifier_value, source="services_import")
-        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "services_import")
-        project["evidence_urls"] = unique_list(list(project.get("evidence_urls", [])) + evidence_urls)
-        if display_name and should_replace_project_name(project, display_name):
-            project["name"] = display_name
-
-        for link in account_links:
-            label = clean_imported_name(link["label"])
-            if label.startswith("@") and "." in label:
-                handle = label.lstrip("@")
-                project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-                project["developer_accounts"] = unique_list(list(project.get("developer_accounts", [])) + [handle])
-
-        project = finalize_project_shape(project)
-        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-        project["merge_recommendation"] = compute_merge_recommendation(project)
-        imported_project_keys.append(project["project_key"])
-        if project.get("merge_recommendation"):
-            merge_candidates.append(
-                {
-                    "project_key": project["project_key"],
-                    "name": project.get("name", ""),
-                    "merge_recommendation": project.get("merge_recommendation", {}),
-                }
-            )
-        if execute:
-            save_project(conn, project, enriched=False)
-        if is_new:
-            created += 1
-        else:
-            updated += 1
-
-    if execute:
-        conn.commit()
-
-    merge_candidates.sort(
-        key=lambda item: (
-            -int(item.get("merge_recommendation", {}).get("score", 0) or 0),
-            item.get("project_key", ""),
-        )
-    )
-    return {
-        "source": "services_table",
-        "title": str(payload.get("title") or ""),
-        "rows": len(data_rows),
         "created": created,
         "updated": updated,
         "unmatched": unmatched,
@@ -3292,7 +3259,13 @@ def parse_openai_compatible_response(payload: dict[str, Any]) -> str:
     raise ValueError("endpoint response did not contain message content")
 
 
-def request_json_post_raw(url: str, payload: Any, headers: dict[str, str] | None = None) -> tuple[Any, str]:
+def request_json_post_raw(
+    url: str,
+    payload: Any,
+    headers: dict[str, str] | None = None,
+    *,
+    timeout: float = 60,
+) -> tuple[Any, str]:
     merged_headers = {"Content-Type": "application/json"}
     if headers:
         merged_headers.update(headers)
@@ -3301,6 +3274,7 @@ def request_json_post_raw(url: str, payload: Any, headers: dict[str, str] | None
         headers=merged_headers,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
+        timeout=timeout,
     )
     text = body.decode("utf-8", errors="replace")
     return json.loads(text), text
@@ -3321,6 +3295,7 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "180").strip() or "180")
     endpoint_urls = llm_endpoint_candidates(endpoint)
     chat_payloads = [
         {
@@ -3347,7 +3322,7 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
         payloads = chat_payloads if is_chat else [completion_payload]
         for payload in payloads:
             try:
-                response_payload, _ = request_json_post_raw(url, payload, headers=headers)
+                response_payload, _ = request_json_post_raw(url, payload, headers=headers, timeout=llm_timeout)
                 raw_content = parse_openai_compatible_response(response_payload) if is_chat else parse_completion_text(response_payload)
                 content = strip_json_fence(raw_content)
                 parsed = json.loads(content)
@@ -4496,31 +4471,16 @@ def cmd_import_applog(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_import_list(args: argparse.Namespace) -> int:
+def cmd_import_collections(args: argparse.Namespace) -> int:
     conn = open_db()
-    summary = import_whtwnd_list_entries(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
-    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
-def cmd_import_services(args: argparse.Namespace) -> int:
-    conn = open_db()
-    summary = import_services_table_entries(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
+    summary = import_collection_inventory(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
 
 
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
-    preprocessed = preprocess_project_json_rows(
-        conn,
-        salvage_json=bool(getattr(args, "salvage_json", False)),
-        clean_notes=bool(getattr(args, "clean_notes", False)),
-    )
-    if preprocessed["unsalvageable_count"]:
-        raise ValueError(
-            "unsalvageable project JSON remains; rerun with --salvage-json or fix rows manually"
-        )
+    preprocessed = preprocess_project_json_rows(conn)
     summary = audit_and_repair_identifiers(conn)
     summary["preprocess"] = preprocessed
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
@@ -4712,21 +4672,13 @@ def build_parser() -> argparse.ArgumentParser:
     applog_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported seeds.")
     applog_parser.set_defaults(func=cmd_import_applog)
 
-    list_parser = subparsers.add_parser("import-list", help="Import a WhiteWind link summary article.")
-    list_parser.add_argument("path", help="Path to the WhiteWind JSON export.")
-    list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    list_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported seeds.")
-    list_parser.set_defaults(func=cmd_import_list)
-
-    services_parser = subparsers.add_parser("import-services", help="Import a structured services memo table.")
-    services_parser.add_argument("path", help="Path to the services JSON export.")
-    services_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    services_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported rows.")
-    services_parser.set_defaults(func=cmd_import_services)
+    collections_parser = subparsers.add_parser("import-collections", help="Import a known collection inventory JSON dump.")
+    collections_parser.add_argument("path", help="Path to the collection inventory JSON export.")
+    collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    collections_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported collections.")
+    collections_parser.set_defaults(func=cmd_import_collections)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
-    repair_parser.add_argument("--salvage-json", action="store_true", help="Try to salvage lightly broken JSON rows, such as trailing commas, before auditing.")
-    repair_parser.add_argument("--clean-notes", action="store_true", help="Remove old auto-generated error lines from notes before auditing.")
     repair_parser.set_defaults(func=cmd_repair_db)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
