@@ -42,9 +42,16 @@
 - `import-collections`
   - collection を project 粒度の registrable namespace で集約する
   - ただし lexicon 解決のため、代表の full NSID を seed として保持する
+- `sync-introduced`
+  - `from:yamarten.bsky.social #ATプロトーク` の Bluesky 検索を既定で使う
+  - seed は増やさず、既存 project の `introduced` 判定だけ更新する
+- `sync-github-search`
+  - `config/sources.json` の `github_repo_search` を使う
+  - 既知 repo を除いた、最近更新された未知 repo seed を追加する
 - `enrich`
   - 既定では `tracking_state=active|watchlist` のみ
-  - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `180`
+  - `stable` と `stalled` は明示 include が必要
+  - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `300`
 - `repair-db`
   - scalar 重複除去
   - 派生フィールド再計算
@@ -58,6 +65,12 @@
   - こういうものは新規 record に落として後で `merge`
 - `merge-batch` は保守的
   - 危ない候補は通さない前提
+- `set-separate`
+  - 手動で「この 2 件は別物」を相互に記録する
+  - `duplicate_candidates` と `merge_recommendation` からその pair を除外する
+- `block-identifier`
+  - 手動で「この project にこの `service_url` / `repo_url` / `nsid` は付けない」を記録する
+  - `finalize` / `enrich` 後も同じ identifier が戻らないようにする
 - `duplicate_candidates` と `merge_recommendation` は派生データ
   - 必要なら再計算できる
 

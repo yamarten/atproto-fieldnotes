@@ -8,7 +8,7 @@
 
 - scalar columns
   - 安定した正本
-  - `project_key`, `status`, `category`, `name`, `primary_nsid`, `website_url`, `service_status`, `first_seen_at`, `last_seen_at`, `last_enriched_at`
+  - `project_key`, `status`, `category`, `name`, `primary_nsid`, `website_url`, `service_status`, `tracking_state`, `first_seen_at`, `last_seen_at`, `last_enriched_at`
 - `data_json`
   - それ以外の構造化・派生情報
 
@@ -44,7 +44,9 @@
 6. local LLM による summary / category / status 補完
 7. 昇格判定
 
-`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。
+lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
+
+`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
 
 ## 昇格ゲート
 
@@ -116,7 +118,7 @@ LLM は discovery の主役ではなく、整理の補助です。
 
 を生成します。説明系フィールドは日本語で出させます。`tagline` は助詞を含まない短い名詞句を想定し、最大30文字です。
 
-endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `180` 秒です。
+endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
 
 ## merge
 

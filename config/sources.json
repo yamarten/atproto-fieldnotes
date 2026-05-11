@@ -1,4 +1,16 @@
 {
+  "custom_multi_tenant_suffixes": [
+    "lexicon.community",
+    "avaast.app",
+    "tomo-x.win",
+    "smokesignal.tools",
+    "microcosm.blue",
+    "atmo.tools",
+    "henry.ink",
+    "tokimeki.tech",
+    "whey.party",
+    "suibari.com"
+  ],
   "collection_inventory": {
     "url": "https://collectiondata.usounds.work/collection_count_view",
     "builtin_prefixes": [
@@ -20,9 +32,9 @@
   "github_repo_search": {
     "enabled": true,
     "queries": [
-      "atproto OR \"AT protocol\" OR atprotocol"
+      "atproto OR \"AT protocol\" OR atprotocol fork:false archived:false"
     ],
-    "pages": 2,
+    "pages": 1,
     "per_page": 50
   },
   "tangled_repo_discovery": {

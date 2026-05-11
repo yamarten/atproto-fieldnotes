@@ -21,13 +21,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from publicsuffix2 import get_sld as publicsuffix_get_sld  # type: ignore
+    import tldextract  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
-    publicsuffix_get_sld = None
+    tldextract = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "survey.db"
+CONFIG_PATH = ROOT / "config" / "sources.json"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
     "User-Agent": "atproto-survey-bot/0.3",
@@ -37,15 +38,65 @@ DNS_RESOLVER_URL = "https://dns.google/resolve"
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
+BSKY_APP_API = "https://api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
+BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
+BSKY_SYNC_API = "https://bsky.network"
+UFOS_API = "https://ufos-api.microcosm.blue"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
-TRACKING_STATES = {"active", "watchlist", "stable", "archived", "ignore"}
+_GITHUB_REPO_SEARCH_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
+_CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
+_TLD_EXTRACTORS: dict[str, Any] = {}
+_COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
+TRACKING_STATES = {"active", "watchlist", "stable", "stalled", "archived", "ignore"}
 PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
+PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
 NSID_PATTERN = r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?:\.[a-z0-9]+(?:[.-][a-z0-9]+)*)+"
+LOOSE_NSID_PATTERN = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:\.[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)+"
 
 
 def iso_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def load_config() -> dict[str, Any]:
+    return json.loads(CONFIG_PATH.read_text())
+
+
+def builtin_lexicon_prefixes() -> tuple[str, ...]:
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    raw = (((config.get("collection_inventory") or {}) if isinstance(config, dict) else {}).get("builtin_prefixes") or [])
+    prefixes = [str(item or "").strip() for item in raw if str(item or "").strip()]
+    if not prefixes:
+        prefixes = ["app.bsky.", "chat.bsky.", "com.atproto."]
+    return tuple(prefixes)
+
+
+def configured_multi_tenant_suffixes() -> set[str]:
+    global _CONFIGURED_MULTI_TENANT_SUFFIXES
+    if _CONFIGURED_MULTI_TENANT_SUFFIXES is not None:
+        return _CONFIGURED_MULTI_TENANT_SUFFIXES
+    configured: set[str] = set()
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    values = config.get("custom_multi_tenant_suffixes", [])
+    if isinstance(values, list):
+        for item in values:
+            suffix = str(item or "").strip().lower().rstrip(".")
+            if suffix and "." in suffix:
+                configured.add(suffix)
+    _CONFIGURED_MULTI_TENANT_SUFFIXES = configured
+    return configured
+
+
+def reset_domain_extractors() -> None:
+    global _TLD_EXTRACTORS
+    _TLD_EXTRACTORS = {}
 
 
 def load_json(value: str) -> Any:
@@ -64,6 +115,7 @@ PROJECT_SCALAR_FIELDS = (
     "primary_nsid",
     "website_url",
     "service_status",
+    "tracking_state",
     "first_seen_at",
     "last_seen_at",
     "last_enriched_at",
@@ -109,21 +161,30 @@ def request_json_post(url: str, payload: Any, headers: dict[str, str] | None = N
     return json.loads(body.decode("utf-8"))
 
 
-def request_json_authenticated(url: str, token: str) -> Any:
-    return request_json(url, headers={"Authorization": f"Bearer {token}"})
+def request_json_authenticated(url: str, token: str, headers: dict[str, str] | None = None) -> Any:
+    merged_headers = {"Authorization": f"Bearer {token}"}
+    if headers:
+        merged_headers.update(headers)
+    return request_json(url, headers=merged_headers)
 
 
 def parse_iso(value: str | None) -> dt.datetime | None:
     if not value:
         return None
     try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed
     except ValueError:
         return None
 
 
 def normalize_url(url: str) -> str:
-    parsed = urllib.parse.urlparse(url)
+    try:
+        parsed = urllib.parse.urlparse(str(url or "").strip())
+    except ValueError:
+        return ""
     scheme = (parsed.scheme or "https").lower()
     host = parsed.netloc.lower()
     path = parsed.path.rstrip("/")
@@ -180,13 +241,53 @@ def unique_manual_seeds(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for value in values:
         seed_type = str(value.get("type") or "")
-        seed_value = str(value.get("value") or "")
+        raw_seed_value = str(value.get("value") or "")
+        seed_value = raw_seed_value
+        if seed_type == "service_url":
+            extracted_nsid = extract_collection_nsid(raw_seed_value)
+            if extracted_nsid:
+                seed_type = "nsid"
+                seed_value = extracted_nsid
+            else:
+                seed_value = canonical_seed_value(seed_type, raw_seed_value)
+        elif seed_type in {"repo_url", "nsid"}:
+            seed_value = canonical_seed_value(seed_type, raw_seed_value)
         key = (seed_type, seed_value)
         if not seed_type or not seed_value or key in seen:
             continue
         seen.add(key)
-        output.append(value)
+        normalized_entry = dict(value)
+        normalized_entry["type"] = seed_type
+        normalized_entry["value"] = seed_value
+        output.append(normalized_entry)
     return output
+
+
+def set_project_seed_identity(project: dict[str, Any], seed_type: str, seed_value: str) -> None:
+    project["seed_type"] = seed_type
+    project["seed_value"] = canonical_seed_value(seed_type, seed_value)
+
+
+def refresh_project_seed_identity(project: dict[str, Any]) -> None:
+    manual_seeds = [item for item in project.get("manual_seeds", []) if isinstance(item, dict)]
+    for preferred_type in ("nsid", "repo_url", "service_url"):
+        for item in manual_seeds:
+            if str(item.get("type") or "") == preferred_type and str(item.get("value") or "").strip():
+                set_project_seed_identity(project, preferred_type, str(item.get("value") or ""))
+                return
+    if project.get("primary_nsid"):
+        set_project_seed_identity(project, "nsid", str(project.get("primary_nsid") or ""))
+        return
+    repo_url = next(iter(project.get("source_code_urls", []) or project.get("github_repo_urls", []) or project.get("tangled_repo_urls", [])), "")
+    if repo_url:
+        set_project_seed_identity(project, "repo_url", str(repo_url))
+        return
+    website_url = str(project.get("website_url") or "")
+    if website_url:
+        set_project_seed_identity(project, "service_url", website_url)
+        return
+    project["seed_type"] = "unknown"
+    project["seed_value"] = ""
 
 
 def derive_authority_domain(nsid: str) -> str:
@@ -204,6 +305,17 @@ def derive_authority_domain_from_namespace(namespace: str) -> str:
     return ".".join(reversed(parts))
 
 
+def candidate_service_origins_for_authority_domain(authority_domain: str) -> list[str]:
+    lowered = str(authority_domain or "").strip().lower().rstrip(".")
+    if not lowered:
+        return []
+    candidates = [f"https://{lowered}"]
+    registrable = root_domain(lowered)
+    if registrable and "." in registrable and registrable != lowered:
+        candidates.append(f"https://{registrable}")
+    return unique_list(candidates)
+
+
 def normalize_nsid(nsid: str) -> str:
     value = nsid.strip()
     if value.startswith("at://"):
@@ -213,38 +325,70 @@ def normalize_nsid(nsid: str) -> str:
     return value
 
 
+def normalize_extracted_nsid(nsid: str) -> str:
+    return normalize_nsid(nsid).lower()
+
+
+def extract_loose_collection_nsid(value: str) -> str:
+    cleaned = normalize_nsid(value)
+    if re.fullmatch(LOOSE_NSID_PATTERN, cleaned):
+        return normalize_extracted_nsid(cleaned)
+    return ""
+
+
 def extract_collection_nsid(value: str) -> str:
     raw = urllib.parse.unquote(str(value or "").strip())
     if not raw:
         return ""
     if raw.startswith("at://"):
         segments = [segment for segment in raw.removeprefix("at://").split("/") if segment]
-        if len(segments) >= 2 and re.fullmatch(NSID_PATTERN, segments[1]):
-            return normalize_nsid(segments[1])
+        if len(segments) >= 2:
+            extracted = extract_loose_collection_nsid(segments[1])
+            if extracted:
+                return extracted
         return ""
     parsed = urllib.parse.urlparse(raw)
-    if parsed.scheme in {"http", "https"} and parsed.netloc.lower() in PDSLS_HOSTS:
+    if parsed.scheme in {"http", "https"} and parsed.netloc.lower() in PDSLS_VIEWER_HOSTS:
         path = urllib.parse.unquote(parsed.path.lstrip("/"))
         if path.startswith("at://"):
             return extract_collection_nsid(path)
-    if re.fullmatch(NSID_PATTERN, raw):
-        return normalize_nsid(raw)
+        segments = [segment for segment in path.split("/") if segment]
+        if len(segments) >= 3 and segments[0] == "at" and segments[1].startswith("did:"):
+            extracted = extract_loose_collection_nsid(segments[2])
+            if extracted:
+                return extracted
+    if parsed.scheme in {"http", "https"} and parsed.netloc.lower() == "lexicon.garden":
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) >= 3 and segments[0] == "lexicon":
+            extracted = extract_loose_collection_nsid(segments[2])
+            if extracted:
+                return extracted
+    extracted = extract_loose_collection_nsid(raw)
+    if extracted:
+        return extracted
     return ""
+
+
+def is_shared_official_identity_host(host: str) -> bool:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    return bool(lowered and root_domain(lowered) in SHARED_OFFICIAL_IDENTITY_ROOTS)
 
 
 def canonical_seed_value(seed_type: str, seed_value: str) -> str:
     if seed_type == "nsid":
         extracted = extract_collection_nsid(seed_value)
         return extracted or normalize_nsid(seed_value)
+    if seed_type == "repo_url":
+        return canonical_repo_url(seed_value)
     if seed_type.endswith("_url"):
         return normalize_url(seed_value)
     return seed_value
 
 
 def lexicon_namespace_for_project(nsid: str) -> str:
-    parts = normalize_nsid(nsid).split(".")
-    if len(parts) >= 2:
-        return ".".join(parts[:2])
+    namespace = namespace_from_collection_nsid(nsid)
+    if namespace:
+        return namespace
     return normalize_nsid(nsid)
 
 
@@ -293,7 +437,7 @@ def detect_seed_type(seed: str, explicit_type: str | None = None) -> str:
         segments = [segment for segment in parsed.path.split("/") if segment]
         if host == "github.com" and len(segments) >= 2:
             return "repo_url"
-        if host == "tangled.org" and len(segments) >= 2:
+        if host in {"tangled.org", "tangled.sh"} and len(segments) >= 2:
             return "repo_url"
         return "service_url"
     if re.fullmatch(NSID_PATTERN, seed):
@@ -333,6 +477,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "recorded_lexicon_namespaces": [],
         "lexicons": [],
         "lexicon_count": 0,
+        "lexicon_schema_samples": [],
+        "recent_record_samples": [],
         "record_creators": [],
         "authority_domains": [],
         "website_url": "",
@@ -354,6 +500,9 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "classification_reason": "",
         "exclude_reason": "",
         "watch_reason": "",
+        "manual_review_recommended": False,
+        "manual_review_priority": "none",
+        "manual_review_reason": "",
         "confidence": 0.0,
         "llm_source": {},
         "llm_output": {},
@@ -364,6 +513,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "promotion_events": [],
         "duplicate_candidates": [],
         "merge_recommendation": {},
+        "separate_project_keys": [],
+        "blocked_identifiers": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -374,6 +525,48 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "last_seen_at": "",
         "last_enriched_at": "",
     }
+
+
+def normalize_tracking_state(value: str | None) -> str:
+    tracking_state = str(value or "active").strip().lower()
+    return tracking_state if tracking_state in TRACKING_STATES else "active"
+
+
+def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
+    if identifier_type == "service_url":
+        return normalize_url(value)
+    if identifier_type == "repo_url":
+        return canonical_repo_url(value)
+    if identifier_type == "nsid":
+        return normalize_nsid(value)
+    return str(value or "").strip()
+
+
+def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        identifier_type = str(item.get("type") or "").strip()
+        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+            continue
+        normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
+        if not normalized_value:
+            continue
+        key = (identifier_type, normalized_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "type": identifier_type,
+                "value": normalized_value,
+                "note": str(item.get("note") or "").strip(),
+                "added_at": str(item.get("added_at") or ""),
+            }
+        )
+    return output
 
 
 def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
@@ -399,9 +592,13 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["platforms"] = unique_list([str(item).strip() for item in defaults.get("platforms", []) if str(item).strip()])
     defaults["introduced"] = bool(defaults.get("introduced"))
     defaults["introduced_url"] = normalize_url(str(defaults.get("introduced_url") or "")) if defaults.get("introduced_url") else ""
-    tracking_state = str(defaults.get("tracking_state") or "active").strip().lower()
-    defaults["tracking_state"] = tracking_state if tracking_state in TRACKING_STATES else "active"
+    defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
+    defaults["manual_review_recommended"] = bool(defaults.get("manual_review_recommended"))
+    defaults["manual_review_priority"] = str(defaults.get("manual_review_priority") or "none").strip().lower() or "none"
+    if defaults["manual_review_priority"] not in {"none", "low", "medium", "high"}:
+        defaults["manual_review_priority"] = "none"
+    defaults["manual_review_reason"] = normalize_ja_en_mixed_spacing(str(defaults.get("manual_review_reason") or "").strip())
     defaults["promotion_ready"] = bool(defaults.get("promotion_ready"))
     defaults["promotion_blockers"] = unique_list([str(item) for item in defaults.get("promotion_blockers", []) if item])
     defaults["last_promoted_at"] = str(defaults.get("last_promoted_at") or "")
@@ -410,7 +607,17 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["llm_output"] = dict(defaults.get("llm_output") or {})
     defaults["duplicate_candidates"] = list(defaults.get("duplicate_candidates") or [])
     defaults["merge_recommendation"] = dict(defaults.get("merge_recommendation") or {})
+    defaults["separate_project_keys"] = unique_list(
+        [
+            str(item).strip()
+            for item in defaults.get("separate_project_keys", [])
+            if str(item).strip() and str(item).strip() != str(defaults.get("project_key") or "")
+        ]
+    )
+    defaults["blocked_identifiers"] = normalize_blocked_identifiers(list(defaults.get("blocked_identifiers") or []))
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
+    defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
+    defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
     defaults["investigation_log"] = list(defaults.get("investigation_log") or [])
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
@@ -476,6 +683,100 @@ def compute_recorded_lexicon_namespaces(project: dict[str, Any]) -> list[str]:
     return unique_list(namespaces)
 
 
+def nsid_is_builtin_reference(nsid: str) -> bool:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return False
+    return any(normalized.startswith(prefix) for prefix in builtin_lexicon_prefixes())
+
+
+def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return False
+
+    manual_nsid_seeds = set(manual_seed_values(project, "nsid"))
+    if normalized in manual_nsid_seeds:
+        return True
+
+    namespace = lexicon_namespace_for_project(normalized)
+    manual_namespaces = {lexicon_namespace_for_project(seed) for seed in manual_nsid_seeds if seed}
+    if any(namespace == item or namespace.startswith(f"{item}.") or item.startswith(f"{namespace}.") for item in manual_namespaces):
+        return True
+
+    authority_domain = derive_authority_domain(normalized)
+    if authority_domain:
+        service_hosts_known = set(service_hosts(project)) | set(manual_service_hosts(project))
+        for host in service_hosts_known:
+            if authority_domain == host or authority_domain.endswith(f".{host}") or host.endswith(f".{authority_domain}"):
+                return True
+
+    if nsid_is_builtin_reference(normalized):
+        return False
+
+    if manual_nsid_seeds or service_hosts(project) or manual_service_hosts(project):
+        return False
+
+    return True
+
+
+def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
+    allowed_input_nsids = [nsid for nsid in project.get("input_nsids", []) if project_owned_lexicon_nsid(project, str(nsid or ""))]
+    allowed_resolved_nsids = [nsid for nsid in project.get("resolved_nsids", []) if project_owned_lexicon_nsid(project, str(nsid or ""))]
+    allowed_nsids = {normalize_nsid(nsid) for nsid in allowed_input_nsids + allowed_resolved_nsids if normalize_nsid(nsid)}
+
+    project["input_nsids"] = unique_list(allowed_input_nsids)
+    project["resolved_nsids"] = unique_list(allowed_resolved_nsids)
+    project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if normalize_nsid(str(nsid or "")) in allowed_nsids]
+
+    primary_nsid = normalize_nsid(str(project.get("primary_nsid") or ""))
+    if primary_nsid and primary_nsid not in allowed_nsids:
+        project["primary_nsid"] = project["input_nsids"][0] if project.get("input_nsids") else ""
+
+    project["lexicon_resolution_entries"] = [
+        dict(item)
+        for item in normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
+        if normalize_nsid(str(item.get("input_nsid") or "")) in allowed_nsids
+        or normalize_nsid(str(item.get("resolved_nsid") or "")) in allowed_nsids
+    ]
+    project["lexicon_schema_samples"] = [
+        dict(item)
+        for item in project.get("lexicon_schema_samples", [])
+        if isinstance(item, dict) and normalize_nsid(str(item.get("nsid") or "")) in allowed_nsids
+    ]
+
+    allowed_authority_domains = {
+        derive_authority_domain(nsid)
+        for nsid in allowed_nsids
+        if derive_authority_domain(nsid)
+    }
+    confirmed_service_hosts = set(service_hosts(project)) | set(manual_service_hosts(project))
+    project["authority_domains"] = unique_list(
+        [
+            str(domain or "").strip().lower()
+            for domain in project.get("authority_domains", [])
+            if str(domain or "").strip()
+            and (
+                str(domain or "").strip().lower() in allowed_authority_domains
+                or str(domain or "").strip().lower() in confirmed_service_hosts
+                or any(
+                    str(domain or "").strip().lower().endswith(f".{host}") or host.endswith(f".{str(domain or '').strip().lower()}")
+                    for host in confirmed_service_hosts
+                )
+            )
+        ]
+    )
+    allowed_repo_dids = {
+        str(item.get("repo_did") or "").strip()
+        for item in project.get("lexicon_resolution_entries", [])
+        if isinstance(item, dict) and str(item.get("repo_did") or "").strip()
+    }
+    project["record_creators"] = [
+        did for did in unique_list(project.get("record_creators", []))
+        if str(did or "").strip() in allowed_repo_dids
+    ]
+
+
 def open_db() -> sqlite3.Connection:
     ensure_dirs()
     conn = sqlite3.connect(DB_PATH)
@@ -490,6 +791,7 @@ def open_db() -> sqlite3.Connection:
             primary_nsid TEXT NOT NULL,
             website_url TEXT NOT NULL,
             service_status TEXT NOT NULL,
+            tracking_state TEXT NOT NULL DEFAULT 'active',
             data_json TEXT NOT NULL,
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
@@ -497,6 +799,22 @@ def open_db() -> sqlite3.Connection:
         )
         """
     )
+    columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "tracking_state" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN tracking_state TEXT NOT NULL DEFAULT 'active'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)")
+    rows = conn.execute("SELECT project_key, tracking_state, data_json FROM projects").fetchall()
+    for row in rows:
+        payload = load_json(str(row["data_json"] or "")) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        raw_state = payload.get("tracking_state", row["tracking_state"])
+        normalized = normalize_tracking_state(str(raw_state or "active"))
+        if normalized != str(row["tracking_state"] or "active"):
+            conn.execute(
+                "UPDATE projects SET tracking_state = ? WHERE project_key = ?",
+                (normalized, str(row["project_key"])),
+            )
     conn.commit()
     return conn
 
@@ -562,17 +880,29 @@ def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
 
 
 def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM projects
-        ORDER BY last_seen_at DESC, project_key ASC
-        """
-    ).fetchall()
-    projects = [project_from_row(row) for row in rows]
     if tracking_states is None:
-        return projects
-    return [project for project in projects if str(project.get("tracking_state") or "active") in tracking_states]
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM projects
+            ORDER BY last_seen_at DESC, project_key ASC
+            """
+        ).fetchall()
+    else:
+        requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not requested:
+            return []
+        placeholders = ", ".join("?" for _ in requested)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM projects
+            WHERE tracking_state IN ({placeholders})
+            ORDER BY last_seen_at DESC, project_key ASC
+            """,
+            tuple(requested),
+        ).fetchall()
+    return [project_from_row(row) for row in rows]
 
 
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
@@ -659,6 +989,126 @@ def load_known_icann_tlds() -> set[str]:
     return known
 
 
+def load_public_suffix_rules() -> tuple[set[str], set[str], set[str]]:
+    global _PUBLIC_SUFFIX_RULES
+    if _PUBLIC_SUFFIX_RULES is not None:
+        return _PUBLIC_SUFFIX_RULES
+
+    exact: set[str] = set()
+    wildcard: set[str] = set()
+    exception: set[str] = set()
+    for path in PUBLIC_SUFFIX_DATA_CANDIDATES:
+        if not path.exists():
+            continue
+        try:
+            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("//"):
+                    continue
+                if line.startswith("!."):
+                    line = "!" + line[2:]
+                elif line.startswith("."):
+                    line = line[1:]
+                if line.startswith("!"):
+                    exception.add(line[1:].lower())
+                elif line.startswith("*."):
+                    wildcard.add(line[2:].lower())
+                else:
+                    exact.add(line.lower())
+            if exact or wildcard or exception:
+                break
+        except Exception:
+            continue
+
+    _PUBLIC_SUFFIX_RULES = (exact, wildcard, exception)
+    return _PUBLIC_SUFFIX_RULES
+
+
+def tldextract_extractor(mode: str = "local") -> Any | None:
+    if mode in _TLD_EXTRACTORS:
+        return _TLD_EXTRACTORS[mode]
+    if tldextract is None:
+        _TLD_EXTRACTORS[mode] = None
+        return None
+
+    local_sources = [path.resolve().as_uri() for path in PUBLIC_SUFFIX_DATA_CANDIDATES if path.exists()]
+    if not local_sources:
+        _TLD_EXTRACTORS[mode] = None
+        return None
+
+    kwargs: dict[str, Any] = {
+        "include_psl_private_domains": True,
+        "extra_suffixes": sorted(configured_multi_tenant_suffixes()),
+        "cache_dir": str(TLDEXTRACT_CACHE_DIR),
+        "suffix_list_urls": tuple(local_sources),
+        "fallback_to_snapshot": False,
+    }
+
+    try:
+        TLDEXTRACT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    try:
+        extractor = tldextract.TLDExtract(**kwargs)
+    except Exception:
+        extractor = None
+    _TLD_EXTRACTORS[mode] = extractor
+    return extractor
+
+
+def extract_registrable_domain_with_tldextract(host: str, *, include_configured_suffixes: bool = True) -> str:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    if not lowered:
+        return ""
+    for mode in ("local",):
+        extractor = tldextract_extractor(mode)
+        if extractor is None:
+            continue
+        try:
+            result = extractor(lowered)
+        except Exception:
+            continue
+        registrable = str(getattr(result, "top_domain_under_public_suffix", "") or "").strip().lower().rstrip(".")
+        if registrable:
+            return registrable
+    return ""
+
+
+def public_suffix(host: str) -> str:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    if not lowered:
+        return ""
+    labels = [label for label in lowered.split(".") if label]
+    if not labels:
+        return ""
+
+    exact_rules, wildcard_rules, exception_rules = load_public_suffix_rules()
+    if exact_rules or wildcard_rules or exception_rules:
+        for index in range(len(labels)):
+            candidate = ".".join(labels[index:])
+            if candidate in exception_rules:
+                exception_labels = candidate.split(".")
+                if len(exception_labels) > 1:
+                    return ".".join(exception_labels[1:])
+                return candidate
+
+        best_len = 1
+        for index in range(len(labels)):
+            candidate = ".".join(labels[index:])
+            if candidate in exact_rules:
+                best_len = max(best_len, len(candidate.split(".")))
+            if index + 1 < len(labels):
+                wildcard_candidate = ".".join(labels[index + 1 :])
+                if wildcard_candidate in wildcard_rules:
+                    best_len = max(best_len, len(wildcard_candidate.split(".")) + 1)
+        return ".".join(labels[-best_len:])
+
+    if len(labels) >= 2:
+        return ".".join(labels[-2:])
+    return lowered
+
+
 def authority_domain_allowed_for_import(domain: str) -> bool:
     lowered = str(domain or "").strip().lower().rstrip(".")
     if not lowered or "." not in lowered:
@@ -697,6 +1147,15 @@ def build_unique_lookup(pairs: list[tuple[str, str]]) -> dict[str, str]:
             continue
         grouped.setdefault(normalized_key, set()).add(normalized_value)
     return {key: next(iter(values)) for key, values in grouped.items() if len(values) == 1}
+
+
+def sync_match_is_auto_attach_safe(match_kind: str) -> bool:
+    return str(match_kind or "") in {
+        "exact_namespace",
+        "exact_namespace_scan",
+        "repo_url",
+        "homepage_exact",
+    }
 
 
 def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -796,8 +1255,11 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["features"] = unique_list(project.get("features", []))
     project["inspired_by"] = unique_list(project.get("inspired_by", []))
     project["manual_seeds"] = unique_manual_seeds(project.get("manual_seeds", []))
+    refresh_project_seed_identity(project)
     project["summary_candidates"] = project.get("summary_candidates", [])
     project["tagline_candidates"] = project.get("tagline_candidates", [])
+    project["lexicon_schema_samples"] = [dict(item) for item in project.get("lexicon_schema_samples", []) if isinstance(item, dict)][:12]
+    project["recent_record_samples"] = [dict(item) for item in project.get("recent_record_samples", []) if isinstance(item, dict)][:18]
     sync_primary_service_urls(project)
     project["lexicon_count"] = len(project.get("lexicons", []))
 
@@ -820,8 +1282,8 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
             """
             INSERT INTO projects (
                 project_key, status, category, name, primary_nsid, website_url,
-                service_status, data_json, first_seen_at, last_seen_at, last_enriched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                service_status, tracking_state, data_json, first_seen_at, last_seen_at, last_enriched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project["project_key"],
@@ -831,6 +1293,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 project.get("primary_nsid", ""),
                 project.get("website_url", ""),
                 project.get("service_status", "unknown"),
+                project.get("tracking_state", "active"),
                 dump_json(project_json_payload(project)),
                 first_seen_at,
                 now,
@@ -847,7 +1310,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
             """
             UPDATE projects
             SET status = ?, category = ?, name = ?, primary_nsid = ?, website_url = ?,
-                service_status = ?, data_json = ?, last_seen_at = ?, last_enriched_at = ?
+                service_status = ?, tracking_state = ?, data_json = ?, last_seen_at = ?, last_enriched_at = ?
             WHERE project_key = ?
             """,
             (
@@ -857,6 +1320,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 project.get("primary_nsid", ""),
                 project.get("website_url", ""),
                 project.get("service_status", "unknown"),
+                project.get("tracking_state", "active"),
                 dump_json(project_json_payload(project)),
                 now,
                 last_enriched_at or existing_last_enriched,
@@ -905,6 +1369,8 @@ def ensure_project_for_seed(
 
 
 def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: str) -> None:
+    if identifier_is_blocked(project, seed_type, seed_value):
+        return
     project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "manual_seed")
     if seed_type == "nsid":
         normalized_nsid = normalize_nsid(seed_value)
@@ -913,12 +1379,21 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         authority_domain = derive_authority_domain(normalized_nsid)
         if authority_domain:
             project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-            add_candidate_url(project, "website_url", f"https://{authority_domain}")
-            add_candidate_url(project, "service_url", f"https://{authority_domain}")
+            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
+                add_candidate_url(project, "website_url", candidate_url)
+                add_candidate_url(project, "service_url", candidate_url)
         if not project.get("name"):
             project["name"] = normalized_nsid.split(".")[-1]
     elif seed_type == "repo_url":
-        normalized = normalize_url(seed_value)
+        normalized = canonical_repo_url(seed_value)
+        if not normalized:
+            normalized = normalize_url(seed_value)
+            add_candidate_url(project, "service_url", normalized)
+            add_candidate_url(project, "website_url", normalized)
+            project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+            if not project.get("name"):
+                project["name"] = service_seed_name_hint(normalized)
+            return
         project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
         parsed = urllib.parse.urlparse(normalized)
@@ -936,8 +1411,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         add_candidate_url(project, "website_url", normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
         if not project.get("name"):
-            host = urllib.parse.urlparse(normalized).netloc
-            project["name"] = host
+            project["name"] = service_seed_name_hint(normalized)
 
 def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
@@ -974,6 +1448,128 @@ def github_headers() -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def blocked_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in project.get("blocked_identifiers", [])
+        if isinstance(item, dict) and str(item.get("type") or "").strip() == identifier_type and str(item.get("value") or "").strip()
+    }
+
+
+def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    return normalized in blocked_identifier_values(project, identifier_type)
+
+
+def purge_blocked_identifiers(project: dict[str, Any]) -> None:
+    blocked_services = blocked_identifier_values(project, "service_url")
+    blocked_repos = blocked_identifier_values(project, "repo_url")
+    blocked_nsids = blocked_identifier_values(project, "nsid")
+
+    if blocked_services:
+        if normalize_url(str(project.get("website_url") or "")) in blocked_services:
+            project["website_url"] = ""
+        project["service_urls"] = [url for url in project.get("service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) not in blocked_services]
+
+    if blocked_repos:
+        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["tangled_repo_urls"] = [url for url in project.get("tangled_repo_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["source_repo_records"] = [
+            dict(item)
+            for item in project.get("source_repo_records", [])
+            if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) not in blocked_repos
+        ]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+
+    if blocked_nsids:
+        if normalize_nsid(str(project.get("primary_nsid") or "")) in blocked_nsids:
+            project["primary_nsid"] = ""
+        project["input_nsids"] = [nsid for nsid in project.get("input_nsids", []) if normalize_nsid(str(nsid or "")) not in blocked_nsids]
+        project["resolved_nsids"] = [nsid for nsid in project.get("resolved_nsids", []) if normalize_nsid(str(nsid or "")) not in blocked_nsids]
+        project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if normalize_nsid(str(nsid or "")) not in blocked_nsids]
+        project["lexicon_resolution_entries"] = [
+            dict(item)
+            for item in project.get("lexicon_resolution_entries", [])
+            if isinstance(item, dict)
+            and normalize_nsid(str(item.get("input_nsid") or "")) not in blocked_nsids
+            and normalize_nsid(str(item.get("resolved_nsid") or "")) not in blocked_nsids
+        ]
+        project["recent_record_samples"] = [
+            dict(item)
+            for item in project.get("recent_record_samples", [])
+            if isinstance(item, dict) and normalize_nsid(str(item.get("collection") or "")) not in blocked_nsids
+        ]
+
+    if blocked_services or blocked_repos or blocked_nsids:
+        project["manual_seeds"] = [
+            dict(item)
+            for item in project.get("manual_seeds", [])
+            if isinstance(item, dict)
+            and not identifier_is_blocked(project, str(item.get("type") or ""), str(item.get("value") or ""))
+        ]
+
+
+def remove_identifier_from_project(project: dict[str, Any], identifier_type: str, value: str) -> None:
+    normalized = canonical_seed_value(identifier_type, value)
+    if not normalized:
+        return
+    if identifier_type == "service_url":
+        if normalize_url(str(project.get("website_url") or "")) == normalized:
+            project["website_url"] = ""
+        project["service_urls"] = [url for url in project.get("service_urls", []) if normalize_url(str(url or "")) != normalized]
+        project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) != normalized]
+        project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) != normalized]
+        project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) != normalized]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) != normalized]
+    elif identifier_type == "repo_url":
+        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["tangled_repo_urls"] = [url for url in project.get("tangled_repo_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["source_repo_records"] = [
+            dict(item)
+            for item in project.get("source_repo_records", [])
+            if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) != normalized
+        ]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+    elif identifier_type == "nsid":
+        if normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
+            project["primary_nsid"] = ""
+        project["input_nsids"] = [nsid for nsid in project.get("input_nsids", []) if normalize_nsid(str(nsid or "")) != normalized]
+        project["resolved_nsids"] = [nsid for nsid in project.get("resolved_nsids", []) if normalize_nsid(str(nsid or "")) != normalized]
+        project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if normalize_nsid(str(nsid or "")) != normalized]
+        project["lexicon_resolution_entries"] = [
+            dict(item)
+            for item in project.get("lexicon_resolution_entries", [])
+            if isinstance(item, dict)
+            and normalize_nsid(str(item.get("input_nsid") or "")) != normalized
+            and normalize_nsid(str(item.get("resolved_nsid") or "")) != normalized
+        ]
+        project["recent_record_samples"] = [
+            dict(item)
+            for item in project.get("recent_record_samples", [])
+            if isinstance(item, dict) and normalize_nsid(str(item.get("collection") or "")) != normalized
+        ]
+    project["manual_seeds"] = [
+        dict(item)
+        for item in project.get("manual_seeds", [])
+        if isinstance(item, dict)
+        and not (
+            str(item.get("type") or "") == identifier_type
+            and canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or "")) == normalized
+        )
+    ]
+    refresh_project_seed_identity(project)
 
 
 def preprocess_project_json_rows(
@@ -1045,10 +1641,18 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
         for project_key, project in project_map.items()
     }
 
+    project_list = [project_map[project_key] for project_key in sorted(project_map)]
+    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
     refreshed_derived_projects = 0
     for project_key in sorted(project_map):
         project = dict(project_map[project_key])
-        duplicate_candidates = compute_duplicate_candidates(conn, project)
+        duplicate_candidates = compute_duplicate_candidates(
+            conn,
+            project,
+            projects=project_list,
+            duplicate_profiles=duplicate_profiles,
+            duplicate_index=duplicate_index,
+        )
         merge_recommendation = compute_merge_recommendation(
             dict(project, duplicate_candidates=duplicate_candidates)
         )
@@ -1061,6 +1665,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             save_project(conn, project, enriched=False)
             project_map[project_key] = project
             refreshed_derived_projects += 1
+
+    conn.commit()
 
     expected_owners: dict[tuple[str, str], list[str]] = {}
     for project_key, identifiers in expected_by_project.items():
@@ -1110,11 +1716,30 @@ def bsky_auth_settings() -> dict[str, str]:
     }
 
 
+def bsky_session_cache_key() -> str:
+    settings = bsky_auth_settings()
+    return f"{settings['host']}|{settings['identifier']}"
+
+
+def bsky_pds_url_from_session(session: dict[str, Any]) -> str:
+    did_doc = session.get("didDoc")
+    if isinstance(did_doc, dict):
+        for service in did_doc.get("service", []):
+            if not isinstance(service, dict):
+                continue
+            if str(service.get("id") or "") != "#atproto_pds":
+                continue
+            endpoint = str(service.get("serviceEndpoint") or "").rstrip("/")
+            if endpoint.startswith("https://"):
+                return endpoint
+    return ""
+
+
 def bsky_create_session() -> dict[str, Any]:
     settings = bsky_auth_settings()
     if not settings["identifier"] or not settings["password"]:
         raise RuntimeError("BSKY_HANDLE and BSKY_APP_PASSWORD are required for authenticated Bluesky search")
-    cache_key = f"{settings['host']}|{settings['identifier']}"
+    cache_key = bsky_session_cache_key()
     cached = _BSKY_SESSION_CACHE.get(cache_key)
     if cached:
         return cached
@@ -1134,9 +1759,43 @@ def bsky_access_token() -> str:
     return token
 
 
-def bsky_authenticated_app_url(path: str) -> str:
+def bsky_refresh_session() -> dict[str, Any]:
+    cache_key = bsky_session_cache_key()
+    session = bsky_create_session()
+    refresh_token = str(session.get("refreshJwt") or "")
+    if not refresh_token:
+        raise RuntimeError("Bluesky session did not return refreshJwt")
+    pds_url = bsky_pds_url_from_session(session)
+    if not pds_url:
+        settings = bsky_auth_settings()
+        pds_url = settings["host"]
+    _, body, _ = request_bytes(
+        f"{pds_url}/xrpc/com.atproto.server.refreshSession",
+        headers={"Authorization": f"Bearer {refresh_token}"},
+        method="POST",
+    )
+    refreshed = json.loads(body.decode("utf-8"))
+    if not isinstance(refreshed, dict):
+        raise RuntimeError("Bluesky refreshSession response was not a JSON object")
+    if not refreshed.get("didDoc") and session.get("didDoc"):
+        refreshed["didDoc"] = session["didDoc"]
+    _BSKY_SESSION_CACHE[cache_key] = refreshed
+    return refreshed
+
+
+def bsky_pds_url() -> str:
+    session = bsky_create_session()
+    pds_url = bsky_pds_url_from_session(session)
+    if pds_url:
+        return pds_url
     settings = bsky_auth_settings()
-    base = settings["host"] or BSKY_ENTRYWAY
+    if settings["host"]:
+        return settings["host"]
+    raise RuntimeError("Bluesky session did not include a resolvable PDS endpoint")
+
+
+def bsky_authenticated_app_url(path: str) -> str:
+    base = bsky_pds_url()
     return f"{base.rstrip('/')}/xrpc/{path.lstrip('/')}"
 
 
@@ -1238,6 +1897,11 @@ KNOWN_MULTI_TENANT_SUFFIXES = {
     "workers.dev",
     "github.io",
 }
+SHARED_OFFICIAL_IDENTITY_ROOTS = {
+    "bsky.app",
+    "atproto.com",
+    "bsky.network",
+}
 SPECIAL_USE_TLDS = {
     "test",
     "example",
@@ -1252,10 +1916,11 @@ SPECIAL_USE_TLDS = {
     "lan",
 }
 PUBLIC_SUFFIX_DATA_CANDIDATES = [
-    Path("/opt/homebrew/lib/ruby/gems/3.2.0/gems/domain_name-0.6.20231109/data/public_suffix_list.dat"),
-    Path("/opt/homebrew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/public_suffix-7.0.5/data/list.txt"),
+    ROOT / "vendor" / "public_suffix_list.dat",
 ]
 _KNOWN_ICANN_TLDS: set[str] | None = None
+_PUBLIC_SUFFIX_RULES: tuple[set[str], set[str], set[str]] | None = None
+TLDEXTRACT_CACHE_DIR = ROOT / "data" / "tldextract-cache"
 
 
 def sanitize_extracted_url(raw_url: str) -> str:
@@ -1354,16 +2019,59 @@ def normalize_confirmed_service_url(url: str) -> str | None:
     return normalized
 
 
+def project_service_identity_hosts(project: dict[str, Any]) -> set[str]:
+    hosts = set(manual_service_hosts(project))
+    for domain in project.get("authority_domains", []):
+        lowered = str(domain or "").strip().lower()
+        if lowered and not is_shared_official_identity_host(lowered):
+            hosts.add(lowered)
+    for url in list(project.get("service_urls", [])) + ([str(project.get("website_url") or "")] if project.get("website_url") else []):
+        host = urllib.parse.urlparse(normalize_url(url)).netloc.lower()
+        if host and not is_shared_official_identity_host(host):
+            hosts.add(host)
+    return {host for host in hosts if host}
+
+
 def service_candidate_matches_project(project: dict[str, Any], url: str) -> bool:
     parsed = urllib.parse.urlparse(normalize_url(url))
     host = parsed.netloc.lower()
     if not host:
         return False
-    identities = project_identity_strings(project)
-    if host in identities:
+    identity_hosts = project_service_identity_hosts(project)
+    if host in identity_hosts:
         return True
-    if root_domain(host) in {root_domain(value) for value in identities if "." in value}:
+    if root_domain(host) in {root_domain(value) for value in identity_hosts if "." in value}:
         return True
+    normalized_host = host.replace("-", "").replace("_", "")
+    return any(token and token in normalized_host for token in project_alias_tokens(project))
+
+
+def service_url_auto_confirmable(project: dict[str, Any], url: str) -> bool:
+    normalized = normalize_confirmed_service_url(url)
+    if not normalized:
+        return False
+    host = urllib.parse.urlparse(normalized).netloc.lower()
+    if not host:
+        return False
+
+    manual_hosts = manual_service_hosts(project)
+    if host in manual_hosts:
+        return True
+
+    authority_domains = {
+        str(domain or "").strip().lower()
+        for domain in project.get("authority_domains", [])
+        if str(domain or "").strip()
+    }
+    if host in authority_domains and not is_shared_official_identity_host(host):
+        return True
+
+    if service_candidate_matches_project(project, normalized):
+        alias_tokens = project_alias_tokens(project)
+        normalized_host = host.replace("-", "").replace("_", "")
+        if any(token and token in normalized_host for token in alias_tokens):
+            return True
+
     return False
 
 
@@ -1379,8 +2087,62 @@ def extract_urls(html: str) -> list[str]:
     return unique_list(output)
 
 
+class HrefHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = dict(attrs).get("href")
+        if href:
+            self.hrefs.append(str(href))
+
+
 def clean_title(title: str) -> str:
     return re.sub(r"\s*[|\-]\s*.*$", "", title).strip()
+
+
+GENERIC_PLATFORM_HOSTS = {
+    "github.com",
+    "gist.github.com",
+    "tangled.org",
+    "tangled.sh",
+}
+
+
+def service_seed_name_hint(url: str) -> str:
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if host in GENERIC_PLATFORM_HOSTS and segments:
+        return segments[-1]
+    return host or normalized
+
+
+def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
+    ignored: set[str] = set()
+    candidate_urls = [
+        str(project.get("seed_value") or ""),
+        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
+        *[str(item or "") for item in project.get("source_code_urls", [])],
+        *[str(item or "") for item in project.get("candidate_source_code_urls", [])],
+        *[str(item or "") for item in project.get("service_urls", [])],
+        *[str(item or "") for item in project.get("service_url_candidates", [])],
+        *[str(item or "") for item in project.get("website_url_candidates", [])],
+    ]
+    for raw_url in candidate_urls:
+        normalized = normalize_url(raw_url)
+        if not normalized:
+            continue
+        parsed = urllib.parse.urlparse(normalized)
+        host = parsed.netloc.lower()
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if host in GENERIC_PLATFORM_HOSTS and segments:
+            ignored.add(host)
+    return ignored
 
 
 def normalize_ja_en_mixed_spacing(value: str) -> str:
@@ -1483,7 +2245,10 @@ def project_alias_tokens(project: dict[str, Any]) -> set[str]:
         if token:
             tokens.add(token)
     for domain in project.get("authority_domains", []):
-        first = str(domain or "").split(".", 1)[0].strip().lower()
+        lowered = str(domain or "").strip().lower()
+        if not lowered or is_shared_official_identity_host(lowered):
+            continue
+        first = lowered.split(".", 1)[0]
         token = normalize_alias_token(first)
         if token:
             tokens.add(token)
@@ -1523,23 +2288,24 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
     if is_explicitly_non_project_service_url(normalized):
         return False
 
-    baseline_hosts = set(manual_service_hosts(project))
+    manual_hosts = set(manual_service_hosts(project))
+    baseline_hosts = set(manual_hosts)
     for domain in project.get("authority_domains", []):
         lowered = str(domain or "").strip().lower()
-        if lowered:
+        if lowered and not is_shared_official_identity_host(lowered):
             baseline_hosts.add(lowered)
 
     baseline_roots = {root_domain(item) for item in baseline_hosts if item}
     if host in baseline_hosts or root_domain(host) in baseline_roots:
-        return True
+        return True if not confirmed else host in manual_hosts or host in baseline_hosts
 
     alias_tokens = project_alias_tokens(project)
     if any(token and token in host.replace("-", "").replace("_", "") for token in alias_tokens):
         return True
 
-    if not confirmed and service_candidate_matches_project(project, normalized):
-        return True
-    return False
+    if confirmed:
+        return service_url_auto_confirmable(project, normalized)
+    return service_candidate_matches_project(project, normalized)
 
 
 def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
@@ -1559,6 +2325,31 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     if repo_token and repo_token in alias_tokens:
         return True
     return False
+
+
+def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
+    owners: set[str] = set()
+    trusted_urls = set(manual_repo_urls(project)) | set(project.get("source_code_urls", []))
+    for url in trusted_urls:
+        owner = repo_owner_identity(str(url or ""))
+        if owner:
+            owners.add(owner)
+    return owners
+
+
+def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> bool:
+    normalized = canonical_repo_url(url)
+    if not normalized:
+        return False
+    if not repo_url_allowed_for_project(project, normalized):
+        return False
+    if normalized in manual_repo_urls(project) or normalized in project.get("source_code_urls", []):
+        return True
+    trusted_owners = trusted_repo_owner_identities(project)
+    if trusted_owners:
+        owner = repo_owner_identity(normalized)
+        return bool(owner and owner in trusted_owners)
+    return True
 
 
 def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -> list[str]:
@@ -1581,7 +2372,7 @@ def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -
 
 def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str, str]] = set()
     for record in records:
         url = canonical_repo_url(str(record.get("url") or ""))
         if not url:
@@ -1591,7 +2382,8 @@ def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[st
         relation = str(record.get("relation") or "candidate_repo")
         source = str(record.get("source") or "")
         evidence_kind = str(record.get("evidence_kind") or "")
-        key = (url, provider, confidence, source, evidence_kind)
+        updated_at = str(record.get("updated_at") or "")
+        key = (url, provider, confidence, source, evidence_kind, updated_at)
         if key in seen:
             continue
         seen.add(key)
@@ -1606,6 +2398,7 @@ def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[st
                 "evidence_kind": evidence_kind,
                 "evidence_url": normalize_url(str(record.get("evidence_url") or "")) if record.get("evidence_url") else "",
                 "recorded_at": str(record.get("recorded_at") or ""),
+                "updated_at": updated_at,
             }
         )
     return output
@@ -1615,7 +2408,7 @@ def infer_repo_provider(url: str) -> str:
     parsed = urllib.parse.urlparse(normalize_url(url))
     if parsed.netloc == "github.com":
         return "github"
-    if parsed.netloc == "tangled.org":
+    if parsed.netloc in {"tangled.org", "tangled.sh"}:
         return "tangled"
     return parsed.netloc or "unknown"
 
@@ -1665,8 +2458,9 @@ def owner_matches_project(project: dict[str, Any], url: str) -> bool:
 def project_identity_strings(project: dict[str, Any]) -> set[str]:
     values: set[str] = set()
     for value in project.get("authority_domains", []):
-        if value:
-            values.add(str(value).lower())
+        lowered = str(value or "").strip().lower()
+        if lowered and not is_shared_official_identity_host(lowered):
+            values.add(lowered)
     for value in project.get("input_nsids", []):
         if value:
             values.add(str(value).lower())
@@ -1802,18 +2596,11 @@ def extract_links(html: str, base_url: str) -> list[dict[str, str]]:
     return output
 
 
-def root_domain(host: str) -> str:
+def root_domain(host: str, *, include_configured_suffixes: bool = True) -> str:
     lowered = str(host or "").strip().lower().rstrip(".")
     if not lowered:
         return ""
-    if publicsuffix_get_sld is not None:
-        try:
-            resolved = str(publicsuffix_get_sld(lowered, strict=False) or "").strip().lower().rstrip(".")
-            if resolved:
-                return resolved
-        except Exception:
-            pass
-    for suffix in KNOWN_MULTI_TENANT_SUFFIXES:
+    for suffix in sorted(configured_multi_tenant_suffixes() | KNOWN_MULTI_TENANT_SUFFIXES, key=len, reverse=True):
         if lowered == suffix:
             return suffix
         if lowered.endswith(f".{suffix}"):
@@ -1822,6 +2609,16 @@ def root_domain(host: str) -> str:
             if len(labels) > len(suffix_labels):
                 return ".".join(labels[-(len(suffix_labels) + 1):])
             return lowered
+    registrable = extract_registrable_domain_with_tldextract(lowered, include_configured_suffixes=include_configured_suffixes)
+    if registrable:
+        return registrable
+    suffix = public_suffix(lowered)
+    if suffix:
+        labels = [label for label in lowered.split(".") if label]
+        suffix_labels = [label for label in suffix.split(".") if label]
+        if len(labels) > len(suffix_labels):
+            return ".".join(labels[-(len(suffix_labels) + 1):])
+        return lowered
     labels = [label for label in lowered.split(".") if label]
     if len(labels) >= 2:
         return ".".join(labels[-2:])
@@ -1881,11 +2678,14 @@ def add_candidate_url(project: dict[str, Any], field_name: str, url: str) -> Non
     key = f"{field_name}_candidates"
     if field_name in {"service_url", "website_url"}:
         normalized = normalize_service_candidate_url(url)
-        if not normalized:
+        if not normalized or identifier_is_blocked(project, "service_url", normalized):
             return
         project[key] = add_unique(project.get(key, []), normalized)
         return
-    project[key] = add_unique(project.get(key, []), normalize_url(url))
+    normalized = normalize_url(url)
+    if not normalized:
+        return
+    project[key] = add_unique(project.get(key, []), normalized)
 
 
 def add_candidate_source_code_url(
@@ -1897,8 +2697,13 @@ def add_candidate_source_code_url(
     evidence_kind: str = "",
     evidence_url: str = "",
     relation: str = "candidate_repo",
+    updated_at: str = "",
 ) -> None:
     normalized = canonical_repo_url(url)
+    if identifier_is_blocked(project, "repo_url", normalized):
+        return
+    if not repo_candidate_allowed_for_project(project, normalized):
+        return
     if normalized in project.get("source_code_urls", []):
         return
     project["candidate_source_code_urls"] = add_unique(project.get("candidate_source_code_urls", []), normalized)
@@ -1912,6 +2717,7 @@ def add_candidate_source_code_url(
         "evidence_kind": evidence_kind,
         "evidence_url": normalize_url(evidence_url) if evidence_url else "",
         "recorded_at": iso_now(),
+        "updated_at": str(updated_at or ""),
     }
     project.setdefault("source_repo_records", [])
     if not any(
@@ -1945,8 +2751,11 @@ def confirm_source_code_url(
     reason: str = "",
     evidence_kind: str = "",
     evidence_url: str = "",
+    updated_at: str = "",
 ) -> None:
     normalized = canonical_repo_url(url)
+    if identifier_is_blocked(project, "repo_url", normalized):
+        return
     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
     provider = infer_repo_provider(normalized)
@@ -1964,6 +2773,7 @@ def confirm_source_code_url(
         "evidence_kind": evidence_kind,
         "evidence_url": normalize_url(evidence_url) if evidence_url else "",
         "recorded_at": iso_now(),
+        "updated_at": str(updated_at or ""),
     }
     project.setdefault("source_repo_records", [])
     if not any(
@@ -1978,7 +2788,7 @@ def confirm_source_code_url(
 
 def confirm_service_url(project: dict[str, Any], url: str) -> None:
     normalized = normalize_confirmed_service_url(url)
-    if not normalized:
+    if not normalized or identifier_is_blocked(project, "service_url", normalized):
         return
     project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
     project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != normalized]
@@ -2035,7 +2845,9 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         if relation in {"official_link", "same_site_repo"} and same_site_evidence:
             record = dict(record)
             record["confidence"] = "confirmed"
-        elif not repo_url_allowed_for_project(project, url):
+        elif confidence == "confirmed" and not repo_url_allowed_for_project(project, url):
+            continue
+        elif confidence != "confirmed" and not repo_candidate_allowed_for_project(project, url):
             continue
         elif relation == "readme_link" and confidence == "confirmed" and url not in manual_repo_urls(project):
             record = dict(record)
@@ -2054,19 +2866,38 @@ def prune_project_urls(project: dict[str, Any]) -> None:
     project["candidate_source_code_urls"] = [
         url
         for url in normalize_repo_collection(project.get("candidate_source_code_urls", []))
-        if repo_url_allowed_for_project(project, url) and url not in project["source_code_urls"]
+        if repo_candidate_allowed_for_project(project, url) and url not in project["source_code_urls"]
     ]
     project["candidate_source_code_urls"] = unique_list(project["candidate_source_code_urls"] + sorted(kept_candidates - set(project["source_code_urls"])))
     project["source_code_urls"] = unique_list(project["source_code_urls"] + sorted(kept_confirmed))
 
     project["github_repo_urls"] = [
         url for url in normalize_repo_collection(project.get("github_repo_urls", []), provider="github")
-        if repo_url_allowed_for_project(project, url) and (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
+        if (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
+        and (repo_url_allowed_for_project(project, url) if url in project["source_code_urls"] else repo_candidate_allowed_for_project(project, url))
     ]
     project["tangled_repo_urls"] = [
         url for url in normalize_repo_collection(project.get("tangled_repo_urls", []), provider="tangled")
-        if repo_url_allowed_for_project(project, url) and (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
+        if (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
+        and (repo_url_allowed_for_project(project, url) if url in project["source_code_urls"] else repo_candidate_allowed_for_project(project, url))
     ]
+
+    ignored_handles = generic_platform_handles_to_ignore(project)
+    if ignored_handles:
+        project["bluesky_handles"] = [
+            handle
+            for handle in unique_list(project.get("bluesky_handles", []))
+            if str(handle or "").strip().lower() not in ignored_handles
+        ]
+        project["developer_accounts"] = [
+            dict(item)
+            for item in project.get("developer_accounts", [])
+            if isinstance(item, dict) and not (
+                isinstance(item, dict)
+                and str(item.get("provider") or "") == "bluesky"
+                and str(item.get("handle") or "").strip().lower() in ignored_handles
+            )
+        ]
 
 
 def add_developer_account(project: dict[str, Any], provider: str, handle: str, source: str) -> None:
@@ -2077,6 +2908,17 @@ def add_developer_account(project: dict[str, Any], provider: str, handle: str, s
     project.setdefault("developer_accounts", [])
     if account not in project["developer_accounts"]:
         project["developer_accounts"].append(account)
+
+
+def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
+    normalized_handle = str(handle or "").strip().lower()
+    if not normalized_handle:
+        return False
+    if handle_matches_project(project, normalized_handle):
+        return True
+    if str(source or "").startswith(("service_raw_url:", "service_page:", "service_follow_up:")):
+        return False
+    return True
 
 
 def add_investigation_query(project: dict[str, Any], query: str) -> None:
@@ -2163,6 +3005,33 @@ def extract_post_link_entries(post: dict[str, Any]) -> list[dict[str, str]]:
                 }
             )
     return output
+
+
+def collect_applog_entries(posts: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
+    for post in posts:
+        for entry in extract_post_link_entries(post):
+            seed = applog_seed_from_url(entry["url"])
+            if seed is None:
+                continue
+            seed_type, seed_value = seed
+            key = (seed_type, seed_value)
+            bucket = entries_by_seed.setdefault(
+                key,
+                {
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "labels": [],
+                    "post_web_urls": [],
+                },
+            )
+            label = clean_imported_name(entry.get("label", ""))
+            if label and label not in bucket["labels"]:
+                bucket["labels"].append(label)
+            post_web = str(entry.get("post_web_url") or "")
+            if post_web and post_web not in bucket["post_web_urls"]:
+                bucket["post_web_urls"].append(post_web)
+    return entries_by_seed
 
 
 def applog_seed_from_url(url: str) -> tuple[str, str] | None:
@@ -2313,7 +3182,7 @@ def resolve_import_project_key(
     return None
 
 
-def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any], *, source: str) -> None:
+def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any], *, source: str, merge_existing: bool = False) -> None:
     nsid = normalize_nsid(str(item.get("collection") or ""))
     if not nsid:
         return
@@ -2331,7 +3200,27 @@ def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any],
     replaced = False
     for index, entry in enumerate(existing):
         if normalize_nsid(str(entry.get("collection") or "")) == nsid:
-            existing[index] = observation
+            if merge_existing:
+                existing_members = [normalize_nsid(str(member)) for member in entry.get("members", []) if normalize_nsid(str(member))]
+                new_members = [normalize_nsid(str(member)) for member in observation.get("members", []) if normalize_nsid(str(member))]
+                merged_min = str(entry.get("min") or "")
+                if observation["min"] and (not merged_min or observation["min"] < merged_min):
+                    merged_min = observation["min"]
+                merged_max = str(entry.get("max") or "")
+                if observation["max"] and (not merged_max or observation["max"] > merged_max):
+                    merged_max = observation["max"]
+                existing[index] = {
+                    "collection": nsid,
+                    "count": int(entry.get("count") or 0) + int(observation.get("count") or 0),
+                    "recent_count": int(entry.get("recent_count") or 0) + int(observation.get("recent_count") or 0),
+                    "min": merged_min,
+                    "max": merged_max,
+                    "members": unique_list(existing_members + new_members),
+                    "source": source,
+                    "observed_at": iso_now(),
+                }
+            else:
+                existing[index] = observation
             replaced = True
             break
     if not replaced:
@@ -2339,8 +3228,15 @@ def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any],
     project["collection_observations"] = existing
 
 
-def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text())
+def import_collection_inventory_payload(
+    conn: sqlite3.Connection,
+    payload: Any,
+    *,
+    execute: bool,
+    create_unmatched: bool,
+    source: str,
+    merge_existing_observations: bool = False,
+) -> dict[str, Any]:
     if not isinstance(payload, list):
         raise ValueError("collection inventory must be a JSON array")
 
@@ -2390,6 +3286,8 @@ def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute:
     imported_project_keys: list[str] = []
     unmatched_entries: list[dict[str, Any]] = []
     merge_candidates: list[dict[str, Any]] = []
+    suggested_existing_matches = 0
+    suggested_entries: list[dict[str, Any]] = []
 
     for namespace, item in aggregated.items():
         authority_domain = derive_authority_domain_from_namespace(namespace)
@@ -2411,6 +3309,25 @@ def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute:
             project_key = service_host_lookup.get(service_host_key)
             if project_key:
                 match_kind = "service_host_family"
+        suggested_project_key = None
+        suggested_match_kind = ""
+        if project_key and match_kind and not sync_match_is_auto_attach_safe(match_kind):
+            suggested_project_key = project_key
+            suggested_match_kind = match_kind
+            suggested_existing_matches += 1
+            suggested_entries.append(
+                {
+                    "seed_type": "nsid",
+                    "seed_value": namespace,
+                    "representative_nsid": item.get("members", [namespace])[0] if item.get("members") else namespace,
+                    "suggested_project_key": suggested_project_key,
+                    "suggested_match_kind": suggested_match_kind,
+                    "count": int(item.get("count") or 0),
+                    "recent_count": int(item.get("recent_count") or 0),
+                }
+            )
+            project_key = None
+            match_kind = ""
         is_new = project_key is None
         if is_new and not create_unmatched:
             unmatched += 1
@@ -2423,6 +3340,13 @@ def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute:
                     "recent_count": int(item.get("recent_count") or 0),
                     "registrable_namespace": registrable_namespace,
                     "service_host_family": service_host_key,
+                    **(
+                        {
+                            "suggested_project_key": suggested_project_key,
+                            "suggested_match_kind": suggested_match_kind,
+                        }
+                        if suggested_project_key else {}
+                    ),
                 }
             )
             continue
@@ -2433,7 +3357,17 @@ def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute:
         project = fetch_project(conn, project_key) or default_project_record(project_key, "nsid", representative_nsid)
         add_manual_seed(project, "nsid", representative_nsid, source="collection_inventory_import")
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "collection_inventory_import")
-        upsert_collection_observation(project, item, source="collection_inventory_import")
+        if suggested_project_key and suggested_match_kind:
+            note = f"collection import suggested existing project {suggested_project_key} by weak match {suggested_match_kind}: {namespace}"
+            existing_note = str(project.get("notes") or "").strip()
+            if note not in existing_note.splitlines():
+                project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
+        upsert_collection_observation(
+            project,
+            item,
+            source="collection_inventory_import",
+            merge_existing=merge_existing_observations,
+        )
         if match_kind:
             note = f"collection import matched by {match_kind}: {namespace}"
             existing_note = str(project.get("notes") or "").strip()
@@ -2473,20 +3407,278 @@ def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute:
         )
     )
     return {
-        "source": "collection_inventory",
+        "source": source,
         "entries": len(payload),
         "namespaces": len(aggregated),
         "created": created,
         "updated": updated,
         "unmatched": unmatched,
+        "suggested_existing_matches": suggested_existing_matches,
         "rejected": len(rejected_entries),
         "mode": "execute" if execute else "dry_run",
         "create_unmatched": create_unmatched,
         "imported_project_keys": imported_project_keys,
         "merge_candidates": merge_candidates[:50],
+        "suggested_entries": suggested_entries[:100],
         "unmatched_entries": unmatched_entries[:100],
         "rejected_entries": rejected_entries[:100],
     }
+
+
+def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text())
+    return import_collection_inventory_payload(
+        conn,
+        payload,
+        execute=execute,
+        create_unmatched=create_unmatched,
+        source=f"collection_inventory_file:{path}",
+    )
+
+
+def fetch_collection_inventory(source_url: str) -> list[dict[str, Any]]:
+    payload = request_json(source_url)
+    if not isinstance(payload, list):
+        raise ValueError("collection inventory response must be a JSON array")
+    output: list[dict[str, Any]] = []
+    for item in payload:
+        if isinstance(item, dict):
+            output.append(dict(item))
+    return output
+
+
+def known_collection_nsids(projects: list[dict[str, Any]]) -> set[str]:
+    known: set[str] = set()
+    for project in projects:
+        for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("lexicons", [])):
+            normalized = normalize_nsid(str(value or ""))
+            if normalized:
+                known.add(normalized)
+        for seed in project.get("manual_seeds", []):
+            if str(seed.get("type") or "") != "nsid":
+                continue
+            normalized = normalize_nsid(str(seed.get("value") or ""))
+            if normalized:
+                known.add(normalized)
+        for observation in project.get("collection_observations", []):
+            if not isinstance(observation, dict):
+                continue
+            for member in observation.get("members", []):
+                normalized = normalize_nsid(str(member or ""))
+                if normalized:
+                    known.add(normalized)
+    return known
+
+
+def filter_sync_collection_inventory_payload(
+    payload: list[dict[str, Any]],
+    projects: list[dict[str, Any]],
+    *,
+    lookback_days: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+    known_nsids = known_collection_nsids(projects)
+    filtered: list[dict[str, Any]] = []
+    skipped_known = 0
+    skipped_old = 0
+    skipped_invalid_min = 0
+    skipped_invalid_collection = 0
+
+    for item in payload:
+        collection_nsid = normalize_nsid(str(item.get("collection") or ""))
+        if not collection_nsid:
+            skipped_invalid_collection += 1
+            continue
+        if collection_nsid in known_nsids:
+            skipped_known += 1
+            continue
+        min_at = parse_iso(str(item.get("min") or ""))
+        if min_at is None:
+            skipped_invalid_min += 1
+            continue
+        if min_at < cutoff:
+            skipped_old += 1
+            continue
+        filtered.append(item)
+
+    return filtered, {
+        "lookback_days": max(0, int(lookback_days)),
+        "cutoff_min": cutoff.replace(microsecond=0).isoformat(),
+        "fetched_entries": len(payload),
+        "eligible_entries": len(filtered),
+        "skipped_known": skipped_known,
+        "skipped_old": skipped_old,
+        "skipped_invalid_min": skipped_invalid_min,
+        "skipped_invalid_collection": skipped_invalid_collection,
+    }
+
+
+def refresh_known_collection_activity(
+    conn: sqlite3.Connection,
+    payload: list[dict[str, Any]],
+    *,
+    execute: bool,
+    source: str,
+    inactivity_days: int,
+) -> dict[str, Any]:
+    existing_projects = list_projects(conn)
+    namespace_lookup, _, _ = build_collection_project_matchers(existing_projects)
+    projects_by_key = {
+        str(project.get("project_key") or ""): ensure_project_shape(project)
+        for project in existing_projects
+        if str(project.get("project_key") or "")
+    }
+    aggregated: dict[str, dict[str, Any]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        collection_nsid = normalize_nsid(str(item.get("collection") or ""))
+        namespace = namespace_from_collection_nsid(collection_nsid)
+        if not namespace:
+            continue
+        registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
+        bucket = aggregated.setdefault(
+            registrable_namespace,
+            {
+                "collection": registrable_namespace,
+                "count": 0,
+                "recent_count": 0,
+                "min": str(item.get("min") or ""),
+                "max": str(item.get("max") or ""),
+                "members": [],
+            },
+        )
+        bucket["count"] += int(item.get("count") or 0)
+        bucket["recent_count"] += int(item.get("recent_count") or 0)
+        item_min = str(item.get("min") or "")
+        item_max = str(item.get("max") or "")
+        if item_min and (not bucket["min"] or item_min < bucket["min"]):
+            bucket["min"] = item_min
+        if item_max and (not bucket["max"] or item_max > bucket["max"]):
+            bucket["max"] = item_max
+        bucket["members"] = add_unique(bucket.get("members", []), collection_nsid)
+
+    refreshed_project_keys: list[str] = []
+    reactivated_project_keys: list[str] = []
+    changed_namespaces = 0
+    now = dt.datetime.now(dt.timezone.utc)
+    for namespace, item in aggregated.items():
+        project_key = namespace_lookup.get(namespace) or find_project_key_by_collection_namespace(existing_projects, namespace)
+        if not project_key:
+            continue
+        project = projects_by_key.get(project_key)
+        if not project:
+            continue
+        previous = None
+        for observation in project.get("collection_observations", []):
+            if isinstance(observation, dict) and normalize_nsid(str(observation.get("collection") or "")) == namespace:
+                previous = dict(observation)
+                break
+        current_signature = (
+            int(item.get("count") or 0),
+            int(item.get("recent_count") or 0),
+            str(item.get("min") or ""),
+            str(item.get("max") or ""),
+            tuple(sorted(item.get("members", []))),
+        )
+        previous_signature = None
+        if previous is not None:
+            previous_signature = (
+                int(previous.get("count") or 0),
+                int(previous.get("recent_count") or 0),
+                str(previous.get("min") or ""),
+                str(previous.get("max") or ""),
+                tuple(sorted(previous.get("members", []))) if isinstance(previous.get("members", []), list) else (),
+            )
+        if current_signature == previous_signature:
+            continue
+        changed_namespaces += 1
+        if execute:
+            upsert_collection_observation(project, item, source=source, merge_existing=False)
+            if str(project.get("tracking_state") or "active") == "stalled":
+                previous_max = parse_iso_datetime(str(previous.get("max") or "")) if previous else None
+                current_max = parse_iso_datetime(str(item.get("max") or ""))
+                recent_signal = int(item.get("recent_count") or 0) > 0
+                newer_signal = bool(current_max and (previous_max is None or current_max > previous_max))
+                still_recent = activity_is_recent(current_max, now, inactivity_days)
+                if recent_signal or newer_signal or still_recent:
+                    project["tracking_state"] = "active"
+                    reactivated_project_keys.append(project["project_key"])
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            projects_by_key[project_key] = project
+        refreshed_project_keys.append(project_key)
+
+    if execute and (refreshed_project_keys or reactivated_project_keys):
+        conn.commit()
+
+    return {
+        "activity_refreshed_namespace_count": changed_namespaces,
+        "activity_refreshed_project_count": len(set(refreshed_project_keys)),
+        "reactivated_project_count": len(set(reactivated_project_keys)),
+        "reactivated_project_keys": sorted(set(reactivated_project_keys))[:100],
+    }
+
+
+def sync_collection_inventory(
+    conn: sqlite3.Connection,
+    *,
+    source_url: str,
+    execute: bool,
+    create_unmatched: bool,
+    lookback_days: int,
+    save_path: Path | None = None,
+) -> dict[str, Any]:
+    payload = fetch_collection_inventory(source_url)
+    if save_path is not None:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    projects = all_projects(conn)
+    filtered_payload, filter_stats = filter_sync_collection_inventory_payload(
+        payload,
+        projects,
+        lookback_days=lookback_days,
+    )
+    activity_refresh = refresh_known_collection_activity(
+        conn,
+        payload,
+        execute=execute,
+        source=f"collection_inventory_url:{source_url}",
+        inactivity_days=lookback_days,
+    )
+    if not filtered_payload:
+        return {
+            "source": f"collection_inventory_url:{source_url}",
+            "source_url": source_url,
+            "mode": "execute" if execute else "dry_run",
+            "create_unmatched": create_unmatched,
+            "entries": 0,
+            "namespaces": 0,
+            "created": 0,
+            "updated": 0,
+            "unmatched": 0,
+            "rejected": 0,
+            "imported_project_keys": [],
+            "merge_candidates": [],
+            "unmatched_entries": [],
+            "rejected_entries": [],
+            **filter_stats,
+            **activity_refresh,
+            **({"saved_payload_path": str(save_path)} if save_path is not None else {}),
+        }
+    summary = import_collection_inventory_payload(
+        conn,
+        filtered_payload,
+        execute=execute,
+        create_unmatched=create_unmatched,
+        source=f"collection_inventory_url:{source_url}",
+        merge_existing_observations=True,
+    )
+    summary.update(filter_stats)
+    summary.update(activity_refresh)
+    summary["source_url"] = source_url
+    if save_path is not None:
+        summary["saved_payload_path"] = str(save_path)
+    return summary
 
 
 def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
@@ -2495,30 +3687,7 @@ def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool,
     posts: list[dict[str, Any]] = []
     for obj in objects:
         posts.extend(obj.get("posts", []))
-
-    entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
-    for post in posts:
-        for entry in extract_post_link_entries(post):
-            seed = applog_seed_from_url(entry["url"])
-            if seed is None:
-                continue
-            seed_type, seed_value = seed
-            key = (seed_type, seed_value)
-            bucket = entries_by_seed.setdefault(
-                key,
-                {
-                    "seed_type": seed_type,
-                    "seed_value": seed_value,
-                    "labels": [],
-                    "post_web_urls": [],
-                },
-            )
-            label = clean_imported_name(entry.get("label", ""))
-            if label and label not in bucket["labels"]:
-                bucket["labels"].append(label)
-            post_web = str(entry.get("post_web_url") or "")
-            if post_web and post_web not in bucket["post_web_urls"]:
-                bucket["post_web_urls"].append(post_web)
+    entries_by_seed = collect_applog_entries(posts)
 
     created = 0
     updated = 0
@@ -2599,6 +3768,427 @@ def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool,
     }
 
 
+def sync_introduced_entries(
+    conn: sqlite3.Connection,
+    *,
+    query: str,
+    execute: bool,
+    limit: int,
+    max_pages: int = 4,
+) -> dict[str, Any]:
+    posts: list[dict[str, Any]] = []
+    cursor = ""
+    fetched_posts = 0
+    pages = 0
+    while pages < max(1, max_pages) and fetched_posts < max(1, limit):
+        payload = search_bsky_posts_payload(query, limit=min(100, max(1, limit - fetched_posts)), cursor=cursor)
+        page_posts = [item for item in payload.get("posts", []) if isinstance(item, dict)]
+        if not page_posts:
+            break
+        posts.extend(page_posts)
+        fetched_posts += len(page_posts)
+        pages += 1
+        next_cursor = str(payload.get("cursor") or "").strip()
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+
+    entries_by_seed = collect_applog_entries(posts)
+    updated = 0
+    already_introduced = 0
+    unmatched = 0
+    imported_project_keys: list[str] = []
+    unmatched_entries: list[dict[str, Any]] = []
+
+    for item in entries_by_seed.values():
+        seed_type = str(item["seed_type"])
+        seed_value = str(item["seed_value"])
+        project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
+        if project_key is None:
+            unmatched += 1
+            unmatched_entries.append(
+                {
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "label": item["labels"][0] if item["labels"] else "",
+                    "introduced_url": item["post_web_urls"][0] if item["post_web_urls"] else "",
+                }
+            )
+            continue
+        project = fetch_project(conn, project_key)
+        if project is None:
+            unmatched += 1
+            continue
+        if project.get("introduced"):
+            already_introduced += 1
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
+        project["introduced"] = True
+        if not project.get("introduced_url") and item["post_web_urls"]:
+            project["introduced_url"] = item["post_web_urls"][0]
+        project = finalize_project_shape(project)
+        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+        project["merge_recommendation"] = compute_merge_recommendation(project)
+        imported_project_keys.append(project["project_key"])
+        if execute:
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        updated += 1
+    if execute:
+        conn.commit()
+
+    return {
+        "query": query,
+        "posts": len(posts),
+        "entries": len(entries_by_seed),
+        "updated": updated,
+        "already_introduced": already_introduced,
+        "unmatched": unmatched,
+        "mode": "execute" if execute else "dry_run",
+        "imported_project_keys": imported_project_keys,
+        "unmatched_entries": unmatched_entries[:100],
+    }
+
+
+def github_search_query_with_defaults(query: str) -> str:
+    cleaned = str(query or "").strip()
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    qualifiers: list[str] = []
+    if "fork:" not in lowered:
+        qualifiers.append("fork:false")
+    if "archived:" not in lowered:
+        qualifiers.append("archived:false")
+    return " ".join([cleaned, *qualifiers]).strip()
+
+
+def fetch_github_search_sync_results(queries: list[str], *, pages: int, per_page: int) -> list[dict[str, Any]]:
+    headers = github_headers()
+    deduped: dict[str, dict[str, Any]] = {}
+    for raw_query in queries:
+        query = github_search_query_with_defaults(raw_query)
+        if not query:
+            continue
+        for page in range(1, max(1, pages) + 1):
+            params = urllib.parse.urlencode(
+                {
+                    "q": query,
+                    "type": "Repositories",
+                    "sort": "updated",
+                    "order": "desc",
+                    "per_page": str(max(1, min(per_page, 100))),
+                    "page": str(page),
+                }
+            )
+            payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
+            items = payload.get("items", [])
+            for raw in items:
+                html_url = str(raw.get("html_url") or "")
+                normalized_repo = normalize_github_repo_url(html_url)
+                if not normalized_repo:
+                    continue
+                entry = {
+                    "url": normalized_repo,
+                    "full_name": str(raw.get("full_name") or ""),
+                    "description": str(raw.get("description") or ""),
+                    "homepage": str(raw.get("homepage") or ""),
+                    "updated_at": str(raw.get("updated_at") or ""),
+                    "stargazers_count": int(raw.get("stargazers_count") or 0),
+                    "query": raw_query,
+                }
+                existing = deduped.get(normalized_repo)
+                if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
+                    deduped[normalized_repo] = entry
+            if len(items) < max(1, min(per_page, 100)):
+                break
+    results = list(deduped.values())
+    results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
+    return results
+
+
+ATPROTO_REPO_SCREEN_KEYWORDS = (
+    "atproto",
+    "at protocol",
+    "bluesky",
+    "lexicon",
+    "xrpc",
+    "did:plc",
+    "at://",
+    "com.atproto",
+    "app.bsky",
+    "createrecord",
+)
+
+
+def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
+    repo_url = normalize_url(str(entry.get("url") or ""))
+    if not repo_url:
+        return {"allow": False, "reasons": ["missing_repo_url"]}
+    try:
+        data = fetch_github_repo(repo_url)
+    except Exception as exc:
+        return {"allow": False, "reasons": ["fetch_failed"], "error": str(exc)}
+
+    repo = data.get("repo", {}) if isinstance(data.get("repo", {}), dict) else {}
+    readme_text = str(data.get("readme_text") or "")
+    repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
+    default_branch = str(data.get("default_branch") or "")
+    description = str(repo.get("description") or "")
+    homepage = normalize_service_candidate_url(str(repo.get("homepage") or ""))
+    lowered_text = "\n".join([description, readme_text]).lower()
+    keyword_hits = [keyword for keyword in ATPROTO_REPO_SCREEN_KEYWORDS if keyword in lowered_text]
+    repo_lexicons = repo_lexicon_hints(repo_url, ref=default_branch, tree=repo_tree)
+    lexicon_paths = github_repo_candidate_lexicon_paths(repo_tree)
+
+    temp_project = default_project_record("proj:screen", "repo_url", repo_url)
+    enrich_from_github_repo(temp_project, repo_url)
+
+    reasons: list[str] = []
+    if repo_lexicons:
+        reasons.append("repo_lexicon_hint")
+    if lexicon_paths:
+        reasons.append("lexicon_like_paths")
+    if temp_project.get("input_nsids"):
+        reasons.append("derived_nsid")
+    if temp_project.get("lexicon_schema_samples"):
+        reasons.append("lexicon_schema_sample")
+    if homepage:
+        reasons.append("repo_homepage")
+    if temp_project.get("service_url_candidates") or temp_project.get("website_url_candidates"):
+        reasons.append("derived_service_candidate")
+    if keyword_hits:
+        reasons.append("atproto_keywords")
+
+    allow = bool(reasons)
+    return {
+        "allow": allow,
+        "reasons": unique_list(reasons),
+        "keyword_hits": keyword_hits[:12],
+        "lexicon_ids": [str(item.get("nsid") or "") for item in repo_lexicons if item.get("nsid")][:12],
+        "homepage": homepage,
+        "service_url_candidates": unique_list(list(temp_project.get("service_url_candidates", [])))[:10],
+    }
+
+
+def resolve_github_search_project_key(
+    conn: sqlite3.Connection,
+    entry: dict[str, Any],
+    *,
+    service_host_lookup: dict[str, str],
+) -> tuple[str | None, str]:
+    repo_url = normalize_url(str(entry.get("url") or ""))
+    if repo_url:
+        project_key = find_project_key_by_identifier(conn, "repo_url", repo_url)
+        if project_key:
+            return project_key, "repo_url"
+
+    homepage = normalize_service_candidate_url(str(entry.get("homepage") or ""))
+    if homepage:
+        project_key = find_project_key_by_identifier(conn, "service_url", homepage)
+        if project_key:
+            return project_key, "homepage_exact"
+        host = urllib.parse.urlparse(homepage).netloc.lower()
+        host_family = root_domain(host)
+        if host_family:
+            project_key = service_host_lookup.get(host_family)
+            if project_key:
+                return project_key, "homepage_family"
+    return None, ""
+
+
+def sync_github_search(
+    conn: sqlite3.Connection,
+    *,
+    queries: list[str],
+    execute: bool,
+    create_unmatched: bool,
+    pages: int,
+    per_page: int,
+    lookback_days: int | None,
+    screen_unmatched: bool = False,
+) -> dict[str, Any]:
+    results = fetch_github_search_sync_results(queries, pages=pages, per_page=per_page)
+    existing_projects = list_projects(conn)
+    _, _, service_host_lookup = build_collection_project_matchers(existing_projects)
+    known_repo_urls = {
+        normalize_url(url)
+        for project in existing_projects
+        for url in (
+            list(project.get("source_code_urls", []))
+            + list(project.get("github_repo_urls", []))
+            + list(project.get("tangled_repo_urls", []))
+        )
+        if normalize_url(url)
+    }
+    existing_keys = {str(project["project_key"]) for project in existing_projects}
+    cutoff = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+        if lookback_days is not None else None
+    )
+
+    eligible: list[dict[str, Any]] = []
+    skipped_known = 0
+    skipped_old = 0
+    for entry in results:
+        repo_url = normalize_url(str(entry.get("url") or ""))
+        if not repo_url:
+            continue
+        if repo_url in known_repo_urls:
+            skipped_known += 1
+            continue
+        updated_at = parse_iso(str(entry.get("updated_at") or ""))
+        if cutoff is not None and updated_at and updated_at < cutoff:
+            skipped_old += 1
+            continue
+        eligible.append(entry)
+
+    created = 0
+    unmatched = 0
+    imported_project_keys: list[str] = []
+    unmatched_entries: list[dict[str, Any]] = []
+    matched_existing = 0
+    match_reasons: dict[str, int] = {}
+    suggested_existing_matches = 0
+    suggested_entries: list[dict[str, Any]] = []
+    screened_out = 0
+    screened_out_entries: list[dict[str, Any]] = []
+    screen_reason_counts: dict[str, int] = {}
+
+    for entry in eligible:
+        repo_url = normalize_url(str(entry.get("url") or ""))
+        if not repo_url:
+            continue
+        project_key, match_kind = resolve_github_search_project_key(
+            conn,
+            entry,
+            service_host_lookup=service_host_lookup,
+        )
+        suggested_project_key = None
+        suggested_match_kind = ""
+        if project_key and match_kind and not sync_match_is_auto_attach_safe(match_kind):
+            suggested_project_key = project_key
+            suggested_match_kind = match_kind
+            suggested_existing_matches += 1
+            suggested_entries.append(
+                {
+                    "seed_type": "repo_url",
+                    "seed_value": repo_url,
+                    "full_name": str(entry.get("full_name") or ""),
+                    "description": str(entry.get("description") or ""),
+                    "updated_at": str(entry.get("updated_at") or ""),
+                    "suggested_project_key": suggested_project_key,
+                    "suggested_match_kind": suggested_match_kind,
+                }
+            )
+            project_key = None
+            match_kind = ""
+        is_new = project_key is None
+        if is_new and not create_unmatched:
+            unmatched += 1
+            unmatched_entries.append(
+                {
+                    "seed_type": "repo_url",
+                    "seed_value": repo_url,
+                    "full_name": str(entry.get("full_name") or ""),
+                    "description": str(entry.get("description") or ""),
+                    "updated_at": str(entry.get("updated_at") or ""),
+                    "stargazers_count": int(entry.get("stargazers_count") or 0),
+                    "query": str(entry.get("query") or ""),
+                    **(
+                        {
+                            "suggested_project_key": suggested_project_key,
+                            "suggested_match_kind": suggested_match_kind,
+                        }
+                        if suggested_project_key else {}
+                    ),
+                }
+            )
+            continue
+        if is_new and create_unmatched and screen_unmatched:
+            try:
+                screen = screen_github_repo_sync_candidate(entry)
+            except Exception as exc:
+                screen = {"allow": False, "reasons": ["screen_failed"], "error": str(exc)}
+            for reason in screen.get("reasons", []) if isinstance(screen.get("reasons", []), list) else []:
+                screen_reason_counts[str(reason)] = int(screen_reason_counts.get(str(reason), 0)) + 1
+            if not screen.get("allow"):
+                screened_out += 1
+                screened_out_entries.append(
+                    {
+                        "seed_type": "repo_url",
+                        "seed_value": repo_url,
+                        "full_name": str(entry.get("full_name") or ""),
+                        "description": str(entry.get("description") or ""),
+                        "updated_at": str(entry.get("updated_at") or ""),
+                        "stargazers_count": int(entry.get("stargazers_count") or 0),
+                        "query": str(entry.get("query") or ""),
+                        "screen": screen,
+                    }
+                )
+                continue
+        if project_key is None:
+            project_key = generate_project_key(existing_keys)
+            existing_keys.add(project_key)
+        else:
+            matched_existing += 1
+            if match_kind:
+                match_reasons[match_kind] = int(match_reasons.get(match_kind, 0)) + 1
+        project = fetch_project(conn, project_key) or default_project_record(project_key, "repo_url", repo_url)
+        add_manual_seed(project, "repo_url", repo_url, source="github_repo_search_sync")
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "github_repo_search_sync")
+        description = str(entry.get("description") or "").strip()
+        if description:
+            add_candidate_text(project, "summary", description, f"github_search_sync:{entry.get('query') or ''}")
+            add_candidate_text(project, "tagline", description, f"github_search_sync:{entry.get('query') or ''}")
+        homepage = normalize_service_candidate_url(str(entry.get("homepage") or ""))
+        if homepage:
+            add_candidate_url(project, "service_url", homepage)
+            add_candidate_url(project, "website_url", homepage)
+        if suggested_project_key and suggested_match_kind:
+            suggestion = f"github search sync suggested existing project {suggested_project_key} by weak match {suggested_match_kind}: {repo_url}"
+            existing_note = str(project.get("notes") or "").strip()
+            if suggestion not in existing_note.splitlines():
+                project["notes"] = "\n".join([part for part in [existing_note, suggestion] if part]).strip()
+        note = f"github search sync matched query={entry.get('query') or ''} updated_at={entry.get('updated_at') or ''} stars={int(entry.get('stargazers_count') or 0)}"
+        existing_note = str(project.get("notes") or "").strip()
+        if note not in existing_note.splitlines():
+            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
+        if match_kind and match_kind not in existing_note.splitlines():
+            project["notes"] = "\n".join([part for part in [str(project.get("notes") or "").strip(), f"github search sync matched by {match_kind}: {repo_url}"] if part]).strip()
+        project = finalize_project_shape(project)
+        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+        project["merge_recommendation"] = compute_merge_recommendation(project)
+        imported_project_keys.append(project["project_key"])
+        if execute:
+            save_project(conn, project, enriched=False)
+        if is_new:
+            created += 1
+    if execute:
+        conn.commit()
+
+    return {
+        "queries": queries,
+        "fetched_repos": len(results),
+        "eligible_repos": len(eligible),
+        "skipped_known": skipped_known,
+        "skipped_old": skipped_old,
+        "screen_unmatched": bool(screen_unmatched),
+        "screened_out": screened_out,
+        "created": created,
+        "matched_existing": matched_existing,
+        "suggested_existing_matches": suggested_existing_matches,
+        "match_reasons": match_reasons,
+        "screen_reason_counts": screen_reason_counts,
+        "unmatched": unmatched,
+        "mode": "execute" if execute else "dry_run",
+        "create_unmatched": create_unmatched,
+        "lookback_days": lookback_days,
+        "imported_project_keys": imported_project_keys,
+        "suggested_entries": suggested_entries[:100],
+        "screened_out_entries": screened_out_entries[:100],
+        "unmatched_entries": unmatched_entries[:100],
+    }
+
+
 def infer_service_status(status_code: int, text: str) -> str:
     lowered = text.lower()
     if status_code >= 500:
@@ -2652,6 +4242,101 @@ def probe_service_url(url: str) -> dict[str, Any]:
         "html": html,
         "service_status": infer_service_status(status_code, f"{title}\n{description}\n{html[:5000]}"),
     }
+
+
+PARKED_DOMAIN_MARKERS = (
+    "domain is for sale",
+    "this domain is for sale",
+    "buy this domain",
+    "domain may be for sale",
+    "parked free",
+    "parkingcrew",
+    "sedo domain parking",
+    "afternic",
+    "dan.com",
+    "undeveloped",
+)
+
+ATPROTO_EVIDENCE_MARKERS = (
+    "atproto",
+    "bluesky",
+    "lexicon",
+    "xrpc",
+    "did:plc:",
+    "com.atproto",
+)
+
+
+def service_probe_looks_parked(result: dict[str, Any]) -> bool:
+    text = "\n".join(
+        [
+            str(result.get("title") or ""),
+            str(result.get("description") or ""),
+            str(result.get("html") or "")[:12000],
+        ]
+    ).lower()
+    return any(marker in text for marker in PARKED_DOMAIN_MARKERS)
+
+
+def service_probe_supports_project(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
+    host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
+    if not host or service_probe_looks_parked(result):
+        return False
+    text = "\n".join(
+        [
+            str(result.get("title") or ""),
+            str(result.get("description") or ""),
+            str(result.get("html") or "")[:20000],
+        ]
+    ).lower()
+    nsids = {
+        normalize_nsid(value)
+        for value in (
+            list(project.get("input_nsids", []))
+            + list(project.get("resolved_nsids", []))
+            + ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+        )
+        if normalize_nsid(value)
+    }
+    if any(nsid.lower() in text for nsid in nsids):
+        return True
+
+    authority_domains = {
+        str(domain or "").strip().lower()
+        for domain in project.get("authority_domains", [])
+        if str(domain or "").strip()
+    }
+    mentions_authority = any(domain in text for domain in authority_domains)
+    mentions_atproto = any(marker in text for marker in ATPROTO_EVIDENCE_MARKERS)
+    if mentions_authority and mentions_atproto:
+        return True
+
+    alias_tokens = {
+        token
+        for token in project_alias_tokens(project)
+        if token and len(token) >= 4
+    }
+    if alias_tokens and mentions_atproto:
+        compact_text = re.sub(r"[^a-z0-9]+", "", text)
+        if any(token in compact_text for token in alias_tokens):
+            return True
+
+    for link in result.get("links", []):
+        if not isinstance(link, dict):
+            continue
+        url = normalize_url(str(link.get("url") or ""))
+        if not url:
+            continue
+        if normalize_github_repo_url(url) and repo_url_allowed_for_project(project, url):
+            return True
+        if "/profile/" in urllib.parse.urlparse(url).path and "bsky.app" in urllib.parse.urlparse(url).netloc:
+            handle = extract_bluesky_profile_handle(url)
+            if handle and handle in set(project.get("bluesky_handles", [])):
+                return True
+
+    if host in manual_service_hosts(project):
+        return True
+    return False
 
 
 def collect_first_party_links(project: dict[str, Any], base_url: str, links: list[dict[str, str]], source: str) -> list[str]:
@@ -2744,10 +4429,25 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
             readme_text = base64.b64decode(content).decode("utf-8", errors="replace")
     except Exception:
         readme_text = ""
-    return {"repo": payload, "readme_text": readme_text}
+    repo_tree: list[dict[str, Any]] = []
+    default_branch = str(payload.get("default_branch") or "")
+    if default_branch:
+        try:
+            branch_ref = urllib.parse.quote(default_branch, safe="")
+            tree_payload = request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
+            tree = tree_payload.get("tree", [])
+            if isinstance(tree, list):
+                repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
+        except Exception:
+            repo_tree = []
+    return {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
 
 
 def search_github_repositories(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    cache_key = (str(query or "").strip(), int(limit))
+    cached = _GITHUB_REPO_SEARCH_CACHE.get(cache_key)
+    if cached is not None:
+        return [dict(item) for item in cached]
     headers = github_headers()
     params = urllib.parse.urlencode({"q": query, "per_page": max(1, min(limit, 10)), "sort": "updated", "order": "desc"})
     payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
@@ -2767,6 +4467,7 @@ def search_github_repositories(query: str, limit: int = 5) -> list[dict[str, Any
                 "stargazers_count": int(item.get("stargazers_count") or 0),
             }
         )
+    _GITHUB_REPO_SEARCH_CACHE[cache_key] = [dict(item) for item in results]
     return results
 
 
@@ -2786,18 +4487,119 @@ def search_bsky_actors(query: str, limit: int = 5) -> list[dict[str, Any]]:
     return results
 
 
-def search_bsky_posts(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    params = urllib.parse.urlencode({"q": query, "limit": max(1, min(limit, 10))})
-    payload: dict[str, Any]
-    auth_error: str | None = None
+def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
+    slug = extract_github_slug(repo_url)
+    if slug is None:
+        return ""
+    normalized_path = str(path or "").strip().lstrip("/")
+    if not normalized_path:
+        return ""
+    headers = github_headers()
+    query = f"?{urllib.parse.urlencode({'ref': ref})}" if ref else ""
+    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
+    payload = request_json(f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=headers)
+    content = str(payload.get("content") or "")
+    if not content:
+        return ""
     try:
-        payload = request_json_authenticated(
-            f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}",
-            bsky_access_token(),
-        )
-    except Exception as exc:
-        auth_error = str(exc)
-        payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.searchPosts?{params}")
+        return base64.b64decode(content).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]:
+    scored: list[tuple[int, str]] = []
+    for item in tree:
+        if str(item.get("type") or "") != "blob":
+            continue
+        path = str(item.get("path") or "").strip()
+        lowered = path.lower()
+        if not path or not lowered.endswith(".json"):
+            continue
+        if int(item.get("size") or 0) > 200_000:
+            continue
+        score = 0
+        if "/lexicon/" in f"/{lowered}/" or "/lexicons/" in f"/{lowered}/":
+            score += 5
+        if "/schema/" in f"/{lowered}/" or "/schemas/" in f"/{lowered}/":
+            score += 2
+        if any(token in lowered for token in (".lexicon.json", "lexicon.", "/lexicon", "/lexicons")):
+            score += 3
+        if lowered.count(".") >= 3:
+            score += 1
+        if score <= 0:
+            continue
+        scored.append((score, path))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return unique_list([path for _, path in scored[:16]])
+
+
+def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) -> bool:
+    lowered = str(path or "").lower()
+    if not nsid or not re.fullmatch(NSID_PATTERN, nsid):
+        return False
+    if isinstance(payload.get("lexicon"), int) and isinstance(payload.get("defs"), dict):
+        return True
+    if isinstance(payload.get("defs"), dict) and ("/lexicon" in lowered or "/lexicons" in lowered):
+        return True
+    basename = lowered.rsplit("/", 1)[-1]
+    nsid_tail = nsid.split(".")[-1].lower()
+    nsid_pathish = nsid.lower().replace(".", "/")
+    if basename.endswith(f"{nsid_tail}.json"):
+        return True
+    if nsid.lower().replace(".", ".") in basename:
+        return True
+    if nsid_pathish.replace("/", ".") in lowered.replace("/", "."):
+        return True
+    return False
+
+
+def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path in github_repo_candidate_lexicon_paths(tree):
+        text = github_repo_file_text(repo_url, path, ref=ref)
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        nsid = normalize_nsid(str(payload.get("id") or ""))
+        if not repo_json_looks_like_lexicon(path, payload, nsid):
+            continue
+        if nsid in seen:
+            continue
+        seen.add(nsid)
+        hints.append({"nsid": nsid, "path": path, "schema": payload})
+    return hints
+
+
+def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
+    normalized = normalize_service_candidate_url(url)
+    if not normalized:
+        return False
+    if service_candidate_matches_project(project, normalized):
+        return True
+    host = urllib.parse.urlparse(normalized).netloc.lower()
+    if not host:
+        return False
+    tokens = set(project_merge_aliases(project))
+    slug = extract_github_slug(repo_url)
+    if slug:
+        tokens.add(normalize_alias_token(slug.split("/", 1)[-1]))
+    for nsid in lexicon_ids:
+        authority_domain = derive_authority_domain(nsid)
+        if authority_domain:
+            tokens.add(normalize_alias_token(authority_domain.split(".", 1)[0]))
+    normalized_host = host.replace("-", "").replace("_", "")
+    return any(token and token in normalized_host for token in tokens)
+
+
+def search_bsky_posts(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    payload = search_bsky_posts_payload(query, limit=limit)
     results: list[dict[str, Any]] = []
     for item in payload.get("posts", [])[:limit]:
         author = item.get("author", {}) if isinstance(item.get("author"), dict) else {}
@@ -2812,10 +4614,31 @@ def search_bsky_posts(query: str, limit: int = 5) -> list[dict[str, Any]]:
                 "author_did": str(author.get("did") or ""),
             }
         )
-    if auth_error and results:
-        for item in results:
-            item["auth_warning"] = auth_error
     return results
+
+
+def search_bsky_posts_payload(query: str, *, limit: int = 25, cursor: str = "") -> dict[str, Any]:
+    params_dict: dict[str, Any] = {"q": query, "limit": max(1, min(limit, 100))}
+    if cursor:
+        params_dict["cursor"] = cursor
+    params = urllib.parse.urlencode(params_dict)
+    url = f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}"
+    headers = {"atproto-proxy": BSKY_APPVIEW_PROXY}
+    try:
+        payload = request_json_authenticated(url, bsky_access_token(), headers=headers)
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        if exc.code == 401 or (exc.code == 400 and ("InvalidToken" in body or "ExpiredToken" in body)):
+            refreshed = bsky_refresh_session()
+            payload = request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers)
+        else:
+            snippet = body[:300].strip()
+            raise RuntimeError(f"Bluesky post search failed HTTP {exc.code}: {snippet or exc.reason}") from exc
+    return payload if isinstance(payload, dict) else {}
 
 
 def fetch_bsky_author_feed(actor: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -2831,11 +4654,53 @@ def fetch_bsky_author_feed(actor: str, limit: int = 10) -> list[dict[str, Any]]:
             {
                 "uri": str(post.get("uri") or ""),
                 "text": text,
-                "urls": extract_urls(text),
+                "urls": bsky_record_urls(record),
                 "author_handle": str(author.get("handle") or actor),
             }
         )
     return results
+
+
+def fetch_bsky_profile(actor: str) -> dict[str, Any]:
+    params = urllib.parse.urlencode({"actor": actor})
+    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.getProfile?{params}")
+    return payload if isinstance(payload, dict) else {}
+
+
+def fetch_bsky_post_by_web_url(url: str) -> dict[str, Any]:
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.netloc != "bsky.app":
+        return {}
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) < 4 or segments[0] != "profile" or segments[2] != "post":
+        return {}
+    actor = segments[1]
+    rkey = segments[3]
+    profile = fetch_bsky_profile(actor)
+    did = str(profile.get("did") or "")
+    if not did:
+        return {}
+    params = urllib.parse.urlencode({"uris": f"at://{did}/app.bsky.feed.post/{rkey}"})
+    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getPosts?{params}")
+    posts = payload.get("posts", []) if isinstance(payload, dict) else []
+    return posts[0] if posts else {}
+
+
+def bsky_record_urls(record: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    facets = record.get("facets", []) if isinstance(record.get("facets", []), list) else []
+    for facet in facets:
+        if not isinstance(facet, dict):
+            continue
+        for feature in facet.get("features", []) if isinstance(facet.get("features", []), list) else []:
+            if not isinstance(feature, dict):
+                continue
+            uri = str(feature.get("uri") or "").strip()
+            if uri:
+                urls.append(uri)
+    urls.extend(extract_urls(str(record.get("text") or "")))
+    return unique_list(urls)
 
 
 def resolve_dns_txt(name: str) -> list[str]:
@@ -2875,6 +4740,123 @@ def extract_pds_url(did_doc: dict[str, Any]) -> str:
         if service_type == "AtprotoPersonalDataServer" or service_id.endswith("#atproto_pds"):
             return str(service.get("serviceEndpoint") or "").rstrip("/")
     return ""
+
+
+def compact_json_value(value: Any, *, depth: int = 0, max_depth: int = 3, max_items: int = 8, max_string: int = 240) -> Any:
+    if depth >= max_depth:
+        if isinstance(value, dict):
+            return f"... {len(value)} keys"
+        if isinstance(value, list):
+            return f"... {len(value)} items"
+        if isinstance(value, str):
+            return value[:max_string]
+        return value
+    if isinstance(value, dict):
+        output: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= max_items:
+                output["..."] = f"{len(value) - max_items} more keys"
+                break
+            output[str(key)] = compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
+        return output
+    if isinstance(value, list):
+        items = [
+            compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
+            for item in value[:max_items]
+        ]
+        if len(value) > max_items:
+            items.append(f"... {len(value) - max_items} more items")
+        return items
+    if isinstance(value, str):
+        return value[:max_string]
+    return value
+
+
+def summarize_lexicon_schema(nsid: str, schema: dict[str, Any]) -> dict[str, Any]:
+    defs = schema.get("defs", {}) if isinstance(schema.get("defs"), dict) else {}
+    return {
+        "nsid": normalize_nsid(nsid),
+        "id": str(schema.get("id") or normalize_nsid(nsid)),
+        "lexicon": schema.get("lexicon"),
+        "description": str(schema.get("description") or ""),
+        "defs": compact_json_value(defs, max_depth=3, max_items=6, max_string=200),
+    }
+
+
+def upsert_lexicon_schema_sample(project: dict[str, Any], nsid: str, schema: dict[str, Any]) -> None:
+    sample = summarize_lexicon_schema(nsid, schema)
+    existing = [dict(item) for item in project.get("lexicon_schema_samples", []) if isinstance(item, dict)]
+    replaced = False
+    for index, entry in enumerate(existing):
+        if normalize_nsid(str(entry.get("nsid") or "")) == sample["nsid"]:
+            existing[index] = sample
+            replaced = True
+            break
+    if not replaced:
+        existing.append(sample)
+    project["lexicon_schema_samples"] = existing[:12]
+
+
+def fetch_recent_record_samples(collections: list[str]) -> list[dict[str, Any]]:
+    normalized = unique_list([normalize_nsid(value) for value in collections if normalize_nsid(value)])
+    if not normalized:
+        return []
+    params = urllib.parse.urlencode([("collection", value) for value in normalized])
+    payload = request_json(f"{UFOS_API}/records?{params}")
+    if not isinstance(payload, list):
+        raise ValueError("UFOs record sample response must be a JSON array")
+    samples: list[dict[str, Any]] = []
+    per_collection_counts: dict[str, int] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        collection = normalize_nsid(str(item.get("collection") or ""))
+        if not collection:
+            continue
+        count = per_collection_counts.get(collection, 0)
+        if count >= 3:
+            continue
+        per_collection_counts[collection] = count + 1
+        samples.append(
+            {
+                "collection": collection,
+                "did": str(item.get("did") or ""),
+                "rkey": str(item.get("rkey") or ""),
+                "time_us": int(item.get("time_us") or 0),
+                "record": compact_json_value(item.get("record", {}), max_depth=3, max_items=8, max_string=240),
+            }
+        )
+    return samples[:18]
+
+
+def fetch_collection_first_creator_did(collection: str) -> str:
+    normalized = normalize_nsid(collection)
+    if not normalized:
+        return ""
+    if normalized in _COLLECTION_FIRST_CREATOR_DID_CACHE:
+        return str(_COLLECTION_FIRST_CREATOR_DID_CACHE[normalized] or "")
+    params = urllib.parse.urlencode({"collection": normalized, "limit": 1})
+    payload = request_json(f"{BSKY_SYNC_API}/xrpc/com.atproto.sync.listReposByCollection?{params}")
+    repos = payload.get("repos", []) if isinstance(payload, dict) else []
+    did = ""
+    if isinstance(repos, list):
+        for item in repos:
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("did") or "").strip()
+            if candidate:
+                did = candidate
+                break
+    _COLLECTION_FIRST_CREATOR_DID_CACHE[normalized] = did or None
+    return did
+
+
+def refresh_recent_record_samples(project: dict[str, Any]) -> None:
+    collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+    if not collections:
+        project["recent_record_samples"] = []
+        return
+    project["recent_record_samples"] = fetch_recent_record_samples(collections)
 
 
 def resolve_lexicon_authority_did(authority_domain: str) -> str:
@@ -2937,12 +4919,13 @@ def enrich_from_lexicon(project: dict[str, Any], nsid: str) -> None:
     authority_domain = derive_authority_domain(resolved_nsid)
     if authority_domain:
         project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-        candidate_url = f"https://{authority_domain}"
-        add_candidate_url(project, "website_url", candidate_url)
-        add_candidate_url(project, "service_url", candidate_url)
+        for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
+            add_candidate_url(project, "website_url", candidate_url)
+            add_candidate_url(project, "service_url", candidate_url)
     description = str(schema.get("description") or "")
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
+    upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
     if not project.get("name"):
         project["name"] = resolved_nsid.split(".")[-1]
 
@@ -2951,9 +4934,12 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
     data = fetch_github_repo(repo_url)
     repo = data["repo"]
     readme_text = data["readme_text"]
+    repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
+    default_branch = str(data.get("default_branch") or "")
     description = str(repo.get("description") or "")
     homepage = str(repo.get("homepage") or "")
     full_name = str(repo.get("full_name") or "")
+    repo_updated_at = str(repo.get("updated_at") or "")
     confirm_source_code_url(
         project,
         repo_url,
@@ -2962,6 +4948,7 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
         reason="registered manually as repository seed",
         evidence_kind="manual_seed",
         evidence_url=repo_url,
+        updated_at=repo_updated_at,
     )
     project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalize_url(repo_url))
     if full_name and not project.get("name"):
@@ -2973,6 +4960,38 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
         if normalized_homepage:
             add_candidate_url(project, "service_url", normalized_homepage)
             add_candidate_url(project, "website_url", normalized_homepage)
+    repo_lexicons = repo_lexicon_hints(repo_url, ref=default_branch, tree=repo_tree)
+    repo_lexicon_ids = [item["nsid"] for item in repo_lexicons if item.get("nsid")]
+    for item in repo_lexicons:
+        nsid = str(item.get("nsid") or "")
+        if not nsid:
+            continue
+        if not project_owned_lexicon_nsid(project, nsid):
+            add_investigation_log(
+                project,
+                "github_repo_lexicon_reference",
+                repo_url=normalize_url(repo_url),
+                nsid=nsid,
+                path=str(item.get("path") or ""),
+            )
+            continue
+        project["input_nsids"] = add_unique(project.get("input_nsids", []), nsid)
+        authority_domain = derive_authority_domain(nsid)
+        if authority_domain:
+            project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
+            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
+                add_candidate_url(project, "website_url", candidate_url)
+                add_candidate_url(project, "service_url", candidate_url)
+        schema = item.get("schema")
+        if isinstance(schema, dict):
+            upsert_lexicon_schema_sample(project, nsid, schema)
+        add_investigation_log(
+            project,
+            "github_repo_lexicon_hint",
+            repo_url=normalize_url(repo_url),
+            nsid=nsid,
+            path=str(item.get("path") or ""),
+        )
     urls = extract_urls(readme_text)
     for url in urls:
         parsed = urllib.parse.urlparse(url)
@@ -2988,6 +5007,7 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
                         reason="linked from repository README",
                         evidence_kind="readme_link",
                         evidence_url=repo_url,
+                        updated_at=repo_updated_at if normalized_repo == normalize_github_repo_url(repo_url) else "",
                     )
                 elif repo_url_allowed_for_project(project, normalized_repo):
                     add_candidate_source_code_url(
@@ -2998,10 +5018,11 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
                         evidence_kind="readme_link",
                         evidence_url=repo_url,
                         relation="readme_link",
+                        updated_at=repo_updated_at if normalized_repo == normalize_github_repo_url(repo_url) else "",
                     )
         elif parsed.scheme in {"http", "https"}:
             normalized_service = normalize_service_candidate_url(url)
-            if normalized_service and service_candidate_matches_project(project, normalized_service):
+            if normalized_service and repo_context_service_candidate_allowed(project, normalized_service, repo_url=repo_url, lexicon_ids=repo_lexicon_ids):
                 add_candidate_url(project, "service_url", normalized_service)
                 add_candidate_url(project, "website_url", normalized_service)
 
@@ -3010,15 +5031,25 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
     result = probe_service_url(service_url)
     title = clean_title(result["title"])
     description = result["description"]
-    if title and not project.get("name"):
+    supported = service_probe_supports_project(project, service_url, result)
+    host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
+    if title and not project.get("name") and host not in GENERIC_PLATFORM_HOSTS:
         project["name"] = title
-    add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
-    add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
-    project["service_status"] = merge_service_status(str(project.get("service_status") or "unknown"), str(result["service_status"] or "unknown"))
-    project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalize_url(service_url))
+    if supported:
+        add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
+        add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
+        project["service_status"] = merge_service_status(str(project.get("service_status") or "unknown"), str(result["service_status"] or "unknown"))
     normalized_service_url = normalize_url(service_url)
+    if supported:
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized_service_url)
     if result["status_code"] < 400:
-        confirm_service_url(project, normalized_service_url)
+        if supported and service_url_auto_confirmable(project, normalized_service_url):
+            confirm_service_url(project, normalized_service_url)
+        elif supported:
+            add_candidate_url(project, "service_url", normalized_service_url)
+            add_candidate_url(project, "website_url", normalized_service_url)
+        else:
+            remove_identifier_from_project(project, "service_url", normalized_service_url)
     else:
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
@@ -3038,10 +5069,6 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
 
 
-def canonical_repo_dids(project: dict[str, Any]) -> list[str]:
-    return unique_list([str(item.get("repo_did") or "") for item in project.get("lexicon_resolution_entries", []) if item.get("repo_did")])
-
-
 def service_hosts(project: dict[str, Any]) -> set[str]:
     hosts: set[str] = set()
     urls = set(project.get("service_urls", []))
@@ -3058,18 +5085,87 @@ def authority_families(project: dict[str, Any]) -> set[str]:
     families: set[str] = set()
     for domain in project.get("authority_domains", []):
         lowered = str(domain or "").strip().lower()
-        if lowered:
+        if lowered and not is_shared_official_identity_host(lowered):
             families.add(root_domain(lowered))
     for host in service_hosts(project):
         families.add(root_domain(host))
     return families
 
 
+def project_identity_hosts(project: dict[str, Any], *, include_candidates: bool = True) -> set[str]:
+    hosts = set(service_hosts(project))
+    for domain in project.get("authority_domains", []):
+        lowered = str(domain or "").strip().lower()
+        if lowered and not is_shared_official_identity_host(lowered):
+            hosts.add(lowered)
+            hosts.add(root_domain(lowered))
+    for value in manual_seed_values(project, "service_url"):
+        host = urllib.parse.urlparse(value).netloc.lower()
+        if host:
+            hosts.add(host)
+    if include_candidates:
+        for key in ("service_url_candidates", "website_url_candidates"):
+            for value in project.get(key, []):
+                host = urllib.parse.urlparse(normalize_url(str(value or ""))).netloc.lower()
+                if host and not is_shared_official_identity_host(host):
+                    hosts.add(host)
+    return {host for host in hosts if host}
+
+
+def project_collection_nsids(project: dict[str, Any]) -> set[str]:
+    collections: set[str] = set()
+    for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("lexicons", [])):
+        normalized = normalize_nsid(str(value or ""))
+        if normalized and namespace_from_collection_nsid(normalized):
+            collections.add(normalized)
+    for sample in project.get("recent_record_samples", []):
+        if not isinstance(sample, dict):
+            continue
+        normalized = normalize_nsid(str(sample.get("collection") or ""))
+        if normalized and namespace_from_collection_nsid(normalized):
+            collections.add(normalized)
+    return collections
+
+
+def project_bootstrap_first_creator_dids(project: dict[str, Any]) -> set[str]:
+    dids: set[str] = set()
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception:
+            did = ""
+        if did:
+            dids.add(did)
+    return dids
+
+
+def project_bootstrap_first_creator_did_map(project: dict[str, Any]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception:
+            did = ""
+        if did:
+            mapping[collection] = did
+    return mapping
+
+
+def project_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for host in project_identity_hosts(project, include_candidates=False):
+        for value in (host, root_domain(host)):
+            token = normalize_alias_token(value)
+            if token:
+                tokens.add(token)
+    return tokens
+
+
 def normalize_alias_token(value: str) -> str:
     lowered = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
     if len(lowered) < 4:
         return ""
-    if lowered in {"post", "tool", "app", "site", "feed", "project", "service", "atproto", "bluesky", "tangled", "whtwnd"}:
+    if lowered in {"post", "tool", "app", "site", "feed", "project", "service", "item", "comment", "document", "atproto", "bluesky", "tangled", "whtwnd"}:
         return ""
     return lowered
 
@@ -3100,10 +5196,13 @@ def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
     weights = {
         "source_code_urls": 8,
         "github_repo_urls": 8,
+        "candidate_source_code_urls": 5,
         "service_urls": 7,
-        "repo_dids": 9,
         "recorded_lexicon_namespaces": 6,
+        "record_creators_and_namespace_lineage": 7,
         "authority_service_families": 6,
+        "domain_identity_tokens": 5,
+        "bootstrap_first_record_creator_dids": 6,
         "merge_aliases": 3,
     }
     score = 0
@@ -3113,12 +5212,31 @@ def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
 
 
 def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> tuple[str, bool]:
-    if any(key in reasons for key in {"source_code_urls", "github_repo_urls", "service_urls", "repo_dids"}):
+    if "service_urls" in reasons:
         return "high", True
-    if "authority_service_families" in reasons and (
-        "recorded_lexicon_namespaces" in reasons or "repo_dids" in reasons
+    if any(key in reasons for key in {"source_code_urls", "github_repo_urls"}) and (
+        "merge_aliases" in reasons
+        or "domain_identity_tokens" in reasons
+        or "authority_service_families" in reasons
+        or "recorded_lexicon_namespaces" in reasons
     ):
         return "high", True
+    if set(reasons).issubset({"source_code_urls", "github_repo_urls"}):
+        return "medium", False
+    if "candidate_source_code_urls" in reasons and (
+        "domain_identity_tokens" in reasons
+        or "merge_aliases" in reasons
+        or "authority_service_families" in reasons
+    ):
+        return "high", True
+    if "bootstrap_first_record_creator_dids" in reasons and "merge_aliases" in reasons:
+        return "medium", True
+    if "authority_service_families" in reasons and "recorded_lexicon_namespaces" in reasons:
+        return "high", True
+    if "record_creators_and_namespace_lineage" in reasons:
+        return "high", True
+    if "domain_identity_tokens" in reasons and "merge_aliases" in reasons:
+        return "medium", True
     if score >= 8:
         return "medium", True
     if score >= 4:
@@ -3127,6 +5245,13 @@ def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> 
 
 
 def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
+    candidate_repo_urls = [
+        url
+        for url in project.get("candidate_source_code_urls", [])
+        if repo_candidate_allowed_for_project(project, str(url or ""))
+    ]
+    if project.get("source_code_urls"):
+        candidate_repo_urls = []
     return {
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
@@ -3136,6 +5261,8 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "resolved_nsids": project.get("resolved_nsids", []),
         "recorded_lexicon_namespaces": project.get("recorded_lexicon_namespaces", []),
         "lexicon_resolution_entries": project.get("lexicon_resolution_entries", []),
+        "lexicon_schema_samples": project.get("lexicon_schema_samples", [])[:6],
+        "recent_record_samples": project.get("recent_record_samples", [])[:12],
         "record_creators": project.get("record_creators", []),
         "authority_domains": project.get("authority_domains", []),
         "website_url": project.get("website_url") or "",
@@ -3145,7 +5272,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "failed_service_urls": project.get("failed_service_urls", []),
         "service_status_hint": project.get("service_status") or "unknown",
         "source_code_urls": project.get("source_code_urls", []),
-        "candidate_source_code_urls": project.get("candidate_source_code_urls", []),
+        "candidate_source_code_urls": candidate_repo_urls[:2],
         "github_repo_urls": project.get("github_repo_urls", []),
         "tangled_repo_urls": project.get("tangled_repo_urls", []),
         "bluesky_handles": project.get("bluesky_handles", []),
@@ -3295,7 +5422,7 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "180").strip() or "180")
+    llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300")
     endpoint_urls = llm_endpoint_candidates(endpoint)
     chat_payloads = [
         {
@@ -3418,6 +5545,93 @@ def clean_search_query(value: str) -> str:
     return query
 
 
+def github_search_term(value: str) -> str:
+    query = clean_search_query(value)
+    if not query:
+        return ""
+    if re.search(r"\s", query):
+        return f"\"{query}\""
+    return query
+
+
+def build_github_repo_search_queries(plan: dict[str, Any]) -> list[str]:
+    raw_queries = clean_string_list(plan.get("repo_search_queries"), limit=6)
+    normalized: list[str] = []
+    for raw in raw_queries:
+        cleaned = clean_search_query(raw)
+        if not cleaned:
+            continue
+        if re.search(r"\bOR\b", cleaned, flags=re.IGNORECASE):
+            normalized.append(cleaned)
+            continue
+        term = github_search_term(cleaned)
+        if term:
+            normalized.append(term)
+    unique_queries = unique_list(normalized)
+    if not unique_queries:
+        return []
+
+    max_queries = 2
+    terms_per_query = 3
+    if len(unique_queries) == 1:
+        return unique_queries
+
+    bundled: list[str] = []
+    for index in range(0, min(len(unique_queries), max_queries * terms_per_query), terms_per_query):
+        bucket = unique_queries[index:index + terms_per_query]
+        if not bucket:
+            continue
+        bundled.append(" OR ".join(bucket))
+    return unique_list(bundled)[:max_queries]
+
+
+def query_contains_kana(value: str) -> bool:
+    return bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff]", str(value or "")))
+
+
+def bsky_search_term(value: str) -> str:
+    query = clean_search_query(value)
+    if not query:
+        return ""
+    if re.search(r"[\s@#:\$\|/]", query):
+        escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+        return f"\"{escaped}\""
+    return query
+
+
+def build_bsky_search_queries(plan: dict[str, Any], key: str, *, max_queries: int = 2) -> list[str]:
+    raw_queries = unique_list(
+        [
+            cleaned
+            for cleaned in (
+                clean_search_query(raw)
+                for raw in clean_string_list(plan.get(key), limit=max_queries * 3)
+            )
+            if cleaned
+        ]
+    )
+    if not raw_queries:
+        return []
+
+    grouped = {True: [], False: []}
+    for query in raw_queries:
+        grouped[query_contains_kana(query)].append(query)
+
+    bundled: list[str] = []
+    for has_kana in (False, True):
+        bucket = unique_list(grouped[has_kana])
+        if not bucket:
+            continue
+        terms = [term for term in (bsky_search_term(item) for item in bucket) if term]
+        if not terms:
+            continue
+        if len(terms) == 1:
+            bundled.append(terms[0])
+            continue
+        bundled.append(" | ".join(terms))
+    return bundled[:max_queries]
+
+
 def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
     repo_queries: list[str] = []
     actor_queries: list[str] = []
@@ -3508,15 +5722,27 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
 
 
 def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
-    for query in clean_string_list(plan.get("repo_search_queries"), limit=6):
+    for query in build_github_repo_search_queries(plan):
         add_investigation_query(project, query)
         try:
             repos = search_github_repositories(query, limit=5)
+            scored_repos = [
+                (github_repo_relevance(project, repo), repo)
+                for repo in repos
+            ]
+            scored_repos = [(score, repo) for score, repo in scored_repos if score >= 3]
+            scored_repos.sort(key=lambda item: item[0], reverse=True)
+            accepted_repos: list[tuple[int, dict[str, Any]]] = []
+            if scored_repos:
+                top_score = scored_repos[0][0]
+                threshold = max(6, top_score - 2)
+                accepted_repos = [
+                    (score, repo)
+                    for score, repo in scored_repos
+                    if score >= threshold and repo_candidate_allowed_for_project(project, str(repo.get("url") or ""))
+                ][:1]
             accepted = 0
-            for repo in repos:
-                score = github_repo_relevance(project, repo)
-                if score < 3:
-                    continue
+            for score, repo in accepted_repos:
                 accepted += 1
                 add_candidate_source_code_url(
                     project,
@@ -3530,11 +5756,13 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
                     add_candidate_url(project, "service_url", repo["homepage"])
                     add_candidate_url(project, "website_url", repo["homepage"])
             add_investigation_log(project, "github_repo_search", query=query, result_count=len(repos), accepted_count=accepted, at=iso_now())
+            if accepted > 0:
+                break
         except Exception as exc:
             note_failure(project, f"github repo search failed for {query}: {exc}")
 
     actor_handles_to_probe: list[str] = []
-    for query in clean_string_list(plan.get("actor_search_queries"), limit=6):
+    for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
         add_investigation_query(project, query)
         try:
             actors = search_bsky_actors(query, limit=5)
@@ -3543,10 +5771,12 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
             handles = [item["handle"] for item in accepted_actors if item.get("handle")]
             merge_investigation_results(project, source=f"bsky_actor_search:{query}", urls=[], handles=handles)
             actor_handles_to_probe.extend(handles[:2])
+            if len(unique_list(actor_handles_to_probe)) >= 2:
+                break
         except Exception as exc:
             note_failure(project, f"Bluesky actor search failed for {query}: {exc}")
 
-    for query in clean_string_list(plan.get("post_search_queries"), limit=6):
+    for query in build_bsky_search_queries(plan, "post_search_queries", max_queries=2):
         add_investigation_query(project, query)
         try:
             posts = search_bsky_posts(query, limit=5)
@@ -3560,10 +5790,12 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
                         handles.append(post["author_handle"])
             merge_investigation_results(project, source=f"bsky_post_search:{query}", urls=urls, handles=handles)
             actor_handles_to_probe.extend(handles[:2])
+            if urls or len(unique_list(actor_handles_to_probe)) >= 2:
+                break
         except Exception as exc:
             note_failure(project, f"Bluesky post search failed for {query}: {exc}")
 
-    for handle in unique_list(actor_handles_to_probe)[:4]:
+    for handle in unique_list(actor_handles_to_probe)[:2]:
         try:
             feed = fetch_bsky_author_feed(handle, limit=8)
             add_investigation_log(project, "bsky_author_feed", actor=handle, result_count=len(feed), at=iso_now())
@@ -3599,6 +5831,10 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["classification_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
     project["exclude_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
+    project["manual_review_recommended"] = bool(payload.get("manual_review_recommended"))
+    manual_review_priority = str(payload.get("manual_review_priority") or "none").strip().lower()
+    project["manual_review_priority"] = manual_review_priority if manual_review_priority in {"none", "low", "medium", "high"} else "none"
+    project["manual_review_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("manual_review_reason") or "").strip())
     try:
         project["confidence"] = float(payload.get("confidence") or 0.0)
     except (TypeError, ValueError):
@@ -3737,45 +5973,251 @@ def record_promotion_transition(project: dict[str, Any], previous_status: str) -
     return project
 
 
-def compute_duplicate_candidates(conn: sqlite3.Connection, project: dict[str, Any]) -> list[dict[str, Any]]:
+def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
+    count = 0
+    if str(project.get("website_url") or "").strip():
+        count += 1
+    if project.get("source_code_urls"):
+        count += 1
+    if project.get("resolved_nsids"):
+        count += 1
+    return count
+
+
+def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
+    shaped = apply_promotion_state(ensure_project_shape(dict(project)))
+    signals: list[dict[str, Any]] = []
+    blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
+    service_status = str(shaped.get("service_status") or "unknown")
+    confirmed_identifier_count = project_confirmed_identifier_count(shaped)
+    service_candidates = unique_list(
+        ([str(shaped.get("website_url") or "")] if shaped.get("website_url") else [])
+        + [str(item or "") for item in shaped.get("service_urls", [])]
+        + [str(item or "") for item in shaped.get("service_url_candidates", [])]
+        + [str(item or "") for item in shaped.get("website_url_candidates", [])]
+    )
+    repo_candidates = unique_list(
+        [str(item or "") for item in shaped.get("source_code_urls", [])]
+        + [str(item or "") for item in shaped.get("candidate_source_code_urls", [])]
+        + [str(item or "") for item in shaped.get("github_repo_urls", [])]
+        + [str(item or "") for item in shaped.get("tangled_repo_urls", [])]
+    )
+    nsid_count = len(unique_list(
+        ([str(shaped.get("primary_nsid") or "")] if shaped.get("primary_nsid") else [])
+        + [str(item or "") for item in shaped.get("input_nsids", [])]
+        + [str(item or "") for item in shaped.get("resolved_nsids", [])]
+    ))
+    if shaped.get("manual_review_recommended"):
+        llm_priority = {"none": 0, "low": 4, "medium": 7, "high": 9}.get(str(shaped.get("manual_review_priority") or "none"), 4)
+        signals.append(
+            {
+                "kind": "llm_manual_review_recommended",
+                "priority": llm_priority,
+                "details": {
+                    "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
+                    "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
+                },
+            }
+        )
+
+    if service_status in {"live", "beta", "invite_only"} and shaped.get("status") == "draft":
+        missing_editorial = sorted(blockers & {"summary missing", "tagline missing", "category missing", "LLM review missing"})
+        if missing_editorial:
+            signals.append(
+                {
+                    "kind": "service_now_usable_but_needs_editorial_review",
+                    "priority": 9 if service_status == "live" else 8,
+                    "details": {
+                        "service_status": service_status,
+                        "blockers": missing_editorial,
+                        "website_url": str(shaped.get("website_url") or ""),
+                    },
+                }
+            )
+
+    if confirmed_identifier_count <= 1 and service_status == "unknown" and (
+        len(service_candidates) >= 2 or len(repo_candidates) >= 2 or nsid_count >= 2
+    ):
+        signals.append(
+            {
+                "kind": "more_evidence_than_current_classification",
+                "priority": 7,
+                "details": {
+                    "service_candidate_count": len(service_candidates),
+                    "repo_candidate_count": len(repo_candidates),
+                    "nsid_count": nsid_count,
+                    "confirmed_identifier_count": confirmed_identifier_count,
+                },
+            }
+        )
+
+    duplicate_candidates = [dict(item) for item in shaped.get("duplicate_candidates", []) if isinstance(item, dict)]
+    recommendation = dict(shaped.get("merge_recommendation") or {})
+    if recommendation.get("ambiguous_with") or len(duplicate_candidates) >= 3:
+        signals.append(
+            {
+                "kind": "merge_needs_human_judgment",
+                "priority": 8,
+                "details": {
+                    "top_score": int(recommendation.get("score", 0) or 0),
+                    "duplicate_candidate_count": len(duplicate_candidates),
+                    "ambiguous_with": list(recommendation.get("ambiguous_with", [])),
+                },
+            }
+        )
+
+    if nsid_count >= 3 or len(shaped.get("lexicon_schema_samples", [])) >= 3 or len(shaped.get("recent_record_samples", [])) >= 6:
+        signals.append(
+            {
+                "kind": "high_information_density",
+                "priority": 6,
+                "details": {
+                    "nsid_count": nsid_count,
+                    "lexicon_schema_sample_count": len(shaped.get("lexicon_schema_samples", [])),
+                    "recent_record_sample_count": len(shaped.get("recent_record_samples", [])),
+                },
+            }
+        )
+
+    if len(service_candidates) >= 3 or len(repo_candidates) >= 3 or len(shaped.get("manual_seeds", [])) >= 4:
+        signals.append(
+            {
+                "kind": "many_identity_candidates",
+                "priority": 5,
+                "details": {
+                    "service_candidate_count": len(service_candidates),
+                    "repo_candidate_count": len(repo_candidates),
+                    "manual_seed_count": len(shaped.get("manual_seeds", [])),
+                },
+            }
+        )
+
+    return signals
+
+
+def build_review_queue(
+    conn: sqlite3.Connection,
+    *,
+    tracking_states: set[str] | None = None,
+    limit: int = 50,
+    kinds: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
+    for project in project_list:
+        shaped = dict(project)
+        shaped["duplicate_candidates"] = compute_duplicate_candidates(
+            conn,
+            shaped,
+            projects=project_list,
+            duplicate_profiles=duplicate_profiles,
+            duplicate_index=duplicate_index,
+        )
+        shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
+        shaped = apply_promotion_state(shaped)
+        signals = compute_review_signals(shaped)
+        if kinds is not None:
+            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+        if not signals:
+            continue
+        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        queue.append(
+            {
+                "project_key": shaped["project_key"],
+                "name": shaped.get("name", ""),
+                "tracking_state": shaped.get("tracking_state", "active"),
+                "status": shaped.get("status", "draft"),
+                "service_status": shaped.get("service_status", "unknown"),
+                "seed_type": shaped.get("seed_type", ""),
+                "seed_value": shaped.get("seed_value", ""),
+                "website_url": shaped.get("website_url", ""),
+                "top_priority": top_priority,
+                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+            }
+        )
+    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    return queue[: max(1, int(limit or 50))]
+
+
+def merge_is_blocked(project_a: dict[str, Any], project_b: dict[str, Any]) -> bool:
+    key_a = str(project_a.get("project_key") or "")
+    key_b = str(project_b.get("project_key") or "")
+    if not key_a or not key_b or key_a == key_b:
+        return False
+    blocked_a = {str(item).strip() for item in project_a.get("separate_project_keys", []) if str(item).strip()}
+    blocked_b = {str(item).strip() for item in project_b.get("separate_project_keys", []) if str(item).strip()}
+    return key_b in blocked_a or key_a in blocked_b
+
+
+def compute_duplicate_candidates(
+    conn: sqlite3.Connection,
+    project: dict[str, Any],
+    *,
+    projects: list[dict[str, Any]] | None = None,
+    duplicate_profiles: dict[str, dict[str, set[str]]] | None = None,
+    duplicate_index: dict[str, dict[str, set[str]]] | None = None,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    target_github = set(project.get("github_repo_urls", []))
-    target_source = set(project.get("source_code_urls", []))
-    target_services = set(project.get("service_urls", []))
-    if project.get("website_url"):
-        target_services.add(project["website_url"])
-    target_repo_dids = set(canonical_repo_dids(project))
-    target_namespaces = set(project.get("recorded_lexicon_namespaces", []))
-    target_families = authority_families(project)
-    target_aliases = project_merge_aliases(project)
-    for other in list_projects(conn):
+    all_projects = projects if projects is not None else list_projects(conn)
+    if duplicate_profiles is None or duplicate_index is None:
+        duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects)
+    target_profile = duplicate_profiles.get(str(project.get("project_key") or "")) or duplicate_profile(project)
+    candidate_keys: set[str] = set()
+    for field, values in target_profile.items():
+        field_index = duplicate_index.get(field, {})
+        for value in values:
+            candidate_keys.update(field_index.get(str(value), set()))
+    candidate_keys.discard(str(project.get("project_key") or ""))
+
+    project_lookup = {
+        str(item.get("project_key") or ""): item
+        for item in all_projects
+        if str(item.get("project_key") or "")
+    }
+    for other_key in sorted(candidate_keys):
+        other = project_lookup.get(other_key)
+        if other is None:
+            continue
         if other["project_key"] == project["project_key"]:
             continue
+        if merge_is_blocked(project, other):
+            continue
+        other_profile = duplicate_profiles.get(other_key) or duplicate_profile(other)
         reasons: dict[str, list[str]] = {}
-        source_overlap = sorted(target_source & set(other.get("source_code_urls", [])))
+        source_overlap = sorted(target_profile["source_code_urls"] & other_profile["source_code_urls"])
         if source_overlap:
             reasons["source_code_urls"] = source_overlap
-        github_overlap = sorted(target_github & set(other.get("github_repo_urls", [])))
+        github_overlap = sorted(target_profile["github_repo_urls"] & other_profile["github_repo_urls"])
         if github_overlap:
             reasons["github_repo_urls"] = github_overlap
-        other_services = set(other.get("service_urls", []))
-        if other.get("website_url"):
-            other_services.add(other["website_url"])
-        service_overlap = sorted(target_services & other_services)
+        candidate_repo_overlap = sorted(target_profile["candidate_source_code_urls"] & other_profile["candidate_source_code_urls"])
+        if candidate_repo_overlap:
+            reasons["candidate_source_code_urls"] = candidate_repo_overlap
+        service_overlap = sorted(target_profile["service_urls"] & other_profile["service_urls"])
         if service_overlap:
             reasons["service_urls"] = service_overlap
-        repo_did_overlap = sorted(target_repo_dids & set(canonical_repo_dids(other)))
-        if repo_did_overlap:
-            reasons["repo_dids"] = repo_did_overlap
-        namespace_overlap = sorted(target_namespaces & set(other.get("recorded_lexicon_namespaces", [])))
+        namespace_overlap = sorted(target_profile["recorded_lexicon_namespaces"] & other_profile["recorded_lexicon_namespaces"])
         if namespace_overlap:
             reasons["recorded_lexicon_namespaces"] = namespace_overlap
-        family_overlap = sorted(target_families & authority_families(other))
+        record_creator_overlap = sorted(set(project.get("record_creators", [])) & set(other.get("record_creators", [])))
+        namespace_lineage = namespace_lineage_overlap(project, other)
+        if record_creator_overlap and namespace_lineage:
+            reasons["record_creators_and_namespace_lineage"] = namespace_lineage
+        family_overlap = sorted(target_profile["authority_service_families"] & other_profile["authority_service_families"])
         if family_overlap:
             reasons["authority_service_families"] = family_overlap
-        alias_overlap = sorted(target_aliases & project_merge_aliases(other))
+        domain_token_overlap = sorted(target_profile["domain_identity_tokens"] & other_profile["domain_identity_tokens"])
+        if domain_token_overlap:
+            reasons["domain_identity_tokens"] = domain_token_overlap
+        alias_overlap = sorted(target_profile["merge_aliases"] & other_profile["merge_aliases"])
         if alias_overlap:
             reasons["merge_aliases"] = alias_overlap
+        if bootstrap_collection_creator_heuristic and alias_overlap:
+            first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project) & project_bootstrap_first_creator_dids(other))
+            if first_creator_overlap:
+                reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
         if reasons:
             score = merge_score_from_reasons(reasons)
             confidence, auto_merge_ready = merge_confidence_from_reasons(reasons, score)
@@ -3813,6 +6255,72 @@ def compute_merge_recommendation(project: dict[str, Any]) -> dict[str, Any]:
     return recommendation
 
 
+def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
+    services = set(project.get("service_urls", []))
+    if project.get("website_url"):
+        services.add(str(project.get("website_url") or ""))
+    return {
+        "source_code_urls": set(project.get("source_code_urls", [])),
+        "github_repo_urls": set(project.get("github_repo_urls", [])),
+        "candidate_source_code_urls": set(project.get("candidate_source_code_urls", [])),
+        "service_urls": services,
+        "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),
+        "record_creators": set(project.get("record_creators", [])),
+        "authority_service_families": authority_families(project),
+        "domain_identity_tokens": project_domain_identity_tokens(project),
+        "merge_aliases": project_merge_aliases(project),
+    }
+
+
+def namespace_lineage_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -> list[str]:
+    namespaces_a = {
+        str(value or "").strip()
+        for value in project_a.get("recorded_lexicon_namespaces", [])
+        if str(value or "").strip()
+    }
+    namespaces_b = {
+        str(value or "").strip()
+        for value in project_b.get("recorded_lexicon_namespaces", [])
+        if str(value or "").strip()
+    }
+    overlap: set[str] = set()
+    for left in namespaces_a:
+        for right in namespaces_b:
+            if left == right:
+                overlap.add(left)
+            elif left.startswith(f"{right}."):
+                overlap.add(right)
+            elif right.startswith(f"{left}."):
+                overlap.add(left)
+    return sorted(overlap)
+
+
+def build_duplicate_candidate_index(projects: list[dict[str, Any]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
+    profiles: dict[str, dict[str, set[str]]] = {}
+    index: dict[str, dict[str, set[str]]] = {
+        "source_code_urls": {},
+        "github_repo_urls": {},
+        "candidate_source_code_urls": {},
+        "service_urls": {},
+        "recorded_lexicon_namespaces": {},
+        "record_creators": {},
+        "authority_service_families": {},
+        "domain_identity_tokens": {},
+        "merge_aliases": {},
+    }
+    for project in projects:
+        project_key = str(project.get("project_key") or "")
+        if not project_key:
+            continue
+        profile = duplicate_profile(project)
+        profiles[project_key] = profile
+        for field, values in profile.items():
+            field_index = index[field]
+            for value in values:
+                field_index.setdefault(str(value), set()).add(project_key)
+    return profiles, index
+
+
 STRICT_REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -3842,8 +6350,6 @@ def is_strict_tangled_repo_url(url: str) -> bool:
 
 def batch_safe_merge_reasons(reasons: dict[str, list[str]]) -> dict[str, list[str]]:
     safe: dict[str, list[str]] = {}
-    if reasons.get("repo_dids"):
-        safe["repo_dids"] = list(reasons["repo_dids"])
     if reasons.get("github_repo_urls"):
         valid = [value for value in reasons["github_repo_urls"] if is_strict_github_repo_url(value)]
         if valid:
@@ -3895,11 +6401,30 @@ def batch_repo_seed_urls(project: dict[str, Any]) -> set[str]:
     return urls
 
 
+def batch_candidate_repo_urls(project: dict[str, Any]) -> set[str]:
+    return set(normalize_repo_collection(project.get("candidate_source_code_urls", [])))
+
+
 def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -> dict[str, list[str]]:
+    if merge_is_blocked(project_a, project_b):
+        return {}
     reasons: dict[str, list[str]] = {}
-    repo_dids = sorted(set(canonical_repo_dids(project_a)) & set(canonical_repo_dids(project_b)))
-    if repo_dids:
-        reasons["repo_dids"] = repo_dids
+    alias_overlap = sorted(project_alias_tokens(project_a) & project_alias_tokens(project_b))
+    source_overlap = sorted(set(project_a.get("source_code_urls", [])) & set(project_b.get("source_code_urls", [])))
+    if source_overlap:
+        valid = [
+            value for value in source_overlap
+            if is_strict_github_repo_url(value) or is_strict_tangled_repo_url(value)
+        ]
+        if valid and alias_overlap:
+            reasons["source_code_urls"] = valid
+            reasons["alias_overlap"] = alias_overlap
+    github_overlap = sorted(set(project_a.get("github_repo_urls", [])) & set(project_b.get("github_repo_urls", [])))
+    if github_overlap:
+        valid = [value for value in github_overlap if is_strict_github_repo_url(value)]
+        if valid and alias_overlap:
+            reasons["github_repo_urls"] = valid
+            reasons["alias_overlap"] = alias_overlap
     repo_seed_overlap = sorted(batch_repo_seed_urls(project_a) & batch_repo_seed_urls(project_b))
     if repo_seed_overlap:
         reasons["manual_repo_seed_urls"] = repo_seed_overlap
@@ -3909,7 +6434,14 @@ def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -
     return reasons
 
 
-def batch_moderate_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -> dict[str, list[str]]:
+def batch_moderate_overlap(
+    project_a: dict[str, Any],
+    project_b: dict[str, Any],
+    *,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> dict[str, list[str]]:
+    if merge_is_blocked(project_a, project_b):
+        return {}
     reasons = batch_strict_overlap(project_a, project_b)
     if reasons:
         return reasons
@@ -3918,9 +6450,40 @@ def batch_moderate_overlap(project_a: dict[str, Any], project_b: dict[str, Any])
     if service_overlap:
         reasons["confirmed_service_urls"] = service_overlap
 
-    host_a = batch_service_seed_hosts(project_a)
-    host_b = batch_service_seed_hosts(project_b)
     alias_overlap = sorted(project_alias_tokens(project_a) & project_alias_tokens(project_b))
+    candidate_repo_overlap = sorted(batch_candidate_repo_urls(project_a) & batch_candidate_repo_urls(project_b))
+    if candidate_repo_overlap and alias_overlap:
+        reasons["candidate_repo_urls"] = candidate_repo_overlap
+        reasons["alias_overlap"] = alias_overlap
+        return reasons
+
+    record_creator_overlap = sorted(set(project_a.get("record_creators", [])) & set(project_b.get("record_creators", [])))
+    namespace_lineage = namespace_lineage_overlap(project_a, project_b)
+    if record_creator_overlap and namespace_lineage:
+        reasons["record_creators_and_namespace_lineage"] = namespace_lineage
+        return reasons
+
+    domain_token_overlap = sorted(project_domain_identity_tokens(project_a) & project_domain_identity_tokens(project_b))
+    if domain_token_overlap and alias_overlap:
+        reasons["domain_identity_tokens"] = domain_token_overlap
+        reasons["alias_overlap"] = alias_overlap
+        return reasons
+
+    if bootstrap_collection_creator_heuristic and alias_overlap:
+        first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project_a) & project_bootstrap_first_creator_dids(project_b))
+        if first_creator_overlap:
+            reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
+            reasons["alias_overlap"] = alias_overlap
+            return reasons
+
+    family_overlap = sorted(authority_families(project_a) & authority_families(project_b))
+    if family_overlap and domain_token_overlap:
+        reasons["authority_service_families"] = family_overlap
+        reasons["domain_identity_tokens"] = domain_token_overlap
+        return reasons
+
+    host_a = project_identity_hosts(project_a, include_candidates=False)
+    host_b = project_identity_hosts(project_b, include_candidates=False)
     root_overlap = sorted({root_domain(host) for host in host_a} & {root_domain(host) for host in host_b})
     if root_overlap and alias_overlap:
         reasons["manual_service_root_domain_and_alias"] = root_overlap
@@ -3965,14 +6528,29 @@ def choose_batch_merge_direction(project_a: dict[str, Any], project_b: dict[str,
     return project_a, project_b
 
 
-def build_batch_merge_plan(conn: sqlite3.Connection, mode: str = "strict") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    projects = {project["project_key"]: ensure_project_shape(project) for project in list_projects(conn)}
+def build_batch_merge_plan(
+    conn: sqlite3.Connection,
+    mode: str = "strict",
+    *,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    merge_tracking_states = TRACKING_STATES - {"ignore"}
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=merge_tracking_states)]
+    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
+    projects = {project["project_key"]: project for project in project_list}
     skipped: list[dict[str, Any]] = []
     selected: dict[tuple[str, str], dict[str, Any]] = {}
     analyzed: dict[str, dict[str, Any]] = {}
 
     for project_key, project in projects.items():
-        candidates = compute_duplicate_candidates(conn, project)
+        candidates = compute_duplicate_candidates(
+            conn,
+            project,
+            projects=project_list,
+            duplicate_profiles=duplicate_profiles,
+            duplicate_index=duplicate_index,
+            bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+        )
         analyzed[project_key] = {
             "project": project,
             "candidates": candidates,
@@ -3992,23 +6570,39 @@ def build_batch_merge_plan(conn: sqlite3.Connection, mode: str = "strict") -> tu
         reverse_recommendation = target_payload["recommendation"]
         if str(reverse_recommendation.get("target_project_key") or "") != project_key:
             skipped.append(
-                {
+                attach_batch_entry_seed_fields(
+                    {
                     "project_key": project_key,
                     "target_project_key": target_key,
                     "reason": "not_mutual_recommendation",
                     "recommendation": recommendation,
-                }
+                    },
+                    project,
+                    target,
+                )
             )
             continue
-        safe_reasons = batch_strict_overlap(project, target) if mode == "strict" else batch_moderate_overlap(project, target)
+        safe_reasons = (
+            batch_strict_overlap(project, target)
+            if mode == "strict"
+            else batch_moderate_overlap(
+                project,
+                target,
+                bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+            )
+        )
         if not safe_reasons:
             skipped.append(
-                {
+                attach_batch_entry_seed_fields(
+                    {
                     "project_key": project_key,
                     "target_project_key": target_key,
                     "reason": "no_safe_identity_overlap",
                     "recommendation": recommendation,
-                }
+                    },
+                    project,
+                    target,
+                )
             )
             continue
 
@@ -4058,6 +6652,9 @@ def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
 def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     merged = ensure_project_shape(dict(target))
     source = ensure_project_shape(source)
+    merged["blocked_identifiers"] = normalize_blocked_identifiers(
+        list(merged.get("blocked_identifiers", [])) + list(source.get("blocked_identifiers", []))
+    )
 
     merged["manual_seeds"] = unique_manual_seeds(list(merged.get("manual_seeds", [])) + list(source.get("manual_seeds", [])))
     merged["discovery_sources"] = unique_list(list(merged.get("discovery_sources", [])) + list(source.get("discovery_sources", [])))
@@ -4145,6 +6742,8 @@ def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
 
 
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
+    purge_blocked_identifiers(project)
+    prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
     project["introduced_url"] = introduced_url
     project["evidence_urls"] = [
@@ -4167,11 +6766,66 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             url for url in evidence.get("evidence_urls", [])
             if url and normalize_url(str(url)) != introduced_url and not is_bsky_post_url(str(url))
         ]
+        evidence["developer_accounts"] = [
+            dict(item)
+            for item in evidence.get("developer_accounts", [])
+            if isinstance(item, dict) and not (
+                isinstance(item, dict)
+                and str(item.get("provider") or "") == "bluesky"
+                and not keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
+            )
+        ]
+        surviving_evidence_handles = {
+            str(item.get("handle") or "").strip()
+            for item in evidence.get("developer_accounts", [])
+            if isinstance(item, dict) and str(item.get("provider") or "") == "bluesky" and str(item.get("handle") or "").strip()
+        }
+        evidence["bluesky_handles"] = [
+            handle
+            for handle in evidence.get("bluesky_handles", [])
+            if str(handle or "").strip() in surviving_evidence_handles or handle_matches_project(project, str(handle or ""))
+        ]
+        ignored_handles = generic_platform_handles_to_ignore(project)
+        if ignored_handles:
+            evidence["bluesky_handles"] = [
+                handle
+                for handle in evidence.get("bluesky_handles", [])
+                if str(handle or "").strip().lower() not in ignored_handles
+            ]
+            evidence["developer_accounts"] = [
+                dict(item)
+                for item in evidence.get("developer_accounts", [])
+                if not (
+                    isinstance(item, dict)
+                    and str(item.get("provider") or "") == "bluesky"
+                    and str(item.get("handle") or "").strip().lower() in ignored_handles
+                )
+            ]
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)
 
     sync_primary_service_urls(project)
     prune_project_urls(project)
+    project["developer_accounts"] = [
+        dict(item)
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and not (
+            isinstance(item, dict)
+            and str(item.get("provider") or "") == "bluesky"
+            and not keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
+        )
+    ]
+    surviving_handles = {
+        str(item.get("handle") or "").strip()
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("provider") or "") == "bluesky" and str(item.get("handle") or "").strip()
+    }
+    project["bluesky_handles"] = [
+        handle
+        for handle in unique_list(project.get("bluesky_handles", []))
+        if str(handle or "").strip() in surviving_handles or handle_matches_project(project, str(handle or ""))
+    ]
     sync_primary_service_urls(project)
+    purge_blocked_identifiers(project)
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("resolved_nsids", []))
     project["lexicon_count"] = len(project.get("lexicons", []))
@@ -4220,11 +6874,17 @@ def enrich_project(
     project["_run_errors"] = []
     reset_investigation_state(project)
 
-    for nsid in unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", [])):
+    initial_nsids = unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
+    for nsid in initial_nsids:
         try:
             enrich_from_lexicon(project, nsid)
         except Exception as exc:
             note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
+
+    try:
+        refresh_recent_record_samples(project)
+    except Exception as exc:
+        note_failure(project, f"recent record sampling failed: {exc}")
 
     initial_repo_urls = unique_list(project.get("github_repo_urls", []) + project.get("source_code_urls", []))
     for repo_url in initial_repo_urls:
@@ -4234,6 +6894,17 @@ def enrich_project(
             enrich_from_github_repo(project, repo_url)
         except Exception as exc:
             note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
+
+    discovered_nsids = [
+        nsid
+        for nsid in unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
+        if nsid and nsid not in initial_nsids
+    ]
+    for nsid in discovered_nsids:
+        try:
+            enrich_from_lexicon(project, nsid)
+        except Exception as exc:
+            note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
 
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
@@ -4317,7 +6988,10 @@ def select_projects(conn: sqlite3.Connection, args: argparse.Namespace) -> list[
         return [project] if project else []
     if args.all:
         tracking_states = requested_tracking_states(args)
-        return list_projects(conn, tracking_states=tracking_states)
+        projects = list_projects(conn, tracking_states=tracking_states)
+        if getattr(args, "new_only", False):
+            projects = [project for project in projects if not str(project.get("last_enriched_at") or "").strip()]
+        return projects
     raise ValueError("choose one of --project-key, --seed, or --all")
 
 
@@ -4330,6 +7004,8 @@ def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
         states = {"active", "watchlist"}
         if getattr(args, "include_stable", False):
             states.add("stable")
+        if getattr(args, "include_stalled", False):
+            states.add("stalled")
         if getattr(args, "include_archived", False):
             states.add("archived")
         if getattr(args, "include_ignore", False):
@@ -4342,7 +7018,20 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     conn = open_db()
     projects = select_projects(conn, args)
     promoted_now: list[dict[str, Any]] = []
-    for project in projects:
+    total = len(projects)
+    for index, project in enumerate(projects, start=1):
+        if total > 1:
+            print(json.dumps({
+                "progress": {
+                    "current": index,
+                    "total": total,
+                    "project_key": project["project_key"],
+                    "seed_type": project.get("seed_type", ""),
+                    "seed_value": project.get("seed_value", ""),
+                    "name": project.get("name", ""),
+                    "phase": "start",
+                }
+            }, ensure_ascii=False))
         project = enrich_project(
             conn,
             project,
@@ -4433,6 +7122,15 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  summary={project.get('summary') or '-'}")
         print(f"  blockers={'; '.join(project.get('promotion_blockers', [])) or '-'}")
         print(f"  last_run_errors={'; '.join(project.get('last_run_errors', [])) or '-'}")
+        if project.get("blocked_identifiers"):
+            blocked_parts = [
+                f"{item.get('type')}:{item.get('value')}"
+                for item in project.get("blocked_identifiers", [])
+                if item.get("type") and item.get("value")
+            ]
+            print(f"  blocked_identifiers={', '.join(blocked_parts) or '-'}")
+        if project.get("separate_project_keys"):
+            print(f"  separate_project_keys={', '.join(project.get('separate_project_keys', []))}")
         duplicate_candidates = project.get("duplicate_candidates", [])
         if duplicate_candidates:
             print(f"  duplicate_candidates={', '.join(item['project_key'] for item in duplicate_candidates)}")
@@ -4448,10 +7146,255 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review_queue(args: argparse.Namespace) -> int:
+    conn = open_db()
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
+    queue = build_review_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+    kind_counts: dict[str, int] = {}
+    for item in queue:
+        for signal in item.get("signals", []):
+            kind = str(signal.get("kind") or "")
+            kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+    print(json.dumps({
+        "tracking_states": sorted(tracking_states),
+        "kinds": sorted(kinds) if kinds else [],
+        "review_count": len(queue),
+        "kind_counts": kind_counts,
+        "items": queue,
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def parse_iso_datetime(value: str) -> dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def project_latest_collection_activity_at(project: dict[str, Any]) -> dt.datetime | None:
+    latest: dt.datetime | None = None
+    for observation in project.get("collection_observations", []):
+        if not isinstance(observation, dict):
+            continue
+        recent_count = int(observation.get("recent_count") or 0)
+        if recent_count > 0:
+            observed_at = parse_iso_datetime(str(observation.get("observed_at") or ""))
+            if observed_at and (latest is None or observed_at > latest):
+                latest = observed_at
+        max_seen = parse_iso_datetime(str(observation.get("max") or ""))
+        if max_seen and (latest is None or max_seen > latest):
+            latest = max_seen
+    return latest
+
+
+def project_latest_repo_activity_at(project: dict[str, Any]) -> dt.datetime | None:
+    latest: dt.datetime | None = None
+    for record in project.get("source_repo_records", []):
+        if not isinstance(record, dict):
+            continue
+        updated_at = parse_iso_datetime(str(record.get("updated_at") or ""))
+        if updated_at and (latest is None or updated_at > latest):
+            latest = updated_at
+    return latest
+
+
+def activity_age_days(latest: dt.datetime | None, now: dt.datetime) -> int | None:
+    if latest is None:
+        return None
+    return max(0, (now - latest).days)
+
+
+def activity_is_recent(latest: dt.datetime | None, now: dt.datetime, threshold_days: int) -> bool:
+    age = activity_age_days(latest, now)
+    return age is not None and age < max(1, int(threshold_days))
+
+
+def stalled_review_entry(
+    project: dict[str, Any],
+    *,
+    now: dt.datetime,
+    inactivity_days: int,
+    enrich_age_days: int,
+) -> dict[str, Any] | None:
+    tracking_state = str(project.get("tracking_state") or "active")
+    latest_collection_activity = project_latest_collection_activity_at(project)
+    latest_repo_activity = project_latest_repo_activity_at(project)
+    recent_collection_activity = activity_is_recent(latest_collection_activity, now, inactivity_days)
+    recent_repo_activity = activity_is_recent(latest_repo_activity, now, inactivity_days)
+    collection_age_days = activity_age_days(latest_collection_activity, now)
+    repo_age_days = activity_age_days(latest_repo_activity, now)
+
+    if tracking_state == "stalled":
+        reasons: list[str] = []
+        if recent_repo_activity:
+            reasons.append(f"recent repo activity {repo_age_days} days ago")
+        if recent_collection_activity:
+            reasons.append(f"recent collection activity {collection_age_days} days ago")
+        if reasons:
+            return {
+                "project_key": project.get("project_key", ""),
+                "name": project.get("name", ""),
+                "tracking_state": tracking_state,
+                "service_status": str(project.get("service_status") or "unknown"),
+                "seed_type": project.get("seed_type", ""),
+                "seed_value": project.get("seed_value", ""),
+                "last_enriched_at": project.get("last_enriched_at", ""),
+                "latest_collection_activity_at": latest_collection_activity.isoformat() if latest_collection_activity else "",
+                "latest_repo_activity_at": latest_repo_activity.isoformat() if latest_repo_activity else "",
+                "reasons": reasons,
+                "suggested_tracking_state": "active",
+            }
+        return None
+
+    if tracking_state not in {"active", "watchlist"}:
+        return None
+
+    if recent_repo_activity:
+        return None
+
+    reasons: list[str] = []
+    hard_signal = False
+    if recent_collection_activity:
+        if tracking_state == "active" and repo_age_days is not None and repo_age_days >= inactivity_days:
+            return {
+                "project_key": project.get("project_key", ""),
+                "name": project.get("name", ""),
+                "tracking_state": tracking_state,
+                "service_status": str(project.get("service_status") or "unknown"),
+                "seed_type": project.get("seed_type", ""),
+                "seed_value": project.get("seed_value", ""),
+                "last_enriched_at": project.get("last_enriched_at", ""),
+                "latest_collection_activity_at": latest_collection_activity.isoformat() if latest_collection_activity else "",
+                "latest_repo_activity_at": latest_repo_activity.isoformat() if latest_repo_activity else "",
+                "reasons": [
+                    f"recent collection activity {collection_age_days} days ago",
+                    f"no recent repo activity for {repo_age_days} days",
+                ],
+                "suggested_tracking_state": "stable",
+            }
+        return None
+
+    if latest_collection_activity is not None:
+        has_recent_counts = any(
+            isinstance(item, dict) and int(item.get("recent_count") or 0) > 0
+            for item in project.get("collection_observations", [])
+        )
+        if collection_age_days is not None and collection_age_days >= inactivity_days and not has_recent_counts:
+            reasons.append(f"no collection activity for {collection_age_days} days")
+            hard_signal = True
+
+    if latest_repo_activity is not None and repo_age_days is not None and repo_age_days >= inactivity_days:
+        reasons.append(f"no repo activity for {repo_age_days} days")
+        hard_signal = True
+
+    last_enriched_at = parse_iso_datetime(str(project.get("last_enriched_at") or ""))
+    if last_enriched_at is None:
+        never_enriched = True
+    else:
+        enrich_age = (now - last_enriched_at).days
+        if enrich_age >= enrich_age_days:
+            reasons.append(f"not enriched for {enrich_age} days")
+            hard_signal = True
+        never_enriched = False
+
+    service_status = str(project.get("service_status") or "unknown")
+    if service_status in {"dead", "private"}:
+        reasons.append(f"service_status={service_status}")
+        hard_signal = True
+    elif service_status in {"unknown", "none"}:
+        reasons.append(f"service_status={service_status}")
+
+    confirmed_identity_count = int(bool(project.get("website_url"))) + int(bool(project.get("source_code_urls"))) + int(bool(project.get("resolved_nsids")))
+    if confirmed_identity_count <= 1:
+        reasons.append("weak confirmed identity")
+
+    if never_enriched and service_status == "unknown" and confirmed_identity_count <= 1 and latest_collection_activity is None:
+        return None
+
+    if not hard_signal:
+        return None
+
+    if len(reasons) < 2:
+        return None
+
+    return {
+        "project_key": project.get("project_key", ""),
+        "name": project.get("name", ""),
+        "tracking_state": tracking_state,
+        "service_status": service_status,
+        "seed_type": project.get("seed_type", ""),
+        "seed_value": project.get("seed_value", ""),
+        "last_enriched_at": project.get("last_enriched_at", ""),
+        "latest_collection_activity_at": latest_collection_activity.isoformat() if latest_collection_activity else "",
+        "latest_repo_activity_at": latest_repo_activity.isoformat() if latest_repo_activity else "",
+        "reasons": reasons,
+        "suggested_tracking_state": "stalled",
+    }
+
+
+def cmd_review_stalled(args: argparse.Namespace) -> int:
+    conn = open_db()
+    now = dt.datetime.now(dt.timezone.utc)
+    inactivity_days = max(1, int(args.inactivity_days or 45))
+    enrich_age_days = max(1, int(args.enrich_age_days or 30))
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states={"active", "watchlist", "stalled"})]
+    candidates = [
+        entry
+        for project in project_list
+        if (entry := stalled_review_entry(project, now=now, inactivity_days=inactivity_days, enrich_age_days=enrich_age_days))
+    ]
+    candidates.sort(key=lambda item: (str(item.get("suggested_tracking_state") or "") != "active", item["project_key"]))
+    suggested_state_counts: dict[str, int] = {}
+    for item in candidates:
+        state = str(item.get("suggested_tracking_state") or "")
+        suggested_state_counts[state] = int(suggested_state_counts.get(state, 0)) + 1
+
+    if args.execute:
+        updated: list[str] = []
+        note = str(args.note or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
+        for item in candidates:
+            project = fetch_project(conn, str(item.get("project_key") or ""))
+            if not project:
+                continue
+            project["tracking_state"] = str(item.get("suggested_tracking_state") or project.get("tracking_state") or "active")
+            if note and not str(project.get("tracking_note") or "").strip():
+                project["tracking_note"] = note
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            updated.append(project["project_key"])
+        conn.commit()
+        payload = {
+            "mode": "execute",
+            "inactivity_days": inactivity_days,
+            "enrich_age_days": enrich_age_days,
+            "updated_count": len(updated),
+            "updated_project_keys": updated,
+            "suggested_state_counts": suggested_state_counts,
+        }
+    else:
+        payload = {
+            "mode": "dry_run",
+            "inactivity_days": inactivity_days,
+            "enrich_age_days": enrich_age_days,
+            "candidate_count": len(candidates),
+            "suggested_state_counts": suggested_state_counts,
+            "candidates": candidates,
+        }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_set_tracking_state(args: argparse.Namespace) -> int:
     conn = open_db()
     project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
-    project["tracking_state"] = str(args.tracking_state)
+    project["tracking_state"] = normalize_tracking_state(str(args.tracking_state))
     if args.note is not None:
         project["tracking_note"] = str(args.note).strip()
     save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
@@ -4464,9 +7407,134 @@ def cmd_set_tracking_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def project_matches_batch_tracking_filter(
+    project: dict[str, Any],
+    *,
+    record_did: str = "",
+    nsid_prefix: str = "",
+    tracking_states: set[str] | None = None,
+) -> bool:
+    if tracking_states is not None and str(project.get("tracking_state") or "active") not in tracking_states:
+        return False
+    if record_did:
+        samples = [
+            str(item.get("did") or "")
+            for item in project.get("recent_record_samples", [])
+            if isinstance(item, dict)
+        ]
+        if record_did not in samples:
+            return False
+    if nsid_prefix:
+        candidates = unique_list(
+            ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+            + [str(item or "") for item in project.get("input_nsids", [])]
+            + [str(item or "") for item in project.get("resolved_nsids", [])]
+        )
+        if not any(value.startswith(nsid_prefix) for value in candidates if value):
+            return False
+    return bool(record_did or nsid_prefix)
+
+
+def cmd_set_tracking_state_batch(args: argparse.Namespace) -> int:
+    conn = open_db()
+    record_did = str(args.record_did or "").strip()
+    nsid_prefix = normalize_nsid(str(args.nsid_prefix or "").strip()) if args.nsid_prefix else ""
+    target_state = normalize_tracking_state(str(args.tracking_state))
+    filter_states = {normalize_tracking_state(item) for item in (args.current_tracking_states or []) if item} or None
+
+    matched: list[dict[str, Any]] = []
+    updated = 0
+    for project in list_projects(conn):
+        project = ensure_project_shape(project)
+        if not project_matches_batch_tracking_filter(
+            project,
+            record_did=record_did,
+            nsid_prefix=nsid_prefix,
+            tracking_states=filter_states,
+        ):
+            continue
+        matched.append(
+            {
+                "project_key": project["project_key"],
+                "name": project.get("name", ""),
+                "seed_type": project.get("seed_type", ""),
+                "seed_value": project.get("seed_value", ""),
+                "primary_nsid": project.get("primary_nsid", ""),
+                "tracking_state": project.get("tracking_state", "active"),
+            }
+        )
+        if args.execute:
+            project["tracking_state"] = target_state
+            if args.note is not None:
+                project["tracking_note"] = str(args.note).strip()
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            updated += 1
+    if args.execute:
+        conn.commit()
+    print(
+        json.dumps(
+            {
+                "mode": "execute" if args.execute else "dry_run",
+                "tracking_state": target_state,
+                "record_did": record_did,
+                "nsid_prefix": nsid_prefix,
+                "matched_count": len(matched),
+                "updated_count": updated,
+                "matched": matched,
+            },
+            ensure_ascii=False,
+            indent=2 if not args.execute else None,
+            sort_keys=not args.execute,
+        )
+    )
+    return 0
+
+
 def cmd_import_applog(args: argparse.Namespace) -> int:
     conn = open_db()
     summary = import_applog_entries(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_import_seed_list(args: argparse.Namespace) -> int:
+    conn = open_db()
+    summary = import_text_seed_list(conn, args.path, execute=args.execute)
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_sync_introduced(args: argparse.Namespace) -> int:
+    conn = open_db()
+    summary = sync_introduced_entries(
+        conn,
+        query=str(args.query or "from:yamarten.bsky.social #ATプロトーク"),
+        execute=args.execute,
+        limit=int(args.limit or 25),
+        max_pages=int(args.max_pages or 4),
+    )
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_sync_github_search(args: argparse.Namespace) -> int:
+    conn = open_db()
+    config = load_config()
+    search_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
+    queries = clean_string_list(args.query or search_cfg.get("queries") or [], limit=12)
+    if not queries:
+        raise ValueError("github repo search queries are not configured")
+    lookback_days = None if args.all_history else int(args.lookback_days or 10)
+    summary = sync_github_search(
+        conn,
+        queries=queries,
+        execute=args.execute,
+        create_unmatched=args.create_unmatched,
+        pages=int(args.pages or search_cfg.get("pages") or 1),
+        per_page=int(args.per_page or search_cfg.get("per_page") or 50),
+        lookback_days=lookback_days,
+        screen_unmatched=bool(args.screen_unmatched),
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
 
@@ -4478,12 +7546,199 @@ def cmd_import_collections(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sync_collections(args: argparse.Namespace) -> int:
+    conn = open_db()
+    config = load_config()
+    source_url = args.source_url or str(config.get("collection_inventory", {}).get("url") or "")
+    if not source_url:
+        raise ValueError("collection inventory source URL is not configured")
+    summary = sync_collection_inventory(
+        conn,
+        source_url=source_url,
+        execute=args.execute,
+        create_unmatched=args.create_unmatched,
+        lookback_days=args.lookback_days,
+        save_path=args.save_path,
+    )
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
     preprocessed = preprocess_project_json_rows(conn)
     summary = audit_and_repair_identifiers(conn)
     summary["preprocess"] = preprocessed
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_set_separate(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
+    other = resolve_single_project(conn, project_key=args.other_project_key, seed=args.other_seed, seed_type=args.other_type)
+    project = ensure_project_shape(project)
+    other = ensure_project_shape(other)
+    if project["project_key"] == other["project_key"]:
+        raise ValueError("project and other project resolve to the same project")
+
+    project_blocked = set(project.get("separate_project_keys", []))
+    other_blocked = set(other.get("separate_project_keys", []))
+    if args.clear:
+        project_blocked.discard(other["project_key"])
+        other_blocked.discard(project["project_key"])
+    else:
+        project_blocked.add(other["project_key"])
+        other_blocked.add(project["project_key"])
+
+    project["separate_project_keys"] = sorted(project_blocked)
+    other["separate_project_keys"] = sorted(other_blocked)
+
+    for item in (project, other):
+        item["duplicate_candidates"] = compute_duplicate_candidates(conn, item)
+        item["merge_recommendation"] = compute_merge_recommendation(item)
+
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    save_project(conn, other, enriched=bool(other.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "other_project_key": other["project_key"],
+        "project_separate_project_keys": project.get("separate_project_keys", []),
+        "other_separate_project_keys": other.get("separate_project_keys", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_block_identifier(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    project = ensure_project_shape(project)
+    identifier_type = str(args.identifier_type)
+    normalized_value = normalize_blocked_identifier_value(identifier_type, str(args.value))
+    if not normalized_value:
+        raise ValueError("identifier value could not be normalized")
+
+    blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+    key = (identifier_type, normalized_value)
+    if args.clear:
+        blocked = [
+            item for item in blocked
+            if (str(item.get("type") or ""), str(item.get("value") or "")) != key
+        ]
+    else:
+        if not any((str(item.get("type") or ""), str(item.get("value") or "")) == key for item in blocked):
+            blocked.append(
+                {
+                    "type": identifier_type,
+                    "value": normalized_value,
+                    "note": str(args.note or "").strip(),
+                    "added_at": iso_now(),
+                }
+            )
+    project["blocked_identifiers"] = blocked
+    project = finalize_project_shape(project)
+    project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = compute_merge_recommendation(project)
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "identifier_type": identifier_type,
+        "value": normalized_value,
+        "blocked_identifiers": project.get("blocked_identifiers", []),
+        "website_url": project.get("website_url", ""),
+        "service_urls": project.get("service_urls", []),
+        "source_code_urls": project.get("source_code_urls", []),
+        "input_nsids": project.get("input_nsids", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_split_project(args: argparse.Namespace) -> int:
+    conn = open_db()
+    source = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    source = ensure_project_shape(source)
+    identifier_type = str(args.identifier_type or "").strip()
+    identifier_value = canonical_seed_value(identifier_type, str(args.value or ""))
+    if not identifier_value:
+        raise ValueError("identifier value is required")
+    if find_project_key_by_identifier(conn, identifier_type, identifier_value) != source["project_key"]:
+        raise ValueError("identifier does not currently belong to the selected source project")
+
+    target_key = resolve_project_key_input(conn, args.new_project_key) if args.new_project_key else generate_project_key({project["project_key"] for project in all_projects(conn)})
+    if target_key == source["project_key"]:
+        raise ValueError("new project key resolves to the same source project")
+    if fetch_project(conn, target_key) is not None:
+        raise ValueError(f"target project already exists: {target_key}")
+
+    target = default_project_record(target_key, identifier_type, identifier_value)
+    target["tracking_state"] = source.get("tracking_state", "active")
+    target["status"] = source.get("status", "draft")
+    target["discovery_sources"] = unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
+    target["tracking_note"] = f"split from {source['project_key']}"
+    add_manual_seed(target, identifier_type, identifier_value, source="split")
+    target = finalize_project_shape(target)
+
+    blocked = normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    block_key = (identifier_type, identifier_value)
+    if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
+        blocked.append(
+            {
+                "type": identifier_type,
+                "value": identifier_value,
+                "note": str(args.note or "split out to another project").strip(),
+                "added_at": iso_now(),
+            }
+        )
+    source["blocked_identifiers"] = blocked
+    remove_identifier_from_project(source, identifier_type, identifier_value)
+    source["separate_project_keys"] = unique_list(list(source.get("separate_project_keys", [])) + [target["project_key"]])
+    target["separate_project_keys"] = unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+
+    note_line = f"split out {identifier_type}:{identifier_value} -> {target['project_key']}"
+    if args.note:
+        note_line = f"{note_line} ({str(args.note).strip()})"
+    existing_notes = str(source.get("notes") or "").strip()
+    if note_line not in existing_notes.splitlines():
+        source["notes"] = (existing_notes + ("\n" if existing_notes else "") + note_line).strip()
+
+    source = finalize_project_shape(source)
+    source["duplicate_candidates"] = compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = compute_merge_recommendation(source)
+    target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
+    target["merge_recommendation"] = compute_merge_recommendation(target)
+
+    summary = {
+        "mode": "execute" if args.execute else "dry_run",
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "identifier_type": identifier_type,
+        "identifier_value": identifier_value,
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "source_blocked_identifiers": source.get("blocked_identifiers", []),
+        "source_input_nsids": source.get("input_nsids", []),
+        "source_service_urls": source.get("service_urls", []),
+        "source_source_code_urls": source.get("source_code_urls", []),
+        "target_input_nsids": target.get("input_nsids", []),
+        "target_service_urls": target.get("service_urls", []),
+        "target_source_code_urls": target.get("source_code_urls", []),
+    }
+    if not args.execute:
+        print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+    save_project(conn, target, enriched=False)
+    conn.commit()
+    print(json.dumps(summary, ensure_ascii=False))
     return 0
 
 
@@ -4512,6 +7767,504 @@ def resolve_single_project(
     raise ValueError("source/target selector is required")
 
 
+def resolve_project_key_for_seed_value(
+    conn: sqlite3.Connection,
+    seed_type: str,
+    seed_value: str,
+) -> tuple[str | None, str]:
+    normalized_value = canonical_seed_value(seed_type, seed_value)
+    target_project_key = find_project_key_by_identifier(conn, seed_type, normalized_value)
+    match_kind = ""
+    if target_project_key is None and seed_type == "nsid":
+        target_project_key, match_kind = find_project_key_for_nsid_seed(all_projects(conn), normalized_value)
+    return target_project_key, match_kind
+
+
+def append_project_note(project: dict[str, Any], note_line: str) -> None:
+    line = str(note_line or "").strip()
+    if not line:
+        return
+    existing = str(project.get("notes") or "").strip()
+    existing_lines = existing.splitlines() if existing else []
+    if line in existing_lines:
+        return
+    project["notes"] = "\n".join(existing_lines + [line]).strip()
+
+
+def parse_text_seed_line_values(line: str) -> list[str]:
+    text = str(line or "").strip()
+    if not text:
+        return []
+    if text.startswith("at://") or re.fullmatch(NSID_PATTERN, text):
+        return [text]
+    if "http://" in text or "https://" in text:
+        return extract_urls(text)
+    return []
+
+
+def line_looks_like_seed_section_header(line: str) -> bool:
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if text.startswith("(") and text.endswith(")"):
+        return False
+    if ":" in text or "：" in text:
+        return False
+    return not parse_text_seed_line_values(text)
+
+
+def seed_note_groups_multiple_seed_lines(line: str) -> bool:
+    text = str(line or "").strip()
+    return ":" in text or "：" in text
+
+
+def text_seed_label_tokens(label: str) -> set[str]:
+    text = str(label or "").strip()
+    if not text:
+        return set()
+    head = re.split(r"[:：]", text, maxsplit=1)[0].strip()
+    tokens = {normalize_alias_token(head)}
+    tokens.update(normalize_alias_token(part) for part in re.split(r"[\s./_-]+", head) if part.strip())
+    return {token for token in tokens if token}
+
+
+def seed_value_identity_tokens(raw_value: str) -> set[str]:
+    value = str(raw_value or "").strip()
+    if not value:
+        return set()
+    nsid = extract_collection_nsid(value)
+    if nsid:
+        parts = [part for part in nsid.split(".") if part]
+        tokens = {normalize_alias_token(nsid), normalize_alias_token(parts[-1])}
+        if len(parts) >= 2:
+            tokens.add(normalize_alias_token(parts[-2]))
+        return {token for token in tokens if token}
+    parsed = urllib.parse.urlparse(normalize_url(value))
+    host = parsed.netloc.lower()
+    tokens: set[str] = set()
+    if host:
+        tokens.add(normalize_alias_token(host))
+        host_parts = [part for part in host.split(".") if part]
+        if host_parts:
+            tokens.add(normalize_alias_token(host_parts[0]))
+            if len(host_parts) >= 2:
+                tokens.add(normalize_alias_token("".join(host_parts[:-1])))
+    repo_url = canonical_repo_url(value)
+    repo_parsed = urllib.parse.urlparse(repo_url)
+    repo_segments = [segment for segment in repo_parsed.path.split("/") if segment]
+    if len(repo_segments) >= 2:
+        tokens.add(normalize_alias_token(repo_segments[-1]))
+        tokens.add(normalize_alias_token(repo_segments[0]))
+    return {token for token in tokens if token}
+
+
+def seed_values_match_group(raw_values: list[str], label: str, existing_values: list[str]) -> bool:
+    label_tokens = text_seed_label_tokens(label)
+    candidate_tokens: set[str] = set()
+    for value in raw_values:
+        candidate_tokens.update(seed_value_identity_tokens(value))
+    if not candidate_tokens:
+        return False
+    if label_tokens and candidate_tokens & label_tokens:
+        return True
+    existing_tokens: set[str] = set()
+    for value in existing_values:
+        existing_tokens.update(seed_value_identity_tokens(value))
+    return bool(existing_tokens and candidate_tokens & existing_tokens)
+
+
+def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return {"status": "skip", "reason": "empty"}
+    nsid = extract_collection_nsid(raw)
+    if nsid:
+        return {"status": "seed", "seed_type": "nsid", "seed_value": nsid}
+    normalized_url = normalize_url(raw)
+    if normalized_url:
+        parsed = urllib.parse.urlparse(normalized_url)
+        if is_bsky_post_url(normalized_url):
+            return {"status": "skip", "reason": "bsky_post_url", "normalized": normalized_url}
+        if extract_bluesky_profile_handle(normalized_url):
+            return {"status": "skip", "reason": "bsky_profile_url", "normalized": normalized_url}
+        if parsed.netloc.lower() == "lexicon.garden":
+            return {"status": "skip", "reason": "lexicon_garden_non_seed_url", "normalized": normalized_url}
+        if parsed.netloc.lower() in PDSLS_VIEWER_HOSTS:
+            return {"status": "skip", "reason": "pdsls_non_collection_url", "normalized": normalized_url}
+    try:
+        seed_type = detect_seed_type(raw)
+    except ValueError:
+        return {"status": "skip", "reason": "unsupported_line"}
+    seed_value = canonical_seed_value(seed_type, raw)
+    if seed_type == "service_url" and is_explicitly_non_project_service_url(seed_value):
+        return {"status": "skip", "reason": "non_project_service_url", "normalized": seed_value}
+    return {"status": "seed", "seed_type": seed_type, "seed_value": seed_value}
+
+
+def classify_derived_seed_values(raw_values: list[str]) -> list[dict[str, Any]]:
+    seeds: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_value in raw_values:
+        classified = classify_text_seed_value(raw_value)
+        if classified.get("status") != "seed":
+            continue
+        seed_type = str(classified.get("seed_type") or "")
+        seed_value = str(classified.get("seed_value") or "")
+        key = (seed_type, seed_value)
+        if not seed_type or not seed_value or key in seen:
+            continue
+        seen.add(key)
+        seeds.append({"raw_value": raw_value, "seed_type": seed_type, "seed_value": seed_value})
+    return seeds
+
+
+def resolve_bsky_profile_url_seed_candidates(url: str) -> list[dict[str, Any]]:
+    handle = extract_bluesky_profile_handle(url)
+    if not handle:
+        return []
+    try:
+        profile = fetch_bsky_profile(handle)
+    except Exception:
+        return []
+    derived_urls = extract_urls(str(profile.get("description") or ""))
+    try:
+        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or handle)), limit=5):
+            derived_urls.extend([str(value or "") for value in item.get("urls", [])])
+    except Exception:
+        pass
+    return classify_derived_seed_values(unique_list([value for value in derived_urls if value]))
+
+
+def resolve_bsky_post_url_seed_candidates(url: str) -> list[dict[str, Any]]:
+    try:
+        post = fetch_bsky_post_by_web_url(url)
+    except Exception:
+        return []
+    if not post:
+        return []
+    derived_urls = bsky_record_urls(post.get("record", {}) if isinstance(post.get("record", {}), dict) else {})
+    embed = post.get("embed", {}) if isinstance(post.get("embed"), dict) else {}
+    external = embed.get("external", {}) if isinstance(embed.get("external"), dict) else {}
+    external_uri = str(external.get("uri") or "").strip()
+    if external_uri:
+        derived_urls.append(external_uri)
+    return classify_derived_seed_values(unique_list([value for value in derived_urls if value]))
+
+
+def resolve_lexicon_garden_identity_seed_candidates(url: str) -> list[dict[str, Any]]:
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if parsed.netloc.lower() != "lexicon.garden" or len(segments) < 2 or segments[0] != "identity":
+        return []
+    try:
+        _, body, _ = request_bytes(normalized, headers={"Accept": "text/html"})
+    except Exception:
+        return []
+    parser = HrefHTMLParser()
+    parser.feed(body.decode("utf-8", errors="replace"))
+    candidates: list[str] = []
+    for href in parser.hrefs:
+        if "/lexicon/" not in href:
+            continue
+        absolute = urllib.parse.urljoin(normalized, href)
+        nsid = extract_collection_nsid(absolute)
+        if nsid:
+            candidates.append(nsid)
+    return classify_derived_seed_values(unique_list(candidates))
+
+
+def resolve_text_seed_reference_candidates(raw_value: str, reason: str) -> list[dict[str, Any]]:
+    if reason == "bsky_profile_url":
+        return resolve_bsky_profile_url_seed_candidates(raw_value)
+    if reason == "bsky_post_url":
+        return resolve_bsky_post_url_seed_candidates(raw_value)
+    if reason == "lexicon_garden_non_seed_url":
+        return resolve_lexicon_garden_identity_seed_candidates(raw_value)
+    return []
+
+
+def parse_text_seed_bundles(path: str) -> list[dict[str, Any]]:
+    lines = Path(path).read_text().splitlines()
+    bundles: list[dict[str, Any]] = []
+    current_section = ""
+    pending_label = ""
+    active_group: dict[str, Any] | None = None
+    for index, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line:
+            pending_label = ""
+            active_group = None
+            continue
+        values = parse_text_seed_line_values(line)
+        if values:
+            if pending_label:
+                should_group = active_group is None or seed_values_match_group(values, pending_label, list(active_group.get("raw_values", [])))
+                if not should_group:
+                    pending_label = ""
+                    active_group = None
+                    for value in values:
+                        bundles.append(
+                            {
+                                "section": current_section,
+                                "label": "",
+                                "line_numbers": [index],
+                                "raw_values": [value],
+                            }
+                        )
+                    continue
+                if active_group is None:
+                    active_group = {
+                        "section": current_section,
+                        "label": pending_label,
+                        "line_numbers": [],
+                        "raw_values": [],
+                    }
+                    bundles.append(active_group)
+                active_group["line_numbers"].append(index)
+                active_group["raw_values"].extend(values)
+                if not seed_note_groups_multiple_seed_lines(pending_label):
+                    pending_label = ""
+                    active_group = None
+            else:
+                for value in values:
+                    bundles.append(
+                        {
+                            "section": current_section,
+                            "label": "",
+                            "line_numbers": [index],
+                            "raw_values": [value],
+                        }
+                    )
+            continue
+        if line_looks_like_seed_section_header(line):
+            current_section = line
+            pending_label = ""
+            active_group = None
+            continue
+        pending_label = line
+        active_group = None
+    return bundles
+
+
+def import_text_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool = False) -> dict[str, Any]:
+    bundles = parse_text_seed_bundles(path)
+    summary_bundles: list[dict[str, Any]] = []
+    imported_projects = 0
+    imported_seeds = 0
+    skipped_seeds = 0
+    conflict_bundles = 0
+
+    for bundle in bundles:
+        raw_values = list(bundle.get("raw_values", []))
+        section = str(bundle.get("section") or "").strip()
+        label = str(bundle.get("label") or "").strip()
+        line_numbers = list(bundle.get("line_numbers", []))
+        actionable: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        seen_bundle_seeds: set[tuple[str, str]] = set()
+        for raw_value in raw_values:
+            classified = classify_text_seed_value(str(raw_value or ""))
+            if classified.get("status") != "seed":
+                derived = resolve_text_seed_reference_candidates(str(raw_value or ""), str(classified.get("reason") or ""))
+                if derived:
+                    for item in derived:
+                        seed_type = str(item.get("seed_type") or "")
+                        seed_value = str(item.get("seed_value") or "")
+                        key = (seed_type, seed_value)
+                        if not seed_type or not seed_value or key in seen_bundle_seeds:
+                            continue
+                        seen_bundle_seeds.add(key)
+                        project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+                        actionable.append(
+                            {
+                                "raw_value": raw_value,
+                                "derived_from_reference": True,
+                                "seed_type": seed_type,
+                                "seed_value": seed_value,
+                                "resolved_project_key": project_key,
+                                "match_kind": match_kind,
+                            }
+                        )
+                    continue
+                skipped.append({"raw_value": raw_value, **classified})
+                skipped_seeds += 1
+                continue
+            seed_type = str(classified.get("seed_type") or "")
+            seed_value = str(classified.get("seed_value") or "")
+            key = (seed_type, seed_value)
+            if not seed_type or not seed_value or key in seen_bundle_seeds:
+                continue
+            seen_bundle_seeds.add(key)
+            project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+            actionable.append(
+                {
+                    "raw_value": raw_value,
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "resolved_project_key": project_key,
+                    "match_kind": match_kind,
+                }
+            )
+
+        service_roots_by_host: dict[str, str] = {}
+        for item in actionable:
+            if str(item.get("seed_type") or "") != "service_url":
+                continue
+            seed_value = str(item.get("seed_value") or "")
+            parsed = urllib.parse.urlparse(seed_value)
+            if parsed.path in {"", "/"}:
+                service_roots_by_host[parsed.netloc.lower()] = seed_value
+        if service_roots_by_host:
+            filtered_actionable: list[dict[str, Any]] = []
+            for item in actionable:
+                if str(item.get("seed_type") or "") != "service_url":
+                    filtered_actionable.append(item)
+                    continue
+                seed_value = str(item.get("seed_value") or "")
+                parsed = urllib.parse.urlparse(seed_value)
+                root_value = service_roots_by_host.get(parsed.netloc.lower())
+                if root_value and root_value != seed_value:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "service_subpage_with_same_host",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                filtered_actionable.append(item)
+            actionable = filtered_actionable
+
+        resolved_keys = sorted({str(item.get("resolved_project_key") or "") for item in actionable if item.get("resolved_project_key")})
+        conflict = len(resolved_keys) > 1
+        if conflict:
+            conflict_bundles += 1
+        target_project_key = resolved_keys[0] if len(resolved_keys) == 1 else None
+        created_project_key = ""
+        if execute and actionable and not conflict:
+            first = actionable[0]
+            project = ensure_project_for_seed(
+                conn,
+                str(first["seed_type"]),
+                str(first["seed_value"]),
+                project_key=target_project_key,
+            )
+            for item in actionable[1:]:
+                project = ensure_project_for_seed(
+                    conn,
+                    str(item["seed_type"]),
+                    str(item["seed_value"]),
+                    project_key=project["project_key"],
+                )
+            project = ensure_project_shape(project)
+            project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "text_seed_list_import")
+            source_note = f"imported from text seed list: {Path(path).name}"
+            append_project_note(project, source_note)
+            if section:
+                append_project_note(project, f"seed-list section: {section}")
+            if label:
+                append_project_note(project, f"seed-list note: {label}")
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            created_project_key = project["project_key"]
+            imported_projects += 1
+            imported_seeds += len(actionable)
+
+        summary_bundles.append(
+            {
+                "section": section,
+                "label": label,
+                "line_numbers": line_numbers,
+                "actionable_seeds": actionable,
+                "skipped_items": skipped,
+                "resolved_project_keys": resolved_keys,
+                "conflict_existing_projects": conflict,
+                "imported_project_key": created_project_key or target_project_key or "",
+            }
+        )
+
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "path": str(path),
+        "bundle_count": len(summary_bundles),
+        "imported_projects": imported_projects,
+        "imported_seeds": imported_seeds,
+        "skipped_seeds": skipped_seeds,
+        "conflict_bundles": conflict_bundles,
+        "bundles": summary_bundles,
+    }
+
+
+def attach_batch_entry_seed_fields(entry: dict[str, Any], source: dict[str, Any] | None, target: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(entry)
+    payload["source_seed_type"] = str(source.get("seed_type") or "") if source else ""
+    payload["source_seed_value"] = str(source.get("seed_value") or "") if source else ""
+    payload["target_seed_type"] = str(target.get("seed_type") or "") if target else ""
+    payload["target_seed_value"] = str(target.get("seed_value") or "") if target else ""
+    return payload
+
+
+def cmd_inspect_merge_pair(args: argparse.Namespace) -> int:
+    conn = open_db()
+    source = ensure_project_shape(resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type))
+    target = ensure_project_shape(resolve_single_project(conn, project_key=args.target_project_key, seed=args.target_seed, seed_type=args.target_type))
+    if source["project_key"] == target["project_key"]:
+        raise ValueError("source and target resolve to the same project")
+
+    source_candidates = compute_duplicate_candidates(
+        conn,
+        source,
+        bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
+    )
+    target_candidates = compute_duplicate_candidates(
+        conn,
+        target,
+        bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
+    )
+    source_recommendation = compute_merge_recommendation(dict(source, duplicate_candidates=source_candidates))
+    target_recommendation = compute_merge_recommendation(dict(target, duplicate_candidates=target_candidates))
+
+    source_pair_candidate = next((item for item in source_candidates if str(item.get("project_key") or "") == target["project_key"]), None)
+    target_pair_candidate = next((item for item in target_candidates if str(item.get("project_key") or "") == source["project_key"]), None)
+
+    strict_overlap = batch_strict_overlap(source, target)
+    moderate_overlap = batch_moderate_overlap(source, target)
+    heuristic_overlap = (
+        batch_moderate_overlap(source, target, bootstrap_collection_creator_heuristic=True)
+        if args.bootstrap_collection_creator_heuristic else {}
+    )
+
+    summary: dict[str, Any] = {
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "merge_blocked": merge_is_blocked(source, target),
+        "source_pair_candidate": source_pair_candidate,
+        "target_pair_candidate": target_pair_candidate,
+        "source_recommendation": source_recommendation,
+        "target_recommendation": target_recommendation,
+        "strict_overlap": strict_overlap,
+        "moderate_overlap": moderate_overlap,
+        "bootstrap_collection_creator_heuristic": bool(args.bootstrap_collection_creator_heuristic),
+        "bootstrap_overlap": heuristic_overlap,
+    }
+    if args.bootstrap_collection_creator_heuristic:
+        summary["source_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(source)
+        summary["target_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(target)
+
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     conn = open_db()
     source = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
@@ -4533,6 +8286,8 @@ def cmd_merge(args: argparse.Namespace) -> int:
     target = ensure_project_shape(target)
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
+    if merge_is_blocked(source, target) and not args.force:
+        raise ValueError("merge is manually blocked for this project pair; rerun with --force only if you intend to override that guard")
 
     merged = merge_project_records(target, source)
     merged["duplicate_candidates"] = compute_duplicate_candidates(conn, merged)
@@ -4571,7 +8326,11 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
 def cmd_merge_batch(args: argparse.Namespace) -> int:
     conn = open_db()
-    plans, skipped = build_batch_merge_plan(conn, mode=str(args.mode or "strict"))
+    plans, skipped = build_batch_merge_plan(
+        conn,
+        mode=str(args.mode or "strict"),
+        bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
+    )
     if args.max_merges is not None:
         plans = plans[: max(0, int(args.max_merges))]
 
@@ -4581,11 +8340,15 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
         target = fetch_project(conn, plan["target_project_key"])
         if source is None or target is None:
             skipped.append(
-                {
+                attach_batch_entry_seed_fields(
+                    {
                     "project_key": plan["source_project_key"],
                     "target_project_key": plan["target_project_key"],
                     "reason": "project_missing_during_execution",
-                }
+                    },
+                    source,
+                    target,
+                )
             )
             continue
         source = ensure_project_shape(source)
@@ -4600,6 +8363,10 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
             "target_project_key": target["project_key"],
             "source_name": source.get("name", ""),
             "target_name": target.get("name", ""),
+            "source_seed_type": source.get("seed_type", ""),
+            "source_seed_value": source.get("seed_value", ""),
+            "target_seed_type": target.get("seed_type", ""),
+            "target_seed_value": target.get("seed_value", ""),
             "merged_name": merged.get("name", ""),
             "merged_website_url": merged.get("website_url", ""),
             "merged_source_code_urls": merged.get("source_code_urls", []),
@@ -4615,15 +8382,20 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
 
     print(
         json.dumps(
-            {
+            ({
                 "mode": "execute" if args.execute else "dry_run",
                 "merge_mode": str(args.mode or "strict"),
+                "bootstrap_collection_creator_heuristic": bool(args.bootstrap_collection_creator_heuristic),
                 "planned_merges": len(plans),
                 "executed_merges": len(executed),
                 "executed": executed,
-                "skipped_count": len(skipped),
-                "skipped": skipped[:100],
-            },
+            } | (
+                {
+                    "skipped_count": len(skipped),
+                    "skipped": skipped[:100],
+                }
+                if args.verbose else {}
+            )),
             ensure_ascii=False,
             indent=2 if not args.execute else None,
             sort_keys=not args.execute,
@@ -4639,18 +8411,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
     add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")
     add_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Override automatic seed type detection.")
-    add_parser.add_argument("--project-key", help="Attach the seed to an existing project key.")
+    add_parser.add_argument("-p", "--project-key", help="Attach the seed to an existing project key.")
     add_parser.set_defaults(func=cmd_add_seed)
 
     enrich_parser = subparsers.add_parser("enrich", help="Enrich one or more projects.")
     enrich_group = enrich_parser.add_mutually_exclusive_group(required=True)
-    enrich_group.add_argument("--project-key", help="Target one project key.")
+    enrich_group.add_argument("-p", "--project-key", help="Target one project key.")
     enrich_group.add_argument("--seed", help="Target by known seed value.")
     enrich_group.add_argument("--all", action="store_true", help="Enrich all registered projects.")
     enrich_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
     enrich_parser.add_argument("--include-stable", action="store_true", help="When used with --all, include projects marked stable.")
+    enrich_parser.add_argument("--include-stalled", action="store_true", help="When used with --all, include projects marked stalled.")
     enrich_parser.add_argument("--include-archived", action="store_true", help="When used with --all, include projects marked archived.")
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
+    enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
@@ -4658,7 +8432,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     show_parser = subparsers.add_parser("show", help="Show registered projects.")
     show_group = show_parser.add_mutually_exclusive_group(required=True)
-    show_group.add_argument("--project-key", help="Target one project key.")
+    show_group.add_argument("-p", "--project-key", help="Target one project key.")
     show_group.add_argument("--seed", help="Target by known seed value.")
     show_group.add_argument("--all", action="store_true", help="Show all projects.")
     show_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
@@ -4666,11 +8440,54 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     show_parser.set_defaults(func=cmd_show)
 
+    review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
+    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
+    review_queue_parser.add_argument("--kinds", nargs="+", choices=[
+        "llm_manual_review_recommended",
+        "service_now_usable_but_needs_editorial_review",
+        "more_evidence_than_current_classification",
+        "merge_needs_human_judgment",
+        "high_information_density",
+        "many_identity_candidates",
+    ], help="Restrict to specific review signal kinds.")
+    review_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    review_queue_parser.set_defaults(func=cmd_review_queue)
+
+    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
+    review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
+    review_stalled_parser.add_argument("--enrich-age-days", type=int, default=30, help="Flag projects that have not been enriched for at least this many days. Default: 30.")
+    review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
+    review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
+    review_stalled_parser.set_defaults(func=cmd_review_stalled)
+
     applog_parser = subparsers.add_parser("import-applog", help="Import applog-style introduced links.")
     applog_parser.add_argument("path", help="Path to applog JSON dump.")
     applog_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     applog_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported seeds.")
     applog_parser.set_defaults(func=cmd_import_applog)
+
+    seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
+    seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")
+    seed_list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    seed_list_parser.set_defaults(func=cmd_import_seed_list)
+
+    sync_introduced_parser = subparsers.add_parser("sync-introduced", help="Search Bluesky posts and mark matching projects as introduced.")
+    sync_introduced_parser.add_argument("--query", default="from:yamarten.bsky.social #ATプロトーク", help="Bluesky post search query. Default: from:yamarten.bsky.social #ATプロトーク")
+    sync_introduced_parser.add_argument("--limit", type=int, default=25, help="Maximum number of posts to inspect across search pages. Default: 25.")
+    sync_introduced_parser.add_argument("--max-pages", type=int, default=4, help="Maximum number of paginated search requests. Default: 4.")
+    sync_introduced_parser.add_argument("--execute", action="store_true", help="Apply introduced flags. Without this flag, show a dry-run summary only.")
+    sync_introduced_parser.set_defaults(func=cmd_sync_introduced)
+
+    sync_github_parser = subparsers.add_parser("sync-github-search", help="Search GitHub repositories and import unknown repo seeds.")
+    sync_github_parser.add_argument("--query", action="append", help="Override one GitHub repository search query. Can be passed multiple times.")
+    sync_github_parser.add_argument("--pages", type=int, help="How many GitHub search result pages to scan.")
+    sync_github_parser.add_argument("--per-page", type=int, help="How many results to fetch per page.")
+    sync_github_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider repos updated within this many days. Default: 10.")
+    sync_github_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
+    sync_github_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    sync_github_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unknown GitHub repos.")
+    sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
+    sync_github_parser.set_defaults(func=cmd_sync_github_search)
 
     collections_parser = subparsers.add_parser("import-collections", help="Import a known collection inventory JSON dump.")
     collections_parser.add_argument("path", help="Path to the collection inventory JSON export.")
@@ -4678,26 +8495,91 @@ def build_parser() -> argparse.ArgumentParser:
     collections_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported collections.")
     collections_parser.set_defaults(func=cmd_import_collections)
 
+    sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
+    sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")
+    sync_collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    sync_collections_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported collections.")
+    sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider collections whose min timestamp is within this many days. Default: 10.")
+    sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
+    sync_collections_parser.set_defaults(func=cmd_sync_collections)
+
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.set_defaults(func=cmd_repair_db)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
-    tracking_target.add_argument("--project-key", help="Target one project key.")
-    tracking_target.add_argument("--seed", help="Target by known seed value.")
+    tracking_target.add_argument("-p", "--project-key", help="Target one project key.")
+    tracking_target.add_argument("-s", "--seed", help="Target by known seed value.")
     tracking_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    tracking_parser.add_argument("--tracking-state", required=True, choices=sorted(TRACKING_STATES), help="Tracking state to assign.")
+    tracking_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(TRACKING_STATES), help="Tracking state to assign.")
     tracking_parser.add_argument("--note", help="Optional tracking note.")
     tracking_parser.set_defaults(func=cmd_set_tracking_state)
 
+    tracking_batch_parser = subparsers.add_parser("set-tracking-state-batch", help="Set tracking state for all projects matching a coarse filter.")
+    tracking_batch_filter = tracking_batch_parser.add_mutually_exclusive_group(required=True)
+    tracking_batch_filter.add_argument("--record-did", help="Match projects whose recent_record_samples include this DID.")
+    tracking_batch_filter.add_argument("--nsid-prefix", help="Match projects whose primary/input/resolved NSID starts with this prefix.")
+    tracking_batch_parser.add_argument("--current-tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Optional pre-filter on current tracking state.")
+    tracking_batch_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(TRACKING_STATES), help="Tracking state to assign.")
+    tracking_batch_parser.add_argument("--note", help="Optional tracking note.")
+    tracking_batch_parser.add_argument("--execute", action="store_true", help="Apply the change. Without this flag, show a dry-run summary only.")
+    tracking_batch_parser.set_defaults(func=cmd_set_tracking_state_batch)
+
+    separate_parser = subparsers.add_parser("set-separate", help="Mark two projects as distinct so merge recommendations do not pair them.")
+    separate_source = separate_parser.add_mutually_exclusive_group(required=True)
+    separate_source.add_argument("-p", "--project-key", help="First project key.")
+    separate_source.add_argument("-s", "--seed", help="First project by known seed value.")
+    separate_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    separate_target = separate_parser.add_mutually_exclusive_group(required=True)
+    separate_target.add_argument("-o", "--other-project-key", help="Second project key.")
+    separate_target.add_argument("-O", "--other-seed", help="Second project by known seed value.")
+    separate_parser.add_argument("--other-type", choices=["nsid", "repo_url", "service_url"], help="Required when --other-seed is ambiguous.")
+    separate_parser.add_argument("--clear", action="store_true", help="Remove the separation block instead of adding it.")
+    separate_parser.set_defaults(func=cmd_set_separate)
+
+    block_parser = subparsers.add_parser("block-identifier", help="Block one identifier from being reattached to a project during normalize/enrich.")
+    block_target = block_parser.add_mutually_exclusive_group(required=True)
+    block_target.add_argument("-p", "--project-key", help="Target one project key.")
+    block_target.add_argument("-s", "--seed", help="Target by known seed value.")
+    block_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    block_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to block.")
+    block_parser.add_argument("-v", "--value", required=True, help="Identifier value to block on this project.")
+    block_parser.add_argument("--note", help="Optional operator note recorded with the block.")
+    block_parser.add_argument("--clear", action="store_true", help="Remove the block instead of adding it.")
+    block_parser.set_defaults(func=cmd_block_identifier)
+
+    split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
+    split_target = split_parser.add_mutually_exclusive_group(required=True)
+    split_target.add_argument("-p", "--project-key", help="Source project key.")
+    split_target.add_argument("-s", "--seed", help="Source project by known seed value.")
+    split_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    split_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to split out.")
+    split_parser.add_argument("-v", "--value", required=True, help="Identifier value to split out into a new project.")
+    split_parser.add_argument("-n", "--new-project-key", help="Optional explicit key for the new project.")
+    split_parser.add_argument("--note", help="Optional operator note.")
+    split_parser.add_argument("--execute", action="store_true", help="Apply the split. Without this flag, only show a dry-run summary.")
+    split_parser.set_defaults(func=cmd_split_project)
+
+    inspect_merge_parser = subparsers.add_parser("inspect-merge-pair", help="Inspect merge evidence for one specific project pair without running batch merge.")
+    inspect_merge_source = inspect_merge_parser.add_mutually_exclusive_group(required=True)
+    inspect_merge_source.add_argument("-p", "--project-key", help="Source project key.")
+    inspect_merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
+    inspect_merge_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    inspect_merge_target = inspect_merge_parser.add_mutually_exclusive_group(required=True)
+    inspect_merge_target.add_argument("-t", "--target-project-key", help="Target project key.")
+    inspect_merge_target.add_argument("-T", "--target-seed", help="Target project by known seed value.")
+    inspect_merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
+    inspect_merge_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Include the temporary listReposByCollection first-DID heuristic in the inspection output.")
+    inspect_merge_parser.set_defaults(func=cmd_inspect_merge_pair)
+
     merge_parser = subparsers.add_parser("merge", help="Merge one project into another.")
     merge_source = merge_parser.add_mutually_exclusive_group(required=True)
-    merge_source.add_argument("--project-key", help="Source project key.")
-    merge_source.add_argument("--seed", help="Source project by known seed value.")
+    merge_source.add_argument("-p", "--project-key", help="Source project key.")
+    merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
     merge_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
     merge_target = merge_parser.add_mutually_exclusive_group(required=True)
-    merge_target.add_argument("--target-project-key", help="Explicit target project key.")
-    merge_target.add_argument("--target-seed", help="Explicit target project by known seed value.")
+    merge_target.add_argument("-t", "--target-project-key", help="Explicit target project key.")
+    merge_target.add_argument("-T", "--target-seed", help="Explicit target project by known seed value.")
     merge_target.add_argument("--use-recommendation", action="store_true", help="Use the current merge recommendation for the source project.")
     merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
     merge_parser.add_argument("--execute", action="store_true", help="Apply the merge. Without this flag, only show a dry-run summary.")
@@ -4708,6 +8590,8 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")
     merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
     merge_batch_parser.add_argument("--mode", choices=["strict", "moderate"], default="strict", help="Safety level for automatic batch merge planning.")
+    merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
+    merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
     merge_batch_parser.set_defaults(func=cmd_merge_batch)
 
     return parser

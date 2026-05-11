@@ -39,6 +39,9 @@ Output schema:
   "why_keep": "string",
   "why_reject": "string",
   "watch_reason": "string",
+  "manual_review_recommended": true,
+  "manual_review_priority": "none | low | medium | high",
+  "manual_review_reason": "string",
   "confidence": 0.0
 }
 
@@ -54,6 +57,9 @@ Language requirements:
 - `why_keep`: Japanese
 - `why_reject`: Japanese
 - `watch_reason`: Japanese
+- `manual_review_recommended`: true when a human should inspect rich docs, a usable service, or complicated evidence that the shallow automated pass may not fully digest
+- `manual_review_priority`: use `high` for likely high-value manual review, `medium` for useful but not urgent review, `low` for optional review, `none` when no manual review is recommended
+- `manual_review_reason`: Japanese short explanation of what the human should inspect and why
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
