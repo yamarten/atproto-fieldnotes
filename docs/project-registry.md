@@ -91,14 +91,6 @@ python3 scripts/project_registry.py show --all --format json
 
 ## 紹介済み候補の取り込み
 
-`applog.json` から紹介済みURLを取り込む:
-
-```bash
-python3 scripts/project_registry.py import-applog applog.json
-python3 scripts/project_registry.py import-applog applog.json --execute
-python3 scripts/project_registry.py import-applog applog.json --execute --create-unmatched
-```
-
 Bluesky 検索から紹介済み判定だけを同期する:
 
 ```bash
@@ -117,17 +109,6 @@ python3 scripts/project_registry.py import-seed-list tmpdata.txt --execute
 ```
 
 このコマンドは GitHub/Tangled/service URL/`pdsls`/`lexicon.garden` を seed に正規化します。`pdsls` の record URL は collection NSID に落とし、`lexicon.garden` の identity URL や `bsky.app` のプロフィール/投稿 URL も、そこから service URL / repo URL / NSID を導ける場合だけ展開します。材料が無いものだけスキップします。`Echosky: ...` のように注記の直後に複数 seed が並ぶ場合は、ラベルと seed が十分近い時だけ同一 project へ束ねます。
-
-## 既知collection一覧の取り込み
-
-`collection_count_view` 由来JSONを取り込む:
-
-```bash
-python3 scripts/project_registry.py import-collections "scripts/collectiondata.usounds.work collection_count_view.json"
-python3 scripts/project_registry.py import-collections "scripts/collectiondata.usounds.work collection_count_view.json" --execute --create-unmatched
-```
-
-このimportはproject粒度で集約して取り込みます。新規作成時は後段のlexicon解決用に代表のfull NSIDも保持します。
 
 ## collection inventory APIの同期
 
@@ -393,13 +374,14 @@ GUIやSQLで `projects` を直接編集した後は、正規化と派生デー�
 python3 scripts/project_registry.py repair-db
 ```
 
-## LLM設定
+## 環境変数
 
 command方式:
 
 ```bash
 export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 ```
 
 endpoint方式:
@@ -407,7 +389,9 @@ endpoint方式:
 ```bash
 export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 ```
 
 Bluesky post検索を使う場合:
@@ -415,4 +399,13 @@ Bluesky post検索を使う場合:
 ```bash
 export BSKY_HANDLE='your-handle.bsky.social'
 export BSKY_APP_PASSWORD='xxxx-xxxx-xxxx'
+export BSKY_AUTH_HOST='https://bsky.social'
 ```
+
+GitHub検索の rate limit を避けたい場合:
+
+```bash
+export GITHUB_TOKEN='ghp_...'
+```
+
+現状、環境変数として読むのは上記だけです。`DNS_RESOLVER_URL` や `UFOS_API` はコード定数で、環境変数オーバーライドはありません。

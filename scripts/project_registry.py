@@ -2945,22 +2945,6 @@ def reset_investigation_state(project: dict[str, Any]) -> None:
     project["investigation_log"] = []
 
 
-def parse_concatenated_json_objects(text: str) -> list[dict[str, Any]]:
-    decoder = json.JSONDecoder()
-    index = 0
-    objects: list[dict[str, Any]] = []
-    while index < len(text):
-        while index < len(text) and text[index].isspace():
-            index += 1
-        if index >= len(text):
-            break
-        obj, end = decoder.raw_decode(text, index)
-        if isinstance(obj, dict):
-            objects.append(obj)
-        index = end
-    return objects
-
-
 def bsky_post_web_url(post: dict[str, Any]) -> str:
     author = post.get("author", {}) if isinstance(post.get("author"), dict) else {}
     handle = str(author.get("handle") or "").strip()
@@ -3425,17 +3409,6 @@ def import_collection_inventory_payload(
     }
 
 
-def import_collection_inventory(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text())
-    return import_collection_inventory_payload(
-        conn,
-        payload,
-        execute=execute,
-        create_unmatched=create_unmatched,
-        source=f"collection_inventory_file:{path}",
-    )
-
-
 def fetch_collection_inventory(source_url: str) -> list[dict[str, Any]]:
     payload = request_json(source_url)
     if not isinstance(payload, list):
@@ -3679,93 +3652,6 @@ def sync_collection_inventory(
     if save_path is not None:
         summary["saved_payload_path"] = str(save_path)
     return summary
-
-
-def import_applog_entries(conn: sqlite3.Connection, path: str, *, execute: bool, create_unmatched: bool) -> dict[str, Any]:
-    text = Path(path).read_text()
-    objects = parse_concatenated_json_objects(text)
-    posts: list[dict[str, Any]] = []
-    for obj in objects:
-        posts.extend(obj.get("posts", []))
-    entries_by_seed = collect_applog_entries(posts)
-
-    created = 0
-    updated = 0
-    unmatched = 0
-    merge_candidates: list[dict[str, Any]] = []
-    imported_project_keys: list[str] = []
-    unmatched_entries: list[dict[str, Any]] = []
-
-    for item in entries_by_seed.values():
-        seed_type = str(item["seed_type"])
-        seed_value = str(item["seed_value"])
-        project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
-        is_new = project_key is None
-        if is_new and not create_unmatched:
-            unmatched += 1
-            unmatched_entries.append(
-                {
-                    "seed_type": seed_type,
-                    "seed_value": seed_value,
-                    "label": item["labels"][0] if item["labels"] else "",
-                    "introduced_url": item["post_web_urls"][0] if item["post_web_urls"] else "",
-                }
-            )
-            continue
-        if project_key is None:
-            project_key = allocate_new_project_key(conn)
-        project = fetch_project(conn, project_key) or default_project_record(project_key, seed_type, seed_value)
-        if is_new:
-            apply_seed_to_project(project, seed_type, seed_value)
-            project["manual_seeds"] = unique_manual_seeds(list(project.get("manual_seeds", [])) + [{"type": seed_type, "value": seed_value, "added_at": iso_now()}])
-        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "applog_import")
-        project["introduced"] = True
-        if not project.get("introduced_url") and item["post_web_urls"]:
-            project["introduced_url"] = item["post_web_urls"][0]
-        project["evidence_urls"] = unique_list(list(project.get("evidence_urls", [])) + [seed_value])
-        if item["labels"] and should_replace_project_name(project, item["labels"][0]):
-            project["name"] = item["labels"][0]
-        project = finalize_project_shape(project)
-        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-        project["merge_recommendation"] = compute_merge_recommendation(project)
-        imported_project_keys.append(project["project_key"])
-        if project.get("merge_recommendation"):
-            merge_candidates.append(
-                {
-                    "project_key": project["project_key"],
-                    "name": project.get("name", ""),
-                    "merge_recommendation": project.get("merge_recommendation", {}),
-                }
-            )
-        if execute:
-            save_project(conn, project, enriched=False)
-        if is_new:
-            created += 1
-        else:
-            updated += 1
-
-    if execute:
-        conn.commit()
-
-    merge_candidates.sort(
-        key=lambda item: (
-            -int(item.get("merge_recommendation", {}).get("score", 0) or 0),
-            item.get("project_key", ""),
-        )
-    )
-    return {
-        "objects": len(objects),
-        "posts": len(posts),
-        "entries": len(entries_by_seed),
-        "created": created,
-        "updated": updated,
-        "unmatched": unmatched,
-        "mode": "execute" if execute else "dry_run",
-        "create_unmatched": create_unmatched,
-        "imported_project_keys": imported_project_keys,
-        "merge_candidates": merge_candidates[:50],
-        "unmatched_entries": unmatched_entries[:100],
-    }
 
 
 def sync_introduced_entries(
@@ -7490,13 +7376,6 @@ def cmd_set_tracking_state_batch(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_import_applog(args: argparse.Namespace) -> int:
-    conn = open_db()
-    summary = import_applog_entries(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
-    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
 def cmd_import_seed_list(args: argparse.Namespace) -> int:
     conn = open_db()
     summary = import_text_seed_list(conn, args.path, execute=args.execute)
@@ -7535,13 +7414,6 @@ def cmd_sync_github_search(args: argparse.Namespace) -> int:
         lookback_days=lookback_days,
         screen_unmatched=bool(args.screen_unmatched),
     )
-    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
-def cmd_import_collections(args: argparse.Namespace) -> int:
-    conn = open_db()
-    summary = import_collection_inventory(conn, args.path, execute=args.execute, create_unmatched=args.create_unmatched)
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
 
@@ -8460,12 +8332,6 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
     review_stalled_parser.set_defaults(func=cmd_review_stalled)
 
-    applog_parser = subparsers.add_parser("import-applog", help="Import applog-style introduced links.")
-    applog_parser.add_argument("path", help="Path to applog JSON dump.")
-    applog_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    applog_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported seeds.")
-    applog_parser.set_defaults(func=cmd_import_applog)
-
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
     seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")
     seed_list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
@@ -8488,12 +8354,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync_github_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unknown GitHub repos.")
     sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
     sync_github_parser.set_defaults(func=cmd_sync_github_search)
-
-    collections_parser = subparsers.add_parser("import-collections", help="Import a known collection inventory JSON dump.")
-    collections_parser.add_argument("path", help="Path to the collection inventory JSON export.")
-    collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    collections_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported collections.")
-    collections_parser.set_defaults(func=cmd_import_collections)
 
     sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
     sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")

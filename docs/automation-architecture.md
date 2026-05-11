@@ -15,7 +15,7 @@
 
 - `https://collectiondata.usounds.work/collection_count_view`
   - collection 単位の inventory と activity snapshot として使う
-- `applog.json`
+- `sync-introduced` で見る Bluesky 投稿
   - 紹介済み候補と紹介元 URL の取り込みに使う
 
 ### 補助情報
@@ -26,7 +26,7 @@
 - ATProto Dashboard
 - UFOs
 
-機械取得の主軸は `collection_count_view` と `applog` に寄せる。GitHub / Tangled / UFOs は補助的な discovery や深掘りに使う。
+機械取得の主軸は `collection_count_view` と `sync-introduced` の Bluesky 投稿検索に寄せる。GitHub / Tangled / UFOs は補助的な discovery や深掘りに使う。
 atproto の sync / repo endpoint は changed collection の深掘りに使う。
 
 ## 2. Enrichment
@@ -95,7 +95,7 @@ LLM を常時オンラインに置く必要はない。
 ## データフロー
 
 1. `collection_count_view` の full snapshot を取得
-2. `applog.json` を取り込む
+2. `sync-introduced` で紹介済み判定を更新する
 3. source ごとに差分判定
 4. changed collection / repo を深掘り
 5. `project_key` 単位で統合
@@ -108,7 +108,7 @@ LLM を常時オンラインに置く必要はない。
 
 ### Phase 1
 
-- `collection_count_view` snapshot 収集
+- `collection_count_view` 収集
 - `applog` 取り込み
 - SQLite 永続化
 - Markdown レポート

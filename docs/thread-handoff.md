@@ -26,7 +26,7 @@
 
 - 新規候補
   - `collection_count_view`
-  - `applog.json`
+  - `sync-introduced` の Bluesky 投稿検索
 - project 調査
   - `scripts/project_registry.py`
 - 補助 discovery
@@ -39,12 +39,12 @@
 - `add-seed`
   - `nsid`, `repo_url`, `service_url` を受ける
   - `pdsls.dev`, `pds.ls`, `at://...` も `nsid` seed として扱う
-- `import-collections`
-  - collection を project 粒度の registrable namespace で集約する
-  - ただし lexicon 解決のため、代表の full NSID を seed として保持する
 - `sync-introduced`
   - `from:yamarten.bsky.social #ATプロトーク` の Bluesky 検索を既定で使う
   - seed は増やさず、既存 project の `introduced` 判定だけ更新する
+- `sync-collections`
+  - collection inventory API を直接 fetch する
+  - 新規 collection import に加えて、既知 collection の `count/recent_count/max` も refresh する
 - `sync-github-search`
   - `config/sources.json` の `github_repo_search` を使う
   - 既知 repo を除いた、最近更新された未知 repo seed を追加する

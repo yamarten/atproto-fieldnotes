@@ -14,7 +14,7 @@
 
 - 収集
   - `collection_count_view`
-  - `applog.json`
+  - `sync-introduced` で拾う Bluesky 投稿
 - 保存
   - SQLite
 - 要約/分類
@@ -33,7 +33,7 @@
 
 ### B. 既知紹介済み候補の取り込み
 
-- `applog.json`
+- `sync-introduced` の Bluesky 投稿検索
 
 ### C. 候補の裏取り
 
@@ -57,7 +57,7 @@
 ### Weekly
 
 - `collection_count_view` snapshot の収集
-- `applog.json` 取り込み
+- `sync-introduced` による紹介済み判定更新
 - new / changed collection の report 更新
 - watchlist 再確認
 - LLM summary の再生成
@@ -92,7 +92,7 @@ LLM は discovery の主役ではなく、整理の補助に使う。
 
 ## 実装優先順位
 
-1. `collection_count_view` と `applog` で候補収集
+1. `collection_count_view` と Bluesky 投稿検索で候補収集
 2. changed collection と changed repo に対して lexicon / repo / profile / domain の証拠集め
 3. ルールベース分類
 4. local LLM による summary と曖昧候補判定

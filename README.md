@@ -8,7 +8,7 @@
 
 - 候補を収集する
   - `collection_count_view`
-  - `applog.json`
+  - Bluesky 投稿検索
 - seedからproject recordを育てる
   - 事実収集
   - LLMによる要約と分類
@@ -61,12 +61,6 @@ python3 scripts/project_registry.py enrich --all --include-stable
 python3 scripts/project_registry.py enrich --all --include-stalled
 ```
 
-紹介済みURLの取り込み:
-
-```bash
-python3 scripts/project_registry.py import-applog applog.json --execute
-```
-
 Bluesky 検索から紹介済み判定を同期:
 
 ```bash
@@ -75,12 +69,6 @@ python3 scripts/project_registry.py sync-introduced --execute
 ```
 
 `sync-introduced` は seed を追加せず、既存 project に対して `introduced=true` と `introduced_url` を付けるためだけに使います。
-
-既知collection一覧の取り込み:
-
-```bash
-python3 scripts/project_registry.py import-collections "scripts/collectiondata.usounds.work collection_count_view.json" --execute --create-unmatched
-```
 
 collection inventory APIから直接同期:
 
@@ -145,13 +133,16 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
 python3 scripts/project_registry.py block-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com
 ```
 
-## LLMの最小設定
+## 環境変数
+
+実装上の環境変数は次で全部です。
 
 command方式:
 
 ```bash
 export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 ```
 
 endpoint方式:
@@ -159,7 +150,9 @@ endpoint方式:
 ```bash
 export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 ```
 
 Bluesky post検索を使う場合:
@@ -167,6 +160,7 @@ Bluesky post検索を使う場合:
 ```bash
 export BSKY_HANDLE='your-handle.bsky.social'
 export BSKY_APP_PASSWORD='xxxx-xxxx-xxxx'
+export BSKY_AUTH_HOST='https://bsky.social'
 ```
 
 GitHub検索の rate limit を避けたい場合:
@@ -174,6 +168,8 @@ GitHub検索の rate limit を避けたい場合:
 ```bash
 export GITHUB_TOKEN='ghp_...'
 ```
+
+`DNS_RESOLVER_URL` や `UFOS_API` などは現状コード定数で、環境変数では上書きしません。
 
 ## 文書
 
