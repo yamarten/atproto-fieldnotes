@@ -140,6 +140,7 @@ python3 scripts/project_registry.py sync-collections --source-url https://collec
 ```
 
 このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。`min` が直近 `10` 日以内の未知collectionだけを対象にします。
+一方で、既知 collection の activity 情報自体は毎回見直します。`count` / `recent_count` / `max` を既存 project の `collection_observations` に反映するので、最近 record が流れている stalled project を active に戻す判断にも使えます。
 
 また、sync/import 時の既存 project への自動ひも付けは conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、`suggested_project_key` として提案だけ残します。
 
@@ -278,6 +279,30 @@ python3 scripts/project_registry.py set-tracking-state \
 ```
 
 `stalled` は、立ち消え気味で追跡頻度を下げたいが `archived` にするほど確定ではないもの向けです。
+
+候補の自動判定を見る:
+
+```bash
+python3 scripts/project_registry.py review-stalled
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+```
+
+このコマンドは 3 種類の提案を返します。
+
+- `suggested_tracking_state=stalled`
+  - repo と collection の両方が長く止まっている、または `dead/private` が見えている
+- `suggested_tracking_state=stable`
+  - collection は最近動いているが repo 側は止まっている
+- `suggested_tracking_state=active`
+  - いま `stalled` だが、repo または collection の最近 activity が見えた
+
+repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
+
+適用する場合:
+
+```bash
+python3 scripts/project_registry.py review-stalled --execute
+```
 
 同じ creator DID や NSID prefix にぶら下がる project をまとめて切り替える場合:
 

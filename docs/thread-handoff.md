@@ -52,6 +52,9 @@
   - 既定では `tracking_state=active|watchlist` のみ
   - `stable` と `stalled` は明示 include が必要
   - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `300`
+- `review-stalled`
+  - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
+  - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない
 - `repair-db`
   - scalar 重複除去
   - 派生フィールド再計算
@@ -90,5 +93,6 @@
 ## コミット時に気をつけること
 
 - `data/` 配下の JSON は生成物や棚卸しメモが混ざる
+- `data/tldextract-cache/` は生成 cache
 - ユーザーが明示しない限り、`data/*.json` を安易にコミットしない
 - DB スキーマや運用ルールを変えたら、利用者向け文書と内部文書の両方を更新する

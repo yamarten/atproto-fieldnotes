@@ -91,6 +91,7 @@ python3 scripts/project_registry.py sync-collections --execute --create-unmatche
 ```
 
 `sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「`min` が直近 `--lookback-days` 日以内」のものだけです。
+既知 collection についても、`count` / `recent_count` / `max` は activity refresh 用に見直します。これにより `latest_collection_activity_at` は「最後に新規 collection が生えた日」ではなく、既知 collection を含めた最近の record 活動に近い値になります。`tracking_state=stalled` の project でも、ここで最近の活動が見えれば `active` に戻せます。
 
 GitHub repository search から repo seed を同期:
 
@@ -128,6 +129,15 @@ DB直接編集後の整合性回復:
 ```bash
 python3 scripts/project_registry.py repair-db
 ```
+
+追跡頻度を見直す候補の確認:
+
+```bash
+python3 scripts/project_registry.py review-stalled
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+```
+
+`review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
 
 誤って付いた `service_url` / `repo_url` / `nsid` を今後も戻さないようにしたい場合:
 

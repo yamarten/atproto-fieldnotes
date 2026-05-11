@@ -76,6 +76,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - project 粒度で記録する namespace
 
 collection inventory import は project 粒度で集約しますが、lexicon 解決用に代表の full NSID を別に保持します。
+既知 collection を `sync-collections` した時も `collection_observations` の `count` / `recent_count` / `max` は更新します。`latest_collection_activity_at` 相当の用途では、これを「最近 record が流れた時刻」とみなします。
 
 ## 確認済みと候補の区別
 
@@ -105,6 +106,7 @@ source repo は次の順で探します。
 4. Bluesky actor search / post search / author feed
 
 confirmed に入れるのは、seed 由来か first-party の強い根拠があるものだけです。
+GitHub repo を確認した場合は `source_repo_records[].updated_at` に upstream の `updated_at` も保持し、`review-stalled` で repo activity として使います。
 
 ## LLM
 
@@ -136,3 +138,16 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 - collision 監査
 
 invalid JSON の自動救済はもう持ちません。`data_json` は strict JSON 前提です。
+
+## review-stalled
+
+`review-stalled` は `active/watchlist -> stalled` の候補だけではなく、
+
+- `active -> stable`
+  - collection は最近動いているが repo 側は止まっている
+- `stalled -> active`
+  - repo または collection に最近 activity が戻った
+
+も返します。
+
+`service_status=unknown/none` は単独では落とす根拠にしません。repo activity と collection activity を優先し、`dead/private` だけを強いシグナルとして扱います。
