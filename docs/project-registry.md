@@ -366,6 +366,31 @@ python3 scripts/project_registry.py split-project \
 
 という処理をまとめて行います。複数アプリが混ざっている場合は、必要な identifier ごとに数回に分けて切り出します。
 
+## 自然文からの DB 修正補助
+
+短い自然文から、既存 CLI の具体コマンド案を出す:
+
+```bash
+python3 scripts/project_registry.py assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい'
+python3 scripts/project_registry.py assist-db-edit 'proj:aaaa と proj:bbbb をマージしたい'
+python3 scripts/project_registry.py assist-db-edit 'proj:xxxx から https://example.com をブロックしたい'
+```
+
+現状サポートする action は:
+
+- `merge`
+- `set_separate`
+- `block_identifier`
+- `set_tracking_state`
+
+一意に project 解決できた場合だけ、そのまま反映もできます:
+
+```bash
+python3 scripts/project_registry.py assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい' --execute
+```
+
+TTY 上で一意に解決できた場合は、`--execute` なしでもその場で確認プロンプトを出します。ローカル LLM が設定されていればそれで解釈します。未設定でも `proj:` / URL / NSID が明示されているケースは heuristic で解釈します。曖昧な場合は候補一覧と `suggested_command` だけ返し、実行しません。
+
 ## DBを直接編集した後
 
 GUIやSQLで `projects` を直接編集した後は、正規化と派生データ再計算のためにこれを回します。

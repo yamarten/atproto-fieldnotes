@@ -3144,6 +3144,164 @@ def project_keys_for_alias(conn: sqlite3.Connection, alias: str) -> list[str]:
     return matches
 
 
+def project_search_candidates(conn: sqlite3.Connection, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+    text = str(query or "").strip()
+    if not text:
+        return []
+    lowered = text.lower()
+    alias = normalize_alias_token(text)
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    projects = [ensure_project_shape(project) for project in all_projects(conn)]
+    for project in projects:
+        score = 0
+        reasons: list[str] = []
+        project_key = str(project.get("project_key") or "")
+        name = str(project.get("name") or "")
+        seed_value = str(project.get("seed_value") or "")
+        identifiers = unique_list(
+            ([seed_value] if seed_value else [])
+            + ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+            + [str(item or "") for item in project.get("input_nsids", [])]
+            + [str(item or "") for item in project.get("resolved_nsids", [])]
+            + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+            + [str(item or "") for item in project.get("service_urls", [])]
+            + [str(item or "") for item in project.get("source_code_urls", [])]
+        )
+        if project_key == text:
+            score += 100
+            reasons.append("project_key_exact")
+        elif project_key.startswith(text) or text.startswith(project_key):
+            score += 70
+            reasons.append("project_key_prefix")
+        if seed_value and seed_value == text:
+            score += 95
+            reasons.append("seed_exact")
+        if name and name.lower() == lowered:
+            score += 80
+            reasons.append("name_exact")
+        elif name and lowered in name.lower():
+            score += 45
+            reasons.append("name_substring")
+        if alias and alias in project_merge_aliases(project):
+            score += 60
+            reasons.append("alias_match")
+        for identifier in identifiers:
+            normalized_identifier = str(identifier or "").strip()
+            if not normalized_identifier:
+                continue
+            if normalized_identifier == text:
+                score += 90
+                reasons.append("identifier_exact")
+                break
+            if lowered in normalized_identifier.lower():
+                score += 35
+                reasons.append("identifier_substring")
+                break
+        if score <= 0:
+            continue
+        candidates.append(
+            (
+                score,
+                {
+                    "project_key": project_key,
+                    "name": name,
+                    "seed_type": str(project.get("seed_type") or ""),
+                    "seed_value": seed_value,
+                    "tracking_state": str(project.get("tracking_state") or "active"),
+                    "status": str(project.get("status") or ""),
+                    "website_url": str(project.get("website_url") or ""),
+                    "reasons": unique_list(reasons),
+                    "score": score,
+                },
+            )
+        )
+    candidates.sort(key=lambda item: (-item[0], item[1]["project_key"]))
+    return [item for _, item in candidates[: max(1, limit)]]
+
+
+def heuristic_db_edit_request(text: str) -> dict[str, Any]:
+    lowered = str(text or "").strip().lower()
+    urls = extract_urls(text)
+    project_keys = re.findall(r"proj:[0-9a-f]{4,12}", text)
+    nsids = re.findall(LOOSE_NSID_PATTERN, text)
+    quoted = re.findall(r"[\"'“”「」](.+?)[\"'“”「」]", text)
+    atoms = unique_list(project_keys + urls + quoted + nsids)
+    if ("マージ" in text or "merge" in lowered) and len(atoms) >= 2:
+        return {"action": "merge", "source_query": atoms[0], "target_query": atoms[1], "reason": "heuristic"}
+    if (("別" in text and "物" in text) or "separate" in lowered) and len(atoms) >= 2:
+        return {"action": "set_separate", "source_query": atoms[0], "target_query": atoms[1], "reason": "heuristic"}
+    if ("block" in lowered or "ブロック" in text) and atoms:
+        identifier_value = urls[0] if urls else (nsids[0] if nsids else "")
+        project_query = project_keys[0] if project_keys else (quoted[0] if quoted else "")
+        identifier_type = detect_seed_type(identifier_value) if identifier_value else ""
+        return {
+            "action": "block_identifier",
+            "project_query": project_query,
+            "identifier_type": identifier_type,
+            "identifier_value": identifier_value,
+            "reason": "heuristic",
+        }
+    if ("tracking" in lowered or "stable" in lowered or "stalled" in lowered or "active" in lowered or "ignore" in lowered):
+        state = ""
+        for candidate in sorted(TRACKING_STATES):
+            if candidate in lowered:
+                state = candidate
+                break
+        project_query = atoms[0] if atoms else ""
+        return {"action": "set_tracking_state", "project_query": project_query, "tracking_state": state, "reason": "heuristic"}
+    return {"action": "unknown", "reason": "heuristic"}
+
+
+def parse_db_edit_request(
+    text: str,
+    *,
+    llm_endpoint: str | None = None,
+    llm_model: str | None = None,
+    llm_api_key: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    prompt = (
+        "You are parsing a short operator request for a project registry CLI.\n"
+        "Return JSON only.\n"
+        "Supported actions: merge, set_separate, block_identifier, set_tracking_state, unknown.\n"
+        "Schema:\n"
+        "{\n"
+        '  "action": "merge|set_separate|block_identifier|set_tracking_state|unknown",\n'
+        '  "source_query": "string",\n'
+        '  "target_query": "string",\n'
+        '  "project_query": "string",\n'
+        '  "identifier_type": "nsid|repo_url|service_url|",\n'
+        '  "identifier_value": "string",\n'
+        '  "tracking_state": "active|watchlist|stable|stalled|archived|ignore|",\n'
+        '  "note": "string",\n'
+        '  "reason": "string"\n'
+        "}\n"
+        "Use source_query/target_query for merge and set_separate.\n"
+        "Use project_query plus identifier_* for block_identifier.\n"
+        "Use project_query plus tracking_state for set_tracking_state.\n"
+        "Do not invent values that are absent from the request.\n\n"
+        f"Request:\n{text}\n"
+    )
+    try:
+        payload, meta = run_local_llm(prompt, llm_endpoint=llm_endpoint, llm_model=llm_model, llm_api_key=llm_api_key)
+        if isinstance(payload, dict):
+            return payload, meta
+    except Exception:
+        pass
+    return heuristic_db_edit_request(text), {"transport": "heuristic", "generated_at": iso_now()}
+
+
+def summarize_project_candidate(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_key": str(project.get("project_key") or ""),
+        "name": str(project.get("name") or ""),
+        "seed_type": str(project.get("seed_type") or ""),
+        "seed_value": str(project.get("seed_value") or ""),
+        "tracking_state": str(project.get("tracking_state") or "active"),
+        "status": str(project.get("status") or ""),
+        "website_url": str(project.get("website_url") or ""),
+    }
+
+
 def resolve_import_project_key(
     conn: sqlite3.Connection,
     *,
@@ -8276,6 +8434,187 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def should_interactively_confirm(args: argparse.Namespace) -> bool:
+    return not bool(getattr(args, "execute", False)) and sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def prompt_for_confirmation(message: str) -> bool:
+    print(message, file=sys.stderr)
+    try:
+        answer = input().strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
+
+
+def cmd_assist_db_edit(args: argparse.Namespace) -> int:
+    conn = open_db()
+    request_text = str(args.text or "").strip()
+    if not request_text:
+        raise ValueError("text is required")
+
+    parsed, meta = parse_db_edit_request(
+        request_text,
+        llm_endpoint=getattr(args, "llm_endpoint", None),
+        llm_model=getattr(args, "llm_model", None),
+        llm_api_key=getattr(args, "llm_api_key", None),
+    )
+    action = str(parsed.get("action") or "unknown").strip()
+    payload: dict[str, Any] = {
+        "mode": "execute" if args.execute else "dry_run",
+        "request": request_text,
+        "parsed": parsed,
+        "parser_meta": meta,
+        "action": action,
+    }
+    confirmed_interactively = False
+
+    if action in {"merge", "set_separate"}:
+        source_query = str(parsed.get("source_query") or "").strip()
+        target_query = str(parsed.get("target_query") or "").strip()
+        source_candidates = project_search_candidates(conn, source_query, limit=5)
+        target_candidates = project_search_candidates(conn, target_query, limit=5)
+        payload["source_candidates"] = source_candidates
+        payload["target_candidates"] = target_candidates
+        if source_candidates:
+            payload["suggested_source"] = source_candidates[0]
+        if target_candidates:
+            payload["suggested_target"] = target_candidates[0]
+        if source_candidates and target_candidates:
+            payload["suggested_command"] = (
+                "python3 scripts/project_registry.py "
+                + ("merge" if action == "merge" else "set-separate")
+                + f" -p {source_candidates[0]['project_key']} "
+                + (f"-t {target_candidates[0]['project_key']}" if action == "merge" else f"-o {target_candidates[0]['project_key']}")
+            )
+        can_execute = (
+            len(source_candidates) == 1
+            and len(target_candidates) == 1
+            and source_candidates[0]["project_key"] != target_candidates[0]["project_key"]
+        )
+        payload["can_execute"] = can_execute
+        if can_execute and should_interactively_confirm(args):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            confirmed_interactively = prompt_for_confirmation("Apply this change now? [y/N]")
+        if (args.execute or confirmed_interactively) and can_execute:
+            if action == "merge":
+                source = ensure_project_shape(fetch_project(conn, source_candidates[0]["project_key"]) or {})
+                target = ensure_project_shape(fetch_project(conn, target_candidates[0]["project_key"]) or {})
+                if merge_is_blocked(source, target):
+                    raise ValueError("merge is manually blocked for this project pair")
+                merged = merge_project_records(target, source)
+                merged["duplicate_candidates"] = compute_duplicate_candidates(conn, merged)
+                merged["merge_recommendation"] = compute_merge_recommendation(merged)
+                merged = apply_promotion_state(merged)
+                save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
+                delete_project(conn, source["project_key"])
+                conn.commit()
+                payload["executed"] = {
+                    "source_project_key": source["project_key"],
+                    "target_project_key": target["project_key"],
+                    "merged_name": merged.get("name", ""),
+                }
+            else:
+                project = ensure_project_shape(fetch_project(conn, source_candidates[0]["project_key"]) or {})
+                other = ensure_project_shape(fetch_project(conn, target_candidates[0]["project_key"]) or {})
+                project_blocked = set(project.get("separate_project_keys", []))
+                other_blocked = set(other.get("separate_project_keys", []))
+                project_blocked.add(other["project_key"])
+                other_blocked.add(project["project_key"])
+                project["separate_project_keys"] = sorted(project_blocked)
+                other["separate_project_keys"] = sorted(other_blocked)
+                for item in (project, other):
+                    item["duplicate_candidates"] = compute_duplicate_candidates(conn, item)
+                    item["merge_recommendation"] = compute_merge_recommendation(item)
+                save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                save_project(conn, other, enriched=bool(other.get("last_enriched_at")))
+                conn.commit()
+                payload["executed"] = {
+                    "project_key": project["project_key"],
+                    "other_project_key": other["project_key"],
+                }
+            payload["mode"] = "execute"
+            payload["confirmed_interactively"] = confirmed_interactively
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if action == "block_identifier":
+        project_query = str(parsed.get("project_query") or "").strip()
+        identifier_value = str(parsed.get("identifier_value") or "").strip()
+        identifier_type = str(parsed.get("identifier_type") or "").strip()
+        project_candidates = project_search_candidates(conn, project_query, limit=5)
+        payload["project_candidates"] = project_candidates
+        payload["identifier_type"] = identifier_type
+        payload["identifier_value"] = identifier_value
+        if project_candidates:
+            payload["suggested_project"] = project_candidates[0]
+            if identifier_type and identifier_value:
+                payload["suggested_command"] = (
+                    "python3 scripts/project_registry.py block-identifier "
+                    f"-p {project_candidates[0]['project_key']} -i {identifier_type} -v {identifier_value}"
+                )
+        can_execute = len(project_candidates) == 1 and identifier_type in {"nsid", "repo_url", "service_url"} and bool(identifier_value)
+        payload["can_execute"] = can_execute
+        if can_execute and should_interactively_confirm(args):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            confirmed_interactively = prompt_for_confirmation("Apply this change now? [y/N]")
+        if (args.execute or confirmed_interactively) and can_execute:
+            project = ensure_project_shape(fetch_project(conn, project_candidates[0]["project_key"]) or {})
+            normalized_value = normalize_blocked_identifier_value(identifier_type, identifier_value)
+            blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+            key = (identifier_type, normalized_value)
+            if not any((str(item.get("type") or ""), str(item.get("value") or "")) == key for item in blocked):
+                blocked.append({"type": identifier_type, "value": normalized_value, "note": str(parsed.get("note") or "").strip(), "added_at": iso_now()})
+            project["blocked_identifiers"] = blocked
+            project = finalize_project_shape(project)
+            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+            project["merge_recommendation"] = compute_merge_recommendation(project)
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            conn.commit()
+            payload["executed"] = {"project_key": project["project_key"], "identifier_type": identifier_type, "value": normalized_value}
+            payload["mode"] = "execute"
+            payload["confirmed_interactively"] = confirmed_interactively
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if action == "set_tracking_state":
+        project_query = str(parsed.get("project_query") or "").strip()
+        tracking_state = normalize_tracking_state(str(parsed.get("tracking_state") or "").strip())
+        project_candidates = project_search_candidates(conn, project_query, limit=5)
+        payload["project_candidates"] = project_candidates
+        payload["tracking_state"] = tracking_state
+        if project_candidates:
+            payload["suggested_project"] = project_candidates[0]
+            payload["suggested_command"] = (
+                "python3 scripts/project_registry.py set-tracking-state "
+                f"-p {project_candidates[0]['project_key']} -S {tracking_state}"
+            )
+        can_execute = len(project_candidates) == 1 and tracking_state in TRACKING_STATES
+        payload["can_execute"] = can_execute
+        if can_execute and should_interactively_confirm(args):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            confirmed_interactively = prompt_for_confirmation("Apply this change now? [y/N]")
+        if (args.execute or confirmed_interactively) and can_execute:
+            project = fetch_project(conn, project_candidates[0]["project_key"])
+            if not project:
+                raise ValueError("project not found")
+            project["tracking_state"] = tracking_state
+            note = str(parsed.get("note") or "").strip()
+            if note:
+                project["tracking_note"] = note
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            conn.commit()
+            payload["executed"] = {"project_key": project["project_key"], "tracking_state": tracking_state}
+            payload["mode"] = "execute"
+            payload["confirmed_interactively"] = confirmed_interactively
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    payload["message"] = "supported actions: merge, set_separate, block_identifier, set_tracking_state"
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Register manual ATProto project seeds and enrich project records.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -8453,6 +8792,14 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
     merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
     merge_batch_parser.set_defaults(func=cmd_merge_batch)
+
+    assist_parser = subparsers.add_parser("assist-db-edit", help="Parse a short natural-language DB edit request, suggest a concrete CLI command, and optionally execute it when uniquely resolved.")
+    assist_parser.add_argument("text", help="Short operator request such as 'AとBをマージしたい'.")
+    assist_parser.add_argument("--execute", action="store_true", help="Apply the suggested action only when the request resolves uniquely.")
+    assist_parser.add_argument("--llm-endpoint", help="Optional OpenAI-compatible LLM endpoint or base URL for parsing.")
+    assist_parser.add_argument("--llm-model", help="Optional model name for the parsing LLM.")
+    assist_parser.add_argument("--llm-api-key", help="Optional API key for the parsing LLM.")
+    assist_parser.set_defaults(func=cmd_assist_db_edit)
 
     return parser
 

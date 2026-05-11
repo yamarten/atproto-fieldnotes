@@ -133,6 +133,21 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
 python3 scripts/project_registry.py block-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com
 ```
 
+曖昧な自然文から DB 修正コマンド案を出したい場合:
+
+```bash
+python3 scripts/project_registry.py assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい'
+python3 scripts/project_registry.py assist-db-edit 'proj:aaaa と proj:bbbb をマージしたい'
+```
+
+一意に解決できた時だけ、そのまま反映することもできます:
+
+```bash
+python3 scripts/project_registry.py assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい' --execute
+```
+
+TTY 上で一意に解決できた場合は、`--execute` なしでもその場で確認プロンプトを出します。ローカル LLM が設定されていればそれで解釈し、未設定でも `proj:` / URL / NSID が明示されているケースは heuristic である程度動きます。
+
 ## 環境変数
 
 実装上の環境変数は次で全部です。
