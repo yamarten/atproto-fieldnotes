@@ -68,7 +68,7 @@ python3 scripts/project_registry.py sync-introduced
 python3 scripts/project_registry.py sync-introduced --execute
 ```
 
-`sync-introduced` は seed を追加せず、既存 project に対して `introduced=true` と `introduced_url` を付けるためだけに使います。
+`sync-introduced` は seed を追加せず、既存 project に対して `introduced_url` を付けるためだけに使います。
 
 collection inventory APIから直接同期:
 
@@ -116,6 +116,35 @@ DB直接編集後の整合性回復:
 
 ```bash
 python3 scripts/project_registry.py repair-db
+```
+
+storage layout のプレビュー:
+
+```bash
+python3 scripts/project_registry.py preview-storage-layout -p proj:412b842e3467
+python3 scripts/project_registry.py migrate-storage-layout --phase preview --limit 3
+python3 scripts/project_registry.py migrate-storage-layout --phase finalize-check --limit 5
+```
+
+`migrate-storage-layout` は 4 段階です。
+
+- `preview`
+  - `record_json` / `ops_json` の group 構成を sample 表示する
+- `backfill`
+  - `record_json` / `ops_json` / `introduced_url` を既存 project に埋める
+- `retire-legacy-data`
+  - 旧 `data_json` の中身を空に揃える
+- `cleanup-schema`
+  - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
+- `finalize-check`
+  - 完全移行前に、未分類の legacy field が残っていないか確認する
+
+`backfill` と schema cleanup を適用する場合:
+
+```bash
+python3 scripts/project_registry.py migrate-storage-layout --phase backfill --execute
+python3 scripts/project_registry.py migrate-storage-layout --phase retire-legacy-data --execute
+python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schema --execute
 ```
 
 追跡頻度を見直す候補の確認:
@@ -168,6 +197,7 @@ export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
 export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
+export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 ```
 
 Bluesky post検索を使う場合:
@@ -185,6 +215,26 @@ export GITHUB_TOKEN='ghp_...'
 ```
 
 `DNS_RESOLVER_URL` や `UFOS_API` などは現状コード定数で、環境変数では上書きしません。
+
+`thinking` / reasoning effort を切り替えたい場合は `ATPROTO_SURVEY_LLM_REASONING_EFFORT`、または CLI の `--llm-reasoning-effort` を使います。例えば:
+
+```bash
+python3 scripts/project_registry.py enrich --all --llm-reasoning-effort none
+python3 scripts/project_registry.py enrich --all --new-only --llm-reasoning-effort high
+```
+
+## 保存形式
+
+`projects` テーブルは現在、次を保持します。
+
+- scalar columns
+  - 一覧や絞り込みで多用する値
+- `record_json`
+  - 高信頼の project record
+- `ops_json`
+  - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
+
+`data_json` はもう読み書きしません。移行完了後は schema からも外しています。`record_json` は「確信のあるものだけ」を入れ、判断が難しい URL / name / NSID は原則 `ops_json` の candidate 側へ退避します。
 
 ## 文書
 

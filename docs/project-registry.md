@@ -99,7 +99,7 @@ python3 scripts/project_registry.py sync-introduced --execute
 python3 scripts/project_registry.py sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
 ```
 
-このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced=true` と `introduced_url` を更新します。一致しなかった URL は `unmatched_entries` に出すだけです。
+このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。一致しなかった URL は `unmatched_entries` に出すだけです。
 
 見出しや注記が混ざったテキスト seed list を取り込む:
 
@@ -399,6 +399,76 @@ GUIやSQLで `projects` を直接編集した後は、正規化と派生デー�
 python3 scripts/project_registry.py repair-db
 ```
 
+## storage layout の移行
+
+現在の `projects` テーブルは次を保持します。
+
+- scalar columns
+- `record_json`
+- `ops_json`
+
+`record_json` は高信頼の project record、`ops_json` は候補・調査・LLM・merge 制御などの運用情報です。迷うものは `record_json` に昇格させず、まず `ops_json` に残します。
+
+個別 project がどう分かれるか確認する:
+
+```bash
+python3 scripts/project_registry.py preview-storage-layout --project-key 2f2acb
+python3 scripts/project_registry.py preview-storage-layout --seed sh.tangled.repo --type nsid
+```
+
+全体 preview:
+
+```bash
+python3 scripts/project_registry.py migrate-storage-layout --phase preview --limit 10
+python3 scripts/project_registry.py migrate-storage-layout --phase finalize-check --limit 10
+```
+
+`finalize-check` は「未分類の legacy field」が残っていないかだけを確認します。`introduced` や `primary_nsid` のように意図的に drop する field は別枠です。
+
+`record_json` / `ops_json` を DB に backfill する:
+
+```bash
+python3 scripts/project_registry.py migrate-storage-layout --phase backfill
+python3 scripts/project_registry.py migrate-storage-layout --phase backfill --execute
+```
+
+旧 `data_json` の中身を空に揃え、retired column を schema から落とす:
+
+```bash
+python3 scripts/project_registry.py migrate-storage-layout --phase retire-legacy-data --execute
+python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schema --execute
+```
+
+### `record_json`
+
+- `core`
+  - `name`, `tagline`, `summary`, `notes`
+- `identity`
+  - `seed_type`, `seed_value`, `confirmed_nsids`, `authority_domains`, `brand_did`
+- `lexicon_usage`
+  - `external_lexicons`
+- `presence`
+  - `website_url`, `service_urls`, `resource_urls`, `service_status`, `source_code_urls`
+- `people`
+  - `developer_accounts`
+- `editorial`
+  - `category`, `features`, `tags`, `platforms`, `introduced_url`
+
+### `ops_json`
+
+- `candidates`
+  - `name_candidates`, `candidate_nsids`, URL 候補、summary/tagline 候補
+- `lexicon_profile`
+  - schema sample, record sample, namespace, creator DID
+- `discovery`
+  - seed / evidence / investigation log
+- `llm`
+  - raw output と evidence snapshot
+- `merge_control`
+  - duplicate / merge / block / separate
+- `activity`
+  - collection activity, promotion events, `last_run_errors`
+
 ## 環境変数
 
 command方式:
@@ -417,6 +487,7 @@ export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
 export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
+export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 ```
 
 Bluesky post検索を使う場合:
@@ -434,3 +505,10 @@ export GITHUB_TOKEN='ghp_...'
 ```
 
 現状、環境変数として読むのは上記だけです。`DNS_RESOLVER_URL` や `UFOS_API` はコード定数で、環境変数オーバーライドはありません。
+
+`thinking` / reasoning effort を切り替えたい場合は `ATPROTO_SURVEY_LLM_REASONING_EFFORT`、または CLI の `--llm-reasoning-effort` を使います。例えば:
+
+```bash
+python3 scripts/project_registry.py enrich --all --llm-reasoning-effort none
+python3 scripts/project_registry.py enrich --all --new-only --llm-reasoning-effort high
+```

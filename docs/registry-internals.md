@@ -4,15 +4,17 @@
 
 ## データの持ち方
 
-`projects` テーブルは次の二層で持ちます。
+`projects` テーブルは現在、次の二層で持ちます。
 
 - scalar columns
-  - 安定した正本
-  - `project_key`, `status`, `category`, `name`, `primary_nsid`, `website_url`, `service_status`, `tracking_state`, `first_seen_at`, `last_seen_at`, `last_enriched_at`
-- `data_json`
-  - それ以外の構造化・派生情報
+  - 一覧や絞り込みで多用する値
+  - `project_key`, `name`, `website_url`, `service_status`, `tracking_state`, `introduced_url`, `first_seen_at`, `last_seen_at`, `last_enriched_at`
+- `record_json`
+  - 高信頼の project record
+- `ops_json`
+  - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
 
-`repair-db` は `data_json` から scalar 重複を落とし、派生フィールドを再計算します。
+`repair-db` は新構造の正規化と派生フィールド再計算を行います。`record_json` / `ops_json` の backfill は `migrate-storage-layout --phase backfill` を使います。
 
 ## project record の最小コア
 
@@ -25,7 +27,6 @@
 - `tagline_is_provisional`
 - `service_status`
 - `source_code_urls`
-- `introduced`
 - `introduced_url`
 - `tracking_state`
 - `tracking_note`
@@ -64,14 +65,50 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 満たさなければ `draft` のまま残し、`promotion_blockers` に理由を残します。
 
+## 保存レイヤの方針
+
+`record_json` は高信頼のみを保持します。
+
+- `core`
+  - `name`, `tagline`, `summary`, `notes`
+- `identity`
+  - `seed_type`, `seed_value`, `confirmed_nsids`, `authority_domains`, `brand_did`
+- `lexicon_usage`
+  - `external_lexicons`
+- `presence`
+  - `website_url`, `service_urls`, `resource_urls`, `service_status`, `source_code_urls`
+- `people`
+  - `developer_accounts`
+- `editorial`
+  - `category`, `features`, `tags`, `platforms`, `introduced_url`
+
+`ops_json` は判断が揺れるものと運用データです。
+
+- `candidates`
+  - `name_candidates`, `candidate_nsids`, URL 候補、summary/tagline 候補
+- `lexicon_profile`
+  - `input_nsids`, `resolved_lexicon_nsids`, schema sample, record sample, namespace, creator DID
+- `discovery`
+  - seed / evidence / investigation log
+- `llm`
+  - raw output と evidence snapshot
+- `merge_control`
+  - duplicate / merge / block / separate
+- `activity`
+  - collection activity, promotion events, `last_run_errors`
+
+迷うものは `record_json` に入れません。特に `name`、`service_urls`、`resource_urls`、NSID 所有判定は保守的です。
+
 ## NSIDの扱い
 
 - `input_nsids`
   - 手動seedとして投入された NSID
 - `resolved_nsids`
   - lexicon解決に成功した NSID
+- `confirmed_nsids`
+  - `record_json.identity` に残す高信頼 NSID
 - `lexicons`
-  - canonical に採用した full NSID
+  - legacy 上の canonical NSID。移行後は `confirmed_nsids` と `ops_json.lexicon_profile.resolved_lexicon_nsids` に分かれる
 - `recorded_lexicon_namespaces`
   - project 粒度で記録する namespace
 
@@ -83,13 +120,14 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 - confirmed
   - `website_url`
   - `service_urls`
+  - `resource_urls`
   - `source_code_urls`
-  - `github_repo_urls`
-  - `resolved_nsids`
+  - `confirmed_nsids`
 - candidate
   - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
+  - `candidate_nsids`
   - `summary_candidates`
   - `tagline_candidates`
 - failure / transient
@@ -128,16 +166,28 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 
 `merge-batch` は保守的です。曖昧な一致は自動実行せず、`merge` の dry-run / execute で人が判断する前提です。
 
-## repair-db
+## repair-db と storage migration
 
 `repair-db` の責務:
 
-- `data_json` から scalar 重複を除去
 - `finalize_project_shape()` を通して正規化
 - `duplicate_candidates` / `merge_recommendation` の再計算
 - collision 監査
 
-invalid JSON の自動救済はもう持ちません。`data_json` は strict JSON 前提です。
+旧 `data_json` 前処理はもう行いません。
+
+`migrate-storage-layout` の責務:
+
+- `preview`
+  - `record_json` / `ops_json` の group 構成を sample 表示
+- `backfill`
+  - `record_json` / `ops_json` / `introduced_url` を既存 DB に埋める
+- `retire-legacy-data`
+  - 旧 `data_json` の中身を空に揃える
+- `cleanup-schema`
+  - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
+- `finalize-check`
+  - 完全移行前に未分類の legacy field が残っていないか確認する
 
 ## review-stalled
 

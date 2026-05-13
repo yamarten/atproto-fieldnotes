@@ -107,12 +107,52 @@ def dump_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def compact_grouped_payload(group_fields: dict[str, tuple[str, ...]], source: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for group_name, field_names in group_fields.items():
+        group_payload: dict[str, Any] = {}
+        for field_name in field_names:
+            value = source.get(field_name)
+            if value in ("", None, [], {}, ()):
+                continue
+            group_payload[field_name] = value
+        if group_payload:
+            payload[group_name] = group_payload
+    return payload
+
+
+def flatten_grouped_payload(grouped_payload: Any) -> dict[str, Any]:
+    if not isinstance(grouped_payload, dict):
+        return {}
+    flattened: dict[str, Any] = {}
+    for value in grouped_payload.values():
+        if not isinstance(value, dict):
+            continue
+        for field_name, field_value in value.items():
+            flattened[str(field_name)] = field_value
+    return flattened
+
+
+GENERIC_NSID_NAME_TOKENS = {
+    "app",
+    "client",
+    "collection",
+    "comment",
+    "entry",
+    "feed",
+    "item",
+    "object",
+    "page",
+    "post",
+    "profile",
+    "record",
+    "test",
+}
+
+
 PROJECT_SCALAR_FIELDS = (
     "project_key",
-    "status",
-    "category",
     "name",
-    "primary_nsid",
     "website_url",
     "service_status",
     "tracking_state",
@@ -120,6 +160,203 @@ PROJECT_SCALAR_FIELDS = (
     "last_seen_at",
     "last_enriched_at",
 )
+
+PROJECT_STORAGE_SCALAR_FIELDS = PROJECT_SCALAR_FIELDS + ("introduced_url",)
+
+RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
+    "core": (
+        "name",
+        "tagline",
+        "tagline_is_provisional",
+        "summary",
+        "notes",
+        "tracking_note",
+    ),
+    "identity": (
+        "seed_type",
+        "seed_value",
+        "primary_nsid",
+        "input_nsids",
+        "resolved_nsids",
+        "recorded_lexicon_namespaces",
+        "authority_domains",
+        "brand_did",
+        "ownership_signal",
+        "record_creators",
+    ),
+    "lexicon_usage": (
+        "lexicons",
+        "lexicon_count",
+        "external_lexicons",
+    ),
+    "presence": (
+        "website_url",
+        "service_urls",
+        "resource_urls",
+        "service_status",
+        "source_code_urls",
+        "github_repo_urls",
+        "tangled_repo_urls",
+    ),
+    "people": (
+        "developer_accounts",
+    ),
+    "editorial": (
+        "category",
+        "app_category",
+        "features",
+        "inspired_by",
+        "tags",
+        "platforms",
+        "project_state",
+        "introduced_url",
+    ),
+}
+
+OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
+    "triage": (
+        "status",
+        "classification_reason",
+        "exclude_reason",
+        "watch_reason",
+        "manual_review_recommended",
+        "manual_review_priority",
+        "manual_review_reason",
+        "confidence",
+        "promotion_ready",
+        "promotion_blockers",
+        "last_promoted_at",
+    ),
+    "lexicon_profile": (
+        "lexicon_resolution_entries",
+        "lexicon_schema_samples",
+        "recent_record_samples",
+    ),
+    "candidates": (
+        "summary_candidates",
+        "tagline_candidates",
+        "website_url_candidates",
+        "service_url_candidates",
+        "failed_service_urls",
+        "candidate_source_code_urls",
+    ),
+    "llm": (
+        "llm_source",
+        "llm_output",
+        "last_llm_review_at",
+    ),
+    "merge_control": (
+        "duplicate_candidates",
+        "merge_recommendation",
+        "separate_project_keys",
+        "blocked_identifiers",
+    ),
+    "activity": (
+        "collection_observations",
+        "promotion_events",
+        "last_run_errors",
+    ),
+    "discovery": (
+        "discovery_sources",
+        "evidence_urls",
+        "investigation_queries",
+        "investigation_log",
+        "manual_seeds",
+    ),
+    "repo_analysis": (
+        "source_repo_records",
+    ),
+}
+
+INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
+    "introduced",
+    "primary_nsid",
+    "bluesky_handles",
+    "tangled_handles",
+    "lexicon_count",
+    "promoted_now",
+}
+
+MAPPED_LEGACY_FIELDS = {
+    "project_key",
+    "status",
+    "category",
+    "app_category",
+    "name",
+    "tagline",
+    "tagline_is_provisional",
+    "summary",
+    "summary_candidates",
+    "tagline_candidates",
+    "features",
+    "inspired_by",
+    "tags",
+    "platforms",
+    "project_state",
+    "brand_did",
+    "ownership_signal",
+    "introduced_url",
+    "tracking_state",
+    "tracking_note",
+    "discovery_sources",
+    "evidence_urls",
+    "input_nsids",
+    "confirmed_nsids",
+    "resolved_nsids",
+    "resolved_lexicon_nsids",
+    "lexicon_resolution_entries",
+    "recorded_lexicon_namespaces",
+    "lexicons",
+    "lexicon_schema_samples",
+    "recent_record_samples",
+    "record_creators",
+    "authority_domains",
+    "external_lexicons",
+    "website_url",
+    "website_url_candidates",
+    "service_urls",
+    "resource_urls",
+    "service_url_candidates",
+    "failed_service_urls",
+    "candidate_nsids",
+    "name_candidates",
+    "service_status",
+    "source_code_urls",
+    "candidate_source_code_urls",
+    "source_repo_records",
+    "github_repo_urls",
+    "tangled_repo_urls",
+    "developer_accounts",
+    "investigation_queries",
+    "investigation_log",
+    "classification_reason",
+    "exclude_reason",
+    "watch_reason",
+    "manual_review_recommended",
+    "manual_review_priority",
+    "manual_review_reason",
+    "confidence",
+    "llm_source",
+    "llm_output",
+    "last_llm_review_at",
+    "promotion_ready",
+    "promotion_blockers",
+    "last_promoted_at",
+    "promotion_events",
+    "duplicate_candidates",
+    "merge_recommendation",
+    "separate_project_keys",
+    "blocked_identifiers",
+    "collection_observations",
+    "notes",
+    "last_run_errors",
+    "manual_seeds",
+    "seed_type",
+    "seed_value",
+    "first_seen_at",
+    "last_seen_at",
+    "last_enriched_at",
+}
 
 def ensure_dirs() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
@@ -187,6 +424,8 @@ def normalize_url(url: str) -> str:
         return ""
     scheme = (parsed.scheme or "https").lower()
     host = parsed.netloc.lower()
+    if scheme in {"http", "https"} and not host:
+        return ""
     path = parsed.path.rstrip("/")
     return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
 
@@ -216,6 +455,36 @@ def unique_list(values: list[str]) -> list[str]:
             continue
         seen.add(value)
         output.append(value)
+    return output
+
+
+def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in entries:
+        handle = ""
+        did = ""
+        source = ""
+        if isinstance(item, dict):
+            handle = str(item.get("handle") or "").strip()
+            did = str(item.get("did") or "").strip()
+            source = str(item.get("source") or "").strip()
+        elif isinstance(item, str):
+            handle = str(item).strip()
+        if not handle and not did:
+            continue
+        key = (handle.lower(), did.lower(), source)
+        if key in seen:
+            continue
+        seen.add(key)
+        account: dict[str, str] = {}
+        if handle:
+            account["handle"] = handle
+        if did:
+            account["did"] = did
+        if source:
+            account["source"] = source
+        output.append(account)
     return output
 
 
@@ -481,9 +750,11 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "recent_record_samples": [],
         "record_creators": [],
         "authority_domains": [],
+        "external_lexicons": [],
         "website_url": "",
         "website_url_candidates": [],
         "service_urls": [],
+        "resource_urls": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
         "service_status": "unknown",
@@ -578,6 +849,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults.update(project)
     defaults["primary_nsid"] = normalize_nsid(str(defaults.get("primary_nsid") or ""))
     defaults["input_nsids"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("input_nsids", []) if item])
+    if not defaults["primary_nsid"] and defaults["input_nsids"]:
+        defaults["primary_nsid"] = defaults["input_nsids"][0]
     if defaults["primary_nsid"] and defaults["primary_nsid"] not in defaults["input_nsids"]:
         defaults["input_nsids"] = [defaults["primary_nsid"], *defaults["input_nsids"]]
     defaults["resolved_nsids"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("resolved_nsids", []) if item])
@@ -626,11 +899,16 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["tangled_repo_urls"] = normalize_repo_collection(defaults.get("tangled_repo_urls", []), provider="tangled")
     defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
-    defaults["developer_accounts"] = list(defaults.get("developer_accounts") or [])
+    defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
     if defaults["status"] == "candidate":
         defaults["status"] = "draft"
     defaults["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(defaults)
     defaults["lexicon_count"] = len(defaults.get("lexicons", []))
+    defaults["external_lexicons"] = unique_list(
+        [normalize_nsid(str(item)) for item in defaults.get("external_lexicons", []) if item]
+        + compute_external_lexicons(defaults)
+    )
+    defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
     return defaults
 
 
@@ -688,6 +966,47 @@ def nsid_is_builtin_reference(nsid: str) -> bool:
     if not normalized:
         return False
     return any(normalized.startswith(prefix) for prefix in builtin_lexicon_prefixes())
+
+
+def builtin_lexicon_prefix(nsid: str) -> str:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return ""
+    for prefix in builtin_lexicon_prefixes():
+        normalized_prefix = normalize_nsid(prefix.rstrip("."))
+        if normalized_prefix and (
+            normalized == normalized_prefix or normalized.startswith(f"{normalized_prefix}.")
+        ):
+            return normalized_prefix
+    return ""
+
+
+def compute_external_lexicons(project: dict[str, Any]) -> list[str]:
+    owned_nsids = {
+        normalize_nsid(str(item or ""))
+        for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
+        if normalize_nsid(str(item or ""))
+    }
+    prefixes: list[str] = []
+    for entry in project.get("lexicon_schema_samples", []):
+        if not isinstance(entry, dict):
+            continue
+        nsid = normalize_nsid(str(entry.get("nsid") or ""))
+        if not nsid or nsid in owned_nsids:
+            continue
+        prefix = builtin_lexicon_prefix(nsid)
+        if prefix:
+            prefixes.append(prefix)
+    for entry in project.get("recent_record_samples", []):
+        if not isinstance(entry, dict):
+            continue
+        collection = normalize_nsid(str(entry.get("collection") or ""))
+        if not collection or collection in owned_nsids:
+            continue
+        prefix = builtin_lexicon_prefix(collection)
+        if prefix:
+            prefixes.append(prefix)
+    return unique_list(prefixes)
 
 
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
@@ -785,14 +1104,13 @@ def open_db() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS projects (
             project_key TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            category TEXT NOT NULL,
             name TEXT NOT NULL,
-            primary_nsid TEXT NOT NULL,
             website_url TEXT NOT NULL,
             service_status TEXT NOT NULL,
             tracking_state TEXT NOT NULL DEFAULT 'active',
-            data_json TEXT NOT NULL,
+            introduced_url TEXT NOT NULL DEFAULT '',
+            record_json TEXT NOT NULL DEFAULT '{}',
+            ops_json TEXT NOT NULL DEFAULT '{}',
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             last_enriched_at TEXT
@@ -802,28 +1120,38 @@ def open_db() -> sqlite3.Connection:
     columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "tracking_state" not in columns:
         conn.execute("ALTER TABLE projects ADD COLUMN tracking_state TEXT NOT NULL DEFAULT 'active'")
+    if "introduced_url" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN introduced_url TEXT NOT NULL DEFAULT ''")
+    if "record_json" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN record_json TEXT")
+    if "ops_json" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN ops_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)")
-    rows = conn.execute("SELECT project_key, tracking_state, data_json FROM projects").fetchall()
+    rows = conn.execute("SELECT project_key, tracking_state, introduced_url FROM projects").fetchall()
     for row in rows:
-        payload = load_json(str(row["data_json"] or "")) or {}
-        if not isinstance(payload, dict):
-            payload = {}
-        raw_state = payload.get("tracking_state", row["tracking_state"])
-        normalized = normalize_tracking_state(str(raw_state or "active"))
+        normalized = normalize_tracking_state(str(row["tracking_state"] or "active"))
         if normalized != str(row["tracking_state"] or "active"):
             conn.execute(
                 "UPDATE projects SET tracking_state = ? WHERE project_key = ?",
                 (normalized, str(row["project_key"])),
+            )
+        introduced_url = normalize_url(str(row["introduced_url"] or ""))
+        if introduced_url != str(row["introduced_url"] or ""):
+            conn.execute(
+                "UPDATE projects SET introduced_url = ? WHERE project_key = ?",
+                (introduced_url, str(row["project_key"])),
             )
     conn.commit()
     return conn
 
 
 def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
-    payload = load_json(str(row["data_json"] or "")) or {}
-    if not isinstance(payload, dict):
-        payload = {}
-    for field in PROJECT_SCALAR_FIELDS:
+    payload: dict[str, Any] = {}
+    record_payload = flatten_grouped_payload(load_json(str(row["record_json"] or "")) or {}) if "record_json" in row.keys() else {}
+    ops_payload = flatten_grouped_payload(load_json(str(row["ops_json"] or "")) or {}) if "ops_json" in row.keys() else {}
+    payload.update(record_payload)
+    payload.update(ops_payload)
+    for field in PROJECT_STORAGE_SCALAR_FIELDS:
         if field in row.keys():
             payload[field] = row[field]
     return ensure_project_shape(payload)
@@ -831,9 +1159,178 @@ def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
     payload = dict(project)
-    for field in PROJECT_SCALAR_FIELDS:
+    for field in PROJECT_STORAGE_SCALAR_FIELDS:
         payload.pop(field, None)
     return payload
+
+
+def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    current_name = str(project.get("name") or "").strip()
+    if current_name:
+        source = "existing_name"
+        llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+        if isinstance(llm_output, dict) and str(llm_output.get("name") or "").strip() == current_name:
+            source = "llm_output"
+        candidates.append({"value": current_name, "source": source})
+    return candidates
+
+
+def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
+    return unique_list([normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))])
+
+
+def current_candidate_nsids(project: dict[str, Any]) -> list[str]:
+    confirmed = set(current_confirmed_nsids(project))
+    return unique_list(
+        [
+            normalize_nsid(str(item or ""))
+            for item in project.get("input_nsids", [])
+            if normalize_nsid(str(item or "")) and normalize_nsid(str(item or "")) not in confirmed
+        ]
+    )
+
+
+def grouped_payload_field_names(payload: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    for value in payload.values():
+        if not isinstance(value, dict):
+            continue
+        names.update(str(key) for key in value.keys())
+    return names
+
+
+def name_is_safe_for_record(project: dict[str, Any]) -> bool:
+    name = str(project.get("name") or "").strip()
+    if not name:
+        return False
+    normalized_name = normalize_alias_token(name)
+    if not normalized_name:
+        return False
+    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+    if isinstance(llm_output, dict) and str(llm_output.get("name") or "").strip() == name:
+        return True
+    if project.get("website_url") or project.get("source_code_urls"):
+        nsid_tails = {
+            normalize_alias_token(str(item or "").split(".")[-1])
+            for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
+            if str(item or "").strip()
+        }
+        if normalized_name in GENERIC_NSID_NAME_TOKENS and normalized_name in nsid_tails:
+            return False
+        return True
+    return False
+
+
+def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
+    confirmed_nsids = current_confirmed_nsids(project)
+    record_payload: dict[str, Any] = {}
+
+    core: dict[str, Any] = {}
+    if name_is_safe_for_record(project):
+        core["name"] = str(project.get("name") or "").strip()
+    if project.get("tagline"):
+        core["tagline"] = project.get("tagline")
+    if project.get("tagline_is_provisional"):
+        core["tagline_is_provisional"] = True
+    if project.get("summary"):
+        core["summary"] = project.get("summary")
+    if project.get("notes"):
+        core["notes"] = project.get("notes")
+    if core:
+        record_payload["core"] = core
+
+    identity: dict[str, Any] = {}
+    if project.get("seed_type"):
+        identity["seed_type"] = project.get("seed_type")
+    if project.get("seed_value"):
+        identity["seed_value"] = project.get("seed_value")
+    if confirmed_nsids:
+        identity["confirmed_nsids"] = confirmed_nsids
+    if project.get("authority_domains"):
+        identity["authority_domains"] = project.get("authority_domains")
+    if project.get("brand_did"):
+        identity["brand_did"] = project.get("brand_did")
+    if project.get("ownership_signal") and project.get("ownership_signal") != "unknown":
+        identity["ownership_signal"] = project.get("ownership_signal")
+    if identity:
+        record_payload["identity"] = identity
+
+    lexicon_usage: dict[str, Any] = {}
+    if project.get("external_lexicons"):
+        lexicon_usage["external_lexicons"] = project.get("external_lexicons")
+    if lexicon_usage:
+        record_payload["lexicon_usage"] = lexicon_usage
+
+    presence: dict[str, Any] = {}
+    if project.get("website_url"):
+        presence["website_url"] = project.get("website_url")
+    if project.get("service_urls"):
+        presence["service_urls"] = project.get("service_urls")
+    if project.get("resource_urls"):
+        presence["resource_urls"] = project.get("resource_urls")
+    if project.get("service_status"):
+        presence["service_status"] = project.get("service_status")
+    if project.get("source_code_urls"):
+        presence["source_code_urls"] = project.get("source_code_urls")
+    if presence:
+        record_payload["presence"] = presence
+
+    people: dict[str, Any] = {}
+    if project.get("developer_accounts"):
+        people["developer_accounts"] = normalize_developer_accounts(project.get("developer_accounts", []))
+    if people:
+        record_payload["people"] = people
+
+    editorial: dict[str, Any] = {}
+    if project.get("category"):
+        editorial["category"] = project.get("category")
+    if project.get("app_category"):
+        editorial["app_category"] = project.get("app_category")
+    if project.get("features"):
+        editorial["features"] = project.get("features")
+    if project.get("inspired_by"):
+        editorial["inspired_by"] = project.get("inspired_by")
+    if project.get("tags"):
+        editorial["tags"] = project.get("tags")
+    if project.get("platforms"):
+        editorial["platforms"] = project.get("platforms")
+    if project.get("project_state"):
+        editorial["project_state"] = project.get("project_state")
+    if project.get("introduced_url"):
+        editorial["introduced_url"] = project.get("introduced_url")
+    if editorial:
+        record_payload["editorial"] = editorial
+
+    return record_payload
+
+
+def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
+    candidate_nsids = current_candidate_nsids(project)
+    ops_payload = compact_grouped_payload(OPS_JSON_GROUP_FIELDS, project)
+
+    candidates = dict(ops_payload.get("candidates") or {})
+    name_candidates = current_name_candidates(project)
+    if name_candidates and not name_is_safe_for_record(project):
+        candidates["name_candidates"] = name_candidates
+    if candidate_nsids:
+        candidates["candidate_nsids"] = candidate_nsids
+    if candidates:
+        ops_payload["candidates"] = candidates
+
+    lexicon_profile = dict(ops_payload.get("lexicon_profile") or {})
+    if project.get("input_nsids"):
+        lexicon_profile["input_nsids"] = project.get("input_nsids")
+    if project.get("recorded_lexicon_namespaces"):
+        lexicon_profile["recorded_lexicon_namespaces"] = project.get("recorded_lexicon_namespaces")
+    if project.get("lexicons"):
+        lexicon_profile["resolved_lexicon_nsids"] = project.get("lexicons")
+    if project.get("record_creators"):
+        lexicon_profile["record_creators"] = project.get("record_creators")
+    if lexicon_profile:
+        ops_payload["lexicon_profile"] = lexicon_profile
+
+    return ops_payload
 
 
 def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] | None:
@@ -1229,8 +1726,10 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("lexicons", []))
     project["authority_domains"] = unique_list(project.get("authority_domains", []))
+    project["external_lexicons"] = unique_list(project.get("external_lexicons", []) + compute_external_lexicons(project))
     project["website_url_candidates"] = unique_list(project.get("website_url_candidates", []))
     project["service_urls"] = unique_list(project.get("service_urls", []))
+    project["resource_urls"] = unique_list(project.get("resource_urls", []))
     project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
     project["source_code_urls"] = normalize_repo_collection(project.get("source_code_urls", []))
@@ -1243,7 +1742,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["investigation_queries"] = unique_list(project.get("investigation_queries", []))
     project["investigation_log"] = list(project.get("investigation_log", []))
     project["last_run_errors"] = unique_list(project.get("last_run_errors", []))
-    project["developer_accounts"] = list(project.get("developer_accounts", []))
+    project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])))
     project["tags"] = unique_list(project.get("tags", []))
     project["platforms"] = unique_list(project.get("platforms", []))
     project["introduced"] = bool(project.get("introduced"))
@@ -1281,20 +1780,19 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
         conn.execute(
             """
             INSERT INTO projects (
-                project_key, status, category, name, primary_nsid, website_url,
-                service_status, tracking_state, data_json, first_seen_at, last_seen_at, last_enriched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                project_key, name, website_url, service_status, tracking_state,
+                introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project["project_key"],
-                project.get("status", "draft"),
-                project.get("category", ""),
                 project.get("name", ""),
-                project.get("primary_nsid", ""),
                 project.get("website_url", ""),
                 project.get("service_status", "unknown"),
                 project.get("tracking_state", "active"),
-                dump_json(project_json_payload(project)),
+                project.get("introduced_url", ""),
+                dump_json(project_record_payload(project)),
+                dump_json(project_ops_payload(project)),
                 first_seen_at,
                 now,
                 last_enriched_at,
@@ -1309,19 +1807,18 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
         conn.execute(
             """
             UPDATE projects
-            SET status = ?, category = ?, name = ?, primary_nsid = ?, website_url = ?,
-                service_status = ?, tracking_state = ?, data_json = ?, last_seen_at = ?, last_enriched_at = ?
+            SET name = ?, website_url = ?, service_status = ?, tracking_state = ?, introduced_url = ?, record_json = ?, ops_json = ?,
+                last_seen_at = ?, last_enriched_at = ?
             WHERE project_key = ?
             """,
             (
-                project.get("status", "draft"),
-                project.get("category", ""),
                 project.get("name", ""),
-                project.get("primary_nsid", ""),
                 project.get("website_url", ""),
                 project.get("service_status", "unknown"),
                 project.get("tracking_state", "active"),
-                dump_json(project_json_payload(project)),
+                project.get("introduced_url", ""),
+                dump_json(project_record_payload(project)),
+                dump_json(project_ops_payload(project)),
                 now,
                 last_enriched_at or existing_last_enriched,
                 project["project_key"],
@@ -1575,42 +2072,10 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
 def preprocess_project_json_rows(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
-    rows = conn.execute(
-        """
-        SELECT project_key, data_json
-        FROM projects
-        ORDER BY project_key ASC
-        """
-    ).fetchall()
-    updated = 0
-
-    for row in rows:
-        project_key = str(row["project_key"])
-        raw_text = str(row["data_json"] or "")
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid project JSON in {project_key}: {exc}") from exc
-
-        changed = False
-        if isinstance(data, dict):
-            for field in PROJECT_SCALAR_FIELDS:
-                if field in data:
-                    data.pop(field, None)
-                    changed = True
-
-        if changed:
-            conn.execute(
-                "UPDATE projects SET data_json = ? WHERE project_key = ?",
-                (dump_json(data), project_key),
-            )
-            updated += 1
-
-    if updated:
-        conn.commit()
-
     return {
-        "updated_rows": updated,
+        "updated_rows": 0,
+        "skipped": True,
+        "reason": "legacy data_json preprocessing disabled after storage layout migration",
     }
 
 
@@ -2798,6 +3263,17 @@ def confirm_service_url(project: dict[str, Any], url: str) -> None:
     project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != normalized]
 
 
+def add_resource_url(project: dict[str, Any], url: str) -> None:
+    normalized = normalize_url(url)
+    if not normalized:
+        return
+    if normalized == normalize_url(str(project.get("website_url") or "")):
+        return
+    if normalized in {normalize_url(str(item or "")) for item in project.get("service_urls", [])}:
+        return
+    project["resource_urls"] = add_unique(project.get("resource_urls", []), normalized)
+
+
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
     project["service_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("service_url_candidates", []) if item] if item])
@@ -2812,6 +3288,15 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
         project["website_url"] = project["service_urls"][0]
     else:
         project["website_url"] = ""
+    project["resource_urls"] = unique_list(
+        [
+            item
+            for item in [normalize_url(str(item or "")) for item in project.get("resource_urls", []) if item]
+            if item
+            and item != normalize_url(str(project.get("website_url") or ""))
+            and item not in set(project.get("service_urls", []))
+        ]
+    )
 
 
 def prune_project_urls(project: dict[str, Any]) -> None:
@@ -2891,23 +3376,24 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         ]
         project["developer_accounts"] = [
             dict(item)
-            for item in project.get("developer_accounts", [])
-            if isinstance(item, dict) and not (
-                isinstance(item, dict)
-                and str(item.get("provider") or "") == "bluesky"
-                and str(item.get("handle") or "").strip().lower() in ignored_handles
-            )
+            for item in normalize_developer_accounts(project.get("developer_accounts", []))
+            if str(item.get("handle") or "").strip().lower() not in ignored_handles
         ]
 
 
-def add_developer_account(project: dict[str, Any], provider: str, handle: str, source: str) -> None:
+def add_developer_account(project: dict[str, Any], handle: str, source: str, did: str = "") -> None:
     normalized_handle = str(handle or "").strip()
-    if not normalized_handle:
+    normalized_did = str(did or "").strip()
+    if not normalized_handle and not normalized_did:
         return
-    account = {"provider": provider, "handle": normalized_handle, "source": source}
-    project.setdefault("developer_accounts", [])
-    if account not in project["developer_accounts"]:
-        project["developer_accounts"].append(account)
+    account: dict[str, str] = {}
+    if normalized_handle:
+        account["handle"] = normalized_handle
+    if normalized_did:
+        account["did"] = normalized_did
+    if source:
+        account["source"] = source
+    project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])) + [account])
 
 
 def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
@@ -3258,6 +3744,7 @@ def parse_db_edit_request(
     llm_endpoint: str | None = None,
     llm_model: str | None = None,
     llm_api_key: str | None = None,
+    llm_reasoning_effort: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     prompt = (
         "You are parsing a short operator request for a project registry CLI.\n"
@@ -3282,7 +3769,13 @@ def parse_db_edit_request(
         f"Request:\n{text}\n"
     )
     try:
-        payload, meta = run_local_llm(prompt, llm_endpoint=llm_endpoint, llm_model=llm_model, llm_api_key=llm_api_key)
+        payload, meta = run_local_llm(
+            prompt,
+            llm_endpoint=llm_endpoint,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_reasoning_effort=llm_reasoning_effort,
+        )
         if isinstance(payload, dict):
             return payload, meta
     except Exception:
@@ -4426,6 +4919,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="linked_repo_candidate",
                 )
         elif classification in {"docs", "blog"}:
+            add_resource_url(project, url)
             if is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
@@ -4434,7 +4928,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                 handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
                 if handle:
                     project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-                    add_developer_account(project, "bluesky", handle, source)
+                    add_developer_account(project, handle, source)
         elif classification == "same_site":
             if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 confirm_source_code_url(
@@ -4456,6 +4950,8 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     evidence_url=base_url,
                     relation="same_site_candidate",
                 )
+            else:
+                add_resource_url(project, url)
     return unique_list(follow_up_urls)
 
 
@@ -5102,7 +5598,7 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
             handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
             if handle:
                 project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-                add_developer_account(project, "bluesky", handle, f"service_raw_url:{normalized_service_url}")
+                add_developer_account(project, handle, f"service_raw_url:{normalized_service_url}")
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
     for follow_url in follow_ups[:3]:
         try:
@@ -5312,6 +5808,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "website_url": project.get("website_url") or "",
         "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
+        "resource_urls": project.get("resource_urls", []),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "service_status_hint": project.get("service_status") or "unknown",
@@ -5462,12 +5959,24 @@ def parse_completion_text(payload: dict[str, Any]) -> str:
     raise ValueError("completion response did not contain text")
 
 
-def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def normalize_llm_reasoning_effort(value: str | None) -> str:
+    effort = str(value or "").strip().lower()
+    return effort if effort in {"none", "minimal", "low", "medium", "high"} else ""
+
+
+def run_local_llm_via_endpoint(
+    prompt: str,
+    endpoint: str,
+    model: str,
+    api_key: str,
+    reasoning_effort: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300")
     endpoint_urls = llm_endpoint_candidates(endpoint)
+    normalized_effort = normalize_llm_reasoning_effort(reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
     chat_payloads = [
         {
             "model": model or "local-model",
@@ -5486,6 +5995,10 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
         "prompt": prompt + "\n\nReturn JSON only.",
         "temperature": 0.2,
     }
+    if normalized_effort:
+        for payload in chat_payloads:
+            payload["reasoning"] = {"effort": normalized_effort}
+        completion_payload["reasoning"] = {"effort": normalized_effort}
     errors: list[str] = []
 
     for url in endpoint_urls:
@@ -5502,6 +6015,7 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
                     "endpoint": endpoint,
                     "resolved_endpoint": url,
                     "model": model or "local-model",
+                    "reasoning_effort": normalized_effort,
                     "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
                     "generated_at": iso_now(),
                 }
@@ -5520,9 +6034,19 @@ def run_local_llm_via_endpoint(prompt: str, endpoint: str, model: str, api_key: 
     raise RuntimeError(joined_errors)
 
 
-def run_local_llm(prompt: str, llm_endpoint: str | None = None, llm_model: str | None = None, llm_api_key: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def run_local_llm(
+    prompt: str,
+    llm_endpoint: str | None = None,
+    llm_model: str | None = None,
+    llm_api_key: str | None = None,
+    llm_reasoning_effort: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     command = os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip()
+    normalized_effort = normalize_llm_reasoning_effort(llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
     if command:
+        env = dict(os.environ)
+        if normalized_effort:
+            env["ATPROTO_SURVEY_LLM_REASONING_EFFORT"] = normalized_effort
         completed = subprocess.run(
             command,
             input=prompt,
@@ -5531,6 +6055,7 @@ def run_local_llm(prompt: str, llm_endpoint: str | None = None, llm_model: str |
             shell=True,
             cwd=str(ROOT),
             timeout=300,
+            env=env,
         )
         if completed.returncode != 0:
             stderr = completed.stderr.strip()
@@ -5541,6 +6066,7 @@ def run_local_llm(prompt: str, llm_endpoint: str | None = None, llm_model: str |
             "transport": "command",
             "command": command,
             "model": llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "").strip(),
+            "reasoning_effort": normalized_effort,
             "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
             "generated_at": iso_now(),
         }
@@ -5550,7 +6076,7 @@ def run_local_llm(prompt: str, llm_endpoint: str | None = None, llm_model: str |
     model = (llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")).strip()
     api_key = (llm_api_key or os.getenv("ATPROTO_SURVEY_LLM_API_KEY", "")).strip()
     if endpoint:
-        return run_local_llm_via_endpoint(prompt, endpoint, model, api_key)
+        return run_local_llm_via_endpoint(prompt, endpoint, model, api_key, normalized_effort)
 
     raise RuntimeError("ATPROTO_SURVEY_LLM_COMMAND or ATPROTO_SURVEY_LLM_ENDPOINT is required")
 
@@ -5716,11 +6242,18 @@ def plan_investigation_queries(
     llm_endpoint: str | None = None,
     llm_model: str | None = None,
     llm_api_key: str | None = None,
+    llm_reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     seed_plan = seed_investigation_queries(project)
     try:
         prompt, evidence = build_investigation_prompt(project)
-        payload, meta = run_local_llm(prompt, llm_endpoint=llm_endpoint, llm_model=llm_model, llm_api_key=llm_api_key)
+        payload, meta = run_local_llm(
+            prompt,
+            llm_endpoint=llm_endpoint,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_reasoning_effort=llm_reasoning_effort,
+        )
         plan = {
             "repo_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("repo_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["repo_search_queries"],
             "actor_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("actor_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["actor_search_queries"],
@@ -5762,7 +6295,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
                 )
     for handle in handles:
         if handle_matches_project(project, handle):
-            add_developer_account(project, "bluesky", handle, source)
+            add_developer_account(project, handle, source)
 
 
 def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
@@ -6728,6 +7261,7 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["website_url"] = choose_preferred_scalar(merged.get("website_url"), source.get("website_url"))
     merged["website_url_candidates"] = unique_list(list(merged.get("website_url_candidates", [])) + list(source.get("website_url_candidates", [])))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
+    merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
     merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
@@ -6744,7 +7278,7 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
 
     merged["bluesky_handles"] = unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))
     merged["tangled_handles"] = unique_list(list(merged.get("tangled_handles", [])) + list(source.get("tangled_handles", [])))
-    merged["developer_accounts"] = list(merged.get("developer_accounts", [])) + [item for item in source.get("developer_accounts", []) if item not in merged.get("developer_accounts", [])]
+    merged["developer_accounts"] = normalize_developer_accounts(list(merged.get("developer_accounts", [])) + list(source.get("developer_accounts", [])))
 
     merged["introduced"] = bool(merged.get("introduced") or source.get("introduced"))
     merged["introduced_url"] = choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url"))
@@ -6812,17 +7346,14 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         ]
         evidence["developer_accounts"] = [
             dict(item)
-            for item in evidence.get("developer_accounts", [])
-            if isinstance(item, dict) and not (
-                isinstance(item, dict)
-                and str(item.get("provider") or "") == "bluesky"
-                and not keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
-            )
+            for item in normalize_developer_accounts(evidence.get("developer_accounts", []))
+            if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
+            or not str(item.get("handle") or "").strip()
         ]
         surviving_evidence_handles = {
             str(item.get("handle") or "").strip()
             for item in evidence.get("developer_accounts", [])
-            if isinstance(item, dict) and str(item.get("provider") or "") == "bluesky" and str(item.get("handle") or "").strip()
+            if isinstance(item, dict) and str(item.get("handle") or "").strip()
         }
         evidence["bluesky_handles"] = [
             handle
@@ -6839,11 +7370,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             evidence["developer_accounts"] = [
                 dict(item)
                 for item in evidence.get("developer_accounts", [])
-                if not (
-                    isinstance(item, dict)
-                    and str(item.get("provider") or "") == "bluesky"
-                    and str(item.get("handle") or "").strip().lower() in ignored_handles
-                )
+                if str(item.get("handle") or "").strip().lower() not in ignored_handles
             ]
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)
 
@@ -6851,23 +7378,23 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     prune_project_urls(project)
     project["developer_accounts"] = [
         dict(item)
-        for item in project.get("developer_accounts", [])
-        if isinstance(item, dict) and not (
-            isinstance(item, dict)
-            and str(item.get("provider") or "") == "bluesky"
-            and not keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
-        )
+        for item in normalize_developer_accounts(project.get("developer_accounts", []))
+        if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
+        or not str(item.get("handle") or "").strip()
     ]
     surviving_handles = {
         str(item.get("handle") or "").strip()
         for item in project.get("developer_accounts", [])
-        if isinstance(item, dict) and str(item.get("provider") or "") == "bluesky" and str(item.get("handle") or "").strip()
+        if isinstance(item, dict) and str(item.get("handle") or "").strip()
     }
-    project["bluesky_handles"] = [
-        handle
-        for handle in unique_list(project.get("bluesky_handles", []))
-        if str(handle or "").strip() in surviving_handles or handle_matches_project(project, str(handle or ""))
-    ]
+    project["bluesky_handles"] = unique_list(
+        [
+            handle
+            for handle in unique_list(project.get("bluesky_handles", []))
+            if str(handle or "").strip() in surviving_handles or handle_matches_project(project, str(handle or ""))
+        ]
+        + sorted(surviving_handles)
+    )
     sync_primary_service_urls(project)
     purge_blocked_identifiers(project)
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
@@ -6912,6 +7439,7 @@ def enrich_project(
     llm_endpoint: str | None = None,
     llm_model: str | None = None,
     llm_api_key: str | None = None,
+    llm_reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     project = ensure_project_shape(project)
     previous_status = str(project.get("status") or "draft")
@@ -6976,6 +7504,7 @@ def enrich_project(
         llm_endpoint=llm_endpoint,
         llm_model=llm_model,
         llm_api_key=llm_api_key,
+        llm_reasoning_effort=llm_reasoning_effort,
     )
     add_investigation_log(
         project,
@@ -6989,7 +7518,13 @@ def enrich_project(
 
     try:
         prompt, evidence = build_triage_prompt(project)
-        payload, meta = run_local_llm(prompt, llm_endpoint=llm_endpoint, llm_model=llm_model, llm_api_key=llm_api_key)
+        payload, meta = run_local_llm(
+            prompt,
+            llm_endpoint=llm_endpoint,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_reasoning_effort=llm_reasoning_effort,
+        )
         apply_llm_output(project, payload, meta, evidence)
     except Exception as exc:
         note_failure(project, f"LLM review failed: {exc}")
@@ -7082,6 +7617,7 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             llm_endpoint=args.llm_endpoint,
             llm_model=args.llm_model,
             llm_api_key=args.llm_api_key,
+            llm_reasoning_effort=args.llm_reasoning_effort,
         )
         save_project(conn, project, enriched=True)
         conn.commit()
@@ -7188,6 +7724,236 @@ def cmd_show(args: argparse.Namespace) -> int:
                 f"auto_ready={merge_recommendation.get('auto_merge_ready', False)}"
             )
     return 0
+
+
+def cmd_preview_storage_layout(args: argparse.Namespace) -> int:
+    conn = open_db()
+    projects = select_projects(conn, args)
+    limit = max(1, int(args.limit or 10))
+    previews: list[dict[str, Any]] = []
+    for project in projects[:limit]:
+        record_payload = project_record_payload(project)
+        ops_payload = project_ops_payload(project)
+        legacy_payload = project_json_payload(project)
+        record_flat = flatten_grouped_payload(record_payload)
+        ops_flat = flatten_grouped_payload(ops_payload)
+        dropped_fields = sorted(
+            key
+            for key in legacy_payload.keys()
+            if key not in record_flat and key not in ops_flat
+        )
+        previews.append(
+            {
+                "project_key": project["project_key"],
+                "name": project.get("name", ""),
+                "seed_type": project.get("seed_type", ""),
+                "seed_value": project.get("seed_value", ""),
+                "record_json": record_payload,
+                "ops_json": ops_payload,
+                "dropped_legacy_fields": dropped_fields,
+            }
+        )
+    print(json.dumps({
+        "preview_count": len(previews),
+        "total_selected": len(projects),
+        "items": previews,
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_migrate_storage_layout(args: argparse.Namespace) -> int:
+    conn = open_db()
+    projects = list_projects(conn)
+    phase = str(args.phase or "preview")
+    if phase == "preview":
+        items: list[dict[str, Any]] = []
+        for project in projects[: max(1, int(args.limit or 20))]:
+            record_payload = project_record_payload(project)
+            ops_payload = project_ops_payload(project)
+            items.append(
+                {
+                    "project_key": project["project_key"],
+                    "record_groups": sorted(record_payload.keys()),
+                    "ops_groups": sorted(ops_payload.keys()),
+                    "record_field_count": len(flatten_grouped_payload(record_payload)),
+                    "ops_field_count": len(flatten_grouped_payload(ops_payload)),
+                }
+            )
+        print(json.dumps({
+            "phase": "preview",
+            "project_count": len(projects),
+            "sample_count": len(items),
+            "items": items,
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    if phase == "backfill":
+        updates: list[tuple[str, str, str, str]] = []
+        changed_count = 0
+        for project in projects:
+            record_json = dump_json(project_record_payload(project))
+            ops_json = dump_json(project_ops_payload(project))
+            introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
+            row = conn.execute(
+                "SELECT record_json, ops_json, introduced_url FROM projects WHERE project_key = ?",
+                (project["project_key"],),
+            ).fetchone()
+            existing_record = str(row["record_json"] or "") if row else ""
+            existing_ops = str(row["ops_json"] or "") if row else ""
+            existing_introduced_url = str(row["introduced_url"] or "") if row else ""
+            if record_json != existing_record or ops_json != existing_ops or introduced_url != existing_introduced_url:
+                changed_count += 1
+                updates.append((record_json, ops_json, introduced_url, project["project_key"]))
+        if args.execute and updates:
+            conn.executemany(
+                "UPDATE projects SET record_json = ?, ops_json = ?, introduced_url = ? WHERE project_key = ?",
+                updates,
+            )
+            conn.commit()
+        print(json.dumps({
+            "phase": "backfill",
+            "mode": "execute" if args.execute else "dry_run",
+            "project_count": len(projects),
+            "changed_project_count": changed_count,
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    if phase == "retire-legacy-data":
+        changed_count = 0
+        if args.execute:
+            changed_count = conn.execute(
+                "UPDATE projects SET data_json = '{}' WHERE coalesce(data_json, '') != '{}'"
+            ).rowcount
+            conn.commit()
+        else:
+            row = conn.execute(
+                "SELECT count(*) FROM projects WHERE coalesce(data_json, '') != '{}'"
+            ).fetchone()
+            changed_count = int(row[0]) if row else 0
+        print(json.dumps({
+            "phase": "retire-legacy-data",
+            "mode": "execute" if args.execute else "dry_run",
+            "changed_project_count": changed_count,
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    if phase == "cleanup-schema":
+        current_columns = [str(row["name"]) for row in conn.execute("PRAGMA table_info(projects)").fetchall()]
+        target_columns = [
+            "project_key",
+            "name",
+            "website_url",
+            "service_status",
+            "tracking_state",
+            "introduced_url",
+            "record_json",
+            "ops_json",
+            "first_seen_at",
+            "last_seen_at",
+            "last_enriched_at",
+        ]
+        removable_columns = [column for column in current_columns if column not in target_columns]
+        backup_path = ROOT / "data" / f"survey.schema-backup-{dt.datetime.now().strftime('%Y%m%d%H%M%S')}.db"
+        if args.execute:
+            backup_conn = sqlite3.connect(str(backup_path))
+            conn.backup(backup_conn)
+            backup_conn.close()
+            conn.execute("BEGIN")
+            conn.execute(
+                """
+                CREATE TABLE projects_new (
+                    project_key TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    website_url TEXT NOT NULL,
+                    service_status TEXT NOT NULL,
+                    tracking_state TEXT NOT NULL DEFAULT 'active',
+                    introduced_url TEXT NOT NULL DEFAULT '',
+                    record_json TEXT NOT NULL DEFAULT '{}',
+                    ops_json TEXT NOT NULL DEFAULT '{}',
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    last_enriched_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO projects_new (
+                    project_key, name, website_url, service_status, tracking_state,
+                    introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+                )
+                SELECT
+                    project_key,
+                    name,
+                    website_url,
+                    service_status,
+                    tracking_state,
+                    introduced_url,
+                    coalesce(record_json, '{}'),
+                    coalesce(ops_json, '{}'),
+                    first_seen_at,
+                    last_seen_at,
+                    last_enriched_at
+                FROM projects
+                """
+            )
+            conn.execute("DROP TABLE projects")
+            conn.execute("ALTER TABLE projects_new RENAME TO projects")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)")
+            conn.commit()
+        print(json.dumps({
+            "phase": "cleanup-schema",
+            "mode": "execute" if args.execute else "dry_run",
+            "current_columns": current_columns,
+            "target_columns": target_columns,
+            "removable_columns": removable_columns,
+            "backup_path": str(backup_path) if args.execute else "",
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    if phase == "finalize-check":
+        still_unclassified_count = 0
+        intentionally_dropped_count = 0
+        sample_items: list[dict[str, Any]] = []
+        for project in projects:
+            legacy_payload = project_json_payload(project)
+            intentionally_dropped = sorted(
+                key
+                for key in legacy_payload.keys()
+                if key in INTENTIONALLY_DROPPED_LEGACY_FIELDS
+            )
+            unresolved = sorted(
+                key
+                for key in legacy_payload.keys()
+                if key not in MAPPED_LEGACY_FIELDS and key not in INTENTIONALLY_DROPPED_LEGACY_FIELDS
+            )
+            if intentionally_dropped:
+                intentionally_dropped_count += 1
+            if unresolved:
+                still_unclassified_count += 1
+                if len(sample_items) < max(1, int(args.limit or 20)):
+                    sample_items.append(
+                        {
+                            "project_key": project["project_key"],
+                            "intentionally_dropped_fields": intentionally_dropped,
+                            "unmapped_fields": unresolved,
+                        }
+                    )
+        print(json.dumps({
+            "phase": "finalize-check",
+            "project_count": len(projects),
+            "still_unclassified_count": still_unclassified_count,
+            "intentionally_dropped_project_count": intentionally_dropped_count,
+            "sample_items": sample_items,
+            "next_steps": [
+                "drop remaining legacy-only fields or map them into record_json/ops_json",
+                "retire legacy data_json contents",
+                "run cleanup-schema to remove retired columns physically",
+            ],
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    raise ValueError(f"unsupported phase: {phase}")
 
 
 def cmd_review_queue(args: argparse.Namespace) -> int:
@@ -8458,6 +9224,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
         llm_endpoint=getattr(args, "llm_endpoint", None),
         llm_model=getattr(args, "llm_model", None),
         llm_api_key=getattr(args, "llm_api_key", None),
+        llm_reasoning_effort=getattr(args, "llm_reasoning_effort", None),
     )
     action = str(parsed.get("action") or "unknown").strip()
     payload: dict[str, Any] = {
@@ -8639,6 +9406,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
+    enrich_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for LLM calls.")
     enrich_parser.set_defaults(func=cmd_enrich)
 
     show_parser = subparsers.add_parser("show", help="Show registered projects.")
@@ -8650,6 +9418,22 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     show_parser.set_defaults(func=cmd_show)
+
+    preview_storage_parser = subparsers.add_parser("preview-storage-layout", help="Preview how selected projects map into record_json and ops_json without writing the DB.")
+    preview_storage_group = preview_storage_parser.add_mutually_exclusive_group(required=True)
+    preview_storage_group.add_argument("-p", "--project-key", help="Target one project key.")
+    preview_storage_group.add_argument("--seed", help="Target by known seed value.")
+    preview_storage_group.add_argument("--all", action="store_true", help="Preview multiple projects.")
+    preview_storage_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    preview_storage_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
+    preview_storage_parser.add_argument("--limit", type=int, default=10, help="Maximum number of projects to print. Default: 10.")
+    preview_storage_parser.set_defaults(func=cmd_preview_storage_layout)
+
+    migrate_storage_parser = subparsers.add_parser("migrate-storage-layout", help="Preview or backfill the new record_json/ops_json storage layout.")
+    migrate_storage_parser.add_argument("--phase", choices=["preview", "backfill", "retire-legacy-data", "cleanup-schema", "finalize-check"], default="preview", help="Migration phase to inspect. Default: preview.")
+    migrate_storage_parser.add_argument("--limit", type=int, default=20, help="Sample size for preview/finalize-check output. Default: 20.")
+    migrate_storage_parser.add_argument("--execute", action="store_true", help="Apply the backfill phase. Ignored for preview/finalize-check.")
+    migrate_storage_parser.set_defaults(func=cmd_migrate_storage_layout)
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
@@ -8799,6 +9583,7 @@ def build_parser() -> argparse.ArgumentParser:
     assist_parser.add_argument("--llm-endpoint", help="Optional OpenAI-compatible LLM endpoint or base URL for parsing.")
     assist_parser.add_argument("--llm-model", help="Optional model name for the parsing LLM.")
     assist_parser.add_argument("--llm-api-key", help="Optional API key for the parsing LLM.")
+    assist_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for the parsing LLM.")
     assist_parser.set_defaults(func=cmd_assist_db_edit)
 
     return parser

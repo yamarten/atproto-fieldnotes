@@ -6,8 +6,12 @@
 
 - DB は `data/survey.db`
 - 主要テーブルは `projects` だけ
-- `projects` の scalar columns が正本
-- `data_json` は構造化・派生情報
+- `projects` は現在
+  - scalar columns
+  - `record_json`
+  - `ops_json`
+- `record_json` は高信頼の project record
+- `ops_json` は候補・調査・LLM・merge 制御などの運用情報
 - `project_identifiers` はもう使わない
 
 ## 運用上の注意
@@ -41,7 +45,7 @@
   - `pdsls.dev`, `pds.ls`, `at://...` も `nsid` seed として扱う
 - `sync-introduced`
   - `from:yamarten.bsky.social #ATプロトーク` の Bluesky 検索を既定で使う
-  - seed は増やさず、既存 project の `introduced` 判定だけ更新する
+  - seed は増やさず、既存 project の `introduced_url` だけ更新する
 - `sync-collections`
   - collection inventory API を直接 fetch する
   - 新規 collection import に加えて、既知 collection の `count/recent_count/max` も refresh する
@@ -60,6 +64,17 @@
   - 派生フィールド再計算
   - collision 監査
   - invalid JSON の自動救済はしない
+- `migrate-storage-layout`
+  - `preview`
+    - `record_json` / `ops_json` の group 構成を確認
+  - `backfill`
+    - `record_json` / `ops_json` / `introduced_url` を既存 DB に埋める
+  - `retire-legacy-data`
+    - 旧 `data_json` の中身を空に揃える
+  - `cleanup-schema`
+    - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
+  - `finalize-check`
+    - 完全移行前に未分類の legacy field が残っていないか確認する
 
 ## 既知の前提
 
