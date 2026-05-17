@@ -10386,7 +10386,12 @@ def cmd_merge(args: argparse.Namespace) -> int:
     source["duplicate_candidates"] = compute_duplicate_candidates(conn, source)
     source["merge_recommendation"] = compute_merge_recommendation(source)
 
-    if args.use_recommendation:
+    use_recommendation = bool(
+        args.use_recommendation
+        or not any([args.target_project_key, args.target_seed])
+    )
+
+    if use_recommendation:
         recommendation = source.get("merge_recommendation") or {}
         target_key = str(recommendation.get("target_project_key") or "")
         if not target_key:
@@ -10412,7 +10417,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         "mode": "execute" if args.execute else "dry_run",
         "source_project_key": source["project_key"],
         "target_project_key": target["project_key"],
-        "used_recommendation": bool(args.use_recommendation),
+        "used_recommendation": use_recommendation,
         "source_name": source.get("name", ""),
         "target_name": target.get("name", ""),
         "merged_name": merged.get("name", ""),
@@ -10915,7 +10920,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge_source.add_argument("-p", "--project-key", help="Source project key.")
     merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
     merge_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    merge_target = merge_parser.add_mutually_exclusive_group(required=True)
+    merge_target = merge_parser.add_mutually_exclusive_group(required=False)
     merge_target.add_argument("-t", "--target-project-key", help="Explicit target project key.")
     merge_target.add_argument("-T", "--target-seed", help="Explicit target project by known seed value.")
     merge_target.add_argument("--use-recommendation", action="store_true", help="Use the current merge recommendation for the source project.")
