@@ -2,7 +2,7 @@
 
 手動で見つけたseedを登録し、project recordとして追跡するための操作ガイドです。
 
-内部実装や昇格ロジックの詳細は [docs/registry-internals.md](registry-internals.md) に分けています。
+内部実装や昇格ロジック、`enrich` / `sync` / `merge` / `review-stalled` の判定材料、外部アクセス量の詳細は [docs/registry-internals.md](registry-internals.md) に分けています。
 
 ## 扱うseed
 
@@ -35,6 +35,18 @@ pip install -r requirements.txt
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 
 PSL に載っていない hosted suffix を追加したい場合は、[config/sources.json](../config/sources.json) の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。
+
+## zsh補完
+
+wrapper の [bin/project-registry](../bin/project-registry) と zsh completion の [completions/_project-registry](../completions/_project-registry) を使えます。
+
+```bash
+export PATH="$PWD/bin:$PATH"
+fpath=("$PWD/completions" $fpath)
+autoload -Uz compinit && compinit
+```
+
+これで `project-registry` の subcommand と主要オプションが補完されます。`scripts/` を `PATH` に足すと Python ファイル自体までコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。completion 定義は `project_registry.py` にも紐付けているので、`python3 scripts/project_registry.py ...` を直接呼ぶ場合も zsh 上では同じ候補が出ます。
 
 ## seed登録
 
@@ -278,6 +290,25 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
   - いま `stalled` だが、repo または collection の最近 activity が見えた
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
+
+## 紹介候補キュー
+
+未紹介で、人が見る価値のありそうな project を一覧化します。
+
+```bash
+python3 scripts/project_registry.py promotion-queue
+python3 scripts/project_registry.py promotion-queue --kinds service_ready_for_introduction
+python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
+```
+
+signal は今のところ 2 種類です。
+
+- `service_ready_for_introduction`
+  - `project` / `personal_tool` で、`service_status` が `live` / `beta` / `invite_only`
+- `lexicon_ready_for_introduction`
+  - `category=lexicon` で、NSID ヒントと公開先 (`website_url` / repo / resource) があり、紹介用メタデータが大きく欠けていない
+
+`--interactive` を付けると `review-queue` と同じく 1 件ずつ見られます。`suggested_commands` には `show` や `enrich --deep-investigation` を出します。
 
 適用する場合:
 

@@ -49,6 +49,480 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
 
+## enrich の判断材料
+
+`enrich` は「confirmed に上げる条件」と「candidate に留める条件」を分けています。LLM は後段ですが、一次情報で確定できないものだけを整理させる位置づけです。
+
+### 1. lexicon から取るもの
+
+- 入力:
+  - `primary_nsid`
+  - `input_nsids`
+  - GitHub repo から後で見つかった NSID
+- 取得の流れ:
+  - `_lexicon.<authority_domain>` の TXT を引いて DID を解決
+  - DID document から PDS endpoint を引く
+  - PDS の `com.atproto.repo.getRecord` で `com.atproto.lexicon.schema/<nsid>` を引く
+- ここで confirmed に入るもの:
+  - `resolved_nsids`
+  - `record_creators`
+  - `authority_domains`
+- ここで candidate に留めるもの:
+  - authority domain から推定した service origin
+  - lexicon description 由来の `summary_candidates` / `tagline_candidates`
+- 保守的な点:
+  - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
+
+### 2. GitHub repo から取るもの
+
+- manual `repo_url` seed は first-party 前提で `source_code_urls` に confirmed で入れます
+- repo metadata から取るもの:
+  - `description` は `summary_candidates` / `tagline_candidates`
+  - `homepage` は `service_url_candidates` / `website_url_candidates`
+  - `updated_at` は `source_repo_records[].updated_at`
+- tree / lexicon hint の扱い:
+  - `lexicon/`, `lexicons/`, `schema/` 配下などの JSON を lexicon 候補として走査します
+  - その JSON が lexicon らしく、かつ `project_owned_lexicon_nsid()` が真の時だけ project 自身の NSID として採用します
+  - ownership が弱い時は `github_repo_lexicon_reference` として investigation log に残すだけです
+- README のリンクの扱い:
+  - 同一 repo へのリンクは confirmed の補強に使います
+  - 別 repo は `repo_candidate_allowed_for_project()` を満たす時だけ candidate に入れます
+  - 外部 service URL は `repo_context_service_candidate_allowed()` を満たす時だけ candidate に入れます
+
+### 3. service URL から取るもの
+
+- 各 URL を 1 回 fetch し、HTML から次を見ます
+  - HTTP status
+  - title / meta description
+  - 生テキスト
+  - ページ内リンク
+- `service_probe_supports_project()` が真になる主な条件:
+  - page text に project の NSID が直接出る
+  - authority domain と atproto 系 marker が同時に出る
+  - alias token と atproto 系 marker が同時に出る
+  - project に許された GitHub/Tangled repo へのリンクがある
+  - project に一致する Bluesky handle へのリンクがある
+  - manual service seed の host そのもの
+- `service_status` の決め方:
+  - parked domain, `404/410` は `dead`
+  - `401/403` や coming soon は `private`
+  - invite/waitlist 文言は `invite_only`
+  - beta 文言は `beta`
+  - login surface や app shell が見えれば `live`
+  - docs だけで app surface が無ければ `none`
+  - `5xx` や network error は `unverified`
+- confirmed に上げる条件:
+  - probe が project を支持する
+  - HTTP が `2xx/3xx`
+  - `service_url_auto_confirmable()` が真
+    - manual service host と一致
+    - authority domain と一致
+    - alias token と host が強く一致
+- 上の条件を満たさないが page は支持している時:
+  - `service_url_candidates` / `website_url_candidates` に留めます
+- page が project を支持しない時:
+  - その URL は project から外します
+- `4xx` / fetch error は:
+  - `failed_service_urls` に残します
+
+### 3.1 `service_status` の現在地と残件
+
+現在の `service_status` は、以前の単純なキーワード分類から一段進めて、`ops_json.activity` に次を持ちます。
+
+- `service_status`
+- `service_status_confidence`
+- `service_status_evidence`
+
+現在見ている主な signal:
+
+- `http_<code>`
+- `dns_failed`
+- `tls_failed`
+- `timeout`
+- `connection_refused`
+- `parked_domain_detected`
+- `login_surface_detected`
+- `invite_text_detected`
+- `beta_text_detected`
+- `coming_soon_detected`
+- `docs_only_surface_detected`
+- `app_shell_detected`
+- `mixed_launch_signals_detected`
+
+現在の扱い:
+
+- parked domain, `404/410`
+  - `dead`
+- `401/403`
+  - `private`
+- invite / waitlist
+  - `invite_only`
+- beta 文言
+  - `beta`
+- login surface / app shell
+  - `live`
+- docs-only
+  - `none`
+- `5xx` や network 系失敗
+  - `unverified`
+- launch 文言と app surface が混在
+  - `unverified`
+
+まだ未実装の後半段階:
+
+1. `--deep-investigation` で優先ページを読む
+   - `/about`
+   - `/docs`
+   - `/faq`
+   - `/app`
+   - `/login`
+   - `/signup`
+2. browser/computer-use 相当で実際にログイン導線まで試す
+
+つまり、現状は「トップページ中心の軽量判定」までは常時有効、深い検証はまだ別レーンです。
+
+### 4. first-party link の扱い
+
+- service page / resource page のリンクは `classify_official_link()` で分類します
+  - `source_repo`
+  - `source_like`
+  - `docs`
+  - `blog`
+  - `bluesky_profile`
+  - `same_site`
+- confirmed に上げるのは:
+  - first-party page が repo を明示し、owner や site family が project と噛む時
+  - same-site family の repo URL で owner も噛む時
+- それ以外の repo-like URL は candidate に留めます
+- docs/blog/same-site 補助ページは `resource_urls` に残し、必要なら追加 probe の対象にします
+
+### 5. investigation collector の扱い
+
+- 調査 query はまず deterministic に seed から組み、設定があれば LLM で絞ります
+- GitHub search:
+  - 最大 2 query
+  - 各 query で上位 5 repo を取得
+  - `github_repo_relevance() >= 3` を候補にし、その中でも `max(6, top_score - 2)` 以上だけ採用
+  - 採用数は 1 repo までで、confirmed ではなく candidate 扱いです
+- Bluesky actor search:
+  - 最大 2 query
+  - `bsky_actor_relevance() >= 4` の handle だけ採用
+- Bluesky post search:
+  - 最大 2 query
+  - post 内 URL から GitHub/Tangled repo candidate を拾います
+  - author handle が project と一致すれば developer account に足します
+- Bluesky author feed:
+  - 最大 2 handle
+  - feed 中 URL から repo candidate を追加します
+
+### 6. LLM が決めるもの / 決めないもの
+
+- LLM が直接埋める主な field:
+  - `name`
+  - `tagline`
+  - `summary`
+  - `features`
+  - `inspired_by`
+  - `category`
+  - `classification_reason`
+  - `exclude_reason`
+  - `watch_reason`
+  - `manual_review_*`
+  - `confidence`
+  - `service_status` の補助更新
+- ただし LLM 出力の identifier は保守的に扱います
+  - `source_code_urls`
+    - 既に confirmed 済みなら confirmed 側に残す
+    - 新規提案なら candidate に留める
+  - `service_urls`
+    - 既存の confirmed service と一致する時だけ confirmed 扱い
+    - それ以外は candidate
+  - `lexicons`
+    - 既に `resolved_nsids` にあるものだけ採用
+
+`service_status` についても、LLM は補助更新に留めます。最終的な保存値は rule-based probe の evidence を優先し、特に `unverified` は安易に `live/private` へ確定させません。
+
+### 7. 昇格判定
+
+- `apply_promotion_state()` の blocker は次です
+  - seed が無い
+  - confirmed website/repository/lexicon が無い
+  - `service_status` が `unknown`
+  - `summary` が無い
+  - `tagline` が無い
+  - `features` が 3 件未満
+  - `category` が無い
+  - `llm_source` が無い
+- blocker が 1 件でもあれば `status=draft` のままです
+
+## sync の判断材料
+
+### `sync-introduced`
+
+- 入力は Bluesky post search の結果です
+- post 本文や facet URL から seed を抽出し、`collect_applog_entries()` で project 候補に束ねます
+- seed として採るもの:
+  - collection NSID
+  - GitHub/Tangled の repo root
+  - path を持たない service root
+- seed として捨てるもの:
+  - `bsky.app`
+  - `raw.githubusercontent.com`
+  - YouTube
+  - `docs.bsky.app`
+  - `docs.tangled.org`
+  - `blog.tangled.org`
+  - path 付きの一般 service URL
+- DB 側では exact identifier match のみ見ます
+- 既存 project に一致した時だけ:
+  - `introduced = true`
+  - `introduced_url`
+  - `discovery_sources += bsky_introduced_sync`
+- 新規 project は作りません
+
+### `sync-collections`
+
+- まず inventory API 全件を取得します
+- 既知 collection の activity refresh は毎回やります
+  - `count`
+  - `recent_count`
+  - `min`
+  - `max`
+- import 対象にするのは:
+  - collection NSID が正常
+  - 既知 NSID ではない
+  - `min` が `lookback_days` 以内
+- import 前に namespace 集約します
+  - full collection ではなく registrable namespace 単位で 1 project 候補にまとめます
+- reject する主な条件:
+  - namespace が短すぎる
+  - authority domain が import 許可ルールに合わない
+- 既存 project への match 順:
+  1. `exact_namespace`
+  2. `exact_namespace_scan`
+  3. `registrable_namespace`
+  4. `service_host_family`
+- 自動 attach するのは 1 と 2 だけです
+- 3 と 4 は `suggested_project_key` に落とし、既存 project に自動では吸いません
+
+### `sync-github-search`
+
+- query には `fork:false` と `archived:false` を自動で補います
+- import 対象にするのは:
+  - 既知 repo URL ではない
+  - `updated_at` が `lookback_days` 以内
+- 既存 project への match 順:
+  1. `repo_url`
+  2. `homepage_exact`
+  3. `homepage_family`
+- 自動 attach するのは 1 と 2 だけです
+
+## マージ時の editorial 優先
+
+`merge_project_records()` は単純な `current or incoming` ではなく、`project_editorial_preference()` を使って service 本体らしい project を優先します。
+
+主に見ているもの:
+
+- `manual_seeds` に `service_url` があるか
+- `website_url`
+- `service_urls`
+- `source_code_urls`
+- `resource_urls`
+- `service_status`
+- `introduced_url`
+- confirmed NSID 数
+
+この優先は主に次の field に効きます。
+
+- `name`
+- `tagline`
+- `summary`
+- `website_url`
+
+意図は、collection/lexicon project が後から service 本体の editorial 情報を上書きしないようにすることです。
+
+ただし、既に保存済みの微妙な `tagline` / `summary` を自動で書き直す仕組みではありません。`proj:f4cead1df6f7` のような既存レコードは、LLM 再 `enrich` または手動修正がまだ必要です。
+
+## 将来的にやるべきこと
+
+### 1. service 判定の後半強化
+
+- `--deep-investigation` で次を優先 fetch する
+  - `/about`
+  - `/docs`
+  - `/faq`
+  - `/app`
+  - `/login`
+  - `/signup`
+- その本文から:
+  - 実サービスの存在
+  - 利用条件
+  - 招待制かどうか
+  - install / sign-in 導線
+  を抽出し、`service_status_evidence` に流す
+- 最終段階では browser/computer-use を使った login 画面確認を opt-in で追加する
+
+### 2. editorial quality の洗い替え
+
+- merge 時の主従は改善済みだが、既存 `tagline` / `summary` の品質問題は残る
+- 直したい方向:
+  - `service project` と `lexicon project` で prompt を分ける
+  - `resource_urls` や repo README を優先 evidence として使う
+  - `tagline_is_provisional` が長く残っている project を review queue へ送る
+
+### 3. rate limit / partial failure 耐性
+
+- GitHub:
+  - live fetch 連打時の 403 rate limit
+  - secondary rate limit 時の run-level stop
+- Bluesky:
+  - 認証情報未設定時の search failure
+  - `createSession` / token refresh 周りの retry policy
+- LLM:
+  - endpoint shape 差分
+  - timeout / partial parse failure
+
+理想は「失敗した source だけ切り離して run 全体は継続し、`last_run_errors` には本当に人が見る価値のあるものだけ残す」ことです。
+
+### 4. sync コマンドの整理
+
+- `sync-collections`
+  - fetch 全件はまだ残っている
+  - API 側に差分 query が無いので、必要なら snapshot 比較を更に強化する
+- `sync-github-search`
+  - broad query の tuning
+  - `screen_unmatched` の精度向上
+- `sync-semble-collections`
+  - 現状は固定 2 collection 埋め込み
+  - 運用が固まったら config 化する余地がある
+
+### 5. DB 編集 UX
+
+- `assist-db-edit` は自然文から command 提案まで対応した
+- 将来的には:
+  - `split-project`
+  - seed 追加
+  - `review-stalled` の承認反映
+  のような操作も対話的に扱いたい
+
+### 6. 内部 shape の最終整理
+
+- schema は `record_json` / `ops_json` に移行済み
+- ただしコード内部では legacy 的な flat field をまだ多く使う
+- 長期的には:
+  - flat shape を減らす
+  - `record` と `ops` の境界をさらに厳密にする
+  - `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` などの名残を消す
+- 3 は suggestion に落とします
+- unmatched を `--screen-unmatched` する場合:
+  - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
+  - 次のどれかがあれば通します
+    - lexicon hint
+    - lexicon らしい path
+    - derived NSID
+    - lexicon schema sample
+    - repo homepage
+    - service candidate
+    - atproto keyword hit
+  - 何も無ければ `screened_out_entries` に落とし、project を作りません
+
+### `sync-semble-collections`
+
+- 対象はコード内で固定した tracked Semble collection だけです
+- 各 card URL を `classify_text_seed_value()` で seed に落とせるものだけ使います
+  - `nsid`
+  - `repo_url`
+  - `service_url`
+- `card_updated_at` が `lookback_days` 以内の card だけ import 対象です
+- 既存 project 解決は `resolve_project_key_for_seed_value()` を使います
+  - `repo_url` / `service_url` は exact identifier match
+  - `nsid` は `find_project_key_for_nsid_seed()` で namespace / registrable namespace / service host family まで見ます
+- 注意:
+  - 現状の `sync-semble-collections` は、`sync-collections` や `sync-github-search` と違って weak match を suggestion に落とさず、そのまま attach し得ます
+  - 仕様として明示されているというより、今の実装挙動です
+
+## 外部アクセス
+
+外部アクセスはほぼすべて `request_bytes()` 経由です。`enrich` と各 `sync` の発生箇所は次の通りです。
+
+### `enrich` 1 project あたり
+
+- lexicon 解決:
+  - 1 NSID あたり 3 request
+  - `dns.google/resolve` で `_lexicon.<authority>`
+  - `plc.directory` または `did:web` host で DID document
+  - 解決した PDS の `com.atproto.repo.getRecord`
+- recent record sample:
+  - 1 request
+  - `https://ufos-api.microcosm.blue/records`
+  - 最大 6 collection をまとめて引きます
+- GitHub repo enrich:
+  - 1 repo あたり通常 3 request
+    - `GET /repos/{owner}/{repo}`
+    - `GET /repos/{owner}/{repo}/readme`
+    - `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
+  - さらに lexicon hint を精査する時は `contents/<path>` を最大 16 件追加
+  - つまり 1 repo あたり概ね 3、最大で 19 request 程度です
+- service URL probe:
+  - 1 URL あたり 1 request
+  - same-site docs/blog など follow-up を最大 3 URL まで追加
+  - つまり 1 service URL あたり最大 4 request
+- `--deep-investigation`:
+  - `resource_urls` を最大 6 page
+  - 各 page で follow-up を最大 2 page
+  - 最大 18 request
+- investigation collector:
+  - GitHub repository search 最大 2 request
+  - Bluesky actor search 最大 2 request
+  - Bluesky post search 最大 2 request
+  - Bluesky author feed 最大 2 request
+- LLM:
+  - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
+  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POST
+    - investigation plan
+    - triage
+  - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
+
+### `sync-introduced`
+
+- Bluesky authenticated post search だけです
+- request 数はおおむね `ceil(limit / 100)` を `max_pages` で打ち切った数です
+- 既定値は `limit=25` なので通常 1 request です
+- 初回だけ `createSession` が 1 request 発生します
+- token 失効時だけ `refreshSession` が 1 request 追加されます
+
+### `sync-collections`
+
+- collection inventory URL への fetch が 1 request です
+- 既知 project の activity refresh や namespace 集約はその payload だけで行い、per-entry の追加 fetch はありません
+
+### `sync-github-search`
+
+- 基本 request 数:
+  - `queries * pages`
+  - 既定 config は 1 query, 1 page なので通常 1 request
+- `--screen-unmatched` を付けない限り、search 以外の追加 fetch はありません
+- `--screen-unmatched` を付けると unmatched repo ごとに追加 fetch します
+  - screen 関数内の `fetch_github_repo()` で 3 request 前後
+  - その後 `enrich_from_github_repo()` が同じ repo をもう一度 fetch するのでさらに 3 request 前後
+  - さらに lexicon candidate JSON を最大 16 file 取得
+  - つまり unmatched repo 1 件あたり概ね 6、最大で 22 request 程度です
+
+### `sync-semble-collections`
+
+- Semble API への page fetch だけです
+- request 数は `tracked_collections * pages`
+- 既定値では tracked collection が 2 件、`pages=1` なので通常 2 request です
+
+### 補足
+
+- Bluesky session は process 内で cache します
+  - 同一 run 中の `createSession` は原則 1 回
+- GitHub の search result も process 内 cache します
+  - 同じ query を同じ run で繰り返す時だけ有効です
+- GitHub repo metadata や service probe は cache していません
+- `secondary_repo_urls` の再走査があるので、同じ GitHub repo を 1 回の `enrich` 中に再 fetch することがあります
+
 ## 昇格ゲート
 
 本線扱いにする条件:
@@ -166,6 +640,117 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 
 `merge-batch` は保守的です。曖昧な一致は自動実行せず、`merge` の dry-run / execute で人が判断する前提です。
 
+### duplicate candidate の作り方
+
+- まず各 project から duplicate profile を作ります
+  - `source_code_urls`
+  - `github_repo_urls`
+  - `candidate_source_code_urls`
+  - `service_urls`
+    - `website_url` もここに含めます
+  - `recorded_lexicon_namespaces`
+  - `record_creators`
+  - `authority_service_families`
+  - `domain_identity_tokens`
+  - `merge_aliases`
+- これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
+- ただし次は最初から除外します
+  - 自分自身
+  - `separate_project_keys` で相互 block された pair
+
+### candidate の根拠
+
+- `compute_duplicate_candidates()` は候補相手ごとに次の overlap を見ます
+  - `source_code_urls`
+  - `github_repo_urls`
+  - `candidate_source_code_urls`
+  - `service_urls`
+  - `recorded_lexicon_namespaces`
+  - `record_creators_and_namespace_lineage`
+    - creator DID が重なり、かつ namespace が同一または親子
+  - `authority_service_families`
+  - `domain_identity_tokens`
+  - `merge_aliases`
+  - `bootstrap_first_record_creator_dids`
+    - 明示的に heuristic を有効化した時だけ
+- `record_creators` 単独では merge 理由にしません
+  - namespace lineage が同時に必要です
+- `candidate_source_code_urls` は confirmed repo より弱い根拠ですが、duplicate 候補の入口には使います
+
+### score と confidence
+
+- score は理由ごとの重み付き合計です
+  - `source_code_urls`: 8
+  - `github_repo_urls`: 8
+  - `service_urls`: 7
+  - `record_creators_and_namespace_lineage`: 7
+  - `recorded_lexicon_namespaces`: 6
+  - `authority_service_families`: 6
+  - `candidate_source_code_urls`: 5
+  - `domain_identity_tokens`: 5
+  - `bootstrap_first_record_creator_dids`: 6
+  - `merge_aliases`: 3
+- `merge_confidence` / `auto_merge_ready` は score だけではなく理由の組み合わせで決まります
+  - `service_urls` があれば `high` かつ `auto_merge_ready=true`
+  - confirmed repo overlap と alias/domain/family/namespace の複合なら `high`
+  - candidate repo overlap でも alias/domain/family が乗れば `high`
+  - creator DID + namespace lineage は `high`
+  - domain token + alias だけなら `medium`
+  - score だけ高くても、理由の質が弱ければ `medium` や `low` に留まります
+
+### merge recommendation の作り方
+
+- `merge_recommendation` は `duplicate_candidates` の先頭 1 件を採用したものです
+- 返すのは:
+  - `target_project_key`
+  - `score`
+  - `merge_confidence`
+  - `auto_merge_ready`
+  - `reasons`
+- top 候補が `auto_merge_ready=false` で、2 位が同点の時だけ `ambiguous_with` を付けます
+- つまり recommendation は「最有力候補」であって「必ず merge してよい」ではありません
+
+### merge-batch の追加安全策
+
+- `merge-batch` は `duplicate_candidates` をそのまま自動実行しません
+- 候補 pair ごとに mutual recommendation を要求します
+  - A の top が B
+  - B の top も A
+- さらに safe overlap を別ロジックで見直します
+  - `strict`
+    - strict GitHub/Tangled repo overlap
+    - manual repo seed overlap
+    - manual service seed host overlap
+  - `moderate`
+    - strict 条件に加えて
+    - confirmed service overlap
+    - candidate repo + alias overlap
+    - creator DID + namespace lineage
+    - domain token + alias overlap
+    - authority family + domain token
+    - service root domain + alias overlap
+    - website root domain + alias overlap
+    - optional bootstrap first creator DID heuristic
+- safe overlap が無い pair は recommendation があっても batch では落とします
+
+### merge 方向の決め方
+
+- `choose_batch_merge_direction()` は「どちらを target に残すか」を `project_batch_merge_preference()` で決めます
+- 優先順位は概ね次です
+  - manual seed の強さ
+    - `service_url` > `nsid` > `repo_url`
+  - editorial richness
+    - `website_url`
+    - `service_urls`
+    - `source_code_urls`
+    - `resource_urls`
+    - `service_status`
+    - `introduced_url`
+    - confirmed NSID 数
+  - confirmed identifier の数
+  - `introduced_url` の有無
+- つまり、より first-party surface が強く、より編集済みで、より confirmed identifier が多い側を target に残しやすいです
+
 ## repair-db と storage migration
 
 `repair-db` の責務:
@@ -201,3 +786,66 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 も返します。
 
 `service_status=unknown/none` は単独では落とす根拠にしません。repo activity と collection activity を優先し、`dead/private` だけを強いシグナルとして扱います。
+
+### activity の見方
+
+- repo activity:
+  - `source_repo_records[].updated_at` の最大値
+- collection activity:
+  - `collection_observations[].max` の最大値
+  - ただし `recent_count > 0` の observation があれば、その `observed_at` も recent activity とみなします
+- `activity_is_recent()` は `age < inactivity_days` の時だけ recent 扱いです
+
+### `stalled -> active`
+
+- いま `tracking_state=stalled` の project は、次のどちらかが recent なら `active` に戻す候補です
+  - recent repo activity
+  - recent collection activity
+- 片方だけ戻っていても `active` 候補にします
+
+### `active -> stable`
+
+- 次の条件を満たす時だけ `stable` 候補です
+  - いま `tracking_state=active`
+  - repo は recent ではない
+  - collection は recent
+- これは「ソースコード更新は止まっているが、collection はまだ実運用されている」ケースを落とし過ぎないためです
+- `watchlist` はここでは `stable` に落としません
+
+### `active/watchlist -> stalled`
+
+- まず recent repo activity がある project は何もしません
+- そのうえで、collection も recent でない時だけ stalled 判定に進みます
+- strong signal (`hard_signal`) として扱うもの:
+  - collection が `inactivity_days` 以上止まっていて、しかも `recent_count>0` の observation が無い
+  - repo が `inactivity_days` 以上止まっている
+  - `last_enriched_at` から `enrich_age_days` 以上経っている
+  - `service_status` が `dead` または `private`
+- weak signal として理由には出すが、単独では落とさないもの:
+  - `service_status=unknown` または `none`
+  - confirmed identity が 1 件以下
+    - `website_url`
+    - `source_code_urls`
+    - `resolved_nsids`
+- `stalled` を提案するには:
+  - `hard_signal` が少なくとも 1 つ必要
+  - 理由が 2 件以上必要
+- つまり、単に `unknown` で証拠が薄いだけでは `stalled` にしません
+
+### ノイズ抑制
+
+- 次の条件をすべて満たす project は、`stalled` 候補を返しません
+  - まだ一度も enrich していない
+  - `service_status=unknown`
+  - confirmed identity が 1 件以下
+  - collection activity も無い
+- これは「まだ何も分かっていない新規/弱証拠 project」を inactivity 判定で早期に落とさないためです
+
+### review-stalled の対象範囲
+
+- `review-stalled` が見る tracking state は:
+  - `active`
+  - `watchlist`
+  - `stalled`
+- `stable` / `archived` / `ignore` はこの自動判定の対象外です
+- `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します

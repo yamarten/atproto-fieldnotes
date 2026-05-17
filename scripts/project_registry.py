@@ -8,6 +8,7 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -51,6 +52,18 @@ _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
 TRACKING_STATES = {"active", "watchlist", "stable", "stalled", "archived", "ignore"}
 PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
 PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
+SEMBLE_TRACKED_COLLECTIONS = (
+    {
+        "handle": "byarielm.fyi",
+        "rkey": "3mfdje7uuhu2r",
+        "label": "atproto-visualizers",
+    },
+    {
+        "handle": "byarielm.fyi",
+        "rkey": "3mfdk4wmo5m2r",
+        "label": "atmosphere-tools",
+    },
+)
 NSID_PATTERN = r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?:\.[a-z0-9]+(?:[.-][a-z0-9]+)*)+"
 LOOSE_NSID_PATTERN = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:\.[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)+"
 
@@ -105,6 +118,10 @@ def load_json(value: str) -> Any:
 
 def dump_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "beta", "invite_only"}
+SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
 
 
 def compact_grouped_payload(group_fields: dict[str, tuple[str, ...]], source: dict[str, Any]) -> dict[str, Any]:
@@ -255,6 +272,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "collection_observations",
         "promotion_events",
         "last_run_errors",
+        "service_status_confidence",
+        "service_status_evidence",
     ),
     "discovery": (
         "discovery_sources",
@@ -321,6 +340,8 @@ MAPPED_LEGACY_FIELDS = {
     "candidate_nsids",
     "name_candidates",
     "service_status",
+    "service_status_confidence",
+    "service_status_evidence",
     "source_code_urls",
     "candidate_source_code_urls",
     "source_repo_records",
@@ -638,6 +659,16 @@ def extract_collection_nsid(value: str) -> str:
     return ""
 
 
+def pdsls_collection_reference_nsid(value: str) -> str:
+    normalized = normalize_url(value)
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.netloc.lower() not in PDSLS_VIEWER_HOSTS:
+        return ""
+    return extract_collection_nsid(normalized)
+
+
 def is_shared_official_identity_host(host: str) -> bool:
     lowered = str(host or "").strip().lower().rstrip(".")
     return bool(lowered and root_domain(lowered) in SHARED_OFFICIAL_IDENTITY_ROOTS)
@@ -758,6 +789,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "service_url_candidates": [],
         "failed_service_urls": [],
         "service_status": "unknown",
+        "service_status_confidence": "none",
+        "service_status_evidence": [],
         "source_code_urls": [],
         "candidate_source_code_urls": [],
         "source_repo_records": [],
@@ -801,6 +834,16 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
 def normalize_tracking_state(value: str | None) -> str:
     tracking_state = str(value or "active").strip().lower()
     return tracking_state if tracking_state in TRACKING_STATES else "active"
+
+
+def normalize_service_status(value: str | None) -> str:
+    service_status = str(value or "unknown").strip().lower()
+    return service_status if service_status in SERVICE_STATUS_VALUES else "unknown"
+
+
+def normalize_service_status_confidence(value: str | None) -> str:
+    confidence = str(value or "none").strip().lower()
+    return confidence if confidence in SERVICE_STATUS_CONFIDENCE_VALUES else "none"
 
 
 def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
@@ -854,7 +897,9 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     if defaults["primary_nsid"] and defaults["primary_nsid"] not in defaults["input_nsids"]:
         defaults["input_nsids"] = [defaults["primary_nsid"], *defaults["input_nsids"]]
     defaults["resolved_nsids"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("resolved_nsids", []) if item])
-    defaults["service_status"] = str(defaults.get("service_status") or "unknown")
+    defaults["service_status"] = normalize_service_status(defaults.get("service_status"))
+    defaults["service_status_confidence"] = normalize_service_status_confidence(defaults.get("service_status_confidence"))
+    defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["status"] = str(defaults.get("status") or "draft")
     defaults["tagline_is_provisional"] = bool(defaults.get("tagline_is_provisional"))
     defaults["app_category"] = str(defaults.get("app_category") or "")
@@ -1732,6 +1777,9 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["resource_urls"] = unique_list(project.get("resource_urls", []))
     project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
+    project["service_status"] = normalize_service_status(project.get("service_status"))
+    project["service_status_confidence"] = normalize_service_status_confidence(project.get("service_status_confidence"))
+    project["service_status_evidence"] = unique_list([str(item).strip() for item in project.get("service_status_evidence", []) if str(item).strip()])
     project["source_code_urls"] = normalize_repo_collection(project.get("source_code_urls", []))
     project["candidate_source_code_urls"] = normalize_repo_collection(project.get("candidate_source_code_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
@@ -2587,6 +2635,37 @@ def service_seed_name_hint(url: str) -> str:
     return host or normalized
 
 
+def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    raw_values = [
+        str(project.get("seed_value") or ""),
+        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
+        *[str(item or "") for item in project.get("input_nsids", [])],
+        *[str(item or "") for item in project.get("resolved_nsids", [])],
+        *[str(item or "") for item in project.get("authority_domains", [])],
+        *[str(item or "") for item in project.get("source_code_urls", [])],
+    ]
+    for raw_value in raw_values:
+        lowered = str(raw_value or "").strip().lower()
+        if not lowered:
+            continue
+        tokens.update(seed_value_identity_tokens(lowered))
+        if lowered.startswith("http"):
+            parsed = urllib.parse.urlparse(normalize_url(lowered))
+            host = parsed.netloc.lower()
+            if host:
+                tokens.add(normalize_alias_token(host.split(".", 1)[0]))
+                segments = [segment for segment in parsed.path.split("/") if segment]
+                if segments:
+                    tokens.add(normalize_alias_token(segments[-1]))
+    return {token for token in tokens if token}
+
+
+def project_explicitly_targets_pdsls(project: dict[str, Any]) -> bool:
+    tokens = project_trusted_identity_tokens(project)
+    return "pdsls" in tokens
+
+
 def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
     ignored: set[str] = set()
     candidate_urls = [
@@ -2752,6 +2831,10 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
         return False
     if is_explicitly_non_project_service_url(normalized):
         return False
+    if host in PDSLS_VIEWER_HOSTS and not project_explicitly_targets_pdsls(project):
+        return False
+    if host in PDSLS_HOSTS and not project_explicitly_targets_pdsls(project):
+        return False
 
     manual_hosts = set(manual_service_hosts(project))
     baseline_hosts = set(manual_hosts)
@@ -2778,6 +2861,8 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     if not normalized:
         return False
     if not (normalize_github_repo_url(normalized) or normalize_tangled_repo_url(normalized)):
+        return False
+    if normalized == "https://github.com/notjuliet/pdsls" and not project_explicitly_targets_pdsls(project):
         return False
     if normalized in manual_repo_urls(project):
         return True
@@ -3745,6 +3830,7 @@ def parse_db_edit_request(
     llm_model: str | None = None,
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
+    llm_api_style: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     prompt = (
         "You are parsing a short operator request for a project registry CLI.\n"
@@ -3775,6 +3861,7 @@ def parse_db_edit_request(
             llm_model=llm_model,
             llm_api_key=llm_api_key,
             llm_reasoning_effort=llm_reasoning_effort,
+            llm_api_style=llm_api_style,
         )
         if isinstance(payload, dict):
             return payload, meta
@@ -4398,9 +4485,25 @@ def github_search_query_with_defaults(query: str) -> str:
     return " ".join([cleaned, *qualifiers]).strip()
 
 
-def fetch_github_search_sync_results(queries: list[str], *, pages: int, per_page: int) -> list[dict[str, Any]]:
+def default_github_search_pages(per_page: int) -> int:
+    normalized_per_page = max(1, min(int(per_page or 50), 100))
+    return max(1, (200 + normalized_per_page - 1) // normalized_per_page)
+
+
+def fetch_github_search_sync_results(
+    queries: list[str],
+    *,
+    pages: int,
+    per_page: int,
+    lookback_days: int | None = None,
+) -> list[dict[str, Any]]:
     headers = github_headers()
     deduped: dict[str, dict[str, Any]] = {}
+    clamped_per_page = max(1, min(per_page, 100))
+    cutoff = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+        if lookback_days is not None else None
+    )
     for raw_query in queries:
         query = github_search_query_with_defaults(raw_query)
         if not query:
@@ -4412,33 +4515,93 @@ def fetch_github_search_sync_results(queries: list[str], *, pages: int, per_page
                     "type": "Repositories",
                     "sort": "updated",
                     "order": "desc",
-                    "per_page": str(max(1, min(per_page, 100))),
+                    "per_page": str(clamped_per_page),
                     "page": str(page),
                 }
             )
             payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
             items = payload.get("items", [])
+            reached_cutoff = False
             for raw in items:
                 html_url = str(raw.get("html_url") or "")
                 normalized_repo = normalize_github_repo_url(html_url)
                 if not normalized_repo:
                     continue
+                updated_at = str(raw.get("updated_at") or "")
+                updated_at_dt = parse_iso(updated_at)
+                if cutoff is not None and updated_at_dt and updated_at_dt < cutoff:
+                    reached_cutoff = True
+                    break
                 entry = {
                     "url": normalized_repo,
                     "full_name": str(raw.get("full_name") or ""),
                     "description": str(raw.get("description") or ""),
                     "homepage": str(raw.get("homepage") or ""),
-                    "updated_at": str(raw.get("updated_at") or ""),
+                    "updated_at": updated_at,
                     "stargazers_count": int(raw.get("stargazers_count") or 0),
                     "query": raw_query,
                 }
                 existing = deduped.get(normalized_repo)
                 if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
                     deduped[normalized_repo] = entry
-            if len(items) < max(1, min(per_page, 100)):
+            if reached_cutoff or len(items) < clamped_per_page:
                 break
     results = list(deduped.values())
     results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
+    return results
+
+
+def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[dict[str, Any]]:
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
+    clamped_per_page = max(1, min(per_page, 100))
+    for source in SEMBLE_TRACKED_COLLECTIONS:
+        handle = str(source.get("handle") or "").strip()
+        rkey = str(source.get("rkey") or "").strip()
+        label = str(source.get("label") or rkey).strip()
+        if not handle or not rkey:
+            continue
+        for page in range(1, max(1, pages) + 1):
+            payload = request_json(
+                f"https://api.semble.so/api/collections/at/{urllib.parse.quote(handle, safe='')}/{urllib.parse.quote(rkey, safe='')}"
+                f"?page={page}&limit={clamped_per_page}"
+            )
+            cards = payload.get("urlCards", [])
+            for raw in cards:
+                if not isinstance(raw, dict):
+                    continue
+                url = str(raw.get("url") or "").strip()
+                classified = classify_text_seed_value(url)
+                if classified.get("status") != "seed":
+                    continue
+                seed_type = str(classified.get("seed_type") or "")
+                seed_value = str(classified.get("seed_value") or "")
+                if not seed_type or not seed_value:
+                    continue
+                key = (seed_type, seed_value)
+                entry = {
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "raw_url": url,
+                    "card_uri": str(raw.get("uri") or ""),
+                    "card_updated_at": str(raw.get("updatedAt") or ""),
+                    "card_created_at": str(raw.get("createdAt") or ""),
+                    "title": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("title") or ""),
+                    "description": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("description") or ""),
+                    "site_name": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("siteName") or ""),
+                    "collection_handle": handle,
+                    "collection_rkey": rkey,
+                    "collection_label": label,
+                    "collection_uri": str(payload.get("uri") or f"at://{handle}/collections/{rkey}"),
+                }
+                existing = deduped.get(key)
+                if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
+                    deduped[key] = entry
+            pagination = payload.get("pagination", {}) if isinstance(payload.get("pagination"), dict) else {}
+            has_more = bool(pagination.get("hasMore"))
+            if not has_more or len(cards) < clamped_per_page:
+                break
+    results = list(deduped.values())
+    results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
     return results
 
 
@@ -4543,7 +4706,7 @@ def sync_github_search(
     lookback_days: int | None,
     screen_unmatched: bool = False,
 ) -> dict[str, Any]:
-    results = fetch_github_search_sync_results(queries, pages=pages, per_page=per_page)
+    results = fetch_github_search_sync_results(queries, pages=pages, per_page=per_page, lookback_days=lookback_days)
     existing_projects = list_projects(conn)
     _, _, service_host_lookup = build_collection_project_matchers(existing_projects)
     known_repo_urls = {
@@ -4726,40 +4889,281 @@ def sync_github_search(
     }
 
 
+def sync_semble_collections(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool,
+    create_unmatched: bool,
+    pages: int,
+    per_page: int,
+    lookback_days: int | None,
+) -> dict[str, Any]:
+    results = fetch_semble_collection_sync_results(pages=pages, per_page=per_page)
+    cutoff = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+        if lookback_days is not None else None
+    )
+    existing_keys = {str(project["project_key"]) for project in list_projects(conn)}
+    imported_project_keys: list[str] = []
+    skipped_old = 0
+    skipped_non_seed = 0
+    matched_existing = 0
+    created = 0
+    unmatched = 0
+    unmatched_entries: list[dict[str, Any]] = []
+
+    eligible: list[dict[str, Any]] = []
+    for entry in results:
+        seed_type = str(entry.get("seed_type") or "")
+        seed_value = str(entry.get("seed_value") or "")
+        if not seed_type or not seed_value:
+            skipped_non_seed += 1
+            continue
+        updated_at = parse_iso(str(entry.get("card_updated_at") or ""))
+        if cutoff is not None and updated_at and updated_at < cutoff:
+            skipped_old += 1
+            continue
+        eligible.append(entry)
+
+    for entry in eligible:
+        seed_type = str(entry.get("seed_type") or "")
+        seed_value = str(entry.get("seed_value") or "")
+        project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+        is_new = project_key is None
+        if is_new and not create_unmatched:
+            unmatched += 1
+            unmatched_entries.append(
+                {
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "raw_url": str(entry.get("raw_url") or ""),
+                    "title": str(entry.get("title") or ""),
+                    "collection_label": str(entry.get("collection_label") or ""),
+                    "collection_rkey": str(entry.get("collection_rkey") or ""),
+                    "card_updated_at": str(entry.get("card_updated_at") or ""),
+                }
+            )
+            continue
+        if project_key is None:
+            project_key = generate_project_key(existing_keys)
+            existing_keys.add(project_key)
+        else:
+            matched_existing += 1
+        project = fetch_project(conn, project_key) or default_project_record(project_key, seed_type, seed_value)
+        add_manual_seed(project, seed_type, seed_value, source="semble_collection_sync")
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "semble_collection_sync")
+        title = str(entry.get("title") or "").strip()
+        description = str(entry.get("description") or "").strip()
+        if title:
+            add_candidate_text(project, "tagline", title, f"semble_collection_sync:{entry.get('collection_rkey') or ''}")
+        if description:
+            add_candidate_text(project, "summary", description, f"semble_collection_sync:{entry.get('collection_rkey') or ''}")
+        raw_url = normalize_url(str(entry.get("raw_url") or ""))
+        if raw_url:
+            project["evidence_urls"] = add_unique(project.get("evidence_urls", []), raw_url)
+        card_uri = str(entry.get("card_uri") or "").strip()
+        if card_uri:
+            project["evidence_urls"] = add_unique(project.get("evidence_urls", []), card_uri)
+        note = (
+            f"semble collection sync matched {entry.get('collection_label') or entry.get('collection_rkey') or ''} "
+            f"updated_at={entry.get('card_updated_at') or ''}"
+        ).strip()
+        existing_note = str(project.get("notes") or "").strip()
+        if note and note not in existing_note.splitlines():
+            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
+        if match_kind:
+            match_note = f"semble collection sync matched by {match_kind}: {seed_type}:{seed_value}"
+            existing_note = str(project.get("notes") or "").strip()
+            if match_note not in existing_note.splitlines():
+                project["notes"] = "\n".join([part for part in [existing_note, match_note] if part]).strip()
+        project = finalize_project_shape(project)
+        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+        project["merge_recommendation"] = compute_merge_recommendation(project)
+        imported_project_keys.append(project["project_key"])
+        if execute:
+            save_project(conn, project, enriched=False)
+        if is_new:
+            created += 1
+
+    if execute:
+        conn.commit()
+
+    return {
+        "tracked_collections": [
+            {
+                "handle": str(source.get("handle") or ""),
+                "rkey": str(source.get("rkey") or ""),
+                "label": str(source.get("label") or ""),
+            }
+            for source in SEMBLE_TRACKED_COLLECTIONS
+        ],
+        "fetched_cards": len(results),
+        "eligible_cards": len(eligible),
+        "skipped_old": skipped_old,
+        "skipped_non_seed": skipped_non_seed,
+        "created": created,
+        "matched_existing": matched_existing,
+        "unmatched": unmatched,
+        "mode": "execute" if execute else "dry_run",
+        "create_unmatched": create_unmatched,
+        "lookback_days": lookback_days,
+        "imported_project_keys": imported_project_keys,
+        "unmatched_entries": unmatched_entries[:100],
+    }
+
+
 def infer_service_status(status_code: int, text: str) -> str:
     lowered = text.lower()
-    if status_code >= 500:
+    if "domain is for sale" in lowered or "this domain is for sale" in lowered:
         return "dead"
-    if status_code >= 400:
+    if status_code in {404, 410}:
         return "dead"
     if "invite only" in lowered or "waitlist" in lowered:
         return "invite_only"
     if "private beta" in lowered or "closed beta" in lowered:
         return "beta"
-    if "beta" in lowered:
-        return "beta"
     if "coming soon" in lowered or "under construction" in lowered:
         return "private"
-    return "live"
+    if status_code in {401, 403}:
+        return "private"
+    if status_code >= 500:
+        return "unverified"
+    if "beta" in lowered:
+        return "beta"
+    if status_code and status_code < 400:
+        return "unverified"
+    return "unknown"
 
 
 def merge_service_status(current: str, new_value: str) -> str:
     rank = {
         "unknown": 0,
-        "none": 1,
-        "dead": 2,
-        "live": 3,
-        "private": 4,
-        "beta": 5,
-        "invite_only": 6,
+        "unverified": 1,
+        "none": 2,
+        "dead": 3,
+        "live": 4,
+        "private": 5,
+        "beta": 6,
+        "invite_only": 7,
     }
-    current_value = current or "unknown"
-    candidate_value = new_value or "unknown"
+    current_value = normalize_service_status(current)
+    candidate_value = normalize_service_status(new_value)
     return candidate_value if rank.get(candidate_value, 0) >= rank.get(current_value, 0) else current_value
 
 
+def merge_service_status_confidence(current: str, new_value: str) -> str:
+    rank = {"none": 0, "low": 1, "medium": 2, "high": 3}
+    current_value = normalize_service_status_confidence(current)
+    candidate_value = normalize_service_status_confidence(new_value)
+    return candidate_value if rank.get(candidate_value, 0) >= rank.get(current_value, 0) else current_value
+
+
+def classify_service_probe_error(exc: Exception) -> str:
+    reason = exc
+    if isinstance(exc, urllib.error.URLError):
+        reason = exc.reason
+    lowered = str(reason or "").lower()
+    if "name or service not known" in lowered or "nodename nor servname provided" in lowered or "temporary failure in name resolution" in lowered:
+        return "dns_failed"
+    if "tls" in lowered or "ssl" in lowered or "certificate" in lowered:
+        return "tls_failed"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "timeout"
+    if "connection refused" in lowered:
+        return "connection_refused"
+    return "network_error"
+
+
+def classify_service_probe_result(
+    *,
+    status_code: int,
+    title: str,
+    description: str,
+    html: str,
+    links: list[dict[str, str]],
+    fetch_error: str = "",
+) -> tuple[str, str, list[str]]:
+    lowered = "\n".join([title, description, html[:20000]]).lower()
+    evidence: list[str] = []
+    if status_code:
+        evidence.append(f"http_{status_code}")
+    if fetch_error:
+        evidence.append(fetch_error)
+    if service_probe_looks_parked({"title": title, "description": description, "html": html}):
+        evidence.append("parked_domain_detected")
+        return "dead", "high", unique_list(evidence)
+    if fetch_error:
+        return "unverified", "medium", unique_list(evidence)
+    if status_code in {404, 410}:
+        evidence.append("not_found")
+        return "dead", "high", unique_list(evidence)
+    if status_code >= 500:
+        evidence.append("server_error")
+        return "unverified", "low", unique_list(evidence)
+
+    login_detected = any(
+        marker in lowered
+        for marker in ("sign in", "log in", "login", "ログイン", "sign up", "create account", "register")
+    ) or ('type="password"' in lowered or "type='password'" in lowered)
+    if login_detected:
+        evidence.append("login_surface_detected")
+    invite_detected = any(marker in lowered for marker in ("invite only", "waitlist", "join waitlist", "request invite"))
+    if invite_detected:
+        evidence.append("invite_text_detected")
+    beta_detected = any(marker in lowered for marker in ("private beta", "closed beta", "public beta", "beta"))
+    if beta_detected:
+        evidence.append("beta_text_detected")
+    coming_soon_detected = any(marker in lowered for marker in ("coming soon", "under construction", "launching soon"))
+    if coming_soon_detected:
+        evidence.append("coming_soon_detected")
+    docs_only_detected = False
+    if links and not login_detected:
+        interesting_paths = [urllib.parse.urlparse(str(item.get("url") or "")).path.lower() for item in links if str(item.get("url") or "")]
+        docs_like = [path for path in interesting_paths if any(token in path for token in ("/docs", "/doc", "/guide", "/blog", "/about", "/faq", "/help"))]
+        app_like = [path for path in interesting_paths if any(token in path for token in ("/app", "/login", "/signin", "/signup", "/register", "/download"))]
+        if docs_like and not app_like:
+            docs_only_detected = True
+            evidence.append("docs_only_surface_detected")
+    app_shell_detected = any(
+        marker in lowered
+        for marker in ("open app", "launch app", "download on the app store", "get it on google play", "custom feed", "timeline", "for you")
+    )
+    if app_shell_detected:
+        evidence.append("app_shell_detected")
+
+    if invite_detected:
+        return "invite_only", "high" if login_detected else "medium", unique_list(evidence)
+    if beta_detected:
+        return "beta", "medium", unique_list(evidence)
+    if coming_soon_detected and (login_detected or app_shell_detected):
+        evidence.append("mixed_launch_signals_detected")
+        return "unverified", "medium", unique_list(evidence)
+    if coming_soon_detected:
+        return "private", "medium", unique_list(evidence)
+    if status_code in {401, 403}:
+        return "private", "low", unique_list(evidence)
+    if login_detected or app_shell_detected:
+        return "live", "medium", unique_list(evidence)
+    if docs_only_detected:
+        return "none", "medium", unique_list(evidence)
+    if status_code and status_code < 400:
+        return "unverified", "low", unique_list(evidence)
+    return infer_service_status(status_code, lowered), "none", unique_list(evidence)
+
+
 def probe_service_url(url: str) -> dict[str, Any]:
-    status_code, body, headers = request_bytes(url)
+    status_code = 0
+    body = b""
+    headers: dict[str, str] = {}
+    fetch_error = ""
+    try:
+        status_code, body, headers = request_bytes(url)
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code or 0)
+        body = exc.read()
+        headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
+    except Exception as exc:
+        fetch_error = classify_service_probe_error(exc)
     charset = "utf-8"
     content_type = headers.get("content-type", "")
     charset_match = re.search(r"charset=([A-Za-z0-9_-]+)", content_type)
@@ -4770,6 +5174,14 @@ def probe_service_url(url: str) -> dict[str, Any]:
     description = extract_meta_description(html)
     urls = extract_urls(html)
     links = extract_links(html, url)
+    service_status, service_status_confidence, service_status_evidence = classify_service_probe_result(
+        status_code=status_code,
+        title=title,
+        description=description,
+        html=html,
+        links=links,
+        fetch_error=fetch_error,
+    )
     return {
         "status_code": status_code,
         "title": title,
@@ -4777,7 +5189,10 @@ def probe_service_url(url: str) -> dict[str, Any]:
         "urls": urls,
         "links": links,
         "html": html,
-        "service_status": infer_service_status(status_code, f"{title}\n{description}\n{html[:5000]}"),
+        "service_status": service_status,
+        "service_status_confidence": service_status_confidence,
+        "service_status_evidence": service_status_evidence,
+        "fetch_error": fetch_error,
     }
 
 
@@ -5578,11 +5993,26 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
     if supported:
         add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
         add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
-        project["service_status"] = merge_service_status(str(project.get("service_status") or "unknown"), str(result["service_status"] or "unknown"))
+        observed_service_status = normalize_service_status(result.get("service_status"))
+        observed_service_evidence = list(result.get("service_status_evidence", []))
+        if observed_service_status == "unverified" and "mixed_launch_signals_detected" in observed_service_evidence:
+            project["service_status"] = "unverified"
+        else:
+            project["service_status"] = merge_service_status(
+                str(project.get("service_status") or "unknown"),
+                observed_service_status,
+            )
+        project["service_status_confidence"] = merge_service_status_confidence(
+            str(project.get("service_status_confidence") or "none"),
+            str(result.get("service_status_confidence") or "none"),
+        )
+        project["service_status_evidence"] = unique_list(
+            list(project.get("service_status_evidence", [])) + list(result.get("service_status_evidence", []))
+        )
     normalized_service_url = normalize_url(service_url)
     if supported:
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized_service_url)
-    if result["status_code"] < 400:
+    if 0 < result["status_code"] < 400:
         if supported and service_url_auto_confirmable(project, normalized_service_url):
             confirm_service_url(project, normalized_service_url)
         elif supported:
@@ -5590,7 +6020,7 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
             add_candidate_url(project, "website_url", normalized_service_url)
         else:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
-    else:
+    elif result["status_code"] >= 400 or result.get("fetch_error"):
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
         parsed = urllib.parse.urlparse(url)
@@ -5607,6 +6037,55 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
             add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=iso_now())
         except Exception as exc:
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
+
+
+def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
+    queued = unique_list(project.get("resource_urls", []))[: max(1, int(max_pages or 6))]
+    visited: set[str] = set()
+    for resource_url in queued:
+        normalized_resource_url = normalize_url(resource_url)
+        if not normalized_resource_url or normalized_resource_url in visited:
+            continue
+        visited.add(normalized_resource_url)
+        result = probe_service_url(normalized_resource_url)
+        title = clean_title(result["title"])
+        description = str(result.get("description") or "").strip()
+        if title:
+            add_candidate_text(project, "tagline", title, f"resource_meta:{normalized_resource_url}")
+        if description:
+            add_candidate_text(project, "summary", description, f"resource_meta:{normalized_resource_url}")
+            add_candidate_text(project, "tagline", description, f"resource_meta:{normalized_resource_url}")
+        add_investigation_log(
+            project,
+            "resource_probe",
+            url=normalized_resource_url,
+            status_code=int(result.get("status_code") or 0),
+            title=title,
+            at=iso_now(),
+        )
+        follow_ups = collect_first_party_links(project, normalized_resource_url, result.get("links", []), f"resource_page:{normalized_resource_url}")
+        for follow_url in follow_ups[:2]:
+            normalized_follow_url = normalize_url(follow_url)
+            if not normalized_follow_url or normalized_follow_url in visited:
+                continue
+            visited.add(normalized_follow_url)
+            nested = probe_service_url(normalized_follow_url)
+            nested_title = clean_title(nested["title"])
+            nested_description = str(nested.get("description") or "").strip()
+            if nested_title:
+                add_candidate_text(project, "tagline", nested_title, f"resource_follow_up:{normalized_follow_url}")
+            if nested_description:
+                add_candidate_text(project, "summary", nested_description, f"resource_follow_up:{normalized_follow_url}")
+                add_candidate_text(project, "tagline", nested_description, f"resource_follow_up:{normalized_follow_url}")
+            collect_first_party_links(project, normalized_follow_url, nested.get("links", []), f"resource_follow_up:{normalized_follow_url}")
+            add_investigation_log(
+                project,
+                "resource_follow_up",
+                url=normalized_follow_url,
+                status_code=int(nested.get("status_code") or 0),
+                title=nested_title,
+                at=iso_now(),
+            )
 
 
 def service_hosts(project: dict[str, Any]) -> set[str]:
@@ -5812,6 +6291,8 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "service_status_hint": project.get("service_status") or "unknown",
+        "service_status_confidence": project.get("service_status_confidence") or "none",
+        "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
         "candidate_source_code_urls": candidate_repo_urls[:2],
         "github_repo_urls": project.get("github_repo_urls", []),
@@ -5896,34 +6377,96 @@ def llm_endpoint_url(endpoint: str) -> str:
     return f"{normalized}/v1/chat/completions"
 
 
-def llm_endpoint_candidates(endpoint: str) -> list[str]:
+def normalize_llm_api_style(value: str | None) -> str:
+    style = str(value or "").strip().lower()
+    return style if style in {"auto", "chat", "responses", "completions"} else "auto"
+
+
+def llm_endpoint_candidates(endpoint: str, api_style: str = "auto") -> list[tuple[str, str]]:
     normalized = endpoint.rstrip("/")
-    candidates = [llm_endpoint_url(normalized)]
-    if normalized.endswith("/v1"):
-        candidates.append(f"{normalized}/completions")
-    elif normalized.endswith("/v1/chat/completions"):
+    style = normalize_llm_api_style(api_style)
+    base = normalized
+    if normalized.endswith("/v1/chat/completions"):
         base = normalized.removesuffix("/chat/completions")
-        candidates.append(f"{base}/completions")
     elif normalized.endswith("/chat/completions"):
         base = normalized.removesuffix("/chat/completions")
-        if not base.endswith("/v1"):
-            candidates.append(f"{base}/v1/completions")
-        candidates.append(f"{base}/completions")
-    else:
-        candidates.append(f"{normalized}/v1/completions")
-    return unique_list(candidates)
+    elif normalized.endswith("/v1/responses"):
+        base = normalized.removesuffix("/responses")
+    elif normalized.endswith("/responses"):
+        base = normalized.removesuffix("/responses")
+    elif normalized.endswith("/v1/completions"):
+        base = normalized.removesuffix("/completions")
+    elif normalized.endswith("/completions"):
+        base = normalized.removesuffix("/completions")
+    elif not normalized.endswith("/v1"):
+        base = f"{normalized}/v1"
+
+    ordered_styles = {
+        "responses": ["responses"],
+        "chat": ["chat", "completions"],
+        "completions": ["completions"],
+        "auto": ["chat", "responses", "completions"],
+    }[style]
+    candidates: list[tuple[str, str]] = []
+    for item in ordered_styles:
+        if item == "chat":
+            candidates.append((f"{base}/chat/completions", "chat"))
+        elif item == "responses":
+            candidates.append((f"{base}/responses", "responses"))
+        elif item == "completions":
+            candidates.append((f"{base}/completions", "completions"))
+    deduped: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
+
+
+def extract_text_from_openai_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("text", "output_text", "content", "value"):
+            if key in value:
+                extracted = extract_text_from_openai_content(value.get(key))
+                if extracted:
+                    return extracted
+        return ""
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            extracted = extract_text_from_openai_content(item)
+            if extracted:
+                parts.append(extracted)
+        if parts:
+            return "\n".join(parts)
+    return ""
 
 
 def parse_openai_compatible_response(payload: dict[str, Any]) -> str:
     if isinstance(payload.get("choices"), list) and payload["choices"]:
         first_choice = payload["choices"][0]
         message = first_choice.get("message")
-        if isinstance(message, dict) and message.get("content"):
-            return str(message["content"])
+        if isinstance(message, dict):
+            extracted = extract_text_from_openai_content(message.get("content"))
+            if extracted:
+                return extracted
         if first_choice.get("text"):
             return str(first_choice["text"])
-    if payload.get("output_text"):
-        return str(payload["output_text"])
+    output_text = extract_text_from_openai_content(payload.get("output_text"))
+    if output_text:
+        return output_text
+    output = payload.get("output")
+    extracted_output = extract_text_from_openai_content(output)
+    if extracted_output:
+        return extracted_output
+    response = payload.get("response")
+    extracted_response = extract_text_from_openai_content(response)
+    if extracted_response:
+        return extracted_response
     raise ValueError("endpoint response did not contain message content")
 
 
@@ -5970,13 +6513,16 @@ def run_local_llm_via_endpoint(
     model: str,
     api_key: str,
     reasoning_effort: str = "",
+    api_style: str = "auto",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300")
-    endpoint_urls = llm_endpoint_candidates(endpoint)
     normalized_effort = normalize_llm_reasoning_effort(reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
+    normalized_style = normalize_llm_api_style(api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto"))
+    effective_style = "responses" if normalized_style == "auto" and normalized_effort else normalized_style
+    endpoint_urls = llm_endpoint_candidates(endpoint, effective_style)
     chat_payloads = [
         {
             "model": model or "local-model",
@@ -5997,23 +6543,42 @@ def run_local_llm_via_endpoint(
     }
     if normalized_effort:
         for payload in chat_payloads:
+            payload["reasoning_effort"] = normalized_effort
+    responses_payloads = [
+        {
+            "model": model or "local-model",
+            "input": prompt + "\n\nReturn JSON only.",
+            "temperature": 0.2,
+        }
+    ]
+    if normalized_effort:
+        for payload in responses_payloads:
             payload["reasoning"] = {"effort": normalized_effort}
-        completion_payload["reasoning"] = {"effort": normalized_effort}
     errors: list[str] = []
 
-    for url in endpoint_urls:
-        is_chat = url.endswith("/chat/completions")
-        payloads = chat_payloads if is_chat else [completion_payload]
+    for url, endpoint_kind in endpoint_urls:
+        if endpoint_kind == "chat":
+            payloads = chat_payloads
+        elif endpoint_kind == "responses":
+            payloads = responses_payloads
+        else:
+            payloads = [completion_payload]
         for payload in payloads:
             try:
                 response_payload, _ = request_json_post_raw(url, payload, headers=headers, timeout=llm_timeout)
-                raw_content = parse_openai_compatible_response(response_payload) if is_chat else parse_completion_text(response_payload)
+                raw_content = (
+                    parse_openai_compatible_response(response_payload)
+                    if endpoint_kind in {"chat", "responses"}
+                    else parse_completion_text(response_payload)
+                )
                 content = strip_json_fence(raw_content)
                 parsed = json.loads(content)
                 meta = {
                     "transport": "openai_compatible_endpoint",
                     "endpoint": endpoint,
                     "resolved_endpoint": url,
+                    "api_style": endpoint_kind,
+                    "requested_api_style": normalized_style,
                     "model": model or "local-model",
                     "reasoning_effort": normalized_effort,
                     "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
@@ -6040,13 +6605,16 @@ def run_local_llm(
     llm_model: str | None = None,
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
+    llm_api_style: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     command = os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip()
     normalized_effort = normalize_llm_reasoning_effort(llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
+    normalized_api_style = normalize_llm_api_style(llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto"))
     if command:
         env = dict(os.environ)
         if normalized_effort:
             env["ATPROTO_SURVEY_LLM_REASONING_EFFORT"] = normalized_effort
+        env["ATPROTO_SURVEY_LLM_API_STYLE"] = normalized_api_style
         completed = subprocess.run(
             command,
             input=prompt,
@@ -6066,6 +6634,7 @@ def run_local_llm(
             "transport": "command",
             "command": command,
             "model": llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "").strip(),
+            "api_style": normalized_api_style,
             "reasoning_effort": normalized_effort,
             "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
             "generated_at": iso_now(),
@@ -6076,7 +6645,7 @@ def run_local_llm(
     model = (llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")).strip()
     api_key = (llm_api_key or os.getenv("ATPROTO_SURVEY_LLM_API_KEY", "")).strip()
     if endpoint:
-        return run_local_llm_via_endpoint(prompt, endpoint, model, api_key, normalized_effort)
+        return run_local_llm_via_endpoint(prompt, endpoint, model, api_key, normalized_effort, normalized_api_style)
 
     raise RuntimeError("ATPROTO_SURVEY_LLM_COMMAND or ATPROTO_SURVEY_LLM_ENDPOINT is required")
 
@@ -6243,6 +6812,7 @@ def plan_investigation_queries(
     llm_model: str | None = None,
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
+    llm_api_style: str | None = None,
 ) -> dict[str, Any]:
     seed_plan = seed_investigation_queries(project)
     try:
@@ -6253,6 +6823,7 @@ def plan_investigation_queries(
             llm_model=llm_model,
             llm_api_key=llm_api_key,
             llm_reasoning_effort=llm_reasoning_effort,
+            llm_api_style=llm_api_style,
         )
         plan = {
             "repo_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("repo_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["repo_search_queries"],
@@ -6411,7 +6982,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["manual_review_recommended"] = bool(payload.get("manual_review_recommended"))
     manual_review_priority = str(payload.get("manual_review_priority") or "none").strip().lower()
     project["manual_review_priority"] = manual_review_priority if manual_review_priority in {"none", "low", "medium", "high"} else "none"
-    project["manual_review_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("manual_review_reason") or "").strip())
+    project["manual_review_reason"] = sanitize_manual_review_reason(project, str(payload.get("manual_review_reason") or "").strip())
     try:
         project["confidence"] = float(payload.get("confidence") or 0.0)
     except (TypeError, ValueError):
@@ -6561,6 +7132,41 @@ def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
     return count
 
 
+def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
+    hints = normalize_repo_collection(
+        unique_list(
+            [str(item or "") for item in project.get("source_code_urls", [])]
+            + [str(item or "") for item in project.get("candidate_source_code_urls", [])]
+            + [str(item or "") for item in project.get("github_repo_urls", [])]
+            + [str(item or "") for item in project.get("tangled_repo_urls", [])]
+        )
+    )
+    manual_repo_hints: list[str] = []
+    for item in project.get("manual_seeds", []):
+        if not isinstance(item, dict) or str(item.get("type") or "") != "repo_url":
+            continue
+        raw_value = str(item.get("value") or "").strip()
+        if not raw_value:
+            continue
+        normalized_value = canonical_repo_url(raw_value) or normalize_url(raw_value)
+        if normalized_value:
+            manual_repo_hints.append(normalized_value)
+    return unique_list(hints + manual_repo_hints)
+
+
+def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
+    text = normalize_ja_en_mixed_spacing(str(reason or "").strip())
+    if not text:
+        return text
+    repo_hints = project_repo_hint_urls(project)
+    if repo_hints and "公開されていないため" in text:
+        text = text.replace("ソースコードが公開されていないため", "候補リポジトリはあるが未確認のため")
+        text = text.replace("公開されていないため", "未確認のため")
+    if repo_hints and "ソースコードが公開されていない" in text:
+        text = text.replace("ソースコードが公開されていない", "候補リポジトリはあるが未確認")
+    return text
+
+
 def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
     signals: list[dict[str, Any]] = []
@@ -6573,12 +7179,7 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
         + [str(item or "") for item in shaped.get("service_url_candidates", [])]
         + [str(item or "") for item in shaped.get("website_url_candidates", [])]
     )
-    repo_candidates = unique_list(
-        [str(item or "") for item in shaped.get("source_code_urls", [])]
-        + [str(item or "") for item in shaped.get("candidate_source_code_urls", [])]
-        + [str(item or "") for item in shaped.get("github_repo_urls", [])]
-        + [str(item or "") for item in shaped.get("tangled_repo_urls", [])]
-    )
+    repo_candidates = project_repo_hint_urls(shaped)
     nsid_count = len(unique_list(
         ([str(shaped.get("primary_nsid") or "")] if shaped.get("primary_nsid") else [])
         + [str(item or "") for item in shaped.get("input_nsids", [])]
@@ -6593,6 +7194,18 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
                 "details": {
                     "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
                     "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
+                },
+            }
+        )
+
+    if not shaped.get("source_code_urls") and repo_candidates:
+        signals.append(
+            {
+                "kind": "candidate_repo_needs_confirmation",
+                "priority": 8,
+                "details": {
+                    "repo_candidate_count": len(repo_candidates),
+                    "repo_candidates": repo_candidates[:3],
                 },
             }
         )
@@ -6672,6 +7285,153 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
     return signals
 
 
+def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]]) -> list[str]:
+    commands: list[str] = []
+    project_key = str(project.get("project_key") or "")
+    if not project_key:
+        return commands
+    commands.append(f"python3 scripts/project_registry.py show -p {project_key} --format json")
+    signal_kinds = {str(item.get("kind") or "") for item in signals}
+    if signal_kinds & {"llm_manual_review_recommended", "service_now_usable_but_needs_editorial_review", "high_information_density"}:
+        commands.append(f"python3 scripts/project_registry.py enrich -p {project_key} --deep-investigation")
+    if "candidate_repo_needs_confirmation" in signal_kinds:
+        repo_candidates = project_repo_hint_urls(project)
+        if repo_candidates:
+            commands.append(
+                f"python3 scripts/project_registry.py add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
+            )
+    if "merge_needs_human_judgment" in signal_kinds and str(project.get("merge_recommendation", {}).get("target_project_key") or ""):
+        target_key = str(project.get("merge_recommendation", {}).get("target_project_key") or "")
+        commands.append(
+            f"python3 scripts/project_registry.py inspect-merge-pair -p {project_key} -t {target_key}"
+        )
+    return commands
+
+
+def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]]) -> list[str]:
+    commands = review_queue_suggested_commands(project, signals)
+    project_key = str(project.get("project_key") or "")
+    if not project_key:
+        return commands
+    signal_kinds = {str(item.get("kind") or "") for item in signals}
+    if signal_kinds & {"service_ready_for_introduction", "lexicon_ready_for_introduction"}:
+        commands.append(f"python3 scripts/project_registry.py enrich -p {project_key} --deep-investigation")
+    return unique_list(commands)
+
+
+def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> bool:
+    if str(project.get("category") or "") != "lexicon":
+        return False
+    if project.get("introduced_url"):
+        return False
+    if project.get("tracking_state") == "ignore":
+        return False
+    nsid_hints = unique_list(
+        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
+    )
+    if not nsid_hints:
+        return False
+    if not (
+        project.get("website_url")
+        or project.get("source_code_urls")
+        or project_repo_hint_urls(project)
+        or project.get("resource_urls")
+    ):
+        return False
+    disallowed_blockers = blockers - {
+        "service_status is still unknown",
+        "fewer than 3 features",
+    }
+    return not disallowed_blockers
+
+
+def compute_showcase_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
+    shaped = apply_promotion_state(ensure_project_shape(dict(project)))
+    if shaped.get("introduced_url"):
+        return []
+    if str(shaped.get("tracking_state") or "") == "ignore":
+        return []
+
+    signals: list[dict[str, Any]] = []
+    blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
+    service_status = str(shaped.get("service_status") or "unknown")
+    category = str(shaped.get("category") or "")
+
+    if category in {"project", "personal_tool"} and service_status in {"live", "beta", "invite_only"}:
+        if shaped.get("website_url") or shaped.get("service_urls"):
+            signals.append(
+                {
+                    "kind": "service_ready_for_introduction",
+                    "priority": 9 if service_status == "live" else 8,
+                    "details": {
+                        "category": category,
+                        "service_status": service_status,
+                        "website_url": str(shaped.get("website_url") or ""),
+                        "blockers": sorted(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}),
+                    },
+                }
+            )
+
+    if lexicon_introduction_ready(shaped, blockers):
+        signals.append(
+            {
+                "kind": "lexicon_ready_for_introduction",
+                "priority": 8,
+                "details": {
+                    "nsid_hint_count": len(unique_list(
+                        [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
+                        + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
+                        + [str(item or "") for item in shaped.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
+                    )),
+                    "website_url": str(shaped.get("website_url") or ""),
+                    "repo_url": project_repo_hint_urls(shaped)[:1],
+                    "blockers": sorted(blockers),
+                },
+            }
+        )
+
+    return signals
+
+
+def build_showcase_queue(
+    conn: sqlite3.Connection,
+    *,
+    tracking_states: set[str] | None = None,
+    limit: int = 50,
+    kinds: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    for project in project_list:
+        shaped = apply_promotion_state(dict(project))
+        signals = compute_showcase_signals(shaped)
+        if kinds is not None:
+            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+        if not signals:
+            continue
+        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        queue.append(
+            {
+                "project_key": shaped["project_key"],
+                "name": shaped.get("name", ""),
+                "tracking_state": shaped.get("tracking_state", "active"),
+                "status": shaped.get("status", "draft"),
+                "category": shaped.get("category", ""),
+                "service_status": shaped.get("service_status", "unknown"),
+                "seed_type": shaped.get("seed_type", ""),
+                "seed_value": shaped.get("seed_value", ""),
+                "website_url": shaped.get("website_url", ""),
+                "top_priority": top_priority,
+                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+                "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
+            }
+        )
+    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    return queue[: max(1, int(limit or 50))]
+
+
 def build_review_queue(
     conn: sqlite3.Connection,
     *,
@@ -6711,6 +7471,7 @@ def build_review_queue(
                 "website_url": shaped.get("website_url", ""),
                 "top_priority": top_priority,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+                "suggested_commands": review_queue_suggested_commands(shaped, signals),
             }
         )
     queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
@@ -7076,7 +7837,34 @@ def batch_moderate_overlap(
     return reasons
 
 
-def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, int, int, str]:
+def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int, int, int]:
+    seed_types = {str(item.get("type") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)}
+    service_seed = 1 if "service_url" in seed_types else 0
+    service_surface = 0
+    if project.get("website_url"):
+        service_surface += 2
+    if project.get("service_urls"):
+        service_surface += 3
+    if project.get("source_code_urls"):
+        service_surface += 2
+    if project.get("resource_urls"):
+        service_surface += 1
+    status_rank = {
+        "dead": 0,
+        "unknown": 1,
+        "unverified": 2,
+        "none": 3,
+        "private": 4,
+        "beta": 5,
+        "invite_only": 6,
+        "live": 7,
+    }.get(normalize_service_status(project.get("service_status")), 1)
+    introduced = 1 if project.get("introduced_url") else 0
+    confirmed_nsids = len(current_confirmed_nsids(project))
+    return (service_seed, service_surface, status_rank, introduced, confirmed_nsids)
+
+
+def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, tuple[int, int, int, int, int], int, int, str]:
     seed_types = {str(item.get("type") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)}
     seed_priority = 0
     if "service_url" in seed_types:
@@ -7085,6 +7873,7 @@ def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, int, i
         seed_priority = 2
     elif "repo_url" in seed_types:
         seed_priority = 1
+    editorial_score = project_editorial_preference(project)
     confirmed_count = sum(
         1 for value in [
             bool(project.get("website_url")),
@@ -7095,8 +7884,8 @@ def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, int, i
         ]
         if value
     )
-    introduced = 1 if project.get("introduced") else 0
-    return (seed_priority, confirmed_count, introduced, str(project.get("project_key") or ""))
+    introduced = 1 if project.get("introduced_url") else 0
+    return (seed_priority, editorial_score, confirmed_count, introduced, str(project.get("project_key") or ""))
 
 
 def choose_batch_merge_direction(project_a: dict[str, Any], project_b: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -7214,6 +8003,14 @@ def choose_preferred_scalar(current: Any, incoming: Any) -> Any:
     return current_value or incoming_value
 
 
+def choose_editorial_scalar(current: Any, incoming: Any, *, prefer_incoming: bool) -> Any:
+    current_value = current if current not in {None, ""} else ""
+    incoming_value = incoming if incoming not in {None, ""} else ""
+    if prefer_incoming and incoming_value:
+        return incoming_value
+    return current_value or incoming_value
+
+
 def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
     current_value = str(current or "")
     incoming_value = str(incoming or "")
@@ -7229,6 +8026,9 @@ def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
 def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     merged = ensure_project_shape(dict(target))
     source = ensure_project_shape(source)
+    target_editorial_preference = project_editorial_preference(merged)
+    source_editorial_preference = project_editorial_preference(source)
+    prefer_source_editorial = source_editorial_preference > target_editorial_preference
     merged["blocked_identifiers"] = normalize_blocked_identifiers(
         list(merged.get("blocked_identifiers", [])) + list(source.get("blocked_identifiers", []))
     )
@@ -7246,25 +8046,48 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["authority_domains"] = unique_list(list(merged.get("authority_domains", [])) + list(source.get("authority_domains", [])))
     merged["record_creators"] = unique_list(list(merged.get("record_creators", [])) + list(source.get("record_creators", [])))
 
-    merged["name"] = choose_preferred_scalar(merged.get("name"), source.get("name"))
+    merged["name"] = choose_editorial_scalar(merged.get("name"), source.get("name"), prefer_incoming=prefer_source_editorial)
     target_tagline = str(merged.get("tagline") or "")
     source_tagline = str(source.get("tagline") or "")
-    if (not target_tagline and source_tagline) or (merged.get("tagline_is_provisional") and not source.get("tagline_is_provisional") and source_tagline):
+    if (
+        (not target_tagline and source_tagline)
+        or (
+            prefer_source_editorial
+            and source_tagline
+            and (
+                not target_tagline
+                or (merged.get("tagline_is_provisional") and not source.get("tagline_is_provisional"))
+            )
+        )
+        or (
+            merged.get("tagline_is_provisional")
+            and not source.get("tagline_is_provisional")
+            and source_tagline
+            and source_editorial_preference >= target_editorial_preference
+        )
+    ):
         merged["tagline"] = source_tagline
         merged["tagline_is_provisional"] = bool(source.get("tagline_is_provisional"))
-    merged["summary"] = choose_preferred_scalar(merged.get("summary"), source.get("summary"))
+    merged["summary"] = choose_editorial_scalar(merged.get("summary"), source.get("summary"), prefer_incoming=prefer_source_editorial)
     merged["summary_candidates"] = list(merged.get("summary_candidates", [])) + list(source.get("summary_candidates", []))
     merged["tagline_candidates"] = list(merged.get("tagline_candidates", [])) + list(source.get("tagline_candidates", []))
     merged["features"] = unique_list(list(merged.get("features", [])) + list(source.get("features", [])))
     merged["inspired_by"] = unique_list(list(merged.get("inspired_by", [])) + list(source.get("inspired_by", [])))
 
-    merged["website_url"] = choose_preferred_scalar(merged.get("website_url"), source.get("website_url"))
+    merged["website_url"] = choose_editorial_scalar(merged.get("website_url"), source.get("website_url"), prefer_incoming=prefer_source_editorial)
     merged["website_url_candidates"] = unique_list(list(merged.get("website_url_candidates", [])) + list(source.get("website_url_candidates", [])))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
     merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
     merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
+    merged["service_status_confidence"] = merge_service_status_confidence(
+        str(merged.get("service_status_confidence") or "none"),
+        str(source.get("service_status_confidence") or "none"),
+    )
+    merged["service_status_evidence"] = unique_list(
+        list(merged.get("service_status_evidence", [])) + list(source.get("service_status_evidence", []))
+    )
 
     merged["source_code_urls"] = normalize_repo_collection(list(merged.get("source_code_urls", [])) + list(source.get("source_code_urls", [])))
     merged["candidate_source_code_urls"] = normalize_repo_collection(
@@ -7440,6 +8263,8 @@ def enrich_project(
     llm_model: str | None = None,
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
+    llm_api_style: str | None = None,
+    deep_investigation: bool = False,
 ) -> dict[str, Any]:
     project = ensure_project_shape(project)
     previous_status = str(project.get("status") or "draft")
@@ -7497,6 +8322,12 @@ def enrich_project(
         except Exception as exc:
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
 
+    if deep_investigation:
+        try:
+            enrich_from_resource_pages(project)
+        except Exception as exc:
+            note_failure(project, f"resource page enrichment failed: {exc}")
+
     project = finalize_project_shape(project)
 
     investigation_plan = plan_investigation_queries(
@@ -7505,6 +8336,7 @@ def enrich_project(
         llm_model=llm_model,
         llm_api_key=llm_api_key,
         llm_reasoning_effort=llm_reasoning_effort,
+        llm_api_style=llm_api_style,
     )
     add_investigation_log(
         project,
@@ -7524,6 +8356,7 @@ def enrich_project(
             llm_model=llm_model,
             llm_api_key=llm_api_key,
             llm_reasoning_effort=llm_reasoning_effort,
+            llm_api_style=llm_api_style,
         )
         apply_llm_output(project, payload, meta, evidence)
     except Exception as exc:
@@ -7575,10 +8408,12 @@ def select_projects(conn: sqlite3.Connection, args: argparse.Namespace) -> list[
 
 
 def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
+    if getattr(args, "all_tracking_states", False):
+        return None
     explicit = getattr(args, "tracking_states", None)
     if explicit:
         cleaned = {str(item).strip().lower() for item in explicit if str(item).strip()}
-        return {item for item in cleaned if item in TRACKING_STATES} or {"active", "watchlist"}
+        return {item for item in cleaned if item in TRACKING_STATES} or None
     if getattr(args, "all", False) and getattr(args, "command", "") == "enrich":
         states = {"active", "watchlist"}
         if getattr(args, "include_stable", False):
@@ -7604,10 +8439,7 @@ def cmd_enrich(args: argparse.Namespace) -> int:
                 "progress": {
                     "current": index,
                     "total": total,
-                    "project_key": project["project_key"],
-                    "seed_type": project.get("seed_type", ""),
-                    "seed_value": project.get("seed_value", ""),
-                    "name": project.get("name", ""),
+                    "at": iso_now(),
                     "phase": "start",
                 }
             }, ensure_ascii=False))
@@ -7618,6 +8450,8 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             llm_model=args.llm_model,
             llm_api_key=args.llm_api_key,
             llm_reasoning_effort=args.llm_reasoning_effort,
+            llm_api_style=getattr(args, "llm_api_style", None),
+            deep_investigation=bool(getattr(args, "deep_investigation", False)),
         )
         save_project(conn, project, enriched=True)
         conn.commit()
@@ -7956,24 +8790,94 @@ def cmd_migrate_storage_layout(args: argparse.Namespace) -> int:
     raise ValueError(f"unsupported phase: {phase}")
 
 
-def cmd_review_queue(args: argparse.Namespace) -> int:
-    conn = open_db()
-    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
-    kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
-    queue = build_review_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+def output_project_queue(
+    conn: sqlite3.Connection,
+    *,
+    queue_name: str,
+    queue: list[dict[str, Any]],
+    tracking_states: set[str],
+    kinds: set[str] | None,
+    interactive: bool,
+) -> int:
     kind_counts: dict[str, int] = {}
     for item in queue:
         for signal in item.get("signals", []):
             kind = str(signal.get("kind") or "")
             kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+    if interactive and sys.stdin.isatty() and sys.stdout.isatty():
+        for index, item in enumerate(queue, start=1):
+            print(
+                json.dumps(
+                    {
+                        "index": index,
+                        f"{queue_name}_count": len(queue),
+                        "project_key": item.get("project_key", ""),
+                        "name": item.get("name", ""),
+                        "tracking_state": item.get("tracking_state", ""),
+                        "status": item.get("status", ""),
+                        "category": item.get("category", ""),
+                        "service_status": item.get("service_status", ""),
+                        "seed_type": item.get("seed_type", ""),
+                        "seed_value": item.get("seed_value", ""),
+                        "website_url": item.get("website_url", ""),
+                        "signals": item.get("signals", []),
+                        "suggested_commands": item.get("suggested_commands", []),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            print("[Enter]=next, j=full json, q=quit", file=sys.stderr)
+            try:
+                answer = input().strip().lower()
+            except EOFError:
+                break
+            if answer == "q":
+                break
+            if answer == "j":
+                project = fetch_project(conn, str(item.get("project_key") or ""))
+                if project is not None:
+                    print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
     print(json.dumps({
+        "queue_name": queue_name,
         "tracking_states": sorted(tracking_states),
         "kinds": sorted(kinds) if kinds else [],
-        "review_count": len(queue),
+        f"{queue_name}_count": len(queue),
         "kind_counts": kind_counts,
         "items": queue,
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_review_queue(args: argparse.Namespace) -> int:
+    conn = open_db()
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
+    queue = build_review_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+    return output_project_queue(
+        conn,
+        queue_name="review",
+        queue=queue,
+        tracking_states=tracking_states,
+        kinds=kinds,
+        interactive=bool(getattr(args, "interactive", False)),
+    )
+
+
+def cmd_promotion_queue(args: argparse.Namespace) -> int:
+    conn = open_db()
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
+    queue = build_showcase_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+    return output_project_queue(
+        conn,
+        queue_name="promotion",
+        queue=queue,
+        tracking_states=tracking_states,
+        kinds=kinds,
+        interactive=bool(getattr(args, "interactive", False)),
+    )
 
 
 def parse_iso_datetime(value: str) -> dt.datetime | None:
@@ -8328,13 +9232,15 @@ def cmd_sync_github_search(args: argparse.Namespace) -> int:
     if not queries:
         raise ValueError("github repo search queries are not configured")
     lookback_days = None if args.all_history else int(args.lookback_days or 10)
+    per_page = int(args.per_page or search_cfg.get("per_page") or 50)
+    pages = int(args.pages or search_cfg.get("pages") or default_github_search_pages(per_page))
     summary = sync_github_search(
         conn,
         queries=queries,
         execute=args.execute,
         create_unmatched=args.create_unmatched,
-        pages=int(args.pages or search_cfg.get("pages") or 1),
-        per_page=int(args.per_page or search_cfg.get("per_page") or 50),
+        pages=pages,
+        per_page=per_page,
         lookback_days=lookback_days,
         screen_unmatched=bool(args.screen_unmatched),
     )
@@ -8355,6 +9261,21 @@ def cmd_sync_collections(args: argparse.Namespace) -> int:
         create_unmatched=args.create_unmatched,
         lookback_days=args.lookback_days,
         save_path=args.save_path,
+    )
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
+    conn = open_db()
+    lookback_days = None if args.all_history else int(args.lookback_days or 14)
+    summary = sync_semble_collections(
+        conn,
+        execute=args.execute,
+        create_unmatched=args.create_unmatched,
+        pages=int(args.pages or 1),
+        per_page=int(args.per_page or 20),
+        lookback_days=lookback_days,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
@@ -8673,12 +9594,17 @@ def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
     raw = str(raw_value or "").strip()
     if not raw:
         return {"status": "skip", "reason": "empty"}
-    nsid = extract_collection_nsid(raw)
-    if nsid:
-        return {"status": "seed", "seed_type": "nsid", "seed_value": nsid}
     normalized_url = normalize_url(raw)
     if normalized_url:
         parsed = urllib.parse.urlparse(normalized_url)
+        pdsls_reference_nsid = pdsls_collection_reference_nsid(normalized_url)
+        if pdsls_reference_nsid:
+            return {
+                "status": "skip",
+                "reason": "pdsls_collection_reference_url",
+                "normalized": normalized_url,
+                "derived_nsid": pdsls_reference_nsid,
+            }
         if is_bsky_post_url(normalized_url):
             return {"status": "skip", "reason": "bsky_post_url", "normalized": normalized_url}
         if extract_bluesky_profile_handle(normalized_url):
@@ -8687,6 +9613,9 @@ def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
             return {"status": "skip", "reason": "lexicon_garden_non_seed_url", "normalized": normalized_url}
         if parsed.netloc.lower() in PDSLS_VIEWER_HOSTS:
             return {"status": "skip", "reason": "pdsls_non_collection_url", "normalized": normalized_url}
+    nsid = extract_collection_nsid(raw)
+    if nsid:
+        return {"status": "seed", "seed_type": "nsid", "seed_value": nsid}
     try:
         seed_type = detect_seed_type(raw)
     except ValueError:
@@ -8777,6 +9706,10 @@ def resolve_text_seed_reference_candidates(raw_value: str, reason: str) -> list[
         return resolve_bsky_post_url_seed_candidates(raw_value)
     if reason == "lexicon_garden_non_seed_url":
         return resolve_lexicon_garden_identity_seed_candidates(raw_value)
+    if reason == "pdsls_collection_reference_url":
+        nsid = pdsls_collection_reference_nsid(raw_value)
+        if nsid:
+            return classify_derived_seed_values([nsid])
     return []
 
 
@@ -8876,6 +9809,7 @@ def import_text_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool 
                             {
                                 "raw_value": raw_value,
                                 "derived_from_reference": True,
+                                "reference_reason": str(classified.get("reason") or ""),
                                 "seed_type": seed_type,
                                 "seed_value": seed_value,
                                 "resolved_project_key": project_key,
@@ -8926,6 +9860,48 @@ def import_text_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool 
                             "raw_value": item.get("raw_value", ""),
                             "status": "skip",
                             "reason": "service_subpage_with_same_host",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                filtered_actionable.append(item)
+            actionable = filtered_actionable
+
+        if any(str(item.get("reference_reason") or "") == "pdsls_collection_reference_url" for item in actionable):
+            filtered_actionable = []
+            for item in actionable:
+                seed_type = str(item.get("seed_type") or "")
+                seed_value = str(item.get("seed_value") or "")
+                parsed = urllib.parse.urlparse(seed_value) if seed_value.startswith("http") else None
+                if seed_type == "service_url" and parsed and parsed.netloc.lower() in PDSLS_VIEWER_HOSTS:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_viewer_bundle_context",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                if seed_type == "service_url" and parsed and parsed.netloc.lower() in PDSLS_HOSTS:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_service_bundle_context",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                if seed_type == "repo_url" and canonical_repo_url(seed_value) == "https://github.com/notjuliet/pdsls":
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_repo_bundle_context",
                             "normalized": seed_value,
                         }
                     )
@@ -9225,6 +10201,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
         llm_model=getattr(args, "llm_model", None),
         llm_api_key=getattr(args, "llm_api_key", None),
         llm_reasoning_effort=getattr(args, "llm_reasoning_effort", None),
+        llm_api_style=getattr(args, "llm_api_style", None),
     )
     action = str(parsed.get("action") or "unknown").strip()
     payload: dict[str, Any] = {
@@ -9398,14 +10375,28 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_group.add_argument("--seed", help="Target by known seed value.")
     enrich_group.add_argument("--all", action="store_true", help="Enrich all registered projects.")
     enrich_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    enrich_parser.add_argument(
+        "-A",
+        "--all-tracking-states",
+        action="store_true",
+        help="When used with --all, ignore tracking_state filtering and enrich every project.",
+    )
+    enrich_parser.add_argument(
+        "--tracking-states",
+        nargs="+",
+        choices=sorted(TRACKING_STATES),
+        help="When used with --all, override the default tracking_state set explicitly.",
+    )
     enrich_parser.add_argument("--include-stable", action="store_true", help="When used with --all, include projects marked stable.")
     enrich_parser.add_argument("--include-stalled", action="store_true", help="When used with --all, include projects marked stalled.")
     enrich_parser.add_argument("--include-archived", action="store_true", help="When used with --all, include projects marked archived.")
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
+    enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
+    enrich_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
     enrich_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for LLM calls.")
     enrich_parser.set_defaults(func=cmd_enrich)
 
@@ -9438,6 +10429,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
     review_queue_parser.add_argument("--kinds", nargs="+", choices=[
+        "candidate_repo_needs_confirmation",
         "llm_manual_review_recommended",
         "service_now_usable_but_needs_editorial_review",
         "more_evidence_than_current_classification",
@@ -9446,7 +10438,18 @@ def build_parser() -> argparse.ArgumentParser:
         "many_identity_candidates",
     ], help="Restrict to specific review signal kinds.")
     review_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    review_queue_parser.add_argument("--interactive", action="store_true", help="Step through review items interactively in a TTY.")
     review_queue_parser.set_defaults(func=cmd_review_queue)
+
+    promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
+    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist stable stalled.")
+    promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
+        "service_ready_for_introduction",
+        "lexicon_ready_for_introduction",
+    ], help="Restrict to specific promotion signal kinds.")
+    promotion_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
+    promotion_queue_parser.set_defaults(func=cmd_promotion_queue)
 
     review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
@@ -9485,6 +10488,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider collections whose min timestamp is within this many days. Default: 10.")
     sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
     sync_collections_parser.set_defaults(func=cmd_sync_collections)
+
+    sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
+    sync_semble_parser.add_argument("--pages", type=int, default=1, help="How many Semble collection pages to scan per tracked collection. Default: 1.")
+    sync_semble_parser.add_argument("--per-page", type=int, default=20, help="How many collection cards to fetch per page. Default: 20.")
+    sync_semble_parser.add_argument("--lookback-days", type=int, default=14, help="Only consider cards updated within this many days. Default: 14.")
+    sync_semble_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
+    sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    sync_semble_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unknown seeds discovered from Semble collection cards.")
+    sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.set_defaults(func=cmd_repair_db)
@@ -9583,6 +10595,7 @@ def build_parser() -> argparse.ArgumentParser:
     assist_parser.add_argument("--llm-endpoint", help="Optional OpenAI-compatible LLM endpoint or base URL for parsing.")
     assist_parser.add_argument("--llm-model", help="Optional model name for the parsing LLM.")
     assist_parser.add_argument("--llm-api-key", help="Optional API key for the parsing LLM.")
+    assist_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
     assist_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for the parsing LLM.")
     assist_parser.set_defaults(func=cmd_assist_db_edit)
 

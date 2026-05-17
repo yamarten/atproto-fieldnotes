@@ -31,6 +31,29 @@ pip install -r requirements.txt
 
 PSL に無い hosted suffix を手動で足したい場合は、[config/sources.json](config/sources.json) の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。
 
+## zsh補完
+
+wrapper の [bin/project-registry](bin/project-registry) と、zsh completion の [completions/_project-registry](completions/_project-registry) を追加しています。
+
+普段 `project-registry` で呼びたい場合:
+
+```bash
+export PATH="$PWD/bin:$PATH"
+fpath=("$PWD/completions" $fpath)
+autoload -Uz compinit && compinit
+```
+
+これで:
+
+```bash
+project-registry <TAB>
+project-registry enrich --llm-api-style <TAB>
+```
+
+のように subcommand と主要オプションを補完できます。
+
+`scripts/` をそのまま `PATH` に入れると Python ファイルまでコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。`python3 scripts/project_registry.py ...` をそのまま使う場合でも、completion 定義には `project_registry.py` を紐付けているので、zsh 上では同じ候補が出ます。
+
 seedを1件登録:
 
 ```bash
@@ -155,6 +178,21 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
 ```
 
 `review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
+
+次に紹介する候補の確認:
+
+```bash
+python3 scripts/project_registry.py promotion-queue
+python3 scripts/project_registry.py promotion-queue --kinds service_ready_for_introduction
+python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
+```
+
+`promotion-queue` は、未紹介 (`introduced_url` なし) で
+
+- 利用可能なサービス (`live` / `beta` / `invite_only`)
+- 共有準備済みと見なせる `lexicon` project
+
+を別 signal で一覧化します。
 
 誤って付いた `service_url` / `repo_url` / `nsid` を今後も戻さないようにしたい場合:
 

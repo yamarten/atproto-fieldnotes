@@ -38,6 +38,70 @@
 
 `list.json` / `services.json` 系の一時 import は削除済みです。今後の前提にしません。
 
+## 直近の残件
+
+- `service_status` 強化は 4 段階のうち前半だけ入っています
+  - 既に入っているもの:
+    - evidence / confidence 付き保存
+    - top page の軽量 signal 判定
+      - `dns_failed`, `tls_failed`, `timeout`
+      - parked domain
+      - login surface
+      - invite / beta / coming soon
+      - docs-only surface
+  - まだ残っているもの:
+    - `--deep-investigation` で `/about`, `/docs`, `/login`, `/app` など優先ページを読んで `service_status` を補強する
+    - browser/computer-use 相当の「実際にログイン導線まで試す」検証レーン
+- `service_status=unverified` は「未確認」であって dead/private の確定ではない
+  - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
+- マージ時の主従判定は `project_editorial_preference()` を導入済み
+  - `website_url`, `service_urls`, repo, `service_status`, `introduced_url` を見て service 本体を優先する
+  - ただし既に保存済みの微妙な `tagline` / `summary` を自動で全面修正する仕組みはまだ無い
+  - `proj:f4cead1df6f7` のような既存 project は、LLM 再 `enrich` か手動調整が別途必要
+- LM Studio の `responses` 対応は parser 修正済み
+  - `output_text` が空でも `output[].content[].text` を読める
+  - ただし endpoint 側の shape 差分は今後も増える可能性があるので、再発時は `parse_openai_compatible_response()` を最初に疑う
+
+## 中期の課題
+
+- `service_status` の深掘り
+  - `--deep-investigation` で `about/docs/login/app` を優先的に読む
+  - top page だけでは判断できない service を `none/unverified/live` でより安定して分ける
+  - 最終的には browser/computer-use を使った login 導線確認レーンを別コマンド化したい
+- `tagline` / `summary` の再編集
+  - 既存 project には collection/lexicon 主体の文面が残っているものがある
+  - service 本体が優先されるよう merge 側は改善済みだが、保存済み文面の洗い替えはまだ
+  - `service project` と `lexicon project` で LLM prompt を分ける余地がある
+- GitHub / Bluesky rate limit 耐性
+  - GitHub は query 数削減とキャッシュを入れているが、live fetch が続くとまだ 403 に当たる
+  - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
+  - backoff / partial skip / run-level circuit breaker を追加する余地がある
+- `assist-db-edit` の強化
+  - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
+  - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
+- `sync-*` の増分最適化
+  - `sync-collections` は import 自体は増分化済みだが fetch は全件
+  - `sync-github-search` は query の broadness と screen 精度をもう少し詰めたい
+  - `sync-semble-collections` は固定 2 collection 前提なので、必要なら設定化する
+- review 系の改善
+  - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
+  - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
+
+## 低優先の整理
+
+- 旧 field 互換の名残整理
+  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残っている
+  - schema からは落としているが、コード内部では完全には消えていない
+- `confirmed_nsids` と lexicon analysis 情報の境界整理
+  - 今は `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` が混在する箇所がまだある
+  - 長期的には `record` と `ops` で役割をさらに明確にしたい
+- `developer_accounts` の表現整理
+  - 現在は `handle/did/source` の最小構造
+  - 可読性と rename 耐性のバランスは悪くないが、`brand_did` との役割分担はまだ揺れる
+- `resource_urls` の運用整理
+  - 現在は docs/blog/about をまとめて入れている
+  - service 判定強化を進めるなら、`resource_urls` 内の種類も持ちたくなる可能性がある
+
 ## `project_registry.py` の重要ポイント
 
 - `add-seed`

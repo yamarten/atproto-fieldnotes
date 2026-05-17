@@ -1,0 +1,278 @@
+#compdef project-registry project_registry.py
+
+local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes migrate_phases review_kinds
+
+subcommands=(
+  'add-seed:Register one manual seed'
+  'enrich:Enrich one or more projects'
+  'show:Show registered projects'
+  'preview-storage-layout:Preview record_json and ops_json mapping'
+  'migrate-storage-layout:Preview or backfill storage layout migration'
+  'review-queue:List projects that deserve human review'
+  'review-stalled:Suggest lower-frequency tracking or revival'
+  'import-seed-list:Import a mixed text seed list'
+  'sync-introduced:Mark matching projects as introduced from Bluesky posts'
+  'sync-github-search:Search GitHub repositories and import repo seeds'
+  'sync-collections:Fetch and import collection inventory'
+  'sync-semble-collections:Sync fixed Semble collections into project seeds'
+  'repair-db:Normalize stored data and refresh derived fields'
+  'set-tracking-state:Set tracking state for one project'
+  'set-tracking-state-batch:Set tracking state for a filtered set of projects'
+  'set-separate:Mark two projects as distinct'
+  'block-identifier:Block one identifier from being reattached'
+  'split-project:Split one identifier out into a new project'
+  'inspect-merge-pair:Inspect merge evidence for one pair'
+  'merge:Merge one project into another'
+  'merge-batch:Batch merge only high-safety duplicate pairs'
+  'assist-db-edit:Parse a natural-language DB edit request'
+)
+
+tracking_states=(active watchlist stable stalled archived ignore)
+seed_types=(nsid repo_url service_url)
+llm_api_styles=(auto chat responses completions)
+llm_reasoning_efforts=(none minimal low medium high)
+merge_modes=(strict moderate)
+migrate_phases=(preview backfill retire-legacy-data cleanup-schema finalize-check)
+review_kinds=(
+  merge_needs_human_judgment
+  llm_manual_review_recommended
+  service_now_usable_but_needs_editorial_review
+  more_evidence_than_current_classification
+  high_information_density
+  many_identity_candidates
+)
+
+_project_registry_tracking_states() {
+  _values -s ' ' 'tracking state' ${tracking_states[@]}
+}
+
+_project_registry_seed_types() {
+  _values 'seed type' ${seed_types[@]}
+}
+
+_project_registry_llm_api_styles() {
+  _values 'LLM API style' ${llm_api_styles[@]}
+}
+
+_project_registry_llm_reasoning_efforts() {
+  _values 'LLM reasoning effort' ${llm_reasoning_efforts[@]}
+}
+
+_project_registry_common_llm_options() {
+  _arguments -S \
+    '--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:' \
+    '--llm-model[Model name for the LLM endpoint]:model:' \
+    '--llm-api-key[Optional API key for the LLM endpoint]:api key:' \
+    "--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles" \
+    "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
+}
+
+local context state line
+typeset -A opt_args
+
+if (( CURRENT == 2 )); then
+  _describe -t commands 'project-registry command' subcommands
+  return
+fi
+
+local cmd="${words[2]}"
+
+case "$cmd" in
+  add-seed)
+    _arguments -S \
+      '1:seed:' \
+      "--type[Override automatic seed type detection]:seed type:_project_registry_seed_types" \
+      '(-p --project-key)'{-p,--project-key}'[Attach the seed to an existing project key]:project key:'
+    ;;
+  enrich)
+    _arguments -S \
+      '(-p --project-key --seed --all)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key --seed --all)--seed[Target by known seed value]:seed:' \
+      '(-p --project-key --seed --all)--all[Enrich all registered projects]' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '(-A --all-tracking-states)--tracking-states+[When used with --all, restrict to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '(-A --all-tracking-states)'{-A,--all-tracking-states}'[Ignore tracking state filters and enrich every project]' \
+      '--include-stable[Include projects marked stable]' \
+      '--include-stalled[Include projects marked stalled]' \
+      '--include-archived[Include projects marked archived]' \
+      '--include-ignore[Include projects marked ignore]' \
+      '--new-only[Only enrich projects that have never been enriched]' \
+      '--deep-investigation[Probe discovered resource or docs pages before LLM review]' \
+      "--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
+      "--llm-model[Model name for the LLM endpoint]:model:" \
+      "--llm-api-key[Optional API key for the LLM endpoint]:api key:" \
+      "--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles" \
+      "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
+    ;;
+  show)
+    _arguments -S \
+      '(-p --project-key --seed --all)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key --seed --all)--seed[Target by known seed value]:seed:' \
+      '(-p --project-key --seed --all)--all[Show all projects]' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '--format[Output format]:format:(text json)'
+    ;;
+  preview-storage-layout)
+    _arguments -S \
+      '(-p --project-key --seed --all)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key --seed --all)--seed[Target by known seed value]:seed:' \
+      '(-p --project-key --seed --all)--all[Preview multiple projects]' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '--limit[Maximum number of projects to print]:count:'
+    ;;
+  migrate-storage-layout)
+    _arguments -S \
+      "--phase[Migration phase to inspect]:phase:(${migrate_phases[*]})" \
+      '--limit[Sample size for preview or finalize-check output]:count:' \
+      '--execute[Apply the backfill phase]'
+    ;;
+  review-queue)
+    _arguments -S \
+      '--tracking-states+[Restrict review queue to these tracking states]:tracking states:_project_registry_tracking_states' \
+      "--kinds+[Restrict to specific review kinds]:kind:(${review_kinds[*]})" \
+      '--limit[Maximum number of projects to return]:count:'
+    ;;
+  review-stalled)
+    _arguments -S \
+      '--inactivity-days[Flag projects whose collection activity has been quiet this many days]:days:' \
+      '--enrich-age-days[Flag projects not enriched for at least this many days]:days:' \
+      '--execute[Apply the suggested updates]' \
+      '--note[Optional tracking note]:note:'
+    ;;
+  import-seed-list)
+    _arguments -S \
+      '1:path:_files' \
+      '--execute[Apply imports]'
+    ;;
+  sync-introduced)
+    _arguments -S \
+      '--query[Bluesky post search query]:query:' \
+      '--limit[Maximum number of posts to inspect]:count:' \
+      '--max-pages[Maximum number of paginated search requests]:count:' \
+      '--execute[Apply introduced flags]'
+    ;;
+  sync-github-search)
+    _arguments -S \
+      '--query[Override one GitHub repository search query]:query:' \
+      '--pages[How many result pages to scan]:count:' \
+      '--per-page[How many results to fetch per page]:count:' \
+      '--lookback-days[Only consider repos updated within this many days]:days:' \
+      '--all-history[Disable updated_at lookback]' \
+      '--execute[Apply imports]' \
+      '--create-unmatched[Create new projects for unknown GitHub repos]' \
+      '--screen-unmatched[Fetch metadata before creating unmatched repos]'
+    ;;
+  sync-collections)
+    _arguments -S \
+      '--source-url[Override the collection inventory URL]:url:' \
+      '--execute[Apply imports]' \
+      '--create-unmatched[Create new projects for unmatched imported collections]' \
+      '--lookback-days[Only consider collections whose min timestamp is within this many days]:days:' \
+      '--save-path[Optional path to save the fetched JSON payload]:path:_files'
+    ;;
+  sync-semble-collections)
+    _arguments -S \
+      '--pages[How many collection pages to scan per tracked collection]:count:' \
+      '--per-page[How many collection cards to fetch per page]:count:' \
+      '--lookback-days[Only consider cards updated within this many days]:days:' \
+      '--all-history[Disable updated_at lookback]' \
+      '--execute[Apply imports]' \
+      '--create-unmatched[Create new projects for unknown seeds discovered from cards]'
+    ;;
+  repair-db)
+    _arguments -S
+    ;;
+  set-tracking-state)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Target by known seed value]:seed:' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      "--tracking-state[Tracking state to assign]:tracking state:_project_registry_tracking_states" \
+      '--note[Optional tracking note]:note:'
+    ;;
+  set-tracking-state-batch)
+    _arguments -S \
+      '(--record-did --nsid-prefix)'--record-did'[Match projects whose recent_record_samples include this DID]:did:' \
+      '(--record-did --nsid-prefix)'--nsid-prefix'[Match projects whose NSID starts with this prefix]:nsid prefix:' \
+      '--current-tracking-states+[Optional pre-filter on current tracking state]:tracking states:_project_registry_tracking_states' \
+      "--tracking-state[Tracking state to assign]:tracking state:_project_registry_tracking_states" \
+      '--note[Optional tracking note]:note:' \
+      '--execute[Apply the change]'
+    ;;
+  set-separate)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[First project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[First project by known seed value]:seed:' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '(-o --other-project-key -O --other-seed)'{-o,--other-project-key}'[Second project key]:project key:' \
+      '(-o --other-project-key -O --other-seed)'{-O,--other-seed}'[Second project by known seed value]:seed:' \
+      "--other-type[Required when --other-seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--clear[Remove the separation block instead of adding it]'
+    ;;
+  block-identifier)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Target by known seed value]:seed:' \
+      "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      "--identifier-type[Identifier class to block]:identifier type:_project_registry_seed_types" \
+      '--value[Identifier value to block on this project]:value:' \
+      '--note[Optional operator note]:note:' \
+      '--clear[Remove the block instead of adding it]'
+    ;;
+  split-project)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Source project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Source project by known seed value]:seed:' \
+      "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      "--identifier-type[Identifier class to split out]:identifier type:_project_registry_seed_types" \
+      '--value[Identifier value to split out into a new project]:value:' \
+      '(-n --new-project-key)'{-n,--new-project-key}'[Optional explicit key for the new project]:project key:' \
+      '--note[Optional operator note]:note:' \
+      '--execute[Apply the split]'
+    ;;
+  inspect-merge-pair)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Source project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Source project by known seed value]:seed:' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '(-t --target-project-key -T --target-seed)'{-t,--target-project-key}'[Target project key]:project key:' \
+      '(-t --target-project-key -T --target-seed)'{-T,--target-seed}'[Target project by known seed value]:seed:' \
+      "--target-type[Required when --target-seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--bootstrap-collection-creator-heuristic[Include the temporary first-DID heuristic]'
+    ;;
+  merge)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Source project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Source project by known seed value]:seed:' \
+      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '(-t --target-project-key -T --target-seed --use-recommendation)'{-t,--target-project-key}'[Explicit target project key]:project key:' \
+      '(-t --target-project-key -T --target-seed --use-recommendation)'{-T,--target-seed}'[Explicit target project by known seed value]:seed:' \
+      '(-t --target-project-key -T --target-seed --use-recommendation)--use-recommendation[Use the current merge recommendation for the source project]' \
+      "--target-type[Required when --target-seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--execute[Apply the merge]' \
+      '--force[Allow executing a non-auto-ready recommendation merge]'
+    ;;
+  merge-batch)
+    _arguments -S \
+      '--execute[Apply the planned merges]' \
+      '--max-merges[Optional cap on how many planned merges to execute]:count:' \
+      "--mode[Safety level for automatic batch merge planning]:mode:(${merge_modes[*]})" \
+      '--bootstrap-collection-creator-heuristic[Temporarily use the first-DID startup heuristic]' \
+      '(-v --verbose)'{-v,--verbose}'[Include skipped pairs in the output]'
+    ;;
+  assist-db-edit)
+    _arguments -S \
+      '1:text:request text:' \
+      '--execute[Apply the suggested action only when uniquely resolved]' \
+      "--llm-endpoint[Optional OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
+      "--llm-model[Optional model name for the parsing LLM]:model:" \
+      "--llm-api-key[Optional API key for the parsing LLM]:api key:" \
+      "--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles" \
+      "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
+    ;;
+  *)
+    _describe -t commands 'project-registry command' subcommands
+    ;;
+esac
