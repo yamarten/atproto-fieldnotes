@@ -184,6 +184,7 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
 ```bash
 python3 scripts/project_registry.py promotion-queue
 python3 scripts/project_registry.py promotion-queue --kinds service_ready_for_introduction
+python3 scripts/project_registry.py promotion-queue --include-personal-tools
 python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
 ```
 
@@ -192,7 +193,7 @@ python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_in
 - 利用可能なサービス (`live` / `beta` / `invite_only`)
 - 共有準備済みと見なせる `lexicon` project
 
-を別 signal で一覧化します。
+を別 signal で一覧化します。`personal_tool` は既定では除外し、`--include-personal-tools` を付けた時だけ含めます。
 
 誤って付いた `service_url` / `repo_url` / `nsid` を今後も戻さないようにしたい場合:
 

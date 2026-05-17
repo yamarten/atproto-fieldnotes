@@ -1027,31 +1027,124 @@ def builtin_lexicon_prefix(nsid: str) -> str:
 
 
 def compute_external_lexicons(project: dict[str, Any]) -> list[str]:
-    owned_nsids = {
-        normalize_nsid(str(item or ""))
-        for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
-        if normalize_nsid(str(item or ""))
-    }
+    observed_nsids: list[str] = []
+    for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])):
+        normalized = normalize_nsid(str(item or ""))
+        if normalized:
+            observed_nsids.append(normalized)
     prefixes: list[str] = []
     for entry in project.get("lexicon_schema_samples", []):
         if not isinstance(entry, dict):
             continue
         nsid = normalize_nsid(str(entry.get("nsid") or ""))
-        if not nsid or nsid in owned_nsids:
-            continue
-        prefix = builtin_lexicon_prefix(nsid)
-        if prefix:
-            prefixes.append(prefix)
+        if nsid:
+            observed_nsids.append(nsid)
     for entry in project.get("recent_record_samples", []):
         if not isinstance(entry, dict):
             continue
         collection = normalize_nsid(str(entry.get("collection") or ""))
-        if not collection or collection in owned_nsids:
+        if collection:
+            observed_nsids.append(collection)
+    for entry in project.get("lexicon_resolution_entries", []):
+        if not isinstance(entry, dict):
             continue
-        prefix = builtin_lexicon_prefix(collection)
+        input_nsid = normalize_nsid(str(entry.get("input_nsid") or ""))
+        resolved_nsid = normalize_nsid(str(entry.get("resolved_nsid") or ""))
+        if input_nsid:
+            observed_nsids.append(input_nsid)
+        if resolved_nsid:
+            observed_nsids.append(resolved_nsid)
+    for nsid in unique_list(observed_nsids):
+        if project_owned_lexicon_nsid(project, nsid):
+            continue
+        prefix = builtin_lexicon_prefix(nsid)
         if prefix:
             prefixes.append(prefix)
+            continue
+        segments = nsid.split(".")
+        if len(segments) >= 2:
+            prefixes.append(".".join(segments[:2]))
     return unique_list(prefixes)
+
+
+def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    seed_type = str(project.get("seed_type") or "").strip()
+    seed_value = str(project.get("seed_value") or "").strip()
+    if seed_type == "nsid":
+        normalized = normalize_nsid(seed_value)
+        if normalized:
+            combined = normalize_alias_token(normalized)
+            if combined:
+                tokens.add(combined)
+            authority = derive_authority_domain(normalized)
+            if authority:
+                authority_token = normalize_alias_token(authority)
+                if authority_token:
+                    tokens.add(authority_token)
+                root_token = normalize_alias_token(root_domain(authority))
+                if root_token:
+                    tokens.add(root_token)
+    elif seed_type in {"service_url", "repo_url"}:
+        seed_url = normalize_url(seed_value) or canonical_repo_url(seed_value)
+        if seed_url:
+            host = urllib.parse.urlparse(seed_url).netloc.lower()
+            if host:
+                host_token = normalize_alias_token(host)
+                if host_token:
+                    tokens.add(host_token)
+                root_token = normalize_alias_token(root_domain(host))
+                if root_token:
+                    tokens.add(root_token)
+            path = urllib.parse.urlparse(seed_url).path.strip("/")
+            for segment in path.split("/"):
+                token = normalize_alias_token(segment)
+                if token:
+                    tokens.add(token)
+    for url in manual_seed_values(project, "repo_url") + project.get("source_code_urls", []) + project.get("candidate_source_code_urls", []):
+        repo_url = canonical_repo_url(str(url or ""))
+        if not repo_url:
+            continue
+        parsed = urllib.parse.urlparse(repo_url)
+        path_segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
+        for segment in path_segments[:2]:
+            token = normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    for host in ownership_anchor_service_hosts(project):
+        host_token = normalize_alias_token(host)
+        if host_token:
+            tokens.add(host_token)
+        root_token = normalize_alias_token(root_domain(host))
+        if root_token:
+            tokens.add(root_token)
+        for segment in host.split("."):
+            token = normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    for value in [project.get("name"), project.get("website_url"), project.get("brand_did")]:
+        token = normalize_alias_token(str(value or ""))
+        if token:
+            tokens.add(token)
+    return tokens
+
+
+def ownership_anchor_service_hosts(project: dict[str, Any]) -> set[str]:
+    hosts = set(manual_service_hosts(project))
+    website_url = normalize_url(str(project.get("website_url") or "")) if project.get("website_url") else ""
+    if website_url:
+        website_host = urllib.parse.urlparse(website_url).netloc.lower()
+        if website_host:
+            hosts.add(website_host)
+    seed_type = str(project.get("seed_type") or "").strip()
+    seed_value = str(project.get("seed_value") or "").strip()
+    if seed_type == "service_url":
+        seed_url = normalize_url(seed_value)
+        if seed_url:
+            seed_host = urllib.parse.urlparse(seed_url).netloc.lower()
+            if seed_host:
+                hosts.add(seed_host)
+    return {host for host in hosts if host}
 
 
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
@@ -1070,7 +1163,7 @@ def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
 
     authority_domain = derive_authority_domain(normalized)
     if authority_domain:
-        service_hosts_known = set(service_hosts(project)) | set(manual_service_hosts(project))
+        service_hosts_known = ownership_anchor_service_hosts(project)
         for host in service_hosts_known:
             if authority_domain == host or authority_domain.endswith(f".{host}") or host.endswith(f".{authority_domain}"):
                 return True
@@ -1078,7 +1171,23 @@ def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
     if nsid_is_builtin_reference(normalized):
         return False
 
-    if manual_nsid_seeds or service_hosts(project) or manual_service_hosts(project):
+    identity_tokens = project_identity_anchor_tokens(project)
+    namespace_tokens = {
+        normalize_alias_token(normalized),
+        normalize_alias_token(lexicon_namespace_for_project(normalized)),
+    }
+    if authority_domain:
+        namespace_tokens.add(normalize_alias_token(authority_domain))
+        namespace_tokens.add(normalize_alias_token(root_domain(authority_domain)))
+        namespace_tokens.update(
+            normalize_alias_token(segment)
+            for segment in authority_domain.split(".")
+        )
+    namespace_tokens = {token for token in namespace_tokens if token}
+    if identity_tokens and namespace_tokens & identity_tokens:
+        return True
+
+    if manual_nsid_seeds or ownership_anchor_service_hosts(project) or identity_tokens:
         return False
 
     return True
@@ -1809,6 +1918,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["recent_record_samples"] = [dict(item) for item in project.get("recent_record_samples", []) if isinstance(item, dict)][:18]
     sync_primary_service_urls(project)
     project["lexicon_count"] = len(project.get("lexicons", []))
+    reclassify_service_specific_lexicon(project)
 
     existing = conn.execute(
         """
@@ -6211,6 +6321,98 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
     return aliases
 
 
+def project_repo_owner_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for url in list(project.get("source_code_urls", [])) + list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", [])):
+        parsed = urllib.parse.urlparse(normalize_url(url))
+        segs = [s for s in parsed.path.split("/") if s]
+        if segs:
+            token = normalize_alias_token(segs[0])
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def lexicon_brand_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("recorded_lexicon_namespaces", [])):
+        normalized = normalize_nsid(str(value or ""))
+        if not normalized:
+            continue
+        combined = normalize_alias_token(normalized)
+        if combined:
+            tokens.add(combined)
+        for segment in normalized.split("."):
+            token = normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    for value in project.get("authority_domains", []):
+        host = str(value or "").strip().lower()
+        if not host:
+            continue
+        combined = normalize_alias_token(host)
+        if combined:
+            tokens.add(combined)
+        registrable = root_domain(host)
+        combined_registrable = normalize_alias_token(registrable)
+        if combined_registrable:
+            tokens.add(combined_registrable)
+        for segment in host.split("."):
+            token = normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def has_shared_lexicon_positioning(project: dict[str, Any]) -> bool:
+    text_blob = " ".join(
+        [
+            str(project.get("name") or ""),
+            str(project.get("summary") or ""),
+            str(project.get("tagline") or ""),
+            str(project.get("classification_reason") or ""),
+            str(project.get("watch_reason") or ""),
+            " ".join(str(item or "") for item in project.get("features", [])),
+            " ".join(str(item or "") for item in project.get("external_lexicons", [])),
+        ]
+    ).lower()
+    strong_markers = [
+        "shared",
+        "common",
+        "vendor-neutral",
+        "reference implementation",
+        "community lexicon",
+        "共有",
+        "共通",
+        "コミュニティレキシコン",
+    ]
+    return any(marker in text_blob for marker in strong_markers)
+
+
+def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
+    if str(project.get("category") or "") != "lexicon":
+        return
+    if has_shared_lexicon_positioning(project):
+        return
+    namespace_tokens = lexicon_brand_tokens(project)
+    if not namespace_tokens:
+        return
+    identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project) | project_repo_owner_tokens(project)
+    if not (namespace_tokens & identity_tokens):
+        return
+    has_service_surface = bool(
+        project.get("website_url")
+        or project.get("service_urls")
+        or project.get("website_url_candidates")
+        or project.get("service_url_candidates")
+        or project.get("resource_urls")
+        or project.get("collection_observations")
+    )
+    if not has_service_surface:
+        return
+    project["category"] = "project"
+
+
 def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
     weights = {
         "source_code_urls": 8,
@@ -7347,7 +7549,115 @@ def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> b
     return not disallowed_blockers
 
 
-def compute_showcase_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
+def service_is_derivative_bluesky_tool(project: dict[str, Any]) -> bool:
+    inspired_by = {str(item or "").strip().lower() for item in project.get("inspired_by", []) if str(item or "").strip()}
+    if inspired_by and inspired_by != {"bluesky"}:
+        return False
+    if project.get("resolved_nsids") or project.get("external_lexicons"):
+        return False
+    text_blob = " ".join(
+        [
+            str(project.get("summary") or ""),
+            str(project.get("tagline") or ""),
+            str(project.get("classification_reason") or ""),
+            str(project.get("watch_reason") or ""),
+            " ".join(str(item or "") for item in project.get("features", [])),
+        ]
+    ).lower()
+    utility_markers = [
+        "viewer",
+        "profile viewer",
+        "dashboard",
+        "analytics",
+        "bookmark",
+        "bookmarks",
+        "likes",
+        "followers",
+        "history",
+        "catalog",
+        "search",
+        "explore public bluesky",
+        "プロフィール閲覧",
+        "閲覧",
+        "検索",
+        "分析",
+        "ダッシュボード",
+        "ブックマーク",
+        "いいね",
+        "フォロワー",
+        "履歴",
+    ]
+    novelty_markers = [
+        "community note",
+        "community notes",
+        "コミュニティノート",
+        "fork",
+        "clone",
+        "フォーク",
+        "拡張",
+        "独自機能",
+        "annotation",
+        "moderation",
+    ]
+    utility_hits = sum(1 for marker in utility_markers if marker in text_blob)
+    novelty_hits = sum(1 for marker in novelty_markers if marker in text_blob)
+    return utility_hits >= 2 and novelty_hits == 0
+
+
+def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
+    score = 0
+    signal_kinds = {str(item.get("kind") or "") for item in signals}
+    if "service_ready_for_introduction" in signal_kinds:
+        score += 200
+    if "lexicon_ready_for_introduction" in signal_kinds:
+        score += 100
+
+    service_status = normalize_service_status(project.get("service_status"))
+    score += {
+        "live": 30,
+        "beta": 20,
+        "invite_only": 15,
+        "unverified": 8,
+        "none": 6,
+        "unknown": 4,
+        "private": 2,
+        "dead": 0,
+    }.get(service_status, 0)
+    score += {
+        "high": 12,
+        "medium": 8,
+        "low": 4,
+        "none": 0,
+    }.get(normalize_service_status_confidence(project.get("service_status_confidence")), 0)
+    if str(project.get("summary") or "").strip():
+        score += 8
+    if str(project.get("tagline") or "").strip():
+        score += 6
+    if str(project.get("tagline") or "").strip() and not bool(project.get("tagline_is_provisional")):
+        score += 3
+    if project_repo_hint_urls(project):
+        score += 6
+    nsid_hints = unique_list(
+        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
+    )
+    if nsid_hints:
+        score += min(4, len(nsid_hints))
+    if not bool(project.get("manual_review_recommended")):
+        score += 4
+    blockers = set(str(item) for item in project.get("promotion_blockers", []))
+    score -= len(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"})
+    latest_collection_activity = project_latest_collection_activity_at(project)
+    if latest_collection_activity is not None:
+        days = (dt.datetime.now(dt.timezone.utc) - latest_collection_activity).days
+        if days <= 7:
+            score += 4
+        elif days <= 30:
+            score += 2
+    return score
+
+
+def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools: bool = False) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
     if shaped.get("introduced_url"):
         return []
@@ -7359,7 +7669,12 @@ def compute_showcase_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
     service_status = str(shaped.get("service_status") or "unknown")
     category = str(shaped.get("category") or "")
 
-    if category in {"project", "personal_tool"} and service_status in {"live", "beta", "invite_only"}:
+    allowed_service_categories = {"project"}
+    if include_personal_tools:
+        allowed_service_categories.add("personal_tool")
+    if category in allowed_service_categories and service_status in {"live", "beta", "invite_only"}:
+        if service_is_derivative_bluesky_tool(shaped):
+            return signals
         if shaped.get("website_url") or shaped.get("service_urls"):
             signals.append(
                 {
@@ -7401,17 +7716,19 @@ def build_showcase_queue(
     tracking_states: set[str] | None = None,
     limit: int = 50,
     kinds: set[str] | None = None,
+    include_personal_tools: bool = False,
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
     for project in project_list:
         shaped = apply_promotion_state(dict(project))
-        signals = compute_showcase_signals(shaped)
+        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = promotion_queue_sort_score(shaped, signals)
         queue.append(
             {
                 "project_key": shaped["project_key"],
@@ -7422,13 +7739,21 @@ def build_showcase_queue(
                 "service_status": shaped.get("service_status", "unknown"),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
+                "nsids": unique_list(
+                    [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
+                    + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
+                )[:5],
                 "website_url": shaped.get("website_url", ""),
+                "repo_urls": project_repo_hint_urls(shaped)[:3],
+                "tagline": shaped.get("tagline", ""),
+                "summary": shaped.get("summary", ""),
                 "top_priority": top_priority,
+                "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
             }
         )
-    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return queue[: max(1, int(limit or 50))]
 
 
@@ -8144,6 +8469,7 @@ def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
 
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
+    pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
     project["introduced_url"] = introduced_url
@@ -8223,6 +8549,12 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("resolved_nsids", []))
     project["lexicon_count"] = len(project.get("lexicons", []))
+    project["external_lexicons"] = unique_list(
+        list(project.get("external_lexicons", []))
+        + pre_prune_external_lexicons
+        + compute_external_lexicons(project)
+    )
+    reclassify_service_specific_lexicon(project)
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     confirmed_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") == "confirmed"]
     candidate_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"]
@@ -8819,7 +9151,11 @@ def output_project_queue(
                         "service_status": item.get("service_status", ""),
                         "seed_type": item.get("seed_type", ""),
                         "seed_value": item.get("seed_value", ""),
+                        "nsids": item.get("nsids", []),
                         "website_url": item.get("website_url", ""),
+                        "repo_urls": item.get("repo_urls", []),
+                        "tagline": item.get("tagline", ""),
+                        "summary": item.get("summary", ""),
                         "signals": item.get("signals", []),
                         "suggested_commands": item.get("suggested_commands", []),
                     },
@@ -8869,7 +9205,13 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
     conn = open_db()
     tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
-    queue = build_showcase_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+    queue = build_showcase_queue(
+        conn,
+        tracking_states=tracking_states,
+        limit=int(args.limit or 50),
+        kinds=kinds,
+        include_personal_tools=bool(getattr(args, "include_personal_tools", False)),
+    )
     return output_project_queue(
         conn,
         queue_name="promotion",
@@ -10448,6 +10790,7 @@ def build_parser() -> argparse.ArgumentParser:
         "lexicon_ready_for_introduction",
     ], help="Restrict to specific promotion signal kinds.")
     promotion_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=cmd_promotion_queue)
 

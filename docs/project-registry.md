@@ -298,15 +298,18 @@ repo 更新日時と collection activity のどちらか一方でも最近動い
 ```bash
 python3 scripts/project_registry.py promotion-queue
 python3 scripts/project_registry.py promotion-queue --kinds service_ready_for_introduction
+python3 scripts/project_registry.py promotion-queue --include-personal-tools
 python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
 ```
 
 signal は今のところ 2 種類です。
 
 - `service_ready_for_introduction`
-  - `project` / `personal_tool` で、`service_status` が `live` / `beta` / `invite_only`
+  - 既定では `category=project` で、`service_status` が `live` / `beta` / `invite_only`
 - `lexicon_ready_for_introduction`
   - `category=lexicon` で、NSID ヒントと公開先 (`website_url` / repo / resource) があり、紹介用メタデータが大きく欠けていない
+
+`category=personal_tool` は既定では除外します。含めたい場合だけ `--include-personal-tools` を付けます。
 
 `--interactive` を付けると `review-queue` と同じく 1 件ずつ見られます。`suggested_commands` には `show` や `enrich --deep-investigation` を出します。
 
