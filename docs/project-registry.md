@@ -476,32 +476,18 @@ python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schem
 ### `record_json`
 
 - `core`
-  - `name`, `tagline`, `summary`, `notes`
-- `identity`
-  - `seed_type`, `seed_value`, `confirmed_nsids`, `authority_domains`, `brand_did`
-- `lexicon_usage`
-  - `external_lexicons`
-- `presence`
-  - `website_url`, `service_urls`, `resource_urls`, `service_status`, `source_code_urls`
-- `people`
-  - `developer_accounts`
-- `editorial`
-  - `category`, `features`, `tags`, `platforms`, `introduced_url`
+  - `summary`, `tagline`, `manual_seeds`, `brand_did`, `source_code_url`, `lexicon_namespaces`, `notes`
+- `app`
+  - app export 向けの確かな metadata
+  - 現時点では主に `tags`, `platforms` など
+  - 情報が無ければ空 object のまま保持する
 
 ### `ops_json`
 
-- `candidates`
-  - `name_candidates`, `candidate_nsids`, URL 候補、summary/tagline 候補
-- `lexicon_profile`
-  - schema sample, record sample, namespace, creator DID
-- `discovery`
-  - seed / evidence / investigation log
-- `llm`
-  - raw output と evidence snapshot
-- `merge_control`
-  - duplicate / merge / block / separate
-- `activity`
-  - collection activity, promotion events, `last_run_errors`
+- `ops`
+  - review / merge / 紹介運用の制御情報
+- `evidence`
+  - URL 候補、repo 観測、NSID 解決、LLM 出力、分類補助の材料
 
 ## 環境変数
 

@@ -116,8 +116,8 @@ def load_json(value: str) -> Any:
     return json.loads(value) if value else None
 
 
-def dump_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+def dump_json(value: Any, *, sort_keys: bool = True) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=sort_keys)
 
 
 SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "beta", "invite_only"}
@@ -182,117 +182,90 @@ PROJECT_STORAGE_SCALAR_FIELDS = PROJECT_SCALAR_FIELDS + ("introduced_url",)
 
 RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "core": (
-        "name",
         "tagline",
         "tagline_is_provisional",
         "summary",
-        "notes",
-        "tracking_note",
-    ),
-    "identity": (
-        "seed_type",
-        "seed_value",
-        "primary_nsid",
-        "input_nsids",
-        "resolved_nsids",
-        "recorded_lexicon_namespaces",
-        "authority_domains",
+        "manual_seeds",
         "brand_did",
-        "ownership_signal",
-        "record_creators",
+        "source_code_url",
+        "lexicon_namespaces",
+        "notes",
     ),
-    "lexicon_usage": (
-        "lexicons",
-        "lexicon_count",
-        "external_lexicons",
-    ),
-    "presence": (
-        "website_url",
-        "service_urls",
-        "resource_urls",
-        "service_status",
-        "source_code_urls",
-        "github_repo_urls",
-        "tangled_repo_urls",
-    ),
-    "people": (
-        "developer_accounts",
-    ),
-    "editorial": (
-        "category",
-        "app_category",
-        "features",
-        "inspired_by",
+    "app": (
         "tags",
         "platforms",
-        "project_state",
-        "introduced_url",
     ),
 }
 
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
-    "triage": (
+    "ops": (
         "status",
-        "classification_reason",
-        "exclude_reason",
-        "watch_reason",
+        "category",
+        "app_category",
+        "project_state",
+        "ownership_signal",
+        "introduced",
+        "tracking_note",
         "manual_review_recommended",
         "manual_review_priority",
         "manual_review_reason",
-        "confidence",
         "promotion_ready",
         "promotion_blockers",
         "last_promoted_at",
-    ),
-    "lexicon_profile": (
-        "lexicon_resolution_entries",
-        "lexicon_schema_samples",
-        "recent_record_samples",
-    ),
-    "candidates": (
-        "summary_candidates",
-        "tagline_candidates",
-        "website_url_candidates",
-        "service_url_candidates",
-        "failed_service_urls",
-        "candidate_source_code_urls",
-    ),
-    "llm": (
-        "llm_source",
-        "llm_output",
         "last_llm_review_at",
-    ),
-    "merge_control": (
         "duplicate_candidates",
         "merge_recommendation",
         "separate_project_keys",
         "blocked_identifiers",
-    ),
-    "activity": (
         "collection_observations",
         "promotion_events",
         "last_run_errors",
         "service_status_confidence",
         "service_status_evidence",
     ),
-    "discovery": (
+    "evidence": (
         "discovery_sources",
         "evidence_urls",
         "investigation_queries",
         "investigation_log",
-        "manual_seeds",
-    ),
-    "repo_analysis": (
+        "seed_type",
+        "seed_value",
+        "primary_nsid",
+        "input_nsids",
+        "resolved_nsids",
+        "lexicon_resolution_entries",
+        "lexicons",
+        "lexicon_count",
+        "lexicon_schema_samples",
+        "recent_record_samples",
+        "record_creators",
+        "authority_domains",
+        "external_lexicons",
+        "summary_candidates",
+        "tagline_candidates",
+        "website_url_candidates",
+        "service_urls",
+        "resource_urls",
+        "service_url_candidates",
+        "failed_service_urls",
+        "source_code_urls",
+        "candidate_source_code_urls",
+        "github_repo_urls",
+        "tangled_repo_urls",
+        "developer_accounts",
+        "bluesky_handles",
+        "tangled_handles",
         "source_repo_records",
+        "llm_source",
+        "llm_output",
+        "classification_reason",
+        "exclude_reason",
+        "watch_reason",
+        "confidence",
     ),
 }
 
 INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
-    "introduced",
-    "primary_nsid",
-    "bluesky_handles",
-    "tangled_handles",
-    "lexicon_count",
     "promoted_now",
 }
 
@@ -314,18 +287,24 @@ MAPPED_LEGACY_FIELDS = {
     "project_state",
     "brand_did",
     "ownership_signal",
+    "introduced",
     "introduced_url",
     "tracking_state",
     "tracking_note",
+    "bluesky_handles",
+    "tangled_handles",
     "discovery_sources",
     "evidence_urls",
+    "primary_nsid",
     "input_nsids",
     "confirmed_nsids",
     "resolved_nsids",
     "resolved_lexicon_nsids",
     "lexicon_resolution_entries",
     "recorded_lexicon_namespaces",
+    "lexicon_namespaces",
     "lexicons",
+    "lexicon_count",
     "lexicon_schema_samples",
     "recent_record_samples",
     "record_creators",
@@ -342,6 +321,7 @@ MAPPED_LEGACY_FIELDS = {
     "service_status",
     "service_status_confidence",
     "service_status_evidence",
+    "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
     "source_repo_records",
@@ -1377,84 +1357,36 @@ def name_is_safe_for_record(project: dict[str, Any]) -> bool:
 
 
 def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
-    confirmed_nsids = current_confirmed_nsids(project)
     record_payload: dict[str, Any] = {}
 
     core: dict[str, Any] = {}
-    if name_is_safe_for_record(project):
-        core["name"] = str(project.get("name") or "").strip()
     if project.get("tagline"):
         core["tagline"] = project.get("tagline")
     if project.get("tagline_is_provisional"):
         core["tagline_is_provisional"] = True
     if project.get("summary"):
         core["summary"] = project.get("summary")
+    if project.get("manual_seeds"):
+        core["manual_seeds"] = project.get("manual_seeds")
+    if project.get("brand_did"):
+        core["brand_did"] = project.get("brand_did")
+    source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
+    if source_code_urls:
+        core["source_code_url"] = source_code_urls[0]
+    lexicon_namespaces = unique_list([str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()])
+    if lexicon_namespaces:
+        core["lexicon_namespaces"] = lexicon_namespaces
     if project.get("notes"):
         core["notes"] = project.get("notes")
     if core:
         record_payload["core"] = core
 
-    identity: dict[str, Any] = {}
-    if project.get("seed_type"):
-        identity["seed_type"] = project.get("seed_type")
-    if project.get("seed_value"):
-        identity["seed_value"] = project.get("seed_value")
-    if confirmed_nsids:
-        identity["confirmed_nsids"] = confirmed_nsids
-    if project.get("authority_domains"):
-        identity["authority_domains"] = project.get("authority_domains")
-    if project.get("brand_did"):
-        identity["brand_did"] = project.get("brand_did")
-    if project.get("ownership_signal") and project.get("ownership_signal") != "unknown":
-        identity["ownership_signal"] = project.get("ownership_signal")
-    if identity:
-        record_payload["identity"] = identity
-
-    lexicon_usage: dict[str, Any] = {}
-    if project.get("external_lexicons"):
-        lexicon_usage["external_lexicons"] = project.get("external_lexicons")
-    if lexicon_usage:
-        record_payload["lexicon_usage"] = lexicon_usage
-
-    presence: dict[str, Any] = {}
-    if project.get("website_url"):
-        presence["website_url"] = project.get("website_url")
-    if project.get("service_urls"):
-        presence["service_urls"] = project.get("service_urls")
-    if project.get("resource_urls"):
-        presence["resource_urls"] = project.get("resource_urls")
-    if project.get("service_status"):
-        presence["service_status"] = project.get("service_status")
-    if project.get("source_code_urls"):
-        presence["source_code_urls"] = project.get("source_code_urls")
-    if presence:
-        record_payload["presence"] = presence
-
-    people: dict[str, Any] = {}
-    if project.get("developer_accounts"):
-        people["developer_accounts"] = normalize_developer_accounts(project.get("developer_accounts", []))
-    if people:
-        record_payload["people"] = people
-
-    editorial: dict[str, Any] = {}
-    if project.get("category"):
-        editorial["category"] = project.get("category")
-    if project.get("app_category"):
-        editorial["app_category"] = project.get("app_category")
-    if project.get("features"):
-        editorial["features"] = project.get("features")
-    if project.get("inspired_by"):
-        editorial["inspired_by"] = project.get("inspired_by")
+    app: dict[str, Any] = {}
     if project.get("tags"):
-        editorial["tags"] = project.get("tags")
+        app["tags"] = project.get("tags")
     if project.get("platforms"):
-        editorial["platforms"] = project.get("platforms")
-    if project.get("project_state"):
-        editorial["project_state"] = project.get("project_state")
-    if project.get("introduced_url"):
-        editorial["introduced_url"] = project.get("introduced_url")
-    if editorial:
-        record_payload["editorial"] = editorial
+        app["platforms"] = project.get("platforms")
+    record_payload["app"] = app
 
     return record_payload
 
@@ -1463,26 +1395,16 @@ def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
     candidate_nsids = current_candidate_nsids(project)
     ops_payload = compact_grouped_payload(OPS_JSON_GROUP_FIELDS, project)
 
-    candidates = dict(ops_payload.get("candidates") or {})
+    evidence = dict(ops_payload.get("evidence") or {})
     name_candidates = current_name_candidates(project)
     if name_candidates and not name_is_safe_for_record(project):
-        candidates["name_candidates"] = name_candidates
+        evidence["name_candidates"] = name_candidates
     if candidate_nsids:
-        candidates["candidate_nsids"] = candidate_nsids
-    if candidates:
-        ops_payload["candidates"] = candidates
-
-    lexicon_profile = dict(ops_payload.get("lexicon_profile") or {})
-    if project.get("input_nsids"):
-        lexicon_profile["input_nsids"] = project.get("input_nsids")
+        evidence["candidate_nsids"] = candidate_nsids
     if project.get("recorded_lexicon_namespaces"):
-        lexicon_profile["recorded_lexicon_namespaces"] = project.get("recorded_lexicon_namespaces")
-    if project.get("lexicons"):
-        lexicon_profile["resolved_lexicon_nsids"] = project.get("lexicons")
-    if project.get("record_creators"):
-        lexicon_profile["record_creators"] = project.get("record_creators")
-    if lexicon_profile:
-        ops_payload["lexicon_profile"] = lexicon_profile
+        evidence["lexicon_namespaces"] = project.get("recorded_lexicon_namespaces")
+    if evidence:
+        ops_payload["evidence"] = evidence
 
     return ops_payload
 
@@ -1949,8 +1871,8 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 project.get("service_status", "unknown"),
                 project.get("tracking_state", "active"),
                 project.get("introduced_url", ""),
-                dump_json(project_record_payload(project)),
-                dump_json(project_ops_payload(project)),
+                dump_json(project_record_payload(project), sort_keys=False),
+                dump_json(project_ops_payload(project), sort_keys=False),
                 first_seen_at,
                 now,
                 last_enriched_at,
@@ -1975,8 +1897,8 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 project.get("service_status", "unknown"),
                 project.get("tracking_state", "active"),
                 project.get("introduced_url", ""),
-                dump_json(project_record_payload(project)),
-                dump_json(project_ops_payload(project)),
+                dump_json(project_record_payload(project), sort_keys=False),
+                dump_json(project_ops_payload(project), sort_keys=False),
                 now,
                 last_enriched_at or existing_last_enriched,
                 project["project_key"],
@@ -8980,8 +8902,8 @@ def cmd_migrate_storage_layout(args: argparse.Namespace) -> int:
         updates: list[tuple[str, str, str, str]] = []
         changed_count = 0
         for project in projects:
-            record_json = dump_json(project_record_payload(project))
-            ops_json = dump_json(project_ops_payload(project))
+            record_json = dump_json(project_record_payload(project), sort_keys=False)
+            ops_json = dump_json(project_ops_payload(project), sort_keys=False)
             introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
             row = conn.execute(
                 "SELECT record_json, ops_json, introduced_url FROM projects WHERE project_key = ?",

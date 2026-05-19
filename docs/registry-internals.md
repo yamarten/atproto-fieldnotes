@@ -127,7 +127,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 ### 3.1 `service_status` の現在地と残件
 
-現在の `service_status` は、以前の単純なキーワード分類から一段進めて、`ops_json.activity` に次を持ちます。
+現在の `service_status` は、以前の単純なキーワード分類から一段進めて、`ops_json.ops` に次を持ちます。
 
 - `service_status`
 - `service_status_confidence`
@@ -544,34 +544,20 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 `record_json` は高信頼のみを保持します。
 
 - `core`
-  - `name`, `tagline`, `summary`, `notes`
-- `identity`
-  - `seed_type`, `seed_value`, `confirmed_nsids`, `authority_domains`, `brand_did`
-- `lexicon_usage`
-  - `external_lexicons`
-- `presence`
-  - `website_url`, `service_urls`, `resource_urls`, `service_status`, `source_code_urls`
-- `people`
-  - `developer_accounts`
-- `editorial`
-  - `category`, `features`, `tags`, `platforms`, `introduced_url`
+  - `summary`, `tagline`, `manual_seeds`, `brand_did`, `source_code_url`, `lexicon_namespaces`, `notes`
+- `app`
+  - app export 向けの確かな metadata
+  - 現時点では主に `tags`, `platforms` など
+  - 情報が無ければ空 object のまま保持する
 
 `ops_json` は判断が揺れるものと運用データです。
 
-- `candidates`
-  - `name_candidates`, `candidate_nsids`, URL 候補、summary/tagline 候補
-- `lexicon_profile`
-  - `input_nsids`, `resolved_lexicon_nsids`, schema sample, record sample, namespace, creator DID
-- `discovery`
-  - seed / evidence / investigation log
-- `llm`
-  - raw output と evidence snapshot
-- `merge_control`
-  - duplicate / merge / block / separate
-- `activity`
-  - collection activity, promotion events, `last_run_errors`
+- `ops`
+  - review / merge / 紹介運用の制御情報
+- `evidence`
+  - URL 候補、repo 観測、NSID 解決、LLM 出力、分類補助の材料
 
-迷うものは `record_json` に入れません。特に `name`、`service_urls`、`resource_urls`、NSID 所有判定は保守的です。
+迷うものは `record_json` に入れません。特に `app` は低優先度で、確かな情報が無ければ空 object のままにします。
 
 ## NSIDの扱い
 
@@ -580,10 +566,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - `resolved_nsids`
   - lexicon解決に成功した NSID
 - `confirmed_nsids`
-  - `record_json.identity` に残す高信頼 NSID
+  - 内部で扱う高信頼 NSID
 - `lexicons`
-  - legacy 上の canonical NSID。移行後は `confirmed_nsids` と `ops_json.lexicon_profile.resolved_lexicon_nsids` に分かれる
-- `recorded_lexicon_namespaces`
+  - legacy 上の canonical NSID。移行後は evidence 側の観測値として残す
+- `lexicon_namespaces`
   - project 粒度で記録する namespace
 
 collection inventory import は project 粒度で集約しますが、lexicon 解決用に代表の full NSID を別に保持します。

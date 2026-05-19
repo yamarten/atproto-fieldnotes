@@ -67,6 +67,8 @@
 
 保持すべき項目は [docs/project-record.md](project-record.md) に定義した。
 
+保存形は紹介前処理を主目的に設計する。ただし将来 DB から app record を export できるよう、app lexicon を参考にした metadata の置き場も持つ。
+
 最低限必要なのは以下。
 
 - project 名
