@@ -4532,6 +4532,7 @@ def sync_introduced_entries(
     already_introduced = 0
     unmatched = 0
     imported_project_keys: list[str] = []
+    matched_project_keys: list[str] = []
     unmatched_entries: list[dict[str, Any]] = []
 
     for item in entries_by_seed.values():
@@ -4553,7 +4554,8 @@ def sync_introduced_entries(
         if project is None:
             unmatched += 1
             continue
-        if project.get("introduced"):
+        was_introduced = bool(project.get("introduced_url") or project.get("introduced"))
+        if was_introduced:
             already_introduced += 1
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
         project["introduced"] = True
@@ -4562,7 +4564,10 @@ def sync_introduced_entries(
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)
-        imported_project_keys.append(project["project_key"])
+        matched_project_keys.append(project["project_key"])
+        is_introduced_now = bool(project.get("introduced_url") or project.get("introduced"))
+        if not was_introduced and is_introduced_now:
+            imported_project_keys.append(project["project_key"])
         if execute:
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated += 1
@@ -4578,6 +4583,7 @@ def sync_introduced_entries(
         "unmatched": unmatched,
         "mode": "execute" if execute else "dry_run",
         "imported_project_keys": imported_project_keys,
+        "matched_project_keys": matched_project_keys,
         "unmatched_entries": unmatched_entries[:100],
     }
 
@@ -7606,6 +7612,7 @@ def service_is_derivative_bluesky_tool(project: dict[str, Any]) -> bool:
 
 def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
     score = 0
+    now = dt.datetime.now(dt.timezone.utc)
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if "service_ready_for_introduction" in signal_kinds:
         score += 200
@@ -7647,13 +7654,29 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         score += 4
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
     score -= len(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"})
-    latest_collection_activity = project_latest_collection_activity_at(project)
-    if latest_collection_activity is not None:
-        days = (dt.datetime.now(dt.timezone.utc) - latest_collection_activity).days
-        if days <= 7:
-            score += 4
-        elif days <= 30:
+    latest_activity = project_latest_activity_at(project)
+    activity_days = activity_age_days(latest_activity, now)
+    if activity_days is not None:
+        if activity_days <= 3:
+            score += 18
+        elif activity_days <= 7:
+            score += 14
+        elif activity_days <= 14:
+            score += 10
+        elif activity_days <= 30:
+            score += 6
+        elif activity_days <= 60:
             score += 2
+        elif activity_days >= 180:
+            score -= 4
+    latest_collection_activity = project_latest_collection_activity_at(project)
+    latest_repo_activity = project_latest_repo_activity_at(project)
+    collection_days = activity_age_days(latest_collection_activity, now)
+    repo_days = activity_age_days(latest_repo_activity, now)
+    if collection_days is not None and collection_days <= 14:
+        score += 3
+    if repo_days is not None and repo_days <= 14:
+        score += 3
     return score
 
 
@@ -9260,6 +9283,16 @@ def project_latest_repo_activity_at(project: dict[str, Any]) -> dt.datetime | No
         if updated_at and (latest is None or updated_at > latest):
             latest = updated_at
     return latest
+
+
+def project_latest_activity_at(project: dict[str, Any]) -> dt.datetime | None:
+    latest_collection = project_latest_collection_activity_at(project)
+    latest_repo = project_latest_repo_activity_at(project)
+    if latest_collection is None:
+        return latest_repo
+    if latest_repo is None:
+        return latest_collection
+    return max(latest_collection, latest_repo)
 
 
 def activity_age_days(latest: dt.datetime | None, now: dt.datetime) -> int | None:
