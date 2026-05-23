@@ -479,7 +479,8 @@ python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schem
   - `summary`, `tagline`, `manual_seeds`, `brand_did`, `source_code_url`, `lexicon_namespaces`, `notes`
 - `app`
   - app export 向けの確かな metadata
-  - 現時点では主に `tags`, `platforms` など
+  - 現時点では `tags`, `platforms`, `links`
+  - `links` は role を確信できる URL だけを保持する
   - 情報が無ければ空 object のまま保持する
 
 ### `ops_json`

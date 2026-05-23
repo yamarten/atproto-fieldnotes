@@ -103,6 +103,19 @@ app 関連情報のまとまりです。現在の app lexicon そのものに限
 
 app 情報は低優先度です。確かな情報が無ければ `app` は空 object のまま保持します。
 
+`links[]` は role を確信できる公開リンクだけを置きます。初回の正式対応 role は次です。
+
+- `website`
+- `webApp`
+- `sourceCode`
+- `docs`
+- `support`
+- `status`
+- `privacyPolicy`
+- `termsOfService`
+
+`website_url` と `source_code_url` は canonical が column / core にあり、`links[]` には export 用の構造化表現として重複保持できます。
+
 ## `ops_json.ops`
 
 review / merge / 紹介運用の制御情報です。
@@ -112,7 +125,6 @@ review / merge / 紹介運用の制御情報です。
 - `app_category`
 - `project_state`
 - `ownership_signal`
-- `introduced`
 - `tracking_note`
 - `manual_review_recommended`
 - `manual_review_priority`
@@ -174,6 +186,12 @@ review / merge / 紹介運用の制御情報です。
 - `llm_source`
 - `llm_output`
 
+補足:
+
+- `features` と `inspired_by` は紹介判断や要約補助にも使いますが、現時点では app metadata 本体ではなく evidence として保持します
+- `lexicon_namespaces` は `record_json.core` の canonical 値とは別に、evidence 側でも比較・調査の補助として保持されます
+- `service_urls` / `resource_urls` / `source_code_urls` は当面 evidence に残しつつ、確信できるものだけ `record_json.app.links` に昇格させます
+
 ## `tracking_state`
 
 継続調査の対象を制御する enum。
@@ -202,7 +220,10 @@ review / merge / 紹介運用の制御情報です。
 - `beta`
   - ベータ公開
 - `private`
-  - 存在は見えるが一般利用前提ではない
+  - 将来的にも広くユーザーを募る前提が弱い
+  - 個人用、内輪用、組織内用など
+- `unreleased`
+  - 公開前、coming soon、まだ一般利用させる段階ではない
 - `dead`
   - 死んでいる
 - `none`
@@ -210,12 +231,10 @@ review / merge / 紹介運用の制御情報です。
 
 追加候補として迷うのは次。
 
-- `unreleased`
-  - 公開前や coming soon を `private` と分けたい場合
 - `paused`
   - dead ではないが停止中を区別したい場合
 
-当面は増やさず、必要になるまで上の 7 値で回す。
+当面は `paused` を増やさず、上の 8 値で回す。
 
 ## 境界項目
 

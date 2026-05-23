@@ -120,7 +120,7 @@ def dump_json(value: Any, *, sort_keys: bool = True) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=sort_keys)
 
 
-SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "beta", "invite_only"}
+SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"}
 SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
 
 
@@ -194,6 +194,7 @@ RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "app": (
         "tags",
         "platforms",
+        "links",
     ),
 }
 
@@ -204,7 +205,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "app_category",
         "project_state",
         "ownership_signal",
-        "introduced",
         "tracking_note",
         "manual_review_recommended",
         "manual_review_priority",
@@ -228,8 +228,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "evidence_urls",
         "investigation_queries",
         "investigation_log",
-        "seed_type",
-        "seed_value",
         "primary_nsid",
         "input_nsids",
         "resolved_nsids",
@@ -241,6 +239,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "record_creators",
         "authority_domains",
         "external_lexicons",
+        "features",
+        "inspired_by",
         "summary_candidates",
         "tagline_candidates",
         "website_url_candidates",
@@ -266,7 +266,12 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
+    "introduced",
     "promoted_now",
+    "seed_type",
+    "seed_value",
+    "candidate_nsids",
+    "name_candidates",
 }
 
 MAPPED_LEGACY_FIELDS = {
@@ -284,10 +289,10 @@ MAPPED_LEGACY_FIELDS = {
     "inspired_by",
     "tags",
     "platforms",
+    "links",
     "project_state",
     "brand_did",
     "ownership_signal",
-    "introduced",
     "introduced_url",
     "tracking_state",
     "tracking_note",
@@ -316,8 +321,6 @@ MAPPED_LEGACY_FIELDS = {
     "resource_urls",
     "service_url_candidates",
     "failed_service_urls",
-    "candidate_nsids",
-    "name_candidates",
     "service_status",
     "service_status_confidence",
     "service_status_evidence",
@@ -352,8 +355,6 @@ MAPPED_LEGACY_FIELDS = {
     "notes",
     "last_run_errors",
     "manual_seeds",
-    "seed_type",
-    "seed_value",
     "first_seen_at",
     "last_seen_at",
     "last_enriched_at",
@@ -457,6 +458,156 @@ def unique_list(values: list[str]) -> list[str]:
         seen.add(value)
         output.append(value)
     return output
+
+
+APP_LINK_RESOURCE_PATH_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("privacyPolicy", ("/privacy", "/privacy-policy", "/policies/privacy")),
+    ("termsOfService", ("/terms", "/terms-of-service", "/tos")),
+    ("status", ("/status", "/uptime", "/health")),
+    ("support", ("/support", "/help", "/contact", "/faq")),
+    ("docs", ("/docs", "/doc", "/guide", "/guides", "/reference")),
+)
+APP_LINK_SERVICE_HOST_PREFIXES = {"app", "web", "client"}
+APP_LINK_SERVICE_PATH_PREFIXES = (
+    "/app",
+    "/login",
+    "/signin",
+    "/sign-in",
+    "/signup",
+    "/sign-up",
+    "/dashboard",
+)
+
+
+def normalize_app_link_role(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def normalize_app_link_official(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    lowered = str(value or "").strip().lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    return None
+
+
+def append_or_merge_app_link(links: list[dict[str, Any]], entry: dict[str, Any]) -> None:
+    uri = normalize_url(str(entry.get("uri") or ""))
+    role = normalize_app_link_role(entry.get("role"))
+    if not uri or not role:
+        return
+    normalized_entry: dict[str, Any] = {"uri": uri, "role": role}
+    label = str(entry.get("label") or "").strip()
+    if label:
+        normalized_entry["label"] = label
+    official = normalize_app_link_official(entry.get("official"))
+    if official is not None:
+        normalized_entry["official"] = official
+    key = (uri, role)
+    for existing in links:
+        if (str(existing.get("uri") or ""), str(existing.get("role") or "")) != key:
+            continue
+        if "label" not in existing and "label" in normalized_entry:
+            existing["label"] = normalized_entry["label"]
+        if "official" not in existing and "official" in normalized_entry:
+            existing["official"] = normalized_entry["official"]
+        return
+    links.append(normalized_entry)
+
+
+def normalize_app_links(entries: list[Any]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        uri = normalize_url(str(item.get("uri") or item.get("url") or ""))
+        role = normalize_app_link_role(item.get("role"))
+        if not uri or not role:
+            continue
+        normalized: dict[str, Any] = {"uri": uri, "role": role}
+        label = str(item.get("label") or "").strip()
+        if label:
+            normalized["label"] = label
+        official = normalize_app_link_official(item.get("official"))
+        if official is not None:
+            normalized["official"] = official
+        append_or_merge_app_link(output, normalized)
+    return output
+
+
+def app_link_role_from_resource_url(url: str) -> str:
+    normalized = normalize_url(url)
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower().rstrip("/")
+    if host.startswith("docs."):
+        return "docs"
+    if host.startswith("support.") or host.startswith("help."):
+        return "support"
+    if host.startswith("status."):
+        return "status"
+    for role, prefixes in APP_LINK_RESOURCE_PATH_HINTS:
+        if any(path == prefix or path.startswith(f"{prefix}/") for prefix in prefixes):
+            return role
+    return ""
+
+
+def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
+    normalized = normalize_url(url)
+    if not normalized:
+        return ""
+    if normalized == normalize_url(website_url):
+        return ""
+    if app_link_role_from_resource_url(normalized):
+        return ""
+    if canonical_repo_url(normalized):
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower().rstrip("/")
+    if host.split(".", 1)[0] in APP_LINK_SERVICE_HOST_PREFIXES:
+        return "webApp"
+    if any(path == prefix or path.startswith(f"{prefix}/") for prefix in APP_LINK_SERVICE_PATH_PREFIXES):
+        return "webApp"
+    if website_url and is_same_site_family(website_url, normalized):
+        website_host = urllib.parse.urlparse(normalize_url(website_url)).netloc.lower()
+        host_prefix = host.split(".", 1)[0]
+        if host != website_host and host_prefix not in {"www", "docs", "blog", "status", "support", "help"} and path in {"", "/"}:
+            return "webApp"
+    return ""
+
+
+def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
+    links = normalize_app_links(list(project.get("links", []) or []))
+
+    website_url = normalize_url(str(project.get("website_url") or ""))
+    if website_url:
+        append_or_merge_app_link(links, {"uri": website_url, "role": "website", "official": True})
+
+    source_code_url = canonical_repo_url(str(project.get("source_code_url") or ""))
+    if not source_code_url:
+        source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
+        if source_code_urls:
+            source_code_url = source_code_urls[0]
+    if source_code_url:
+        append_or_merge_app_link(links, {"uri": source_code_url, "role": "sourceCode", "official": True})
+
+    for url in unique_list([normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))]):
+        role = app_link_role_from_service_url(url, website_url=website_url)
+        if role:
+            append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
+
+    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
+        role = app_link_role_from_resource_url(url)
+        if role:
+            append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
+
+    return links
 
 
 def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
@@ -741,6 +892,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "inspired_by": [],
         "tags": [],
         "platforms": [],
+        "links": [],
         "project_state": "",
         "brand_did": "",
         "ownership_signal": "unknown",
@@ -771,6 +923,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "service_status": "unknown",
         "service_status_confidence": "none",
         "service_status_evidence": [],
+        "source_code_url": "",
         "source_code_urls": [],
         "candidate_source_code_urls": [],
         "source_repo_records": [],
@@ -888,7 +1041,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["ownership_signal"] = str(defaults.get("ownership_signal") or "unknown")
     defaults["tags"] = unique_list([str(item).strip() for item in defaults.get("tags", []) if str(item).strip()])
     defaults["platforms"] = unique_list([str(item).strip() for item in defaults.get("platforms", []) if str(item).strip()])
-    defaults["introduced"] = bool(defaults.get("introduced"))
+    defaults["links"] = normalize_app_links(list(defaults.get("links", []) or []))
+    defaults["introduced"] = bool(defaults.get("introduced") or defaults.get("introduced_url"))
     defaults["introduced_url"] = normalize_url(str(defaults.get("introduced_url") or "")) if defaults.get("introduced_url") else ""
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
@@ -919,7 +1073,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["investigation_log"] = list(defaults.get("investigation_log") or [])
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
+    defaults["manual_seeds"] = unique_manual_seeds(defaults.get("manual_seeds", []))
+    defaults["source_code_url"] = canonical_repo_url(str(defaults.get("source_code_url") or ""))
     defaults["source_code_urls"] = normalize_repo_collection(defaults.get("source_code_urls", []))
+    if defaults["source_code_url"] and defaults["source_code_url"] not in defaults["source_code_urls"]:
+        defaults["source_code_urls"] = [defaults["source_code_url"], *defaults["source_code_urls"]]
     defaults["github_repo_urls"] = normalize_repo_collection(defaults.get("github_repo_urls", []), provider="github")
     defaults["tangled_repo_urls"] = normalize_repo_collection(defaults.get("tangled_repo_urls", []), provider="tangled")
     defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
@@ -927,6 +1085,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
     if defaults["status"] == "candidate":
         defaults["status"] = "draft"
+    defaults["lexicon_namespaces"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("lexicon_namespaces", []) if str(item).strip()])
     defaults["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(defaults)
     defaults["lexicon_count"] = len(defaults.get("lexicons", []))
     defaults["external_lexicons"] = unique_list(
@@ -934,6 +1093,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         + compute_external_lexicons(defaults)
     )
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
+    refresh_project_seed_identity(defaults)
     return defaults
 
 
@@ -963,8 +1123,17 @@ def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[
 
 
 def compute_recorded_lexicon_namespaces(project: dict[str, Any]) -> list[str]:
+    explicit_namespaces = unique_list(
+        [
+            normalize_nsid(str(item))
+            for item in list(project.get("recorded_lexicon_namespaces", [])) + list(project.get("lexicon_namespaces", []))
+            if str(item).strip()
+        ]
+    )
     entries = normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
     if not entries:
+        if explicit_namespaces:
+            return explicit_namespaces
         return unique_list([lexicon_namespace_for_project(item) for item in project.get("input_nsids", [])])
 
     grouped: dict[str, list[str]] = {}
@@ -1298,32 +1467,8 @@ def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
-    candidates: list[dict[str, str]] = []
-    current_name = str(project.get("name") or "").strip()
-    if current_name:
-        source = "existing_name"
-        llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
-        if isinstance(llm_output, dict) and str(llm_output.get("name") or "").strip() == current_name:
-            source = "llm_output"
-        candidates.append({"value": current_name, "source": source})
-    return candidates
-
-
 def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
     return unique_list([normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))])
-
-
-def current_candidate_nsids(project: dict[str, Any]) -> list[str]:
-    confirmed = set(current_confirmed_nsids(project))
-    return unique_list(
-        [
-            normalize_nsid(str(item or ""))
-            for item in project.get("input_nsids", [])
-            if normalize_nsid(str(item or "")) and normalize_nsid(str(item or "")) not in confirmed
-        ]
-    )
-
 
 def grouped_payload_field_names(payload: dict[str, Any]) -> set[str]:
     names: set[str] = set()
@@ -1370,10 +1515,20 @@ def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
         core["manual_seeds"] = project.get("manual_seeds")
     if project.get("brand_did"):
         core["brand_did"] = project.get("brand_did")
-    source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
-    if source_code_urls:
-        core["source_code_url"] = source_code_urls[0]
-    lexicon_namespaces = unique_list([str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()])
+    source_code_url = canonical_repo_url(str(project.get("source_code_url") or ""))
+    if not source_code_url:
+        source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
+        if source_code_urls:
+            source_code_url = source_code_urls[0]
+    if source_code_url:
+        core["source_code_url"] = source_code_url
+    lexicon_namespaces = unique_list(
+        [
+            normalize_nsid(str(item))
+            for item in list(project.get("lexicon_namespaces", [])) + list(project.get("recorded_lexicon_namespaces", []))
+            if str(item or "").strip()
+        ]
+    )
     if lexicon_namespaces:
         core["lexicon_namespaces"] = lexicon_namespaces
     if project.get("notes"):
@@ -1386,23 +1541,27 @@ def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
         app["tags"] = project.get("tags")
     if project.get("platforms"):
         app["platforms"] = project.get("platforms")
+    app_links = build_project_app_links(project)
+    if app_links:
+        app["links"] = app_links
     record_payload["app"] = app
 
     return record_payload
 
 
 def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
-    candidate_nsids = current_candidate_nsids(project)
     ops_payload = compact_grouped_payload(OPS_JSON_GROUP_FIELDS, project)
 
     evidence = dict(ops_payload.get("evidence") or {})
-    name_candidates = current_name_candidates(project)
-    if name_candidates and not name_is_safe_for_record(project):
-        evidence["name_candidates"] = name_candidates
-    if candidate_nsids:
-        evidence["candidate_nsids"] = candidate_nsids
-    if project.get("recorded_lexicon_namespaces"):
-        evidence["lexicon_namespaces"] = project.get("recorded_lexicon_namespaces")
+    lexicon_namespaces = unique_list(
+        [
+            normalize_nsid(str(item))
+            for item in list(project.get("lexicon_namespaces", [])) + list(project.get("recorded_lexicon_namespaces", []))
+            if str(item or "").strip()
+        ]
+    )
+    if lexicon_namespaces:
+        evidence["lexicon_namespaces"] = lexicon_namespaces
     if evidence:
         ops_payload["evidence"] = evidence
 
@@ -5061,7 +5220,7 @@ def infer_service_status(status_code: int, text: str) -> str:
     if "private beta" in lowered or "closed beta" in lowered:
         return "beta"
     if "coming soon" in lowered or "under construction" in lowered:
-        return "private"
+        return "unreleased"
     if status_code in {401, 403}:
         return "private"
     if status_code >= 500:
@@ -5081,8 +5240,9 @@ def merge_service_status(current: str, new_value: str) -> str:
         "dead": 3,
         "live": 4,
         "private": 5,
-        "beta": 6,
-        "invite_only": 7,
+        "unreleased": 6,
+        "beta": 7,
+        "invite_only": 8,
     }
     current_value = normalize_service_status(current)
     candidate_value = normalize_service_status(new_value)
@@ -5177,7 +5337,7 @@ def classify_service_probe_result(
         evidence.append("mixed_launch_signals_detected")
         return "unverified", "medium", unique_list(evidence)
     if coming_soon_detected:
-        return "private", "medium", unique_list(evidence)
+        return "unreleased", "medium", unique_list(evidence)
     if status_code in {401, 403}:
         return "private", "low", unique_list(evidence)
     if login_detected or app_shell_detected:
@@ -7183,6 +7343,7 @@ def determine_promoted_status(project: dict[str, Any]) -> str:
         "live": "published",
         "invite_only": "invite_only",
         "beta": "beta",
+        "unreleased": "tracked",
         "dead": "inactive",
         "private": "tracked",
         "none": "tracked",
@@ -7546,6 +7707,7 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         "live": 30,
         "beta": 20,
         "invite_only": 15,
+        "unreleased": 10,
         "unverified": 8,
         "none": 6,
         "unknown": 4,
@@ -8125,9 +8287,10 @@ def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int
         "unverified": 2,
         "none": 3,
         "private": 4,
-        "beta": 5,
-        "invite_only": 6,
-        "live": 7,
+        "unreleased": 5,
+        "beta": 6,
+        "invite_only": 7,
+        "live": 8,
     }.get(normalize_service_status(project.get("service_status")), 1)
     introduced = 1 if project.get("introduced_url") else 0
     confirmed_nsids = len(current_confirmed_nsids(project))

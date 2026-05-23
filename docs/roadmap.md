@@ -29,7 +29,6 @@
 
 将来的には、次の別軸を分けたくなる可能性があります。
 
-- `unreleased`
 - `paused`
 - `unmaintained`
 
@@ -37,6 +36,7 @@
 
 - `service_status`
   - 到達性、公開状態、招待制、死活
+  - `unreleased` まではこの軸に含める
 - `app.status`
   - app record 向けの公開・保守状態
 
@@ -48,16 +48,29 @@
 
 将来、次を追加で整備する余地があります。
 
-- `links[]`
 - `images[]`
 - `langs[]`
 - `lexicons.produces[]`
 - `lexicons.consumes[]`
 - `account_indicators[]`
 
+`links[]` の初期実装は入っていますが、現時点では次の最小 role に限定しています。
+
+- `website`
+- `webApp`
+- `sourceCode`
+- `docs`
+- `support`
+- `status`
+- `privacyPolicy`
+- `termsOfService`
+
+次は必要になった時だけ増やします。
+
 ### 境界項目の再評価
 
 現時点では evidence として扱っているが、将来 app metadata に昇格するかもしれない項目です。
+ただし今は、紹介判断や要約補助に使う材料としての意味が強く、app 側へ急いで寄せる必要はありません。
 
 - `inspired_by`
 - `features`
@@ -72,8 +85,7 @@
 
 ## TODO
 
-- `service_urls` / `resource_urls` を `app.links[]` とどう統合するか決める
-- `service_status` に `unreleased` を追加するか判断する
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
+- `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
 - `inspired_by` を app metadata として昇格させるか再判断する

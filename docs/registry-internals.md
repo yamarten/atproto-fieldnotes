@@ -105,7 +105,8 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - manual service seed の host そのもの
 - `service_status` の決め方:
   - parked domain, `404/410` は `dead`
-  - `401/403` や coming soon は `private`
+  - `401/403` は `private`
+  - coming soon は `unreleased`
   - invite/waitlist 文言は `invite_only`
   - beta 文言は `beta`
   - login surface や app shell が見えれば `live`
@@ -155,6 +156,8 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - `dead`
 - `401/403`
   - `private`
+- coming soon / launching soon
+  - `unreleased`
 - invite / waitlist
   - `invite_only`
 - beta 文言
@@ -547,7 +550,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - `summary`, `tagline`, `manual_seeds`, `brand_did`, `source_code_url`, `lexicon_namespaces`, `notes`
 - `app`
   - app export 向けの確かな metadata
-  - 現時点では主に `tags`, `platforms` など
+  - 現時点では `tags`, `platforms`, `links` を保持
+  - `links` は role を確信できる URL だけを入れる
+  - 正式対応 role は `website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`
   - 情報が無ければ空 object のまま保持する
 
 `ops_json` は判断が揺れるものと運用データです。
@@ -587,7 +592,6 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
-  - `candidate_nsids`
   - `summary_candidates`
   - `tagline_candidates`
 - failure / transient
@@ -736,6 +740,19 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
   - confirmed identifier の数
   - `introduced_url` の有無
 - つまり、より first-party surface が強く、より編集済みで、より confirmed identifier が多い側を target に残しやすいです
+
+## app.status の将来分離
+
+現行の canonical は DB column `service_status` です。
+
+将来的に app export の要件が増えた場合は、次の 2 軸に分ける可能性があります。
+
+- `service_status`
+  - 到達性、公開状態、招待制、死活
+- `app.status`
+  - app record 向けの公開・保守状態
+
+現時点では分離しません。`app.status` が必要になった時点で別 field として導入します。
 
 ## repair-db と storage migration
 
