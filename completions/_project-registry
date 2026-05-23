@@ -67,15 +67,26 @@ _project_registry_common_llm_options() {
     "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
 }
 
-local context state line
+local context state state_descr line
 typeset -A opt_args
 
-if (( CURRENT == 2 )); then
-  _describe -t commands 'project-registry command' subcommands
-  return
-fi
+_arguments -C -S \
+  '1:project-registry command:->command' \
+  '*::argument:->args'
 
-local cmd="${words[2]}"
+case "$state" in
+  command)
+    _describe -t commands 'project-registry command' subcommands
+    return
+    ;;
+  args)
+    ;;
+  *)
+    return
+    ;;
+esac
+
+local cmd="${line[1]}"
 
 case "$cmd" in
   add-seed)
