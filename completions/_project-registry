@@ -271,6 +271,7 @@ case "$cmd" in
       '--max-merges[Optional cap on how many planned merges to execute]:count:' \
       "--mode[Safety level for automatic batch merge planning]:mode:(${merge_modes[*]})" \
       '--bootstrap-collection-creator-heuristic[Temporarily use the first-DID startup heuristic]' \
+      '--interactive[Step through planned merges interactively]' \
       '(-v --verbose)'{-v,--verbose}'[Include skipped pairs in the output]'
     ;;
   assist-db-edit)

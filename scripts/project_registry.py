@@ -10400,6 +10400,8 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
 def cmd_merge_batch(args: argparse.Namespace) -> int:
     conn = open_db()
+    if args.interactive:
+        args.execute = True
     plans, skipped = build_batch_merge_plan(
         conn,
         mode=str(args.mode or "strict"),
@@ -10409,7 +10411,12 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
         plans = plans[: max(0, int(args.max_merges))]
 
     executed: list[dict[str, Any]] = []
-    for plan in plans:
+    apply_all_remaining = False
+    interactive = bool(args.interactive)
+    if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
+        raise ValueError("--interactive requires a TTY")
+
+    for index, plan in enumerate(plans, start=1):
         source = fetch_project(conn, plan["source_project_key"])
         target = fetch_project(conn, plan["target_project_key"])
         if source is None or target is None:
@@ -10447,6 +10454,30 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
             "merged_service_status": merged.get("service_status", ""),
             "reasons": plan["reasons"],
         }
+
+        if interactive and not apply_all_remaining:
+            prompt_payload = {
+                "index": index,
+                "total": len(plans),
+                "source_project_key": source["project_key"],
+                "target_project_key": target["project_key"],
+                "source_name": source.get("name", ""),
+                "target_name": target.get("name", ""),
+                "source_seed_type": source.get("seed_type", ""),
+                "source_seed_value": source.get("seed_value", ""),
+                "target_seed_type": target.get("seed_type", ""),
+                "target_seed_value": target.get("seed_value", ""),
+                "reasons": plan["reasons"],
+            }
+            print(json.dumps(prompt_payload, ensure_ascii=False, indent=2, sort_keys=True))
+            response = input("merge this plan? [y]es/[n]o/[a]ll/[q]uit: ").strip().lower()
+            if response == "q":
+                break
+            if response == "a":
+                apply_all_remaining = True
+            elif response not in {"", "y", "yes"}:
+                continue
+
         executed.append(summary)
 
         if args.execute:
@@ -10889,6 +10920,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
     merge_batch_parser.add_argument("--mode", choices=["strict", "moderate"], default="strict", help="Safety level for automatic batch merge planning.")
     merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
+    merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
     merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
     merge_batch_parser.set_defaults(func=cmd_merge_batch)
 
