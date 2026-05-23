@@ -8,6 +8,7 @@ subcommands=(
   'show:Show registered projects'
   'review-queue:List projects that deserve human review'
   'review-stalled:Suggest lower-frequency tracking or revival'
+  'review-ignore:Suggest low-value fork repos and derivative tools for ignore'
   'import-seed-list:Import a mixed text seed list'
   'sync-introduced:Mark matching projects as introduced from Bluesky posts'
   'sync-github-search:Search GitHub repositories and import repo seeds'
@@ -131,6 +132,13 @@ case "$cmd" in
     _arguments -S \
       '--inactivity-days[Flag projects whose collection activity has been quiet this many days]:days:' \
       '--enrich-age-days[Flag projects not enriched for at least this many days]:days:' \
+      '--execute[Apply the suggested updates]' \
+      '--note[Optional tracking note]:note:'
+    ;;
+  review-ignore)
+    _arguments -S \
+      '--tracking-states+[Restrict review-ignore to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '--limit[Maximum number of candidates to return or apply]:count:' \
       '--execute[Apply the suggested updates]' \
       '--note[Optional tracking note]:note:'
     ;;

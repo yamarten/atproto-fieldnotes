@@ -160,7 +160,7 @@ python3 scripts/project_registry.py sync-github-search --execute --create-unmatc
 python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
-このコマンドは既知 repo を再取り込みしません。`updated_at` が直近 `--lookback-days` 日以内の未知 repo だけを対象にします。
+このコマンドは既知 repo を再取り込みしません。`updated_at` が直近 `--lookback-days` 日以内の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。
 
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
@@ -180,7 +180,7 @@ python3 scripts/project_registry.py sync-github-search \
   --per-page 100
 ```
 
-この時、`screened_out_entries` に落ちたものは DB に作りません。問題なければ `--execute` を付けて本実行します。
+この時、`screened_out_entries` に落ちたものは DB に作りません。現状は GitHub 上で fork と判定され、独立した homepage / service candidate / owned lexicon surface が見えない repo もここで落とします。問題なければ `--execute` を付けて本実行します。
 
 ## merge
 
@@ -278,6 +278,8 @@ python3 scripts/project_registry.py set-tracking-state \
 ```bash
 python3 scripts/project_registry.py review-stalled
 python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-ignore
+python3 scripts/project_registry.py review-ignore --execute
 ```
 
 このコマンドは 3 種類の提案を返します。
@@ -290,6 +292,13 @@ python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich
   - いま `stalled` だが、repo または collection の最近 activity が見えた
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
+
+`review-ignore` は inactivity review とは別で、ノイズ整理用です。現状の候補は次です。
+
+- 独立した website / service / owned lexicon surface が見えない GitHub fork repo
+- owned protocol surface を持たない、低 novelty の Bluesky 従属ツール
+
+このコマンドは既定で `active / watchlist / stable / stalled` を見ます。すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。
 
 ## 紹介候補キュー
 

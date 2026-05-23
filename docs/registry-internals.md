@@ -319,6 +319,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   2. `homepage_exact`
   3. `homepage_family`
 - 自動 attach するのは 1 と 2 だけです
+- `--screen-unmatched` を付けた場合、fork repo は追加で厳しく見ます
+  - GitHub 上で `fork=true`
+  - かつ homepage / service candidate / owned lexicon surface のいずれも見えない
+  - この条件なら `github_fork_without_independent_surface` で新規 project 候補から落とします
 
 ## マージ時の editorial 優先
 
@@ -843,3 +847,20 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
   - `stalled`
 - `stable` / `archived` / `ignore` はこの自動判定の対象外です
 - `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します
+
+## review-ignore
+
+`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。現状の kind は 2 種類です。
+
+- `fork_without_independent_identity`
+  - confirmed な source repo が GitHub fork
+  - `website_url` / `service_urls` / `introduced_url` が無い
+  - owned protocol surface (`resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `collection_observations`) も無い
+  - `service_status=live|beta|invite_only` なら除外
+- `derivative_bluesky_utility`
+  - `service_is_derivative_bluesky_tool()` が真
+  - `introduced_url` が無い
+  - owned protocol surface が無い
+  - `category=lexicon` ではない
+
+目的は「完全な reject ではないが、継続追跡コストに対して registry 上の価値が薄い候補」を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。

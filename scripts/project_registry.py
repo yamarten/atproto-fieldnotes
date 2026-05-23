@@ -1676,6 +1676,18 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
 
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
     normalized = canonical_seed_value(identifier_type, identifier_value)
+    if (
+        str(project.get("seed_type") or "") == identifier_type
+        and canonical_seed_value(identifier_type, str(project.get("seed_value") or "")) == normalized
+    ):
+        return 0, True
+    for item in project.get("manual_seeds", []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("type") or "") != identifier_type:
+            continue
+        if canonical_seed_value(identifier_type, str(item.get("value") or "")) == normalized:
+            return 0, True
     if identifier_type == "service_url":
         if project.get("website_url") and normalize_url(str(project.get("website_url") or "")) == normalized:
             return 0, True
@@ -5099,6 +5111,30 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
     if keyword_hits:
         reasons.append("atproto_keywords")
 
+    fork = bool(repo.get("fork"))
+    fork_parent = repo.get("parent", {}) if isinstance(repo.get("parent", {}), dict) else {}
+    fork_parent_url = normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
+    fork_parent_full_name = str(fork_parent.get("full_name") or "")
+    fork_independent_signals = unique_list(
+        (["repo_homepage"] if homepage else [])
+        + (["owned_lexicon_surface"] if (repo_lexicons or temp_project.get("input_nsids") or temp_project.get("lexicon_schema_samples")) else [])
+        + (["derived_service_candidate"] if (temp_project.get("service_url_candidates") or temp_project.get("website_url_candidates")) else [])
+    )
+    if fork and not fork_independent_signals:
+        return {
+            "allow": False,
+            "reasons": unique_list(["github_fork_without_independent_surface"] + reasons),
+            "keyword_hits": keyword_hits[:12],
+            "lexicon_ids": [str(item.get("nsid") or "") for item in repo_lexicons if item.get("nsid")][:12],
+            "homepage": homepage,
+            "service_url_candidates": unique_list(list(temp_project.get("service_url_candidates", [])))[:10],
+            "fork": True,
+            "fork_parent_url": fork_parent_url,
+            "fork_parent_full_name": fork_parent_full_name,
+        }
+    if fork and fork_independent_signals:
+        reasons.append("github_fork_with_independent_surface")
+
     allow = bool(reasons)
     return {
         "allow": allow,
@@ -5107,6 +5143,9 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
         "lexicon_ids": [str(item.get("nsid") or "") for item in repo_lexicons if item.get("nsid")][:12],
         "homepage": homepage,
         "service_url_candidates": unique_list(list(temp_project.get("service_url_candidates", [])))[:10],
+        "fork": fork,
+        "fork_parent_url": fork_parent_url,
+        "fork_parent_full_name": fork_parent_full_name,
     }
 
 
@@ -6336,16 +6375,32 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
     homepage = str(repo.get("homepage") or "")
     full_name = str(repo.get("full_name") or "")
     repo_updated_at = str(repo.get("updated_at") or "")
+    fork = bool(repo.get("fork"))
+    fork_parent = repo.get("parent", {}) if isinstance(repo.get("parent", {}), dict) else {}
+    fork_parent_url = normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
+    fork_parent_full_name = str(fork_parent.get("full_name") or "")
     confirm_source_code_url(
         project,
         repo_url,
         "github_repo_seed",
-        relation="repo_seed",
-        reason="registered manually as repository seed",
+        relation="fork_repo" if fork else "repo_seed",
+        reason=(
+            f"registered manually as repository seed; GitHub reports fork of {fork_parent_full_name or fork_parent_url}"
+            if fork and (fork_parent_full_name or fork_parent_url)
+            else "registered manually as repository seed"
+        ),
         evidence_kind="manual_seed",
         evidence_url=repo_url,
         updated_at=repo_updated_at,
     )
+    if fork:
+        add_investigation_log(
+            project,
+            "github_repo_fork",
+            repo_url=normalize_url(repo_url),
+            parent_url=fork_parent_url,
+            parent_full_name=fork_parent_full_name,
+        )
     project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalize_url(repo_url))
     if full_name:
         add_name_candidate(project, full_name.split("/")[-1], f"github_repo_name:{full_name}")
@@ -7941,6 +7996,117 @@ def service_is_derivative_bluesky_tool(project: dict[str, Any]) -> bool:
     utility_hits = sum(1 for marker in utility_markers if marker in text_blob)
     novelty_hits = sum(1 for marker in novelty_markers if marker in text_blob)
     return utility_hits >= 2 and novelty_hits == 0
+
+
+def project_has_owned_protocol_surface(project: dict[str, Any]) -> bool:
+    return bool(
+        project.get("resolved_nsids")
+        or project.get("input_nsids")
+        or project.get("recorded_lexicon_namespaces")
+        or project.get("lexicon_namespaces")
+        or project.get("collection_observations")
+    )
+
+
+def project_has_independent_service_surface(project: dict[str, Any]) -> bool:
+    return bool(
+        str(project.get("website_url") or "").strip()
+        or project.get("service_urls")
+        or str(project.get("introduced_url") or "").strip()
+    )
+
+
+def confirmed_github_fork_records(project: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        dict(record)
+        for record in normalize_source_repo_records(project.get("source_repo_records", []))
+        if str(record.get("provider") or "") == "github"
+        and str(record.get("confidence") or "") == "confirmed"
+        and str(record.get("relation") or "") == "fork_repo"
+    ]
+
+
+def fork_without_independent_identity_reasons(project: dict[str, Any]) -> list[str]:
+    fork_records = confirmed_github_fork_records(project)
+    if not fork_records:
+        return []
+    if project_has_independent_service_surface(project):
+        return []
+    if project_has_owned_protocol_surface(project):
+        return []
+    service_status = normalize_service_status(str(project.get("service_status") or "unknown"))
+    if service_status in {"live", "beta", "invite_only"}:
+        return []
+    reasons = [f"confirmed source repo is a GitHub fork: {fork_records[0].get('url') or ''}"]
+    reasons.append("no independent website or service surface")
+    reasons.append("no owned lexicon or collection surface")
+    if service_status:
+        reasons.append(f"service_status={service_status}")
+    return reasons
+
+
+def derivative_bluesky_tool_ignore_reasons(project: dict[str, Any]) -> list[str]:
+    if str(project.get("introduced_url") or "").strip():
+        return []
+    if str(project.get("category") or "") == "lexicon":
+        return []
+    if project_has_owned_protocol_surface(project):
+        return []
+    if not service_is_derivative_bluesky_tool(project):
+        return []
+    reasons = ["derivative Bluesky utility without owned protocol surface"]
+    service_status = normalize_service_status(str(project.get("service_status") or "unknown"))
+    if service_status:
+        reasons.append(f"service_status={service_status}")
+    inspired_by = [str(item or "").strip() for item in project.get("inspired_by", []) if str(item or "").strip()]
+    if inspired_by:
+        reasons.append(f"inspired_by={', '.join(inspired_by[:3])}")
+    return reasons
+
+
+def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
+    tracking_state = str(project.get("tracking_state") or "active")
+    if tracking_state in {"ignore", "archived"}:
+        return None
+    if str(project.get("introduced_url") or "").strip():
+        return None
+
+    fork_reasons = fork_without_independent_identity_reasons(project)
+    derivative_reasons = derivative_bluesky_tool_ignore_reasons(project)
+    if not fork_reasons and not derivative_reasons:
+        return None
+
+    if fork_reasons:
+        kind = "fork_without_independent_identity"
+        reasons = fork_reasons
+    else:
+        kind = "derivative_bluesky_utility"
+        reasons = derivative_reasons
+
+    nsids = unique_list(
+        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
+    )
+    repo_urls = unique_list(
+        [str(item or "") for item in project.get("source_code_urls", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("github_repo_urls", []) if str(item or "").strip()]
+    )
+    return {
+        "project_key": project.get("project_key", ""),
+        "name": project.get("name", ""),
+        "tracking_state": tracking_state,
+        "service_status": normalize_service_status(str(project.get("service_status") or "unknown")),
+        "category": str(project.get("category") or ""),
+        "kind": kind,
+        "seed_type": project.get("seed_type", ""),
+        "seed_value": project.get("seed_value", ""),
+        "website_url": str(project.get("website_url") or ""),
+        "repo_urls": repo_urls,
+        "nsids": nsids,
+        "reasons": reasons,
+        "suggested_tracking_state": "ignore",
+    }
 
 
 def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
@@ -9622,6 +9788,51 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review_ignore(args: argparse.Namespace) -> int:
+    conn = open_db()
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    candidates = [entry for project in project_list if (entry := ignore_review_entry(project))]
+    candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
+    if args.limit:
+        candidates = candidates[: max(1, int(args.limit))]
+    kind_counts: dict[str, int] = {}
+    for item in candidates:
+        kind = str(item.get("kind") or "")
+        kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+
+    if args.execute:
+        updated: list[str] = []
+        note = str(args.note or "auto-updated after review-ignore")
+        for item in candidates:
+            project = fetch_project(conn, str(item.get("project_key") or ""))
+            if not project:
+                continue
+            project["tracking_state"] = "ignore"
+            if note and not str(project.get("tracking_note") or "").strip():
+                project["tracking_note"] = note
+            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            updated.append(project["project_key"])
+        conn.commit()
+        payload = {
+            "mode": "execute",
+            "tracking_states": sorted(tracking_states),
+            "updated_count": len(updated),
+            "updated_project_keys": updated,
+            "kind_counts": kind_counts,
+        }
+    else:
+        payload = {
+            "mode": "dry_run",
+            "tracking_states": sorted(tracking_states),
+            "candidate_count": len(candidates),
+            "kind_counts": kind_counts,
+            "candidates": candidates,
+        }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_set_tracking_state(args: argparse.Namespace) -> int:
     conn = open_db()
     project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
@@ -11135,6 +11346,13 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
     review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
     review_stalled_parser.set_defaults(func=cmd_review_stalled)
+
+    review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest low-value fork repos and derivative companion tools that likely deserve tracking_state=ignore.")
+    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active watchlist stable stalled.")
+    review_ignore_parser.add_argument("--limit", type=int, default=100, help="Maximum number of candidates to return or apply. Default: 100.")
+    review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
+    review_ignore_parser.add_argument("--note", help="Optional tracking note to store when applying ignore updates.")
+    review_ignore_parser.set_defaults(func=cmd_review_ignore)
 
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
     seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")

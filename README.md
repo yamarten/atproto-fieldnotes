@@ -111,7 +111,7 @@ python3 scripts/project_registry.py sync-github-search
 python3 scripts/project_registry.py sync-github-search --execute --create-unmatched
 ```
 
-`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、既知 repo を除いた「`updated_at` が直近 `--lookback-days` 日以内」の未知 repo だけを対象にします。
+`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、既知 repo を除いた「`updated_at` が直近 `--lookback-days` 日以内」の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
 
 1回だけ広く取りたい時は、まず dry-run で lookback を外し、未マッチ repo に対して README/tree/lexicon を見たスクリーニングをかけます。
 
@@ -146,9 +146,13 @@ python3 scripts/project_registry.py repair-db
 ```bash
 python3 scripts/project_registry.py review-stalled
 python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-ignore
+python3 scripts/project_registry.py review-ignore --execute
 ```
 
 `review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
+
+`review-ignore` は別系統で、独立した website / service / owned lexicon surface が見えない GitHub fork repo と、protocol surface を持たない低 novelty の Bluesky 従属ツールを `ignore` 候補として出します。まず dry-run で確認してから `--execute` を付ける前提です。
 
 次に紹介する候補の確認:
 
