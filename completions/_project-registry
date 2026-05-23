@@ -29,7 +29,7 @@ tracking_states=(active watchlist stable stalled archived ignore)
 seed_types=(nsid repo_url service_url)
 llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
-merge_modes=(strict moderate)
+merge_modes=(strict moderate broad)
 review_kinds=(
   merge_needs_human_judgment
   llm_manual_review_recommended

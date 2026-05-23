@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import datetime as dt
 import json
 import os
@@ -241,6 +242,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "external_lexicons",
         "features",
         "inspired_by",
+        "name_candidates",
         "summary_candidates",
         "tagline_candidates",
         "website_url_candidates",
@@ -271,7 +273,6 @@ INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
     "seed_type",
     "seed_value",
     "candidate_nsids",
-    "name_candidates",
 }
 
 MAPPED_LEGACY_FIELDS = {
@@ -283,6 +284,7 @@ MAPPED_LEGACY_FIELDS = {
     "tagline",
     "tagline_is_provisional",
     "summary",
+    "name_candidates",
     "summary_candidates",
     "tagline_candidates",
     "features",
@@ -883,6 +885,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "category": "",
         "app_category": "",
         "name": "",
+        "name_candidates": [],
         "tagline": "",
         "tagline_is_provisional": False,
         "summary": "",
@@ -1034,6 +1037,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_status_confidence"] = normalize_service_status_confidence(defaults.get("service_status_confidence"))
     defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["status"] = str(defaults.get("status") or "draft")
+    defaults["name_candidates"] = [dict(item) for item in defaults.get("name_candidates", []) if isinstance(item, dict)]
     defaults["tagline_is_provisional"] = bool(defaults.get("tagline_is_provisional"))
     defaults["app_category"] = str(defaults.get("app_category") or "")
     defaults["project_state"] = str(defaults.get("project_state") or "")
@@ -1568,6 +1572,39 @@ def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
     return ops_payload
 
 
+def build_project_comparison_payload(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    scalar_fields = (
+        "name",
+        "website_url",
+        "service_status",
+        "tracking_state",
+        "introduced_url",
+        "first_seen_at",
+        "last_seen_at",
+    )
+    scalar_comparison: dict[str, dict[str, Any]] = {}
+    for field in scalar_fields:
+        scalar_comparison[field] = {
+            "source": source.get(field),
+            "target": target.get(field),
+        }
+
+    record_source = project_record_payload(source)
+    record_target = project_record_payload(target)
+    core_source = dict(record_source.get("core", {}))
+    core_target = dict(record_target.get("core", {}))
+    core_source.pop("tagline_is_provisional", None)
+    core_target.pop("tagline_is_provisional", None)
+
+    return {
+        "scalars": scalar_comparison,
+        "core": {
+            "source": core_source,
+            "target": core_target,
+        },
+    }
+
+
 def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] | None:
     row = conn.execute(
         "SELECT * FROM projects WHERE project_key = ?",
@@ -1981,6 +2018,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["investigation_log"] = list(project.get("investigation_log", []))
     project["last_run_errors"] = unique_list(project.get("last_run_errors", []))
     project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])))
+    project["name_candidates"] = [dict(item) for item in project.get("name_candidates", []) if isinstance(item, dict)]
     project["tags"] = unique_list(project.get("tags", []))
     project["platforms"] = unique_list(project.get("platforms", []))
     project["introduced"] = bool(project.get("introduced"))
@@ -2118,8 +2156,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
                 add_candidate_url(project, "website_url", candidate_url)
                 add_candidate_url(project, "service_url", candidate_url)
-        if not project.get("name"):
-            project["name"] = normalized_nsid.split(".")[-1]
+        add_name_candidate(project, normalized_nsid.split(".")[-1], f"seed:nsid:{normalized_nsid}")
     elif seed_type == "repo_url":
         normalized = canonical_repo_url(seed_value)
         if not normalized:
@@ -2127,8 +2164,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             add_candidate_url(project, "service_url", normalized)
             add_candidate_url(project, "website_url", normalized)
             project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
-            if not project.get("name"):
-                project["name"] = service_seed_name_hint(normalized)
+            add_name_candidate(project, service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
             return
         project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
@@ -2137,17 +2173,15 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
         elif parsed.netloc == "tangled.org":
             project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
-        if not project.get("name"):
-            segments = [segment for segment in parsed.path.split("/") if segment]
-            if segments:
-                project["name"] = segments[-1]
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if segments:
+            add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
     else:
         normalized = normalize_url(seed_value)
         add_candidate_url(project, "service_url", normalized)
         add_candidate_url(project, "website_url", normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
-        if not project.get("name"):
-            project["name"] = service_seed_name_hint(normalized)
+        add_name_candidate(project, service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
 
 def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
@@ -2826,6 +2860,106 @@ def service_seed_name_hint(url: str) -> str:
     return host or normalized
 
 
+def normalize_name_candidate(value: str) -> str:
+    text = clean_title(str(value or "").strip())
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text).strip(" -_:|")
+    if not text:
+        return ""
+    if text.startswith("http://") or text.startswith("https://"):
+        normalized_url = normalize_url(text)
+        if normalized_url:
+            return urllib.parse.urlparse(normalized_url).netloc.lower()
+    if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", text.lower()):
+        return text.lower()
+    return text[:80].strip()
+
+
+def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None:
+    normalized = normalize_name_candidate(value)
+    if not normalized:
+        return
+    add_candidate_text(project, "name", normalized, source)
+
+
+def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    current_name = normalize_name_candidate(str(project.get("name") or ""))
+    if current_name:
+        candidates.append({"value": current_name, "source": "existing_name"})
+        seen.add((current_name, "existing_name"))
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        value = normalize_name_candidate(str(item.get("value") or ""))
+        source = str(item.get("source") or "").strip()
+        if not value or not source:
+            continue
+        key = (value, source)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append({"value": value, "source": source})
+    return candidates
+
+
+def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> tuple[int, int, int, int, str]:
+    value = normalize_name_candidate(str(candidate.get("value") or ""))
+    source = str(candidate.get("source") or "")
+    lowered = value.lower()
+    normalized_token = normalize_alias_token(value)
+    source_rank = 10
+    if source.startswith("service_title:"):
+        source_rank = 90
+    elif source == "llm_output":
+        source_rank = 80
+    elif source.startswith("resource_title:"):
+        source_rank = 70
+    elif source.startswith("github_repo_name:") or source.startswith("repo_name:"):
+        source_rank = 60
+    elif source == "existing_name":
+        source_rank = 50
+    elif source.startswith("lexicon_name:"):
+        source_rank = 30
+    elif source.startswith("seed:"):
+        source_rank = 20
+
+    quality = 0
+    if " " in value:
+        quality += 6
+    if len(value) >= 4:
+        quality += 3
+    if len(value) > 40:
+        quality -= 4
+    if "." in lowered and " " not in value:
+        quality -= 8
+    if normalized_token in GENERIC_NSID_NAME_TOKENS:
+        quality -= 12
+
+    identity_bonus = 0
+    identity_tokens = project_identity_anchor_tokens(project)
+    if normalized_token and normalized_token in identity_tokens:
+        identity_bonus += 8
+    host_bonus = 0
+    for host in ownership_anchor_service_hosts(project):
+        host_token = normalize_alias_token(host)
+        if host_token and normalized_token and host_token == normalized_token:
+            host_bonus = 6
+            break
+
+    return (source_rank, identity_bonus, host_bonus, quality, value.lower())
+
+
+def choose_best_project_name(project: dict[str, Any]) -> str:
+    candidates = current_name_candidates(project)
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda item: name_candidate_score(project, item))
+    return normalize_name_candidate(str(best.get("value") or ""))
+
+
 def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     raw_values = [
@@ -2915,6 +3049,96 @@ def set_project_tagline(project: dict[str, Any], value: str, *, provisional: boo
         return
     project["tagline"] = normalized
     project["tagline_is_provisional"] = bool(provisional)
+
+
+def add_tagline_candidate(project: dict[str, Any], value: str, source: str, *, provisional: bool | None = None) -> None:
+    normalized = normalize_tagline(value)
+    if not normalized:
+        return
+    candidates = project.get("tagline_candidates", [])
+    if any(
+        isinstance(item, dict)
+        and str(item.get("value") or "") == normalized
+        and str(item.get("source") or "") == source
+        for item in candidates
+    ):
+        return
+    candidate = {
+        "value": normalized,
+        "source": source,
+        "status": "candidate",
+        "added_at": iso_now(),
+    }
+    if provisional is not None:
+        candidate["provisional"] = bool(provisional)
+    candidates.append(candidate)
+    project["tagline_candidates"] = candidates
+
+
+def merge_project_tagline(project: dict[str, Any], value: str, *, provisional: bool) -> None:
+    normalized = normalize_tagline(value)
+    if not normalized:
+        return
+    existing = normalize_tagline(str(project.get("tagline") or ""))
+    existing_provisional = bool(project.get("tagline_is_provisional"))
+    if not existing:
+        set_project_tagline(project, normalized, provisional=provisional)
+        return
+    if existing == normalized:
+        if existing_provisional and not provisional:
+            project["tagline_is_provisional"] = False
+        return
+    if not existing_provisional:
+        return
+    if provisional:
+        return
+    set_project_tagline(project, normalized, provisional=False)
+
+
+def tokenize_human_text(value: str) -> set[str]:
+    text = normalize_ja_en_mixed_spacing(str(value or "").strip()).lower()
+    if not text:
+        return set()
+    return {token for token in re.findall(r"[a-z0-9]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text) if token}
+
+
+def merge_summary_value(current: str, new_value: str) -> str:
+    current_text = normalize_ja_en_mixed_spacing(str(current or "").strip())
+    new_text = normalize_ja_en_mixed_spacing(str(new_value or "").strip())
+    if not new_text:
+        return current_text
+    if not current_text:
+        return new_text
+    if current_text == new_text:
+        return current_text
+    current_tokens = tokenize_human_text(current_text)
+    new_tokens = tokenize_human_text(new_text)
+    if current_tokens and new_tokens:
+        overlap = len(current_tokens & new_tokens) / max(1, len(current_tokens | new_tokens))
+        if overlap >= 0.6:
+            return current_text
+    if len(new_text) >= len(current_text) + 40 and len(new_tokens) > len(current_tokens):
+        return new_text
+    return current_text
+
+
+def merge_feature_list(current: list[str], new_values: list[str]) -> list[str]:
+    current_values = clean_human_string_list(current, limit=6)
+    candidate_values = clean_human_string_list(new_values, limit=6)
+    if not candidate_values:
+        return current_values
+    if not current_values:
+        return candidate_values
+    current_set = set(current_values)
+    candidate_set = set(candidate_values)
+    if current_set == candidate_set:
+        return current_values
+    overlap = len(current_set & candidate_set) / max(1, len(current_set | candidate_set))
+    if overlap >= 0.6:
+        return current_values
+    if current_set.issubset(candidate_set):
+        return candidate_values
+    return current_values
 
 
 def normalize_github_repo_url(url: str) -> str | None:
@@ -6079,8 +6303,7 @@ def enrich_from_lexicon(project: dict[str, Any], nsid: str) -> None:
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
     upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
-    if not project.get("name"):
-        project["name"] = resolved_nsid.split(".")[-1]
+    add_name_candidate(project, resolved_nsid.split(".")[-1], f"lexicon_name:{resolved_nsid}")
 
 
 def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
@@ -6104,8 +6327,8 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
         updated_at=repo_updated_at,
     )
     project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalize_url(repo_url))
-    if full_name and not project.get("name"):
-        project["name"] = full_name.split("/")[-1]
+    if full_name:
+        add_name_candidate(project, full_name.split("/")[-1], f"github_repo_name:{full_name}")
     add_candidate_text(project, "summary", description, f"github:{full_name or normalize_url(repo_url)}")
     add_candidate_text(project, "tagline", description, f"github:{full_name or normalize_url(repo_url)}")
     if homepage:
@@ -6186,8 +6409,8 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
     description = result["description"]
     supported = service_probe_supports_project(project, service_url, result)
     host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
-    if title and not project.get("name") and host not in GENERIC_PLATFORM_HOSTS:
-        project["name"] = title
+    if title and host not in GENERIC_PLATFORM_HOSTS:
+        add_name_candidate(project, title, f"service_title:{normalize_url(service_url)}")
     if supported:
         add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
         add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
@@ -6249,6 +6472,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
         title = clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
+            add_name_candidate(project, title, f"resource_title:{normalized_resource_url}")
             add_candidate_text(project, "tagline", title, f"resource_meta:{normalized_resource_url}")
         if description:
             add_candidate_text(project, "summary", description, f"resource_meta:{normalized_resource_url}")
@@ -6271,6 +6495,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             nested_title = clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
+                add_name_candidate(project, nested_title, f"resource_title:{normalized_follow_url}")
                 add_candidate_text(project, "tagline", nested_title, f"resource_follow_up:{normalized_follow_url}")
             if nested_description:
                 add_candidate_text(project, "summary", nested_description, f"resource_follow_up:{normalized_follow_url}")
@@ -7254,16 +7479,21 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["last_llm_review_at"] = str(meta.get("generated_at") or iso_now())
     name = str(payload.get("name") or "").strip()
     if name:
-        project["name"] = name
+        add_name_candidate(project, name, "llm_output")
     if payload.get("tagline"):
         explicit_provisional = payload.get("tagline_is_provisional")
-        set_project_tagline(
+        resolved_provisional = True if explicit_provisional is None else bool(explicit_provisional)
+        add_tagline_candidate(project, str(payload.get("tagline") or ""), "llm_output", provisional=resolved_provisional)
+        merge_project_tagline(
             project,
             str(payload.get("tagline") or ""),
-            provisional=True if explicit_provisional is None else bool(explicit_provisional),
+            provisional=resolved_provisional,
         )
-    project["summary"] = normalize_ja_en_mixed_spacing(str(payload.get("summary") or "").strip())
-    project["features"] = clean_human_string_list(payload.get("features"), limit=6)
+    llm_summary = normalize_ja_en_mixed_spacing(str(payload.get("summary") or "").strip())
+    if llm_summary:
+        add_candidate_text(project, "summary", llm_summary, "llm_output")
+    project["summary"] = merge_summary_value(str(project.get("summary") or ""), llm_summary)
+    project["features"] = merge_feature_list(list(project.get("features", [])), clean_human_string_list(payload.get("features"), limit=6))
     project["inspired_by"] = clean_human_string_list(payload.get("inspired_by"), limit=6)
     project["category"] = str(payload.get("category") or "").strip()
     project["classification_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
@@ -8269,6 +8499,34 @@ def batch_moderate_overlap(
     return reasons
 
 
+def batch_broad_overlap(
+    project_a: dict[str, Any],
+    project_b: dict[str, Any],
+    recommendation: dict[str, Any],
+    *,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> dict[str, list[str]]:
+    reasons = batch_moderate_overlap(
+        project_a,
+        project_b,
+        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+    )
+    if reasons:
+        return reasons
+    if merge_is_blocked(project_a, project_b):
+        return {}
+    recommendation_reasons = recommendation.get("reasons", {})
+    if not isinstance(recommendation_reasons, dict):
+        return {}
+    normalized: dict[str, list[str]] = {}
+    for key, values in recommendation_reasons.items():
+        if isinstance(values, list):
+            normalized_values = [str(value) for value in values if str(value).strip()]
+            if normalized_values:
+                normalized[str(key)] = normalized_values
+    return normalized
+
+
 def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int, int, int]:
     seed_types = {str(item.get("type") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)}
     service_seed = 1 if "service_url" in seed_types else 0
@@ -8381,15 +8639,21 @@ def build_batch_merge_plan(
                 )
             )
             continue
-        safe_reasons = (
-            batch_strict_overlap(project, target)
-            if mode == "strict"
-            else batch_moderate_overlap(
+        if mode == "strict":
+            safe_reasons = batch_strict_overlap(project, target)
+        elif mode == "moderate":
+            safe_reasons = batch_moderate_overlap(
                 project,
                 target,
                 bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
             )
-        )
+        else:
+            safe_reasons = batch_broad_overlap(
+                project,
+                target,
+                recommendation,
+                bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+            )
         if not safe_reasons:
             skipped.append(
                 attach_batch_entry_seed_fields(
@@ -8679,6 +8943,9 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         unique_list(project.get("tangled_repo_urls", []) + [record["url"] for record in project["source_repo_records"] if record.get("provider") == "tangled" and record.get("confidence") == "confirmed"]),
         provider="tangled",
     )
+    chosen_name = choose_best_project_name(project)
+    if chosen_name:
+        project["name"] = chosen_name
     if not project.get("primary_nsid") and project.get("input_nsids"):
         project["primary_nsid"] = project["input_nsids"][0]
     if not project.get("name"):
@@ -10335,19 +10602,50 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
     conn = open_db()
     if args.interactive:
         args.execute = True
+    effective_mode = str(args.mode or ("moderate" if args.interactive else "strict"))
     plans, skipped = build_batch_merge_plan(
         conn,
-        mode=str(args.mode or "strict"),
+        mode=effective_mode,
         bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
     )
     if args.max_merges is not None:
         plans = plans[: max(0, int(args.max_merges))]
 
     executed: list[dict[str, Any]] = []
-    apply_all_remaining = False
+    blocked_pairs: list[dict[str, Any]] = []
+    ignored_projects: list[dict[str, Any]] = []
+    undo_stack: list[dict[str, Any]] = []
     interactive = bool(args.interactive)
     if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
         raise ValueError("--interactive requires a TTY")
+
+    def undo_last_interactive_action() -> bool:
+        if not undo_stack:
+            print(json.dumps({"undo": "noop", "reason": "no_previous_action"}, ensure_ascii=False))
+            return False
+        entry = undo_stack.pop()
+        save_project(conn, entry["source_before"], enriched=bool(entry["source_before"].get("last_enriched_at")))
+        save_project(conn, entry["target_before"], enriched=bool(entry["target_before"].get("last_enriched_at")))
+        conn.commit()
+        kind = str(entry.get("kind") or "")
+        if kind == "merge" and executed:
+            executed.pop()
+        elif kind == "block" and blocked_pairs:
+            blocked_pairs.pop()
+        elif kind in {"ignore_source", "ignore_target"} and ignored_projects:
+            ignored_projects.pop()
+        print(
+            json.dumps(
+                {
+                    "undo": "ok",
+                    "kind": kind,
+                    "source_project_key": entry["source_before"].get("project_key", ""),
+                    "target_project_key": entry["target_before"].get("project_key", ""),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return True
 
     for index, plan in enumerate(plans, start=1):
         source = fetch_project(conn, plan["source_project_key"])
@@ -10388,7 +10686,7 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
             "reasons": plan["reasons"],
         }
 
-        if interactive and not apply_all_remaining:
+        if interactive:
             prompt_payload = {
                 "index": index,
                 "total": len(plans),
@@ -10403,30 +10701,139 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
                 "reasons": plan["reasons"],
             }
             print(json.dumps(prompt_payload, ensure_ascii=False, indent=2, sort_keys=True))
-            response = input("merge this plan? [y]es/[n]o/[a]ll/[q]uit: ").strip().lower()
-            if response == "q":
+            details_payload = {
+                "projects": build_project_comparison_payload(source, target),
+            }
+            while True:
+                response = input("merge this plan? [y]es/[n]o/[d]etails/[b]lock/[i]gnore-source/[t]ignore-target/[u]ndo/[q]uit: ").strip().lower()
+                if response in {"", "y", "yes"}:
+                    break
+                if response in {"n", "no"}:
+                    summary["skipped_interactively"] = True
+                    break
+                if response in {"d", "detail", "details"}:
+                    print(json.dumps(details_payload, ensure_ascii=False, indent=2, sort_keys=True))
+                    continue
+                if response in {"b", "block"}:
+                    source_before = copy.deepcopy(source)
+                    target_before = copy.deepcopy(target)
+                    source["separate_project_keys"] = unique_list(list(source.get("separate_project_keys", [])) + [target["project_key"]])
+                    target["separate_project_keys"] = unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+                    source["duplicate_candidates"] = compute_duplicate_candidates(conn, source)
+                    source["merge_recommendation"] = compute_merge_recommendation(source)
+                    target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
+                    target["merge_recommendation"] = compute_merge_recommendation(target)
+                    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+                    save_project(conn, target, enriched=bool(target.get("last_enriched_at")))
+                    conn.commit()
+                    undo_stack.append(
+                        {
+                            "kind": "block",
+                            "source_before": source_before,
+                            "target_before": target_before,
+                        }
+                    )
+                    blocked_pairs.append(
+                        {
+                            "source_project_key": source["project_key"],
+                            "target_project_key": target["project_key"],
+                            "source_seed_type": source.get("seed_type", ""),
+                            "source_seed_value": source.get("seed_value", ""),
+                            "target_seed_type": target.get("seed_type", ""),
+                            "target_seed_value": target.get("seed_value", ""),
+                        }
+                    )
+                    summary["blocked_interactively"] = True
+                    break
+                if response in {"i", "ignore-source"}:
+                    source_before = copy.deepcopy(source)
+                    target_before = copy.deepcopy(target)
+                    source["tracking_state"] = "ignore"
+                    if not str(source.get("tracking_note") or "").strip():
+                        source["tracking_note"] = f"ignored during interactive merge-batch against {target['project_key']}"
+                    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+                    conn.commit()
+                    undo_stack.append(
+                        {
+                            "kind": "ignore_source",
+                            "source_before": source_before,
+                            "target_before": target_before,
+                        }
+                    )
+                    ignored_projects.append(
+                        {
+                            "project_key": source["project_key"],
+                            "seed_type": source.get("seed_type", ""),
+                            "seed_value": source.get("seed_value", ""),
+                            "tracking_state": "ignore",
+                        }
+                    )
+                    summary["ignored_interactively"] = "source"
+                    break
+                if response in {"t", "ignore-target"}:
+                    source_before = copy.deepcopy(source)
+                    target_before = copy.deepcopy(target)
+                    target["tracking_state"] = "ignore"
+                    if not str(target.get("tracking_note") or "").strip():
+                        target["tracking_note"] = f"ignored during interactive merge-batch against {source['project_key']}"
+                    save_project(conn, target, enriched=bool(target.get("last_enriched_at")))
+                    conn.commit()
+                    undo_stack.append(
+                        {
+                            "kind": "ignore_target",
+                            "source_before": source_before,
+                            "target_before": target_before,
+                        }
+                    )
+                    ignored_projects.append(
+                        {
+                            "project_key": target["project_key"],
+                            "seed_type": target.get("seed_type", ""),
+                            "seed_value": target.get("seed_value", ""),
+                            "tracking_state": "ignore",
+                        }
+                    )
+                    summary["ignored_interactively"] = "target"
+                    break
+                if response in {"u", "undo"}:
+                    undo_last_interactive_action()
+                    continue
+                if response in {"q", "quit"}:
+                    summary["quit_interactively"] = True
+                    response = "q"
+                    break
+            if summary.get("quit_interactively"):
                 break
-            if response == "a":
-                apply_all_remaining = True
-            elif response not in {"", "y", "yes"}:
+            if summary.get("blocked_interactively") or summary.get("skipped_interactively") or summary.get("ignored_interactively"):
                 continue
 
         executed.append(summary)
 
         if args.execute:
+            source_before = copy.deepcopy(source)
+            target_before = copy.deepcopy(target)
             save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
             delete_project(conn, source["project_key"])
             conn.commit()
+            undo_stack.append(
+                {
+                    "kind": "merge",
+                    "source_before": source_before,
+                    "target_before": target_before,
+                }
+            )
 
     print(
         json.dumps(
             ({
                 "mode": "execute" if args.execute else "dry_run",
-                "merge_mode": str(args.mode or "strict"),
+                "merge_mode": effective_mode,
                 "bootstrap_collection_creator_heuristic": bool(args.bootstrap_collection_creator_heuristic),
                 "planned_merges": len(plans),
                 "executed_merges": len(executed),
                 "executed": executed,
+                "blocked_pairs": blocked_pairs,
+                "ignored_projects": ignored_projects,
             } | (
                 {
                     "skipped_count": len(skipped),
@@ -10835,7 +11242,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser = subparsers.add_parser("merge-batch", help="Batch-merge only high-safety duplicate pairs.")
     merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")
     merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
-    merge_batch_parser.add_argument("--mode", choices=["strict", "moderate"], default="strict", help="Safety level for automatic batch merge planning.")
+    merge_batch_parser.add_argument("--mode", choices=["strict", "moderate", "broad"], default=None, help="Safety level for automatic batch merge planning. Default: strict, or moderate when --interactive is set.")
     merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
     merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
     merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
