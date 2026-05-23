@@ -133,6 +133,7 @@ case "$cmd" in
       '--inactivity-days[Flag projects whose collection activity has been quiet this many days]:days:' \
       '--enrich-age-days[Flag projects not enriched for at least this many days]:days:' \
       '--execute[Apply the suggested updates]' \
+      '--interactive[Step through stalled-review candidates interactively]' \
       '--note[Optional tracking note]:note:'
     ;;
   review-ignore)
@@ -140,7 +141,9 @@ case "$cmd" in
       '--tracking-states+[Restrict review-ignore to these tracking states]:tracking states:_project_registry_tracking_states' \
       '--limit[Maximum number of candidates to return or apply]:count:' \
       '--execute[Apply the suggested updates]' \
-      '--note[Optional tracking note]:note:'
+      '--interactive[Step through ignore candidates interactively]' \
+      "--note[Optional tracking note]:note:" \
+      '--note-reason[Preset note category]:reason:(atproto_unrelated out_of_scope personal_experiment derivative_utility fork_without_identity other)'
     ;;
   import-seed-list)
     _arguments -S \

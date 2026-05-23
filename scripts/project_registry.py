@@ -20,7 +20,7 @@ import uuid
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     import tldextract  # type: ignore
@@ -207,7 +207,9 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "project_state",
         "ownership_signal",
         "tracking_note",
+        "dismissed_review_kinds",
         "manual_review_recommended",
+        "manual_review_kind",
         "manual_review_priority",
         "manual_review_reason",
         "promotion_ready",
@@ -338,7 +340,9 @@ MAPPED_LEGACY_FIELDS = {
     "classification_reason",
     "exclude_reason",
     "watch_reason",
+    "dismissed_review_kinds",
     "manual_review_recommended",
+    "manual_review_kind",
     "manual_review_priority",
     "manual_review_reason",
     "confidence",
@@ -940,7 +944,9 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "classification_reason": "",
         "exclude_reason": "",
         "watch_reason": "",
+        "dismissed_review_kinds": [],
         "manual_review_recommended": False,
+        "manual_review_kind": "other",
         "manual_review_priority": "none",
         "manual_review_reason": "",
         "confidence": 0.0,
@@ -1037,6 +1043,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_status_confidence"] = normalize_service_status_confidence(defaults.get("service_status_confidence"))
     defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["status"] = str(defaults.get("status") or "draft")
+    defaults["dismissed_review_kinds"] = unique_list([str(item).strip() for item in defaults.get("dismissed_review_kinds", []) if str(item).strip()])
     defaults["name_candidates"] = [dict(item) for item in defaults.get("name_candidates", []) if isinstance(item, dict)]
     defaults["tagline_is_provisional"] = bool(defaults.get("tagline_is_provisional"))
     defaults["app_category"] = str(defaults.get("app_category") or "")
@@ -1051,6 +1058,16 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
     defaults["manual_review_recommended"] = bool(defaults.get("manual_review_recommended"))
+    defaults["manual_review_kind"] = str(defaults.get("manual_review_kind") or "other").strip().lower() or "other"
+    if defaults["manual_review_kind"] not in {
+        "other",
+        "editorial_refresh",
+        "deep_source_material",
+        "service_status_manual_check",
+        "identity_resolution",
+        "category_recheck",
+    }:
+        defaults["manual_review_kind"] = "other"
     defaults["manual_review_priority"] = str(defaults.get("manual_review_priority") or "none").strip().lower() or "none"
     if defaults["manual_review_priority"] not in {"none", "low", "medium", "high"}:
         defaults["manual_review_priority"] = "none"
@@ -3192,14 +3209,15 @@ def normalize_tangled_repo_url(url: str) -> str | None:
     segments = [segment for segment in parsed.path.split("/") if segment]
     if not segments:
         return None
-    if parsed.netloc == "tangled.sh" and segments[0].startswith("@"):
+    if segments[0].startswith("@"):
         segments = [segments[0].lstrip("@"), *segments[1:]]
     if len(segments) < 2:
         return None
     owner, repo = segments[0], segments[1]
     if any(segment in {"issues", "pulls", "pull", "brand", "search", "about", "blob", "tree"} for segment in (owner, repo)):
         return None
-    if not STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
+    owner_is_valid = bool(STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or owner.startswith("did:plc:"))
+    if not owner_is_valid or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
         return None
     return f"https://tangled.org/{owner}/{repo}"
 
@@ -4143,6 +4161,46 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
     apply_seed_to_project(project, seed_type, normalized_value)
     if source:
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), source)
+
+
+def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: str) -> str:
+    normalized = normalize_url(service_url)
+    if not normalized:
+        return ""
+    add_manual_seed(project, "service_url", normalized, source=source)
+    if service_url_allowed_for_project(project, normalized, confirmed=True):
+        if not str(project.get("website_url") or "").strip():
+            project["website_url"] = normalized
+        project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
+    project["service_url_candidates"] = [
+        item for item in project.get("service_url_candidates", [])
+        if normalize_url(str(item or "")) != normalized
+    ]
+    project["website_url_candidates"] = [
+        item for item in project.get("website_url_candidates", [])
+        if normalize_url(str(item or "")) != normalized
+    ]
+    return normalized
+
+
+def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) -> str:
+    normalized = canonical_repo_url(repo_url)
+    if not normalized:
+        return ""
+    add_manual_seed(project, "repo_url", normalized, source=source)
+    if repo_url_allowed_for_project(project, normalized):
+        project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+        parsed = urllib.parse.urlparse(normalized)
+        if parsed.netloc == "github.com":
+            project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
+        elif parsed.netloc in {"tangled.org", "tangled.sh"}:
+            project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
+    project["candidate_source_code_urls"] = [
+        item for item in project.get("candidate_source_code_urls", [])
+        if canonical_repo_url(str(item or "")) != normalized
+    ]
+    return normalized
 
 
 def all_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -7575,6 +7633,19 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["exclude_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
     project["manual_review_recommended"] = bool(payload.get("manual_review_recommended"))
+    manual_review_kind = str(payload.get("manual_review_kind") or "other").strip().lower()
+    project["manual_review_kind"] = (
+        manual_review_kind
+        if manual_review_kind in {
+            "other",
+            "editorial_refresh",
+            "deep_source_material",
+            "service_status_manual_check",
+            "identity_resolution",
+            "category_recheck",
+        }
+        else "other"
+    )
     manual_review_priority = str(payload.get("manual_review_priority") or "none").strip().lower()
     project["manual_review_priority"] = manual_review_priority if manual_review_priority in {"none", "low", "medium", "high"} else "none"
     project["manual_review_reason"] = sanitize_manual_review_reason(project, str(payload.get("manual_review_reason") or "").strip())
@@ -7750,6 +7821,39 @@ def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
     return unique_list(hints + manual_repo_hints)
 
 
+def project_service_hint_urls(project: dict[str, Any]) -> list[str]:
+    confirmed = {
+        normalize_url(str(item or ""))
+        for item in ([project.get("website_url")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        if normalize_url(str(item or ""))
+    }
+    failed = {
+        normalize_url(str(item or ""))
+        for item in project.get("failed_service_urls", [])
+        if normalize_url(str(item or ""))
+    }
+    hints = unique_list(
+        [str(item or "") for item in project.get("service_url_candidates", [])]
+        + [str(item or "") for item in project.get("website_url_candidates", [])]
+    )
+    normalized_hints = [
+        normalize_url(str(item or ""))
+        for item in hints
+        if normalize_url(str(item or ""))
+        and normalize_url(str(item or "")) not in confirmed
+        and normalize_url(str(item or "")) not in failed
+    ]
+    manual_service_hints: list[str] = []
+    for item in project.get("manual_seeds", []):
+        if not isinstance(item, dict) or str(item.get("type") or "") != "service_url":
+            continue
+        normalized_value = normalize_url(str(item.get("value") or "").strip())
+        if normalized_value and normalized_value not in confirmed and normalized_value not in failed:
+            manual_service_hints.append(normalized_value)
+    return unique_list(normalized_hints + manual_service_hints)
+
+
 def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
     text = normalize_ja_en_mixed_spacing(str(reason or "").strip())
     if not text:
@@ -7766,8 +7870,11 @@ def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
 def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
     signals: list[dict[str, Any]] = []
+    dismissed_kinds = {str(item).strip() for item in shaped.get("dismissed_review_kinds", []) if str(item).strip()}
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
     service_status = str(shaped.get("service_status") or "unknown")
+    service_confidence = str(shaped.get("service_status_confidence") or "none")
+    service_evidence = {str(item) for item in shaped.get("service_status_evidence", []) if str(item).strip()}
     confirmed_identifier_count = project_confirmed_identifier_count(shaped)
     service_candidates = unique_list(
         ([str(shaped.get("website_url") or "")] if shaped.get("website_url") else [])
@@ -7776,20 +7883,34 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
         + [str(item or "") for item in shaped.get("website_url_candidates", [])]
     )
     repo_candidates = project_repo_hint_urls(shaped)
+    standalone_service_candidates = project_service_hint_urls(shaped)
     nsid_count = len(unique_list(
         ([str(shaped.get("primary_nsid") or "")] if shaped.get("primary_nsid") else [])
         + [str(item or "") for item in shaped.get("input_nsids", [])]
         + [str(item or "") for item in shaped.get("resolved_nsids", [])]
     ))
-    if shaped.get("manual_review_recommended"):
+    if shaped.get("manual_review_recommended") and str(shaped.get("manual_review_kind") or "other") != "other":
         llm_priority = {"none": 0, "low": 4, "medium": 7, "high": 9}.get(str(shaped.get("manual_review_priority") or "none"), 4)
         signals.append(
             {
                 "kind": "llm_manual_review_recommended",
                 "priority": llm_priority,
                 "details": {
+                    "manual_review_kind": str(shaped.get("manual_review_kind") or "other"),
                     "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
                     "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
+                },
+            }
+        )
+
+    if not shaped.get("website_url") and standalone_service_candidates:
+        signals.append(
+            {
+                "kind": "service_candidate_needs_confirmation",
+                "priority": 8,
+                "details": {
+                    "service_candidate_count": len(standalone_service_candidates),
+                    "service_candidates": standalone_service_candidates[:3],
                 },
             }
         )
@@ -7837,17 +7958,66 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    duplicate_candidates = [dict(item) for item in shaped.get("duplicate_candidates", []) if isinstance(item, dict)]
-    recommendation = dict(shaped.get("merge_recommendation") or {})
-    if recommendation.get("ambiguous_with") or len(duplicate_candidates) >= 3:
+    latest_activity = project_latest_activity_at(shaped)
+    now = dt.datetime.now(dt.timezone.utc)
+    activity_days = activity_age_days(latest_activity, now)
+    editorial_missing = not str(shaped.get("tagline") or "").strip() or not str(shaped.get("summary") or "").strip()
+    if activity_days is not None and activity_days <= 14 and (editorial_missing or service_status in {"unknown", "unverified"}):
         signals.append(
             {
-                "kind": "merge_needs_human_judgment",
+                "kind": "stale_metadata_with_recent_activity",
+                "priority": 7,
+                "details": {
+                    "activity_age_days": activity_days,
+                    "latest_activity_at": latest_activity.isoformat() if latest_activity else "",
+                    "missing_editorial": editorial_missing,
+                    "service_status": service_status,
+                },
+            }
+        )
+
+    if service_status == "unverified" and service_confidence in {"medium", "high"} and service_evidence & {
+        "login_surface_detected",
+        "app_shell_detected",
+        "invite_text_detected",
+        "beta_text_detected",
+        "coming_soon_detected",
+    }:
+        signals.append(
+            {
+                "kind": "service_status_unverified_but_promising",
                 "priority": 8,
                 "details": {
-                    "top_score": int(recommendation.get("score", 0) or 0),
-                    "duplicate_candidate_count": len(duplicate_candidates),
-                    "ambiguous_with": list(recommendation.get("ambiguous_with", [])),
+                    "service_status_confidence": service_confidence,
+                    "service_status_evidence": sorted(service_evidence),
+                },
+            }
+        )
+
+    if str(shaped.get("category") or "") == "lexicon" and (
+        shaped.get("website_url") or shaped.get("service_urls") or shaped.get("source_code_urls")
+    ):
+        signals.append(
+            {
+                "kind": "category_recheck_needed",
+                "priority": 7,
+                "details": {
+                    "category": str(shaped.get("category") or ""),
+                    "website_url": str(shaped.get("website_url") or ""),
+                    "service_url_count": len(shaped.get("service_urls", [])),
+                    "repo_url_count": len(project_repo_hint_urls(shaped)),
+                },
+            }
+        )
+
+    if shaped.get("external_lexicons") and (shaped.get("resolved_nsids") or shaped.get("input_nsids")):
+        signals.append(
+            {
+                "kind": "external_lexicon_dependency_needs_review",
+                "priority": 6,
+                "details": {
+                    "external_lexicons": list(shaped.get("external_lexicons", []))[:5],
+                    "owned_nsid_count": len(unique_list(list(shaped.get("resolved_nsids", [])) + list(shaped.get("input_nsids", [])))),
                 },
             }
         )
@@ -7878,6 +8048,8 @@ def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    if dismissed_kinds:
+        signals = [signal for signal in signals if str(signal.get("kind") or "") not in dismissed_kinds]
     return signals
 
 
@@ -7888,19 +8060,28 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         return commands
     commands.append(f"python3 scripts/project_registry.py show -p {project_key} --format json")
     signal_kinds = {str(item.get("kind") or "") for item in signals}
-    if signal_kinds & {"llm_manual_review_recommended", "service_now_usable_but_needs_editorial_review", "high_information_density"}:
+    if signal_kinds & {
+        "llm_manual_review_recommended",
+        "service_now_usable_but_needs_editorial_review",
+        "high_information_density",
+        "stale_metadata_with_recent_activity",
+        "service_status_unverified_but_promising",
+        "external_lexicon_dependency_needs_review",
+        "category_recheck_needed",
+    }:
         commands.append(f"python3 scripts/project_registry.py enrich -p {project_key} --deep-investigation")
+    if "service_candidate_needs_confirmation" in signal_kinds:
+        service_candidates = project_service_hint_urls(project)
+        if service_candidates:
+            commands.append(
+                f"python3 scripts/project_registry.py add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
+            )
     if "candidate_repo_needs_confirmation" in signal_kinds:
         repo_candidates = project_repo_hint_urls(project)
         if repo_candidates:
             commands.append(
                 f"python3 scripts/project_registry.py add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
             )
-    if "merge_needs_human_judgment" in signal_kinds and str(project.get("merge_recommendation", {}).get("target_project_key") or ""):
-        target_key = str(project.get("merge_recommendation", {}).get("target_project_key") or "")
-        commands.append(
-            f"python3 scripts/project_registry.py inspect-merge-pair -p {project_key} -t {target_key}"
-        )
     return commands
 
 
@@ -8109,6 +8290,33 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+IGNORE_REVIEW_NOTE_REASONS: dict[str, str] = {
+    "atproto_unrelated": "atproto無関係",
+    "out_of_scope": "DBのスコープ外",
+    "personal_experiment": "個人の実験",
+    "derivative_utility": "派生Blueskyツール",
+    "fork_without_identity": "独自性の薄いfork",
+    "other": "その他",
+}
+
+
+def default_ignore_review_note_reason(item: dict[str, Any]) -> str:
+    kind = str(item.get("kind") or "")
+    if kind == "fork_without_independent_identity":
+        return "fork_without_identity"
+    if kind == "derivative_bluesky_utility":
+        return "derivative_utility"
+    return "other"
+
+
+def build_ignore_review_note(item: dict[str, Any], reason_key: str, extra_note: str = "") -> str:
+    label = IGNORE_REVIEW_NOTE_REASONS.get(reason_key, IGNORE_REVIEW_NOTE_REASONS["other"])
+    parts = [f"review-ignore: {label}"]
+    if extra_note:
+        parts.append(str(extra_note).strip())
+    return " / ".join([part for part in parts if part])
+
+
 def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
     score = 0
     now = dt.datetime.now(dt.timezone.utc)
@@ -8280,6 +8488,59 @@ def build_showcase_queue(
     return queue[: max(1, int(limit or 50))]
 
 
+def build_showcase_queue_batch(
+    conn: sqlite3.Connection,
+    *,
+    tracking_states: set[str] | None = None,
+    kinds: set[str] | None = None,
+    include_personal_tools: bool = False,
+    project_list: list[dict[str, Any]] | None = None,
+    start_index: int = 0,
+    batch_size: int = 100,
+) -> tuple[list[dict[str, Any]], int]:
+    batch: list[dict[str, Any]] = []
+    projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    index = max(0, int(start_index or 0))
+    target_size = max(1, int(batch_size or 100))
+    while index < len(projects) and len(batch) < target_size:
+        project = projects[index]
+        index += 1
+        shaped = apply_promotion_state(dict(project))
+        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
+        if kinds is not None:
+            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+        if not signals:
+            continue
+        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = promotion_queue_sort_score(shaped, signals)
+        batch.append(
+            {
+                "project_key": shaped["project_key"],
+                "name": shaped.get("name", ""),
+                "tracking_state": shaped.get("tracking_state", "active"),
+                "status": shaped.get("status", "draft"),
+                "category": shaped.get("category", ""),
+                "service_status": shaped.get("service_status", "unknown"),
+                "seed_type": shaped.get("seed_type", ""),
+                "seed_value": shaped.get("seed_value", ""),
+                "nsids": unique_list(
+                    [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
+                    + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
+                )[:5],
+                "website_url": shaped.get("website_url", ""),
+                "repo_urls": project_repo_hint_urls(shaped)[:3],
+                "tagline": shaped.get("tagline", ""),
+                "summary": shaped.get("summary", ""),
+                "top_priority": top_priority,
+                "sort_score": sort_score,
+                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+                "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
+            }
+        )
+    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
+    return batch, index
+
+
 def build_review_queue(
     conn: sqlite3.Connection,
     *,
@@ -8324,6 +8585,176 @@ def build_review_queue(
         )
     queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
     return queue[: max(1, int(limit or 50))]
+
+
+def build_review_queue_batch(
+    conn: sqlite3.Connection,
+    *,
+    tracking_states: set[str] | None = None,
+    kinds: set[str] | None = None,
+    project_list: list[dict[str, Any]] | None = None,
+    duplicate_profiles: dict[str, dict[str, Any]] | None = None,
+    duplicate_index: dict[str, set[str]] | None = None,
+    start_index: int = 0,
+    batch_size: int = 100,
+) -> tuple[list[dict[str, Any]], int]:
+    batch: list[dict[str, Any]] = []
+    projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    profiles = duplicate_profiles or {}
+    index_map = duplicate_index or {}
+    index = max(0, int(start_index or 0))
+    target_size = max(1, int(batch_size or 100))
+    while index < len(projects) and len(batch) < target_size:
+        project = projects[index]
+        index += 1
+        shaped = dict(project)
+        shaped["duplicate_candidates"] = compute_duplicate_candidates(
+            conn,
+            shaped,
+            projects=projects,
+            duplicate_profiles=profiles,
+            duplicate_index=index_map,
+        )
+        shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
+        shaped = apply_promotion_state(shaped)
+        signals = compute_review_signals(shaped)
+        if kinds is not None:
+            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+        if not signals:
+            continue
+        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        batch.append(
+            {
+                "project_key": shaped["project_key"],
+                "name": shaped.get("name", ""),
+                "tracking_state": shaped.get("tracking_state", "active"),
+                "status": shaped.get("status", "draft"),
+                "service_status": shaped.get("service_status", "unknown"),
+                "seed_type": shaped.get("seed_type", ""),
+                "seed_value": shaped.get("seed_value", ""),
+                "website_url": shaped.get("website_url", ""),
+                "top_priority": top_priority,
+                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+                "suggested_commands": review_queue_suggested_commands(shaped, signals),
+            }
+        )
+    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    return batch, index
+
+
+def build_review_queue_item(
+    conn: sqlite3.Connection,
+    project_key: str,
+    *,
+    kinds: set[str] | None = None,
+) -> dict[str, Any] | None:
+    project = fetch_project(conn, project_key)
+    if project is None:
+        return None
+    project_list = [ensure_project_shape(item) for item in list_projects(conn)]
+    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
+    shaped = ensure_project_shape(project)
+    shaped["duplicate_candidates"] = compute_duplicate_candidates(
+        conn,
+        shaped,
+        projects=project_list,
+        duplicate_profiles=duplicate_profiles,
+        duplicate_index=duplicate_index,
+    )
+    shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
+    shaped = apply_promotion_state(shaped)
+    signals = compute_review_signals(shaped)
+    if kinds is not None:
+        signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+    if not signals:
+        return None
+    top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+    return {
+        "project_key": shaped["project_key"],
+        "name": shaped.get("name", ""),
+        "tracking_state": shaped.get("tracking_state", "active"),
+        "status": shaped.get("status", "draft"),
+        "service_status": shaped.get("service_status", "unknown"),
+        "seed_type": shaped.get("seed_type", ""),
+        "seed_value": shaped.get("seed_value", ""),
+        "website_url": shaped.get("website_url", ""),
+        "top_priority": top_priority,
+        "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+        "suggested_commands": review_queue_suggested_commands(shaped, signals),
+    }
+
+
+def inspect_merge_pair_payload(
+    conn: sqlite3.Connection,
+    source: dict[str, Any],
+    target: dict[str, Any],
+    *,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> dict[str, Any]:
+    source = ensure_project_shape(source)
+    target = ensure_project_shape(target)
+    source_candidates = compute_duplicate_candidates(
+        conn,
+        source,
+        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+    )
+    target_candidates = compute_duplicate_candidates(
+        conn,
+        target,
+        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+    )
+    source_recommendation = compute_merge_recommendation(dict(source, duplicate_candidates=source_candidates))
+    target_recommendation = compute_merge_recommendation(dict(target, duplicate_candidates=target_candidates))
+    source_pair_candidate = next((item for item in source_candidates if str(item.get("project_key") or "") == target["project_key"]), None)
+    target_pair_candidate = next((item for item in target_candidates if str(item.get("project_key") or "") == source["project_key"]), None)
+    strict_overlap = batch_strict_overlap(source, target)
+    moderate_overlap = batch_moderate_overlap(source, target)
+    heuristic_overlap = (
+        batch_moderate_overlap(source, target, bootstrap_collection_creator_heuristic=True)
+        if bootstrap_collection_creator_heuristic else {}
+    )
+    summary: dict[str, Any] = {
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "merge_blocked": merge_is_blocked(source, target),
+        "source_pair_candidate": source_pair_candidate,
+        "target_pair_candidate": target_pair_candidate,
+        "source_recommendation": source_recommendation,
+        "target_recommendation": target_recommendation,
+        "strict_overlap": strict_overlap,
+        "moderate_overlap": moderate_overlap,
+        "bootstrap_collection_creator_heuristic": bool(bootstrap_collection_creator_heuristic),
+        "bootstrap_overlap": heuristic_overlap,
+    }
+    if bootstrap_collection_creator_heuristic:
+        summary["source_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(source)
+        summary["target_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(target)
+    return summary
+
+
+def update_project_tracking_state_value(
+    conn: sqlite3.Connection,
+    project_key: str,
+    tracking_state: str,
+    *,
+    note: str = "",
+) -> dict[str, Any] | None:
+    project = fetch_project(conn, project_key)
+    if project is None:
+        return None
+    project = ensure_project_shape(project)
+    project["tracking_state"] = tracking_state
+    if note:
+        project["tracking_note"] = note
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project
 
 
 def merge_is_blocked(project_a: dict[str, Any], project_b: dict[str, Any]) -> bool:
@@ -8915,6 +9346,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["blocked_identifiers"] = normalize_blocked_identifiers(
         list(merged.get("blocked_identifiers", [])) + list(source.get("blocked_identifiers", []))
     )
+    merged["dismissed_review_kinds"] = unique_list(
+        list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
+    )
 
     merged["manual_seeds"] = unique_manual_seeds(list(merged.get("manual_seeds", [])) + list(source.get("manual_seeds", [])))
     merged["discovery_sources"] = unique_list(list(merged.get("discovery_sources", [])) + list(source.get("discovery_sources", [])))
@@ -9461,6 +9895,7 @@ def output_project_queue(
     tracking_states: set[str],
     kinds: set[str] | None,
     interactive: bool,
+    load_more: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> int:
     kind_counts: dict[str, int] = {}
     for item in queue:
@@ -9468,43 +9903,324 @@ def output_project_queue(
             kind = str(signal.get("kind") or "")
             kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
     if interactive and sys.stdin.isatty() and sys.stdout.isatty():
-        for index, item in enumerate(queue, start=1):
-            print(
-                json.dumps(
-                    {
-                        "index": index,
-                        f"{queue_name}_count": len(queue),
-                        "project_key": item.get("project_key", ""),
-                        "name": item.get("name", ""),
-                        "tracking_state": item.get("tracking_state", ""),
-                        "status": item.get("status", ""),
-                        "category": item.get("category", ""),
-                        "service_status": item.get("service_status", ""),
-                        "seed_type": item.get("seed_type", ""),
-                        "seed_value": item.get("seed_value", ""),
-                        "nsids": item.get("nsids", []),
-                        "website_url": item.get("website_url", ""),
-                        "repo_urls": item.get("repo_urls", []),
-                        "tagline": item.get("tagline", ""),
-                        "summary": item.get("summary", ""),
-                        "signals": item.get("signals", []),
-                        "suggested_commands": item.get("suggested_commands", []),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
+        index = 0
+        while True:
+            if index >= len(queue):
+                if load_more is None:
+                    break
+                more_items = load_more()
+                if not more_items:
+                    break
+                queue.extend(more_items)
+            item = queue[index]
+            current_item = dict(item)
+            while True:
+                print(
+                    json.dumps(
+                        {
+                            "index": index + 1,
+                            f"{queue_name}_count": len(queue),
+                            "project_key": current_item.get("project_key", ""),
+                            "name": current_item.get("name", ""),
+                            "tracking_state": current_item.get("tracking_state", ""),
+                            "status": current_item.get("status", ""),
+                            "category": current_item.get("category", ""),
+                            "service_status": current_item.get("service_status", ""),
+                            "seed_type": current_item.get("seed_type", ""),
+                            "seed_value": current_item.get("seed_value", ""),
+                            "nsids": current_item.get("nsids", []),
+                            "website_url": current_item.get("website_url", ""),
+                            "repo_urls": current_item.get("repo_urls", []),
+                            "tagline": current_item.get("tagline", ""),
+                            "summary": current_item.get("summary", ""),
+                            "signals": current_item.get("signals", []),
+                            "suggested_commands": current_item.get("suggested_commands", []),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
                 )
-            )
-            print("[Enter]=next, j=full json, q=quit", file=sys.stderr)
-            try:
-                answer = input().strip().lower()
-            except EOFError:
-                break
-            if answer == "q":
-                break
-            if answer == "j":
-                project = fetch_project(conn, str(item.get("project_key") or ""))
-                if project is not None:
-                    print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                signal_kinds = {str(signal.get("kind") or "") for signal in current_item.get("signals", []) if isinstance(signal, dict)}
+                actions = ["[Enter]=next", "j=full json", "q=quit"]
+                if queue_name == "review":
+                    actions.append("k=tracking-state")
+                    actions.append("x=dismiss signal")
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    project_hints = ensure_project_shape(project) if project is not None else None
+                    service_candidates = project_service_hint_urls(project_hints) if project_hints is not None else []
+                    repo_candidates = project_repo_hint_urls(project_hints) if project_hints is not None else []
+                    if signal_kinds & {
+                        "llm_manual_review_recommended",
+                        "service_now_usable_but_needs_editorial_review",
+                        "high_information_density",
+                        "stale_metadata_with_recent_activity",
+                        "service_status_unverified_but_promising",
+                        "external_lexicon_dependency_needs_review",
+                        "category_recheck_needed",
+                    }:
+                        actions.append("e=deep enrich")
+                    if service_candidates:
+                        actions.append("c=confirm service")
+                        actions.append("C=reject service")
+                    if repo_candidates:
+                        actions.append("r=confirm repo")
+                        actions.append("R=reject repo")
+                print(", ".join(actions), file=sys.stderr)
+                try:
+                    answer = input().strip()
+                except EOFError:
+                    return 0
+                if answer == "":
+                    break
+                lowered = answer.lower()
+                if lowered == "q":
+                    return 0
+                if lowered == "j":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                    continue
+                if queue_name == "review" and lowered == "k":
+                    print("[a]ctive/[w]atchlist/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
+                    try:
+                        state_answer = input().strip().lower()
+                    except EOFError:
+                        return 0
+                    state_map = {
+                        "a": "active",
+                        "active": "active",
+                        "w": "watchlist",
+                        "watchlist": "watchlist",
+                        "s": "stable",
+                        "stable": "stable",
+                        "t": "stalled",
+                        "stalled": "stalled",
+                        "i": "ignore",
+                        "ignore": "ignore",
+                    }
+                    next_state = state_map.get(state_answer)
+                    if next_state:
+                        updated = update_project_tracking_state_value(
+                            conn,
+                            str(current_item.get("project_key") or ""),
+                            next_state,
+                        )
+                        print(
+                            json.dumps(
+                                {
+                                    "updated_tracking_state": next_state,
+                                    "project_key": current_item.get("project_key", ""),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "review" and lowered == "e" and signal_kinds & {
+                    "llm_manual_review_recommended",
+                    "service_now_usable_but_needs_editorial_review",
+                    "high_information_density",
+                    "stale_metadata_with_recent_activity",
+                    "service_status_unverified_but_promising",
+                    "external_lexicon_dependency_needs_review",
+                    "category_recheck_needed",
+                }:
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        enriched = enrich_project(conn, project, deep_investigation=True)
+                        save_project(conn, enriched, enriched=True)
+                        conn.commit()
+                        print(
+                            json.dumps(
+                                {
+                                    "deep_enriched": True,
+                                    "project_key": current_item.get("project_key", ""),
+                                    "service_status": enriched.get("service_status", ""),
+                                    "last_run_errors": enriched.get("last_run_errors", []),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "review" and lowered == "x":
+                    signal_list = [dict(signal) for signal in current_item.get("signals", []) if isinstance(signal, dict)]
+                    if not signal_list:
+                        continue
+                    if len(signal_list) == 1:
+                        dismissed_kind = str(signal_list[0].get("kind") or "")
+                    else:
+                        print(
+                            json.dumps(
+                                {
+                                    "dismissible_signals": [
+                                        {
+                                            "index": idx,
+                                            "kind": str(signal.get("kind") or ""),
+                                            "priority": int(signal.get("priority", 0) or 0),
+                                            "details": signal.get("details", {}),
+                                        }
+                                        for idx, signal in enumerate(signal_list, start=1)
+                                    ]
+                                },
+                                ensure_ascii=False,
+                                indent=2,
+                            )
+                        )
+                        print("dismiss which signal? [number]/[Enter]=cancel", file=sys.stderr)
+                        try:
+                            dismiss_answer = input().strip()
+                        except EOFError:
+                            return 0
+                        if not dismiss_answer:
+                            continue
+                        try:
+                            dismiss_index = int(dismiss_answer)
+                        except ValueError:
+                            print(json.dumps({"warning": "invalid_signal_selection", "answer": dismiss_answer}, ensure_ascii=False))
+                            continue
+                        if dismiss_index < 1 or dismiss_index > len(signal_list):
+                            print(json.dumps({"warning": "signal_selection_out_of_range", "answer": dismiss_answer}, ensure_ascii=False))
+                            continue
+                        dismissed_kind = str(signal_list[dismiss_index - 1].get("kind") or "")
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None and dismissed_kind:
+                        project = ensure_project_shape(project)
+                        project["dismissed_review_kinds"] = unique_list(
+                            list(project.get("dismissed_review_kinds", [])) + [dismissed_kind]
+                        )
+                        save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                        conn.commit()
+                        print(
+                            json.dumps(
+                                {
+                                    "dismissed_review_kind": dismissed_kind,
+                                    "project_key": current_item.get("project_key", ""),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "review" and lowered == "c":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        project = ensure_project_shape(project)
+                        service_candidates = project_service_hint_urls(project)
+                        if service_candidates:
+                            confirmed_service = confirm_service_seed(project, service_candidates[0], source="review_queue")
+                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+                            project["merge_recommendation"] = compute_merge_recommendation(project)
+                            project = apply_promotion_state(project)
+                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                            conn.commit()
+                            print(
+                                json.dumps(
+                                    {
+                                        "confirmed_service_seed": confirmed_service or service_candidates[0],
+                                        "project_key": current_item.get("project_key", ""),
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
+                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                            if refreshed is None:
+                                break
+                            current_item = refreshed
+                    continue
+                if queue_name == "review" and answer == "C":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        project = ensure_project_shape(project)
+                        service_candidates = project_service_hint_urls(project)
+                        if service_candidates:
+                            blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+                            blocked.append(
+                                {
+                                    "type": "service_url",
+                                    "value": service_candidates[0],
+                                    "note": "rejected from review-queue interactive",
+                                    "added_at": iso_now(),
+                                }
+                            )
+                            project["blocked_identifiers"] = blocked
+                            project = finalize_project_shape(project)
+                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+                            project["merge_recommendation"] = compute_merge_recommendation(project)
+                            project = apply_promotion_state(project)
+                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                            conn.commit()
+                            print(json.dumps({"rejected_service_candidate": service_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))
+                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                            if refreshed is None:
+                                break
+                            current_item = refreshed
+                    continue
+                if queue_name == "review" and lowered == "r":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        project = ensure_project_shape(project)
+                        repo_candidates = project_repo_hint_urls(project)
+                        if repo_candidates:
+                            confirmed_repo = confirm_repo_seed(project, repo_candidates[0], source="review_queue")
+                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+                            project["merge_recommendation"] = compute_merge_recommendation(project)
+                            project = apply_promotion_state(project)
+                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                            conn.commit()
+                            print(
+                                json.dumps(
+                                    {
+                                        "confirmed_repo_seed": confirmed_repo or repo_candidates[0],
+                                        "project_key": current_item.get("project_key", ""),
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
+                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                            if refreshed is None:
+                                break
+                            current_item = refreshed
+                    continue
+                if queue_name == "review" and answer == "R":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        project = ensure_project_shape(project)
+                        repo_candidates = project_repo_hint_urls(project)
+                        if repo_candidates:
+                            blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+                            blocked.append(
+                                {
+                                    "type": "repo_url",
+                                    "value": repo_candidates[0],
+                                    "note": "rejected from review-queue interactive",
+                                    "added_at": iso_now(),
+                                }
+                            )
+                            project["blocked_identifiers"] = blocked
+                            project = finalize_project_shape(project)
+                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+                            project["merge_recommendation"] = compute_merge_recommendation(project)
+                            project = apply_promotion_state(project)
+                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                            conn.commit()
+                            print(json.dumps({"rejected_repo_candidate": repo_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))
+                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                            if refreshed is None:
+                                break
+                            current_item = refreshed
+                    continue
+                print(json.dumps({"warning": "unknown_or_unavailable_action", "answer": answer}, ensure_ascii=False))
+            index += 1
         return 0
     print(json.dumps({
         "queue_name": queue_name,
@@ -9521,14 +10237,50 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
     conn = open_db()
     tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
-    queue = build_review_queue(conn, tracking_states=tracking_states, limit=int(args.limit or 50), kinds=kinds)
+    interactive = bool(getattr(args, "interactive", False))
+    load_more: Callable[[], list[dict[str, Any]]] | None = None
+    if interactive:
+        batch_size = 100
+        total_limit = max(1, int(args.limit)) if args.limit is not None else None
+        project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+        duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
+        next_index = 0
+        emitted = 0
+
+        def load_review_batch() -> list[dict[str, Any]]:
+            nonlocal next_index, emitted
+            if total_limit is not None and emitted >= total_limit:
+                return []
+            current_batch_size = batch_size
+            if total_limit is not None:
+                current_batch_size = min(current_batch_size, total_limit - emitted)
+            items, next_index_result = build_review_queue_batch(
+                conn,
+                tracking_states=tracking_states,
+                kinds=kinds,
+                project_list=project_list,
+                duplicate_profiles=duplicate_profiles,
+                duplicate_index=duplicate_index,
+                start_index=next_index,
+                batch_size=current_batch_size,
+            )
+            next_index = next_index_result
+            emitted += len(items)
+            return items
+
+        queue = load_review_batch()
+        load_more = load_review_batch
+    else:
+        effective_limit = max(1, int(args.limit)) if args.limit is not None else 50
+        queue = build_review_queue(conn, tracking_states=tracking_states, limit=effective_limit, kinds=kinds)
     return output_project_queue(
         conn,
         queue_name="review",
         queue=queue,
         tracking_states=tracking_states,
         kinds=kinds,
-        interactive=bool(getattr(args, "interactive", False)),
+        interactive=interactive,
+        load_more=load_more,
     )
 
 
@@ -9536,20 +10288,55 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
     conn = open_db()
     tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
-    queue = build_showcase_queue(
-        conn,
-        tracking_states=tracking_states,
-        limit=int(args.limit or 50),
-        kinds=kinds,
-        include_personal_tools=bool(getattr(args, "include_personal_tools", False)),
-    )
+    interactive = bool(getattr(args, "interactive", False))
+    include_personal_tools = bool(getattr(args, "include_personal_tools", False))
+    load_more: Callable[[], list[dict[str, Any]]] | None = None
+    if interactive:
+        batch_size = 100
+        total_limit = max(1, int(args.limit)) if args.limit is not None else None
+        project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+        next_index = 0
+        emitted = 0
+
+        def load_showcase_batch() -> list[dict[str, Any]]:
+            nonlocal next_index, emitted
+            if total_limit is not None and emitted >= total_limit:
+                return []
+            current_batch_size = batch_size
+            if total_limit is not None:
+                current_batch_size = min(current_batch_size, total_limit - emitted)
+            items, next_index_result = build_showcase_queue_batch(
+                conn,
+                tracking_states=tracking_states,
+                kinds=kinds,
+                include_personal_tools=include_personal_tools,
+                project_list=project_list,
+                start_index=next_index,
+                batch_size=current_batch_size,
+            )
+            next_index = next_index_result
+            emitted += len(items)
+            return items
+
+        queue = load_showcase_batch()
+        load_more = load_showcase_batch
+    else:
+        effective_limit = max(1, int(args.limit)) if args.limit is not None else 50
+        queue = build_showcase_queue(
+            conn,
+            tracking_states=tracking_states,
+            limit=effective_limit,
+            kinds=kinds,
+            include_personal_tools=include_personal_tools,
+        )
     return output_project_queue(
         conn,
         queue_name="promotion",
         queue=queue,
         tracking_states=tracking_states,
         kinds=kinds,
-        interactive=bool(getattr(args, "interactive", False)),
+        interactive=interactive,
+        load_more=load_more,
     )
 
 
@@ -9754,10 +10541,53 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
         state = str(item.get("suggested_tracking_state") or "")
         suggested_state_counts[state] = int(suggested_state_counts.get(state, 0)) + 1
 
+    interactive = bool(getattr(args, "interactive", False))
+    if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
+        raise ValueError("--interactive requires a TTY")
+    if interactive:
+        args.execute = True
+
     if args.execute:
         updated: list[str] = []
+        updated_with_state: list[dict[str, str]] = []
         note = str(args.note or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
-        for item in candidates:
+        for index, item in enumerate(candidates, start=1):
+            if interactive:
+                print(
+                    json.dumps(
+                        {
+                            "index": index,
+                            "review_stalled_count": len(candidates),
+                            **item,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                print("[y]=apply, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
+                while True:
+                    try:
+                        answer = input().strip().lower()
+                    except EOFError:
+                        answer = "q"
+                    if answer in {"", "y", "yes"}:
+                        break
+                    if answer in {"n", "no"}:
+                        item = None
+                        break
+                    if answer == "j":
+                        project = fetch_project(conn, str(item.get("project_key") or ""))
+                        if project is not None:
+                            print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                        continue
+                    if answer in {"q", "quit"}:
+                        candidates = []
+                        item = None
+                        break
+                if item is None:
+                    if answer in {"q", "quit"}:
+                        break
+                    continue
             project = fetch_project(conn, str(item.get("project_key") or ""))
             if not project:
                 continue
@@ -9766,6 +10596,12 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
                 project["tracking_note"] = note
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
             updated.append(project["project_key"])
+            updated_with_state.append(
+                {
+                    "project_key": project["project_key"],
+                    "tracking_state": str(project.get("tracking_state") or ""),
+                }
+            )
         conn.commit()
         payload = {
             "mode": "execute",
@@ -9773,6 +10609,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
             "enrich_age_days": enrich_age_days,
             "updated_count": len(updated),
             "updated_project_keys": updated,
+            "updated_projects": updated_with_state,
             "suggested_state_counts": suggested_state_counts,
         }
     else:
@@ -9794,31 +10631,112 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
     candidates = [entry for project in project_list if (entry := ignore_review_entry(project))]
     candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
-    if args.limit:
-        candidates = candidates[: max(1, int(args.limit))]
     kind_counts: dict[str, int] = {}
     for item in candidates:
         kind = str(item.get("kind") or "")
         kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+    interactive = bool(getattr(args, "interactive", False))
+    if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
+        raise ValueError("--interactive requires a TTY")
+    if interactive:
+        args.execute = True
+    effective_limit = max(1, int(args.limit)) if args.limit is not None else (None if interactive else 100)
+    if effective_limit is not None:
+        candidates = candidates[:effective_limit]
 
     if args.execute:
         updated: list[str] = []
-        note = str(args.note or "auto-updated after review-ignore")
-        for item in candidates:
+        noted_project_keys: list[dict[str, str]] = []
+        static_note = str(args.note or "").strip()
+        default_reason_key = str(getattr(args, "note_reason", "") or "").strip() or ""
+        for index, item in enumerate(candidates, start=1):
+            if interactive:
+                print(
+                    json.dumps(
+                        {
+                            "index": index,
+                            "review_ignore_count": len(candidates),
+                            **item,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                print("[y]=ignore, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
+                while True:
+                    try:
+                        answer = input().strip().lower()
+                    except EOFError:
+                        answer = "q"
+                    if answer in {"", "y", "yes"}:
+                        break
+                    if answer in {"n", "no"}:
+                        item = None
+                        break
+                    if answer == "j":
+                        project = fetch_project(conn, str(item.get("project_key") or ""))
+                        if project is not None:
+                            print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                        continue
+                    if answer in {"q", "quit"}:
+                        candidates = []
+                        item = None
+                        break
+                if item is None:
+                    if answer in {"q", "quit"}:
+                        break
+                    continue
             project = fetch_project(conn, str(item.get("project_key") or ""))
             if not project:
                 continue
             project["tracking_state"] = "ignore"
+            note = static_note
+            if interactive or default_reason_key:
+                reason_key = default_reason_key or default_ignore_review_note_reason(item)
+                extra_note = static_note
+                if interactive and not default_reason_key:
+                    print(
+                        json.dumps(
+                            {
+                                "note_reason_choices": IGNORE_REVIEW_NOTE_REASONS,
+                                "default": reason_key,
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        file=sys.stderr,
+                    )
+                    print("note reason? [Enter]=default", file=sys.stderr)
+                    try:
+                        chosen_reason = input().strip()
+                    except EOFError:
+                        chosen_reason = ""
+                    if chosen_reason:
+                        if chosen_reason in IGNORE_REVIEW_NOTE_REASONS:
+                            reason_key = chosen_reason
+                        else:
+                            print(json.dumps({"warning": "unknown_note_reason", "value": chosen_reason}, ensure_ascii=False), file=sys.stderr)
+                    if not static_note:
+                        print("extra note? [Enter]=none", file=sys.stderr)
+                        try:
+                            extra_note = input().strip()
+                        except EOFError:
+                            extra_note = ""
+                note = build_ignore_review_note(item, reason_key, extra_note)
+            elif not note:
+                note = "auto-updated after review-ignore"
             if note and not str(project.get("tracking_note") or "").strip():
                 project["tracking_note"] = note
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
             updated.append(project["project_key"])
+            noted_project_keys.append({"project_key": project["project_key"], "tracking_note": str(project.get("tracking_note") or "")})
         conn.commit()
         payload = {
             "mode": "execute",
             "tracking_states": sorted(tracking_states),
             "updated_count": len(updated),
             "updated_project_keys": updated,
+            "updated_tracking_notes": noted_project_keys,
             "kind_counts": kind_counts,
         }
     else:
@@ -10714,53 +11632,12 @@ def cmd_inspect_merge_pair(args: argparse.Namespace) -> int:
     target = ensure_project_shape(resolve_single_project(conn, project_key=args.target_project_key, seed=args.target_seed, seed_type=args.target_type))
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
-
-    source_candidates = compute_duplicate_candidates(
+    summary = inspect_merge_pair_payload(
         conn,
         source,
-        bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
-    )
-    target_candidates = compute_duplicate_candidates(
-        conn,
         target,
         bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
     )
-    source_recommendation = compute_merge_recommendation(dict(source, duplicate_candidates=source_candidates))
-    target_recommendation = compute_merge_recommendation(dict(target, duplicate_candidates=target_candidates))
-
-    source_pair_candidate = next((item for item in source_candidates if str(item.get("project_key") or "") == target["project_key"]), None)
-    target_pair_candidate = next((item for item in target_candidates if str(item.get("project_key") or "") == source["project_key"]), None)
-
-    strict_overlap = batch_strict_overlap(source, target)
-    moderate_overlap = batch_moderate_overlap(source, target)
-    heuristic_overlap = (
-        batch_moderate_overlap(source, target, bootstrap_collection_creator_heuristic=True)
-        if args.bootstrap_collection_creator_heuristic else {}
-    )
-
-    summary: dict[str, Any] = {
-        "source_project_key": source["project_key"],
-        "target_project_key": target["project_key"],
-        "source_name": source.get("name", ""),
-        "target_name": target.get("name", ""),
-        "source_seed_type": source.get("seed_type", ""),
-        "source_seed_value": source.get("seed_value", ""),
-        "target_seed_type": target.get("seed_type", ""),
-        "target_seed_value": target.get("seed_value", ""),
-        "merge_blocked": merge_is_blocked(source, target),
-        "source_pair_candidate": source_pair_candidate,
-        "target_pair_candidate": target_pair_candidate,
-        "source_recommendation": source_recommendation,
-        "target_recommendation": target_recommendation,
-        "strict_overlap": strict_overlap,
-        "moderate_overlap": moderate_overlap,
-        "bootstrap_collection_creator_heuristic": bool(args.bootstrap_collection_creator_heuristic),
-        "bootstrap_overlap": heuristic_overlap,
-    }
-    if args.bootstrap_collection_creator_heuristic:
-        summary["source_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(source)
-        summary["target_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(target)
-
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
@@ -11317,15 +12194,19 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
     review_queue_parser.add_argument("--kinds", nargs="+", choices=[
+        "service_candidate_needs_confirmation",
         "candidate_repo_needs_confirmation",
         "llm_manual_review_recommended",
         "service_now_usable_but_needs_editorial_review",
         "more_evidence_than_current_classification",
-        "merge_needs_human_judgment",
+        "stale_metadata_with_recent_activity",
+        "service_status_unverified_but_promising",
+        "category_recheck_needed",
+        "external_lexicon_dependency_needs_review",
         "high_information_density",
         "many_identity_candidates",
     ], help="Restrict to specific review signal kinds.")
-    review_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    review_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     review_queue_parser.add_argument("--interactive", action="store_true", help="Step through review items interactively in a TTY.")
     review_queue_parser.set_defaults(func=cmd_review_queue)
 
@@ -11335,7 +12216,7 @@ def build_parser() -> argparse.ArgumentParser:
         "service_ready_for_introduction",
         "lexicon_ready_for_introduction",
     ], help="Restrict to specific promotion signal kinds.")
-    promotion_queue_parser.add_argument("--limit", type=int, default=50, help="Maximum number of projects to return. Default: 50.")
+    promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=cmd_promotion_queue)
@@ -11344,14 +12225,17 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
     review_stalled_parser.add_argument("--enrich-age-days", type=int, default=30, help="Flag projects that have not been enriched for at least this many days. Default: 30.")
     review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
+    review_stalled_parser.add_argument("--interactive", action="store_true", help="Step through stalled-review candidates interactively and apply confirmed updates.")
     review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
     review_stalled_parser.set_defaults(func=cmd_review_stalled)
 
     review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest low-value fork repos and derivative companion tools that likely deserve tracking_state=ignore.")
     review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active watchlist stable stalled.")
-    review_ignore_parser.add_argument("--limit", type=int, default=100, help="Maximum number of candidates to return or apply. Default: 100.")
+    review_ignore_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
+    review_ignore_parser.add_argument("--interactive", action="store_true", help="Step through ignore candidates interactively and apply confirmed ignores.")
     review_ignore_parser.add_argument("--note", help="Optional tracking note to store when applying ignore updates.")
+    review_ignore_parser.add_argument("--note-reason", choices=sorted(IGNORE_REVIEW_NOTE_REASONS), help="Preset review-ignore note category to store with ignored projects.")
     review_ignore_parser.set_defaults(func=cmd_review_ignore)
 
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
