@@ -1922,6 +1922,7 @@ def sync_match_is_auto_attach_safe(match_kind: str) -> bool:
     return str(match_kind or "") in {
         "exact_namespace",
         "exact_namespace_scan",
+        "seed_parent_namespace",
         "repo_url",
         "homepage_exact",
     }
@@ -1964,17 +1965,36 @@ def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[d
     )
 
 
+def build_nsid_seed_parent_namespace_lookup(projects: list[dict[str, Any]]) -> dict[str, str]:
+    pairs: list[tuple[str, str]] = []
+    for project in projects:
+        if str(project.get("seed_type") or "") != "nsid":
+            continue
+        seed_value = normalize_nsid(str(project.get("seed_value") or ""))
+        parent_namespace = namespace_from_collection_nsid(seed_value)
+        if not parent_namespace:
+            continue
+        pairs.append((parent_namespace, str(project.get("project_key") or "")))
+    return build_unique_lookup(pairs)
+
+
 def find_project_key_for_nsid_seed(projects: list[dict[str, Any]], nsid: str) -> tuple[str | None, str]:
     normalized = normalize_nsid(nsid)
     if not normalized:
         return None, ""
     namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(projects)
+    parent_seed_namespace_lookup = build_nsid_seed_parent_namespace_lookup(projects)
     project_key = namespace_lookup.get(normalized)
     if project_key:
         return project_key, "exact_namespace"
     project_key = find_project_key_by_collection_namespace(projects, normalized)
     if project_key:
         return project_key, "exact_namespace_scan"
+    parent_namespace = namespace_from_collection_nsid(normalized)
+    if parent_namespace:
+        project_key = parent_seed_namespace_lookup.get(parent_namespace)
+        if project_key:
+            return project_key, "seed_parent_namespace"
     registrable_namespace = registrable_namespace_from_namespace(normalized)
     if registrable_namespace:
         project_key = registrable_namespace_lookup.get(registrable_namespace)
