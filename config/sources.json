@@ -1,5 +1,6 @@
 {
   "custom_multi_tenant_suffixes": [
+    "wisp.place",
     "lexicon.community",
     "avaast.app",
     "tomo-x.win",
