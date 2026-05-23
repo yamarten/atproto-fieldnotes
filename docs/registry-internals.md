@@ -592,8 +592,9 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
-  - `summary_candidates`
-  - `tagline_candidates`
+- `summary_candidates`
+- `name_candidates`
+- `tagline_candidates`
 - failure / transient
   - `failed_service_urls`
   - `last_run_errors`
@@ -621,6 +622,8 @@ LLM は discovery の主役ではなく、整理の補助です。
 - `service_status`
 
 を生成します。説明系フィールドは日本語で出させます。`tagline` は助詞を含まない短い名詞句を想定し、最大30文字です。
+
+`summary` / `tagline` / `features` は stability-first です。新しい LLM 出力は candidate / evidence として保持しますが、canonical 値は毎回そのまま置き換えず、既存値が十分近い場合は維持します。
 
 endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
 

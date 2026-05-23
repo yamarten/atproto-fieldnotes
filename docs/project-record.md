@@ -149,6 +149,7 @@ review / merge / 紹介運用の制御情報です。
 候補、観測結果、生データ、再計算の材料です。
 
 - `summary_candidates`
+- `name_candidates`
 - `tagline_candidates`
 - `features`
 - `inspired_by`
