@@ -128,17 +128,8 @@
   - 派生フィールド再計算
   - collision 監査
   - invalid JSON の自動救済はしない
-- `migrate-storage-layout`
-  - `preview`
-    - `record_json` / `ops_json` の group 構成を確認
-  - `backfill`
-    - `record_json` / `ops_json` / `introduced_url` を既存 DB に埋める
-  - `retire-legacy-data`
-    - 旧 `data_json` の中身を空に揃える
-  - `cleanup-schema`
-    - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
-  - `finalize-check`
-    - 完全移行前に未分類の legacy field が残っていないか確認する
+- storage layout migration は完了済み
+  - 現行 DB は `record_json` / `ops_json` / `introduced_url` を含む現在の schema を前提にする
 
 ## 既知の前提
 

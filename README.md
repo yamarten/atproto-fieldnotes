@@ -141,35 +141,6 @@ DB直接編集後の整合性回復:
 python3 scripts/project_registry.py repair-db
 ```
 
-storage layout のプレビュー:
-
-```bash
-python3 scripts/project_registry.py preview-storage-layout -p proj:412b842e3467
-python3 scripts/project_registry.py migrate-storage-layout --phase preview --limit 3
-python3 scripts/project_registry.py migrate-storage-layout --phase finalize-check --limit 5
-```
-
-`migrate-storage-layout` は 4 段階です。
-
-- `preview`
-  - `record_json` / `ops_json` の group 構成を sample 表示する
-- `backfill`
-  - `record_json` / `ops_json` / `introduced_url` を既存 project に埋める
-- `retire-legacy-data`
-  - 旧 `data_json` の中身を空に揃える
-- `cleanup-schema`
-  - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
-- `finalize-check`
-  - 完全移行前に、未分類の legacy field が残っていないか確認する
-
-`backfill` と schema cleanup を適用する場合:
-
-```bash
-python3 scripts/project_registry.py migrate-storage-layout --phase backfill --execute
-python3 scripts/project_registry.py migrate-storage-layout --phase retire-legacy-data --execute
-python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schema --execute
-```
-
 追跡頻度を見直す候補の確認:
 
 ```bash

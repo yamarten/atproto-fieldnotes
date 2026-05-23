@@ -14,7 +14,7 @@
 - `ops_json`
   - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
 
-`repair-db` は新構造の正規化と派生フィールド再計算を行います。`record_json` / `ops_json` の backfill は `migrate-storage-layout --phase backfill` を使います。
+`repair-db` は新構造の正規化と派生フィールド再計算を行います。
 
 ## project record の最小コア
 
@@ -754,7 +754,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 
 現時点では分離しません。`app.status` が必要になった時点で別 field として導入します。
 
-## repair-db と storage migration
+## repair-db
 
 `repair-db` の責務:
 
@@ -763,19 +763,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 - collision 監査
 
 旧 `data_json` 前処理はもう行いません。
-
-`migrate-storage-layout` の責務:
-
-- `preview`
-  - `record_json` / `ops_json` の group 構成を sample 表示
-- `backfill`
-  - `record_json` / `ops_json` / `introduced_url` を既存 DB に埋める
-- `retire-legacy-data`
-  - 旧 `data_json` の中身を空に揃える
-- `cleanup-schema`
-  - 旧 `status` / `category` / `primary_nsid` / `data_json` を物理削除する
-- `finalize-check`
-  - 完全移行前に未分類の legacy field が残っていないか確認する
+schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成と `record_json` / `ops_json` を前提にします。
 
 ## review-stalled
 

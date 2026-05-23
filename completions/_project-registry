@@ -1,13 +1,11 @@
 #compdef project-registry project_registry.py
 
-local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes migrate_phases review_kinds
+local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes review_kinds
 
 subcommands=(
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
-  'preview-storage-layout:Preview record_json and ops_json mapping'
-  'migrate-storage-layout:Preview or backfill storage layout migration'
   'review-queue:List projects that deserve human review'
   'review-stalled:Suggest lower-frequency tracking or revival'
   'import-seed-list:Import a mixed text seed list'
@@ -32,7 +30,6 @@ seed_types=(nsid repo_url service_url)
 llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
 merge_modes=(strict moderate)
-migrate_phases=(preview backfill retire-legacy-data cleanup-schema finalize-check)
 review_kinds=(
   merge_needs_human_judgment
   llm_manual_review_recommended
@@ -123,21 +120,6 @@ case "$cmd" in
       "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
       '--format[Output format]:format:(text json)'
-    ;;
-  preview-storage-layout)
-    _arguments -S \
-      '(-p --project-key --seed --all)'{-p,--project-key}'[Target one project key]:project key:' \
-      '(-p --project-key --seed --all)--seed[Target by known seed value]:seed:' \
-      '(-p --project-key --seed --all)--all[Preview multiple projects]' \
-      "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
-      '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
-      '--limit[Maximum number of projects to print]:count:'
-    ;;
-  migrate-storage-layout)
-    _arguments -S \
-      "--phase[Migration phase to inspect]:phase:(${migrate_phases[*]})" \
-      '--limit[Sample size for preview or finalize-check output]:count:' \
-      '--execute[Apply the backfill phase]'
     ;;
   review-queue)
     _arguments -S \

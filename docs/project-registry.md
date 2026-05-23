@@ -433,7 +433,7 @@ GUIやSQLで `projects` を直接編集した後は、正規化と派生デー�
 python3 scripts/project_registry.py repair-db
 ```
 
-## storage layout の移行
+## storage layout
 
 現在の `projects` テーブルは次を保持します。
 
@@ -442,36 +442,6 @@ python3 scripts/project_registry.py repair-db
 - `ops_json`
 
 `record_json` は高信頼の project record、`ops_json` は候補・調査・LLM・merge 制御などの運用情報です。迷うものは `record_json` に昇格させず、まず `ops_json` に残します。
-
-個別 project がどう分かれるか確認する:
-
-```bash
-python3 scripts/project_registry.py preview-storage-layout --project-key 2f2acb
-python3 scripts/project_registry.py preview-storage-layout --seed sh.tangled.repo --type nsid
-```
-
-全体 preview:
-
-```bash
-python3 scripts/project_registry.py migrate-storage-layout --phase preview --limit 10
-python3 scripts/project_registry.py migrate-storage-layout --phase finalize-check --limit 10
-```
-
-`finalize-check` は「未分類の legacy field」が残っていないかだけを確認します。`introduced` や `primary_nsid` のように意図的に drop する field は別枠です。
-
-`record_json` / `ops_json` を DB に backfill する:
-
-```bash
-python3 scripts/project_registry.py migrate-storage-layout --phase backfill
-python3 scripts/project_registry.py migrate-storage-layout --phase backfill --execute
-```
-
-旧 `data_json` の中身を空に揃え、retired column を schema から落とす:
-
-```bash
-python3 scripts/project_registry.py migrate-storage-layout --phase retire-legacy-data --execute
-python3 scripts/project_registry.py migrate-storage-layout --phase cleanup-schema --execute
-```
 
 ### `record_json`
 
