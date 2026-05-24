@@ -8547,6 +8547,8 @@ def build_showcase_queue(
                 "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
+                "first_seen_at": shaped.get("first_seen_at", ""),
+                "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "nsids": unique_list(
@@ -8600,6 +8602,8 @@ def build_showcase_queue_batch(
                 "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
+                "first_seen_at": shaped.get("first_seen_at", ""),
+                "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "nsids": unique_list(
@@ -8618,6 +8622,50 @@ def build_showcase_queue_batch(
         )
     batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return batch, index
+
+
+def build_showcase_queue_item(
+    conn: sqlite3.Connection,
+    project_key: str,
+    *,
+    kinds: set[str] | None = None,
+    include_personal_tools: bool = False,
+) -> dict[str, Any] | None:
+    project = fetch_project(conn, project_key)
+    if project is None:
+        return None
+    shaped = apply_promotion_state(ensure_project_shape(project))
+    signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
+    if kinds is not None:
+        signals = [item for item in signals if str(item.get("kind") or "") in kinds]
+    if not signals:
+        return None
+    top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+    sort_score = promotion_queue_sort_score(shaped, signals)
+    return {
+        "project_key": shaped["project_key"],
+        "name": shaped.get("name", ""),
+        "tracking_state": shaped.get("tracking_state", "active"),
+        "status": shaped.get("status", "draft"),
+        "category": shaped.get("category", ""),
+        "service_status": shaped.get("service_status", "unknown"),
+        "first_seen_at": shaped.get("first_seen_at", ""),
+        "last_seen_at": shaped.get("last_seen_at", ""),
+        "seed_type": shaped.get("seed_type", ""),
+        "seed_value": shaped.get("seed_value", ""),
+        "nsids": unique_list(
+            [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
+            + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
+        )[:5],
+        "website_url": shaped.get("website_url", ""),
+        "repo_urls": project_repo_hint_urls(shaped)[:3],
+        "tagline": shaped.get("tagline", ""),
+        "summary": shaped.get("summary", ""),
+        "top_priority": top_priority,
+        "sort_score": sort_score,
+        "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
+        "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
+    }
 
 
 def build_review_queue(
@@ -10014,6 +10062,7 @@ def output_project_queue(
     kinds: set[str] | None,
     interactive: bool,
     load_more: Callable[[], list[dict[str, Any]]] | None = None,
+    include_personal_tools: bool = False,
 ) -> int:
     kind_counts: dict[str, int] = {}
     for item in queue:
@@ -10022,7 +10071,11 @@ def output_project_queue(
             kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
     if interactive and sys.stdin.isatty() and sys.stdout.isatty():
         index = 0
+        picked_items: dict[str, dict[str, Any]] = {}
+        stop_interactive = False
         while True:
+            if stop_interactive:
+                break
             if index >= len(queue):
                 if load_more is None:
                     break
@@ -10044,6 +10097,8 @@ def output_project_queue(
                             "status": current_item.get("status", ""),
                             "category": current_item.get("category", ""),
                             "service_status": current_item.get("service_status", ""),
+                            "first_seen_at": current_item.get("first_seen_at", ""),
+                            "last_seen_at": current_item.get("last_seen_at", ""),
                             "seed_type": current_item.get("seed_type", ""),
                             "seed_value": current_item.get("seed_value", ""),
                             "nsids": current_item.get("nsids", []),
@@ -10084,16 +10139,21 @@ def output_project_queue(
                     if repo_candidates:
                         actions.append("r=confirm repo")
                         actions.append("R=reject repo")
+                elif queue_name == "promotion":
+                    actions.append("p=pick")
+                    actions.append("k=tracking-state")
                 print(", ".join(actions), file=sys.stderr)
                 try:
                     answer = input().strip()
                 except EOFError:
-                    return 0
+                    stop_interactive = True
+                    break
                 if answer == "":
                     break
                 lowered = answer.lower()
                 if lowered == "q":
-                    return 0
+                    stop_interactive = True
+                    break
                 if lowered == "j":
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     if project is not None:
@@ -10138,6 +10198,62 @@ def output_project_queue(
                             break
                         current_item = refreshed
                     continue
+                if queue_name == "promotion" and lowered == "k":
+                    print("[a]ctive/[w]atchlist/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
+                    try:
+                        state_answer = input().strip().lower()
+                    except EOFError:
+                        break
+                    state_map = {
+                        "a": "active",
+                        "active": "active",
+                        "w": "watchlist",
+                        "watchlist": "watchlist",
+                        "s": "stable",
+                        "stable": "stable",
+                        "t": "stalled",
+                        "stalled": "stalled",
+                        "i": "ignore",
+                        "ignore": "ignore",
+                    }
+                    next_state = state_map.get(state_answer)
+                    if next_state:
+                        updated = update_project_tracking_state_value(
+                            conn,
+                            str(current_item.get("project_key") or ""),
+                            next_state,
+                        )
+                        print(
+                            json.dumps(
+                                {
+                                    "updated_tracking_state": next_state,
+                                    "project_key": current_item.get("project_key", ""),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                        refreshed = build_showcase_queue_item(
+                            conn,
+                            str(current_item.get("project_key") or ""),
+                            kinds=kinds,
+                            include_personal_tools=include_personal_tools,
+                        )
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "promotion" and lowered == "p":
+                    picked_items[str(current_item.get("project_key") or "")] = dict(current_item)
+                    print(
+                        json.dumps(
+                            {
+                                "picked_for_introduction": True,
+                                "project_key": current_item.get("project_key", ""),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                    break
                 if queue_name == "review" and lowered == "e":
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     if project is not None:
@@ -10362,6 +10478,21 @@ def output_project_queue(
                     continue
                 print(json.dumps({"warning": "unknown_or_unavailable_action", "answer": answer}, ensure_ascii=False))
             index += 1
+        if queue_name == "promotion":
+            print(
+                json.dumps(
+                    {
+                        "queue_name": queue_name,
+                        "tracking_states": sorted(tracking_states),
+                        "kinds": sorted(kinds) if kinds else [],
+                        "picked_count": len(picked_items),
+                        "picked_items": list(picked_items.values()),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
         return 0
     print(json.dumps({
         "queue_name": queue_name,
@@ -10422,12 +10553,13 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
         kinds=kinds,
         interactive=interactive,
         load_more=load_more,
+        include_personal_tools=False,
     )
 
 
 def cmd_promotion_queue(args: argparse.Namespace) -> int:
     conn = open_db()
-    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     include_personal_tools = bool(getattr(args, "include_personal_tools", False))
@@ -10478,6 +10610,7 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
         kinds=kinds,
         interactive=interactive,
         load_more=load_more,
+        include_personal_tools=include_personal_tools,
     )
 
 
@@ -12353,7 +12486,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser.set_defaults(func=cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
-    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist stable stalled.")
+    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_ready_for_introduction",
         "lexicon_ready_for_introduction",
