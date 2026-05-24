@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -37,6 +38,14 @@ DEFAULT_HEADERS = {
 }
 GITHUB_API = "https://api.github.com"
 DNS_RESOLVER_URL = "https://dns.google/resolve"
+REQUEST_TIMEOUT_DEFAULT = 60.0
+REQUEST_TIMEOUT_SHORT = 15.0
+REQUEST_TIMEOUT_SERVICE_CONFIRMED = 45.0
+REQUEST_TIMEOUT_SERVICE_CANDIDATE = 15.0
+REQUEST_TIMEOUT_LEXICON_DNS = 12.0
+REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
+REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
+ENRICH_IO_MAX_WORKERS = 4
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
@@ -375,7 +384,7 @@ def request_bytes(
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
     method: str | None = None,
-    timeout: float = 60,
+    timeout: float = REQUEST_TIMEOUT_DEFAULT,
 ) -> tuple[int, bytes, dict[str, str]]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
@@ -388,12 +397,18 @@ def request_bytes(
         return status, body, response_headers
 
 
-def request_json(url: str, headers: dict[str, str] | None = None) -> Any:
-    _, body, _ = request_bytes(url, headers=headers)
+def request_json(url: str, headers: dict[str, str] | None = None, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> Any:
+    _, body, _ = request_bytes(url, headers=headers, timeout=timeout)
     return json.loads(body.decode("utf-8"))
 
 
-def request_json_post(url: str, payload: Any, headers: dict[str, str] | None = None) -> Any:
+def request_json_post(
+    url: str,
+    payload: Any,
+    headers: dict[str, str] | None = None,
+    *,
+    timeout: float = REQUEST_TIMEOUT_DEFAULT,
+) -> Any:
     merged_headers = {"Content-Type": "application/json"}
     if headers:
         merged_headers.update(headers)
@@ -402,15 +417,22 @@ def request_json_post(url: str, payload: Any, headers: dict[str, str] | None = N
         headers=merged_headers,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
+        timeout=timeout,
     )
     return json.loads(body.decode("utf-8"))
 
 
-def request_json_authenticated(url: str, token: str, headers: dict[str, str] | None = None) -> Any:
+def request_json_authenticated(
+    url: str,
+    token: str,
+    headers: dict[str, str] | None = None,
+    *,
+    timeout: float = REQUEST_TIMEOUT_DEFAULT,
+) -> Any:
     merged_headers = {"Authorization": f"Bearer {token}"}
     if headers:
         merged_headers.update(headers)
-    return request_json(url, headers=merged_headers)
+    return request_json(url, headers=merged_headers, timeout=timeout)
 
 
 def parse_iso(value: str | None) -> dt.datetime | None:
@@ -423,6 +445,13 @@ def parse_iso(value: str | None) -> dt.datetime | None:
         return parsed
     except ValueError:
         return None
+
+
+def format_duration_hms(seconds: float) -> str:
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def normalize_url(url: str) -> str:
@@ -5690,13 +5719,13 @@ def classify_service_probe_result(
     return infer_service_status(status_code, lowered), "none", unique_list(evidence)
 
 
-def probe_service_url(url: str) -> dict[str, Any]:
+def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> dict[str, Any]:
     status_code = 0
     body = b""
     headers: dict[str, str] = {}
     fetch_error = ""
     try:
-        status_code, body, headers = request_bytes(url)
+        status_code, body, headers = request_bytes(url, timeout=timeout)
     except urllib.error.HTTPError as exc:
         status_code = int(exc.code or 0)
         body = exc.read()
@@ -5937,14 +5966,14 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     return {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
 
 
-def search_github_repositories(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
     cached = _GITHUB_REPO_SEARCH_CACHE.get(cache_key)
     if cached is not None:
         return [dict(item) for item in cached]
     headers = github_headers()
     params = urllib.parse.urlencode({"q": query, "per_page": max(1, min(limit, 10)), "sort": "updated", "order": "desc"})
-    payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
+    payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers, timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("items", [])[:limit]:
         html_url = str(item.get("html_url") or "")
@@ -5965,9 +5994,9 @@ def search_github_repositories(query: str, limit: int = 5) -> list[dict[str, Any
     return results
 
 
-def search_bsky_actors(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     params = urllib.parse.urlencode({"q": query, "limit": max(1, min(limit, 10))})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.searchActors?{params}")
+    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.searchActors?{params}", timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("actors", [])[:limit]:
         results.append(
@@ -6092,8 +6121,8 @@ def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *,
     return any(token and token in normalized_host for token in tokens)
 
 
-def search_bsky_posts(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    payload = search_bsky_posts_payload(query, limit=limit)
+def search_bsky_posts(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
+    payload = search_bsky_posts_payload(query, limit=limit, timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("posts", [])[:limit]:
         author = item.get("author", {}) if isinstance(item.get("author"), dict) else {}
@@ -6111,7 +6140,13 @@ def search_bsky_posts(query: str, limit: int = 5) -> list[dict[str, Any]]:
     return results
 
 
-def search_bsky_posts_payload(query: str, *, limit: int = 25, cursor: str = "") -> dict[str, Any]:
+def search_bsky_posts_payload(
+    query: str,
+    *,
+    limit: int = 25,
+    cursor: str = "",
+    timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+) -> dict[str, Any]:
     params_dict: dict[str, Any] = {"q": query, "limit": max(1, min(limit, 100))}
     if cursor:
         params_dict["cursor"] = cursor
@@ -6119,7 +6154,7 @@ def search_bsky_posts_payload(query: str, *, limit: int = 25, cursor: str = "") 
     url = f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}"
     headers = {"atproto-proxy": BSKY_APPVIEW_PROXY}
     try:
-        payload = request_json_authenticated(url, bsky_access_token(), headers=headers)
+        payload = request_json_authenticated(url, bsky_access_token(), headers=headers, timeout=timeout)
     except urllib.error.HTTPError as exc:
         body = ""
         try:
@@ -6128,16 +6163,16 @@ def search_bsky_posts_payload(query: str, *, limit: int = 25, cursor: str = "") 
             body = ""
         if exc.code == 401 or (exc.code == 400 and ("InvalidToken" in body or "ExpiredToken" in body)):
             refreshed = bsky_refresh_session()
-            payload = request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers)
+            payload = request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers, timeout=timeout)
         else:
             snippet = body[:300].strip()
             raise RuntimeError(f"Bluesky post search failed HTTP {exc.code}: {snippet or exc.reason}") from exc
     return payload if isinstance(payload, dict) else {}
 
 
-def fetch_bsky_author_feed(actor: str, limit: int = 10) -> list[dict[str, Any]]:
+def fetch_bsky_author_feed(actor: str, limit: int = 10, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     params = urllib.parse.urlencode({"actor": actor, "limit": max(1, min(limit, 20))})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getAuthorFeed?{params}")
+    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getAuthorFeed?{params}", timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("feed", [])[:limit]:
         post = item.get("post", {}) if isinstance(item.get("post"), dict) else {}
@@ -6197,9 +6232,9 @@ def bsky_record_urls(record: dict[str, Any]) -> list[str]:
     return unique_list(urls)
 
 
-def resolve_dns_txt(name: str) -> list[str]:
+def resolve_dns_txt(name: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> list[str]:
     params = urllib.parse.urlencode({"name": name, "type": "TXT"})
-    payload = request_json(f"{DNS_RESOLVER_URL}?{params}")
+    payload = request_json(f"{DNS_RESOLVER_URL}?{params}", timeout=timeout)
     values: list[str] = []
     for answer in payload.get("Answer", []):
         data = str(answer.get("data") or "").strip()
@@ -6223,8 +6258,8 @@ def resolve_did_document_url(did: str) -> str:
     raise ValueError(f"unsupported DID method: {did}")
 
 
-def resolve_did_document(did: str) -> dict[str, Any]:
-    return request_json(resolve_did_document_url(did))
+def resolve_did_document(did: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> dict[str, Any]:
+    return request_json(resolve_did_document_url(did), timeout=timeout)
 
 
 def extract_pds_url(did_doc: dict[str, Any]) -> str:
@@ -6291,12 +6326,12 @@ def upsert_lexicon_schema_sample(project: dict[str, Any], nsid: str, schema: dic
     project["lexicon_schema_samples"] = existing[:12]
 
 
-def fetch_recent_record_samples(collections: list[str]) -> list[dict[str, Any]]:
+def fetch_recent_record_samples(collections: list[str], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> list[dict[str, Any]]:
     normalized = unique_list([normalize_nsid(value) for value in collections if normalize_nsid(value)])
     if not normalized:
         return []
     params = urllib.parse.urlencode([("collection", value) for value in normalized])
-    payload = request_json(f"{UFOS_API}/records?{params}")
+    payload = request_json(f"{UFOS_API}/records?{params}", timeout=timeout)
     if not isinstance(payload, list):
         raise ValueError("UFOs record sample response must be a JSON array")
     samples: list[dict[str, Any]] = []
@@ -6345,29 +6380,34 @@ def fetch_collection_first_creator_did(collection: str) -> str:
     return did
 
 
-def refresh_recent_record_samples(project: dict[str, Any]) -> None:
+def refresh_recent_record_samples(project: dict[str, Any], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> None:
     collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
     if not collections:
         project["recent_record_samples"] = []
         return
-    project["recent_record_samples"] = fetch_recent_record_samples(collections)
+    project["recent_record_samples"] = fetch_recent_record_samples(collections, timeout=timeout)
 
 
-def resolve_lexicon_authority_did(authority_domain: str) -> str:
+def resolve_lexicon_authority_did(authority_domain: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> str:
     txt_name = f"_lexicon.{authority_domain}"
-    for value in resolve_dns_txt(txt_name):
+    for value in resolve_dns_txt(txt_name, timeout=timeout):
         if value.startswith("did="):
             return value.removeprefix("did=").strip()
     raise ValueError(f"no lexicon DID found for authority domain: {authority_domain}")
 
 
-def fetch_lexicon_record(nsid: str) -> dict[str, Any]:
+def fetch_lexicon_record(
+    nsid: str,
+    *,
+    dns_timeout: float = REQUEST_TIMEOUT_LEXICON_DNS,
+    http_timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP,
+) -> dict[str, Any]:
     normalized = normalize_nsid(nsid)
     authority_domain = derive_authority_domain(normalized)
     if not authority_domain:
         raise ValueError(f"invalid NSID: {nsid}")
-    did = resolve_lexicon_authority_did(authority_domain)
-    did_doc = resolve_did_document(did)
+    did = resolve_lexicon_authority_did(authority_domain, timeout=dns_timeout)
+    did_doc = resolve_did_document(did, timeout=http_timeout)
     pds_url = extract_pds_url(did_doc)
     if not pds_url:
         raise ValueError(f"no PDS endpoint found for DID: {did}")
@@ -6378,7 +6418,7 @@ def fetch_lexicon_record(nsid: str) -> dict[str, Any]:
             "rkey": normalized,
         }
     )
-    payload = request_json(f"{pds_url}/xrpc/com.atproto.repo.getRecord?{params}")
+    payload = request_json(f"{pds_url}/xrpc/com.atproto.repo.getRecord?{params}", timeout=http_timeout)
     return {
         "did": did,
         "did_doc": did_doc,
@@ -6387,11 +6427,10 @@ def fetch_lexicon_record(nsid: str) -> dict[str, Any]:
     }
 
 
-def enrich_from_lexicon(project: dict[str, Any], nsid: str) -> None:
+def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict[str, Any]) -> None:
     nsid = normalize_nsid(nsid)
     if not nsid:
         return
-    result = fetch_lexicon_record(nsid)
     record = result["record"]
     schema = record.get("value", {})
     resolved_nsid = str(record.get("uri", "")).rsplit("/", 1)[-1] or str(schema.get("id") or normalize_nsid(nsid))
@@ -6421,6 +6460,20 @@ def enrich_from_lexicon(project: dict[str, Any], nsid: str) -> None:
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
     upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
     add_name_candidate(project, resolved_nsid.split(".")[-1], f"lexicon_name:{resolved_nsid}")
+
+
+def enrich_from_lexicon(
+    project: dict[str, Any],
+    nsid: str,
+    *,
+    dns_timeout: float = REQUEST_TIMEOUT_LEXICON_DNS,
+    http_timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP,
+) -> None:
+    nsid = normalize_nsid(nsid)
+    if not nsid:
+        return
+    result = fetch_lexicon_record(nsid, dns_timeout=dns_timeout, http_timeout=http_timeout)
+    apply_lexicon_record_result(project, nsid, result)
 
 
 def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
@@ -6536,8 +6589,7 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
                 add_candidate_url(project, "website_url", normalized_service)
 
 
-def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
-    result = probe_service_url(service_url)
+def apply_service_probe_result(project: dict[str, Any], service_url: str, result: dict[str, Any], *, follow_up_timeout: float = REQUEST_TIMEOUT_SHORT) -> None:
     title = clean_title(result["title"])
     description = result["description"]
     supported = service_probe_supports_project(project, service_url, result)
@@ -6586,11 +6638,16 @@ def enrich_from_service(project: dict[str, Any], service_url: str) -> None:
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
     for follow_url in follow_ups[:3]:
         try:
-            nested = probe_service_url(follow_url)
+            nested = probe_service_url(follow_url, timeout=follow_up_timeout)
             collect_first_party_links(project, follow_url, nested.get("links", []), f"service_follow_up:{follow_url}")
             add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=iso_now())
         except Exception as exc:
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
+
+
+def enrich_from_service(project: dict[str, Any], service_url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> None:
+    result = probe_service_url(service_url, timeout=timeout)
+    apply_service_probe_result(project, service_url, result, follow_up_timeout=min(timeout, REQUEST_TIMEOUT_SHORT))
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
@@ -6642,6 +6699,28 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 title=nested_title,
                 at=iso_now(),
             )
+
+
+def service_probe_timeout_for_project(project: dict[str, Any], service_url: str) -> float:
+    normalized = normalize_url(service_url)
+    if not normalized:
+        return REQUEST_TIMEOUT_SERVICE_CANDIDATE
+    confirmed = {
+        normalize_url(str(item or ""))
+        for item in ([project.get("website_url")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        if normalize_url(str(item or ""))
+    }
+    manual = {
+        normalize_url(str(item.get("value") or "").strip())
+        for item in project.get("manual_seeds", [])
+        if isinstance(item, dict)
+        and str(item.get("type") or "") == "service_url"
+        and normalize_url(str(item.get("value") or "").strip())
+    }
+    if normalized in confirmed or normalized in manual:
+        return REQUEST_TIMEOUT_SERVICE_CONFIRMED
+    return REQUEST_TIMEOUT_SERVICE_CANDIDATE
 
 
 def service_hosts(project: dict[str, Any]) -> set[str]:
@@ -7521,7 +7600,7 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
     for query in build_github_repo_search_queries(plan):
         add_investigation_query(project, query)
         try:
-            repos = search_github_repositories(query, limit=5)
+            repos = search_github_repositories(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
             scored_repos = [
                 (github_repo_relevance(project, repo), repo)
                 for repo in repos
@@ -7561,7 +7640,7 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
     for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
         add_investigation_query(project, query)
         try:
-            actors = search_bsky_actors(query, limit=5)
+            actors = search_bsky_actors(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
             accepted_actors = [item for item in actors if bsky_actor_relevance(project, item) >= 4]
             add_investigation_log(project, "bsky_actor_search", query=query, result_count=len(actors), accepted_count=len(accepted_actors), at=iso_now())
             handles = [item["handle"] for item in accepted_actors if item.get("handle")]
@@ -7575,7 +7654,7 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
     for query in build_bsky_search_queries(plan, "post_search_queries", max_queries=2):
         add_investigation_query(project, query)
         try:
-            posts = search_bsky_posts(query, limit=5)
+            posts = search_bsky_posts(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
             add_investigation_log(project, "bsky_post_search", query=query, result_count=len(posts), at=iso_now())
             urls: list[str] = []
             handles: list[str] = []
@@ -7593,7 +7672,7 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
     for handle in unique_list(actor_handles_to_probe)[:2]:
         try:
-            feed = fetch_bsky_author_feed(handle, limit=8)
+            feed = fetch_bsky_author_feed(handle, limit=8, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
             add_investigation_log(project, "bsky_author_feed", actor=handle, result_count=len(feed), at=iso_now())
             urls: list[str] = []
             for item in feed:
@@ -9599,14 +9678,25 @@ def enrich_project(
     reset_investigation_state(project)
 
     initial_nsids = unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
-    for nsid in initial_nsids:
-        try:
-            enrich_from_lexicon(project, nsid)
-        except Exception as exc:
-            note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
+    if initial_nsids:
+        with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_nsids))) as executor:
+            lexicon_futures = {
+                nsid: executor.submit(
+                    fetch_lexicon_record,
+                    nsid,
+                    dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS,
+                    http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP,
+                )
+                for nsid in initial_nsids
+            }
+            for nsid in initial_nsids:
+                try:
+                    apply_lexicon_record_result(project, nsid, lexicon_futures[nsid].result())
+                except Exception as exc:
+                    note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
 
     try:
-        refresh_recent_record_samples(project)
+        refresh_recent_record_samples(project, timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
     except Exception as exc:
         note_failure(project, f"recent record sampling failed: {exc}")
 
@@ -9626,7 +9716,7 @@ def enrich_project(
     ]
     for nsid in discovered_nsids:
         try:
-            enrich_from_lexicon(project, nsid)
+            enrich_from_lexicon(project, nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
         except Exception as exc:
             note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
 
@@ -9636,11 +9726,30 @@ def enrich_project(
         + project.get("website_url_candidates", [])
         + project.get("service_url_candidates", [])
     )
-    for service_url in initial_service_urls:
-        try:
-            enrich_from_service(project, service_url)
-        except Exception as exc:
-            note_failure(project, f"service probe failed for {service_url}: {exc}")
+    if initial_service_urls:
+        with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
+            service_futures = {
+                service_url: executor.submit(
+                    probe_service_url,
+                    service_url,
+                    timeout=service_probe_timeout_for_project(project, service_url),
+                )
+                for service_url in initial_service_urls
+            }
+            for service_url in initial_service_urls:
+                try:
+                    timeout = service_probe_timeout_for_project(project, service_url)
+                    apply_service_probe_result(
+                        project,
+                        service_url,
+                        service_futures[service_url].result(),
+                        follow_up_timeout=min(timeout, REQUEST_TIMEOUT_SHORT),
+                    )
+                except Exception as exc:
+                    normalized_service_url = normalize_url(service_url)
+                    if normalized_service_url:
+                        project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
+                    note_failure(project, f"service probe failed for {service_url}: {exc}")
 
     secondary_repo_urls = unique_list(project.get("github_repo_urls", []))
     for repo_url in secondary_repo_urls:
@@ -9730,6 +9839,8 @@ def select_projects(conn: sqlite3.Connection, args: argparse.Namespace) -> list[
         projects = list_projects(conn, tracking_states=tracking_states)
         if getattr(args, "new_only", False):
             projects = [project for project in projects if not str(project.get("last_enriched_at") or "").strip()]
+        if getattr(args, "retry_failures", False):
+            projects = [project for project in projects if project.get("last_run_errors")]
         return projects
     raise ValueError("choose one of --project-key, --seed, or --all")
 
@@ -9760,14 +9871,21 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     projects = select_projects(conn, args)
     promoted_now: list[dict[str, Any]] = []
     total = len(projects)
+    started_at = dt.datetime.now(dt.timezone.utc)
     for index, project in enumerate(projects, start=1):
         if total > 1:
+            now = dt.datetime.now(dt.timezone.utc)
+            elapsed_seconds = max(0.0, (now - started_at).total_seconds())
+            average_seconds = elapsed_seconds / max(1, index - 1) if index > 1 else 0.0
+            remaining_seconds = max(0.0, average_seconds * max(0, total - index + 1)) if index > 1 else 0.0
             print(json.dumps({
                 "progress": {
                     "current": index,
                     "total": total,
                     "at": iso_now(),
                     "phase": "start",
+                    "elapsed": format_duration_hms(elapsed_seconds),
+                    "eta": format_duration_hms(remaining_seconds),
                 }
             }, ensure_ascii=False))
         project = enrich_project(
@@ -9943,6 +10061,7 @@ def output_project_queue(
                 signal_kinds = {str(signal.get("kind") or "") for signal in current_item.get("signals", []) if isinstance(signal, dict)}
                 actions = ["[Enter]=next", "j=full json", "q=quit"]
                 if queue_name == "review":
+                    actions.append("e=enrich")
                     actions.append("k=tracking-state")
                     actions.append("x=dismiss signal")
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
@@ -9958,7 +10077,7 @@ def output_project_queue(
                         "external_lexicon_dependency_needs_review",
                         "category_recheck_needed",
                     }:
-                        actions.append("e=deep enrich")
+                        actions.append("E=deep enrich")
                     if service_candidates:
                         actions.append("c=confirm service")
                         actions.append("C=reject service")
@@ -10019,7 +10138,29 @@ def output_project_queue(
                             break
                         current_item = refreshed
                     continue
-                if queue_name == "review" and lowered == "e" and signal_kinds & {
+                if queue_name == "review" and lowered == "e":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        enriched = enrich_project(conn, project, deep_investigation=False)
+                        save_project(conn, enriched, enriched=True)
+                        conn.commit()
+                        print(
+                            json.dumps(
+                                {
+                                    "enriched": True,
+                                    "project_key": current_item.get("project_key", ""),
+                                    "service_status": enriched.get("service_status", ""),
+                                    "last_run_errors": enriched.get("last_run_errors", []),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "review" and answer == "E" and signal_kinds & {
                     "llm_manual_review_recommended",
                     "service_now_usable_but_needs_editorial_review",
                     "high_information_density",
@@ -12173,6 +12314,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--include-archived", action="store_true", help="When used with --all, include projects marked archived.")
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
+    enrich_parser.add_argument("--retry-failures", action="store_true", help="When used with --all, enrich only projects whose previous enrich left last_run_errors.")
     enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")

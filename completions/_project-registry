@@ -1,6 +1,7 @@
 #compdef project-registry project_registry.py
 
 local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes review_kinds
+local -a promotion_kinds
 
 subcommands=(
   'add-seed:Register one manual seed'
@@ -32,12 +33,21 @@ llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
 merge_modes=(strict moderate broad)
 review_kinds=(
-  merge_needs_human_judgment
+  service_candidate_needs_confirmation
+  candidate_repo_needs_confirmation
   llm_manual_review_recommended
   service_now_usable_but_needs_editorial_review
   more_evidence_than_current_classification
+  stale_metadata_with_recent_activity
+  service_status_unverified_but_promising
+  category_recheck_needed
+  external_lexicon_dependency_needs_review
   high_information_density
   many_identity_candidates
+)
+promotion_kinds=(
+  service_ready_for_introduction
+  lexicon_ready_for_introduction
 )
 
 _project_registry_tracking_states() {
@@ -106,6 +116,7 @@ case "$cmd" in
       '--include-archived[Include projects marked archived]' \
       '--include-ignore[Include projects marked ignore]' \
       '--new-only[Only enrich projects that have never been enriched]' \
+      '--retry-failures[Only enrich projects whose previous enrich left last_run_errors]' \
       '--deep-investigation[Probe discovered resource or docs pages before LLM review]' \
       "--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
       "--llm-model[Model name for the LLM endpoint]:model:" \
@@ -126,7 +137,16 @@ case "$cmd" in
     _arguments -S \
       '--tracking-states+[Restrict review queue to these tracking states]:tracking states:_project_registry_tracking_states' \
       "--kinds+[Restrict to specific review kinds]:kind:(${review_kinds[*]})" \
-      '--limit[Maximum number of projects to return]:count:'
+      '--limit[Maximum number of projects to return]:count:' \
+      '--interactive[Step through review items interactively]'
+    ;;
+  promotion-queue)
+    _arguments -S \
+      '--tracking-states+[Restrict promotion queue to these tracking states]:tracking states:_project_registry_tracking_states' \
+      "--kinds+[Restrict to specific promotion kinds]:kind:(${promotion_kinds[*]})" \
+      '--limit[Maximum number of projects to return]:count:' \
+      '--include-personal-tools[Include category=personal_tool candidates]' \
+      '--interactive[Step through promotion items interactively]'
     ;;
   review-stalled)
     _arguments -S \
