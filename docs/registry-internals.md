@@ -72,6 +72,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - lexicon description 由来の `summary_candidates` / `tagline_candidates`
 - 保守的な点:
   - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
+  - authority domain 由来 URL は
+    - まず probe する
+    - `service_probe_supports_project()` を通った時だけ candidate に残す
+    - unsupported なら候補化しない
 
 ### 2. GitHub repo から取るもの
 
@@ -125,6 +129,20 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - その URL は project から外します
 - `4xx` / fetch error は:
   - `failed_service_urls` に残します
+
+### 3.2 `developer_accounts` の confirmed / candidate
+
+- 現在の account まわりは二層です
+  - `developer_accounts`
+    - confirmed 扱い
+  - `candidate_developer_accounts`
+    - service page / follow-up / Bluesky search 由来の未確認候補
+- service/search 由来の handle は、まず `candidate_developer_accounts` に入れます
+- confirmed に上がる主な条件:
+  - confirmed service host と handle ドメインが整合する
+  - 例: `https://example.com` と `alice.example.com`
+- `developer_accounts` だけを identity 補強に使います
+  - `candidate_developer_accounts` は ownership や service support の強い根拠に使わない方針
 
 ### 3.1 `service_status` の現在地と残件
 
@@ -198,6 +216,26 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - same-site family の repo URL で owner も噛む時
 - それ以外の repo-like URL は candidate に留めます
 - docs/blog/same-site 補助ページは `resource_urls` に残し、必要なら追加 probe の対象にします
+
+### 4.1 NSID ownership の現在の優先順位
+
+`project_owned_lexicon_nsid()` は現在、次の順で `owned` を判定します。
+
+1. manual `nsid` seed そのもの
+2. manual `nsid` seed の親 namespace と一致
+3. confirmed 開発者アカウントが authority domain を持っていそう
+4. confirmed 開発者 DID がその `NSID` の schema record を持っている
+5. confirmed service host と authority domain が整合する
+6. 既存の token ベース整合
+
+意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを弱めることです。
+
+まだ未解決な点:
+
+- `repo/website` に出た `NSID` の `owned/reference` 区別
+- `uses collection` は `reference` に強いが `owned` には弱い
+- `defines schema` は `owned` に強い
+- `atproto repository` 上の record usage は ownership ではなく reference 補助に留めるべき
 
 ### 5. investigation collector の扱い
 

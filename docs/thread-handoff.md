@@ -40,6 +40,24 @@
 
 ## 直近の残件
 
+- `NSID` ownership 判定は直近で一段強化した
+  - authority domain 由来の service URL は、即 candidate 化せずまず probe だけする
+  - probe が `supported` を通った時だけ `website_url_candidates` / `service_url_candidates` に残す
+  - unsupported な authority probe からは `service_title` を `name` 候補へ入れない
+  - `developer_accounts` は confirmed 専用、service/search 由来は `candidate_developer_accounts` に分離した
+  - `project_owned_lexicon_nsid()` は次を優先して `owned` 判定する
+    - confirmed 開発者アカウントが authority domain を持っていそう
+    - confirmed 開発者 DID がその `NSID` の schema record を持っている
+    - 既存の service/repo/token 整合は後段 fallback
+  - ここでの confirmed account は、現状 service domain と handle ドメインが整合するものが中心
+- まだ残っている ownership 課題
+  - `repo/website` に出た `NSID` を `owned` と `reference` にもっと明確に分ける
+  - 今後は
+    - `uses collection` は強い `reference`
+    - `defines schema` は強い `owned`
+    として扱う方針
+  - `atproto repository` 側の record usage は ownership というより reference 根拠
+  - `listReposByCollection` heuristic は補助根拠に留める。単独で ownership を上げない
 - `service_status` 強化は 4 段階のうち前半だけ入っています
   - 既に入っているもの:
     - evidence / confidence 付き保存
@@ -96,8 +114,12 @@
   - 今は `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` が混在する箇所がまだある
   - 長期的には `record` と `ops` で役割をさらに明確にしたい
 - `developer_accounts` の表現整理
-  - 現在は `handle/did/source` の最小構造
-  - 可読性と rename 耐性のバランスは悪くないが、`brand_did` との役割分担はまだ揺れる
+  - 現在は
+    - `developer_accounts`
+    - `candidate_developer_accounts`
+    の二層
+  - confirmed/candidate の UI 露出はまだ薄い
+  - repo/readme/profile 由来の confirmed 条件をもう少し増やせる
 - `resource_urls` の運用整理
   - 現在は docs/blog/about をまとめて入れている
   - service 判定強化を進めるなら、`resource_urls` 内の種類も持ちたくなる可能性がある

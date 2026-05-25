@@ -266,6 +266,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "github_repo_urls",
         "tangled_repo_urls",
         "developer_accounts",
+        "candidate_developer_accounts",
         "bluesky_handles",
         "tangled_handles",
         "source_repo_records",
@@ -344,6 +345,7 @@ MAPPED_LEGACY_FIELDS = {
     "github_repo_urls",
     "tangled_repo_urls",
     "developer_accounts",
+    "candidate_developer_accounts",
     "investigation_queries",
     "investigation_log",
     "classification_reason",
@@ -772,6 +774,90 @@ def candidate_service_origins_for_authority_domain(authority_domain: str) -> lis
     return unique_list(candidates)
 
 
+def authority_service_candidates_allowed(
+    project: dict[str, Any],
+    authority_domain: str,
+    *,
+    verified: bool = False,
+) -> bool:
+    lowered = str(authority_domain or "").strip().lower().rstrip(".")
+    if not lowered:
+        return False
+    if verified:
+        return True
+    for host in ownership_anchor_service_hosts(project):
+        if lowered == host or lowered.endswith(f".{host}") or host.endswith(f".{lowered}"):
+            return True
+    return False
+
+
+def add_authority_service_candidates(
+    project: dict[str, Any],
+    authority_domain: str,
+    *,
+    verified: bool = False,
+) -> None:
+    if not authority_service_candidates_allowed(project, authority_domain, verified=verified):
+        return
+    for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
+        add_candidate_url(project, "website_url", candidate_url)
+        add_candidate_url(project, "service_url", candidate_url)
+
+
+def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
+    resolved_nsids = {
+        normalize_nsid(str(item or ""))
+        for item in project.get("resolved_nsids", [])
+        if normalize_nsid(str(item or ""))
+    }
+    guesses: set[str] = set()
+    for raw_nsid in project.get("input_nsids", []):
+        nsid = normalize_nsid(str(raw_nsid or ""))
+        if not nsid or nsid in resolved_nsids:
+            continue
+        authority_domain = derive_authority_domain(nsid)
+        if not authority_domain:
+            continue
+        if authority_service_candidates_allowed(project, authority_domain, verified=False):
+            continue
+        guesses.update(candidate_service_origins_for_authority_domain(authority_domain))
+    return guesses
+
+
+def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
+    existing_urls = {
+        normalize_url(str(url or ""))
+        for url in (
+            ([project.get("website_url")] if project.get("website_url") else [])
+            + list(project.get("service_urls", []))
+            + list(project.get("website_url_candidates", []))
+            + list(project.get("service_url_candidates", []))
+        )
+        if normalize_url(str(url or ""))
+    }
+    failed_urls = {
+        normalize_url(str(url or ""))
+        for url in project.get("failed_service_urls", [])
+        if normalize_url(str(url or ""))
+    }
+    probe_urls: list[str] = []
+    observed_nsids = unique_list(list(project.get("resolved_nsids", [])) + list(project.get("input_nsids", [])))
+    for raw_nsid in observed_nsids:
+        nsid = normalize_nsid(str(raw_nsid or ""))
+        if not nsid:
+            continue
+        authority_domain = derive_authority_domain(nsid)
+        if not authority_domain:
+            continue
+        for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
+            normalized = normalize_url(candidate_url)
+            if not normalized or normalized in existing_urls or normalized in failed_urls:
+                continue
+            probe_urls.append(normalized)
+            existing_urls.add(normalized)
+    return unique_list(probe_urls)
+
+
 def normalize_nsid(nsid: str) -> str:
     value = nsid.strip()
     if value.startswith("at://"):
@@ -968,6 +1054,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "bluesky_handles": [],
         "tangled_handles": [],
         "developer_accounts": [],
+        "candidate_developer_accounts": [],
         "investigation_queries": [],
         "investigation_log": [],
         "classification_reason": "",
@@ -1133,6 +1220,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
     defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
+    defaults["candidate_developer_accounts"] = normalize_developer_accounts(list(defaults.get("candidate_developer_accounts") or []))
     if defaults["status"] == "candidate":
         defaults["status"] = "draft"
     defaults["lexicon_namespaces"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("lexicon_namespaces", []) if str(item).strip()])
@@ -1346,6 +1434,52 @@ def ownership_anchor_service_hosts(project: dict[str, Any]) -> set[str]:
     return {host for host in hosts if host}
 
 
+def confirmed_developer_handles(project: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("handle") or "").strip().lower()
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("handle") or "").strip()
+    }
+
+
+def confirmed_developer_dids(project: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("did") or "").strip()
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("did") or "").strip()
+    }
+
+
+def developer_controls_authority_domain(project: dict[str, Any], authority_domain: str) -> bool:
+    lowered = str(authority_domain or "").strip().lower().rstrip(".")
+    if not lowered:
+        return False
+    authority_root = root_domain(lowered)
+    for handle in confirmed_developer_handles(project):
+        handle_root = root_domain(handle)
+        if handle == lowered or handle.endswith(f".{lowered}"):
+            return True
+        if authority_root and handle_root and handle_root == authority_root:
+            return True
+    return False
+
+
+def developer_holds_schema_record(project: dict[str, Any], nsid: str) -> bool:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return False
+    confirmed_dids = confirmed_developer_dids(project)
+    if not confirmed_dids:
+        return False
+    for entry in normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", [])):
+        input_nsid = normalize_nsid(str(entry.get("input_nsid") or ""))
+        resolved_nsid = normalize_nsid(str(entry.get("resolved_nsid") or ""))
+        repo_did = str(entry.get("repo_did") or "").strip()
+        if repo_did and repo_did in confirmed_dids and normalized in {input_nsid, resolved_nsid}:
+            return True
+    return False
+
+
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
     normalized = normalize_nsid(nsid)
     if not normalized:
@@ -1361,6 +1495,12 @@ def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
         return True
 
     authority_domain = derive_authority_domain(normalized)
+    if authority_domain and developer_controls_authority_domain(project, authority_domain):
+        return True
+
+    if developer_holds_schema_record(project, normalized):
+        return True
+
     if authority_domain:
         service_hosts_known = ownership_anchor_service_hosts(project)
         for host in service_hosts_known:
@@ -2096,6 +2236,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["investigation_log"] = list(project.get("investigation_log", []))
     project["last_run_errors"] = unique_list(project.get("last_run_errors", []))
     project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])))
+    project["candidate_developer_accounts"] = normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
     project["name_candidates"] = [dict(item) for item in project.get("name_candidates", []) if isinstance(item, dict)]
     project["tags"] = unique_list(project.get("tags", []))
     project["platforms"] = unique_list(project.get("platforms", []))
@@ -2231,9 +2372,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         authority_domain = derive_authority_domain(normalized_nsid)
         if authority_domain:
             project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
-                add_candidate_url(project, "website_url", candidate_url)
-                add_candidate_url(project, "service_url", candidate_url)
+            add_authority_service_candidates(project, authority_domain)
     elif seed_type == "repo_url":
         normalized = canonical_repo_url(seed_value)
         if not normalized:
@@ -2916,7 +3055,17 @@ class HrefHTMLParser(HTMLParser):
 
 
 def clean_title(title: str) -> str:
-    return re.sub(r"\s*[|\-]\s*.*$", "", title).strip()
+    text = str(title or "").strip()
+    if not text:
+        return ""
+    # Treat pipe as a strong separator, and only trim dash/colon subtitles when
+    # they are presented as a spaced title separator rather than part of a name.
+    text = re.sub(r"\s*\|\s*.*$", "", text)
+    text = re.sub(r"\s+[—–\-:：]\s+.*$", "", text)
+    text = re.sub(r"\s+[·•]\s+.*$", "", text)
+    text = re.sub(r"\s+>>\s+.*$", "", text)
+    text = re.sub(r"\s+//\s+.*$", "", text)
+    return text.strip()
 
 
 GENERIC_PLATFORM_HOSTS = {
@@ -3899,14 +4048,18 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
 
 
 def prune_project_urls(project: dict[str, Any]) -> None:
+    blocked_guesses = unverified_authority_service_guesses(project)
     for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
             handle = extract_bluesky_profile_handle(url)
             if handle:
-                project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
+                record_developer_handle(project, handle, f"{field_name}:profile_url")
                 continue
             is_confirmed = field_name == "service_urls"
+            normalized_candidate = normalize_url(str(url or ""))
+            if not is_confirmed and normalized_candidate in blocked_guesses:
+                continue
             if service_url_allowed_for_project(project, url, confirmed=is_confirmed):
                 normalized = normalize_confirmed_service_url(url) if is_confirmed else normalize_service_candidate_url(url)
                 if normalized:
@@ -3993,6 +4146,50 @@ def add_developer_account(project: dict[str, Any], handle: str, source: str, did
     if source:
         account["source"] = source
     project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])) + [account])
+
+
+def add_candidate_developer_account(project: dict[str, Any], handle: str, source: str, did: str = "") -> None:
+    normalized_handle = str(handle or "").strip()
+    normalized_did = str(did or "").strip()
+    if not normalized_handle and not normalized_did:
+        return
+    account: dict[str, str] = {}
+    if normalized_handle:
+        account["handle"] = normalized_handle
+    if normalized_did:
+        account["did"] = normalized_did
+    if source:
+        account["source"] = source
+    project["candidate_developer_accounts"] = normalize_developer_accounts(
+        list(project.get("candidate_developer_accounts", [])) + [account]
+    )
+
+
+def handle_matches_confirmed_service_identity(project: dict[str, Any], handle: str) -> bool:
+    normalized_handle = str(handle or "").strip().lower()
+    if not normalized_handle or "." not in normalized_handle:
+        return False
+    handle_root = root_domain(normalized_handle)
+    confirmed_hosts = {
+        str(host or "").strip().lower()
+        for host in ownership_anchor_service_hosts(project)
+        if str(host or "").strip()
+    }
+    for host in confirmed_hosts:
+        host_root = root_domain(host)
+        if normalized_handle == host or normalized_handle.endswith(f".{host}"):
+            return True
+        if handle_root and host_root and handle_root == host_root:
+            return True
+    return False
+
+
+def record_developer_handle(project: dict[str, Any], handle: str, source: str, did: str = "") -> None:
+    if handle_matches_confirmed_service_identity(project, handle):
+        project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
+        add_developer_account(project, handle, source, did=did)
+        return
+    add_candidate_developer_account(project, handle, source, did=did)
 
 
 def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
@@ -5930,8 +6127,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
             if "/profile/" in parsed.path:
                 handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
                 if handle:
-                    project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-                    add_developer_account(project, handle, source)
+                    record_developer_handle(project, handle, source)
         elif classification == "same_site":
             if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 confirm_source_code_url(
@@ -6513,9 +6709,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     authority_domain = derive_authority_domain(resolved_nsid)
     if authority_domain:
         project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-        for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
-            add_candidate_url(project, "website_url", candidate_url)
-            add_candidate_url(project, "service_url", candidate_url)
+        add_authority_service_candidates(project, authority_domain, verified=True)
     description = str(schema.get("description") or "")
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
@@ -6601,9 +6795,7 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
         authority_domain = derive_authority_domain(nsid)
         if authority_domain:
             project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
-                add_candidate_url(project, "website_url", candidate_url)
-                add_candidate_url(project, "service_url", candidate_url)
+            add_authority_service_candidates(project, authority_domain)
         schema = item.get("schema")
         if isinstance(schema, dict):
             upsert_lexicon_schema_sample(project, nsid, schema)
@@ -6654,9 +6846,9 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
     description = result["description"]
     supported = service_probe_supports_project(project, service_url, result)
     host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
-    if title and host not in GENERIC_PLATFORM_HOSTS:
-        add_name_candidate(project, title, f"service_title:{normalize_url(service_url)}")
     if supported:
+        if title and host not in GENERIC_PLATFORM_HOSTS:
+            add_name_candidate(project, title, f"service_title:{normalize_url(service_url)}")
         add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
         add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
         observed_service_status = normalize_service_status(result.get("service_status"))
@@ -6693,8 +6885,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         if parsed.netloc.endswith("bsky.app") and "/profile/" in parsed.path:
             handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
             if handle:
-                project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-                add_developer_account(project, handle, f"service_raw_url:{normalized_service_url}")
+                record_developer_handle(project, handle, f"service_raw_url:{normalized_service_url}")
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
     for follow_url in follow_ups[:3]:
         try:
@@ -7652,8 +7843,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
                     evidence_url=url,
                 )
     for handle in handles:
-        if handle_matches_project(project, handle):
-            add_developer_account(project, handle, source)
+        record_developer_handle(project, handle, source)
 
 
 def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
@@ -9678,6 +9868,11 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
             or not str(item.get("handle") or "").strip()
         ]
+        evidence["candidate_developer_accounts"] = [
+            dict(item)
+            for item in normalize_developer_accounts(evidence.get("candidate_developer_accounts", []))
+            if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
+        ]
         surviving_evidence_handles = {
             str(item.get("handle") or "").strip()
             for item in evidence.get("developer_accounts", [])
@@ -9700,6 +9895,11 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
                 for item in evidence.get("developer_accounts", [])
                 if str(item.get("handle") or "").strip().lower() not in ignored_handles
             ]
+            evidence["candidate_developer_accounts"] = [
+                dict(item)
+                for item in evidence.get("candidate_developer_accounts", [])
+                if str(item.get("handle") or "").strip().lower() not in ignored_handles
+            ]
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)
 
     sync_primary_service_urls(project)
@@ -9709,6 +9909,16 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         for item in normalize_developer_accounts(project.get("developer_accounts", []))
         if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
         or not str(item.get("handle") or "").strip()
+    ]
+    project["candidate_developer_accounts"] = [
+        dict(item)
+        for item in normalize_developer_accounts(project.get("candidate_developer_accounts", []))
+        if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
+        and str(item.get("handle") or "").strip() not in {
+            str(existing.get("handle") or "").strip()
+            for existing in project.get("developer_accounts", [])
+            if isinstance(existing, dict)
+        }
     ]
     surviving_handles = {
         str(item.get("handle") or "").strip()
@@ -9833,6 +10043,7 @@ def enrich_project(
         + project.get("service_urls", [])
         + project.get("website_url_candidates", [])
         + project.get("service_url_candidates", [])
+        + derived_authority_probe_urls(project)
     )
     if initial_service_urls:
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
