@@ -16,6 +16,29 @@
 
 `repair-db` は新構造の正規化と派生フィールド再計算を行います。
 
+## 文書更新の方針
+
+実装を変えた時は、コードだけでなく対応する文書も更新します。目安は次の通りです。
+
+- 利用者向けの操作や出力が変わる時
+  - `README.md`
+  - `docs/project-registry.md`
+- 内部の判定基準、保存構造、heuristic、運用前提が変わる時
+  - `docs/registry-internals.md`
+- その場限りではないが、まだ安定していない残件や次の論点を残したい時
+  - `docs/thread-handoff.md`
+- 中長期の計画や、まだ着手していない改善案を整理したい時
+  - `docs/roadmap.md`
+- データモデルの見方や field の意味が変わる時
+  - `docs/project-record.md`
+
+特に次の変更では、利用者向け文書と内部文書の両方を見る前提です。
+
+- DB schema / storage layout の変更
+- CLI command / option / interactive flow の変更
+- sync / enrich / merge / review 系の判定ロジック変更
+- queue の signal や promotion / stalled 判定の変更
+
 ## project record の最小コア
 
 優先して埋める項目:
