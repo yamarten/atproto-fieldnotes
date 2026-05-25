@@ -237,6 +237,55 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - `defines schema` は `owned` に強い
 - `atproto repository` 上の record usage は ownership ではなく reference 補助に留めるべき
 
+### 4.2 何が何を保証しているか
+
+現在の設計では、`domain`, `NSID`, `repo`, `service`, `account` の関係を同じ強さでは扱いません。保証関係は次のように見る想定です。
+
+- `domain -> NSID`
+  - 強い
+  - `_lexicon.<authority_domain>` の TXT から DID が引ける
+  - さらにその DID の PDS から `com.atproto.lexicon.schema/<nsid>` が引ける
+- `NSID -> domain`
+  - 中程度
+  - `NSID` 自身から authority domain は導ける
+  - ただしこれは「そう名乗っている」だけで、ownership の確定には使わない
+- `service -> domain`
+  - 強い
+  - `website_url` / confirmed `service_url` の host
+- `handle -> domain`
+  - 中程度
+  - handle の suffix/domain
+  - ただし confirmed service host と整合した時だけ confirmed account に上げる
+- `repo -> NSID`
+  - 二種類に分ける
+  - `lexicon file がある`
+    - 強い `defines schema`
+    - `owned` 根拠
+  - `record usage / createRecord / docs mention`
+    - 強い `uses collection`
+    - `reference` 根拠
+- `repo -> account`
+  - まだ弱い / 未実装
+  - README, project website, GitHub profile, first-party profile link から confirmed account に昇格する処理はまだ入っていない
+- `service -> account`
+  - 現在の confirmed 条件
+  - confirmed service host と handle ドメインが整合する時だけ confirmed
+- `account -> NSID`
+  - 二段階
+  - confirmed account が authority domain を持っていそう
+    - 強い `owned` 根拠
+  - confirmed account の DID が schema record を持っている
+    - 強い `owned` 根拠
+  - `NSID` と handle 文字列が似ているだけ
+    - 根拠として使わない
+
+現時点で特に未実装なのは:
+
+- `repo/readme/profile -> confirmed account`
+- `repo/website` に出た `NSID` の `owned/reference` 明示分離
+
+次スレッドで ownership を詰める時は、まずこの保証関係テーブルを前提に考えると整理しやすいです。
+
 ### 5. investigation collector の扱い
 
 - 調査 query はまず deterministic に seed から組み、設定があれば LLM で絞ります

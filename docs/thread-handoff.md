@@ -58,6 +58,8 @@
     として扱う方針
   - `atproto repository` 側の record usage は ownership というより reference 根拠
   - `listReposByCollection` heuristic は補助根拠に留める。単独で ownership を上げない
+  - 保証関係の整理は [docs/registry-internals.md](registry-internals.md) の「4.2 何が何を保証しているか」を参照
+  - 特に未実装なのは `repo/readme/profile -> confirmed account`
 - `service_status` 強化は 4 段階のうち前半だけ入っています
   - 既に入っているもの:
     - evidence / confidence 付き保存
