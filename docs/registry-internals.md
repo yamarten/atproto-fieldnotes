@@ -16,6 +16,21 @@
 
 `repair-db` は新構造の正規化と派生フィールド再計算を行います。
 
+## 旧 discovery フローの扱い
+
+旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `scripts/project_registry.py` だけを前提にします。
+
+ただし、次の発想は今後も流用価値があります。
+
+- 手動で見つけた候補を一旦積む inbox
+- `first_seen_at` / `last_seen_at` / recent activity を使った差分ベースの priority 補正
+- 差分だけをざっと確認する report view
+
+一方で、次は戻しません。
+
+- `discover.py` 専用の snapshot/state テーブル群
+- collection / GitHub / Tangled / manual を別レポートへ流す独立パイプライン
+
 ## 文書更新の方針
 
 実装を変えた時は、コードだけでなく対応する文書も更新します。目安は次の通りです。

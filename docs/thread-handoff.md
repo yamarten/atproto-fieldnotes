@@ -33,8 +33,6 @@
   - `sync-introduced` の Bluesky 投稿検索
 - project 調査
   - `scripts/project_registry.py`
-- 補助 discovery
-  - `scripts/discover.py`
 
 `list.json` / `services.json` 系の一時 import は削除済みです。今後の前提にしません。
 
@@ -99,6 +97,11 @@
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
+- 旧 discovery フローから取り込み済みでないアイディア
+  - 手動候補を一旦積む inbox 的な導線
+  - `first_seen_at` / `last_seen_at` / recent activity を使った差分ベースの priority 補正
+  - 差分だけをざっと確認する report view
+  - ただし独立 snapshot/state テーブル群は復活させない前提
 - `sync-*` の増分最適化
   - `sync-collections` は import 自体は増分化済みだが fetch は全件
   - `sync-github-search` は query の broadness と screen 精度をもう少し詰めたい

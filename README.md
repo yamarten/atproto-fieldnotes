@@ -268,5 +268,4 @@ python3 scripts/project_registry.py enrich --all --new-only --llm-reasoning-effo
 実装:
 
 - [scripts/project_registry.py](scripts/project_registry.py)
-- [scripts/discover.py](scripts/discover.py)
 - [prompts/project-triage.md](prompts/project-triage.md)
