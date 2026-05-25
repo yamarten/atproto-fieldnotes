@@ -2489,6 +2489,8 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) not in blocked_services]
 
     if blocked_repos:
+        if canonical_repo_url(str(project.get("source_code_url") or "")) in blocked_repos:
+            project["source_code_url"] = ""
         project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
         project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
         project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
@@ -2541,6 +2543,8 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) != normalized]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) != normalized]
     elif identifier_type == "repo_url":
+        if canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
+            project["source_code_url"] = ""
         project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
         project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
         project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) != normalized]
@@ -6723,7 +6727,11 @@ def should_refresh_recent_record_samples(project: dict[str, Any]) -> bool:
 
 
 def should_refresh_lexicon_surface(project: dict[str, Any], nsids: list[str]) -> bool:
-    normalized_nsids = unique_list([normalize_nsid(value) for value in nsids if normalize_nsid(value)])
+    normalized_nsids = {
+        normalize_nsid(value)
+        for value in nsids
+        if normalize_nsid(value)
+    }
     if not normalized_nsids:
         return False
     resolved = {normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))}
@@ -7574,7 +7582,11 @@ def parse_completion_text(payload: dict[str, Any]) -> str:
 
 def normalize_llm_reasoning_effort(value: str | None) -> str:
     effort = str(value or "").strip().lower()
-    return effort if effort in {"none", "minimal", "low", "medium", "high"} else ""
+    if effort in {"none", "minimal", "low", "medium", "high", "on", "off"}:
+        return effort
+    if re.fullmatch(r"[a-z0-9_-]{1,32}", effort):
+        return effort
+    return ""
 
 
 def run_local_llm_via_endpoint(
