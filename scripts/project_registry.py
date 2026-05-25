@@ -2234,7 +2234,6 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
                 add_candidate_url(project, "website_url", candidate_url)
                 add_candidate_url(project, "service_url", candidate_url)
-        add_name_candidate(project, normalized_nsid.split(".")[-1], f"seed:nsid:{normalized_nsid}")
     elif seed_type == "repo_url":
         normalized = canonical_repo_url(seed_value)
         if not normalized:
@@ -2965,7 +2964,7 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     current_name = normalize_name_candidate(str(project.get("name") or ""))
-    if current_name:
+    if current_name and not weak_nsid_derived_name(project, current_name):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
     for item in project.get("name_candidates", []):
@@ -2981,6 +2980,27 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         seen.add(key)
         candidates.append({"value": value, "source": source})
     return candidates
+
+
+def weak_nsid_derived_name(project: dict[str, Any], value: str) -> bool:
+    text = normalize_name_candidate(value)
+    if not text:
+        return False
+    lowered = text.lower()
+    normalized_token = normalize_alias_token(text)
+    nsids = [
+        normalize_nsid(str(item or ""))
+        for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
+        if str(item or "").strip()
+    ]
+    if lowered in nsids:
+        return True
+    nsid_tails = {normalize_alias_token(item.split(".")[-1]) for item in nsids if item}
+    if normalized_token and normalized_token in nsid_tails and not name_is_safe_for_record(project):
+        return True
+    if normalized_token and normalized_token in nsid_tails and normalized_token in GENERIC_NSID_NAME_TOKENS:
+        return True
+    return False
 
 
 def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> tuple[int, int, int, int, str]:
@@ -6388,6 +6408,47 @@ def refresh_recent_record_samples(project: dict[str, Any], *, timeout: float = R
     project["recent_record_samples"] = fetch_recent_record_samples(collections, timeout=timeout)
 
 
+def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
+    summary = str(project.get("summary") or "").strip()
+    tagline = str(project.get("tagline") or "").strip()
+    features = [str(item or "").strip() for item in project.get("features", []) if str(item or "").strip()]
+    presence = bool(
+        project.get("website_url")
+        or project.get("service_urls")
+        or project.get("source_code_urls")
+        or project.get("resource_urls")
+    )
+    if summary and (tagline or features or presence):
+        return True
+    if tagline and len(features) >= 2 and presence:
+        return True
+    return False
+
+
+def should_refresh_recent_record_samples(project: dict[str, Any]) -> bool:
+    collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+    if not collections:
+        return False
+    if not project.get("recent_record_samples"):
+        return True
+    return not project_content_is_clear_enough(project)
+
+
+def should_refresh_lexicon_surface(project: dict[str, Any], nsids: list[str]) -> bool:
+    normalized_nsids = unique_list([normalize_nsid(value) for value in nsids if normalize_nsid(value)])
+    if not normalized_nsids:
+        return False
+    resolved = {normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))}
+    sampled = {
+        normalize_nsid(str(item.get("nsid") or ""))
+        for item in project.get("lexicon_schema_samples", [])
+        if isinstance(item, dict) and normalize_nsid(str(item.get("nsid") or ""))
+    }
+    if not normalized_nsids or not normalized_nsids.issubset(resolved) or not normalized_nsids.issubset(sampled):
+        return True
+    return not project_content_is_clear_enough(project)
+
+
 def resolve_lexicon_authority_did(authority_domain: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> str:
     txt_name = f"_lexicon.{authority_domain}"
     for value in resolve_dns_txt(txt_name, timeout=timeout):
@@ -6459,7 +6520,6 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
     upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
-    add_name_candidate(project, resolved_nsid.split(".")[-1], f"lexicon_name:{resolved_nsid}")
 
 
 def enrich_from_lexicon(
@@ -9696,9 +9756,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     if not project.get("primary_nsid") and project.get("input_nsids"):
         project["primary_nsid"] = project["input_nsids"][0]
     if not project.get("name"):
-        if project.get("primary_nsid"):
-            project["name"] = project["primary_nsid"].split(".")[-1]
-        elif project.get("website_url"):
+        if project.get("website_url"):
             project["name"] = urllib.parse.urlparse(project["website_url"]).netloc
         elif project.get("website_url_candidates"):
             project["name"] = urllib.parse.urlparse(project["website_url_candidates"][0]).netloc
@@ -9726,7 +9784,7 @@ def enrich_project(
     reset_investigation_state(project)
 
     initial_nsids = unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
-    if initial_nsids:
+    if should_refresh_lexicon_surface(project, initial_nsids):
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_nsids))) as executor:
             lexicon_futures = {
                 nsid: executor.submit(
@@ -9743,10 +9801,11 @@ def enrich_project(
                 except Exception as exc:
                     note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
 
-    try:
-        refresh_recent_record_samples(project, timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
-    except Exception as exc:
-        note_failure(project, f"recent record sampling failed: {exc}")
+    if should_refresh_recent_record_samples(project):
+        try:
+            refresh_recent_record_samples(project, timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+        except Exception as exc:
+            note_failure(project, f"recent record sampling failed: {exc}")
 
     initial_repo_urls = unique_list(project.get("github_repo_urls", []) + project.get("source_code_urls", []))
     for repo_url in initial_repo_urls:
@@ -9762,11 +9821,12 @@ def enrich_project(
         for nsid in unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
         if nsid and nsid not in initial_nsids
     ]
-    for nsid in discovered_nsids:
-        try:
-            enrich_from_lexicon(project, nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
-        except Exception as exc:
-            note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
+    if should_refresh_lexicon_surface(project, discovered_nsids):
+        for nsid in discovered_nsids:
+            try:
+                enrich_from_lexicon(project, nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+            except Exception as exc:
+                note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
 
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
@@ -9889,8 +9949,24 @@ def select_projects(conn: sqlite3.Connection, args: argparse.Namespace) -> list[
             projects = [project for project in projects if not str(project.get("last_enriched_at") or "").strip()]
         if getattr(args, "retry_failures", False):
             projects = [project for project in projects if project.get("last_run_errors")]
+        if getattr(args, "command", "") == "enrich":
+            projects.sort(key=enrich_project_sort_key)
         return projects
     raise ValueError("choose one of --project-key, --seed, or --all")
+
+
+def enrich_project_sort_key(project: dict[str, Any]) -> tuple[int, dt.datetime, float, str]:
+    last_enriched = parse_iso_datetime(str(project.get("last_enriched_at") or ""))
+    last_seen = parse_iso_datetime(str(project.get("last_seen_at") or ""))
+    never_enriched = 0 if last_enriched is None else 1
+    enriched_at = last_enriched or dt.datetime.fromtimestamp(0, tz=dt.timezone.utc)
+    last_seen_sort = -(last_seen.timestamp()) if last_seen is not None else float("inf")
+    return (
+        never_enriched,
+        enriched_at,
+        last_seen_sort,
+        str(project.get("project_key") or ""),
+    )
 
 
 def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
