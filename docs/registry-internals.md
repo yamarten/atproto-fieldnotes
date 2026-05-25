@@ -196,7 +196,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - repo seed / GitHub repo metadata 由来の repo slug は、短い汎用語へ切り詰めずに全体を名前候補として使います
   - 例: `atproto-visualizers` は `atproto` ではなく `atproto-visualizers`
 - `Bluesky` / `atproto` / `bsky` のような汎用プラットフォーム名は、service title / resource title / LLM / lexicon 由来だけなら project name として採用しません
+- ただし `https://bsky.app` の title が `Bluesky` であるように、source URL の host が名前と強く対応する場合は候補として残します
 - ただし repo 自体がその名前を明示している場合は、repo 由来候補として別扱いします
+- `Error` / `Not Found` / `Forbidden` のような汎用エラーページ title は、service/resource title および既存 name から除外します
 
 ### 3.1 `service_status` の現在地と残件
 

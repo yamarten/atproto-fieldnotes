@@ -182,6 +182,23 @@ GENERIC_PLATFORM_NAME_VALUES = {
     "bsky",
 }
 
+GENERIC_PLATFORM_NAME_ALIASES = {
+    "atproto": {"atproto"},
+    "bluesky": {"bluesky", "bsky"},
+    "bsky": {"bluesky", "bsky"},
+}
+
+GENERIC_ERROR_PAGE_TITLE_VALUES = {
+    "access denied",
+    "bad gateway",
+    "error",
+    "forbidden",
+    "gateway timeout",
+    "not found",
+    "service unavailable",
+    "unauthorized",
+}
+
 
 PROJECT_SCALAR_FIELDS = (
     "project_key",
@@ -3132,11 +3149,41 @@ def name_source_is_service_or_discovery(source: str) -> bool:
     )
 
 
+def name_source_url(source: str) -> str:
+    for prefix in ("service_title:", "resource_title:"):
+        if source.startswith(prefix):
+            return normalize_url(source[len(prefix) :])
+    return ""
+
+
+def generic_error_page_title_candidate(value: str, source: str) -> bool:
+    lowered = normalize_name_candidate(value).lower()
+    if lowered in GENERIC_ERROR_PAGE_TITLE_VALUES:
+        return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
+    return bool(re.fullmatch(r"(?:[45]\d\d\s+)?(?:error|not found|forbidden|unauthorized)", lowered))
+
+
+def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
+    normalized = normalize_name_candidate(value).lower()
+    aliases = GENERIC_PLATFORM_NAME_ALIASES.get(normalized, {normalized})
+    source_url = name_source_url(source)
+    if not source_url:
+        return False
+    parsed = urllib.parse.urlparse(source_url)
+    host = parsed.netloc.lower()
+    host_labels = {part for part in host.split(".") if part}
+    host_tokens = {normalize_alias_token(host)}
+    host_tokens.update(normalize_alias_token(part) for part in host_labels)
+    return bool(aliases & {token for token in host_tokens if token})
+
+
 def generic_platform_name_candidate(project: dict[str, Any], value: str, source: str) -> bool:
     normalized = normalize_name_candidate(value).lower()
     if normalized not in GENERIC_PLATFORM_NAME_VALUES:
         return False
     if not name_source_is_service_or_discovery(source):
+        return False
+    if generic_platform_name_supported_by_source(value, source):
         return False
     repo_names = {
         normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
@@ -3150,7 +3197,7 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     current_name = normalize_name_candidate(str(project.get("name") or ""))
-    if current_name and not weak_nsid_derived_name(project, current_name):
+    if current_name and not weak_nsid_derived_name(project, current_name) and not generic_error_page_title_candidate(current_name, "existing_name"):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
     for item in project.get("name_candidates", []):
@@ -3159,6 +3206,8 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         value = normalize_name_candidate(str(item.get("value") or ""))
         source = str(item.get("source") or "").strip()
         if not value or not source:
+            continue
+        if generic_error_page_title_candidate(value, source):
             continue
         if generic_platform_name_candidate(project, value, source):
             continue
