@@ -127,6 +127,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 - manual `repo_url` seed は first-party 前提で `source_code_urls` に confirmed で入れます
 - repo metadata から取るもの:
+  - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
   - `homepage` は `service_url_candidates` / `website_url_candidates`
   - `updated_at` は `source_repo_records[].updated_at`
@@ -189,6 +190,13 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - 例: `https://example.com` と `alice.example.com`
 - `developer_accounts` だけを identity 補強に使います
   - `candidate_developer_accounts` は ownership や service support の強い根拠に使わない方針
+
+### name 候補の扱い
+
+- repo seed / GitHub repo metadata 由来の repo slug は、短い汎用語へ切り詰めずに全体を名前候補として使います
+  - 例: `atproto-visualizers` は `atproto` ではなく `atproto-visualizers`
+- `Bluesky` / `atproto` / `bsky` のような汎用プラットフォーム名は、service title / resource title / LLM / lexicon 由来だけなら project name として採用しません
+- ただし repo 自体がその名前を明示している場合は、repo 由来候補として別扱いします
 
 ### 3.1 `service_status` の現在地と残件
 

@@ -176,6 +176,12 @@ GENERIC_NSID_NAME_TOKENS = {
     "test",
 }
 
+GENERIC_PLATFORM_NAME_VALUES = {
+    "atproto",
+    "bluesky",
+    "bsky",
+}
+
 
 PROJECT_SCALAR_FIELDS = (
     "project_key",
@@ -3109,6 +3115,37 @@ def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None
     add_candidate_text(project, "name", normalized, source)
 
 
+def name_source_is_repo(source: str) -> bool:
+    return (
+        source.startswith("seed:repo_url:")
+        or source.startswith("github_repo_name:")
+        or source.startswith("repo_name:")
+    )
+
+
+def name_source_is_service_or_discovery(source: str) -> bool:
+    return (
+        source.startswith("service_title:")
+        or source.startswith("resource_title:")
+        or source == "llm_output"
+        or source.startswith("lexicon_name:")
+    )
+
+
+def generic_platform_name_candidate(project: dict[str, Any], value: str, source: str) -> bool:
+    normalized = normalize_name_candidate(value).lower()
+    if normalized not in GENERIC_PLATFORM_NAME_VALUES:
+        return False
+    if not name_source_is_service_or_discovery(source):
+        return False
+    repo_names = {
+        normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
+        for url in list(project.get("source_code_urls", [])) + list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", []))
+        if urllib.parse.urlparse(normalize_url(str(url or ""))).path.rstrip("/")
+    }
+    return normalized not in repo_names
+
+
 def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -3122,6 +3159,8 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         value = normalize_name_candidate(str(item.get("value") or ""))
         source = str(item.get("source") or "").strip()
         if not value or not source:
+            continue
+        if generic_platform_name_candidate(project, value, source):
             continue
         key = (value, source)
         if key in seen:
@@ -3164,7 +3203,7 @@ def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> 
         source_rank = 80
     elif source.startswith("resource_title:"):
         source_rank = 70
-    elif source.startswith("github_repo_name:") or source.startswith("repo_name:"):
+    elif name_source_is_repo(source):
         source_rank = 60
     elif source == "existing_name":
         source_rank = 50
@@ -3184,6 +3223,10 @@ def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> 
         quality -= 8
     if normalized_token in GENERIC_NSID_NAME_TOKENS:
         quality -= 12
+    if lowered in GENERIC_PLATFORM_NAME_VALUES and not name_source_is_repo(source):
+        quality -= 30
+    if name_source_is_repo(source) and ("-" in value or "_" in value):
+        quality += 8
 
     identity_bonus = 0
     identity_tokens = project_identity_anchor_tokens(project)
