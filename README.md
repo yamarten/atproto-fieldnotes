@@ -54,6 +54,71 @@ project-registry enrich --llm-api-style <TAB>
 
 `scripts/` をそのまま `PATH` に入れると Python ファイルまでコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。`python3 scripts/project_registry.py ...` をそのまま使う場合でも、completion 定義には `project_registry.py` を紐付けているので、zsh 上では同じ候補が出ます。
 
+## Web UI
+
+モバイル端末から review 作業を回したい時は、追加依存なしの小さな Web UI を使えます。API は共有トークン必須です。
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
+python3 scripts/project_registry_web.py --host 127.0.0.1 --port 8765
+```
+
+LAN 内の端末から触る場合:
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
+python3 scripts/project_registry_web.py --host 0.0.0.0 --port 8765
+```
+
+worktree から起動して普段使いの DB を見る場合は、DB path を明示します。
+
+```bash
+python3 scripts/project_registry_web.py \
+  --host 127.0.0.1 \
+  --port 8765 \
+  --db-path data/survey.db \
+  --token "$ATPROTO_SURVEY_WEB_TOKEN"
+```
+
+開発中はブラウザ許可を何度も出さずに済むよう、コピーDBと固定ポートを使います。
+
+```bash
+python3 scripts/project_registry_web.py \
+  --host 127.0.0.1 \
+  --port 8769 \
+  --db-path data/survey.dev.db \
+  --token codex-dev-token \
+  --reload
+```
+
+`--reload` を付けると、`scripts/project_registry_web.py` または `scripts/project_registry.py` の変更時に同じポートのままサーバプロセスが再起動します。開発中に `lsof` / `kill` でポートを空け直す必要を減らせます。
+
+起動時に表示される `?token=...` 付き URL を開くと、ブラウザの localStorage に token を保存します。以後の `/api/*` は `Authorization: Bearer ...` または `X-Project-Registry-Token` で認証します。
+
+v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`tracking_state` 変更、review signal dismissal、service/repo candidate の承認・拒否、既存 project への seed 追加、単体 `enrich` / deep enrich を扱えます。
+
+project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `service_url` を指定して次の操作もできます。
+
+- `Split`: 指定 identifier を新しい project に移し、元 project から除去して、再吸収されないよう block / separate を記録する
+- `Block identifier`: 指定 identifier を元 project から除去し、今後戻らないよう `blocked_identifiers` に記録する
+
+`Merge` タブでは `merge-batch --interactive` に近い確認作業ができます。`build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ `Merge`、`Block pair`、`Ignore source`、`Ignore target`、`Skip` を選べます。`Skip` はブラウザ上だけの非破壊操作ですが、それ以外は SQLite に書き込みます。実DBではなく、まず `data/survey.dev.db` のようなコピーDBで試す前提です。
+
+`Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
+
+`repair-db` と bulk tracking-state execute は Web UI からは実行しません。
+
+`Settings` タブでは、ブラウザ側に保存する操作設定を変更できます。
+
+- review / promotion / merge の表示件数
+- merge mode
+- promotion queue に personal tools を含めるか
+- 単体 `enrich` / deep enrich に渡す LLM endpoint / model / API style / reasoning effort / API key
+
+未入力の LLM 設定は、従来通り `ATPROTO_SURVEY_LLM_*` 環境変数へフォールバックします。Settings に入力した API key はそのブラウザの localStorage に保存されます。
+
+実 DB を更新する前は、別の `enrich` や SQLite ブラウザアプリが同じ DB を触っていないか確認してください。DB lock が起きた場合、Web API は `503` の JSON error を返します。
+
 seedを1件登録:
 
 ```bash
