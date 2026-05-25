@@ -7,6 +7,9 @@
 - `atproto` 関連の project / service / library / lexicon を収集・整理する
 - 主作業対象は `scripts/project_registry.py`
 - 調査結果の正本は SQLite DB `data/survey.db`
+- このリポジトリは個人用のローカル運用を前提にする
+  - 他ユーザーや共有 DB は考慮しない
+  - 同時編集の懸念は、自分の別プロセスや GUI 操作だけを想定する
 
 ## 重要な前提
 
