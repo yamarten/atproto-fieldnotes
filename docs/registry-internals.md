@@ -239,24 +239,28 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 ### 4.2 何が何を保証しているか
 
-現在の設計では、`domain`, `NSID`, `repo`, `service`, `account` の関係を同じ強さでは扱いません。保証関係は次のように見る想定です。
+現在の設計では、`domain`, `account`, `NSID`, `service`, `git repo` の関係を同じ強さでは扱いません。ここでの `account` は、開発者/公式アカウントを指し、`DID`, `handle`, `atproto repository` を同一主体の別表現として扱います。保証関係は次のように見る想定です。
 
-- `domain -> NSID`
+- `domain -> account`
   - 強い
   - `_lexicon.<authority_domain>` の TXT から DID が引ける
-  - さらにその DID の PDS から `com.atproto.lexicon.schema/<nsid>` が引ける
+- `account -> NSID`
+  - 強い
+  - その account の PDS から `com.atproto.lexicon.schema/<nsid>` が引ける
 - `NSID -> domain`
   - 中程度
   - `NSID` 自身から authority domain は導ける
-  - ただしこれは「そう名乗っている」だけで、ownership の確定には使わない
-- `service -> domain`
+- `domain -> service`
   - 強い
-  - `website_url` / confirmed `service_url` の host
-- `handle -> domain`
+  - confirmed `website_url` / `service_url` の host
+- `service -> domain`
+  - 弱い / 導出
+  - service URL から host は取れる
+  - ただし ownership の保証というより正規化用
+- `account -> domain`
   - 中程度
   - handle の suffix/domain
-  - ただし confirmed service host と整合した時だけ confirmed account に上げる
-- `repo -> NSID`
+- `git repo -> NSID`
   - 二種類に分ける
   - `lexicon file がある`
     - 強い `defines schema`
@@ -264,25 +268,46 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - `record usage / createRecord / docs mention`
     - 強い `uses collection`
     - `reference` 根拠
-- `repo -> account`
+- `git repo -> account`
   - まだ弱い / 未実装
   - README, project website, GitHub profile, first-party profile link から confirmed account に昇格する処理はまだ入っていない
 - `service -> account`
-  - 現在の confirmed 条件
-  - confirmed service host と handle ドメインが整合する時だけ confirmed
+  - 直接保証ではなく推移的な confirmed 条件
+  - 現在は
+    - confirmed service host
+    - account の handle ドメイン
+    の整合を見て account を confirmed に上げる
+  - つまり `service -> domain -> account` の近似であって、service が account を直接主張しているわけではない
+  - 今後は first-party profile link / README / repo metadata のような直接根拠と分けて扱う方がよい
+  - 将来的な直接根拠候補:
+    - first-party page 上の `bsky.app/profile/...` link
+    - footer / about / team / contact / official account 導線
+    - service 内での “follow us / official / developer” のような anchor text
+  - 難しい点:
+    - 機械的には開発者/公式アカウントと利用者アカウントの区別が難しい
+    - そのため page location, anchor text, same-site 性, repeat appearance を組み合わせた score 化が必要
 - `account -> NSID`
   - 二段階
   - confirmed account が authority domain を持っていそう
-    - 強い `owned` 根拠
+    - まず `account -> domain` の根拠
+    - その上で `NSID -> domain` と一致する時に `owned` 根拠
   - confirmed account の DID が schema record を持っている
     - 強い `owned` 根拠
+  - confirmed account の atproto repository がその collection の record usage を持っている
+    - 強い `uses collection`
+    - `reference` 根拠
   - `NSID` と handle 文字列が似ているだけ
     - 根拠として使わない
 
+- `git repo -> domain`
+  - 中程度
+  - README, homepage, first-party link から domain/service を引ける
+  - ownership というより `repo/service/account` を結ぶ補助根拠
+
 現時点で特に未実装なのは:
 
-- `repo/readme/profile -> confirmed account`
-- `repo/website` に出た `NSID` の `owned/reference` 明示分離
+- `git repo/readme/profile -> confirmed account`
+- `git repo/website` に出た `NSID` の `owned/reference` 明示分離
 
 次スレッドで ownership を詰める時は、まずこの保証関係テーブルを前提に考えると整理しやすいです。
 
