@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import sys
-import tempfile
 import threading
 import time
 import types
@@ -13,29 +11,22 @@ from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
+from helpers import TempRegistryDbTestCase, seed_web_fixture
 
 import project_registry as registry  # noqa: E402
 import project_registry_web as web  # noqa: E402
 
 
-class ProjectRegistryWebTest(unittest.TestCase):
+class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.original_db_path = registry.DB_PATH
-        self.db_path = Path(self.tempdir.name) / "survey.db"
+        super().setUp()
         web.configure_registry_db(str(self.db_path))
-        self._seed_project()
+        seed_web_fixture()
         self.server = self._fake_server()
 
     def tearDown(self) -> None:
         self.server.executor.shutdown(wait=False, cancel_futures=True)
-        registry.DB_PATH = self.original_db_path
-        self.tempdir.cleanup()
+        super().tearDown()
 
     def _fake_server(self):
         server = types.SimpleNamespace()
@@ -48,30 +39,6 @@ class ProjectRegistryWebTest(unittest.TestCase):
         server.start_sync_job = types.MethodType(web.ProjectRegistryWebServer.start_sync_job, server)
         server._run_sync_job = types.MethodType(web.ProjectRegistryWebServer._run_sync_job, server)
         return server
-
-    def _seed_project(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = registry.default_project_record("proj:111111111111", "nsid", "app.example.post")
-            project["name"] = "Example App"
-            project["summary"] = "Example summary"
-            project["tagline"] = "Example tagline"
-            project["tracking_state"] = "active"
-            project["service_status"] = "live"
-            project["service_url_candidates"] = ["https://example.com"]
-            project["candidate_source_code_urls"] = ["https://github.com/example/app"]
-            project["source_code_urls"] = ["https://github.com/example/app"]
-            project["github_repo_urls"] = ["https://github.com/example/app"]
-            registry.save_project(conn, project)
-            duplicate = registry.default_project_record("proj:222222222222", "service_url", "https://example.com")
-            duplicate["name"] = "Example Duplicate"
-            duplicate["tracking_state"] = "active"
-            duplicate["service_status"] = "live"
-            duplicate["website_url"] = "https://example.com"
-            registry.save_project(conn, duplicate)
-            conn.commit()
-        finally:
-            conn.close()
 
     def request(self, method: str, path: str, payload: dict | None = None, token: str = "test-token") -> tuple[int, dict]:
         captured: dict = {}

@@ -62,6 +62,22 @@
 - sync / enrich / merge / review 系の判定ロジック変更
 - queue の signal や promotion / stalled 判定の変更
 
+## テスト方針
+
+テストは `unittest` を正本にし、次で実行します。
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+heuristic を変更する時は、該当する core/storage テストを追加または更新します。
+
+- name / URL / service status / LLM response parser / merge scoring のような DB 非依存の判定は `tests/test_project_registry_core.py`
+- `record_json` / `ops_json` / scalar 分割、`save_project` / `fetch_project` / `repair-db` 相当の保存構造は `tests/test_project_registry_storage.py`
+- Web API の操作導線や temp DB 経由の endpoint は `tests/test_project_registry_web.py`
+
+外部 API、実 DB `data/survey.db`、実 LLM endpoint は通常テストから切り離します。必要な SQLite DB は temp directory に作ります。
+
 ## project record の最小コア
 
 優先して埋める項目:

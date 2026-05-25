@@ -31,6 +31,14 @@ pip install -r requirements.txt
 
 PSL に無い hosted suffix を手動で足したい場合は、[config/sources.json](config/sources.json) の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。
 
+## テスト
+
+テストは標準ライブラリの `unittest` で実行します。外部 API、実 DB、実 LLM endpoint には触れず、必要な SQLite DB は temp directory に作ります。
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
 ## zsh補完
 
 wrapper の [bin/project-registry](bin/project-registry) と、zsh completion の [completions/_project-registry](completions/_project-registry) を追加しています。

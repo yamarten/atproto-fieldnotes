@@ -33,6 +33,12 @@
   - `sync-introduced` の Bluesky 投稿検索
 - project 調査
   - `scripts/project_registry.py`
+- テスト
+  - `unittest` ベース
+  - 実行: `python3 -m unittest discover -s tests -v`
+  - `tests/test_project_registry_core.py` は name / service_status / LLM parser / merge scoring
+  - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
+  - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
 
 `list.json` / `services.json` 系の一時 import は削除済みです。今後の前提にしません。
 
@@ -82,6 +88,10 @@
 
 ## 中期の課題
 
+- テスト拡張
+  - HTTP request mock を使った `sync-*` / `enrich_project` の統合テスト
+  - CLI subprocess smoke test
+  - fixture JSON corpus による回帰テスト
 - `service_status` の深掘り
   - `--deep-investigation` で `about/docs/login/app` を優先的に読む
   - top page だけでは判断できない service を `none/unverified/live` でより安定して分ける
