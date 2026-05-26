@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import sqlite3
@@ -330,6 +331,7 @@ INDEX_HTML = r"""<!doctype html>
     <h1>Project Registry</h1>
     <div class="tabs">
       <button id="tab-review" class="active" title="Show projects that need review. This does not change the DB.">Review</button>
+      <button id="tab-review-ops" title="Run review-stalled or review-ignore dry-runs, with explicit execute available.">Review Ops</button>
       <button id="tab-promotion" title="Show candidates that may be ready for introduction. This does not change the DB.">Promotion</button>
       <button id="tab-merge" title="Review duplicate merge plans. Loading this list does not change the DB.">Merge</button>
       <button id="tab-sync" title="Run sync dry-runs or explicit execute jobs. Dry-run does not change the DB.">Sync</button>
@@ -385,7 +387,24 @@ INDEX_HTML = r"""<!doctype html>
       syncLookbackDays: 10,
       syncCreateUnmatched: false,
       syncScreenUnmatched: false,
-      syncAllHistory: false
+      syncAllHistory: false,
+      reviewOpsKind: "stalled",
+      reviewOpsLimit: 100,
+      reviewOpsInactivityDays: 45,
+      reviewOpsEnrichAgeDays: 30,
+      reviewOpsIncludeStable: true,
+      reviewOpsIncludeStalled: true,
+      reviewOpsNoteReason: "",
+      reviewOpsNote: "",
+      enrichAllLimit: 25,
+      enrichAllIncludeStable: false,
+      enrichAllIncludeStalled: false,
+      enrichAllIncludeArchived: false,
+      enrichAllIncludeIgnore: false,
+      enrichAllAllTrackingStates: false,
+      enrichAllNewOnly: false,
+      enrichAllRetryFailures: false,
+      enrichAllDeepInvestigation: false
     };
     const state = { tab: "review", selected: null, mergeItems: [], settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
@@ -417,11 +436,15 @@ INDEX_HTML = r"""<!doctype html>
 
     function setTab(tab) {
       state.tab = tab;
-      for (const name of ["review", "promotion", "merge", "sync", "search", "settings"]) {
+      for (const name of ["review", "review-ops", "promotion", "merge", "sync", "search", "settings"]) {
         $("tab-" + name).classList.toggle("active", name === tab);
       }
       $("query").style.display = tab === "search" ? "" : "none";
       $("merge-mode").style.display = tab === "merge" ? "" : "none";
+      if (tab === "review-ops") {
+        loadReviewOpsScreen();
+        return;
+      }
       if (tab === "sync") {
         loadSyncScreen();
         return;
@@ -558,6 +581,12 @@ INDEX_HTML = r"""<!doctype html>
             <div class="muted">DB: ${esc(server.db_path || "")}</div>
             <div class="muted">Token configured: ${server.token_configured ? "yes" : "no"}</div>
           </div>
+          <div class="section"><h3>Server Reload</h3>
+            <div class="muted">Restarts this web server process with the same command-line arguments. Useful after updating code on a long-running production server.</div>
+            <div class="actions">
+              <button id="reload-server" class="danger" title="Restart the web server process with the same host, port, DB path, token source, and other command-line options. SQLite data is not modified.">Reload server</button>
+            </div>
+          </div>
           <div class="section"><h3>Queues</h3>
             <label>Review limit <input id="setting-review-limit" type="number" min="1" max="500" value="${esc(settings.reviewLimit)}"></label>
             <label>Promotion limit <input id="setting-promotion-limit" type="number" min="1" max="500" value="${esc(settings.promotionLimit)}"></label>
@@ -600,6 +629,60 @@ INDEX_HTML = r"""<!doctype html>
       } catch (err) {
         status(err.message);
       }
+    }
+
+    async function loadReviewOpsScreen() {
+      status("Loading review tools...");
+      $("list").innerHTML = `<div class="card"><h2>Review Ops</h2><div class="muted">Dry-run is the default. Execute writes to SQLite only when explicitly checked.</div></div>`;
+      const settings = state.settings;
+      $("detail").innerHTML = `
+        ${detailBackButton()}
+        <div><h2>Review Ops</h2><div class="muted">Review-stalled suggests tracking_state changes; review-ignore suggests low-value projects to ignore.</div></div>
+        <div class="section"><h3>Command</h3>
+          <label>Kind
+            <select id="review-ops-kind">
+              ${[
+                ["stalled", "review-stalled"],
+                ["ignore", "review-ignore"]
+              ].map(([value, label]) => `<option value="${value}" ${value === settings.reviewOpsKind ? "selected" : ""}>${label}</option>`).join("")}
+            </select>
+          </label>
+          <label class="row"><input id="review-ops-execute" type="checkbox"> Execute writes to SQLite</label>
+          <label>Max candidates <input id="review-ops-limit" type="number" min="1" max="500" value="${esc(settings.reviewOpsLimit)}"></label>
+        </div>
+        <div class="section"><h3>Review Stalled</h3>
+          <div class="row">
+            <label>Inactivity days <input id="review-ops-inactivity-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsInactivityDays)}"></label>
+            <label>Enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
+          </div>
+        </div>
+        <div class="section"><h3>Review Ignore</h3>
+          <label class="row"><input id="review-ops-include-stable" type="checkbox" ${settings.reviewOpsIncludeStable ? "checked" : ""}> Include stable</label>
+          <label class="row"><input id="review-ops-include-stalled" type="checkbox" ${settings.reviewOpsIncludeStalled ? "checked" : ""}> Include stalled</label>
+          <label>Note reason
+            <select id="review-ops-note-reason">
+              ${[
+                ["", "(auto/default)"],
+                ["atproto_unrelated", "atproto_unrelated"],
+                ["out_of_scope", "out_of_scope"],
+                ["personal_experiment", "personal_experiment"],
+                ["derivative_utility", "derivative_utility"],
+                ["fork_without_identity", "fork_without_identity"],
+                ["other", "other"]
+              ].map(([value, label]) => `<option value="${value}" ${value === settings.reviewOpsNoteReason ? "selected" : ""}>${label}</option>`).join("")}
+            </select>
+          </label>
+          <input id="review-ops-note" type="text" value="${esc(settings.reviewOpsNote)}" placeholder="Optional note stored on updated projects">
+        </div>
+        <div class="actions">
+          <button id="run-review-ops" class="primary" title="Start a review job. Dry-run only lists candidates; execute applies the suggested tracking_state changes.">Run review</button>
+        </div>
+        <div class="section"><h3>Result / Logs</h3><pre id="review-ops-result">No job yet.</pre></div>
+      `;
+      wireReviewOps();
+      wireDetailBackButton();
+      openDetailPane();
+      status("");
     }
 
     async function loadSyncScreen() {
@@ -647,6 +730,22 @@ INDEX_HTML = r"""<!doctype html>
             <button id="run-sync" class="primary" title="Start a sync background job. Dry-run does not write to SQLite; execute does.">Run sync</button>
           </div>
           <div class="section"><h3>Result</h3><pre id="sync-result">No job yet.</pre></div>
+          <div class="section"><h3>Enrich All</h3>
+            <div class="muted">Runs enrich over matching projects in one background job. Each project is committed separately.</div>
+            <label>Max projects <input id="enrich-all-limit" type="number" min="1" max="500" value="${esc(settings.enrichAllLimit)}"></label>
+            <label class="row"><input id="enrich-all-deep" type="checkbox" ${settings.enrichAllDeepInvestigation ? "checked" : ""}> Deep investigation</label>
+            <label class="row"><input id="enrich-all-new-only" type="checkbox" ${settings.enrichAllNewOnly ? "checked" : ""}> New only</label>
+            <label class="row"><input id="enrich-all-retry-failures" type="checkbox" ${settings.enrichAllRetryFailures ? "checked" : ""}> Retry failures only</label>
+            <label class="row"><input id="enrich-all-all-states" type="checkbox" ${settings.enrichAllAllTrackingStates ? "checked" : ""}> All tracking states</label>
+            <label class="row"><input id="enrich-all-include-stable" type="checkbox" ${settings.enrichAllIncludeStable ? "checked" : ""}> Include stable</label>
+            <label class="row"><input id="enrich-all-include-stalled" type="checkbox" ${settings.enrichAllIncludeStalled ? "checked" : ""}> Include stalled</label>
+            <label class="row"><input id="enrich-all-include-archived" type="checkbox" ${settings.enrichAllIncludeArchived ? "checked" : ""}> Include archived</label>
+            <label class="row"><input id="enrich-all-include-ignore" type="checkbox" ${settings.enrichAllIncludeIgnore ? "checked" : ""}> Include ignore</label>
+            <div class="actions">
+              <button id="run-enrich-all" class="primary" title="Start an enrich --all style background job using the LLM settings from Settings.">Run enrich all</button>
+            </div>
+            <pre id="enrich-all-result">No job yet.</pre>
+          </div>
         `;
         wireSync();
         wireDetailBackButton();
@@ -688,6 +787,59 @@ INDEX_HTML = r"""<!doctype html>
       return payload;
     }
 
+    function readReviewOpsPayload() {
+      const kind = $("review-ops-kind").value;
+      const payload = {
+        kind,
+        execute: $("review-ops-execute").checked,
+        limit: numberSetting("review-ops-limit", 100),
+        inactivity_days: numberSetting("review-ops-inactivity-days", 45),
+        enrich_age_days: numberSetting("review-ops-enrich-age-days", 30),
+        include_stable: $("review-ops-include-stable").checked,
+        include_stalled: $("review-ops-include-stalled").checked,
+        note_reason: $("review-ops-note-reason").value,
+        note: $("review-ops-note").value.trim()
+      };
+      saveSettings(Object.assign({}, state.settings, {
+        reviewOpsKind: payload.kind,
+        reviewOpsLimit: payload.limit,
+        reviewOpsInactivityDays: payload.inactivity_days,
+        reviewOpsEnrichAgeDays: payload.enrich_age_days,
+        reviewOpsIncludeStable: payload.include_stable,
+        reviewOpsIncludeStalled: payload.include_stalled,
+        reviewOpsNoteReason: payload.note_reason,
+        reviewOpsNote: payload.note
+      }));
+      return payload;
+    }
+
+    function readEnrichAllPayload() {
+      const payload = {
+        limit: numberSetting("enrich-all-limit", 25),
+        deep_investigation: $("enrich-all-deep").checked,
+        new_only: $("enrich-all-new-only").checked,
+        retry_failures: $("enrich-all-retry-failures").checked,
+        all_tracking_states: $("enrich-all-all-states").checked,
+        include_stable: $("enrich-all-include-stable").checked,
+        include_stalled: $("enrich-all-include-stalled").checked,
+        include_archived: $("enrich-all-include-archived").checked,
+        include_ignore: $("enrich-all-include-ignore").checked,
+        ...enrichPayload($("enrich-all-deep").checked)
+      };
+      saveSettings(Object.assign({}, state.settings, {
+        enrichAllLimit: payload.limit,
+        enrichAllDeepInvestigation: payload.deep_investigation,
+        enrichAllNewOnly: payload.new_only,
+        enrichAllRetryFailures: payload.retry_failures,
+        enrichAllAllTrackingStates: payload.all_tracking_states,
+        enrichAllIncludeStable: payload.include_stable,
+        enrichAllIncludeStalled: payload.include_stalled,
+        enrichAllIncludeArchived: payload.include_archived,
+        enrichAllIncludeIgnore: payload.include_ignore
+      }));
+      return payload;
+    }
+
     function wireSync() {
       $("run-sync").onclick = async () => {
         const payload = readSyncPayload();
@@ -699,6 +851,38 @@ INDEX_HTML = r"""<!doctype html>
           $("sync-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
           pollJobInto(data.job_id, "sync-result");
+        } catch (err) {
+          status(err.message);
+        }
+      };
+      $("run-enrich-all").onclick = async () => {
+        const payload = readEnrichAllPayload();
+        const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
+        if (!confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${payload.limit}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`)) return;
+        status("Starting enrich all...");
+        try {
+          const data = await api("/api/enrich-all", { method: "POST", body: JSON.stringify(payload) });
+          $("enrich-all-result").textContent = JSON.stringify(data, null, 2);
+          status(`Started job ${data.job_id}`);
+          pollJobInto(data.job_id, "enrich-all-result");
+        } catch (err) {
+          status(err.message);
+        }
+      };
+    }
+
+    function wireReviewOps() {
+      $("run-review-ops").onclick = async () => {
+        const payload = readReviewOpsPayload();
+        const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
+        const mode = payload.execute ? "EXECUTE and write suggested tracking_state changes" : "dry-run without DB writes";
+        if (!confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`)) return;
+        status("Starting review job...");
+        try {
+          const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
+          $("review-ops-result").textContent = JSON.stringify(data, null, 2);
+          status(`Started job ${data.job_id}`);
+          pollJobInto(data.job_id, "review-ops-result");
         } catch (err) {
           status(err.message);
         }
@@ -757,6 +941,17 @@ INDEX_HTML = r"""<!doctype html>
           state.settings = loadSettings();
           status("Settings reset.");
           loadSettingsScreen();
+        }
+      };
+      $("reload-server").onclick = async () => {
+        if (!confirmAction("Reload the web server process now?\n\nThis keeps the same command-line arguments and does not modify SQLite. In-flight background jobs in this process will stop.")) return;
+        status("Requesting server reload...");
+        try {
+          const data = await api("/api/reload", { method: "POST", body: JSON.stringify({ confirm: true }) });
+          status(`Server reload requested: ${data.reload_id}`);
+          setTimeout(() => window.location.reload(), 1500);
+        } catch (err) {
+          status(err.message);
         }
       };
     }
@@ -1100,6 +1295,7 @@ INDEX_HTML = r"""<!doctype html>
       if (mergeButton) loadMergeDetail(Number(mergeButton.dataset.mergeIndex));
     };
     $("tab-review").onclick = () => setTab("review");
+    $("tab-review-ops").onclick = () => setTab("review-ops");
     $("tab-promotion").onclick = () => setTab("promotion");
     $("tab-merge").onclick = () => setTab("merge");
     $("tab-sync").onclick = () => setTab("sync");
@@ -1614,13 +1810,226 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
     raise ValueError(f"unsupported sync kind: {kind}")
 
 
+def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    states = {"active", "watchlist"}
+    if bool(payload.get("include_stable")):
+        states.add("stable")
+    if bool(payload.get("include_stalled")):
+        states.add("stalled")
+    if bool(payload.get("include_archived")):
+        states.add("archived")
+    if bool(payload.get("include_ignore")):
+        states.add("ignore")
+    requested_states = payload.get("tracking_states")
+    if isinstance(requested_states, list) and requested_states:
+        cleaned = {registry.normalize_tracking_state(str(item or "")) for item in requested_states}
+        states = {state for state in cleaned if state in registry.TRACKING_STATES} or states
+    return {
+        "all_tracking_states": bool(payload.get("all_tracking_states")),
+        "tracking_states": None if bool(payload.get("all_tracking_states")) else sorted(states),
+        "limit": max(1, min(500, int(payload.get("limit") or 25))),
+        "new_only": bool(payload.get("new_only")),
+        "retry_failures": bool(payload.get("retry_failures")),
+        "deep_investigation": bool(payload.get("deep_investigation")),
+        **llm_options_from_payload(payload),
+    }
+
+
+def select_enrich_all_projects(conn: sqlite3.Connection, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    tracking_states = None if payload.get("all_tracking_states") else set(payload.get("tracking_states") or [])
+    projects = registry.list_projects(conn, tracking_states=tracking_states or None)
+    if payload.get("new_only"):
+        projects = [project for project in projects if not str(project.get("last_enriched_at") or "").strip()]
+    if payload.get("retry_failures"):
+        projects = [project for project in projects if project.get("last_run_errors")]
+    projects.sort(key=registry.enrich_project_sort_key)
+    return projects[: int(payload.get("limit") or 25)]
+
+
+def review_stalled_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "stalled",
+        "execute": bool(payload.get("execute")),
+        "limit": max(1, min(500, int(payload.get("limit") or 100))),
+        "inactivity_days": max(1, min(3650, int(payload.get("inactivity_days") or 45))),
+        "enrich_age_days": max(1, min(3650, int(payload.get("enrich_age_days") or 30))),
+        "note": str(payload.get("note") or "").strip(),
+    }
+
+
+def review_ignore_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    tracking_states = {"active", "watchlist"}
+    if bool(payload.get("include_stable", True)):
+        tracking_states.add("stable")
+    if bool(payload.get("include_stalled", True)):
+        tracking_states.add("stalled")
+    requested_states = payload.get("tracking_states")
+    if isinstance(requested_states, list) and requested_states:
+        cleaned = {registry.normalize_tracking_state(str(item or "")) for item in requested_states}
+        tracking_states = {state for state in cleaned if state in registry.TRACKING_STATES} or tracking_states
+    note_reason = str(payload.get("note_reason") or "").strip()
+    if note_reason and note_reason not in registry.IGNORE_REVIEW_NOTE_REASONS:
+        raise ValueError("invalid note_reason")
+    return {
+        "kind": "ignore",
+        "execute": bool(payload.get("execute")),
+        "limit": max(1, min(500, int(payload.get("limit") or 100))),
+        "tracking_states": sorted(tracking_states),
+        "note_reason": note_reason,
+        "note": str(payload.get("note") or "").strip(),
+    }
+
+
+def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
+    now = dt.datetime.now(dt.timezone.utc)
+    inactivity_days = int(payload.get("inactivity_days") or 45)
+    enrich_age_days = int(payload.get("enrich_age_days") or 30)
+    project_list = [
+        registry.ensure_project_shape(project)
+        for project in registry.list_projects(conn, tracking_states={"active", "watchlist", "stalled"})
+    ]
+    candidates = [
+        entry
+        for project in project_list
+        if (entry := registry.stalled_review_entry(project, now=now, inactivity_days=inactivity_days, enrich_age_days=enrich_age_days))
+    ]
+    candidates.sort(key=lambda item: (str(item.get("suggested_tracking_state") or "") != "active", str(item.get("project_key") or "")))
+    total_candidates = len(candidates)
+    candidates = candidates[: int(payload.get("limit") or 100)]
+    suggested_state_counts: dict[str, int] = {}
+    for item in candidates:
+        state = str(item.get("suggested_tracking_state") or "")
+        suggested_state_counts[state] = int(suggested_state_counts.get(state, 0)) + 1
+    if log:
+        log("review-stalled candidates selected", candidate_count=len(candidates), total_candidates=total_candidates)
+
+    if not payload.get("execute"):
+        return {
+            "mode": "dry_run",
+            "inactivity_days": inactivity_days,
+            "enrich_age_days": enrich_age_days,
+            "candidate_count": len(candidates),
+            "total_candidate_count": total_candidates,
+            "suggested_state_counts": suggested_state_counts,
+            "candidates": candidates,
+        }
+
+    updated: list[str] = []
+    updated_with_state: list[dict[str, str]] = []
+    note = str(payload.get("note") or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
+    for item in candidates:
+        project_key = str(item.get("project_key") or "")
+        project = registry.fetch_project(conn, project_key)
+        if not project:
+            continue
+        project = registry.ensure_project_shape(project)
+        project["tracking_state"] = str(item.get("suggested_tracking_state") or project.get("tracking_state") or "active")
+        if note and not str(project.get("tracking_note") or "").strip():
+            project["tracking_note"] = note
+        registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        updated.append(project["project_key"])
+        updated_with_state.append({"project_key": project["project_key"], "tracking_state": str(project.get("tracking_state") or "")})
+        if log:
+            log("updated stalled review candidate", project_key=project["project_key"], tracking_state=str(project.get("tracking_state") or ""))
+    conn.commit()
+    return {
+        "mode": "execute",
+        "inactivity_days": inactivity_days,
+        "enrich_age_days": enrich_age_days,
+        "updated_count": len(updated),
+        "updated_project_keys": updated,
+        "updated_projects": updated_with_state,
+        "suggested_state_counts": suggested_state_counts,
+    }
+
+
+def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
+    tracking_states = set(payload.get("tracking_states") or ["active", "watchlist", "stable", "stalled"])
+    project_list = [registry.ensure_project_shape(project) for project in registry.list_projects(conn, tracking_states=tracking_states)]
+    candidates = [entry for project in project_list if (entry := registry.ignore_review_entry(project))]
+    candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
+    total_candidates = len(candidates)
+    candidates = candidates[: int(payload.get("limit") or 100)]
+    kind_counts: dict[str, int] = {}
+    for item in candidates:
+        kind = str(item.get("kind") or "")
+        kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+    if log:
+        log("review-ignore candidates selected", candidate_count=len(candidates), total_candidates=total_candidates)
+
+    if not payload.get("execute"):
+        return {
+            "mode": "dry_run",
+            "tracking_states": sorted(tracking_states),
+            "candidate_count": len(candidates),
+            "total_candidate_count": total_candidates,
+            "kind_counts": kind_counts,
+            "candidates": candidates,
+        }
+
+    updated: list[str] = []
+    noted_project_keys: list[dict[str, str]] = []
+    static_note = str(payload.get("note") or "").strip()
+    default_reason_key = str(payload.get("note_reason") or "").strip()
+    for item in candidates:
+        project_key = str(item.get("project_key") or "")
+        project = registry.fetch_project(conn, project_key)
+        if not project:
+            continue
+        project = registry.ensure_project_shape(project)
+        project["tracking_state"] = "ignore"
+        reason_key = default_reason_key or registry.default_ignore_review_note_reason(item)
+        note = static_note or registry.build_ignore_review_note(item, reason_key)
+        if static_note and default_reason_key:
+            note = registry.build_ignore_review_note(item, reason_key, static_note)
+        if note and not str(project.get("tracking_note") or "").strip():
+            project["tracking_note"] = note
+        registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        updated.append(project["project_key"])
+        noted_project_keys.append({"project_key": project["project_key"], "tracking_note": str(project.get("tracking_note") or "")})
+        if log:
+            log("updated ignored review candidate", project_key=project["project_key"], kind=str(item.get("kind") or ""))
+    conn.commit()
+    return {
+        "mode": "execute",
+        "tracking_states": sorted(tracking_states),
+        "updated_count": len(updated),
+        "updated_project_keys": updated,
+        "updated_tracking_notes": noted_project_keys,
+        "kind_counts": kind_counts,
+    }
+
+
 class ProjectRegistryWebServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
     def __init__(self, server_address: tuple[str, int], token: str):
         super().__init__(server_address, ProjectRegistryHandler)
         self.token = token
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jobs_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="registry-web")
+
+    def request_process_reload(self, reason: str) -> str:
+        reload_id = uuid.uuid4().hex
+
+        def reload_soon() -> None:
+            time.sleep(0.25)
+            print(f"Reloading project registry web server ({reload_id}): {reason}", flush=True)
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+
+        threading.Thread(target=reload_soon, name="registry-web-manual-reload", daemon=True).start()
+        return reload_id
+
+    def append_job_log(self, job_id: str, message: str, **fields: Any) -> None:
+        entry = {"at": registry.iso_now(), "message": message, **fields}
+        with self.jobs_lock:
+            job = self.jobs.get(job_id)
+            if not job:
+                return
+            logs = list(job.get("logs") or [])
+            logs.append(entry)
+            job["logs"] = logs[-200:]
 
     def start_enrich_job(self, project_key: str, *, deep_investigation: bool, llm_options: dict[str, str | None] | None = None) -> str:
         job_id = uuid.uuid4().hex
@@ -1634,7 +2043,9 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 "deep_investigation": deep_investigation,
                 "llm_options": {key: ("***" if key == "llm_api_key" and value else value) for key, value in llm_options.items()},
                 "created_at": registry.iso_now(),
+                "logs": [],
             }
+        self.append_job_log(job_id, "queued enrich job", project_key=project_key, deep_investigation=deep_investigation)
         self.executor.submit(self._run_enrich_job, job_id, project_key, deep_investigation, llm_options)
         return job_id
 
@@ -1642,6 +2053,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         with self.jobs_lock:
             self.jobs[job_id]["status"] = "running"
             self.jobs[job_id]["started_at"] = registry.iso_now()
+        self.append_job_log(job_id, "started enrich job")
         try:
             conn = open_registry_db()
             try:
@@ -1649,6 +2061,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 project = registry.fetch_project(conn, resolved_key)
                 if project is None:
                     raise KeyError(project_key)
+                self.append_job_log(job_id, "loaded project", project_key=resolved_key, name=str(project.get("name") or ""))
                 enriched = registry.enrich_project(
                     conn,
                     project,
@@ -1658,6 +2071,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 registry.save_project(conn, enriched, enriched=True)
                 conn.commit()
                 result = project_summary(enriched)
+                self.append_job_log(job_id, "saved enriched project", project_key=str(enriched.get("project_key") or resolved_key))
             finally:
                 conn.close()
             with self.jobs_lock:
@@ -1669,6 +2083,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                     }
                 )
         except Exception as exc:  # pragma: no cover - exercised via HTTP behavior
+            self.append_job_log(job_id, "enrich job failed", error=str(exc))
             with self.jobs_lock:
                 self.jobs[job_id].update(
                     {
@@ -1676,6 +2091,125 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         "finished_at": registry.iso_now(),
                         "error": str(exc),
                         "traceback": traceback.format_exc(limit=8),
+                    }
+                )
+
+    def start_enrich_all_job(self, payload: dict[str, Any]) -> str:
+        enrich_payload = enrich_all_payload_from_request(payload)
+        job_id = uuid.uuid4().hex
+        public_payload = {
+            key: ("***" if key == "llm_api_key" and value else value)
+            for key, value in enrich_payload.items()
+        }
+        with self.jobs_lock:
+            self.jobs[job_id] = {
+                "job_id": job_id,
+                "status": "queued",
+                "kind": "enrich_all",
+                "payload": public_payload,
+                "created_at": registry.iso_now(),
+                "logs": [],
+            }
+        self.append_job_log(job_id, "queued enrich-all job", limit=int(enrich_payload.get("limit") or 25))
+        self.executor.submit(self._run_enrich_all_job, job_id, enrich_payload)
+        return job_id
+
+    def _run_enrich_all_job(self, job_id: str, payload: dict[str, Any]) -> None:
+        with self.jobs_lock:
+            self.jobs[job_id]["status"] = "running"
+            self.jobs[job_id]["started_at"] = registry.iso_now()
+        self.append_job_log(job_id, "started enrich-all job")
+        completed: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        promoted_now: list[dict[str, Any]] = []
+        try:
+            conn = open_registry_db()
+            try:
+                projects = select_enrich_all_projects(conn, payload)
+                total = len(projects)
+                with self.jobs_lock:
+                    self.jobs[job_id]["total"] = total
+                    self.jobs[job_id]["completed_count"] = 0
+                    self.jobs[job_id]["failed_count"] = 0
+                self.append_job_log(job_id, "selected projects", total=total)
+                for index, project in enumerate(projects, start=1):
+                    project_key = str(project.get("project_key") or "")
+                    with self.jobs_lock:
+                        self.jobs[job_id]["current"] = {
+                            "index": index,
+                            "total": total,
+                            "project_key": project_key,
+                            "name": str(project.get("name") or ""),
+                            "started_at": registry.iso_now(),
+                        }
+                    self.append_job_log(job_id, "enriching project", index=index, total=total, project_key=project_key)
+                    try:
+                        enriched = registry.enrich_project(
+                            conn,
+                            project,
+                            deep_investigation=bool(payload.get("deep_investigation")),
+                            llm_endpoint=payload.get("llm_endpoint"),
+                            llm_model=payload.get("llm_model"),
+                            llm_api_key=payload.get("llm_api_key"),
+                            llm_api_style=payload.get("llm_api_style"),
+                            llm_reasoning_effort=payload.get("llm_reasoning_effort"),
+                        )
+                        registry.save_project(conn, enriched, enriched=True)
+                        conn.commit()
+                        item = {
+                            "project_key": enriched.get("project_key", project_key),
+                            "name": enriched.get("name", ""),
+                            "status": enriched.get("status", ""),
+                            "tracking_state": enriched.get("tracking_state", ""),
+                            "service_status": enriched.get("service_status", ""),
+                            "last_run_errors": enriched.get("last_run_errors", []),
+                            "promoted_now": bool(enriched.get("promoted_now")),
+                        }
+                        completed.append(item)
+                        if enriched.get("promoted_now"):
+                            promoted_now.append(project_summary(enriched))
+                        self.append_job_log(job_id, "enriched project", project_key=project_key)
+                    except Exception as exc:
+                        conn.rollback()
+                        failed.append({"project_key": project_key, "name": str(project.get("name") or ""), "error": str(exc)})
+                        self.append_job_log(job_id, "project enrich failed", project_key=project_key, error=str(exc))
+                    with self.jobs_lock:
+                        self.jobs[job_id]["completed_count"] = len(completed)
+                        self.jobs[job_id]["failed_count"] = len(failed)
+                        self.jobs[job_id]["recent_completed"] = completed[-20:]
+                        self.jobs[job_id]["recent_failed"] = failed[-20:]
+            finally:
+                conn.close()
+            with self.jobs_lock:
+                self.jobs[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": registry.iso_now(),
+                        "result": {
+                            "mode": "execute",
+                            "project_count": len(completed) + len(failed),
+                            "completed_count": len(completed),
+                            "failed_count": len(failed),
+                            "promoted_now_count": len(promoted_now),
+                            "promoted_now": promoted_now[-50:],
+                            "completed": completed[-100:],
+                            "failed": failed[-100:],
+                        },
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - exercised via HTTP behavior
+            self.append_job_log(job_id, "enrich-all job failed", error=str(exc))
+            with self.jobs_lock:
+                self.jobs[job_id].update(
+                    {
+                        "status": "failed",
+                        "finished_at": registry.iso_now(),
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(limit=8),
+                        "completed_count": len(completed),
+                        "failed_count": len(failed),
+                        "recent_completed": completed[-20:],
+                        "recent_failed": failed[-20:],
                     }
                 )
 
@@ -1691,7 +2225,9 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 "execute": bool(sync_payload.get("execute")),
                 "payload": sync_payload,
                 "created_at": registry.iso_now(),
+                "logs": [],
             }
+        self.append_job_log(job_id, "queued sync job", sync_kind=sync_payload["kind"], execute=bool(sync_payload.get("execute")))
         self.executor.submit(self._run_sync_job, job_id, sync_payload)
         return job_id
 
@@ -1699,12 +2235,14 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         with self.jobs_lock:
             self.jobs[job_id]["status"] = "running"
             self.jobs[job_id]["started_at"] = registry.iso_now()
+        self.append_job_log(job_id, "started sync job", sync_kind=str(payload.get("kind") or ""))
         try:
             conn = open_registry_db()
             try:
                 result = run_sync_payload(conn, payload)
             finally:
                 conn.close()
+            self.append_job_log(job_id, "sync job finished", mode=str(result.get("mode") or ""), sync_kind=str(payload.get("kind") or ""))
             with self.jobs_lock:
                 self.jobs[job_id].update(
                     {
@@ -1714,6 +2252,66 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                     }
                 )
         except Exception as exc:  # pragma: no cover - exercised via HTTP behavior
+            self.append_job_log(job_id, "sync job failed", error=str(exc))
+            with self.jobs_lock:
+                self.jobs[job_id].update(
+                    {
+                        "status": "failed",
+                        "finished_at": registry.iso_now(),
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(limit=8),
+                    }
+                )
+
+    def start_review_job(self, review_kind: str, payload: dict[str, Any]) -> str:
+        if review_kind == "stalled":
+            review_payload = review_stalled_payload_from_request(payload)
+        elif review_kind == "ignore":
+            review_payload = review_ignore_payload_from_request(payload)
+        else:
+            raise ValueError("review_kind must be stalled or ignore")
+        job_id = uuid.uuid4().hex
+        with self.jobs_lock:
+            self.jobs[job_id] = {
+                "job_id": job_id,
+                "status": "queued",
+                "kind": f"review_{review_kind}",
+                "execute": bool(review_payload.get("execute")),
+                "payload": review_payload,
+                "created_at": registry.iso_now(),
+                "logs": [],
+            }
+        self.append_job_log(job_id, f"queued review-{review_kind} job", execute=bool(review_payload.get("execute")))
+        self.executor.submit(self._run_review_job, job_id, review_kind, review_payload)
+        return job_id
+
+    def _run_review_job(self, job_id: str, review_kind: str, payload: dict[str, Any]) -> None:
+        with self.jobs_lock:
+            self.jobs[job_id]["status"] = "running"
+            self.jobs[job_id]["started_at"] = registry.iso_now()
+        self.append_job_log(job_id, f"started review-{review_kind} job")
+        try:
+            conn = open_registry_db()
+            try:
+                if review_kind == "stalled":
+                    result = run_review_stalled_payload(conn, payload, log=lambda message, **fields: self.append_job_log(job_id, message, **fields))
+                elif review_kind == "ignore":
+                    result = run_review_ignore_payload(conn, payload, log=lambda message, **fields: self.append_job_log(job_id, message, **fields))
+                else:
+                    raise ValueError("review_kind must be stalled or ignore")
+            finally:
+                conn.close()
+            self.append_job_log(job_id, f"review-{review_kind} job finished", mode=str(result.get("mode") or ""))
+            with self.jobs_lock:
+                self.jobs[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": registry.iso_now(),
+                        "result": result,
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - exercised via HTTP behavior
+            self.append_job_log(job_id, f"review-{review_kind} job failed", error=str(exc))
             with self.jobs_lock:
                 self.jobs[job_id].update(
                     {
@@ -1912,6 +2510,24 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/sync":
             job_id = self.server.start_sync_job(payload)
+            self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/enrich-all":
+            job_id = self.server.start_enrich_all_job(payload)
+            self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/reload":
+            if payload.get("confirm") is not True:
+                raise ValueError("confirm=true is required")
+            reload_id = self.server.request_process_reload("manual API request")
+            self.send_json({"reload_id": reload_id, "status": "reloading"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/review-stalled":
+            job_id = self.server.start_review_job("stalled", payload)
+            self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/review-ignore":
+            job_id = self.server.start_review_job("ignore", payload)
             self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
             return
         if not path.startswith("/api/projects/"):

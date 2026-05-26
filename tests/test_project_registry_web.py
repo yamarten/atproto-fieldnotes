@@ -43,10 +43,17 @@ class ProjectRegistryWebTest(unittest.TestCase):
         server.jobs = {}
         server.jobs_lock = threading.Lock()
         server.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="registry-web-test")
+        server.reload_requests = []
+        server.append_job_log = types.MethodType(web.ProjectRegistryWebServer.append_job_log, server)
+        server.request_process_reload = lambda reason: server.reload_requests.append(reason) or "reload-test-id"
         server.start_enrich_job = types.MethodType(web.ProjectRegistryWebServer.start_enrich_job, server)
         server._run_enrich_job = types.MethodType(web.ProjectRegistryWebServer._run_enrich_job, server)
+        server.start_enrich_all_job = types.MethodType(web.ProjectRegistryWebServer.start_enrich_all_job, server)
+        server._run_enrich_all_job = types.MethodType(web.ProjectRegistryWebServer._run_enrich_all_job, server)
         server.start_sync_job = types.MethodType(web.ProjectRegistryWebServer.start_sync_job, server)
         server._run_sync_job = types.MethodType(web.ProjectRegistryWebServer._run_sync_job, server)
+        server.start_review_job = types.MethodType(web.ProjectRegistryWebServer.start_review_job, server)
+        server._run_review_job = types.MethodType(web.ProjectRegistryWebServer._run_review_job, server)
         return server
 
     def _seed_project(self) -> None:
@@ -109,6 +116,11 @@ class ProjectRegistryWebTest(unittest.TestCase):
 
     def test_index_includes_button_hints_and_confirmations(self) -> None:
         self.assertIn("Open project details. This does not change the DB.", web.INDEX_HTML)
+        self.assertIn("Review Ops", web.INDEX_HTML)
+        self.assertIn("tab-review-ops", web.INDEX_HTML)
+        self.assertIn("/api/review-stalled", web.INDEX_HTML)
+        self.assertIn("/api/review-ignore", web.INDEX_HTML)
+        self.assertIn("review-ops-result", web.INDEX_HTML)
         self.assertIn("Write the selected tracking_state to SQLite", web.INDEX_HTML)
         self.assertIn("confirmAction(`Set tracking_state", web.INDEX_HTML)
         self.assertIn("records a blocked identifier", web.INDEX_HTML)
@@ -119,6 +131,12 @@ class ProjectRegistryWebTest(unittest.TestCase):
         self.assertIn("sync-introduced", web.INDEX_HTML)
         self.assertIn("sync-collections", web.INDEX_HTML)
         self.assertIn("sync-github-search", web.INDEX_HTML)
+        self.assertIn("Enrich All", web.INDEX_HTML)
+        self.assertIn("/api/enrich-all", web.INDEX_HTML)
+        self.assertIn("run-enrich-all", web.INDEX_HTML)
+        self.assertIn("Reload server", web.INDEX_HTML)
+        self.assertIn("/api/reload", web.INDEX_HTML)
+        self.assertIn("reload-server", web.INDEX_HTML)
         self.assertIn("Enrich Job", web.INDEX_HTML)
         self.assertIn("enrich-job-status", web.INDEX_HTML)
         self.assertIn("startEnrichJob", web.INDEX_HTML)
@@ -168,6 +186,19 @@ class ProjectRegistryWebTest(unittest.TestCase):
         self.assertTrue(payload["token_configured"])
         self.assertIn("ATPROTO_SURVEY_LLM_MODEL", payload["env"])
         self.assertNotIn("ATPROTO_SURVEY_WEB_TOKEN", payload["env"])
+
+    def test_reload_endpoint_requires_confirmation_and_requests_reload(self) -> None:
+        status, payload = self.request("POST", "/api/reload", {})
+
+        self.assertEqual(status, 400)
+        self.assertIn("confirm=true", payload["error"])
+
+        status, payload = self.request("POST", "/api/reload", {"confirm": True})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["reload_id"], "reload-test-id")
+        self.assertEqual(payload["status"], "reloading")
+        self.assertEqual(self.server.reload_requests, ["manual API request"])
 
     def test_review_queue_shape(self) -> None:
         status, payload = self.request("GET", "/api/review-queue?limit=5")
@@ -399,6 +430,120 @@ class ProjectRegistryWebTest(unittest.TestCase):
         self.assertEqual(captured["lookback_days"], 7)
         self.assertEqual(job_payload["status"], "done")
         self.assertEqual(job_payload["result"]["mode"], "dry_run")
+
+    def test_enrich_all_job_runs_limited_selection(self) -> None:
+        original_enrich = web.registry.enrich_project
+        seen: list[str] = []
+
+        def fake_enrich(conn, project, **kwargs):
+            seen.append(project["project_key"])
+            project = dict(project)
+            project["summary"] = "Bulk enriched"
+            return registry.finalize_project_shape(project)
+
+        web.registry.enrich_project = fake_enrich
+        try:
+            status, payload = self.request(
+                "POST",
+                "/api/enrich-all",
+                {
+                    "limit": 1,
+                    "include_stable": True,
+                    "deep_investigation": True,
+                    "llm_reasoning_effort": "off",
+                },
+            )
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.enrich_project = original_enrich
+
+        self.assertEqual(status, 200)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(job_payload["kind"], "enrich_all")
+        self.assertEqual(job_payload["payload"]["tracking_states"], ["active", "stable", "watchlist"])
+        self.assertEqual(job_payload["payload"]["llm_reasoning_effort"], "off")
+        self.assertEqual(job_payload["result"]["completed_count"], 1)
+        self.assertEqual(job_payload["result"]["failed_count"], 0)
+
+    def test_review_stalled_job_reports_logs(self) -> None:
+        original_run_review = web.run_review_stalled_payload
+
+        def fake_run_review(conn, payload, *, log=None):
+            if log:
+                log("fake review stalled", limit=payload["limit"])
+            return {
+                "mode": "dry_run",
+                "candidate_count": 1,
+                "candidates": [{"project_key": "proj:111111111111", "suggested_tracking_state": "stalled"}],
+            }
+
+        web.run_review_stalled_payload = fake_run_review
+        try:
+            status, payload = self.request("POST", "/api/review-stalled", {"limit": 1})
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.run_review_stalled_payload = original_run_review
+
+        self.assertEqual(status, 200)
+        self.assertEqual(job_payload["kind"], "review_stalled")
+        self.assertEqual(job_payload["result"]["candidate_count"], 1)
+        self.assertTrue(any(item.get("message") == "fake review stalled" for item in job_payload["logs"]))
+
+    def test_review_ignore_execute_updates_temp_db(self) -> None:
+        original_ignore_entry = web.registry.ignore_review_entry
+
+        def fake_ignore_entry(project):
+            if project["project_key"] != "proj:111111111111":
+                return None
+            return {
+                "project_key": project["project_key"],
+                "name": project["name"],
+                "tracking_state": project["tracking_state"],
+                "kind": "derivative_bluesky_utility",
+                "reasons": ["test candidate"],
+                "suggested_tracking_state": "ignore",
+            }
+
+        web.registry.ignore_review_entry = fake_ignore_entry
+        try:
+            status, payload = self.request("POST", "/api/review-ignore", {"execute": True, "limit": 1})
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.ignore_review_entry = original_ignore_entry
+
+        self.assertEqual(status, 200)
+        self.assertEqual(job_payload["kind"], "review_ignore")
+        self.assertEqual(job_payload["result"]["updated_count"], 1)
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        self.assertEqual(project["tracking_state"], "ignore")
 
     def test_sync_rejects_unknown_kind(self) -> None:
         status, payload = self.request("POST", "/api/sync", {"kind": "repair-db"})

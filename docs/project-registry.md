@@ -135,15 +135,19 @@ python3 scripts/project_registry_web.py \
 
 `--reload` は `scripts/project_registry_web.py` / `scripts/project_registry.py` の変更を検知して、同じポートのままサーバプロセスを再起動します。開発中にポート解放のためだけに `lsof` / `kill` を使う必要を減らせます。
 
+長時間起動する本番向けプロセスでは、`Settings` タブの `Reload server` から手動リロードできます。`POST /api/reload` により同じコマンドライン引数でプロセスを `execv` し直すだけなので DB は変更しません。ただし、このプロセス内で走っている background job は継続しません。
+
 v1 でできること:
 
 - `review-queue` / `promotion-queue` の確認
+- `review-stalled` / `review-ignore` 相当の dry-run と明示 execute
 - project 詳細と raw JSON の確認
 - `tracking_state` の単体更新
 - review signal の dismissal
 - service / repo candidate の承認・拒否
 - 既存 project への seed 追加
 - 単体 `enrich` / deep enrich の background job 起動
+- `enrich --all` 相当の background job 起動
 - `merge-batch --interactive` 相当の merge plan 確認と pair 単位の実行
 - project 詳細からの任意 identifier block / split
 
@@ -156,6 +160,13 @@ v1 でできること:
 - `Skip`: 画面上だけで候補を隠す。DB は変更しない
 
 `Merge` / `Block pair` / `Ignore source` / `Ignore target` は SQLite に書き込みます。実 DB で使う前に、`data/survey.dev.db` のようなコピー DB で操作感を確認する前提です。
+
+`Review Ops` タブでは、review 系の CLI 相当処理を background job として開始できます。
+
+- `review-stalled`: inactivity / enrich age 条件から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
+- `review-ignore`: 独自性の薄い fork や派生 Bluesky utility の `ignore` 候補を出す
+
+既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは in-memory job に紐づく表示で、サーバ再起動後の履歴永続化は未接続です。
 
 project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` と値を指定して次の操作を実行できます。
 
@@ -171,11 +182,13 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
+
 v1 では、`repair-db` と bulk tracking-state execute は実行しません。これらは引き続き CLI で dry-run を確認してから扱います。
 
 `Settings` タブでは、Web UI の操作設定をブラウザ localStorage に保存できます。
 
-- `review-queue` / `promotion-queue` / `merge-batch` の表示件数
+- `review-queue` / review ops / `promotion-queue` / `merge-batch` の表示件数
 - merge mode
 - promotion queue に personal tools を含めるか
 - 単体 `enrich` / deep enrich に渡す LLM endpoint / model / API key / API style / reasoning effort
