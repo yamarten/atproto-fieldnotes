@@ -101,9 +101,13 @@ python3 scripts/project_registry_web.py \
 
 `--reload` を付けると、`scripts/project_registry_web.py` または `scripts/project_registry.py` の変更時に同じポートのままサーバプロセスが再起動します。開発中に `lsof` / `kill` でポートを空け直す必要を減らせます。
 
+本番向けに長時間起動している場合は、`Settings` タブで現在の PID を確認できます。同じ画面の `Reload server` は同じ引数のままサーバプロセスを再起動し、`Stop server` はサーバプロセスを停止します。どちらも SQLite を変更しませんが、実行中の background job は止まります。
+
 起動時に表示される `?token=...` 付き URL を開くと、ブラウザの localStorage に token を保存します。以後の `/api/*` は `Authorization: Bearer ...` または `X-Project-Registry-Token` で認証します。
 
 v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`tracking_state` 変更、review signal dismissal、service/repo candidate の承認・拒否、既存 project への seed 追加、単体 `enrich` / deep enrich を扱えます。
+
+`Review Ops` タブでは、`review-stalled` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
 
 project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `service_url` を指定して次の操作もできます。
 
@@ -114,11 +118,13 @@ project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `serv
 
 `Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
 
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `archived` / `ignore` を含められます。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、`logs` が表示されます。
+
 `repair-db` と bulk tracking-state execute は Web UI からは実行しません。
 
 `Settings` タブでは、ブラウザ側に保存する操作設定を変更できます。
 
-- review / promotion / merge の表示件数
+- review / review ops / promotion / merge の表示件数
 - merge mode
 - promotion queue に personal tools を含めるか
 - 単体 `enrich` / deep enrich に渡す LLM endpoint / model / API style / reasoning effort / API key
