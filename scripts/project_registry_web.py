@@ -1073,28 +1073,86 @@ INDEX_HTML = r"""<!doctype html>
       updateReviewOpsVisibility();
       $("run-review-ops").onclick = async () => {
         const payload = readReviewOpsPayload();
-        const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
-        const mode = payload.execute ? "EXECUTE and write suggested tracking_state changes" : "dry-run without DB writes";
-        if (!confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`)) return;
-        status("Starting review job...");
-        try {
-          const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
-          if (payload.execute) clearListCache();
-          $("review-ops-result").textContent = JSON.stringify(data, null, 2);
-          status(`Started job ${data.job_id}`);
-          pollJobInto(data.job_id, "review-ops-result");
-        } catch (err) {
-          status(err.message);
-        }
+        runReviewOpsJob(payload);
       };
     }
 
-    async function pollJobInto(jobId, elementId) {
+    async function runReviewOpsJob(payload) {
+      const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
+      const mode = payload.execute ? "EXECUTE and write suggested tracking_state changes" : "dry-run without DB writes";
+      if (!confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`)) return;
+      status("Starting review job...");
+      try {
+        const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
+        if (payload.execute) clearListCache();
+        $("review-ops-result").textContent = JSON.stringify(data, null, 2);
+        status(`Started job ${data.job_id}`);
+        pollJobInto(data.job_id, "review-ops-result", (job) => renderReviewOpsJob(job, payload));
+      } catch (err) {
+        status(err.message);
+      }
+    }
+
+    function renderReviewOpsJob(job, payload) {
+      const result = job.result || {};
+      const mode = result.mode || (payload.execute ? "execute" : "dry_run");
+      const candidates = asList(result.candidates);
+      const updates = asList(result.updated_projects).concat(asList(result.updated_tracking_notes));
+      const counts = result.suggested_state_counts || result.kind_counts || {};
+      const countRows = Object.keys(counts).sort().map((key) => `<span class="pill">${esc(key)} ${esc(counts[key])}</span>`).join("");
+      const candidateRows = candidates.slice(0, 80).map((item) => `
+        <div class="row identifier-row">
+          <span class="identifier-value">
+            ${esc(item.project_key || "")} ${esc(item.name || "")}
+            <span class="muted">${esc(item.tracking_state || "")} -> ${esc(item.suggested_tracking_state || "ignore")}</span>
+            ${item.kind ? `<span class="muted">${esc(item.kind)}</span>` : ""}
+          </span>
+          ${item.project_key ? `<button data-open-project="${esc(item.project_key)}" title="Open this candidate project. This does not change the DB.">Open</button>` : ""}
+        </div>
+      `).join("");
+      const updateRows = updates.slice(0, 80).map((item) => `
+        <div class="row identifier-row identifier-confirmed">
+          <span class="identifier-value">
+            ${esc(item.project_key || "")}
+            ${item.tracking_state ? `<span class="muted">state: ${esc(item.tracking_state)}</span>` : ""}
+            ${item.tracking_note ? `<span class="muted">${esc(item.tracking_note)}</span>` : ""}
+          </span>
+          ${item.project_key ? `<button data-open-project="${esc(item.project_key)}" title="Open this updated project. This does not change the DB.">Open</button>` : ""}
+        </div>
+      `).join("");
+      const canApply = mode === "dry_run" && !payload.execute && (Number(result.candidate_count || candidates.length || 0) > 0);
+      $("review-ops-result").innerHTML = `
+        <div class="identifier-list">
+          <div class="row">
+            <span class="pill">${esc(job.kind || payload.kind)}</span>
+            <span class="pill">${esc(mode)}</span>
+            <span class="pill">${esc(result.candidate_count ?? result.updated_count ?? candidates.length ?? 0)} items</span>
+          </div>
+          <div class="row">${countRows || `<span class="muted">No counts.</span>`}</div>
+          ${canApply ? `<div class="actions"><button id="apply-review-ops-dryrun" class="danger" title="Run the same review operation with execute enabled.">Apply this dry-run</button></div>` : ""}
+          <details open><summary>${mode === "dry_run" ? "Candidates" : "Updated projects"}</summary><div class="identifier-list">${mode === "dry_run" ? (candidateRows || `<span class="muted">No candidates.</span>`) : (updateRows || `<span class="muted">No updates.</span>`)}</div></details>
+          <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
+        </div>
+      `;
+      document.querySelectorAll("[data-open-project]").forEach((el) => {
+        el.onclick = () => loadDetail(el.dataset.openProject);
+      });
+      const applyButton = $("apply-review-ops-dryrun");
+      if (applyButton) {
+        applyButton.onclick = () => runReviewOpsJob(Object.assign({}, payload, { execute: true }));
+      }
+    }
+
+    async function pollJobInto(jobId, elementId, renderDone = null) {
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         try {
           const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
-          $(elementId).textContent = JSON.stringify(job, null, 2);
+          if (renderDone && (job.status === "done" || job.status === "failed")) {
+            renderDone(job);
+          } else {
+            $(elementId).textContent = JSON.stringify(job, null, 2);
+          }
           if (job.status === "done" || job.status === "failed") {
             status(job.status === "done" ? "Job done." : `Job failed: ${job.error || ""}`);
             return;
