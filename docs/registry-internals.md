@@ -168,7 +168,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - redirect の同一視は service probe の evidence として別扱いします
 - service probe は `requested_url` / `final_url` / redirect flags を保持します
   - same host の `http -> https` redirect だけは canonical service URL として `https` 側へ寄せます
-  - cross-host redirect は investigation log に残しますが、自動で同一 service として confirmed にはしません
+  - same site family の redirect 先が project を支持し、`website_url` が未設定なら、redirect 先を primary service URL として登録します
+  - same site family でも既存 `website_url` がある場合は、redirect 先を candidate に留めます
+  - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
+  - cross-host redirect は自動で同一 service として confirmed にはしません
 - `service_probe_supports_project()` が真になる主な条件:
   - page text に project の NSID が直接出る
   - authority domain と atproto 系 marker が同時に出る

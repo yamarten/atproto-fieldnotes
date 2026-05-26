@@ -82,6 +82,8 @@
   - `normalize_url()` は文字列正規化だけで、`http` / `https` や redirect を無条件同一視しない
   - service probe は `requested_url` / `final_url` / redirect flags を返す
   - same host の `http -> https` redirect だけ canonical service URL を `https` 側へ寄せる
+  - same site family の redirect 先が project を支持し、`website_url` が未設定なら primary service URL として登録する
+  - 既存 `website_url` がある same site family redirect と、project を支持する cross-host redirect は candidate に留める
   - cross-host redirect は investigation log に残すが、自動 confirmed にはしない
 - マージ時の主従判定は `project_editorial_preference()` を導入済み
   - `website_url`, `service_urls`, repo, `service_status`, `introduced_url` を見て service 本体を優先する

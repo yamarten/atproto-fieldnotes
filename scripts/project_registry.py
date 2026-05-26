@@ -6352,6 +6352,33 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
     return False
 
 
+def service_probe_supported_redirect_final_url(project: dict[str, Any], requested_url: str, result: dict[str, Any]) -> str:
+    requested = normalize_url(requested_url)
+    final = normalize_service_candidate_url(str(result.get("final_url") or ""))
+    status_code = int(result.get("status_code") or 0)
+    if not (0 < status_code < 400):
+        return ""
+    if not result.get("redirected") or not requested or not final or requested == final:
+        return ""
+    if result.get("redirect_same_host") and result.get("redirect_http_to_https"):
+        return ""
+    if not service_probe_supports_project(project, final, result):
+        return ""
+    return final
+
+
+def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_url: str, result: dict[str, Any]) -> None:
+    final_url = service_probe_supported_redirect_final_url(project, requested_url, result)
+    if not final_url:
+        return
+    project["evidence_urls"] = add_unique(project.get("evidence_urls", []), final_url)
+    if result.get("redirect_same_site_family") and not normalize_url(str(project.get("website_url") or "")):
+        confirm_service_url(project, final_url)
+        return
+    add_candidate_url(project, "service_url", final_url)
+    add_candidate_url(project, "website_url", final_url)
+
+
 def collect_first_party_links(project: dict[str, Any], base_url: str, links: list[dict[str, str]], source: str) -> list[str]:
     follow_up_urls: list[str] = []
     for link in links:
@@ -7163,6 +7190,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         )
     if supported:
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
+    apply_service_probe_redirect_final_url(project, normalized_service_url, result)
     if 0 < result["status_code"] < 400:
         if supported and service_url_auto_confirmable(project, canonical_service_url):
             confirm_service_url(project, canonical_service_url)
