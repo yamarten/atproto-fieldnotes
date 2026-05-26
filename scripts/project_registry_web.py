@@ -157,8 +157,36 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--text);
       border-radius: 7px;
       min-height: 36px;
+      min-width: 0;
+      max-width: 100%;
       padding: 7px 10px;
       font: inherit;
+    }
+    select, input {
+      width: 100%;
+    }
+    input[type="checkbox"] {
+      width: auto;
+      min-height: auto;
+      flex: 0 0 auto;
+    }
+    label {
+      min-width: 0;
+      max-width: 100%;
+    }
+    .section > label {
+      display: grid;
+      gap: 4px;
+    }
+    .row label {
+      display: grid;
+      gap: 4px;
+      flex: 1 1 150px;
+    }
+    label.row {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
     }
     button {
       cursor: pointer;
@@ -222,7 +250,11 @@ INDEX_HTML = r"""<!doctype html>
       line-height: 1.25;
       overflow-wrap: anywhere;
     }
-    .muted { color: var(--muted); }
+    .muted {
+      color: var(--muted);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
     .pill {
       display: inline-flex;
       align-items: center;
