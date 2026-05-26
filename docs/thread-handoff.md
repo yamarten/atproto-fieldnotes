@@ -183,6 +183,8 @@
   - `finalize` / `enrich` 後も同じ identifier が戻らないようにする
 - `duplicate_candidates` と `merge_recommendation` は派生データ
   - 必要なら再計算できる
+  - `review-queue` は高速化のため通常表示では再計算しない
+  - 派生値を明示的に洗い替えたい時は `repair-db` や identifier 更新系操作に寄せる
 
 ## ドキュメントの読み分け
 

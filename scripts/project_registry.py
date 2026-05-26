@@ -9031,17 +9031,8 @@ def build_review_queue(
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
     for project in project_list:
         shaped = dict(project)
-        shaped["duplicate_candidates"] = compute_duplicate_candidates(
-            conn,
-            shaped,
-            projects=project_list,
-            duplicate_profiles=duplicate_profiles,
-            duplicate_index=duplicate_index,
-        )
-        shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
         shaped = apply_promotion_state(shaped)
         signals = compute_review_signals(shaped)
         if kinds is not None:
@@ -9074,29 +9065,17 @@ def build_review_queue_batch(
     tracking_states: set[str] | None = None,
     kinds: set[str] | None = None,
     project_list: list[dict[str, Any]] | None = None,
-    duplicate_profiles: dict[str, dict[str, Any]] | None = None,
-    duplicate_index: dict[str, set[str]] | None = None,
     start_index: int = 0,
     batch_size: int = 100,
 ) -> tuple[list[dict[str, Any]], int]:
     batch: list[dict[str, Any]] = []
     projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-    profiles = duplicate_profiles or {}
-    index_map = duplicate_index or {}
     index = max(0, int(start_index or 0))
     target_size = max(1, int(batch_size or 100))
     while index < len(projects) and len(batch) < target_size:
         project = projects[index]
         index += 1
         shaped = dict(project)
-        shaped["duplicate_candidates"] = compute_duplicate_candidates(
-            conn,
-            shaped,
-            projects=projects,
-            duplicate_profiles=profiles,
-            duplicate_index=index_map,
-        )
-        shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
         shaped = apply_promotion_state(shaped)
         signals = compute_review_signals(shaped)
         if kinds is not None:
@@ -9132,17 +9111,7 @@ def build_review_queue_item(
     project = fetch_project(conn, project_key)
     if project is None:
         return None
-    project_list = [ensure_project_shape(item) for item in list_projects(conn)]
-    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
     shaped = ensure_project_shape(project)
-    shaped["duplicate_candidates"] = compute_duplicate_candidates(
-        conn,
-        shaped,
-        projects=project_list,
-        duplicate_profiles=duplicate_profiles,
-        duplicate_index=duplicate_index,
-    )
-    shaped["merge_recommendation"] = compute_merge_recommendation(shaped)
     shaped = apply_promotion_state(shaped)
     signals = compute_review_signals(shaped)
     if kinds is not None:
@@ -10906,7 +10875,6 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
         batch_size = 100
         total_limit = max(1, int(args.limit)) if args.limit is not None else None
         project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-        duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
         next_index = 0
         emitted = 0
 
@@ -10922,8 +10890,6 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
                 tracking_states=tracking_states,
                 kinds=kinds,
                 project_list=project_list,
-                duplicate_profiles=duplicate_profiles,
-                duplicate_index=duplicate_index,
                 start_index=next_index,
                 batch_size=current_batch_size,
             )

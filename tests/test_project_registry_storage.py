@@ -97,6 +97,32 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_review_queue_does_not_refresh_duplicate_candidates(self) -> None:
+        conn = registry.open_db()
+        original_compute = registry.compute_duplicate_candidates
+        try:
+            project = self.make_project("proj:cafecafecafe", "nsid", "app.example.post")
+            project["name"] = "Candidate Service"
+            project["service_url_candidates"] = ["https://candidate.example"]
+            registry.save_project(conn, project)
+            conn.commit()
+
+            def fail_compute(*args, **kwargs):
+                raise AssertionError("review queue should use stored derived merge fields")
+
+            registry.compute_duplicate_candidates = fail_compute
+            queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=5)
+            batch, next_index = registry.build_review_queue_batch(conn, tracking_states={"active"}, batch_size=5)
+            item = registry.build_review_queue_item(conn, "proj:cafecafecafe")
+
+            self.assertEqual(queue[0]["project_key"], "proj:cafecafecafe")
+            self.assertEqual(batch[0]["project_key"], "proj:cafecafecafe")
+            self.assertGreaterEqual(next_index, 1)
+            self.assertEqual(item["project_key"], "proj:cafecafecafe")
+        finally:
+            registry.compute_duplicate_candidates = original_compute
+            conn.close()
+
     def test_audit_reports_confirmed_identifier_collisions(self) -> None:
         conn = registry.open_db()
         try:
