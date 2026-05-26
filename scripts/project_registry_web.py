@@ -830,12 +830,12 @@ INDEX_HTML = r"""<!doctype html>
           <label>Max candidates <input id="review-ops-limit" type="number" min="1" max="500" value="${esc(settings.reviewOpsLimit)}"></label>
         </div>
         <div class="section"><h3>Review Stalled</h3>
-          <div class="row">
+          <div class="row" data-review-kind="stalled">
             <label>Inactivity days <input id="review-ops-inactivity-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsInactivityDays)}"></label>
             <label>Enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
           </div>
         </div>
-        <div class="section"><h3>Review Ignore</h3>
+        <div class="section" data-review-kind="ignore"><h3>Review Ignore</h3>
           <label class="row"><input id="review-ops-include-stable" type="checkbox" ${settings.reviewOpsIncludeStable ? "checked" : ""}> Include stable</label>
           <label class="row"><input id="review-ops-include-stalled" type="checkbox" ${settings.reviewOpsIncludeStalled ? "checked" : ""}> Include stalled</label>
           <label>Note reason
@@ -888,21 +888,21 @@ INDEX_HTML = r"""<!doctype html>
             </label>
             <label class="row"><input id="sync-execute" type="checkbox"> Execute writes to SQLite</label>
             <label class="row"><input id="sync-create-unmatched" type="checkbox" ${settings.syncCreateUnmatched ? "checked" : ""}> Create unmatched projects</label>
-            <label class="row"><input id="sync-screen-unmatched" type="checkbox" ${settings.syncScreenUnmatched ? "checked" : ""}> Screen unmatched GitHub repos</label>
-            <label class="row"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
+            <label class="row" data-sync-kind="github-search"><input id="sync-screen-unmatched" type="checkbox" ${settings.syncScreenUnmatched ? "checked" : ""}> Screen unmatched GitHub repos</label>
+            <label class="row" data-sync-kind="github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
           </div>
           <div class="section"><h3>Inputs</h3>
-            <label>Introduced query <input id="sync-query" type="text" value="${esc(settings.syncQuery)}" placeholder="from:yamarten.bsky.social #ATプロトーク"></label>
-            <label>Collection source URL <input id="sync-source-url" type="text" value="" placeholder="${esc(defaultCollectionUrl)}"></label>
-            <label>GitHub query <input id="sync-github-query" type="text" value="" placeholder="${esc(defaultGithubQuery)}"></label>
+            <label data-sync-kind="introduced">Introduced query <input id="sync-query" type="text" value="${esc(settings.syncQuery)}" placeholder="from:yamarten.bsky.social #ATプロトーク"></label>
+            <label data-sync-kind="collections">Collection source URL <input id="sync-source-url" type="text" value="" placeholder="${esc(defaultCollectionUrl)}"></label>
+            <label data-sync-kind="github-search">GitHub query <input id="sync-github-query" type="text" value="" placeholder="${esc(defaultGithubQuery)}"></label>
             <div class="row">
-              <label>Limit <input id="sync-limit" type="number" min="1" max="500" value="${esc(settings.syncLimit)}"></label>
-              <label>Max pages <input id="sync-max-pages" type="number" min="1" max="20" value="${esc(settings.syncMaxPages)}"></label>
+              <label data-sync-kind="introduced">Limit <input id="sync-limit" type="number" min="1" max="500" value="${esc(settings.syncLimit)}"></label>
+              <label data-sync-kind="introduced">Max pages <input id="sync-max-pages" type="number" min="1" max="20" value="${esc(settings.syncMaxPages)}"></label>
             </div>
             <div class="row">
-              <label>Pages <input id="sync-pages" type="number" min="1" max="20" value="${esc(settings.syncPages)}"></label>
-              <label>Per page <input id="sync-per-page" type="number" min="1" max="100" value="${esc(settings.syncPerPage)}"></label>
-              <label>Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
+              <label data-sync-kind="github-search semble-collections">Pages <input id="sync-pages" type="number" min="1" max="20" value="${esc(settings.syncPages)}"></label>
+              <label data-sync-kind="github-search semble-collections">Per page <input id="sync-per-page" type="number" min="1" max="100" value="${esc(settings.syncPerPage)}"></label>
+              <label data-sync-kind="collections github-search semble-collections">Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
             </div>
           </div>
           <div class="actions">
@@ -1019,7 +1019,23 @@ INDEX_HTML = r"""<!doctype html>
       return payload;
     }
 
+    function updateReviewOpsVisibility() {
+      const kind = $("review-ops-kind").value;
+      document.querySelectorAll("[data-review-kind]").forEach((el) => {
+        el.hidden = !String(el.dataset.reviewKind || "").split(/\s+/).includes(kind);
+      });
+    }
+
+    function updateSyncVisibility() {
+      const kind = $("sync-kind").value;
+      document.querySelectorAll("[data-sync-kind]").forEach((el) => {
+        el.hidden = !String(el.dataset.syncKind || "").split(/\s+/).includes(kind);
+      });
+    }
+
     function wireSync() {
+      $("sync-kind").onchange = updateSyncVisibility;
+      updateSyncVisibility();
       $("run-sync").onclick = async () => {
         const payload = readSyncPayload();
         const mode = payload.execute ? "EXECUTE and write to SQLite" : "dry-run without DB writes";
@@ -1053,6 +1069,8 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function wireReviewOps() {
+      $("review-ops-kind").onchange = updateReviewOpsVisibility;
+      updateReviewOpsVisibility();
       $("run-review-ops").onclick = async () => {
         const payload = readReviewOpsPayload();
         const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
