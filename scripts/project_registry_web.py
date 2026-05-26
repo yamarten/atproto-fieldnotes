@@ -440,7 +440,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, settings: loadSettings() };
+    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -574,35 +574,69 @@ INDEX_HTML = r"""<!doctype html>
       return `<div class="list-count"><span>${esc(label)}</span><span>${esc(shown)} shown${detail ? ` / ${esc(detail)}` : ""}</span></div>`;
     }
 
-    async function loadList() {
-      status("Loading...");
-      $("list").innerHTML = "";
+    function listCacheKey() {
+      if (state.tab === "review") return `review:${state.settings.reviewLimit || 50}`;
+      if (state.tab === "promotion") return `promotion:${state.settings.promotionLimit || 50}:${state.settings.includePersonalTools ? "personal" : "default"}`;
+      if (state.tab === "merge") return `merge:${$("merge-mode").value || state.settings.mergeMode || "moderate"}:${state.settings.mergeLimit || 50}`;
+      if (state.tab === "search") return `search:${$("query").value.trim()}`;
+      return `${state.tab}:default`;
+    }
+
+    function clearListCache() {
+      state.listCache.clear();
+    }
+
+    function renderListFromData(data) {
+      if (state.tab === "review") {
+        const items = asList(data.items);
+        $("list").innerHTML = listCount("Review queue", data.review_count ?? items.length, `limit ${state.settings.reviewLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No review items.</div>`);
+      } else if (state.tab === "promotion") {
+        const items = asList(data.items);
+        $("list").innerHTML = listCount("Promotion queue", data.promotion_count ?? items.length, `limit ${state.settings.promotionLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No promotion items.</div>`);
+      } else if (state.tab === "merge") {
+        state.mergeItems = asList(data.items);
+        const detail = `${data.planned_merges || 0} planned, ${data.skipped_count || 0} skipped`;
+        $("list").innerHTML = listCount("Merge plans", data.returned_merges ?? state.mergeItems.length, detail) + (state.mergeItems.map(mergeCard).join("") || `<div class="card muted">No merge plans.</div>`);
+      } else {
+        const q = $("query").value.trim();
+        const items = asList(data.items);
+        $("list").innerHTML = listCount("Projects", data.count ?? items.length, q ? "search result" : "limit 50") + (items.map(card).join("") || `<div class="card muted">No projects.</div>`);
+      }
+    }
+
+    function listApiPath() {
+      if (state.tab === "review") return `/api/review-queue?limit=${encodeURIComponent(state.settings.reviewLimit || 50)}`;
+      if (state.tab === "promotion") {
+        const personal = state.settings.includePersonalTools ? "&include_personal_tools=true" : "";
+        return `/api/promotion-queue?limit=${encodeURIComponent(state.settings.promotionLimit || 50)}${personal}`;
+      }
+      if (state.tab === "merge") {
+        const mode = encodeURIComponent($("merge-mode").value || state.settings.mergeMode || "moderate");
+        return `/api/merge-batch?mode=${mode}&limit=${encodeURIComponent(state.settings.mergeLimit || 50)}`;
+      }
+      const q = encodeURIComponent($("query").value.trim());
+      return "/api/projects?limit=50" + (q ? "&q=" + q : "");
+    }
+
+    async function loadList(options = {}) {
+      const force = Boolean(options.force);
+      const key = listCacheKey();
+      const cached = !force ? state.listCache.get(key) : null;
+      const requestId = ++state.listRequestSeq;
+      if (cached) {
+        renderListFromData(cached.data);
+        status("Refreshing...");
+      } else {
+        status("Loading...");
+      }
       try {
-        let data;
-        if (state.tab === "review") {
-          data = await api(`/api/review-queue?limit=${encodeURIComponent(state.settings.reviewLimit || 50)}`);
-          const items = asList(data.items);
-          $("list").innerHTML = listCount("Review queue", data.review_count ?? items.length, `limit ${state.settings.reviewLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No review items.</div>`);
-        } else if (state.tab === "promotion") {
-          const personal = state.settings.includePersonalTools ? "&include_personal_tools=true" : "";
-          data = await api(`/api/promotion-queue?limit=${encodeURIComponent(state.settings.promotionLimit || 50)}${personal}`);
-          const items = asList(data.items);
-          $("list").innerHTML = listCount("Promotion queue", data.promotion_count ?? items.length, `limit ${state.settings.promotionLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No promotion items.</div>`);
-        } else if (state.tab === "merge") {
-          const mode = encodeURIComponent($("merge-mode").value || state.settings.mergeMode || "moderate");
-          data = await api(`/api/merge-batch?mode=${mode}&limit=${encodeURIComponent(state.settings.mergeLimit || 50)}`);
-          state.mergeItems = asList(data.items);
-          const detail = `${data.planned_merges || 0} planned, ${data.skipped_count || 0} skipped`;
-          $("list").innerHTML = listCount("Merge plans", data.returned_merges ?? state.mergeItems.length, detail) + (state.mergeItems.map(mergeCard).join("") || `<div class="card muted">No merge plans.</div>`);
-        } else {
-          const q = encodeURIComponent($("query").value.trim());
-          data = await api("/api/projects?limit=50" + (q ? "&q=" + q : ""));
-          const items = asList(data.items);
-          $("list").innerHTML = listCount("Projects", data.count ?? items.length, q ? "search result" : "limit 50") + (items.map(card).join("") || `<div class="card muted">No projects.</div>`);
-        }
+        const data = await api(listApiPath());
+        if (requestId !== state.listRequestSeq || key !== listCacheKey()) return;
+        state.listCache.set(key, { data, loadedAt: Date.now() });
+        renderListFromData(data);
         status("");
       } catch (err) {
-        status(err.message);
+        status(cached ? `Refresh failed: ${err.message}` : err.message);
       }
     }
 
@@ -767,6 +801,7 @@ INDEX_HTML = r"""<!doctype html>
         status("Registering seed...");
         try {
           const data = await api("/api/seeds", { method: "POST", body: JSON.stringify(payload) });
+          clearListCache();
           status(`Registered ${data.project_key}`);
           loadDetail(data.project_key);
         } catch (err) {
@@ -992,6 +1027,7 @@ INDEX_HTML = r"""<!doctype html>
         status("Starting sync...");
         try {
           const data = await api("/api/sync", { method: "POST", body: JSON.stringify(payload) });
+          if (payload.execute) clearListCache();
           $("sync-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
           pollJobInto(data.job_id, "sync-result");
@@ -1006,6 +1042,7 @@ INDEX_HTML = r"""<!doctype html>
         status("Starting enrich all...");
         try {
           const data = await api("/api/enrich-all", { method: "POST", body: JSON.stringify(payload) });
+          clearListCache();
           $("enrich-all-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
           pollJobInto(data.job_id, "enrich-all-result");
@@ -1024,6 +1061,7 @@ INDEX_HTML = r"""<!doctype html>
         status("Starting review job...");
         try {
           const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
+          if (payload.execute) clearListCache();
           $("review-ops-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
           pollJobInto(data.job_id, "review-ops-result");
@@ -1199,9 +1237,10 @@ INDEX_HTML = r"""<!doctype html>
     async function mergeMutate(action, payload) {
       status("Saving...");
       try {
-        const data = await api("/api/merge-batch/action", { method: "POST", body: JSON.stringify(Object.assign({ action }, payload)) });
-        status(data.mode || "Saved.");
-        await loadList();
+          const data = await api("/api/merge-batch/action", { method: "POST", body: JSON.stringify(Object.assign({ action }, payload)) });
+          clearListCache();
+          status(data.mode || "Saved.");
+          await loadList({ force: true });
         $("detail").innerHTML = `<pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
       } catch (err) {
         status(err.message);
@@ -1466,6 +1505,7 @@ INDEX_HTML = r"""<!doctype html>
       if (target) target.textContent = "Starting enrich job...";
       try {
         const data = await api(`/api/projects/${encodeURIComponent(key)}/enrich`, { method: "POST", body: JSON.stringify(enrichPayload(deep)) });
+        clearListCache();
         status(`Started job ${data.job_id}`);
         if (target) target.textContent = JSON.stringify(data, null, 2);
         pollEnrichJob(key, data.job_id);
@@ -1503,8 +1543,9 @@ INDEX_HTML = r"""<!doctype html>
       status("Saving...");
       try {
         const data = await api(path, { method: "POST", body: JSON.stringify(payload || {}) });
+        clearListCache();
         status(data.job_id ? `Started job ${data.job_id}` : "Saved.");
-        await loadList();
+        await loadList({ force: true });
         if (reloadDetail && state.selected) await loadDetail(state.selected);
       } catch (err) {
         status(err.message);
@@ -1525,7 +1566,10 @@ INDEX_HTML = r"""<!doctype html>
     $("tab-search").onclick = () => setTab("search");
     $("tab-new-seed").onclick = () => setTab("new-seed");
     $("tab-settings").onclick = () => setTab("settings");
-    $("refresh").onclick = loadList;
+    $("refresh").onclick = () => {
+      clearListCache();
+      loadList({ force: true });
+    };
     $("merge-mode").value = state.settings.mergeMode || "moderate";
     $("merge-mode").onchange = () => {
       saveSettings(Object.assign({}, state.settings, { mergeMode: $("merge-mode").value || "moderate" }));

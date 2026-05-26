@@ -157,6 +157,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("list-count", web.INDEX_HTML)
         self.assertIn("function listCount", web.INDEX_HTML)
         self.assertIn("shown", web.INDEX_HTML)
+        self.assertIn("listCache", web.INDEX_HTML)
+        self.assertIn("clearListCache", web.INDEX_HTML)
+        self.assertIn("Refreshing...", web.INDEX_HTML)
+        self.assertIn("loadList({ force: true })", web.INDEX_HTML)
 
     def test_parser_accepts_reload_options(self) -> None:
         parser = web.build_parser()
