@@ -132,6 +132,86 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
         self.assertEqual(registry.classify_service_probe_error(urllib.error.URLError("Connection refused")), "connection_refused")
 
 
+class ProjectRegistryServiceRedirectTest(unittest.TestCase):
+    def test_redirect_metadata_marks_same_host_http_to_https(self) -> None:
+        metadata = registry.service_probe_redirect_metadata("http://example.com", "https://example.com")
+
+        self.assertTrue(metadata["redirected"])
+        self.assertTrue(metadata["redirect_same_host"])
+        self.assertTrue(metadata["redirect_same_site_family"])
+        self.assertTrue(metadata["redirect_http_to_https"])
+        self.assertFalse(metadata["redirect_cross_host"])
+
+    def test_redirect_metadata_marks_cross_host_redirect(self) -> None:
+        metadata = registry.service_probe_redirect_metadata("https://example.com", "https://other.example.net")
+
+        self.assertTrue(metadata["redirected"])
+        self.assertFalse(metadata["redirect_same_host"])
+        self.assertFalse(metadata["redirect_same_site_family"])
+        self.assertTrue(metadata["redirect_cross_host"])
+
+    def test_same_host_http_to_https_redirect_canonicalizes_service_url(self) -> None:
+        project = registry.default_project_record("proj:redirecttest", "service_url", "http://example.com")
+        registry.add_manual_seed(project, "service_url", "http://example.com", source="test")
+        result = {
+            "requested_url": "http://example.com",
+            "final_url": "https://example.com",
+            "redirected": True,
+            "redirect_same_host": True,
+            "redirect_same_site_family": True,
+            "redirect_http_to_https": True,
+            "redirect_https_to_http": False,
+            "redirect_cross_host": False,
+            "status_code": 200,
+            "title": "Example",
+            "description": "",
+            "urls": [],
+            "links": [],
+            "html": "Example app",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "redirect_detected", "redirect_http_to_https"],
+            "fetch_error": "",
+        }
+
+        registry.apply_service_probe_result(project, "http://example.com", result)
+
+        self.assertIn("https://example.com", project["service_urls"])
+        self.assertNotIn("http://example.com", project["service_urls"])
+        self.assertEqual(project["website_url"], "https://example.com")
+        redirect_logs = [item for item in project["investigation_log"] if item.get("kind") == "service_redirect"]
+        self.assertEqual(redirect_logs[0]["final_url"], "https://example.com")
+
+    def test_cross_host_redirect_does_not_canonicalize_service_url(self) -> None:
+        project = registry.default_project_record("proj:redirectcross", "service_url", "https://example.com")
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
+        result = {
+            "requested_url": "https://example.com",
+            "final_url": "https://other.example.net",
+            "redirected": True,
+            "redirect_same_host": False,
+            "redirect_same_site_family": False,
+            "redirect_http_to_https": False,
+            "redirect_https_to_http": False,
+            "redirect_cross_host": True,
+            "status_code": 200,
+            "title": "Example",
+            "description": "",
+            "urls": [],
+            "links": [],
+            "html": "Example app",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "redirect_detected", "redirect_cross_host"],
+            "fetch_error": "",
+        }
+
+        registry.apply_service_probe_result(project, "https://example.com", result)
+
+        self.assertIn("https://example.com", project["service_urls"])
+        self.assertNotIn("https://other.example.net", project["service_urls"])
+
+
 class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_parse_chat_completion_message_content(self) -> None:
         payload = {"choices": [{"message": {"content": "chat text"}}]}

@@ -163,6 +163,12 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - title / meta description
   - 生テキスト
   - ページ内リンク
+- `normalize_url()` は network を伴わない文字列正規化だけを行います
+  - `http` と `https` は無条件には同一視しません
+  - redirect の同一視は service probe の evidence として別扱いします
+- service probe は `requested_url` / `final_url` / redirect flags を保持します
+  - same host の `http -> https` redirect だけは canonical service URL として `https` 側へ寄せます
+  - cross-host redirect は investigation log に残しますが、自動で同一 service として confirmed にはしません
 - `service_probe_supports_project()` が真になる主な条件:
   - page text に project の NSID が直接出る
   - authority domain と atproto 系 marker が同時に出る

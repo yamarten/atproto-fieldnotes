@@ -411,6 +411,23 @@ def request_bytes(
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
 ) -> tuple[int, bytes, dict[str, str]]:
+    status, body, response_headers, _final_url = request_bytes_with_final_url(
+        url,
+        headers=headers,
+        data=data,
+        method=method,
+        timeout=timeout,
+    )
+    return status, body, response_headers
+
+
+def request_bytes_with_final_url(
+    url: str,
+    headers: dict[str, str] | None = None,
+    data: bytes | None = None,
+    method: str | None = None,
+    timeout: float = REQUEST_TIMEOUT_DEFAULT,
+) -> tuple[int, bytes, dict[str, str], str]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
@@ -419,7 +436,8 @@ def request_bytes(
         status = getattr(response, "status", 200)
         body = response.read()
         response_headers = {key.lower(): value for key, value in response.headers.items()}
-        return status, body, response_headers
+        final_url = normalize_url(str(response.geturl() or url))
+        return status, body, response_headers, final_url
 
 
 def request_json(url: str, headers: dict[str, str] | None = None, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> Any:
@@ -6061,6 +6079,45 @@ def classify_service_probe_error(exc: Exception) -> str:
     return "network_error"
 
 
+def service_probe_redirect_metadata(requested_url: str, final_url: str) -> dict[str, Any]:
+    requested = normalize_url(requested_url)
+    final = normalize_url(final_url)
+    if not requested or not final:
+        return {
+            "requested_url": requested,
+            "final_url": final,
+            "redirected": False,
+            "redirect_same_host": False,
+            "redirect_same_site_family": False,
+            "redirect_http_to_https": False,
+            "redirect_https_to_http": False,
+            "redirect_cross_host": False,
+        }
+    requested_parsed = urllib.parse.urlparse(requested)
+    final_parsed = urllib.parse.urlparse(final)
+    redirected = requested != final
+    same_host = requested_parsed.netloc.lower() == final_parsed.netloc.lower()
+    same_site_family = is_same_site_family(requested, final)
+    return {
+        "requested_url": requested,
+        "final_url": final,
+        "redirected": redirected,
+        "redirect_same_host": redirected and same_host,
+        "redirect_same_site_family": redirected and same_site_family,
+        "redirect_http_to_https": redirected and same_host and requested_parsed.scheme == "http" and final_parsed.scheme == "https",
+        "redirect_https_to_http": redirected and same_host and requested_parsed.scheme == "https" and final_parsed.scheme == "http",
+        "redirect_cross_host": redirected and not same_host,
+    }
+
+
+def service_probe_canonical_url(requested_url: str, result: dict[str, Any]) -> str:
+    requested = normalize_url(requested_url)
+    final = normalize_url(str(result.get("final_url") or ""))
+    if result.get("redirect_http_to_https") and final:
+        return final
+    return requested
+
+
 def classify_service_probe_result(
     *,
     status_code: int,
@@ -6139,18 +6196,22 @@ def classify_service_probe_result(
 
 
 def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> dict[str, Any]:
+    normalized_url = normalize_url(url)
     status_code = 0
     body = b""
     headers: dict[str, str] = {}
     fetch_error = ""
+    final_url = normalized_url
     try:
-        status_code, body, headers = request_bytes(url, timeout=timeout)
+        status_code, body, headers, final_url = request_bytes_with_final_url(url, timeout=timeout)
     except urllib.error.HTTPError as exc:
         status_code = int(exc.code or 0)
         body = exc.read()
         headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
+        final_url = normalize_url(str(exc.geturl() or url))
     except Exception as exc:
         fetch_error = classify_service_probe_error(exc)
+    redirect_metadata = service_probe_redirect_metadata(normalized_url, final_url)
     charset = "utf-8"
     content_type = headers.get("content-type", "")
     charset_match = re.search(r"charset=([A-Za-z0-9_-]+)", content_type)
@@ -6169,7 +6230,20 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
         links=links,
         fetch_error=fetch_error,
     )
+    if redirect_metadata.get("redirected"):
+        service_status_evidence = add_unique(service_status_evidence, "redirect_detected")
+        if redirect_metadata.get("redirect_http_to_https"):
+            service_status_evidence = add_unique(service_status_evidence, "redirect_http_to_https")
+        elif redirect_metadata.get("redirect_https_to_http"):
+            service_status_evidence = add_unique(service_status_evidence, "redirect_https_to_http")
+        elif redirect_metadata.get("redirect_same_host"):
+            service_status_evidence = add_unique(service_status_evidence, "redirect_same_host")
+        elif redirect_metadata.get("redirect_same_site_family"):
+            service_status_evidence = add_unique(service_status_evidence, "redirect_same_site_family")
+        elif redirect_metadata.get("redirect_cross_host"):
+            service_status_evidence = add_unique(service_status_evidence, "redirect_cross_host")
     return {
+        **redirect_metadata,
         "status_code": status_code,
         "title": title,
         "description": description,
@@ -7074,14 +7148,27 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
             list(project.get("service_status_evidence", [])) + list(result.get("service_status_evidence", []))
         )
     normalized_service_url = normalize_url(service_url)
+    canonical_service_url = service_probe_canonical_url(normalized_service_url, result)
+    if result.get("redirected"):
+        add_investigation_log(
+            project,
+            "service_redirect",
+            url=normalized_service_url,
+            final_url=str(result.get("final_url") or ""),
+            redirect_http_to_https=bool(result.get("redirect_http_to_https")),
+            redirect_same_host=bool(result.get("redirect_same_host")),
+            redirect_same_site_family=bool(result.get("redirect_same_site_family")),
+            redirect_cross_host=bool(result.get("redirect_cross_host")),
+            at=iso_now(),
+        )
     if supported:
-        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized_service_url)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
     if 0 < result["status_code"] < 400:
-        if supported and service_url_auto_confirmable(project, normalized_service_url):
-            confirm_service_url(project, normalized_service_url)
+        if supported and service_url_auto_confirmable(project, canonical_service_url):
+            confirm_service_url(project, canonical_service_url)
         elif supported:
-            add_candidate_url(project, "service_url", normalized_service_url)
-            add_candidate_url(project, "website_url", normalized_service_url)
+            add_candidate_url(project, "service_url", canonical_service_url)
+            add_candidate_url(project, "website_url", canonical_service_url)
         else:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
     elif result["status_code"] >= 400 or result.get("fetch_error"):

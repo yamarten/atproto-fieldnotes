@@ -78,6 +78,11 @@
     - browser/computer-use 相当の「実際にログイン導線まで試す」検証レーン
 - `service_status=unverified` は「未確認」であって dead/private の確定ではない
   - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
+- service URL の redirect handling は追加済み
+  - `normalize_url()` は文字列正規化だけで、`http` / `https` や redirect を無条件同一視しない
+  - service probe は `requested_url` / `final_url` / redirect flags を返す
+  - same host の `http -> https` redirect だけ canonical service URL を `https` 側へ寄せる
+  - cross-host redirect は investigation log に残すが、自動 confirmed にはしない
 - マージ時の主従判定は `project_editorial_preference()` を導入済み
   - `website_url`, `service_urls`, repo, `service_status`, `introduced_url` を見て service 本体を優先する
   - ただし既に保存済みの微妙な `tagline` / `summary` を自動で全面修正する仕組みはまだ無い
