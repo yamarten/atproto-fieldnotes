@@ -135,7 +135,7 @@ python3 scripts/project_registry_web.py \
 
 `--reload` は `scripts/project_registry_web.py` / `scripts/project_registry.py` の変更を検知して、同じポートのままサーバプロセスを再起動します。開発中にポート解放のためだけに `lsof` / `kill` を使う必要を減らせます。
 
-長時間起動する本番向けプロセスでは、`Settings` タブの `Reload server` から手動リロードできます。`POST /api/reload` により同じコマンドライン引数でプロセスを `execv` し直すだけなので DB は変更しません。ただし、このプロセス内で走っている background job は継続しません。
+長時間起動する本番向けプロセスでは、`Settings` タブで現在の PID を確認できます。`Reload server` は `POST /api/reload` により同じコマンドライン引数でプロセスを `execv` し直し、`Stop server` は `POST /api/shutdown` により HTTP server を停止します。どちらも DB は変更しません。ただし、このプロセス内で走っている background job は継続しません。
 
 v1 でできること:
 

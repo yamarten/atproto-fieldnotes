@@ -578,13 +578,15 @@ INDEX_HTML = r"""<!doctype html>
           ${detailBackButton()}
           <div><h2>Settings</h2><div class="muted">Saved in this browser. Server environment values are shown as defaults/reference.</div></div>
           <div class="section"><h3>Server</h3>
+            <div class="muted">PID: ${esc(server.pid || "")}</div>
             <div class="muted">DB: ${esc(server.db_path || "")}</div>
             <div class="muted">Token configured: ${server.token_configured ? "yes" : "no"}</div>
           </div>
           <div class="section"><h3>Server Reload</h3>
-            <div class="muted">Restarts this web server process with the same command-line arguments. Useful after updating code on a long-running production server.</div>
+            <div class="muted">Restarts or stops this web server process. SQLite data is not modified, but in-flight background jobs stop with the process.</div>
             <div class="actions">
               <button id="reload-server" class="danger" title="Restart the web server process with the same host, port, DB path, token source, and other command-line options. SQLite data is not modified.">Reload server</button>
+              <button id="shutdown-server" class="danger" title="Stop the web server process after this response is sent. SQLite data is not modified.">Stop server</button>
             </div>
           </div>
           <div class="section"><h3>Queues</h3>
@@ -950,6 +952,16 @@ INDEX_HTML = r"""<!doctype html>
           const data = await api("/api/reload", { method: "POST", body: JSON.stringify({ confirm: true }) });
           status(`Server reload requested: ${data.reload_id}`);
           setTimeout(() => window.location.reload(), 1500);
+        } catch (err) {
+          status(err.message);
+        }
+      };
+      $("shutdown-server").onclick = async () => {
+        if (!confirmAction("Stop the web server process now?\n\nThis does not modify SQLite. In-flight background jobs in this process will stop. You will need to start the server again from the terminal.")) return;
+        status("Requesting server shutdown...");
+        try {
+          const data = await api("/api/shutdown", { method: "POST", body: JSON.stringify({ confirm: true }) });
+          status(`Server shutdown requested: ${data.shutdown_id}`);
         } catch (err) {
           status(err.message);
         }
@@ -1700,6 +1712,7 @@ def public_settings_payload(token_configured: bool) -> dict[str, Any]:
     config = registry.load_config()
     github_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
     return {
+        "pid": os.getpid(),
         "db_path": str(registry.DB_PATH),
         "token_configured": token_configured,
         "sync_defaults": {
@@ -2020,6 +2033,17 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
 
         threading.Thread(target=reload_soon, name="registry-web-manual-reload", daemon=True).start()
         return reload_id
+
+    def request_process_shutdown(self, reason: str) -> str:
+        shutdown_id = uuid.uuid4().hex
+
+        def shutdown_soon() -> None:
+            time.sleep(0.25)
+            print(f"Stopping project registry web server ({shutdown_id}): {reason}", flush=True)
+            self.shutdown()
+
+        threading.Thread(target=shutdown_soon, name="registry-web-manual-shutdown", daemon=True).start()
+        return shutdown_id
 
     def append_job_log(self, job_id: str, message: str, **fields: Any) -> None:
         entry = {"at": registry.iso_now(), "message": message, **fields}
@@ -2521,6 +2545,12 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 raise ValueError("confirm=true is required")
             reload_id = self.server.request_process_reload("manual API request")
             self.send_json({"reload_id": reload_id, "status": "reloading"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/shutdown":
+            if payload.get("confirm") is not True:
+                raise ValueError("confirm=true is required")
+            shutdown_id = self.server.request_process_shutdown("manual API request")
+            self.send_json({"shutdown_id": shutdown_id, "status": "stopping"}, status=HTTPStatus.ACCEPTED)
             return
         if path == "/api/review-stalled":
             job_id = self.server.start_review_job("stalled", payload)

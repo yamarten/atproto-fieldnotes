@@ -93,7 +93,7 @@ python3 scripts/project_registry_web.py \
 
 `--reload` を付けると、`scripts/project_registry_web.py` または `scripts/project_registry.py` の変更時に同じポートのままサーバプロセスが再起動します。開発中に `lsof` / `kill` でポートを空け直す必要を減らせます。
 
-本番向けに長時間起動している場合は、`Settings` タブの `Reload server` から手動で同じ引数のままサーバプロセスを再起動できます。これは SQLite を変更しませんが、実行中の background job は止まります。
+本番向けに長時間起動している場合は、`Settings` タブで現在の PID を確認できます。同じ画面の `Reload server` は同じ引数のままサーバプロセスを再起動し、`Stop server` はサーバプロセスを停止します。どちらも SQLite を変更しませんが、実行中の background job は止まります。
 
 起動時に表示される `?token=...` 付き URL を開くと、ブラウザの localStorage に token を保存します。以後の `/api/*` は `Authorization: Bearer ...` または `X-Project-Registry-Token` で認証します。
 

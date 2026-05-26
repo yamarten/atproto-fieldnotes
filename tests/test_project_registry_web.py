@@ -44,8 +44,10 @@ class ProjectRegistryWebTest(unittest.TestCase):
         server.jobs_lock = threading.Lock()
         server.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="registry-web-test")
         server.reload_requests = []
+        server.shutdown_requests = []
         server.append_job_log = types.MethodType(web.ProjectRegistryWebServer.append_job_log, server)
         server.request_process_reload = lambda reason: server.reload_requests.append(reason) or "reload-test-id"
+        server.request_process_shutdown = lambda reason: server.shutdown_requests.append(reason) or "shutdown-test-id"
         server.start_enrich_job = types.MethodType(web.ProjectRegistryWebServer.start_enrich_job, server)
         server._run_enrich_job = types.MethodType(web.ProjectRegistryWebServer._run_enrich_job, server)
         server.start_enrich_all_job = types.MethodType(web.ProjectRegistryWebServer.start_enrich_all_job, server)
@@ -137,6 +139,10 @@ class ProjectRegistryWebTest(unittest.TestCase):
         self.assertIn("Reload server", web.INDEX_HTML)
         self.assertIn("/api/reload", web.INDEX_HTML)
         self.assertIn("reload-server", web.INDEX_HTML)
+        self.assertIn("Stop server", web.INDEX_HTML)
+        self.assertIn("/api/shutdown", web.INDEX_HTML)
+        self.assertIn("shutdown-server", web.INDEX_HTML)
+        self.assertIn("PID:", web.INDEX_HTML)
         self.assertIn("Enrich Job", web.INDEX_HTML)
         self.assertIn("enrich-job-status", web.INDEX_HTML)
         self.assertIn("startEnrichJob", web.INDEX_HTML)
@@ -183,6 +189,7 @@ class ProjectRegistryWebTest(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["db_path"], str(self.db_path.resolve()))
+        self.assertIsInstance(payload["pid"], int)
         self.assertTrue(payload["token_configured"])
         self.assertIn("ATPROTO_SURVEY_LLM_MODEL", payload["env"])
         self.assertNotIn("ATPROTO_SURVEY_WEB_TOKEN", payload["env"])
@@ -199,6 +206,19 @@ class ProjectRegistryWebTest(unittest.TestCase):
         self.assertEqual(payload["reload_id"], "reload-test-id")
         self.assertEqual(payload["status"], "reloading")
         self.assertEqual(self.server.reload_requests, ["manual API request"])
+
+    def test_shutdown_endpoint_requires_confirmation_and_requests_shutdown(self) -> None:
+        status, payload = self.request("POST", "/api/shutdown", {})
+
+        self.assertEqual(status, 400)
+        self.assertIn("confirm=true", payload["error"])
+
+        status, payload = self.request("POST", "/api/shutdown", {"confirm": True})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["shutdown_id"], "shutdown-test-id")
+        self.assertEqual(payload["status"], "stopping")
+        self.assertEqual(self.server.shutdown_requests, ["manual API request"])
 
     def test_review_queue_shape(self) -> None:
         status, payload = self.request("GET", "/api/review-queue?limit=5")
