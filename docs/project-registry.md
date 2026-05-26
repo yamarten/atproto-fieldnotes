@@ -146,6 +146,7 @@ v1 でできること:
 - review signal の dismissal
 - service / repo candidate の承認・拒否
 - 既存 project への seed 追加
+- 新規 seed の preview / duplicate 確認 / 登録
 - 単体 `enrich` / deep enrich の background job 起動
 - `enrich --all` 相当の background job 起動
 - `merge-batch --interactive` 相当の merge plan 確認と pair 単位の実行
@@ -170,6 +171,8 @@ v1 でできること:
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは in-memory job に紐づく表示で、サーバ再起動後の履歴永続化は未接続です。
 
+`New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`/?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
+
 project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` と値を指定して次の操作を実行できます。
 
 - `Split`: 指定 identifier を新規 project へ移し、元 project から除去して `blocked_identifiers` と `separate_project_keys` を記録する
@@ -189,6 +192,8 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
 
 v1 では、`repair-db` と bulk tracking-state execute は実行しません。これらは引き続き CLI で dry-run を確認してから扱います。
+
+将来の設計目標として、`assist-db-edit` を Web UI からも扱えるようにする余地があります。現時点では未接続ですが、自然文から merge / set-separate / block / tracking-state などの候補コマンドを提案するだけでなく、将来的には project の問題調査や根拠確認の入口として厚くする候補です。
 
 `Settings` タブでは、Web UI の操作設定をブラウザ localStorage に保存できます。
 

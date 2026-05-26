@@ -368,6 +368,7 @@ INDEX_HTML = r"""<!doctype html>
       <button id="tab-merge" title="Review duplicate merge plans. Loading this list does not change the DB.">Merge</button>
       <button id="tab-sync" title="Run sync dry-runs or explicit execute jobs. Dry-run does not change the DB.">Sync</button>
       <button id="tab-search" title="Search projects by name, seed, NSID, or URL. This does not change the DB.">Search</button>
+      <button id="tab-new-seed" title="Preview and register a new NSID, repo URL, or service URL seed.">New Seed</button>
       <button id="tab-settings" title="Configure Web UI options saved in this browser.">Settings</button>
     </div>
     <div class="toolbar">
@@ -396,6 +397,7 @@ INDEX_HTML = r"""<!doctype html>
       const next = location.pathname + (params.toString() ? "?" + params.toString() : "") + location.hash;
       history.replaceState(null, "", next);
     }
+    const initialSeedParam = params.get("seed") || "";
     let token = localStorage.getItem("projectRegistryToken") || prompt("Project Registry token");
     if (token) localStorage.setItem("projectRegistryToken", token);
 
@@ -438,7 +440,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, mergeItems: [], settings: loadSettings() };
+    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -468,7 +470,7 @@ INDEX_HTML = r"""<!doctype html>
 
     function setTab(tab) {
       state.tab = tab;
-      for (const name of ["review", "review-ops", "promotion", "merge", "sync", "search", "settings"]) {
+      for (const name of ["review", "review-ops", "promotion", "merge", "sync", "search", "new-seed", "settings"]) {
         $("tab-" + name).classList.toggle("active", name === tab);
       }
       $("query").style.display = tab === "search" ? "" : "none";
@@ -483,6 +485,10 @@ INDEX_HTML = r"""<!doctype html>
       }
       if (tab === "settings") {
         loadSettingsScreen();
+        return;
+      }
+      if (tab === "new-seed") {
+        loadNewSeedScreen();
         return;
       }
       closeDetailPane(true);
@@ -663,6 +669,110 @@ INDEX_HTML = r"""<!doctype html>
       } catch (err) {
         status(err.message);
       }
+    }
+
+    async function loadNewSeedScreen() {
+      status("");
+      $("list").innerHTML = `<div class="card"><h2>New Seed</h2><div class="muted">Preview duplicate matches before registering a seed.</div></div>`;
+      const seedValue = state.seedPreview?.seed || initialSeedParam || "";
+      $("detail").innerHTML = `
+        ${detailBackButton()}
+        <div><h2>New Seed</h2><div class="muted">Register an NSID, repository URL, or service URL. Exact matches open the existing project instead of creating a duplicate.</div></div>
+        <div class="section"><h3>Seed</h3>
+          <div class="row">
+            <input id="new-seed-value" type="text" value="${esc(seedValue)}" placeholder="NSID, repo URL, service URL" title="Seed to preview and register.">
+            <select id="new-seed-type" title="Optional seed type override.">
+              <option value="">auto</option>
+              <option value="nsid">nsid</option>
+              <option value="repo_url">repo_url</option>
+              <option value="service_url">service_url</option>
+            </select>
+          </div>
+          <div class="actions">
+            <button id="preview-new-seed" class="primary" title="Check exact and nearby project matches before writing anything.">Preview</button>
+            <button id="register-new-seed" title="Register this seed if no exact match exists, or open the exact match.">Register</button>
+          </div>
+        </div>
+        <div class="section"><h3>Preview</h3><div id="new-seed-preview" class="identifier-list"><span class="muted">No preview yet.</span></div></div>
+      `;
+      wireNewSeed();
+      wireDetailBackButton();
+      openDetailPane();
+      if (seedValue) previewNewSeed();
+    }
+
+    function newSeedPayload() {
+      const payload = { seed: $("new-seed-value").value.trim() };
+      const type = $("new-seed-type").value;
+      if (type) payload.type = type;
+      return payload;
+    }
+
+    function renderSeedPreview(data) {
+      const exact = data.existing_project;
+      const possible = asList(data.possible_matches);
+      const exactHtml = exact ? `
+        <div class="row identifier-row identifier-confirmed">
+          <span class="identifier-value">Exact match: ${esc(exact.project_key)} ${esc(exact.name || "")}</span>
+          <button data-open-project="${esc(exact.project_key)}" title="Open the existing exact-match project. This does not change the DB.">Open</button>
+        </div>
+      ` : `<div class="muted">No exact match.</div>`;
+      const possibleHtml = possible.length ? possible.map((item) => `
+        <div class="row identifier-row identifier-candidate">
+          <span class="identifier-value">${esc(item.project_key)} ${esc(item.name || "")} <span class="muted">${esc(item.seed_type || "")}: ${esc(item.seed_value || "")}</span></span>
+          <button data-open-project="${esc(item.project_key)}" title="Open this possible duplicate project. This does not change the DB.">Open</button>
+        </div>
+      `).join("") : `<div class="muted">No nearby matches.</div>`;
+      return `
+        <div class="muted">Detected: ${esc(data.seed_type)} / ${esc(data.seed_value)}</div>
+        ${exactHtml}
+        <details ${possible.length ? "open" : ""}><summary>${possible.length} possible matches</summary><div class="identifier-list">${possibleHtml}</div></details>
+      `;
+    }
+
+    async function previewNewSeed() {
+      const payload = newSeedPayload();
+      if (!payload.seed) return;
+      status("Previewing seed...");
+      const query = new URLSearchParams(payload);
+      try {
+        const data = await api(`/api/seeds/preview?${query.toString()}`);
+        state.seedPreview = data;
+        $("new-seed-preview").innerHTML = renderSeedPreview(data);
+        document.querySelectorAll("[data-open-project]").forEach((el) => {
+          el.onclick = () => loadDetail(el.dataset.openProject);
+        });
+        status("");
+      } catch (err) {
+        status(err.message);
+      }
+    }
+
+    function wireNewSeed() {
+      $("preview-new-seed").onclick = () => previewNewSeed();
+      $("register-new-seed").onclick = async () => {
+        const payload = newSeedPayload();
+        if (!payload.seed) return;
+        if (!state.seedPreview || state.seedPreview.seed !== payload.seed) {
+          await previewNewSeed();
+        }
+        const exact = state.seedPreview?.existing_project;
+        if (exact) {
+          loadDetail(exact.project_key);
+          return;
+        }
+        const possibleCount = asList(state.seedPreview?.possible_matches).length;
+        const warning = possibleCount ? `\n\n${possibleCount} possible matches were found. Review them before creating a new project.` : "";
+        if (!confirmAction(`Register this seed as a project?\n\n${payload.seed}${warning}\n\nThis writes to SQLite.`)) return;
+        status("Registering seed...");
+        try {
+          const data = await api("/api/seeds", { method: "POST", body: JSON.stringify(payload) });
+          status(`Registered ${data.project_key}`);
+          loadDetail(data.project_key);
+        } catch (err) {
+          status(err.message);
+        }
+      };
     }
 
     async function loadReviewOpsScreen() {
@@ -1413,6 +1523,7 @@ INDEX_HTML = r"""<!doctype html>
     $("tab-merge").onclick = () => setTab("merge");
     $("tab-sync").onclick = () => setTab("sync");
     $("tab-search").onclick = () => setTab("search");
+    $("tab-new-seed").onclick = () => setTab("new-seed");
     $("tab-settings").onclick = () => setTab("settings");
     $("refresh").onclick = loadList;
     $("merge-mode").value = state.settings.mergeMode || "moderate";
@@ -1423,7 +1534,11 @@ INDEX_HTML = r"""<!doctype html>
     $("query").onkeydown = (event) => { if (event.key === "Enter") loadList(); };
     $("query").style.display = "none";
     $("merge-mode").style.display = "none";
-    loadList();
+    if (initialSeedParam) {
+      setTab("new-seed");
+    } else {
+      loadList();
+    }
   </script>
 </body>
 </html>
@@ -1926,6 +2041,25 @@ def public_settings_payload(token_configured: bool) -> dict[str, Any]:
             "ATPROTO_SURVEY_LLM_API_KEY_SET": bool(os.getenv("ATPROTO_SURVEY_LLM_API_KEY", "").strip()),
             "ATPROTO_SURVEY_LLM_TIMEOUT": os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300",
         },
+    }
+
+
+def seed_preview_payload(conn: sqlite3.Connection, seed: str, seed_type_override: str = "") -> dict[str, Any]:
+    seed_type = registry.detect_seed_type(seed, seed_type_override or None)
+    seed_value = registry.canonical_seed_value(seed_type, seed)
+    if not seed_value:
+        raise ValueError("seed value is required")
+    existing_key = registry.find_project_key_by_identifier(conn, seed_type, seed_value)
+    existing_project = registry.fetch_project(conn, existing_key) if existing_key else None
+    possible_matches = registry.project_search_candidates(conn, seed_value, limit=8)
+    if existing_key:
+        possible_matches = [item for item in possible_matches if item.get("project_key") != existing_key]
+    return {
+        "seed": seed,
+        "seed_type": seed_type,
+        "seed_value": seed_value,
+        "existing_project": project_summary(existing_project) if existing_project else None,
+        "possible_matches": possible_matches,
     }
 
 
@@ -2627,6 +2761,17 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/settings":
             self.send_json(public_settings_payload(bool(self.server.token)))
+            return
+        if path == "/api/seeds/preview":
+            seed = str(query.get("seed", [""])[0] or "").strip()
+            if not seed:
+                raise ValueError("seed is required")
+            seed_type = str(query.get("type", [""])[0] or "").strip()
+            conn = open_registry_db()
+            try:
+                self.send_json(seed_preview_payload(conn, seed, seed_type))
+            finally:
+                conn.close()
             return
         if path == "/api/merge-batch":
             limit = parse_int(query.get("limit", ["50"])[0], 50)

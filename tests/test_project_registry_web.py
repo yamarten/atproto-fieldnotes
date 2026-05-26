@@ -5,6 +5,7 @@ import sqlite3
 import threading
 import time
 import types
+import urllib.parse
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
@@ -96,6 +97,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Settings", web.INDEX_HTML)
         self.assertIn("Sync", web.INDEX_HTML)
         self.assertIn("tab-sync", web.INDEX_HTML)
+        self.assertIn("New Seed", web.INDEX_HTML)
+        self.assertIn("tab-new-seed", web.INDEX_HTML)
+        self.assertIn("/api/seeds/preview", web.INDEX_HTML)
+        self.assertIn("initialSeedParam", web.INDEX_HTML)
         self.assertIn("/api/sync", web.INDEX_HTML)
         self.assertIn("sync-introduced", web.INDEX_HTML)
         self.assertIn("sync-collections", web.INDEX_HTML)
@@ -169,6 +174,34 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(payload["token_configured"])
         self.assertIn("ATPROTO_SURVEY_LLM_MODEL", payload["env"])
         self.assertNotIn("ATPROTO_SURVEY_WEB_TOKEN", payload["env"])
+
+    def test_seed_preview_reports_exact_duplicate(self) -> None:
+        seed = urllib.parse.quote("https://example.com", safe="")
+        status, payload = self.request("GET", f"/api/seeds/preview?seed={seed}&type=service_url")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["seed_type"], "service_url")
+        self.assertEqual(payload["seed_value"], "https://example.com")
+        self.assertEqual(payload["existing_project"]["project_key"], "proj:222222222222")
+
+    def test_seed_post_can_create_new_project_after_preview(self) -> None:
+        seed = "https://github.com/example/new-repo"
+        encoded = urllib.parse.quote(seed, safe="")
+        status, payload = self.request("GET", f"/api/seeds/preview?seed={encoded}&type=repo_url")
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["existing_project"])
+
+        status, payload = self.request("POST", "/api/seeds", {"seed": seed, "type": "repo_url"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["seed_type"], "repo_url")
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, payload["project_key"])
+        finally:
+            conn.close()
+        self.assertIsNotNone(project)
+        self.assertIn("https://github.com/example/new-repo", project["source_code_urls"])
 
     def test_reload_endpoint_requires_confirmation_and_requests_reload(self) -> None:
         status, payload = self.request("POST", "/api/reload", {})

@@ -105,7 +105,9 @@ python3 scripts/project_registry_web.py \
 
 起動時に表示される `?token=...` 付き URL を開くと、ブラウザの localStorage に token を保存します。以後の `/api/*` は `Authorization: Bearer ...` または `X-Project-Registry-Token` で認証します。
 
-v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`tracking_state` 変更、review signal dismissal、service/repo candidate の承認・拒否、既存 project への seed 追加、単体 `enrich` / deep enrich を扱えます。
+v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`tracking_state` 変更、review signal dismissal、service/repo candidate の承認・拒否、既存 project への seed 追加、新規 seed 登録、単体 `enrich` / deep enrich を扱えます。
+
+`New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
 `Review Ops` タブでは、`review-stalled` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
 
