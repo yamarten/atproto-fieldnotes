@@ -114,6 +114,8 @@ project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `serv
 - `Split`: 指定 identifier を新しい project に移し、元 project から除去して、再吸収されないよう block / separate を記録する
 - `Block identifier`: 指定 identifier を元 project から除去し、今後戻らないよう `blocked_identifiers` に記録する
 
+同じ project 詳細では、補助情報として `blocked_identifiers` / `separate_project_keys` を折り畳み表示し、不要になった guard を `Clear` できます。`merge_recommendation` が auto-ready の場合は、project 詳細から recommendation target への merge も実行できます。
+
 `Merge` タブでは `merge-batch --interactive` に近い確認作業ができます。`build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ `Merge`、`Block pair`、`Ignore source`、`Ignore target`、`Skip` を選べます。`Skip` はブラウザ上だけの非破壊操作ですが、それ以外は SQLite に書き込みます。実DBではなく、まず `data/survey.dev.db` のようなコピーDBで試す前提です。
 
 `Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。

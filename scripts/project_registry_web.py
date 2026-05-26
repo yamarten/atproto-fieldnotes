@@ -1129,6 +1129,49 @@ INDEX_HTML = r"""<!doctype html>
       `).join("");
     }
 
+    function renderMergeRecommendation(recommendation) {
+      const rec = recommendation || {};
+      const target = rec.target_project_key || "";
+      if (!target) return `<span class="muted">None</span>`;
+      const reasons = esc(JSON.stringify(rec.reasons || {}, null, 2));
+      return `
+        <div class="identifier-list">
+          <div class="row identifier-row">
+            <span class="identifier-value">${esc(target)} score=${esc(rec.score || 0)} confidence=${esc(rec.merge_confidence || "")} auto=${rec.auto_merge_ready ? "yes" : "no"}</span>
+            <button data-open-project="${esc(target)}" title="Open the recommended target project. This does not change the DB.">Open</button>
+            <button class="danger" data-merge-recommendation="${esc(target)}" title="Merge this project into the recommended target when the recommendation is auto-merge-ready.">Merge</button>
+          </div>
+          <details><summary>Reasons</summary><pre>${reasons}</pre></details>
+        </div>
+      `;
+    }
+
+    function renderProjectGuards(project) {
+      const blocks = asList(project.blocked_identifiers);
+      const separate = asList(project.separate_project_keys);
+      if (!blocks.length && !separate.length) return `<span class="muted">None</span>`;
+      const blockRows = blocks.map((item) => `
+        <div class="row identifier-row">
+          <span class="identifier-value">${esc(item.type || "")}: ${esc(item.value || "")}${item.note ? ` <span class="muted">(${esc(item.note)})</span>` : ""}</span>
+          <button class="danger" data-clear-block-type="${esc(item.type || "")}" data-clear-block-value="${esc(item.value || "")}" title="Remove this blocked identifier record. This does not reattach the identifier automatically.">Clear</button>
+        </div>
+      `).join("");
+      const separateRows = separate.map((otherKey) => `
+        <div class="row identifier-row">
+          <span class="identifier-value">${esc(otherKey)}</span>
+          <button data-open-project="${esc(otherKey)}" title="Open the separated project. This does not change the DB.">Open</button>
+          <button class="danger" data-clear-separate-key="${esc(otherKey)}" title="Remove the separation block between these two projects.">Clear</button>
+        </div>
+      `).join("");
+      return `
+        <details>
+          <summary>${blocks.length} blocked identifiers, ${separate.length} separated projects</summary>
+          <div class="identifier-list">${blockRows || `<span class="muted">No blocked identifiers.</span>`}</div>
+          <div class="identifier-list">${separateRows || `<span class="muted">No separated projects.</span>`}</div>
+        </details>
+      `;
+    }
+
     async function loadDetail(key) {
       state.selected = key;
       status("Loading project...");
@@ -1157,6 +1200,7 @@ INDEX_HTML = r"""<!doctype html>
             <button id="deep-enrich" title="Start background deep enrich for this project. This may make more external checks and update SQLite.">Deep</button>
           </div>
           <div class="section"><h3>Summary</h3><div>${esc(p.tagline || "")}</div><div class="muted">${esc(p.summary || "")}</div></div>
+          <div class="section"><h3>Merge Recommendation</h3>${renderMergeRecommendation(p.merge_recommendation)}</div>
           <div class="section"><h3>Signals</h3><div class="signals">${asList(review.signals).map((sig) => `<div class="signal"><b>${esc(sig.kind)}</b> p${esc(sig.priority || 0)} <button data-dismiss="${esc(sig.kind)}" title="Store this review signal kind as dismissed for this project.">Dismiss</button><pre>${esc(JSON.stringify(sig.details || {}, null, 2))}</pre></div>`).join("") || `<span class="muted">None</span>`}</div></div>
           <div class="section"><h3>Identity</h3><div>${esc(p.seed_type || "")}: ${esc(p.seed_value || "")}</div>${renderEditableIdentifierRows(asList(p.input_nsids).concat(asList(p.resolved_nsids)), "nsid")}</div>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
@@ -1178,6 +1222,7 @@ INDEX_HTML = r"""<!doctype html>
               <button id="block-identifier" class="danger" title="Block this identifier on the current project and remove matching stored values.">Block identifier</button>
             </div>
           </div>
+          <div class="section"><h3>Guards</h3>${renderProjectGuards(p)}</div>
           <div class="section"><h3>Raw JSON</h3><details><summary>Show</summary><pre>${raw}</pre></details></div>
         `;
         wireDetail(p.project_key);
@@ -1260,6 +1305,30 @@ INDEX_HTML = r"""<!doctype html>
         el.onclick = () => {
           if (confirmAction(`Block this identifier on ${key}?\n\n${el.dataset.blockType}: ${el.dataset.blockValue}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/block-identifier`, { identifier_type: el.dataset.blockType, value: el.dataset.blockValue });
+          }
+        };
+      });
+      document.querySelectorAll("[data-clear-block-type]").forEach((el) => {
+        el.onclick = () => {
+          if (confirmAction(`Clear this blocked identifier on ${key}?\n\n${el.dataset.clearBlockType}: ${el.dataset.clearBlockValue}\n\nThis removes only the guard record and does not reattach the identifier.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/clear-block-identifier`, { identifier_type: el.dataset.clearBlockType, value: el.dataset.clearBlockValue });
+          }
+        };
+      });
+      document.querySelectorAll("[data-clear-separate-key]").forEach((el) => {
+        el.onclick = () => {
+          if (confirmAction(`Clear the separation block between ${key} and ${el.dataset.clearSeparateKey}?\n\nThis may allow future merge recommendations to pair them again.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/clear-separate`, { other_project_key: el.dataset.clearSeparateKey });
+          }
+        };
+      });
+      document.querySelectorAll("[data-open-project]").forEach((el) => {
+        el.onclick = () => loadDetail(el.dataset.openProject);
+      });
+      document.querySelectorAll("[data-merge-recommendation]").forEach((el) => {
+        el.onclick = () => {
+          if (confirmAction(`Merge ${key} into recommended target ${el.dataset.mergeRecommendation}?\n\nThis is allowed only when the recommendation is auto-merge-ready and writes to SQLite.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/merge-recommendation`, {});
           }
         };
       });
@@ -1483,6 +1552,58 @@ def block_identifier_on_project(
     registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
     conn.commit()
     return project
+
+
+def clear_block_identifier_on_project(
+    conn: sqlite3.Connection,
+    project_key: str,
+    identifier_type: str,
+    value: str,
+) -> dict[str, Any]:
+    if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if project is None:
+        raise KeyError(project_key)
+    project = registry.ensure_project_shape(project)
+    normalized_value = registry.normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized_value:
+        raise ValueError("identifier value could not be normalized")
+    project["blocked_identifiers"] = [
+        item for item in registry.normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+        if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
+    ]
+    project = registry.finalize_project_shape(project)
+    project["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = registry.compute_merge_recommendation(project)
+    registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project
+
+
+def clear_separate_project_pair(conn: sqlite3.Connection, project_key: str, other_project_key: str) -> dict[str, Any]:
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    other = registry.fetch_project(conn, registry.resolve_project_key_input(conn, other_project_key))
+    if project is None or other is None:
+        raise KeyError(project_key if project is None else other_project_key)
+    project = registry.ensure_project_shape(project)
+    other = registry.ensure_project_shape(other)
+    if project["project_key"] == other["project_key"]:
+        raise ValueError("project and other project resolve to the same project")
+    project["separate_project_keys"] = sorted(set(project.get("separate_project_keys", [])) - {other["project_key"]})
+    other["separate_project_keys"] = sorted(set(other.get("separate_project_keys", [])) - {project["project_key"]})
+    for item in (project, other):
+        item["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, item)
+        item["merge_recommendation"] = registry.compute_merge_recommendation(item)
+        registry.save_project(conn, item, enriched=bool(item.get("last_enriched_at")))
+    conn.commit()
+    return {
+        "mode": "clear",
+        "project": project_summary(project),
+        "other": project_summary(other),
+        "project_separate_project_keys": project.get("separate_project_keys", []),
+        "other_separate_project_keys": other.get("separate_project_keys", []),
+    }
 
 
 def split_project_identifier(
@@ -1737,6 +1858,45 @@ def merge_batch_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> dic
         "ignored_project_key": ignored["project_key"],
         "other_project_key": other["project_key"],
         "ignored": project_summary(ignored),
+    }
+
+
+def merge_project_recommendation(conn: sqlite3.Connection, project_key: str) -> dict[str, Any]:
+    source = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if source is None:
+        raise KeyError(project_key)
+    source = registry.ensure_project_shape(source)
+    source["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = registry.compute_merge_recommendation(source)
+    recommendation = source.get("merge_recommendation") or {}
+    target_key = str(recommendation.get("target_project_key") or "")
+    if not target_key:
+        raise ValueError("no merge recommendation available for source project")
+    if not recommendation.get("auto_merge_ready"):
+        raise ValueError("merge recommendation is not auto-merge-ready")
+    target = registry.fetch_project(conn, registry.resolve_project_key_input(conn, target_key))
+    if target is None:
+        raise KeyError(target_key)
+    target = registry.ensure_project_shape(target)
+    if source["project_key"] == target["project_key"]:
+        raise ValueError("source and target resolve to the same project")
+    if registry.merge_is_blocked(source, target):
+        raise ValueError("merge is manually blocked for this project pair")
+
+    merged = registry.merge_project_records(target, source)
+    merged["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, merged)
+    merged["merge_recommendation"] = registry.compute_merge_recommendation(merged)
+    merged = registry.apply_promotion_state(merged)
+    registry.save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
+    registry.delete_project(conn, source["project_key"])
+    conn.commit()
+    return {
+        "mode": "merged",
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "used_recommendation": True,
+        "merge_recommendation": recommendation,
+        "merged": project_summary(merged),
     }
 
 
@@ -2687,6 +2847,21 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                     note=str(payload.get("note") or "").strip(),
                 )
                 self.send_json({"project": project_summary(project), "blocked": {"type": identifier_type, "value": value}})
+                return
+            if action == "clear-block-identifier":
+                identifier_type = str(payload.get("identifier_type") or "").strip()
+                value = str(payload.get("value") or "").strip()
+                project = clear_block_identifier_on_project(conn, project_key, identifier_type, value)
+                self.send_json({"project": project_summary(project), "cleared": {"type": identifier_type, "value": value}})
+                return
+            if action == "clear-separate":
+                other_key = str(payload.get("other_project_key") or "").strip()
+                if not other_key:
+                    raise ValueError("other_project_key is required")
+                self.send_json(clear_separate_project_pair(conn, project_key, other_key))
+                return
+            if action == "merge-recommendation":
+                self.send_json(merge_project_recommendation(conn, project_key))
                 return
             if action == "split-project":
                 result = split_project_identifier(

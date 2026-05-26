@@ -123,6 +123,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Open target", web.INDEX_HTML)
         self.assertIn("Project Edits", web.INDEX_HTML)
         self.assertIn("split-project", web.INDEX_HTML)
+        self.assertIn("Merge Recommendation", web.INDEX_HTML)
+        self.assertIn("merge-recommendation", web.INDEX_HTML)
+        self.assertIn("Guards", web.INDEX_HTML)
+        self.assertIn("clear-block-identifier", web.INDEX_HTML)
+        self.assertIn("clear-separate", web.INDEX_HTML)
+        self.assertIn("renderProjectGuards", web.INDEX_HTML)
         self.assertIn("renderEditableIdentifierRows", web.INDEX_HTML)
         self.assertIn("data-split-type", web.INDEX_HTML)
         self.assertIn("identifier-row", web.INDEX_HTML)
@@ -330,6 +336,31 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         blocked = {(item["type"], item["value"]) for item in project["blocked_identifiers"]}
         self.assertIn(("repo_url", "https://github.com/example/app"), blocked)
 
+    def test_clear_block_identifier_action_removes_guard_only(self) -> None:
+        status, _payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/block-identifier",
+            {"identifier_type": "repo_url", "value": "https://github.com/example/app", "note": "wrong repo"},
+        )
+        self.assertEqual(status, 200)
+
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/clear-block-identifier",
+            {"identifier_type": "repo_url", "value": "https://github.com/example/app"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["cleared"]["value"], "https://github.com/example/app")
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        blocked = {(item["type"], item["value"]) for item in project["blocked_identifiers"]}
+        self.assertNotIn(("repo_url", "https://github.com/example/app"), blocked)
+        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
+
     def test_split_project_action_creates_new_project(self) -> None:
         status, payload = self.request(
             "POST",
@@ -352,6 +383,66 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("https://github.com/example/app", target["source_code_urls"])
         self.assertIn(target_key, source["separate_project_keys"])
         self.assertIn("proj:111111111111", target["separate_project_keys"])
+
+    def test_clear_separate_action_updates_both_projects(self) -> None:
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/split-project",
+            {"identifier_type": "repo_url", "value": "https://github.com/example/app"},
+        )
+        self.assertEqual(status, 200)
+        target_key = payload["target_project_key"]
+
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/clear-separate",
+            {"other_project_key": target_key},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["mode"], "clear")
+        conn = registry.open_db()
+        try:
+            source = registry.fetch_project(conn, "proj:111111111111")
+            target = registry.fetch_project(conn, target_key)
+        finally:
+            conn.close()
+        self.assertNotIn(target_key, source["separate_project_keys"])
+        self.assertNotIn("proj:111111111111", target["separate_project_keys"])
+
+    def test_merge_recommendation_action_merges_auto_ready_target(self) -> None:
+        original_compute = web.registry.compute_duplicate_candidates
+
+        def fake_compute(conn, project, *args, **kwargs):
+            if project["project_key"] == "proj:111111111111":
+                return [
+                    {
+                        "project_key": "proj:222222222222",
+                        "score": 100,
+                        "merge_confidence": "high",
+                        "auto_merge_ready": True,
+                        "reasons": {"same_service": ["https://example.com"]},
+                    }
+                ]
+            return []
+
+        web.registry.compute_duplicate_candidates = fake_compute
+        try:
+            status, payload = self.request("POST", "/api/projects/proj:111111111111/merge-recommendation", {})
+        finally:
+            web.registry.compute_duplicate_candidates = original_compute
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["mode"], "merged")
+        self.assertEqual(payload["target_project_key"], "proj:222222222222")
+        conn = registry.open_db()
+        try:
+            source = registry.fetch_project(conn, "proj:111111111111")
+            target = registry.fetch_project(conn, "proj:222222222222")
+        finally:
+            conn.close()
+        self.assertIsNone(source)
+        self.assertIsNotNone(target)
 
     def test_failed_enrich_job_is_reported(self) -> None:
         original_enrich = web.registry.enrich_project

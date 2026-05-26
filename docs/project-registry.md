@@ -150,6 +150,8 @@ v1 でできること:
 - `enrich --all` 相当の background job 起動
 - `merge-batch --interactive` 相当の merge plan 確認と pair 単位の実行
 - project 詳細からの任意 identifier block / split
+- project 詳細からの block / separate guard clear
+- project 詳細からの auto-ready merge recommendation 実行
 
 `Merge` タブでは `build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ次の操作を選べます。
 
@@ -172,6 +174,8 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 
 - `Split`: 指定 identifier を新規 project へ移し、元 project から除去して `blocked_identifiers` と `separate_project_keys` を記録する
 - `Block identifier`: 指定 identifier を元 project から除去し、`blocked_identifiers` に記録する
+
+補助情報として `blocked_identifiers` と `separate_project_keys` は `Guards` に折り畳み表示します。`Clear` は guard record だけを外す操作で、identifier を自動で再付与したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
 
 `Sync` タブでは、次の CLI 相当の処理を background job として開始できます。
 
