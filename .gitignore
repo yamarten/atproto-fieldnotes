@@ -5,10 +5,7 @@ __pycache__/
 .direnv/
 .envrc
 
-data/*.db
-data/*.json
-data/manual_candidates.jsonl
-data/tldextract-cache/
+data/
 tmpdata.txt
 
 reports/*.md
