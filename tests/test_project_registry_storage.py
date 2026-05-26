@@ -123,6 +123,35 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.compute_duplicate_candidates = original_compute
             conn.close()
 
+    def test_lightweight_review_shape_matches_full_review_signals(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:abababababab", "nsid", "app.example.post")
+            project["name"] = "Review Candidate"
+            project["manual_review_recommended"] = True
+            project["manual_review_kind"] = "identity_resolution"
+            project["manual_review_priority"] = "high"
+            project["service_url_candidates"] = ["https://candidate.example"]
+            project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+            project["collection_observations"] = [{"recent_count": 2, "observed_at": "2026-05-25T00:00:00+00:00"}]
+            registry.save_project(conn, project)
+            conn.commit()
+
+            row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:abababababab",)).fetchone()
+            payload = registry.project_from_row_payload(row)
+            full = registry.apply_promotion_state(registry.ensure_project_shape(dict(payload)))
+            light = registry.apply_promotion_state(registry.lightweight_review_project_shape(dict(payload)))
+            full_signals = registry.compute_review_signals(full, assume_shaped=True, apply_promotion=False)
+            light_signals = registry.compute_review_signals(light, assume_shaped=True, apply_promotion=False)
+
+            self.assertEqual(
+                [item["kind"] for item in light_signals],
+                [item["kind"] for item in full_signals],
+            )
+            self.assertEqual(registry.build_review_queue(conn, tracking_states={"active"}, limit=1)[0]["project_key"], "proj:abababababab")
+        finally:
+            conn.close()
+
     def test_audit_reports_confirmed_identifier_collisions(self) -> None:
         conn = registry.open_db()
         try:

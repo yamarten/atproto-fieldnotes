@@ -185,6 +185,9 @@
   - 必要なら再計算できる
   - `review-queue` は高速化のため通常表示では再計算しない
   - 派生値を明示的に洗い替えたい時は `repair-db` や identifier 更新系操作に寄せる
+- `review-queue` は通常表示で軽量 shape を使う
+  - 保存済み DB を信頼し、一覧表示では full normalization を避ける
+  - 保存時・repair 時の正規化は従来通り
 
 ## ドキュメントの読み分け
 

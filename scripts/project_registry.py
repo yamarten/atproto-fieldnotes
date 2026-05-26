@@ -1661,7 +1661,7 @@ def open_db() -> sqlite3.Connection:
     return conn
 
 
-def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
+def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     record_payload = flatten_grouped_payload(load_json(str(row["record_json"] or "")) or {}) if "record_json" in row.keys() else {}
     ops_payload = flatten_grouped_payload(load_json(str(row["ops_json"] or "")) or {}) if "ops_json" in row.keys() else {}
@@ -1670,6 +1670,11 @@ def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
     for field in PROJECT_STORAGE_SCALAR_FIELDS:
         if field in row.keys():
             payload[field] = row[field]
+    return payload
+
+
+def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    payload = project_from_row_payload(row)
     return ensure_project_shape(payload)
 
 
@@ -1881,6 +1886,107 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
             tuple(requested),
         ).fetchall()
     return [project_from_row(row) for row in rows]
+
+
+def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
+    shaped: dict[str, Any] = {
+        "project_key": str(project.get("project_key") or ""),
+        "name": str(project.get("name") or ""),
+        "website_url": str(project.get("website_url") or ""),
+        "service_status": normalize_service_status(project.get("service_status")),
+        "tracking_state": normalize_tracking_state(str(project.get("tracking_state") or "active")),
+        "introduced_url": str(project.get("introduced_url") or ""),
+        "first_seen_at": str(project.get("first_seen_at") or ""),
+        "last_seen_at": str(project.get("last_seen_at") or ""),
+        "last_enriched_at": str(project.get("last_enriched_at") or ""),
+        "status": str(project.get("status") or "draft"),
+        "category": str(project.get("category") or ""),
+        "app_category": str(project.get("app_category") or ""),
+        "summary": str(project.get("summary") or ""),
+        "tagline": str(project.get("tagline") or ""),
+        "tagline_is_provisional": bool(project.get("tagline_is_provisional")),
+        "manual_review_recommended": bool(project.get("manual_review_recommended")),
+        "manual_review_kind": str(project.get("manual_review_kind") or "other"),
+        "manual_review_priority": str(project.get("manual_review_priority") or "none"),
+        "manual_review_reason": str(project.get("manual_review_reason") or ""),
+        "service_status_confidence": normalize_service_status_confidence(project.get("service_status_confidence")),
+        "watch_reason": str(project.get("watch_reason") or ""),
+        "source_code_url": str(project.get("source_code_url") or ""),
+        "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
+    }
+    list_fields = (
+        "dismissed_review_kinds",
+        "promotion_blockers",
+        "manual_seeds",
+        "features",
+        "primary_nsid",
+        "input_nsids",
+        "resolved_nsids",
+        "lexicon_namespaces",
+        "recorded_lexicon_namespaces",
+        "external_lexicons",
+        "service_status_evidence",
+        "service_urls",
+        "service_url_candidates",
+        "website_url_candidates",
+        "failed_service_urls",
+        "source_code_urls",
+        "candidate_source_code_urls",
+        "github_repo_urls",
+        "tangled_repo_urls",
+        "resource_urls",
+        "collection_observations",
+        "source_repo_records",
+        "lexicon_schema_samples",
+        "recent_record_samples",
+    )
+    for field in list_fields:
+        value = project.get(field)
+        if isinstance(value, list):
+            shaped[field] = value
+        elif value:
+            shaped[field] = [value]
+        else:
+            shaped[field] = []
+    if shaped["primary_nsid"]:
+        shaped["primary_nsid"] = str(shaped["primary_nsid"][0])
+    else:
+        shaped["primary_nsid"] = ""
+    if not shaped["primary_nsid"] and shaped["input_nsids"]:
+        shaped["primary_nsid"] = str(shaped["input_nsids"][0])
+    if shaped["source_code_url"] and shaped["source_code_url"] not in shaped["source_code_urls"]:
+        shaped["source_code_urls"] = [shaped["source_code_url"], *shaped["source_code_urls"]]
+    shaped["recorded_lexicon_namespaces"] = unique_list(
+        [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
+        + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
+    )
+    return shaped
+
+
+def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
+    if tracking_states is None:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM projects
+            ORDER BY last_seen_at DESC, project_key ASC
+            """
+        ).fetchall()
+    else:
+        requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not requested:
+            return []
+        placeholders = ", ".join("?" for _ in requested)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM projects
+            WHERE tracking_state IN ({placeholders})
+            ORDER BY last_seen_at DESC, project_key ASC
+            """,
+            tuple(requested),
+        ).fetchall()
+    return [lightweight_review_project_shape(project_from_row_payload(row)) for row in rows]
 
 
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
@@ -8300,8 +8406,15 @@ def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
     return text
 
 
-def compute_review_signals(project: dict[str, Any]) -> list[dict[str, Any]]:
-    shaped = apply_promotion_state(ensure_project_shape(dict(project)))
+def compute_review_signals(
+    project: dict[str, Any],
+    *,
+    assume_shaped: bool = False,
+    apply_promotion: bool = True,
+) -> list[dict[str, Any]]:
+    shaped = dict(project) if assume_shaped else ensure_project_shape(dict(project))
+    if apply_promotion:
+        shaped = apply_promotion_state(shaped)
     signals: list[dict[str, Any]] = []
     dismissed_kinds = {str(item).strip() for item in shaped.get("dismissed_review_kinds", []) if str(item).strip()}
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
@@ -9030,11 +9143,11 @@ def build_review_queue(
     kinds: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
-    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    project_list = list_review_projects(conn, tracking_states=tracking_states)
     for project in project_list:
         shaped = dict(project)
         shaped = apply_promotion_state(shaped)
-        signals = compute_review_signals(shaped)
+        signals = compute_review_signals(shaped, assume_shaped=True, apply_promotion=False)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
         if not signals:
@@ -9069,7 +9182,7 @@ def build_review_queue_batch(
     batch_size: int = 100,
 ) -> tuple[list[dict[str, Any]], int]:
     batch: list[dict[str, Any]] = []
-    projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    projects = project_list or list_review_projects(conn, tracking_states=tracking_states)
     index = max(0, int(start_index or 0))
     target_size = max(1, int(batch_size or 100))
     while index < len(projects) and len(batch) < target_size:
@@ -9077,7 +9190,7 @@ def build_review_queue_batch(
         index += 1
         shaped = dict(project)
         shaped = apply_promotion_state(shaped)
-        signals = compute_review_signals(shaped)
+        signals = compute_review_signals(shaped, assume_shaped=True, apply_promotion=False)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
         if not signals:
@@ -9111,9 +9224,9 @@ def build_review_queue_item(
     project = fetch_project(conn, project_key)
     if project is None:
         return None
-    shaped = ensure_project_shape(project)
+    shaped = lightweight_review_project_shape(project)
     shaped = apply_promotion_state(shaped)
-    signals = compute_review_signals(shaped)
+    signals = compute_review_signals(shaped, assume_shaped=True, apply_promotion=False)
     if kinds is not None:
         signals = [item for item in signals if str(item.get("kind") or "") in kinds]
     if not signals:
@@ -10874,7 +10987,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
     if interactive:
         batch_size = 100
         total_limit = max(1, int(args.limit)) if args.limit is not None else None
-        project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+        project_list = list_review_projects(conn, tracking_states=tracking_states)
         next_index = 0
         emitted = 0
 
