@@ -127,6 +127,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("startEnrichJob", web.INDEX_HTML)
         self.assertIn("pollEnrichJob", web.INDEX_HTML)
         self.assertIn("setting-llm-endpoint", web.INDEX_HTML)
+        self.assertIn("auto probe", web.INDEX_HTML)
+        self.assertIn("Clear API key", web.INDEX_HTML)
+        self.assertIn("clear-llm-api-key", web.INDEX_HTML)
+        self.assertIn("Browser API key override", web.INDEX_HTML)
+        self.assertIn('autocomplete="off"', web.INDEX_HTML)
         self.assertIn("setting-llm-reasoning-custom", web.INDEX_HTML)
         self.assertIn("reasoningEffortPresets", web.INDEX_HTML)
         self.assertIn("custom...", web.INDEX_HTML)
@@ -692,6 +697,39 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(registry.normalize_llm_reasoning_effort("off"), "off")
         self.assertEqual(registry.normalize_llm_reasoning_effort("provider_mode-1"), "provider_mode-1")
         self.assertEqual(registry.normalize_llm_reasoning_effort("bad value"), "")
+
+    def test_enrich_job_reports_effective_llm_context(self) -> None:
+        original_enrich = web.registry.enrich_project
+
+        def fake_enrich(conn, project, **kwargs):
+            project = dict(project)
+            project["llm_source"] = {
+                "transport": "openai_compatible_endpoint",
+                "api_style": "responses",
+                "resolved_endpoint": "http://127.0.0.1:1234/v1/responses",
+            }
+            project["last_run_errors"] = []
+            return registry.finalize_project_shape(project)
+
+        web.registry.enrich_project = fake_enrich
+        try:
+            status, payload = self.request("POST", "/api/projects/proj:111111111111/enrich", {"llm_api_style": "responses"})
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.enrich_project = original_enrich
+
+        self.assertEqual(status, 200)
+        self.assertEqual(job_payload["effective_llm"]["payload_api_style"], "responses")
+        self.assertEqual(job_payload["result"]["llm_source"]["api_style"], "responses")
+        self.assertTrue(any(item.get("llm_api_style") == "responses" for item in job_payload["logs"]))
 
 
 if __name__ == "__main__":

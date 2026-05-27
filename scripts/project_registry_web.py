@@ -410,7 +410,7 @@ INDEX_HTML = r"""<!doctype html>
       llmEndpoint: "",
       llmModel: "",
       llmApiKey: "",
-      llmApiStyle: "auto",
+      llmApiStyle: "",
       llmReasoningEffort: "",
       syncKind: "introduced",
       syncQuery: "from:yamarten.bsky.social #ATプロトーク",
@@ -675,10 +675,16 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>LLM for Enrich</h3>
             <label>Endpoint <input id="setting-llm-endpoint" type="text" value="${esc(settings.llmEndpoint)}" placeholder="${esc(server.env.ATPROTO_SURVEY_LLM_ENDPOINT || "http://127.0.0.1:1234/v1")}"></label>
             <label>Model <input id="setting-llm-model" type="text" value="${esc(settings.llmModel)}" placeholder="${esc(server.env.ATPROTO_SURVEY_LLM_MODEL || "model name")}"></label>
-            <label>API key <input id="setting-llm-api-key" type="password" value="${esc(settings.llmApiKey)}" placeholder="${server.env.ATPROTO_SURVEY_LLM_API_KEY_SET ? "(env value set)" : "optional"}"></label>
+            <label>API key <input id="setting-llm-api-key" type="password" autocomplete="off" value="${esc(settings.llmApiKey)}" placeholder="${server.env.ATPROTO_SURVEY_LLM_API_KEY_SET ? "(env value set)" : "optional"}"></label>
             <label>API style
               <select id="setting-llm-api-style">
-                ${["auto", "chat", "responses", "completions"].map((style) => `<option value="${style}" ${style === settings.llmApiStyle ? "selected" : ""}>${style}</option>`).join("")}
+                ${[
+                  ["", "(env/default)"],
+                  ["auto", "auto probe"],
+                  ["chat", "chat"],
+                  ["responses", "responses"],
+                  ["completions", "completions"]
+                ].map(([style, label]) => `<option value="${style}" ${style === settings.llmApiStyle ? "selected" : ""}>${label}</option>`).join("")}
               </select>
             </label>
             <label>Reasoning effort
@@ -688,10 +694,11 @@ INDEX_HTML = r"""<!doctype html>
               </select>
             </label>
             <label>Reasoning custom <input id="setting-llm-reasoning-custom" type="text" value="${esc(reasoningEffortCustomValue(settings.llmReasoningEffort))}" placeholder="on, off, medium, provider-specific value"></label>
-            <div class="muted">API key is stored in this browser's localStorage if entered here.</div>
+            <div class="muted">Browser API key override: ${settings.llmApiKey ? "set" : "not set"}. API key is stored in this browser's localStorage if entered here.</div>
           </div>
           <div class="actions">
             <button id="save-settings" class="primary" title="Save these options to this browser only.">Save settings</button>
+            <button id="clear-llm-api-key" class="danger" title="Clear only the API key override stored in this browser. Other settings are preserved.">Clear API key</button>
             <button id="reset-settings" class="danger" title="Clear browser settings and return to defaults/env values.">Reset</button>
           </div>
         `;
@@ -1176,7 +1183,7 @@ INDEX_HTML = r"""<!doctype html>
         llmEndpoint: $("setting-llm-endpoint").value.trim(),
         llmModel: $("setting-llm-model").value.trim(),
         llmApiKey: $("setting-llm-api-key").value,
-        llmApiStyle: $("setting-llm-api-style").value || "auto",
+        llmApiStyle: $("setting-llm-api-style").value,
         llmReasoningEffort: reasoningPreset === "custom" ? reasoningCustom : (reasoningCustom || reasoningPreset)
       };
     }
@@ -1200,6 +1207,12 @@ INDEX_HTML = r"""<!doctype html>
           status("Settings reset.");
           loadSettingsScreen();
         }
+      };
+      $("clear-llm-api-key").onclick = () => {
+        const next = Object.assign({}, readSettingsForm(), { llmApiKey: "" });
+        saveSettings(next);
+        status("API key override cleared.");
+        loadSettingsScreen();
       };
       $("reload-server").onclick = async () => {
         if (!confirmAction("Reload the web server process now?\n\nThis keeps the same command-line arguments and does not modify SQLite. In-flight background jobs in this process will stop.")) return;
@@ -1696,6 +1709,26 @@ def parse_state_set(values: list[str], default: set[str]) -> set[str]:
     return states or set(default)
 
 
+def llm_source_summary(project: dict[str, Any]) -> dict[str, Any]:
+    source = project.get("llm_source")
+    if not isinstance(source, dict):
+        return {}
+    return {
+        key: source.get(key)
+        for key in (
+            "transport",
+            "api_style",
+            "requested_api_style",
+            "resolved_endpoint",
+            "model",
+            "reasoning_effort",
+            "prompt_version",
+            "generated_at",
+        )
+        if source.get(key) not in {None, ""}
+    }
+
+
 def project_summary(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "project_key": project.get("project_key", ""),
@@ -1710,6 +1743,8 @@ def project_summary(project: dict[str, Any]) -> dict[str, Any]:
         "summary": project.get("summary", ""),
         "last_seen_at": project.get("last_seen_at", ""),
         "last_enriched_at": project.get("last_enriched_at", ""),
+        "last_run_errors": project.get("last_run_errors", []),
+        "llm_source": llm_source_summary(project),
     }
 
 
@@ -2504,6 +2539,16 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
     def start_enrich_job(self, project_key: str, *, deep_investigation: bool, llm_options: dict[str, str | None] | None = None) -> str:
         job_id = uuid.uuid4().hex
         llm_options = dict(llm_options or {})
+        effective_llm = {
+            "command_set": bool(os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip()),
+            "env_endpoint_set": bool(os.getenv("ATPROTO_SURVEY_LLM_ENDPOINT", "").strip()),
+            "env_model": os.getenv("ATPROTO_SURVEY_LLM_MODEL", "").strip(),
+            "env_api_style": os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto").strip() or "auto",
+            "payload_endpoint_set": bool(llm_options.get("llm_endpoint")),
+            "payload_model": llm_options.get("llm_model") or "",
+            "payload_api_style": llm_options.get("llm_api_style") or "",
+            "payload_reasoning_effort": llm_options.get("llm_reasoning_effort") or "",
+        }
         with self.jobs_lock:
             self.jobs[job_id] = {
                 "job_id": job_id,
@@ -2512,10 +2557,11 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 "project_key": project_key,
                 "deep_investigation": deep_investigation,
                 "llm_options": {key: ("***" if key == "llm_api_key" and value else value) for key, value in llm_options.items()},
+                "effective_llm": effective_llm,
                 "created_at": registry.iso_now(),
                 "logs": [],
             }
-        self.append_job_log(job_id, "queued enrich job", project_key=project_key, deep_investigation=deep_investigation)
+        self.append_job_log(job_id, "queued enrich job", project_key=project_key, deep_investigation=deep_investigation, **effective_llm)
         self.executor.submit(self._run_enrich_job, job_id, project_key, deep_investigation, llm_options)
         return job_id
 
@@ -2541,7 +2587,16 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 registry.save_project(conn, enriched, enriched=True)
                 conn.commit()
                 result = project_summary(enriched)
-                self.append_job_log(job_id, "saved enriched project", project_key=str(enriched.get("project_key") or resolved_key))
+                llm_source = enriched.get("llm_source") if isinstance(enriched.get("llm_source"), dict) else {}
+                self.append_job_log(
+                    job_id,
+                    "saved enriched project",
+                    project_key=str(enriched.get("project_key") or resolved_key),
+                    llm_transport=str(llm_source.get("transport") or ""),
+                    llm_api_style=str(llm_source.get("api_style") or ""),
+                    llm_resolved_endpoint=str(llm_source.get("resolved_endpoint") or ""),
+                    last_run_error_count=len(enriched.get("last_run_errors", []) or []),
+                )
             finally:
                 conn.close()
             with self.jobs_lock:
