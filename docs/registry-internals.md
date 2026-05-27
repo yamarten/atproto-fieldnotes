@@ -224,6 +224,8 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - ただし `https://bsky.app` の title が `Bluesky` であるように、source URL の host が名前と強く対応する場合は候補として残します
 - ただし repo 自体がその名前を明示している場合は、repo 由来候補として別扱いします
 - `Error` / `Not Found` / `Forbidden` のような汎用エラーページ title は、service/resource title および既存 name から除外します
+- service/resource title と既存 name は title cleanup を通して評価します
+  - 例: `Relay.app: Turn plain English into reliable automations` は `Relay.app` として扱い、tagline 部分を project name に残しません
 
 ### 3.1 `service_status` の現在地と残件
 

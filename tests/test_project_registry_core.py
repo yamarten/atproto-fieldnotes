@@ -67,6 +67,21 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
 
         self.assertEqual(registry.choose_best_project_name(project), "atproto-visualizers")
 
+    def test_service_title_tagline_is_trimmed_for_name_selection(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "Relay.app: Turn plain English into reliable automations", "source": "service_title:https://relay.app"},
+                {"value": "relay.app", "source": "llm_output"},
+            ],
+            name="Relay.app: Turn plain English into reliable automations",
+        )
+        project["authority_domains"] = ["relay.app"]
+
+        values = [item["value"] for item in registry.current_name_candidates(project)]
+
+        self.assertEqual(values, ["relay.app", "relay.app", "relay.app"])
+        self.assertEqual(registry.choose_best_project_name(project), "relay.app")
+
 
 class ProjectRegistryServiceStatusTest(unittest.TestCase):
     def classify(

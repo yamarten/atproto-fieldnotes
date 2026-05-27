@@ -3212,7 +3212,8 @@ def clean_title(title: str) -> str:
     # Treat pipe as a strong separator, and only trim dash/colon subtitles when
     # they are presented as a spaced title separator rather than part of a name.
     text = re.sub(r"\s*\|\s*.*$", "", text)
-    text = re.sub(r"\s+[—–\-:：]\s+.*$", "", text)
+    text = re.sub(r"\s+[—–\-]\s+.*$", "", text)
+    text = re.sub(r"[:：]\s+.*$", "", text)
     text = re.sub(r"\s+[·•]\s+.*$", "", text)
     text = re.sub(r"\s+>>\s+.*$", "", text)
     text = re.sub(r"\s+//\s+.*$", "", text)
@@ -3324,15 +3325,18 @@ def generic_platform_name_candidate(project: dict[str, Any], value: str, source:
 def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    current_name = normalize_name_candidate(str(project.get("name") or ""))
+    current_name = normalize_name_candidate(clean_title(str(project.get("name") or "")))
     if current_name and not weak_nsid_derived_name(project, current_name) and not generic_error_page_title_candidate(current_name, "existing_name"):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
     for item in project.get("name_candidates", []):
         if not isinstance(item, dict):
             continue
-        value = normalize_name_candidate(str(item.get("value") or ""))
         source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if source.startswith("service_title:") or source.startswith("resource_title:"):
+            raw_value = clean_title(raw_value)
+        value = normalize_name_candidate(raw_value)
         if not value or not source:
             continue
         if generic_error_page_title_candidate(value, source):
