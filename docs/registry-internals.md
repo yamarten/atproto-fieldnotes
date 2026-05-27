@@ -226,6 +226,11 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - `Error` / `Not Found` / `Forbidden` のような汎用エラーページ title は、service/resource title および既存 name から除外します
 - service/resource title と既存 name は title cleanup を通して評価します
   - 例: `Relay.app: Turn plain English into reliable automations` は `Relay.app` として扱い、tagline 部分を project name に残しません
+- NSID authority domain から推定した URL の title は、NSID 固有 token と対応しない場合は name 候補から除外します
+  - 例: `com.hectorsector.book.status` 由来の `https://hectorsector.com` が `@hectorsector.com on Bluesky` を返しても、`book` / `status` と対応しないため project name には採用しません
+  - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service title 候補と照合して除外します
+- LLM などが full NSID そのものを name として返した場合は弱い候補として除外します
+  - lexicon name 由来の tail 候補は別扱いで残します
 
 ### 3.1 `service_status` の現在地と残件
 

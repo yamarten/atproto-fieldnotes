@@ -3285,6 +3285,67 @@ def name_source_url(source: str) -> str:
     return ""
 
 
+def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
+    origins: set[str] = set()
+    nsids = unique_list(
+        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+        + [str(item or "") for item in project.get("input_nsids", [])]
+        + [str(item or "") for item in project.get("resolved_nsids", [])]
+    )
+    for raw_nsid in nsids:
+        nsid = normalize_nsid(raw_nsid)
+        authority_domain = derive_authority_domain(nsid)
+        if not authority_domain:
+            continue
+        origins.update(candidate_service_origins_for_authority_domain(authority_domain))
+    return {normalize_url(url) for url in origins if normalize_url(url)}
+
+
+def nsid_seed_name_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    nsids = unique_list(
+        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+        + [str(item or "") for item in project.get("input_nsids", [])]
+        + [str(item or "") for item in project.get("resolved_nsids", [])]
+    )
+    for raw_nsid in nsids:
+        nsid = normalize_nsid(raw_nsid)
+        if not nsid:
+            continue
+        tokens.update(seed_value_identity_tokens(nsid))
+    return {token for token in tokens if token and len(token) >= 4 and token not in GENERIC_NSID_NAME_TOKENS}
+
+
+def name_value_matches_nsid_seed(project: dict[str, Any], value: str) -> bool:
+    compact = normalize_alias_token(clean_title(value))
+    if not compact:
+        return False
+    return any(token in compact for token in nsid_seed_name_tokens(project))
+
+
+def unsupported_nsid_authority_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
+    source_url = name_source_url(source)
+    if not source_url or source_url not in nsid_authority_service_origins(project):
+        return False
+    return not name_value_matches_nsid_seed(project, value)
+
+
+def value_matches_unsupported_nsid_authority_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not unsupported_nsid_authority_title_candidate(project, raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
+
+
 def generic_error_page_title_candidate(value: str, source: str) -> bool:
     lowered = normalize_name_candidate(value).lower()
     if lowered in GENERIC_ERROR_PAGE_TITLE_VALUES:
@@ -3326,7 +3387,12 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     current_name = normalize_name_candidate(clean_title(str(project.get("name") or "")))
-    if current_name and not weak_nsid_derived_name(project, current_name) and not generic_error_page_title_candidate(current_name, "existing_name"):
+    if (
+        current_name
+        and not weak_nsid_derived_name(project, current_name)
+        and not generic_error_page_title_candidate(current_name, "existing_name")
+        and not value_matches_unsupported_nsid_authority_title(project, current_name)
+    ):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
     for item in project.get("name_candidates", []):
@@ -3339,7 +3405,13 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         value = normalize_name_candidate(raw_value)
         if not value or not source:
             continue
+        if not source.startswith("lexicon_name:") and weak_nsid_derived_name(project, value):
+            continue
         if generic_error_page_title_candidate(value, source):
+            continue
+        if unsupported_nsid_authority_title_candidate(project, value, source):
+            continue
+        if source == "llm_output" and value_matches_unsupported_nsid_authority_title(project, value):
             continue
         if generic_platform_name_candidate(project, value, source):
             continue

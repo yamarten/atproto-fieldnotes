@@ -82,6 +82,60 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         self.assertEqual(values, ["relay.app", "relay.app", "relay.app"])
         self.assertEqual(registry.choose_best_project_name(project), "relay.app")
 
+    def test_nsid_authority_title_unrelated_to_seed_is_filtered(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "@hectorsector.com on Bluesky", "source": "service_title:https://hectorsector.com"},
+                {"value": "status", "source": "lexicon_name:com.hectorsector.book.status"},
+                {"value": "com.hectorsector.book.status", "source": "llm_output"},
+            ],
+            name="@hectorsector.com on Bluesky",
+        )
+        project["seed_type"] = "nsid"
+        project["seed_value"] = "com.hectorsector.book.status"
+        project["primary_nsid"] = "com.hectorsector.book.status"
+        project["input_nsids"] = ["com.hectorsector.book.status"]
+        project["authority_domains"] = ["book.hectorsector.com"]
+
+        values = [item["value"] for item in registry.current_name_candidates(project)]
+
+        self.assertEqual(values, ["status"])
+        self.assertEqual(registry.choose_best_project_name(project), "status")
+
+    def test_nsid_authority_title_filters_copied_llm_output(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "niko's cool and awesome website!", "source": "service_title:https://meowing.zip"},
+                {"value": "niko's cool and awesome website!", "source": "llm_output"},
+                {"value": "meowing.zip", "source": "llm_output"},
+            ],
+            name="niko's cool and awesome website!",
+        )
+        project["seed_type"] = "nsid"
+        project["seed_value"] = "zip.meowing.isfox"
+        project["primary_nsid"] = "zip.meowing.isfox"
+        project["input_nsids"] = ["zip.meowing.isfox"]
+        project["authority_domains"] = ["meowing.zip"]
+
+        values = [item["value"] for item in registry.current_name_candidates(project)]
+
+        self.assertEqual(values, ["meowing.zip"])
+        self.assertEqual(registry.choose_best_project_name(project), "meowing.zip")
+
+    def test_nsid_authority_title_matching_seed_token_is_kept(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "Book Status", "source": "service_title:https://book.hectorsector.com"},
+            ]
+        )
+        project["seed_type"] = "nsid"
+        project["seed_value"] = "com.hectorsector.book.status"
+        project["primary_nsid"] = "com.hectorsector.book.status"
+        project["input_nsids"] = ["com.hectorsector.book.status"]
+        project["authority_domains"] = ["book.hectorsector.com"]
+
+        self.assertEqual(registry.choose_best_project_name(project), "Book Status")
+
 
 class ProjectRegistryServiceStatusTest(unittest.TestCase):
     def classify(
