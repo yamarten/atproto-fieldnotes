@@ -602,7 +602,11 @@ INDEX_HTML = r"""<!doctype html>
     function openDetailPane() {
       document.body.classList.add("detail-open");
       if (window.matchMedia("(max-width: 820px)").matches) {
-        $("detail").scrollIntoView({ block: "start" });
+        requestAnimationFrame(() => {
+          const headerHeight = document.querySelector("header")?.getBoundingClientRect().height || 0;
+          const detailTop = $("detail").getBoundingClientRect().top + window.scrollY;
+          window.scrollTo({ top: Math.max(0, detailTop - headerHeight - 8), behavior: "smooth" });
+        });
       }
     }
 
@@ -642,6 +646,7 @@ INDEX_HTML = r"""<!doctype html>
       const signals = asList(item.signals).slice(0, 2).map((sig) =>
         `<div class="signal">${esc(sig.kind)} <span class="muted">p${esc(sig.priority || 0)}</span></div>`
       ).join("");
+      const seedLabel = [item.seed_type, item.seed_value].filter(Boolean).join(": ");
       return `<button class="card" data-key="${esc(item.project_key)}" title="Open project details. This does not change the DB.">
         <h2>${esc(item.name || "(unnamed)")}</h2>
         <div class="row">
@@ -649,7 +654,7 @@ INDEX_HTML = r"""<!doctype html>
           <span class="pill">${esc(item.tracking_state || "")}</span>
           <span class="pill">${esc(item.service_status || "")}</span>
         </div>
-        <div class="muted">${esc(item.seed_type || "")}: ${esc(item.seed_value || "")}</div>
+        ${seedLabel ? `<div class="muted">${esc(seedLabel)}</div>` : ""}
         ${item.website_url ? `<a href="${esc(item.website_url)}" target="_blank" rel="noreferrer">${esc(item.website_url)}</a>` : ""}
         <div class="signals">${signals}</div>
       </button>`;
