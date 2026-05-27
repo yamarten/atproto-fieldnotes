@@ -234,6 +234,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - `Home` / `About` / `Docs` / `Login` のような短いページ役割名は、service/resource title 由来なら name 候補から除外します
   - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service/resource title 候補と照合して除外します
   - repo 由来など、ページ title ではない経路の同名候補はこの rule では除外しません
+- service/resource title 由来の名前は、title の意味 token の大半が seed / repo / NSID / authority domain に対応する場合だけ採用します
+  - 例: `Book Status` は `com.hectorsector.book.status` と対応するため残します
+  - 例: `Browse Listings` は `listing` だけが対応し、`Browse` がページ操作名なので除外します
+  - 汚染値が既存 `name` や LLM output にコピーされている場合も、元の service/resource title 候補と照合して除外します
 
 ### 3.1 `service_status` の現在地と残件
 

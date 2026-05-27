@@ -3391,6 +3391,80 @@ def value_matches_generic_navigation_title(project: dict[str, Any], value: str) 
     return False
 
 
+def title_identity_tokens(value: str) -> set[str]:
+    text = clean_title(value)
+    tokens = {normalize_alias_token(text)}
+    tokens.update(normalize_alias_token(part) for part in re.split(r"[\s./:_-]+", text) if part.strip())
+    expanded: set[str] = set()
+    for token in tokens:
+        if not token:
+            continue
+        expanded.add(token)
+        if len(token) > 4 and token.endswith("s"):
+            expanded.add(token[:-1])
+    return {token for token in expanded if token and len(token) >= 4}
+
+
+def title_identity_parts(value: str) -> set[str]:
+    parts = {
+        normalize_alias_token(part)
+        for part in re.split(r"[\s./:_-]+", clean_title(value))
+        if part.strip()
+    }
+    return {token for token in parts if token and len(token) >= 4}
+
+
+def service_title_matches_project_identity(project: dict[str, Any], value: str, source: str) -> bool:
+    if generic_platform_name_supported_by_source(value, source):
+        return True
+    title_parts = title_identity_parts(value)
+    if not title_parts:
+        return False
+    identity_tokens = set(project_trusted_identity_tokens(project))
+    expanded_identity: set[str] = set()
+    for token in identity_tokens:
+        if not token:
+            continue
+        expanded_identity.add(token)
+        if len(token) > 4 and token.endswith("s"):
+            expanded_identity.add(token[:-1])
+    identity_tokens = {token for token in expanded_identity if token and len(token) >= 4}
+    if not identity_tokens:
+        return False
+    if normalize_alias_token(value) in identity_tokens:
+        return True
+    matched = {
+        token
+        for token in title_parts
+        if token in identity_tokens or (len(token) > 4 and token.endswith("s") and token[:-1] in identity_tokens)
+    }
+    if not matched:
+        return False
+    return len(matched) / len(title_parts) >= 0.66
+
+
+def weak_service_page_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
+    if not (source.startswith("service_title:") or source.startswith("resource_title:")):
+        return False
+    return not service_title_matches_project_identity(project, value, source)
+
+
+def value_matches_weak_service_page_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not weak_service_page_title_candidate(project, raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
+
+
 def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
     normalized = normalize_name_candidate(value).lower()
     aliases = GENERIC_PLATFORM_NAME_ALIASES.get(normalized, {normalized})
@@ -3431,6 +3505,7 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         and not generic_error_page_title_candidate(current_name, "existing_name")
         and not generic_navigation_page_title_candidate(current_name, "existing_name")
         and not value_matches_unsupported_nsid_authority_title(project, current_name)
+        and not value_matches_weak_service_page_title(project, current_name)
     ):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
@@ -3450,11 +3525,15 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
             continue
         if generic_navigation_page_title_candidate(value, source):
             continue
+        if weak_service_page_title_candidate(project, value, source):
+            continue
         if unsupported_nsid_authority_title_candidate(project, value, source):
             continue
         if source == "llm_output" and value_matches_unsupported_nsid_authority_title(project, value):
             continue
         if source == "llm_output" and value_matches_generic_navigation_title(project, value):
+            continue
+        if source == "llm_output" and value_matches_weak_service_page_title(project, value):
             continue
         if generic_platform_name_candidate(project, value, source):
             continue

@@ -20,15 +20,15 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
                 {"value": "Error", "source": "service_title:https://api.bsky.chat"},
                 {"value": "Not Found", "source": "resource_title:https://example.com/missing"},
                 {"value": "Forbidden", "source": "service_title:https://example.com/private"},
-                {"value": "Example App", "source": "service_title:https://example.com"},
+                {"value": "Example", "source": "service_title:https://example.com"},
             ],
             name="Error",
         )
 
         values = [item["value"] for item in registry.current_name_candidates(project)]
 
-        self.assertEqual(values, ["Example App"])
-        self.assertEqual(registry.choose_best_project_name(project), "Example App")
+        self.assertEqual(values, ["Example"])
+        self.assertEqual(registry.choose_best_project_name(project), "Example")
 
     def test_bluesky_title_is_kept_when_source_host_supports_it(self) -> None:
         project = self.project_with_candidates(
@@ -164,6 +164,28 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
 
         self.assertEqual(registry.choose_best_project_name(project), "home")
+
+    def test_weak_service_page_title_is_filtered_by_identity_ratio(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "marketplace", "source": "github_repo_name:openmkt-app/marketplace"},
+                {"value": "Browse Listings", "source": "service_title:https://openmkt.app"},
+                {"value": "Open Market", "source": "llm_output"},
+            ],
+            name="Browse Listings",
+        )
+        project["seed_type"] = "repo_url"
+        project["seed_value"] = "https://github.com/openmkt-app/marketplace"
+        project["primary_nsid"] = "app.atprotomkt.marketplace.listing"
+        project["input_nsids"] = ["app.atprotomkt.marketplace.listing", "app.openmkt.marketplace.listing"]
+        project["resolved_nsids"] = ["app.openmkt.marketplace.listing"]
+        project["authority_domains"] = ["marketplace.atprotomkt.app", "marketplace.openmkt.app"]
+        project["source_code_urls"] = ["https://github.com/openmkt-app/marketplace"]
+
+        values = [item["value"] for item in registry.current_name_candidates(project)]
+
+        self.assertEqual(values, ["marketplace", "Open Market"])
+        self.assertEqual(registry.choose_best_project_name(project), "Open Market")
 
 
 class ProjectRegistryServiceStatusTest(unittest.TestCase):
