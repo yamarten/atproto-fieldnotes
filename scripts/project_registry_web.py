@@ -201,6 +201,34 @@ INDEX_HTML = r"""<!doctype html>
       margin: 0;
       padding-left: 18px;
     }
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, .45);
+    }
+    .confirm-overlay[hidden] {
+      display: none;
+    }
+    .confirm-dialog {
+      display: grid;
+      gap: 12px;
+      width: min(100%, 520px);
+      max-height: min(80dvh, 620px);
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, .28);
+    }
+    .confirm-message {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     button, select, input {
       border: 1px solid var(--line);
       background: var(--panel);
@@ -445,6 +473,16 @@ INDEX_HTML = r"""<!doctype html>
       <p class="muted">Select a project.</p>
     </aside>
   </main>
+  <div id="confirm-modal" class="confirm-overlay" hidden>
+    <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">Confirm Action</h2>
+      <div id="confirm-message" class="confirm-message"></div>
+      <div class="actions">
+        <button id="confirm-cancel" title="Cancel this action. No SQLite changes are made.">Cancel</button>
+        <button id="confirm-ok" class="primary" title="Proceed with this action.">Proceed</button>
+      </div>
+    </div>
+  </div>
   <script>
     const params = new URLSearchParams(location.search);
     const tokenParam = params.get("token");
@@ -866,7 +904,7 @@ INDEX_HTML = r"""<!doctype html>
         }
         const possibleCount = asList(state.seedPreview?.possible_matches).length;
         const warning = possibleCount ? `\n\n${possibleCount} possible matches were found. Review them before creating a new project.` : "";
-        if (!confirmAction(`Register this seed as a project?\n\n${payload.seed}${warning}\n\nThis writes to SQLite.`)) return;
+        if (!(await confirmAction(`Register this seed as a project?\n\n${payload.seed}${warning}\n\nThis writes to SQLite.`))) return;
         status("Registering seed...");
         try {
           const data = await api("/api/seeds", { method: "POST", body: JSON.stringify(payload) });
@@ -1119,7 +1157,7 @@ INDEX_HTML = r"""<!doctype html>
       $("run-sync").onclick = async () => {
         const payload = readSyncPayload();
         const mode = payload.execute ? "EXECUTE and write to SQLite" : "dry-run without DB writes";
-        if (!confirmAction(`Run ${payload.kind} sync?\n\nMode: ${mode}\n\nThis may call external APIs and run in the background.`)) return;
+        if (!(await confirmAction(`Run ${payload.kind} sync?\n\nMode: ${mode}\n\nThis may call external APIs and run in the background.`))) return;
         status("Starting sync...");
         try {
           const data = await api("/api/sync", { method: "POST", body: JSON.stringify(payload) });
@@ -1134,7 +1172,7 @@ INDEX_HTML = r"""<!doctype html>
       $("run-enrich-all").onclick = async () => {
         const payload = readEnrichAllPayload();
         const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
-        if (!confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${payload.limit}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`)) return;
+        if (!(await confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${payload.limit}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`))) return;
         status("Starting enrich all...");
         try {
           const data = await api("/api/enrich-all", { method: "POST", body: JSON.stringify(payload) });
@@ -1161,7 +1199,7 @@ INDEX_HTML = r"""<!doctype html>
     async function runReviewOpsJob(payload) {
       const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
       const mode = payload.execute ? "EXECUTE and write suggested tracking_state changes" : "dry-run without DB writes";
-      if (!confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`)) return;
+      if (!(await confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`))) return;
       status("Starting review job...");
       try {
         const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
@@ -1275,8 +1313,8 @@ INDEX_HTML = r"""<!doctype html>
         status("Settings saved.");
         loadSettingsScreen();
       };
-      $("reset-settings").onclick = () => {
-        if (confirmAction("Reset browser settings? This clears only localStorage settings, not SQLite.")) {
+      $("reset-settings").onclick = async () => {
+        if (await confirmAction("Reset browser settings? This clears only localStorage settings, not SQLite.")) {
           localStorage.removeItem("projectRegistrySettings");
           state.settings = loadSettings();
           status("Settings reset.");
@@ -1290,7 +1328,7 @@ INDEX_HTML = r"""<!doctype html>
         loadSettingsScreen();
       };
       $("reload-server").onclick = async () => {
-        if (!confirmAction("Reload the web server process now?\n\nThis keeps the same command-line arguments and does not modify SQLite. In-flight background jobs in this process will stop.")) return;
+        if (!(await confirmAction("Reload the web server process now?\n\nThis keeps the same command-line arguments and does not modify SQLite. In-flight background jobs in this process will stop."))) return;
         status("Requesting server reload...");
         try {
           const data = await api("/api/reload", { method: "POST", body: JSON.stringify({ confirm: true }) });
@@ -1301,7 +1339,7 @@ INDEX_HTML = r"""<!doctype html>
         }
       };
       $("shutdown-server").onclick = async () => {
-        if (!confirmAction("Stop the web server process now?\n\nThis does not modify SQLite. In-flight background jobs in this process will stop. You will need to start the server again from the terminal.")) return;
+        if (!(await confirmAction("Stop the web server process now?\n\nThis does not modify SQLite. In-flight background jobs in this process will stop. You will need to start the server again from the terminal."))) return;
         status("Requesting server shutdown...");
         try {
           const data = await api("/api/shutdown", { method: "POST", body: JSON.stringify({ confirm: true }) });
@@ -1369,23 +1407,23 @@ INDEX_HTML = r"""<!doctype html>
 
     function wireMergeDetail(item, index) {
       const body = { source_project_key: item.source_project_key, target_project_key: item.target_project_key };
-      $("merge-plan").onclick = () => {
-        if (confirmAction(`Merge source into target?\n\nSource: ${item.source_project_key} ${item.source_name || ""}\nTarget: ${item.target_project_key} ${item.target_name || ""}\n\nThis writes the merged target and deletes the source project from SQLite.`)) {
+      $("merge-plan").onclick = async () => {
+        if (await confirmAction(`Merge source into target?\n\nSource: ${item.source_project_key} ${item.source_name || ""}\nTarget: ${item.target_project_key} ${item.target_name || ""}\n\nThis writes the merged target and deletes the source project from SQLite.`)) {
           mergeMutate("merge", body);
         }
       };
-      $("block-plan").onclick = () => {
-        if (confirmAction(`Block this merge pair?\n\n${item.source_project_key} and ${item.target_project_key}\n\nThis records separate_project_keys on both projects.`)) {
+      $("block-plan").onclick = async () => {
+        if (await confirmAction(`Block this merge pair?\n\n${item.source_project_key} and ${item.target_project_key}\n\nThis records separate_project_keys on both projects.`)) {
           mergeMutate("block", body);
         }
       };
-      $("ignore-source").onclick = () => {
-        if (confirmAction(`Set source project to ignore?\n\n${item.source_project_key} ${item.source_name || ""}\n\nThis writes tracking_state=ignore.`)) {
+      $("ignore-source").onclick = async () => {
+        if (await confirmAction(`Set source project to ignore?\n\n${item.source_project_key} ${item.source_name || ""}\n\nThis writes tracking_state=ignore.`)) {
           mergeMutate("ignore_source", body);
         }
       };
-      $("ignore-target").onclick = () => {
-        if (confirmAction(`Set target project to ignore?\n\n${item.target_project_key} ${item.target_name || ""}\n\nThis writes tracking_state=ignore.`)) {
+      $("ignore-target").onclick = async () => {
+        if (await confirmAction(`Set target project to ignore?\n\n${item.target_project_key} ${item.target_name || ""}\n\nThis writes tracking_state=ignore.`)) {
           mergeMutate("ignore_target", body);
         }
       };
@@ -1552,89 +1590,89 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function wireDetail(key) {
-      $("save-state").onclick = () => {
+      $("save-state").onclick = async () => {
         const nextState = $("tracking-state").value;
-        if (confirmAction(`Set tracking_state for ${key} to ${nextState}? This writes to SQLite.`)) {
+        if (await confirmAction(`Set tracking_state for ${key} to ${nextState}? This writes to SQLite.`)) {
           mutate(`/api/projects/${encodeURIComponent(key)}/tracking-state`, { tracking_state: nextState });
         }
       };
-      $("enrich").onclick = () => {
-        if (confirmAction(`Start enrich for ${key}? This runs background checks and may update SQLite.`)) {
+      $("enrich").onclick = async () => {
+        if (await confirmAction(`Start enrich for ${key}? This runs background checks and may update SQLite.`)) {
           startEnrichJob(key, false);
         }
       };
-      $("deep-enrich").onclick = () => {
-        if (confirmAction(`Start deep enrich for ${key}? This may run extra external checks and update SQLite.`)) {
+      $("deep-enrich").onclick = async () => {
+        if (await confirmAction(`Start deep enrich for ${key}? This may run extra external checks and update SQLite.`)) {
           startEnrichJob(key, true);
         }
       };
-      $("add-seed").onclick = () => {
+      $("add-seed").onclick = async () => {
         const seed = $("seed-value").value.trim();
-        if (seed && confirmAction(`Attach seed to ${key}?\n\n${seed}\n\nThis writes to SQLite.`)) {
+        if (seed && await confirmAction(`Attach seed to ${key}?\n\n${seed}\n\nThis writes to SQLite.`)) {
           mutate("/api/seeds", { seed, project_key: key });
         }
       };
-      $("split-project").onclick = () => {
+      $("split-project").onclick = async () => {
         const identifierType = $("edit-identifier-type").value;
         const value = $("edit-identifier-value").value.trim();
         const note = $("edit-note").value.trim();
-        if (value && confirmAction(`Split this identifier out of ${key}?\n\n${identifierType}: ${value}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
+        if (value && await confirmAction(`Split this identifier out of ${key}?\n\n${identifierType}: ${value}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
           mutate(`/api/projects/${encodeURIComponent(key)}/split-project`, { identifier_type: identifierType, value, note });
         }
       };
-      $("block-identifier").onclick = () => {
+      $("block-identifier").onclick = async () => {
         const identifierType = $("edit-identifier-type").value;
         const value = $("edit-identifier-value").value.trim();
         const note = $("edit-note").value.trim();
-        if (value && confirmAction(`Block this identifier on ${key}?\n\n${identifierType}: ${value}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
+        if (value && await confirmAction(`Block this identifier on ${key}?\n\n${identifierType}: ${value}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
           mutate(`/api/projects/${encodeURIComponent(key)}/block-identifier`, { identifier_type: identifierType, value, note });
         }
       };
       document.querySelectorAll("[data-dismiss]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Dismiss review signal for ${key}?\n\n${el.dataset.dismiss}\n\nThis stores the signal kind in dismissed_review_kinds.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Dismiss review signal for ${key}?\n\n${el.dataset.dismiss}\n\nThis stores the signal kind in dismissed_review_kinds.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/dismiss-review-kind`, { kind: el.dataset.dismiss });
           }
         };
       });
       document.querySelectorAll("[data-confirm-type]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Confirm this ${el.dataset.confirmType} for ${key}?\n\n${el.dataset.confirmValue}\n\nThis moves it into confirmed/manual project data.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Confirm this ${el.dataset.confirmType} for ${key}?\n\n${el.dataset.confirmValue}\n\nThis moves it into confirmed/manual project data.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/confirm-candidate`, { identifier_type: el.dataset.confirmType, value: el.dataset.confirmValue });
           }
         };
       });
       document.querySelectorAll("[data-reject-type]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Reject this ${el.dataset.rejectType} for ${key}?\n\n${el.dataset.rejectValue}\n\nThis records a blocked identifier so it should not be reattached automatically.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Reject this ${el.dataset.rejectType} for ${key}?\n\n${el.dataset.rejectValue}\n\nThis records a blocked identifier so it should not be reattached automatically.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/reject-candidate`, { identifier_type: el.dataset.rejectType, value: el.dataset.rejectValue });
           }
         };
       });
       document.querySelectorAll("[data-split-type]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Split this identifier out of ${key}?\n\n${el.dataset.splitType}: ${el.dataset.splitValue}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Split this identifier out of ${key}?\n\n${el.dataset.splitType}: ${el.dataset.splitValue}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/split-project`, { identifier_type: el.dataset.splitType, value: el.dataset.splitValue });
           }
         };
       });
       document.querySelectorAll("[data-block-type]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Block this identifier on ${key}?\n\n${el.dataset.blockType}: ${el.dataset.blockValue}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Block this identifier on ${key}?\n\n${el.dataset.blockType}: ${el.dataset.blockValue}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/block-identifier`, { identifier_type: el.dataset.blockType, value: el.dataset.blockValue });
           }
         };
       });
       document.querySelectorAll("[data-clear-block-type]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Clear this blocked identifier on ${key}?\n\n${el.dataset.clearBlockType}: ${el.dataset.clearBlockValue}\n\nThis removes only the guard record and does not reattach the identifier.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Clear this blocked identifier on ${key}?\n\n${el.dataset.clearBlockType}: ${el.dataset.clearBlockValue}\n\nThis removes only the guard record and does not reattach the identifier.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/clear-block-identifier`, { identifier_type: el.dataset.clearBlockType, value: el.dataset.clearBlockValue });
           }
         };
       });
       document.querySelectorAll("[data-clear-separate-key]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Clear the separation block between ${key} and ${el.dataset.clearSeparateKey}?\n\nThis may allow future merge recommendations to pair them again.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Clear the separation block between ${key} and ${el.dataset.clearSeparateKey}?\n\nThis may allow future merge recommendations to pair them again.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/clear-separate`, { other_project_key: el.dataset.clearSeparateKey });
           }
         };
@@ -1643,8 +1681,8 @@ INDEX_HTML = r"""<!doctype html>
         el.onclick = () => loadDetail(el.dataset.openProject);
       });
       document.querySelectorAll("[data-merge-recommendation]").forEach((el) => {
-        el.onclick = () => {
-          if (confirmAction(`Merge ${key} into recommended target ${el.dataset.mergeRecommendation}?\n\nThis is allowed only when the recommendation is auto-merge-ready and writes to SQLite.`)) {
+        el.onclick = async () => {
+          if (await confirmAction(`Merge ${key} into recommended target ${el.dataset.mergeRecommendation}?\n\nThis is allowed only when the recommendation is auto-merge-ready and writes to SQLite.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/merge-recommendation`, {});
           }
         };
@@ -1652,7 +1690,33 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function confirmAction(message) {
-      return window.confirm(message);
+      const modal = $("confirm-modal");
+      const messageBox = $("confirm-message");
+      const ok = $("confirm-ok");
+      const cancel = $("confirm-cancel");
+      messageBox.textContent = message;
+      modal.hidden = false;
+      ok.focus();
+      return new Promise((resolve) => {
+        const cleanup = (value) => {
+          ok.onclick = null;
+          cancel.onclick = null;
+          modal.onclick = null;
+          document.removeEventListener("keydown", onKeydown);
+          modal.hidden = true;
+          resolve(value);
+        };
+        const onKeydown = (event) => {
+          if (event.key === "Escape") cleanup(false);
+          if (event.key === "Enter") cleanup(true);
+        };
+        ok.onclick = () => cleanup(true);
+        cancel.onclick = () => cleanup(false);
+        modal.onclick = (event) => {
+          if (event.target === modal) cleanup(false);
+        };
+        document.addEventListener("keydown", onKeydown);
+      });
     }
 
     function enrichJobText(job) {
