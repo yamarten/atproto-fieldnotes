@@ -111,6 +111,13 @@ INDEX_HTML = r"""<!doctype html>
       margin: 0 auto;
       overflow: hidden;
     }
+    body.single-pane main {
+      grid-template-columns: minmax(0, 920px);
+      justify-content: center;
+    }
+    body.single-pane .detail {
+      display: none;
+    }
     .tabs, .toolbar, .actions, .row {
       display: flex;
       gap: 8px;
@@ -150,6 +157,49 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       gap: 6px;
       min-width: 0;
+    }
+    .action-card, .job-item {
+      display: grid;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      padding: 8px;
+      border-left: 3px solid var(--line);
+      border-radius: 5px;
+      background: var(--bg);
+    }
+    .action-card-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      min-width: 0;
+    }
+    .action-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .job-list {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .job-summary {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .job-summary .muted {
+      font-size: 12px;
+    }
+    .job-item ul {
+      margin: 0;
+      padding-left: 18px;
     }
     button, select, input {
       border: 1px solid var(--line);
@@ -354,6 +404,12 @@ INDEX_HTML = r"""<!doctype html>
       .mobile-detail-bar button {
         width: 100%;
       }
+      .action-card-main {
+        grid-template-columns: 1fr;
+      }
+      .action-card-actions {
+        justify-content: flex-start;
+      }
       header { padding: 9px 10px; }
     }
   </style>
@@ -367,6 +423,7 @@ INDEX_HTML = r"""<!doctype html>
       <button id="tab-promotion" title="Show candidates that may be ready for introduction. This does not change the DB.">Promotion</button>
       <button id="tab-merge" title="Review duplicate merge plans. Loading this list does not change the DB.">Merge</button>
       <button id="tab-sync" title="Run sync dry-runs or explicit execute jobs. Dry-run does not change the DB.">Sync</button>
+      <button id="tab-jobs" title="Review recent background job logs kept in this browser session. This does not change the DB.">Jobs</button>
       <button id="tab-search" title="Search projects by name, seed, NSID, or URL. This does not change the DB.">Search</button>
       <button id="tab-new-seed" title="Preview and register a new NSID, repo URL, or service URL seed.">New Seed</button>
       <button id="tab-settings" title="Configure Web UI options saved in this browser.">Settings</button>
@@ -440,7 +497,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
+    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -470,7 +527,8 @@ INDEX_HTML = r"""<!doctype html>
 
     function setTab(tab) {
       state.tab = tab;
-      for (const name of ["review", "review-ops", "promotion", "merge", "sync", "search", "new-seed", "settings"]) {
+      document.body.classList.toggle("single-pane", tab === "jobs");
+      for (const name of ["review", "review-ops", "promotion", "merge", "sync", "jobs", "search", "new-seed", "settings"]) {
         $("tab-" + name).classList.toggle("active", name === tab);
       }
       $("query").style.display = tab === "search" ? "" : "none";
@@ -481,6 +539,10 @@ INDEX_HTML = r"""<!doctype html>
       }
       if (tab === "sync") {
         loadSyncScreen();
+        return;
+      }
+      if (tab === "jobs") {
+        loadJobsScreen();
         return;
       }
       if (tab === "settings") {
@@ -942,6 +1004,17 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
+    function loadJobsScreen() {
+      closeDetailPane(true);
+      $("list").innerHTML = `
+        <div class="card">
+        <div><h2>Jobs</h2><div class="muted">Shows recent enrich and enrich-all jobs tracked by this tab. Server restart or browser reload clears this view.</div></div>
+        <div class="section"><h3>Recent Enrich Jobs</h3><div id="enrich-jobs-summary">${renderEnrichJobsSummaryHtml()}</div></div>
+        </div>
+      `;
+      status("");
+    }
+
     function readSyncPayload() {
       const payload = {
         kind: $("sync-kind").value,
@@ -1068,7 +1141,8 @@ INDEX_HTML = r"""<!doctype html>
           clearListCache();
           $("enrich-all-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
-          pollJobInto(data.job_id, "enrich-all-result");
+          updateEnrichJobStatus(`job:${data.job_id}`, Object.assign({ kind: "enrich-all" }, data));
+          pollJobInto(data.job_id, "enrich-all-result", null, (job) => updateEnrichJobStatus(`job:${data.job_id}`, job));
         } catch (err) {
           status(err.message);
         }
@@ -1150,11 +1224,12 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
-    async function pollJobInto(jobId, elementId, renderDone = null) {
+    async function pollJobInto(jobId, elementId, renderDone = null, onJob = null) {
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         try {
           const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+          if (onJob) onJob(job);
           if (renderDone && (job.status === "done" || job.status === "failed")) {
             renderDone(job);
           } else {
@@ -1374,10 +1449,14 @@ INDEX_HTML = r"""<!doctype html>
       const reasons = esc(JSON.stringify(rec.reasons || {}, null, 2));
       return `
         <div class="identifier-list">
-          <div class="row identifier-row">
-            <span class="identifier-value">${esc(target)} score=${esc(rec.score || 0)} confidence=${esc(rec.merge_confidence || "")} auto=${rec.auto_merge_ready ? "yes" : "no"}</span>
-            <button data-open-project="${esc(target)}" title="Open the recommended target project. This does not change the DB.">Open</button>
-            <button class="danger" data-merge-recommendation="${esc(target)}" title="Merge this project into the recommended target when the recommendation is auto-merge-ready.">Merge</button>
+          <div class="action-card">
+            <div class="action-card-main">
+              <span class="identifier-value">${esc(target)} score=${esc(rec.score || 0)} confidence=${esc(rec.merge_confidence || "")} auto=${rec.auto_merge_ready ? "yes" : "no"}</span>
+              <span class="action-card-actions">
+                <button data-open-project="${esc(target)}" title="Open the recommended target project. This does not change the DB.">Open</button>
+                <button class="danger" data-merge-recommendation="${esc(target)}" title="Merge this project into the recommended target when the recommendation is auto-merge-ready.">Merge</button>
+              </span>
+            </div>
           </div>
           <details><summary>Reasons</summary><pre>${reasons}</pre></details>
         </div>
@@ -1443,7 +1522,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Identity</h3><div>${esc(p.seed_type || "")}: ${esc(p.seed_value || "")}</div>${renderEditableIdentifierRows(asList(p.input_nsids).concat(asList(p.resolved_nsids)), "nsid")}</div>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
           <div class="section"><h3>Repositories</h3>${renderEditableIdentifierRows(asList(p.source_code_urls).concat(asList(p.github_repo_urls)).concat(asList(p.tangled_repo_urls)), "repo_url")}<div class="identifier-list">${renderCandidateRows(data.repo_candidates, "repo_url")}</div></div>
-          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">No enrich job running.</pre></div>
+          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(state.enrichJobs.get(p.project_key)))}</pre></div>
           <div class="section"><h3>Add Seed</h3><div class="row"><input id="seed-value" type="text" placeholder="NSID, repo URL, service URL" title="Seed to attach to this existing project."><button id="add-seed" title="Attach this seed to the current project and write it to SQLite.">Add</button></div></div>
           <div class="section"><h3>Project Edits</h3>
             <div class="row">
@@ -1576,6 +1655,41 @@ INDEX_HTML = r"""<!doctype html>
       return window.confirm(message);
     }
 
+    function enrichJobText(job) {
+      return job ? JSON.stringify(job, null, 2) : "No enrich job running.";
+    }
+
+    function renderEnrichJobsSummaryHtml() {
+      const jobs = Array.from(state.enrichJobs.values()).reverse().slice(0, 12);
+      if (!jobs.length) return `<span class="muted">No enrich jobs yet.</span>`;
+      return `<div class="job-list">` + jobs.map((job) => {
+        const logs = asList(job.logs).slice(-8).map((entry) => {
+          const bits = [entry.at, entry.message, entry.project_key, entry.error].filter(Boolean).join(" ");
+          return `<li>${esc(bits)}</li>`;
+        }).join("");
+        return `
+          <details class="job-item">
+            <summary class="job-summary">
+              <span class="pill">${esc(job.status || "queued")}</span>
+              <span class="pill">${esc(job.kind || "enrich")}</span>
+              ${job.project_key ? `<span class="identifier-value">${esc(job.project_key)}</span>` : ""}
+              ${job.job_id ? `<span class="muted">${esc(job.job_id)}</span>` : ""}
+            </summary>
+            ${logs ? `<ul>${logs}</ul>` : `<div class="muted">No logs yet.</div>`}
+            <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
+          </details>
+        `;
+      }).join("") + `</div>`;
+    }
+
+    function updateEnrichJobStatus(key, job) {
+      state.enrichJobs.set(key, job);
+      const target = $("enrich-job-status");
+      if (state.selected === key && target) target.textContent = enrichJobText(job);
+      const summary = $("enrich-jobs-summary");
+      if (summary) summary.innerHTML = renderEnrichJobsSummaryHtml();
+    }
+
     function enrichPayload(deep) {
       const settings = state.settings;
       return {
@@ -1590,27 +1704,25 @@ INDEX_HTML = r"""<!doctype html>
 
     async function startEnrichJob(key, deep) {
       status("Starting enrich...");
-      const target = $("enrich-job-status");
-      if (target) target.textContent = "Starting enrich job...";
+      updateEnrichJobStatus(key, { status: "starting", kind: "enrich", project_key: key, deep_investigation: deep });
       try {
         const data = await api(`/api/projects/${encodeURIComponent(key)}/enrich`, { method: "POST", body: JSON.stringify(enrichPayload(deep)) });
         clearListCache();
         status(`Started job ${data.job_id}`);
-        if (target) target.textContent = JSON.stringify(data, null, 2);
+        updateEnrichJobStatus(key, Object.assign({ kind: "enrich", project_key: key, deep_investigation: deep }, data));
         pollEnrichJob(key, data.job_id);
       } catch (err) {
         status(err.message);
-        if (target) target.textContent = err.message;
+        updateEnrichJobStatus(key, { status: "failed_to_start", kind: "enrich", project_key: key, error: err.message });
       }
     }
 
     async function pollEnrichJob(key, jobId) {
-      const target = $("enrich-job-status");
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         try {
           const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
-          if (target) target.textContent = JSON.stringify(job, null, 2);
+          updateEnrichJobStatus(key, job);
           if (job.status === "done") {
             status("Enrich done.");
             if (state.selected === key) await loadDetail(key);
@@ -1622,7 +1734,7 @@ INDEX_HTML = r"""<!doctype html>
           }
         } catch (err) {
           status(err.message);
-          if (target) target.textContent = err.message;
+          updateEnrichJobStatus(key, { status: "poll_failed", kind: "enrich", project_key: key, job_id: jobId, error: err.message });
           return;
         }
       }
@@ -1652,6 +1764,7 @@ INDEX_HTML = r"""<!doctype html>
     $("tab-promotion").onclick = () => setTab("promotion");
     $("tab-merge").onclick = () => setTab("merge");
     $("tab-sync").onclick = () => setTab("sync");
+    $("tab-jobs").onclick = () => setTab("jobs");
     $("tab-search").onclick = () => setTab("search");
     $("tab-new-seed").onclick = () => setTab("new-seed");
     $("tab-settings").onclick = () => setTab("settings");
