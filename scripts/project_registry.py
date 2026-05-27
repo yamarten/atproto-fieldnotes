@@ -199,6 +199,21 @@ GENERIC_ERROR_PAGE_TITLE_VALUES = {
     "unauthorized",
 }
 
+GENERIC_NAVIGATION_PAGE_TITLE_VALUES = {
+    "about",
+    "blog",
+    "contact",
+    "docs",
+    "documentation",
+    "home",
+    "index",
+    "login",
+    "privacy",
+    "sign in",
+    "signin",
+    "terms",
+}
+
 
 PROJECT_SCALAR_FIELDS = (
     "project_key",
@@ -3353,6 +3368,29 @@ def generic_error_page_title_candidate(value: str, source: str) -> bool:
     return bool(re.fullmatch(r"(?:[45]\d\d\s+)?(?:error|not found|forbidden|unauthorized)", lowered))
 
 
+def generic_navigation_page_title_candidate(value: str, source: str) -> bool:
+    lowered = normalize_name_candidate(value).lower()
+    if lowered not in GENERIC_NAVIGATION_PAGE_TITLE_VALUES:
+        return False
+    return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
+
+
+def value_matches_generic_navigation_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not generic_navigation_page_title_candidate(raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
+
+
 def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
     normalized = normalize_name_candidate(value).lower()
     aliases = GENERIC_PLATFORM_NAME_ALIASES.get(normalized, {normalized})
@@ -3391,6 +3429,7 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         current_name
         and not weak_nsid_derived_name(project, current_name)
         and not generic_error_page_title_candidate(current_name, "existing_name")
+        and not generic_navigation_page_title_candidate(current_name, "existing_name")
         and not value_matches_unsupported_nsid_authority_title(project, current_name)
     ):
         candidates.append({"value": current_name, "source": "existing_name"})
@@ -3409,9 +3448,13 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
             continue
         if generic_error_page_title_candidate(value, source):
             continue
+        if generic_navigation_page_title_candidate(value, source):
+            continue
         if unsupported_nsid_authority_title_candidate(project, value, source):
             continue
         if source == "llm_output" and value_matches_unsupported_nsid_authority_title(project, value):
+            continue
+        if source == "llm_output" and value_matches_generic_navigation_title(project, value):
             continue
         if generic_platform_name_candidate(project, value, source):
             continue

@@ -136,6 +136,35 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
 
         self.assertEqual(registry.choose_best_project_name(project), "Book Status")
 
+    def test_generic_navigation_titles_from_pages_are_filtered(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "Home", "source": "service_title:https://meowing.zip"},
+                {"value": "Home", "source": "llm_output"},
+                {"value": "meowing.zip", "source": "llm_output"},
+            ],
+            name="Home",
+        )
+        project["seed_type"] = "nsid"
+        project["seed_value"] = "zip.meowing.isfox"
+        project["primary_nsid"] = "zip.meowing.isfox"
+        project["input_nsids"] = ["zip.meowing.isfox"]
+        project["authority_domains"] = ["meowing.zip"]
+
+        values = [item["value"] for item in registry.current_name_candidates(project)]
+
+        self.assertEqual(values, ["meowing.zip"])
+        self.assertEqual(registry.choose_best_project_name(project), "meowing.zip")
+
+    def test_generic_navigation_title_from_repo_source_is_kept(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "home", "source": "github_repo_name:example/home"},
+            ]
+        )
+
+        self.assertEqual(registry.choose_best_project_name(project), "home")
+
 
 class ProjectRegistryServiceStatusTest(unittest.TestCase):
     def classify(

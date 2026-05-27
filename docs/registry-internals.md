@@ -231,6 +231,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service title 候補と照合して除外します
 - LLM などが full NSID そのものを name として返した場合は弱い候補として除外します
   - lexicon name 由来の tail 候補は別扱いで残します
+- `Home` / `About` / `Docs` / `Login` のような短いページ役割名は、service/resource title 由来なら name 候補から除外します
+  - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service/resource title 候補と照合して除外します
+  - repo 由来など、ページ title ではない経路の同名候補はこの rule では除外しません
 
 ### 3.1 `service_status` の現在地と残件
 
