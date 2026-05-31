@@ -154,6 +154,9 @@
     - review / promotion queue の sort に反映済み
   - docs / README evidence と LLM 補助分類は未接続
   - 寄与度レビューも、確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる場合に寄せる
+  - 実用性と別軸の `technical_interest_level / score / reasons / summary` は追加済み
+    - LLM の暫定評価で `high / exceptional` のものを `promotion-queue` の `technical_insight_candidate` に出す
+    - 新規設計パターン、protocol gap、相互運用実験、特徴的 architecture、参照実装を区別する
 
 ## 低優先の整理
 

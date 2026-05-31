@@ -146,6 +146,10 @@ review / merge / 紹介運用の制御情報です。
 - `atproto_contribution_level`
 - `atproto_contribution_score`
 - `atproto_contribution_evidence`
+- `technical_interest_level`
+- `technical_interest_score`
+- `technical_interest_reasons`
+- `technical_interest_summary`
 
 ## `ops_json.evidence`
 

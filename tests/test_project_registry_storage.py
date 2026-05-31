@@ -46,6 +46,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(args.interactive)
         self.assertFalse(dry_run_args.interactive)
 
+    def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
+        args = registry.build_parser().parse_args(
+            ["promotion-queue", "--kinds", "technical_insight_candidate"]
+        )
+
+        self.assertEqual(args.kinds, ["technical_insight_candidate"])
+
     def test_add_configured_multi_tenant_suffix_updates_json_and_cache(self) -> None:
         original_config_path = registry.CONFIG_PATH
         original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
@@ -192,6 +199,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["service_status_evidence"] = ["http_200", "login_surface_detected"]
             project["supported_service_urls"] = ["https://example.com"]
             project["resolved_nsids"] = ["app.example.post"]
+            project["technical_interest_level"] = "high"
+            project["technical_interest_reasons"] = ["novel_design_pattern"]
+            project["technical_interest_summary"] = "新しい設計パターン。"
 
             registry.save_project(conn, project, enriched=True)
             conn.commit()
@@ -212,6 +222,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "core")
             self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 90)
             self.assertEqual(ops_payload["ops"]["lexicon_scope"], "service_specific")
+            self.assertEqual(ops_payload["ops"]["technical_interest_level"], "high")
+            self.assertEqual(ops_payload["ops"]["technical_interest_score"], 70)
             self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
@@ -219,6 +231,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["name_candidates"][0]["source"], "service_title:https://example.com")
             self.assertEqual(fetched["atproto_contribution_level"], "core")
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
+            self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
         finally:
             conn.close()
 

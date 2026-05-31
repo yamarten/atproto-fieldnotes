@@ -627,6 +627,88 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         )
 
 
+class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
+    def project(self) -> dict:
+        project = registry.default_project_record("proj:technical", "repo_url", "https://github.com/example/protocol-lab")
+        project["category"] = "infra_tool"
+        return project
+
+    def test_high_technical_interest_adds_showcase_signal_without_live_service(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "technical_interest_level": "high",
+                "technical_interest_reasons": ["protocol_gap_exposed"],
+                "technical_interest_summary": "相互運用時の不足を具体化している。",
+            }
+        )
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["technical_insight_candidate"])
+        self.assertEqual(signals[0]["details"]["technical_interest_score"], 70)
+
+    def test_notable_technical_interest_is_saved_but_not_recommended(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "technical_interest_level": "notable",
+                "technical_interest_reasons": ["implementation_reference"],
+                "technical_interest_summary": "実装参照として有用。",
+            }
+        )
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["technical_interest_score"], 40)
+        self.assertEqual(registry.compute_showcase_signals(shaped), [])
+
+    def test_technical_interest_state_filters_unsupported_reason(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "technical_interest_level": "exceptional",
+                "technical_interest_reasons": ["novel_design_pattern", "unsupported"],
+            }
+        )
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["technical_interest_score"], 90)
+        self.assertEqual(shaped["technical_interest_reasons"], ["novel_design_pattern"])
+
+    def test_llm_output_without_technical_fields_preserves_existing_assessment(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "technical_interest_level": "high",
+                "technical_interest_reasons": ["implementation_reference"],
+                "technical_interest_summary": "実装参照として有用。",
+            }
+        )
+
+        registry.apply_llm_output(project, {}, {}, {})
+
+        self.assertEqual(project["technical_interest_level"], "high")
+        self.assertEqual(project["technical_interest_reasons"], ["implementation_reference"])
+
+    def test_partial_llm_technical_output_preserves_omitted_fields(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "technical_interest_level": "high",
+                "technical_interest_reasons": ["implementation_reference"],
+                "technical_interest_summary": "実装参照として有用。",
+            }
+        )
+
+        registry.apply_llm_output(project, {"technical_interest_summary": "不足を具体化している。"}, {}, {})
+
+        self.assertEqual(project["technical_interest_level"], "high")
+        self.assertEqual(project["technical_interest_reasons"], ["implementation_reference"])
+        self.assertEqual(project["technical_interest_summary"], "不足を具体化している。")
+
+
 class ProjectRegistryManualReviewSignalTest(unittest.TestCase):
     def project(self) -> dict:
         project = registry.default_project_record("proj:manualreview", "service_url", "https://example.com")

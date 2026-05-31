@@ -442,12 +442,15 @@ python3 scripts/project_registry.py promotion-queue --include-personal-tools
 python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
 ```
 
-signal は今のところ 2 種類です。
+signal は今のところ 3 種類です。
 
 - `service_ready_for_introduction`
   - 既定では `category=project` で、`service_status` が `live` / `beta` / `invite_only`
 - `lexicon_ready_for_introduction`
   - `category=lexicon` で、NSID ヒントと公開先 (`website_url` / repo / resource) があり、紹介用メタデータが大きく欠けていない
+- `technical_insight_candidate`
+  - 実用性とは別に、新しい設計パターン、プロトコル不足の露呈、相互運用実験、特徴的なアーキテクチャ、参照実装としての価値が傑出している
+  - LLM の暫定評価が `technical_interest_level=high` / `exceptional` で、具体的な理由と説明があるものだけを出す
 
 `category=personal_tool` は既定では除外します。含めたい場合だけ `--include-personal-tools` を付けます。
 

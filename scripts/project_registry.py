@@ -163,6 +163,14 @@ def dump_json(value: Any, *, sort_keys: bool = True) -> str:
 SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"}
 SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
 ATPROTO_CONTRIBUTION_LEVELS = {"unknown", "incidental", "auth_only", "optional", "substantial", "core"}
+TECHNICAL_INTEREST_SCORES = {"none": 0, "notable": 40, "high": 70, "exceptional": 90}
+TECHNICAL_INTEREST_REASONS = {
+    "novel_design_pattern",
+    "protocol_gap_exposed",
+    "interoperability_experiment",
+    "unusual_architecture",
+    "implementation_reference",
+}
 
 
 def compact_grouped_payload(group_fields: dict[str, tuple[str, ...]], source: dict[str, Any]) -> dict[str, Any]:
@@ -309,6 +317,10 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "atproto_contribution_evidence",
         "lexicon_scope",
         "lexicon_scope_evidence",
+        "technical_interest_level",
+        "technical_interest_score",
+        "technical_interest_reasons",
+        "technical_interest_summary",
     ),
     "evidence": (
         "discovery_sources",
@@ -420,6 +432,10 @@ MAPPED_LEGACY_FIELDS = {
     "atproto_contribution_evidence",
     "lexicon_scope",
     "lexicon_scope_evidence",
+    "technical_interest_level",
+    "technical_interest_score",
+    "technical_interest_reasons",
+    "technical_interest_summary",
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
@@ -1161,6 +1177,10 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "atproto_contribution_evidence": [],
         "lexicon_scope": "unknown",
         "lexicon_scope_evidence": [],
+        "technical_interest_level": "none",
+        "technical_interest_score": 0,
+        "technical_interest_reasons": [],
+        "technical_interest_summary": "",
         "source_code_url": "",
         "source_code_urls": [],
         "candidate_source_code_urls": [],
@@ -1284,6 +1304,25 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
 
 def apply_atproto_contribution_state(project: dict[str, Any]) -> dict[str, Any]:
     project.update(compute_atproto_contribution(project))
+    return project
+
+
+def apply_technical_interest_state(project: dict[str, Any]) -> dict[str, Any]:
+    level = str(project.get("technical_interest_level") or "none").strip().lower()
+    if level not in TECHNICAL_INTEREST_SCORES:
+        level = "none"
+    project["technical_interest_level"] = level
+    project["technical_interest_score"] = TECHNICAL_INTEREST_SCORES[level]
+    project["technical_interest_reasons"] = unique_list(
+        [
+            str(item).strip().lower()
+            for item in project.get("technical_interest_reasons", [])
+            if str(item).strip().lower() in TECHNICAL_INTEREST_REASONS
+        ]
+    )
+    project["technical_interest_summary"] = normalize_ja_en_mixed_spacing(
+        str(project.get("technical_interest_summary") or "").strip()
+    )
     return project
 
 
@@ -1451,7 +1490,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
     defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
-    return apply_atproto_contribution_state(defaults)
+    return apply_technical_interest_state(apply_atproto_contribution_state(defaults))
 
 
 def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2108,6 +2147,9 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "service_status_confidence": normalize_service_status_confidence(project.get("service_status_confidence")),
         "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
         "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
+        "technical_interest_level": str(project.get("technical_interest_level") or "none"),
+        "technical_interest_score": int(project.get("technical_interest_score", 0) or 0),
+        "technical_interest_summary": str(project.get("technical_interest_summary") or ""),
         "watch_reason": str(project.get("watch_reason") or ""),
         "source_code_url": str(project.get("source_code_url") or ""),
         "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
@@ -2138,6 +2180,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "lexicon_schema_samples",
         "recent_record_samples",
         "atproto_contribution_evidence",
+        "technical_interest_reasons",
     )
     for field in list_fields:
         value = project.get(field)
@@ -2159,7 +2202,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
         + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
     )
-    return apply_atproto_contribution_state(shaped)
+    return apply_technical_interest_state(apply_atproto_contribution_state(shaped))
 
 
 def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
@@ -8792,6 +8835,23 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["classification_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
     project["exclude_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
+    if any(
+        key in payload
+        for key in ("technical_interest_level", "technical_interest_reasons", "technical_interest_summary")
+    ):
+        project["technical_interest_level"] = str(
+            payload.get("technical_interest_level", project.get("technical_interest_level") or "none") or "none"
+        ).strip().lower()
+        project["technical_interest_reasons"] = clean_string_list(
+            payload.get("technical_interest_reasons", project.get("technical_interest_reasons", [])),
+            limit=5,
+        )
+        project["technical_interest_summary"] = normalize_ja_en_mixed_spacing(
+            str(
+                payload.get("technical_interest_summary", project.get("technical_interest_summary") or "") or ""
+            ).strip()
+        )
+        apply_technical_interest_state(project)
     project["manual_review_recommended"] = bool(payload.get("manual_review_recommended"))
     manual_review_kind = str(payload.get("manual_review_kind") or "other").strip().lower()
     project["manual_review_kind"] = (
@@ -9530,6 +9590,8 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         score += 200
     if "lexicon_ready_for_introduction" in signal_kinds:
         score += 100
+    if "technical_insight_candidate" in signal_kinds:
+        score += int(project.get("technical_interest_score", 0) or 0)
 
     service_status = normalize_service_status(project.get("service_status"))
     score += {
@@ -9649,6 +9711,28 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
             }
         )
 
+    technical_interest_level = str(shaped.get("technical_interest_level") or "none")
+    technical_interest_reasons = list(shaped.get("technical_interest_reasons", []))
+    technical_interest_summary = str(shaped.get("technical_interest_summary") or "").strip()
+    if (
+        technical_interest_level in {"high", "exceptional"}
+        and technical_interest_reasons
+        and technical_interest_summary
+        and category not in {"reject", "name_only", "auth_only"}
+    ):
+        signals.append(
+            {
+                "kind": "technical_insight_candidate",
+                "priority": 9 if technical_interest_level == "exceptional" else 8,
+                "details": {
+                    "technical_interest_level": technical_interest_level,
+                    "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+                    "technical_interest_reasons": technical_interest_reasons,
+                    "technical_interest_summary": technical_interest_summary,
+                },
+            }
+        )
+
     return signals
 
 
@@ -9681,6 +9765,8 @@ def build_showcase_queue(
                 "service_status": shaped.get("service_status", "unknown"),
                 "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
                 "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
+                "technical_interest_level": shaped.get("technical_interest_level", "none"),
+                "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9738,6 +9824,8 @@ def build_showcase_queue_batch(
                 "service_status": shaped.get("service_status", "unknown"),
                 "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
                 "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
+                "technical_interest_level": shaped.get("technical_interest_level", "none"),
+                "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9787,6 +9875,8 @@ def build_showcase_queue_item(
         "service_status": shaped.get("service_status", "unknown"),
         "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
         "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
+        "technical_interest_level": shaped.get("technical_interest_level", "none"),
+        "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
         "first_seen_at": shaped.get("first_seen_at", ""),
         "last_seen_at": shaped.get("last_seen_at", ""),
         "seed_type": shaped.get("seed_type", ""),
@@ -10687,6 +10777,13 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["classification_reason"] = choose_preferred_scalar(merged.get("classification_reason"), source.get("classification_reason"))
     merged["exclude_reason"] = choose_preferred_scalar(merged.get("exclude_reason"), source.get("exclude_reason"))
     merged["watch_reason"] = choose_preferred_scalar(merged.get("watch_reason"), source.get("watch_reason"))
+    if int(source.get("technical_interest_score", 0) or 0) > int(merged.get("technical_interest_score", 0) or 0):
+        merged["technical_interest_level"] = source.get("technical_interest_level", "none")
+        merged["technical_interest_summary"] = source.get("technical_interest_summary", "")
+    merged["technical_interest_reasons"] = unique_list(
+        list(merged.get("technical_interest_reasons", [])) + list(source.get("technical_interest_reasons", []))
+    )
+    apply_technical_interest_state(merged)
     merged["confidence"] = max(float(merged.get("confidence") or 0.0), float(source.get("confidence") or 0.0))
     merged["llm_source"] = dict(merged.get("llm_source") or source.get("llm_source") or {})
     merged["llm_output"] = dict(merged.get("llm_output") or source.get("llm_output") or {})
@@ -13946,6 +14043,7 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_ready_for_introduction",
         "lexicon_ready_for_introduction",
+        "technical_insight_candidate",
     ], help="Restrict to specific promotion signal kinds.")
     promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")

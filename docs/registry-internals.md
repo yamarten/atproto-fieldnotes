@@ -886,6 +886,9 @@ LLM は discovery の主役ではなく、整理の補助です。
 - `category`
 - `service_status`
 - `lexicon_scope`
+- `technical_interest_level`
+- `technical_interest_reasons`
+- `technical_interest_summary`
 
 を生成します。説明系フィールドは日本語で出させます。`tagline` は助詞を含まない短い名詞句を想定し、最大30文字です。
 
@@ -901,6 +904,16 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
   - service がまだ見つかっていないだけか、共有 lexicon として設計されているかを区別できない
 
 `category=lexicon` の project で `lexicon_scope=service_specific` になった場合は `category=project` へ戻します。`unknown` は無理に確定しません。LLM prompt にも、service URL 未発見を shared の根拠にしないことと、service の実態がある場合は schema 説明だけに縮退させないことを明記しています。
+
+技術的な学習価値は、実用性や紹介準備とは別軸で `technical_interest_*` に保持します。LLM は evidence に基づいて `none / notable / high / exceptional` を暫定評価し、理由を enum と短い説明で残します。`promotion-queue` の `technical_insight_candidate` は `high` / `exceptional` だけを対象にします。`notable` は将来の再評価材料として保存しますが、推薦 signal にはしません。
+
+理由 enum:
+
+- `novel_design_pattern`
+- `protocol_gap_exposed`
+- `interoperability_experiment`
+- `unusual_architecture`
+- `implementation_reference`
 
 endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
 
