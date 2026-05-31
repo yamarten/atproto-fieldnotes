@@ -137,6 +137,7 @@ LLM は evidence の要約と暫定分類に使えますが、単独で高スコ
   - `audit-url-fields` の raw 保存監査を基準に進める
   - `website_url_candidates` の caller を `service_url_candidates` へ寄せ、derive-only または削除にする
   - `github_repo_urls` / `tangled_repo_urls` の caller を `source_code_urls` / `source_repo_records` へ寄せ、provider view として導出にする
-  - `resource_urls` は削除前に role / source / observed_at を持つ structured observation へ移す
+  - `resource_url_records` は追加済み。既存 `resource_urls` を一括保存 migration する前に dry-run で分類結果と DB サイズを確認する
+  - `resource_urls` caller を `resource_url_records` へ寄せ、最終的に derive-only にする
 - `inspired_by` を app metadata として昇格させるか再判断する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する

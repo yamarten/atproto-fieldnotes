@@ -178,13 +178,15 @@
   - confirmed/candidate の UI 露出はまだ薄い
   - repo/readme/profile 由来の confirmed 条件をもう少し増やせる
 - `resource_urls` の運用整理
-  - 現在は docs/blog/about をまとめて入れている
-  - service 判定強化を進めるなら、`resource_urls` 内の種類も持ちたくなる可能性がある
+  - `resource_url_records` は追加済み。`url / role / source / observed_at / confidence` を持つ
+  - 新規 enrich は records を正本として書き、`resource_urls` は compatibility view として導出する
+  - 既存 `resource_urls` は shape 時に legacy record として lossless に読める
+  - 実 DB への一括保存 migration と caller の derive-only 移行は未接続
 - URL field の棚卸し
   - `audit-url-fields` は追加済み。raw 保存 payload を読み、field 件数、alias 重複、invariant 違反を読み取り専用で報告する
   - `website_url_candidates` は `service_url_candidates` の legacy alias
   - `github_repo_urls` / `tangled_repo_urls` は provider 別 compatibility view
-  - caller 移行、derive-only 化、structured `resource_urls` migration は未接続
+  - caller 移行、derive-only 化、実 DB の `resource_url_records` 一括保存 migration は未接続
 
 ## `project_registry.py` の重要ポイント
 

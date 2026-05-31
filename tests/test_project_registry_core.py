@@ -483,6 +483,72 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://tz2at.xyz", project["website_url_candidates"])
 
 
+class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
+    def test_legacy_resource_url_becomes_unknown_legacy_record(self) -> None:
+        project = registry.default_project_record("proj:resourcelegacy", "service_url", "https://example.com")
+        project["resource_urls"] = ["https://example.com/docs"]
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["resource_urls"], ["https://example.com/docs"])
+        self.assertEqual(
+            shaped["resource_url_records"],
+            [
+                {
+                    "url": "https://example.com/docs",
+                    "role": "unknown",
+                    "source": "legacy_resource_urls",
+                    "observed_at": "",
+                    "confidence": "legacy",
+                }
+            ],
+        )
+
+    def test_confirmed_resource_record_adds_app_link(self) -> None:
+        project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
+        registry.add_resource_url(
+            project,
+            "https://example.com/docs",
+            role="docs",
+            source="service_page:https://example.com",
+            confidence="confirmed",
+        )
+
+        links = registry.build_project_app_links(project)
+
+        self.assertIn({"uri": "https://example.com/docs", "role": "docs", "official": True}, links)
+
+    def test_candidate_resource_record_does_not_add_app_link(self) -> None:
+        project = registry.default_project_record("proj:resourcecandidate", "service_url", "https://example.com")
+        registry.add_resource_url(
+            project,
+            "https://external.example.net/docs",
+            role="docs",
+            source="service_page:https://example.com",
+            confidence="candidate",
+        )
+
+        self.assertEqual(registry.build_project_app_links(project), [])
+
+    def test_first_party_link_collection_records_same_site_docs_as_confirmed(self) -> None:
+        project = registry.default_project_record("proj:resourcefirstparty", "service_url", "https://example.com")
+
+        registry.collect_first_party_links(
+            project,
+            "https://example.com",
+            [
+                {"url": "https://example.com/docs", "text": "Docs"},
+                {"url": "https://external.example.net/docs", "text": "External docs"},
+            ],
+            "service_page:https://example.com",
+        )
+
+        records = {record["url"]: record for record in project["resource_url_records"]}
+        self.assertEqual(records["https://example.com/docs"]["confidence"], "confirmed")
+        self.assertEqual(records["https://example.com/docs"]["role"], "docs")
+        self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
+
+
 class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def nsid_project(self) -> dict:
         project = registry.default_project_record("proj:lexiconscope", "nsid", "xyz.tz2at.raw.observation")

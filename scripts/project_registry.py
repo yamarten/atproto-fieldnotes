@@ -275,7 +275,8 @@ URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories", "migration": "keep"},
     {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces", "migration": "keep"},
     {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories", "migration": "keep"},
-    {"field": "resource_urls", "layer": "observation", "role": "fetched supporting pages", "migration": "structure_later"},
+    {"field": "resource_urls", "layer": "derived_compat", "role": "URL view of resource_url_records", "migration": "derive_only_later"},
+    {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations", "migration": "keep"},
     {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs", "migration": "keep"},
     {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes", "migration": "keep"},
     {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes", "migration": "keep"},
@@ -364,6 +365,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "website_url_candidates",
         "service_urls",
         "resource_urls",
+        "resource_url_records",
         "service_url_candidates",
         "failed_service_urls",
         "supported_service_urls",
@@ -439,6 +441,7 @@ MAPPED_LEGACY_FIELDS = {
     "website_url_candidates",
     "service_urls",
     "resource_urls",
+    "resource_url_records",
     "service_url_candidates",
     "failed_service_urls",
     "supported_service_urls",
@@ -650,6 +653,8 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
     "/sign-up",
     "/dashboard",
 )
+RESOURCE_URL_ROLES = {"unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService"}
+RESOURCE_URL_CONFIDENCE_VALUES = {"legacy", "candidate", "confirmed"}
 
 
 def normalize_app_link_role(value: str | None) -> str:
@@ -775,10 +780,10 @@ def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
         if role:
             append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
 
-    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
-        role = app_link_role_from_resource_url(url)
-        if role:
-            append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
+    for record in normalize_resource_url_records(project.get("resource_url_records", [])):
+        role = str(record.get("role") or "")
+        if record.get("confidence") == "confirmed" and role not in {"", "unknown", "blog"}:
+            append_or_merge_app_link(links, {"uri": record["url"], "role": role, "official": True})
 
     return links
 
@@ -1185,6 +1190,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "website_url_candidates": [],
         "service_urls": [],
         "resource_urls": [],
+        "resource_url_records": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
         "supported_service_urls": [],
@@ -1574,6 +1580,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         + compute_external_lexicons(defaults)
     )
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
+    sync_resource_url_records(defaults)
     defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
     return apply_technical_interest_state(apply_atproto_contribution_state(defaults))
@@ -2001,6 +2008,8 @@ def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set[str]:
     value = project.get(field_name)
+    if field_name == "resource_url_records":
+        return {record["url"] for record in normalize_resource_url_records(value if isinstance(value, list) else [])}
     values = value if isinstance(value, list) else ([value] if value else [])
     if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls", "github_repo_urls", "tangled_repo_urls"}:
         return {normalized for item in values if (normalized := canonical_repo_url(str(item)))}
@@ -2098,7 +2107,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "migration_candidates": [
             "derive_or_drop website_url_candidates after callers use service_url_candidates",
             "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
-            "replace untyped resource_urls with structured resource observations before pruning historical data",
+            "persist legacy resource_urls as resource_url_records after dry-run size review, then make resource_urls derive-only",
         ],
     }
 
@@ -2365,6 +2374,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "github_repo_urls",
         "tangled_repo_urls",
         "resource_urls",
+        "resource_url_records",
         "collection_observations",
         "source_repo_records",
         "promotion_deferrals",
@@ -2782,6 +2792,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["website_url_candidates"] = unique_list(project.get("website_url_candidates", []))
     project["service_urls"] = unique_list(project.get("service_urls", []))
     project["resource_urls"] = unique_list(project.get("resource_urls", []))
+    sync_resource_url_records(project)
     project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
     project["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in project.get("supported_service_urls", []) if normalize_url(str(item))])
@@ -4911,7 +4922,72 @@ def confirm_service_url(project: dict[str, Any], url: str) -> None:
     project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != normalized]
 
 
-def add_resource_url(project: dict[str, Any], url: str) -> None:
+def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        url = normalize_url(str(item.get("url") or ""))
+        if not url:
+            continue
+        role = str(item.get("role") or app_link_role_from_resource_url(url) or "unknown").strip()
+        if role not in RESOURCE_URL_ROLES:
+            role = "unknown"
+        confidence = str(item.get("confidence") or "candidate").strip().lower()
+        if confidence not in RESOURCE_URL_CONFIDENCE_VALUES:
+            confidence = "candidate"
+        source = str(item.get("source") or "").strip()
+        observed_at = str(item.get("observed_at") or "").strip()
+        key = (url, role, confidence, source)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "url": url,
+                "role": role,
+                "source": source,
+                "observed_at": observed_at,
+                "confidence": confidence,
+            }
+        )
+    return output
+
+
+def sync_resource_url_records(project: dict[str, Any]) -> None:
+    records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
+    recorded_urls = {record["url"] for record in records}
+    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
+        if url in recorded_urls:
+            continue
+        records.append(
+            {
+                "url": url,
+                "role": "unknown",
+                "source": "legacy_resource_urls",
+                "observed_at": "",
+                "confidence": "legacy",
+            }
+        )
+    website_url = normalize_url(str(project.get("website_url") or ""))
+    service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
+    project["resource_url_records"] = [
+        record
+        for record in records
+        if record["url"] != website_url and record["url"] not in service_urls
+    ]
+    project["resource_urls"] = unique_list([record["url"] for record in project["resource_url_records"]])
+
+
+def add_resource_url(
+    project: dict[str, Any],
+    url: str,
+    *,
+    role: str = "",
+    source: str = "",
+    confidence: str = "candidate",
+) -> None:
     normalized = normalize_url(url)
     if not normalized:
         return
@@ -4919,7 +4995,26 @@ def add_resource_url(project: dict[str, Any], url: str) -> None:
         return
     if normalized in {normalize_url(str(item or "")) for item in project.get("service_urls", [])}:
         return
+    normalized_role = str(role or app_link_role_from_resource_url(normalized) or "unknown").strip()
+    if normalized_role not in RESOURCE_URL_ROLES:
+        normalized_role = "unknown"
+    normalized_confidence = str(confidence or "candidate").strip().lower()
+    if normalized_confidence not in RESOURCE_URL_CONFIDENCE_VALUES:
+        normalized_confidence = "candidate"
+    project["resource_url_records"] = normalize_resource_url_records(
+        list(project.get("resource_url_records", []))
+        + [
+            {
+                "url": normalized,
+                "role": normalized_role,
+                "source": str(source or "").strip(),
+                "observed_at": iso_now(),
+                "confidence": normalized_confidence,
+            }
+        ]
+    )
     project["resource_urls"] = add_unique(project.get("resource_urls", []), normalized)
+    sync_resource_url_records(project)
 
 
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
@@ -4936,15 +5031,7 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
         project["website_url"] = project["service_urls"][0]
     else:
         project["website_url"] = ""
-    project["resource_urls"] = unique_list(
-        [
-            item
-            for item in [normalize_url(str(item or "")) for item in project.get("resource_urls", []) if item]
-            if item
-            and item != normalize_url(str(project.get("website_url") or ""))
-            and item not in set(project.get("service_urls", []))
-        ]
-    )
+    sync_resource_url_records(project)
 
 
 def prune_project_urls(project: dict[str, Any]) -> None:
@@ -7107,7 +7194,13 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="linked_repo_candidate",
                 )
         elif classification in {"docs", "blog"}:
-            add_resource_url(project, url)
+            add_resource_url(
+                project,
+                url,
+                role=classification,
+                source=source,
+                confidence="confirmed" if is_same_site_family(base_url, url) else "candidate",
+            )
             if is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
@@ -7138,7 +7231,13 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="same_site_candidate",
                 )
             else:
-                add_resource_url(project, url)
+                add_resource_url(
+                    project,
+                    url,
+                    role=app_link_role_from_resource_url(url),
+                    source=source,
+                    confidence="confirmed",
+                )
     return unique_list(follow_up_urls)
 
 
@@ -8324,6 +8423,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
         "resource_urls": project.get("resource_urls", []),
+        "resource_url_records": project.get("resource_url_records", []),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "supported_service_urls": project.get("supported_service_urls", []),
@@ -10933,6 +11033,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["website_url_candidates"] = unique_list(list(merged.get("website_url_candidates", [])) + list(source.get("website_url_candidates", [])))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
     merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
+    merged["resource_url_records"] = normalize_resource_url_records(
+        list(merged.get("resource_url_records", [])) + list(source.get("resource_url_records", []))
+    )
     merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))

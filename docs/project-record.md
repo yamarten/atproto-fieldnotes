@@ -180,6 +180,7 @@ review / merge / 紹介運用の制御情報です。
 - `website_url_candidates`
 - `service_urls`
 - `resource_urls`
+- `resource_url_records`
 - `source_code_urls`
 - `service_url_candidates`
 - `failed_service_urls`
@@ -235,7 +236,10 @@ URL は role、confidence、observation state を分けて扱います。現行 
 ### observation
 
 - `resource_urls`
-  - docs / about / blog など、調査中に取得した補助 page
+  - `resource_url_records[].url` から導出する compatibility view
+- `resource_url_records`
+  - docs / about / blog など、調査中に取得した補助 page の正本
+  - `url`, `role`, `source`, `observed_at`, `confidence`
 - `evidence_urls`
   - 一般 evidence URL
 - `failed_service_urls`
@@ -253,6 +257,8 @@ URL は role、confidence、observation state を分けて扱います。現行 
   - `source_code_urls` の Tangled provider view
 - `record_json.app.links`
   - export 用の role 付き view
+
+`resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。
 
 derived compatibility view は通常導線でまだ参照されています。現時点では保存を止めません。caller を正本へ寄せてから derive-only または削除へ移します。
 

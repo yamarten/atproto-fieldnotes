@@ -106,11 +106,13 @@ URL field は次の 5 層で扱います。
 - candidate
   - `service_url_candidates`, `candidate_source_code_urls`
 - observation
-  - `resource_urls`, `evidence_urls`, `failed_service_urls`, `supported_service_urls`
+  - `resource_url_records`, `evidence_urls`, `failed_service_urls`, `supported_service_urls`
 - derived compatibility view
-  - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls`, `record_json.app.links`
+  - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls`, `resource_urls`, `record_json.app.links`
 
-`introduced_url` は editorial reference であり service identity ではありません。`resource_urls` は調査時の補助 page 群であり、confirmed service set ではありません。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
+`introduced_url` は editorial reference であり service identity ではありません。`resource_url_records` は調査時の補助 page 群の正本であり、confirmed service set ではありません。`resource_urls` はその compatibility view です。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
+
+`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
 
 `audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
 

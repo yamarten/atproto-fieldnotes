@@ -251,6 +251,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["technical_interest_level"] = "high"
             project["technical_interest_reasons"] = ["novel_design_pattern"]
             project["technical_interest_summary"] = "新しい設計パターン。"
+            registry.add_resource_url(
+                project,
+                "https://example.com/docs",
+                role="docs",
+                source="service_page:https://example.com",
+                confidence="confirmed",
+            )
             registry.defer_promotion_on_project(project, reason="中核機能が未実装")
 
             registry.save_project(conn, project, enriched=True)
@@ -276,6 +283,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["technical_interest_score"], 70)
             self.assertEqual(ops_payload["ops"]["promotion_deferrals"][0]["reason"], "中核機能が未実装")
             self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
+            self.assertEqual(ops_payload["evidence"]["resource_url_records"][0]["role"], "docs")
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
@@ -283,6 +291,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["atproto_contribution_level"], "core")
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
+            self.assertEqual(fetched["resource_urls"], ["https://example.com/docs"])
         finally:
             conn.close()
 
