@@ -857,6 +857,11 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - URL は candidate に降格して観測可能なまま残す
   - NSID は専用 candidate 配列を追加せず `deferred_identifiers` に保持する
   - 既定 30 日。期限内は confirmed への自動昇格を抑制し、期限切れ後は通常導線へ戻す
+- promotion deferred
+  - `promotion_deferrals`
+  - 紹介候補として再浮上させるまでの理由付き一時保留履歴
+  - 既定 7 日。active な期限内 entry がある間だけ `promotion-queue` から除外する
+  - 期限切れ entry や clear 済み entry も履歴として残し、再保留時の理由再利用と将来の復活条件判定に使える形にする
 - `summary_candidates`
 - `name_candidates`
 - `tagline_candidates`
@@ -928,6 +933,8 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。
 
 `promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`top_priority`, `sort_score`, `project_key` の順でグローバルソートしてから `--limit` を適用します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
+
+`promotion_deferrals` に active な entry がある project は signal 計算前に除外します。interactive の `h` は理由付きで既定 7 日の entry を追加します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
 
 `audit-source-config [domain]` は `custom_multi_tenant_suffixes` の追加後基準で既存 project を読み取り監査します。service URL と NSID authority を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
 

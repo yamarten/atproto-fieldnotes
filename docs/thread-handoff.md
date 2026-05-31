@@ -16,6 +16,10 @@
   - URL は candidate に降格し、NSID は deferred category に保持する
   - 期限内は自動 confirmed 化を抑制する
   - Web UI 操作は未接続。confirmed/candidate row の `Defer 30d` と `Guards` の期限表示を追加する余地がある
+- `promotion_deferrals` は CLI の `defer-promotion` または `promotion-queue --interactive` の `h` で追加する理由付き一時保留履歴
+  - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
+  - 履歴は残し、再保留時に直近理由を再利用できる
+  - Web UI 操作と理由からの復活条件自動判定は未接続
 - `project_identifiers` はもう使わない
 
 ## 運用上の注意

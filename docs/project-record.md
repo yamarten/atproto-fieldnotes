@@ -133,6 +133,7 @@ review / merge / 紹介運用の制御情報です。
 - `promotion_blockers`
 - `last_promoted_at`
 - `promotion_events`
+- `promotion_deferrals`
 - `duplicate_candidates`
 - `merge_recommendation`
 - `separate_project_keys`

@@ -456,6 +456,24 @@ signal は今のところ 3 種類です。
 
 `--interactive` を付けると `review-queue` と同じく 1 件ずつ見られます。`suggested_commands` には `show` や `enrich --deep-investigation` を出します。
 
+interactive では `h` で理由付きの一時保留にできます。既定では 7 日間 `promotion-queue` から除外し、期限切れ後に自動復活します。期限切れ履歴は残るため、同じ project を再保留する時は Enter だけで直近理由を再利用できます。
+
+明示的に設定、再設定、解除する場合:
+
+```bash
+python3 scripts/project_registry.py defer-promotion \
+  --project-key proj:xxxxxxxxxxxx \
+  --reason '中核機能であるXXがまだ実装されていない'
+
+# 直近理由を再利用して再保留
+python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxxxxx
+
+# active な保留だけ解除。履歴は残す
+python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxxxxx --clear
+```
+
+`promotion_deferrals` の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。Web UI 操作も未接続で、将来は promotion queue に `Hold 7d`、project detail に期限・理由・再保留・解除を追加できます。
+
 表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
 
 適用する場合:

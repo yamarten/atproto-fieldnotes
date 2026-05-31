@@ -307,6 +307,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "separate_project_keys",
         "blocked_identifiers",
         "deferred_identifiers",
+        "promotion_deferrals",
         "collection_observations",
         "promotion_events",
         "last_run_errors",
@@ -467,6 +468,7 @@ MAPPED_LEGACY_FIELDS = {
     "separate_project_keys",
     "blocked_identifiers",
     "deferred_identifiers",
+    "promotion_deferrals",
     "collection_observations",
     "notes",
     "last_run_errors",
@@ -1214,6 +1216,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "separate_project_keys": [],
         "blocked_identifiers": [],
         "deferred_identifiers": [],
+        "promotion_deferrals": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -1364,6 +1367,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
 
 
 DEFAULT_DEFER_IDENTIFIER_DAYS = 30
+DEFAULT_PROMOTION_DEFER_DAYS = 7
 
 
 def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
@@ -1395,6 +1399,70 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
             }
         )
     return output
+
+
+def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        reason = str(item.get("reason") or "").strip()
+        expires = parse_iso(str(item.get("expires_at") or "").strip())
+        if not reason or expires is None:
+            continue
+        normalized = {
+            "reason": reason,
+            "added_at": str(item.get("added_at") or ""),
+            "expires_at": expires.isoformat(),
+        }
+        cleared_at = str(item.get("cleared_at") or "").strip()
+        if cleared_at:
+            normalized["cleared_at"] = cleared_at
+        output.append(normalized)
+    return output
+
+
+def active_promotion_deferral(project: dict[str, Any]) -> dict[str, str] | None:
+    now = dt.datetime.now(dt.timezone.utc)
+    active = [
+        item
+        for item in normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+        if not item.get("cleared_at") and (parse_iso(item.get("expires_at")) or now) > now
+    ]
+    return active[-1] if active else None
+
+
+def latest_promotion_deferral_reason(project: dict[str, Any]) -> str:
+    deferrals = normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+    return str(deferrals[-1].get("reason") or "") if deferrals else ""
+
+
+def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", days: int = DEFAULT_PROMOTION_DEFER_DAYS) -> dict[str, str]:
+    effective_reason = str(reason or latest_promotion_deferral_reason(project)).strip()
+    if not effective_reason:
+        raise ValueError("promotion deferral reason is required")
+    expires_at = (
+        dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=max(1, int(days or DEFAULT_PROMOTION_DEFER_DAYS)))
+    ).replace(microsecond=0).isoformat()
+    entry = {
+        "reason": effective_reason,
+        "added_at": iso_now(),
+        "expires_at": expires_at,
+    }
+    project["promotion_deferrals"] = normalize_promotion_deferrals(
+        list(project.get("promotion_deferrals", [])) + [entry]
+    )
+    return entry
+
+
+def clear_active_promotion_deferrals(project: dict[str, Any]) -> None:
+    cleared_at = iso_now()
+    deferrals = normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+    now = dt.datetime.now(dt.timezone.utc)
+    for item in deferrals:
+        if not item.get("cleared_at") and (parse_iso(item.get("expires_at")) or now) > now:
+            item["cleared_at"] = cleared_at
+    project["promotion_deferrals"] = deferrals
 
 
 def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
@@ -1461,6 +1529,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     defaults["blocked_identifiers"] = normalize_blocked_identifiers(list(defaults.get("blocked_identifiers") or []))
     defaults["deferred_identifiers"] = normalize_deferred_identifiers(list(defaults.get("deferred_identifiers") or []))
+    defaults["promotion_deferrals"] = normalize_promotion_deferrals(list(defaults.get("promotion_deferrals") or []))
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
     defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
@@ -2177,6 +2246,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "resource_urls",
         "collection_observations",
         "source_repo_records",
+        "promotion_deferrals",
         "lexicon_schema_samples",
         "recent_record_samples",
         "atproto_contribution_evidence",
@@ -9667,6 +9737,8 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
         return []
     if str(shaped.get("tracking_state") or "") == "ignore":
         return []
+    if active_promotion_deferral(shaped):
+        return []
 
     signals: list[dict[str, Any]] = []
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
@@ -9767,6 +9839,7 @@ def build_showcase_queue(
                 "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "technical_interest_level": shaped.get("technical_interest_level", "none"),
                 "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+                "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9826,6 +9899,7 @@ def build_showcase_queue_batch(
                 "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "technical_interest_level": shaped.get("technical_interest_level", "none"),
                 "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+                "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9877,6 +9951,7 @@ def build_showcase_queue_item(
         "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
         "technical_interest_level": shaped.get("technical_interest_level", "none"),
         "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+        "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
         "first_seen_at": shaped.get("first_seen_at", ""),
         "last_seen_at": shaped.get("last_seen_at", ""),
         "seed_type": shaped.get("seed_type", ""),
@@ -10685,6 +10760,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["deferred_identifiers"] = normalize_deferred_identifiers(
         list(merged.get("deferred_identifiers", [])) + list(source.get("deferred_identifiers", []))
     )
+    merged["promotion_deferrals"] = normalize_promotion_deferrals(
+        list(merged.get("promotion_deferrals", [])) + list(source.get("promotion_deferrals", []))
+    )
     merged["dismissed_review_kinds"] = unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
     )
@@ -11306,6 +11384,16 @@ def cmd_show(args: argparse.Namespace) -> int:
                 if item.get("type") and item.get("value")
             ]
             print(f"  deferred_identifiers={', '.join(deferred_parts) or '-'}")
+        if project.get("promotion_deferrals"):
+            promotion_deferral = active_promotion_deferral(project)
+            print(
+                "  promotion_deferral="
+                + (
+                    f"{promotion_deferral.get('reason')} until {promotion_deferral.get('expires_at')}"
+                    if promotion_deferral
+                    else f"inactive; last reason={latest_promotion_deferral_reason(project) or '-'}"
+                )
+            )
         if project.get("separate_project_keys"):
             print(f"  separate_project_keys={', '.join(project.get('separate_project_keys', []))}")
         duplicate_candidates = project.get("duplicate_candidates", [])
@@ -11378,6 +11466,7 @@ def output_project_queue(
                             "repo_urls": current_item.get("repo_urls", []),
                             "tagline": current_item.get("tagline", ""),
                             "summary": current_item.get("summary", ""),
+                            "last_promotion_deferral_reason": current_item.get("last_promotion_deferral_reason", ""),
                             "signals": current_item.get("signals", []),
                             "suggested_commands": current_item.get("suggested_commands", []),
                         },
@@ -11413,6 +11502,7 @@ def output_project_queue(
                         actions.append("R=reject repo")
                 elif queue_name == "promotion":
                     actions.append("p=pick")
+                    actions.append("h=hold 7d")
                     actions.append("k=tracking-state")
                 print(", ".join(actions), file=sys.stderr)
                 try:
@@ -11521,6 +11611,41 @@ def output_project_queue(
                             {
                                 "picked_for_introduction": True,
                                 "project_key": current_item.get("project_key", ""),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                    break
+                if queue_name == "promotion" and lowered == "h":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is None:
+                        print(json.dumps({"warning": "project_not_found"}, ensure_ascii=False))
+                        continue
+                    previous_reason = latest_promotion_deferral_reason(project)
+                    prompt = "Hold reason"
+                    if previous_reason:
+                        prompt += f" [Enter=reuse: {previous_reason}]"
+                    else:
+                        prompt += " [required]"
+                    print(prompt, file=sys.stderr)
+                    try:
+                        reason = input().strip()
+                    except EOFError:
+                        stop_interactive = True
+                        break
+                    if not reason and not previous_reason:
+                        print(json.dumps({"warning": "promotion_deferral_reason_required"}, ensure_ascii=False))
+                        continue
+                    entry = defer_promotion_on_project(project, reason=reason)
+                    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                    conn.commit()
+                    print(
+                        json.dumps(
+                            {
+                                "promotion_deferred": True,
+                                "project_key": current_item.get("project_key", ""),
+                                "reason": entry["reason"],
+                                "expires_at": entry["expires_at"],
                             },
                             ensure_ascii=False,
                         )
@@ -12581,6 +12706,31 @@ def cmd_defer_identifier(args: argparse.Namespace) -> int:
         "source_code_urls": project.get("source_code_urls", []),
         "candidate_source_code_urls": project.get("candidate_source_code_urls", []),
         "input_nsids": project.get("input_nsids", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_defer_promotion(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    project = ensure_project_shape(project)
+    if args.clear:
+        clear_active_promotion_deferrals(project)
+        entry = None
+    else:
+        entry = defer_promotion_on_project(
+            project,
+            reason=str(args.reason or "").strip(),
+            days=int(args.days or DEFAULT_PROMOTION_DEFER_DAYS),
+        )
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "promotion_deferral": entry,
+        "active_promotion_deferral": active_promotion_deferral(project),
+        "promotion_deferrals": project.get("promotion_deferrals", []),
     }, ensure_ascii=False))
     return 0
 
@@ -14163,6 +14313,16 @@ def build_parser() -> argparse.ArgumentParser:
     defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
     defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
     defer_parser.set_defaults(func=cmd_defer_identifier)
+
+    defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue while recording the reason.")
+    defer_promotion_target = defer_promotion_parser.add_mutually_exclusive_group(required=True)
+    defer_promotion_target.add_argument("-p", "--project-key", help="Target one project key.")
+    defer_promotion_target.add_argument("-s", "--seed", help="Target by known seed value.")
+    defer_promotion_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    defer_promotion_parser.add_argument("--days", type=int, default=DEFAULT_PROMOTION_DEFER_DAYS, help="How many days to hide the project from promotion-queue. Default: 7.")
+    defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
+    defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
+    defer_promotion_parser.set_defaults(func=cmd_defer_promotion)
 
     audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
     audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/sources.json before auditing it.")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 import datetime as dt
+import io
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -35,6 +36,20 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertIs(args.func, registry.cmd_defer_identifier)
         self.assertEqual(args.days, 14)
+
+    def test_parser_accepts_defer_promotion_command(self) -> None:
+        args = registry.build_parser().parse_args(
+            [
+                "defer-promotion",
+                "--project-key",
+                "proj:121212121212",
+                "--reason",
+                "中核機能が未実装",
+            ]
+        )
+
+        self.assertIs(args.func, registry.cmd_defer_promotion)
+        self.assertEqual(args.days, 7)
 
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = registry.build_parser()
@@ -185,6 +200,34 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(project["deferred_identifiers"], [])
         self.assertIn("https://example.com", project["service_urls"])
 
+    def test_promotion_deferral_hides_queue_item_until_expiry(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+        project.update({"category": "project", "service_status": "live"})
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+        project["promotion_deferrals"][0]["expires_at"] = (
+            dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+        ).isoformat()
+        self.assertEqual(
+            [signal["kind"] for signal in registry.compute_showcase_signals(project)],
+            ["service_ready_for_introduction"],
+        )
+
+    def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+
+        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+        registry.clear_active_promotion_deferrals(project)
+        entry = registry.defer_promotion_on_project(project)
+
+        self.assertEqual(entry["reason"], "中核機能が未実装")
+        self.assertEqual(len(project["promotion_deferrals"]), 2)
+        self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
+        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "中核機能が未実装")
+
     def test_save_project_splits_scalars_record_and_ops_payloads(self) -> None:
         conn = registry.open_db()
         try:
@@ -202,6 +245,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["technical_interest_level"] = "high"
             project["technical_interest_reasons"] = ["novel_design_pattern"]
             project["technical_interest_summary"] = "新しい設計パターン。"
+            registry.defer_promotion_on_project(project, reason="中核機能が未実装")
 
             registry.save_project(conn, project, enriched=True)
             conn.commit()
@@ -224,6 +268,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["lexicon_scope"], "service_specific")
             self.assertEqual(ops_payload["ops"]["technical_interest_level"], "high")
             self.assertEqual(ops_payload["ops"]["technical_interest_score"], 70)
+            self.assertEqual(ops_payload["ops"]["promotion_deferrals"][0]["reason"], "中核機能が未実装")
             self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
@@ -449,6 +494,44 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             queue = output.call_args.kwargs["queue"]
             self.assertEqual([item["project_key"] for item in queue], ["proj:zzzzzzzzzzzz"])
             self.assertIsNone(output.call_args.kwargs["load_more"])
+        finally:
+            conn.close()
+
+    def test_interactive_promotion_queue_can_hold_item_for_seven_days(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+            project.update({"category": "project", "service_status": "live"})
+            registry.confirm_service_seed(project, "https://example.com", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+            queue = registry.build_showcase_queue(conn, tracking_states={"active"})
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            stdout.isatty = lambda: True
+
+            with (
+                mock.patch.object(registry.sys, "stdout", stdout),
+                mock.patch.object(registry.sys, "stderr", stderr),
+                mock.patch.object(registry.sys.stdin, "isatty", return_value=True),
+                mock.patch("builtins.input", side_effect=["h", "中核機能が未実装"]),
+            ):
+                registry.output_project_queue(
+                    conn,
+                    queue_name="promotion",
+                    queue=queue,
+                    tracking_states={"active"},
+                    kinds=None,
+                    interactive=True,
+                )
+
+            fetched = registry.fetch_project(conn, "proj:promotionhold")
+            active = registry.active_promotion_deferral(fetched)
+            self.assertEqual(active["reason"], "中核機能が未実装")
+            self.assertGreater(
+                registry.parse_iso(active["expires_at"]),
+                dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=6),
+            )
         finally:
             conn.close()
 
