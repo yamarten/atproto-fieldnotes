@@ -116,7 +116,7 @@ URL field は次の 5 層で扱います。
 
 `audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
 
-`migrate-resource-url-records` は既定 dry-run で、旧 `resource_urls` の legacy record 化と保存 payload からの削除を集計します。`--execute` を付けた時だけ `ops_json.evidence` の対象 field を更新します。`cleanup-app-links` も既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。どちらも scalar、review 派生値、`last_seen_at` は更新しません。
+旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
 
 ## enrich の流れ
 

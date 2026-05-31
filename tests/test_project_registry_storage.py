@@ -57,14 +57,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(args.func, registry.cmd_audit_url_fields)
         self.assertEqual(args.example_limit, 3)
 
-    def test_parser_accepts_resource_url_migration_and_cleanup_commands(self) -> None:
+    def test_parser_accepts_cleanup_app_links_command(self) -> None:
         parser = registry.build_parser()
 
-        migration_args = parser.parse_args(["migrate-resource-url-records", "--execute"])
         cleanup_args = parser.parse_args(["cleanup-app-links", "--execute"])
 
-        self.assertIs(migration_args.func, registry.cmd_migrate_resource_url_records)
-        self.assertTrue(migration_args.execute)
         self.assertIs(cleanup_args.func, registry.cmd_cleanup_app_links)
         self.assertTrue(cleanup_args.execute)
 
@@ -304,65 +301,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
             self.assertEqual(fetched["resource_urls"], ["https://example.com/docs"])
-        finally:
-            conn.close()
-
-    def test_migrate_resource_url_records_is_dry_run_by_default_and_removes_stored_compat_field(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:resourcebulk", "service_url", "https://example.com")
-            registry.save_project(conn, project)
-            row = conn.execute(
-                "SELECT ops_json FROM projects WHERE project_key = ?",
-                ("proj:resourcebulk",),
-            ).fetchone()
-            ops_payload = json.loads(row["ops_json"])
-            ops_payload.setdefault("evidence", {})["resource_urls"] = [
-                "https://example.com/docs",
-                "https://example.com/blog",
-            ]
-            conn.execute(
-                "UPDATE projects SET ops_json = ? WHERE project_key = ?",
-                (json.dumps(ops_payload), "proj:resourcebulk"),
-            )
-            conn.commit()
-
-            dry_run = registry.migrate_resource_url_records(conn)
-            unchanged = json.loads(
-                conn.execute(
-                    "SELECT ops_json FROM projects WHERE project_key = ?",
-                    ("proj:resourcebulk",),
-                ).fetchone()["ops_json"]
-            )
-
-            self.assertEqual(dry_run["mode"], "dry_run")
-            self.assertEqual(dry_run["changed_project_count"], 1)
-            self.assertIn("resource_urls", unchanged["evidence"])
-
-            executed = registry.migrate_resource_url_records(conn, execute=True)
-            migrated = json.loads(
-                conn.execute(
-                    "SELECT ops_json FROM projects WHERE project_key = ?",
-                    ("proj:resourcebulk",),
-                ).fetchone()["ops_json"]
-            )
-
-            self.assertEqual(executed["mode"], "execute")
-            self.assertNotIn("resource_urls", migrated["evidence"])
-            self.assertEqual(
-                [record["url"] for record in migrated["evidence"]["resource_url_records"]],
-                ["https://example.com/docs", "https://example.com/blog"],
-            )
-            self.assertTrue(
-                all(
-                    record["confidence"] == "legacy"
-                    for record in migrated["evidence"]["resource_url_records"]
-                )
-            )
-            self.assertEqual(
-                registry.migrate_resource_url_records(conn, execute=True)["changed_project_count"],
-                0,
-            )
         finally:
             conn.close()
 

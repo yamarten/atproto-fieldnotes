@@ -190,16 +190,14 @@ URL field の利用数、alias 重複、保存済み invariant 違反を読み�
 python3 scripts/project_registry.py audit-url-fields
 ```
 
-旧 `resource_urls` を structured record へ移し、保存 payload から compatibility field を外す場合:
+保存済み `record_json.app.links` を正本から再構築する場合:
 
 ```bash
-python3 scripts/project_registry.py migrate-resource-url-records
-python3 scripts/project_registry.py migrate-resource-url-records --execute
 python3 scripts/project_registry.py cleanup-app-links
 python3 scripts/project_registry.py cleanup-app-links --execute
 ```
 
-どちらも既定は dry-run です。先に migration を実行し、その後で stale な `record_json.app.links` を正本から再構築します。
+既定は dry-run です。URL heuristic を変更した後などに、stale な link を整理できます。
 
 collection inventory APIから直接同期:
 

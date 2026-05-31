@@ -487,23 +487,14 @@ python3 scripts/project_registry.py audit-url-fields --example-limit 5
 
 このコマンドは DB を更新しません。`website_url_candidates`、`github_repo_urls`、`tangled_repo_urls` などの compatibility view を縮退させる前に、実 DB の分布と caller 移行の影響を確認するために使います。
 
-旧 `resource_urls` を `resource_url_records` へ lossless に移し、保存 payload から旧 field を外す場合:
-
-```bash
-python3 scripts/project_registry.py migrate-resource-url-records
-python3 scripts/project_registry.py migrate-resource-url-records --execute
-```
-
-既定は dry-run です。legacy URL は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として保持します。過去の取得日時や取得元は旧形式に存在しないため復元しません。今後の enrich で同じ URL を confirmed observation として取得した場合は legacy record を畳みます。
-
-移行後、保存済み `record_json.app.links` を正本から再構築する場合:
+保存済み `record_json.app.links` を正本から再構築する場合:
 
 ```bash
 python3 scripts/project_registry.py cleanup-app-links
 python3 scripts/project_registry.py cleanup-app-links --execute
 ```
 
-こちらも既定は dry-run です。全削除ではなく、`website_url`、`source_code_url(s)`、`service_urls`、confirmed な `resource_url_records` から再構築します。
+既定は dry-run です。全削除ではなく、`website_url`、`source_code_url(s)`、`service_urls`、confirmed な `resource_url_records` から再構築します。
 
 適用する場合:
 
