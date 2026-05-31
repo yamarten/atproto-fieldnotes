@@ -304,6 +304,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "resource_urls",
         "service_url_candidates",
         "failed_service_urls",
+        "supported_service_urls",
         "source_code_urls",
         "candidate_source_code_urls",
         "github_repo_urls",
@@ -378,6 +379,7 @@ MAPPED_LEGACY_FIELDS = {
     "resource_urls",
     "service_url_candidates",
     "failed_service_urls",
+    "supported_service_urls",
     "service_status",
     "service_status_confidence",
     "service_status_evidence",
@@ -876,6 +878,11 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
         if normalize_nsid(str(item or ""))
     }
     guesses: set[str] = set()
+    supported_urls = {
+        normalize_url(str(item or ""))
+        for item in project.get("supported_service_urls", [])
+        if normalize_url(str(item or ""))
+    }
     for raw_nsid in project.get("input_nsids", []):
         nsid = normalize_nsid(str(raw_nsid or ""))
         if not nsid or nsid in resolved_nsids:
@@ -885,7 +892,11 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             continue
         if authority_service_candidates_allowed(project, authority_domain, verified=False):
             continue
-        guesses.update(candidate_service_origins_for_authority_domain(authority_domain))
+        guesses.update(
+            candidate_url
+            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain)
+            if normalize_url(candidate_url) not in supported_urls
+        )
     return guesses
 
 
@@ -1107,6 +1118,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "resource_urls": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
+        "supported_service_urls": [],
         "service_status": "unknown",
         "service_status_confidence": "none",
         "service_status_evidence": [],
@@ -1401,6 +1413,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         + compute_external_lexicons(defaults)
     )
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
+    defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
     return apply_atproto_contribution_state(defaults)
 
@@ -2501,6 +2514,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["resource_urls"] = unique_list(project.get("resource_urls", []))
     project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
+    project["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in project.get("supported_service_urls", []) if normalize_url(str(item))])
     project["service_status"] = normalize_service_status(project.get("service_status"))
     project["service_status_confidence"] = normalize_service_status_confidence(project.get("service_status_confidence"))
     project["service_status_evidence"] = unique_list([str(item).strip() for item in project.get("service_status_evidence", []) if str(item).strip()])
@@ -2812,6 +2826,7 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
         project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) not in blocked_services]
 
     if blocked_repos:
@@ -2867,6 +2882,7 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
         project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) != normalized]
         project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) != normalized]
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) != normalized]
+        project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) != normalized]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) != normalized]
     elif identifier_type == "repo_url":
         if canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
@@ -7591,6 +7607,13 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
     apply_service_probe_redirect_final_url(project, normalized_service_url, result)
     if 0 < result["status_code"] < 400:
+        if supported:
+            project["supported_service_urls"] = add_unique(project.get("supported_service_urls", []), canonical_service_url)
+        else:
+            project["supported_service_urls"] = [
+                item for item in project.get("supported_service_urls", [])
+                if normalize_url(str(item or "")) != canonical_service_url
+            ]
         if supported and service_url_auto_confirmable(project, canonical_service_url):
             confirm_service_url(project, canonical_service_url)
         elif supported:
@@ -7599,6 +7622,10 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         else:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
     elif result["status_code"] >= 400 or result.get("fetch_error"):
+        project["supported_service_urls"] = [
+            item for item in project.get("supported_service_urls", [])
+            if normalize_url(str(item or "")) != normalized_service_url
+        ]
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
         parsed = urllib.parse.urlparse(url)
@@ -7988,6 +8015,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "resource_urls": project.get("resource_urls", []),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
+        "supported_service_urls": project.get("supported_service_urls", []),
         "service_status_hint": project.get("service_status") or "unknown",
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
@@ -10539,6 +10567,7 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
     merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
+    merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
     merged["service_status_confidence"] = merge_service_status_confidence(
         str(merged.get("service_status_confidence") or "none"),

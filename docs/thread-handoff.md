@@ -53,6 +53,7 @@
 - `NSID` ownership 判定は直近で一段強化した
   - authority domain 由来の service URL は、即 candidate 化せずまず probe だけする
   - probe が `supported` を通った時だけ `website_url_candidates` / `service_url_candidates` に残す
+  - supported URL は `supported_service_urls` に URL 単位で保存し、guess prune から除外する
   - unsupported な authority probe からは `service_title` を `name` 候補へ入れない
   - `developer_accounts` は confirmed 専用、service/search 由来は `candidate_developer_accounts` に分離した
   - `project_owned_lexicon_nsid()` は次を優先して `owned` 判定する

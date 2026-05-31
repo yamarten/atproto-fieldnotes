@@ -138,6 +138,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
     - まず probe する
     - `service_probe_supports_project()` を通った時だけ candidate に残す
     - unsupported なら候補化しない
+    - supported だった URL は `supported_service_urls` に URL 単位で保存し、後段の guess prune で消さない
 
 ### 2. GitHub repo から取るもの
 
@@ -201,6 +202,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - その URL は project から外します
 - `4xx` / fetch error は:
   - `failed_service_urls` に残します
+- probe が project を支持し、HTTP が成功した時:
+  - `supported_service_urls` に URL 単位で残します
+  - NSID authority から推測した registrable root でも、後段 prune で未検証 guess として消しません
 
 ### 3.2 `developer_accounts` の confirmed / candidate
 

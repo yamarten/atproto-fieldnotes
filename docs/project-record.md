@@ -178,6 +178,7 @@ review / merge / 紹介運用の制御情報です。
 - `source_code_urls`
 - `service_url_candidates`
 - `failed_service_urls`
+- `supported_service_urls`
 - `candidate_source_code_urls`
 - `source_repo_records`
 - `github_repo_urls`

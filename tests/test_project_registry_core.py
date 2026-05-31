@@ -429,6 +429,60 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertIn("https://www.example.com", project["website_url_candidates"])
 
 
+class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
+    def probe_result(self, html: str) -> dict:
+        return {
+            "requested_url": "https://tz2at.xyz",
+            "final_url": "https://tz2at.xyz",
+            "redirected": False,
+            "redirect_same_host": False,
+            "redirect_same_site_family": False,
+            "redirect_http_to_https": False,
+            "redirect_https_to_http": False,
+            "redirect_cross_host": False,
+            "status_code": 200,
+            "title": "TZ2AT",
+            "description": "",
+            "urls": [],
+            "links": [],
+            "html": html,
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+            "fetch_error": "",
+        }
+
+    def test_supported_authority_root_survives_unverified_guess_prune(self) -> None:
+        project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
+        project["primary_nsid"] = "xyz.tz2at.raw.observation"
+        project["input_nsids"] = ["xyz.tz2at.raw.observation"]
+        project["authority_domains"] = ["raw.tz2at.xyz"]
+
+        registry.apply_service_probe_result(
+            project,
+            "https://tz2at.xyz",
+            self.probe_result("TZ2AT app for xyz.tz2at.raw.observation"),
+        )
+        project = registry.finalize_project_shape(project)
+
+        retained_urls = set(project["service_urls"]) | set(project["service_url_candidates"]) | set(project["website_url_candidates"])
+        self.assertIn("https://tz2at.xyz", project["supported_service_urls"])
+        self.assertIn("https://tz2at.xyz", retained_urls)
+
+    def test_unsupported_authority_root_is_still_pruned(self) -> None:
+        project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
+        project["primary_nsid"] = "xyz.tz2at.raw.observation"
+        project["input_nsids"] = ["xyz.tz2at.raw.observation"]
+        project["authority_domains"] = ["raw.tz2at.xyz"]
+        project["service_url_candidates"] = ["https://tz2at.xyz"]
+        project["website_url_candidates"] = ["https://tz2at.xyz"]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://tz2at.xyz", project["service_url_candidates"])
+        self.assertNotIn("https://tz2at.xyz", project["website_url_candidates"])
+
+
 class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_parse_chat_completion_message_content(self) -> None:
         payload = {"choices": [{"message": {"content": "chat text"}}]}

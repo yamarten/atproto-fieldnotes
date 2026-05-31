@@ -99,6 +99,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["name_candidates"] = [{"value": "Example App", "source": "service_title:https://example.com"}]
             project["service_status_confidence"] = "medium"
             project["service_status_evidence"] = ["http_200", "login_surface_detected"]
+            project["supported_service_urls"] = ["https://example.com"]
             project["resolved_nsids"] = ["app.example.post"]
 
             registry.save_project(conn, project, enriched=True)
@@ -119,6 +120,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["service_status_confidence"], "medium")
             self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "core")
             self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 90)
+            self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
