@@ -189,7 +189,7 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 - `sync-github-search`
 - `sync-semble-collections`
 
-既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
+既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
 
@@ -235,20 +235,23 @@ python3 scripts/project_registry.py import-seed-list tmpdata.txt --execute
 
 ```bash
 python3 scripts/project_registry.py sync-collections
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched
+python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
 ```
 
 このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。`min` が直近 `10` 日以内の未知collectionだけを対象にします。
 一方で、既知 collection の activity 情報自体は毎回見直します。`count` / `recent_count` / `max` を既存 project の `collection_observations` に反映するので、最近 record が流れている stalled project を active に戻す判断にも使えます。
 
-また、sync/import 時の既存 project への自動ひも付けは conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、`suggested_project_key` として提案だけ残します。
+未知候補は既定で新規 project にします。棚卸しだけ行い DB 候補を増やしたくない場合は
+`--no-create-unmatched` を付けます。また、sync/import 時の既存 project への自動ひも付けは
+conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、
+`suggested_project_key` として提案だけ残します。
 
 週次運用向けに、必要ならlookbackを調整できます:
 
 ```bash
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched --lookback-days 10
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched --lookback-days 14
+python3 scripts/project_registry.py sync-collections --execute --lookback-days 10
+python3 scripts/project_registry.py sync-collections --execute --lookback-days 14
 ```
 
 必要なら取得したJSON payloadを保存できます:
@@ -263,7 +266,7 @@ python3 scripts/project_registry.py sync-collections --save-path data/collection
 
 ```bash
 python3 scripts/project_registry.py sync-github-search
-python3 scripts/project_registry.py sync-github-search --execute --create-unmatched
+python3 scripts/project_registry.py sync-github-search --execute
 python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
@@ -272,7 +275,7 @@ python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT p
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
 ```bash
-python3 scripts/project_registry.py sync-github-search --execute --create-unmatched --lookback-days 10
+python3 scripts/project_registry.py sync-github-search --execute --lookback-days 10
 python3 scripts/project_registry.py sync-github-search --pages 3 --per-page 100
 ```
 
@@ -281,7 +284,6 @@ python3 scripts/project_registry.py sync-github-search --pages 3 --per-page 100
 ```bash
 python3 scripts/project_registry.py sync-github-search \
   --all-history \
-  --create-unmatched \
   --screen-unmatched \
   --pages 10 \
   --per-page 100

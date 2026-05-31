@@ -514,7 +514,7 @@ INDEX_HTML = r"""<!doctype html>
       syncPages: 1,
       syncPerPage: 20,
       syncLookbackDays: 10,
-      syncCreateUnmatched: false,
+      syncCreateUnmatched: true,
       syncScreenUnmatched: false,
       syncAllHistory: false,
       reviewOpsKind: "stalled",
@@ -2421,7 +2421,7 @@ def sync_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": kind,
         "execute": bool(payload.get("execute")),
-        "create_unmatched": bool(payload.get("create_unmatched")),
+        "create_unmatched": bool(payload.get("create_unmatched", True)),
         "screen_unmatched": bool(payload.get("screen_unmatched")),
         "all_history": bool(payload.get("all_history")),
         "query": str(payload.get("query") or "").strip(),

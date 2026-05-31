@@ -28,6 +28,8 @@
   - `merge --execute`
   - `merge-batch --execute`
   - DB への直接 SQL 更新
+- `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
+  - 棚卸しだけ行う場合は `--no-create-unmatched`
 - GUI で DB を触った後は `repair-db` を回す
 
 ## 現在の主要レーン

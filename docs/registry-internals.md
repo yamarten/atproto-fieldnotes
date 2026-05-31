@@ -507,6 +507,10 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ## sync の判断材料
 
+`sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が
+既定 ON です。候補を作らず `unmatched_entries` の棚卸しだけ行う場合は `--no-create-unmatched`
+を付けます。`sync-introduced` は紹介済み判定専用なので、新規 project を作りません。
+
 ### `sync-introduced`
 
 - 入力は Bluesky post search の結果です

@@ -8,6 +8,13 @@ from helpers import TempRegistryDbTestCase, registry
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_sync_parsers_create_unmatched_by_default_with_opt_out(self) -> None:
+        parser = registry.build_parser()
+
+        for command in ("sync-collections", "sync-github-search", "sync-semble-collections"):
+            self.assertTrue(parser.parse_args([command]).create_unmatched)
+            self.assertFalse(parser.parse_args([command, "--no-create-unmatched"]).create_unmatched)
+
     def test_parser_accepts_defer_identifier_command(self) -> None:
         args = registry.build_parser().parse_args(
             [
