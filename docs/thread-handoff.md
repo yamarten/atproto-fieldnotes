@@ -179,14 +179,16 @@
   - repo/readme/profile 由来の confirmed 条件をもう少し増やせる
 - `resource_urls` の運用整理
   - `resource_url_records` は追加済み。`url / role / source / observed_at / confidence` を持つ
-  - 新規 enrich は records を正本として書き、`resource_urls` は compatibility view として導出する
+  - 新規 enrich は records を正本として書き、`resource_urls` は runtime compatibility view として導出する。新規保存 payload には書かない
   - 既存 `resource_urls` は shape 時に legacy record として lossless に読める
-  - 実 DB への一括保存 migration と caller の derive-only 移行は未接続
+  - enrich で同じ URL の confirmed observation が得られたら legacy record は畳む
+  - `migrate-resource-url-records` と `cleanup-app-links` は追加済み。実 DB への `--execute` は未実行
+  - runtime caller の compatibility view 縮退は未接続
 - URL field の棚卸し
   - `audit-url-fields` は追加済み。raw 保存 payload を読み、field 件数、alias 重複、invariant 違反を読み取り専用で報告する
   - `website_url_candidates` は `service_url_candidates` の legacy alias
   - `github_repo_urls` / `tangled_repo_urls` は provider 別 compatibility view
-  - caller 移行、derive-only 化、実 DB の `resource_url_records` 一括保存 migration は未接続
+  - runtime caller 移行と compatibility view の縮退、実 DB への migration / cleanup 適用は未実行
 
 ## `project_registry.py` の重要ポイント
 

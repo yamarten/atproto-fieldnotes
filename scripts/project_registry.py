@@ -364,7 +364,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "tagline_candidates",
         "website_url_candidates",
         "service_urls",
-        "resource_urls",
         "resource_url_records",
         "service_url_candidates",
         "failed_service_urls",
@@ -760,8 +759,8 @@ def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
     return ""
 
 
-def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
-    links = normalize_app_links(list(project.get("links", []) or []))
+def build_project_app_links(project: dict[str, Any], *, include_existing: bool = True) -> list[dict[str, Any]]:
+    links = normalize_app_links(list(project.get("links", []) or [])) if include_existing else []
 
     website_url = normalize_url(str(project.get("website_url") or ""))
     if website_url:
@@ -2107,7 +2106,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "migration_candidates": [
             "derive_or_drop website_url_candidates after callers use service_url_candidates",
             "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
-            "persist legacy resource_urls as resource_url_records after dry-run size review, then make resource_urls derive-only",
+            "run migrate-resource-url-records after dry-run review, then shrink runtime resource_urls compatibility callers",
         ],
     }
 
@@ -4952,7 +4951,16 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
                 "confidence": confidence,
             }
         )
-    return output
+    confirmed_urls = {
+        record["url"]
+        for record in output
+        if record["confidence"] == "confirmed"
+    }
+    return [
+        record
+        for record in output
+        if record["confidence"] != "legacy" or record["url"] not in confirmed_urls
+    ]
 
 
 def sync_resource_url_records(project: dict[str, Any]) -> None:
@@ -12817,6 +12825,195 @@ def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     return 0
 
 
+def migrate_resource_url_records(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
+    rows = conn.execute("SELECT project_key, ops_json FROM projects ORDER BY project_key ASC").fetchall()
+    changed_projects = 0
+    resource_urls_removed = 0
+    legacy_records_added = 0
+    legacy_records_collapsed = 0
+    before_bytes = 0
+    after_bytes = 0
+    largest_changes: list[dict[str, Any]] = []
+
+    for row in rows:
+        project_key = str(row["project_key"])
+        original_text = str(row["ops_json"] or "{}")
+        ops_payload = load_json(original_text) or {}
+        if not isinstance(ops_payload, dict):
+            raise ValueError(f"ops_json must be an object: {project_key}")
+        evidence = dict(ops_payload.get("evidence") or {})
+        raw_resource_urls = list(evidence.pop("resource_urls", []) or [])
+        raw_resource_urls += list(ops_payload.pop("resource_urls", []) or [])
+        before_records = normalize_resource_url_records(
+            list(evidence.get("resource_url_records", []) or [])
+            + list(ops_payload.pop("resource_url_records", []) or [])
+        )
+        confirmed_urls = {
+            record["url"]
+            for record in before_records
+            if record["confidence"] == "confirmed"
+        }
+        records = list(before_records)
+        recorded_urls = {record["url"] for record in records}
+        for url in unique_list(
+            [
+                normalized
+                for item in raw_resource_urls
+                if (normalized := normalize_url(str(item)))
+            ]
+        ):
+            if url in recorded_urls:
+                continue
+            records.append(
+                {
+                    "url": url,
+                    "role": "unknown",
+                    "source": "legacy_resource_urls",
+                    "observed_at": "",
+                    "confidence": "legacy",
+                }
+            )
+            recorded_urls.add(url)
+            legacy_records_added += 1
+        normalized_records = normalize_resource_url_records(records)
+        legacy_records_collapsed += sum(
+            1
+            for record in records
+            if record["confidence"] == "legacy" and record["url"] in confirmed_urls
+        )
+        if normalized_records:
+            evidence["resource_url_records"] = normalized_records
+        else:
+            evidence.pop("resource_url_records", None)
+        if evidence:
+            ops_payload["evidence"] = evidence
+        else:
+            ops_payload.pop("evidence", None)
+
+        updated_text = dump_json(ops_payload, sort_keys=False)
+        original_bytes = len(original_text.encode("utf-8"))
+        updated_bytes = len(updated_text.encode("utf-8"))
+        before_bytes += original_bytes
+        after_bytes += updated_bytes
+        if updated_text == original_text:
+            continue
+        changed_projects += 1
+        resource_urls_removed += len(raw_resource_urls)
+        largest_changes.append(
+            {
+                "project_key": project_key,
+                "before_bytes": original_bytes,
+                "after_bytes": updated_bytes,
+                "delta_bytes": updated_bytes - original_bytes,
+                "resource_url_count": len(raw_resource_urls),
+                "resource_url_record_count": len(normalized_records),
+            }
+        )
+        if execute:
+            conn.execute(
+                "UPDATE projects SET ops_json = ? WHERE project_key = ?",
+                (updated_text, project_key),
+            )
+    if execute:
+        conn.commit()
+    largest_changes.sort(key=lambda item: (-int(item["delta_bytes"]), str(item["project_key"])))
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": changed_projects,
+        "resource_url_value_count_removed": resource_urls_removed,
+        "legacy_record_count_added": legacy_records_added,
+        "legacy_record_count_collapsed": legacy_records_collapsed,
+        "ops_json_bytes_before": before_bytes,
+        "ops_json_bytes_after": after_bytes,
+        "ops_json_bytes_delta": after_bytes - before_bytes,
+        "largest_changes": largest_changes[:20],
+    }
+
+
+def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    changed_projects = 0
+    links_before = 0
+    links_after = 0
+    removed_links = 0
+    added_links = 0
+    examples: list[dict[str, Any]] = []
+
+    for row in rows:
+        project_key = str(row["project_key"])
+        record_payload = load_json(str(row["record_json"] or "{}")) or {}
+        if not isinstance(record_payload, dict):
+            raise ValueError(f"record_json must be an object: {project_key}")
+        project = project_from_row(row)
+        existing_links = normalize_app_links(list(project.get("links", []) or []))
+        rebuilt_links = build_project_app_links(project, include_existing=False)
+        links_before += len(existing_links)
+        links_after += len(rebuilt_links)
+        existing_keys = {(link["uri"], link["role"]) for link in existing_links}
+        rebuilt_keys = {(link["uri"], link["role"]) for link in rebuilt_links}
+        removed = sorted(existing_keys - rebuilt_keys)
+        added = sorted(rebuilt_keys - existing_keys)
+        if not removed and not added:
+            continue
+        changed_projects += 1
+        removed_links += len(removed)
+        added_links += len(added)
+        if len(examples) < 20:
+            examples.append(
+                {
+                    "project_key": project_key,
+                    "removed_count": len(removed),
+                    "removed": [{"uri": uri, "role": role} for uri, role in removed[:20]],
+                    "added_count": len(added),
+                    "added": [{"uri": uri, "role": role} for uri, role in added[:20]],
+                }
+            )
+        app = dict(record_payload.get("app") or {})
+        if rebuilt_links:
+            app["links"] = rebuilt_links
+        else:
+            app.pop("links", None)
+        record_payload["app"] = app
+        if execute:
+            conn.execute(
+                "UPDATE projects SET record_json = ? WHERE project_key = ?",
+                (dump_json(record_payload, sort_keys=False), project_key),
+            )
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": changed_projects,
+        "link_count_before": links_before,
+        "link_count_after": links_after,
+        "removed_link_count": removed_links,
+        "added_link_count": added_links,
+        "examples": examples,
+    }
+
+
+def cmd_migrate_resource_url_records(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = migrate_resource_url_records(conn, execute=bool(args.execute))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = cleanup_project_app_links(conn, execute=bool(args.execute))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_set_separate(args: argparse.Namespace) -> int:
     conn = open_db()
     project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
@@ -14497,6 +14694,14 @@ def build_parser() -> argparse.ArgumentParser:
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
     audit_url_parser.set_defaults(func=cmd_audit_url_fields)
+
+    migrate_resource_urls_parser = subparsers.add_parser("migrate-resource-url-records", help="Persist legacy resource_urls as structured records and remove the stored compatibility field.")
+    migrate_resource_urls_parser.add_argument("--execute", action="store_true", help="Apply ops_json updates. Without this flag, show a dry-run summary only.")
+    migrate_resource_urls_parser.set_defaults(func=cmd_migrate_resource_url_records)
+
+    cleanup_app_links_parser = subparsers.add_parser("cleanup-app-links", help="Rebuild stored app.links from canonical URL fields and confirmed resource records.")
+    cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply record_json updates. Without this flag, show a dry-run summary only.")
+    cleanup_app_links_parser.set_defaults(func=cmd_cleanup_app_links)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)

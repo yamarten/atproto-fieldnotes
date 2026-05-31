@@ -530,6 +530,32 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertEqual(registry.build_project_app_links(project), [])
 
+    def test_confirmed_resource_record_replaces_legacy_record_for_same_url(self) -> None:
+        project = registry.default_project_record("proj:resourcepromote", "service_url", "https://example.com")
+        project["resource_urls"] = ["https://example.com/docs"]
+        project = registry.ensure_project_shape(project)
+
+        registry.add_resource_url(
+            project,
+            "https://example.com/docs",
+            role="docs",
+            source="service_page:https://example.com",
+            confidence="confirmed",
+        )
+
+        self.assertEqual(
+            project["resource_url_records"],
+            [
+                {
+                    "url": "https://example.com/docs",
+                    "role": "docs",
+                    "source": "service_page:https://example.com",
+                    "observed_at": project["resource_url_records"][0]["observed_at"],
+                    "confidence": "confirmed",
+                }
+            ],
+        )
+
     def test_first_party_link_collection_records_same_site_docs_as_confirmed(self) -> None:
         project = registry.default_project_record("proj:resourcefirstparty", "service_url", "https://example.com")
 

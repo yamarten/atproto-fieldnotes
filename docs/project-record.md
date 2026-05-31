@@ -258,7 +258,7 @@ URL は role、confidence、observation state を分けて扱います。現行 
 - `record_json.app.links`
   - export 用の role 付き view
 
-`resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。
+`resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が得られたら legacy record は畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。
 
 derived compatibility view は通常導線でまだ参照されています。現時点では保存を止めません。caller を正本へ寄せてから derive-only または削除へ移します。
 

@@ -57,6 +57,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(args.func, registry.cmd_audit_url_fields)
         self.assertEqual(args.example_limit, 3)
 
+    def test_parser_accepts_resource_url_migration_and_cleanup_commands(self) -> None:
+        parser = registry.build_parser()
+
+        migration_args = parser.parse_args(["migrate-resource-url-records", "--execute"])
+        cleanup_args = parser.parse_args(["cleanup-app-links", "--execute"])
+
+        self.assertIs(migration_args.func, registry.cmd_migrate_resource_url_records)
+        self.assertTrue(migration_args.execute)
+        self.assertIs(cleanup_args.func, registry.cmd_cleanup_app_links)
+        self.assertTrue(cleanup_args.execute)
+
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = registry.build_parser()
 
@@ -284,6 +295,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["promotion_deferrals"][0]["reason"], "中核機能が未実装")
             self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
             self.assertEqual(ops_payload["evidence"]["resource_url_records"][0]["role"], "docs")
+            self.assertNotIn("resource_urls", ops_payload["evidence"])
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
@@ -292,6 +304,107 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
             self.assertEqual(fetched["resource_urls"], ["https://example.com/docs"])
+        finally:
+            conn.close()
+
+    def test_migrate_resource_url_records_is_dry_run_by_default_and_removes_stored_compat_field(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:resourcebulk", "service_url", "https://example.com")
+            registry.save_project(conn, project)
+            row = conn.execute(
+                "SELECT ops_json FROM projects WHERE project_key = ?",
+                ("proj:resourcebulk",),
+            ).fetchone()
+            ops_payload = json.loads(row["ops_json"])
+            ops_payload.setdefault("evidence", {})["resource_urls"] = [
+                "https://example.com/docs",
+                "https://example.com/blog",
+            ]
+            conn.execute(
+                "UPDATE projects SET ops_json = ? WHERE project_key = ?",
+                (json.dumps(ops_payload), "proj:resourcebulk"),
+            )
+            conn.commit()
+
+            dry_run = registry.migrate_resource_url_records(conn)
+            unchanged = json.loads(
+                conn.execute(
+                    "SELECT ops_json FROM projects WHERE project_key = ?",
+                    ("proj:resourcebulk",),
+                ).fetchone()["ops_json"]
+            )
+
+            self.assertEqual(dry_run["mode"], "dry_run")
+            self.assertEqual(dry_run["changed_project_count"], 1)
+            self.assertIn("resource_urls", unchanged["evidence"])
+
+            executed = registry.migrate_resource_url_records(conn, execute=True)
+            migrated = json.loads(
+                conn.execute(
+                    "SELECT ops_json FROM projects WHERE project_key = ?",
+                    ("proj:resourcebulk",),
+                ).fetchone()["ops_json"]
+            )
+
+            self.assertEqual(executed["mode"], "execute")
+            self.assertNotIn("resource_urls", migrated["evidence"])
+            self.assertEqual(
+                [record["url"] for record in migrated["evidence"]["resource_url_records"]],
+                ["https://example.com/docs", "https://example.com/blog"],
+            )
+            self.assertTrue(
+                all(
+                    record["confidence"] == "legacy"
+                    for record in migrated["evidence"]["resource_url_records"]
+                )
+            )
+            self.assertEqual(
+                registry.migrate_resource_url_records(conn, execute=True)["changed_project_count"],
+                0,
+            )
+        finally:
+            conn.close()
+
+    def test_cleanup_project_app_links_rebuilds_only_from_canonical_sources(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:applinkcleanup", "service_url", "https://example.com")
+            project["website_url"] = "https://example.com"
+            project["service_urls"] = ["https://example.com"]
+            project["links"] = [
+                {"uri": "https://example.com", "role": "website", "official": True},
+                {"uri": "https://example.com/old-docs", "role": "docs", "official": True},
+            ]
+            registry.add_resource_url(
+                project,
+                "https://example.com/docs",
+                role="docs",
+                source="service_page:https://example.com",
+                confidence="confirmed",
+            )
+            registry.save_project(conn, project)
+
+            dry_run = registry.cleanup_project_app_links(conn)
+            stored_before = registry.fetch_project(conn, "proj:applinkcleanup")
+            self.assertEqual(dry_run["mode"], "dry_run")
+            self.assertEqual(dry_run["removed_link_count"], 1)
+            self.assertEqual(len(stored_before["links"]), 3)
+
+            executed = registry.cleanup_project_app_links(conn, execute=True)
+            stored_after = registry.fetch_project(conn, "proj:applinkcleanup")
+            self.assertEqual(executed["mode"], "execute")
+            self.assertEqual(
+                stored_after["links"],
+                [
+                    {"uri": "https://example.com", "role": "website", "official": True},
+                    {"uri": "https://example.com/docs", "role": "docs", "official": True},
+                ],
+            )
+            self.assertEqual(
+                registry.cleanup_project_app_links(conn, execute=True)["changed_project_count"],
+                0,
+            )
         finally:
             conn.close()
 
