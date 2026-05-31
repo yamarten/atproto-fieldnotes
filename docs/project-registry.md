@@ -36,6 +36,28 @@ pip install -r requirements.txt
 
 PSL に載っていない hosted suffix を追加したい場合は、[config/sources.json](../config/sources.json) の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。
 
+既存 DB を追加後の基準で確認しながら追記する場合:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com
+```
+
+このコマンドは既定で interactive です。suffix が未登録なら `sources.json` への追記を確認し、追加後の family 基準で `split_suggestions` を表示します。各 suggestion には tenant ごとの service URL / NSID、曖昧な repo、仮分割後の merge candidate、既存 `split-project` の dry-run コマンドが含まれます。
+
+JSON dry-run のみ:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com --no-interactive
+```
+
+確認なしで suffix 追記まで行う場合:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com --execute --no-interactive
+```
+
+interactive では tenant group の番号を選んだ場合だけ、その group の service URL / NSID を 1 つの新 project へまとめて切り出します。元 project には block と `set-separate` 相当の相互分離を残します。`--execute --no-interactive` では split を自動適用しません。共有 repo、共有 lexicon、URL 移転などの例外があるため、分割は常に suggestion 確認後に行います。
+
 ## zsh補完
 
 wrapper の [bin/project-registry](../bin/project-registry) と zsh completion の [completions/_project-registry](../completions/_project-registry) を使えます。
@@ -214,6 +236,8 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 
 補助情報として `blocked_identifiers` と `separate_project_keys` は `Guards` に折り畳み表示します。`Clear` は guard record だけを外す操作で、identifier を自動で再付与したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
 
+`deferred_identifiers` の Web UI 操作は未接続です。将来は confirmed/candidate row に `Defer 30d`、`Guards` に期限と `Clear defer` を追加する想定です。
+
 `Sync` タブでは、次の CLI 相当の処理を background job として開始できます。
 
 - `sync-introduced`
@@ -221,7 +245,7 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 - `sync-github-search`
 - `sync-semble-collections`
 
-既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
+既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
 
@@ -267,20 +291,23 @@ python3 scripts/project_registry.py import-seed-list tmpdata.txt --execute
 
 ```bash
 python3 scripts/project_registry.py sync-collections
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched
+python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
 ```
 
 このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。`min` が直近 `10` 日以内の未知collectionだけを対象にします。
 一方で、既知 collection の activity 情報自体は毎回見直します。`count` / `recent_count` / `max` を既存 project の `collection_observations` に反映するので、最近 record が流れている stalled project を active に戻す判断にも使えます。
 
-また、sync/import 時の既存 project への自動ひも付けは conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、`suggested_project_key` として提案だけ残します。
+未知候補は既定で新規 project にします。棚卸しだけ行い DB 候補を増やしたくない場合は
+`--no-create-unmatched` を付けます。また、sync/import 時の既存 project への自動ひも付けは
+conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、
+`suggested_project_key` として提案だけ残します。
 
 週次運用向けに、必要ならlookbackを調整できます:
 
 ```bash
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched --lookback-days 10
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched --lookback-days 14
+python3 scripts/project_registry.py sync-collections --execute --lookback-days 10
+python3 scripts/project_registry.py sync-collections --execute --lookback-days 14
 ```
 
 必要なら取得したJSON payloadを保存できます:
@@ -295,7 +322,7 @@ python3 scripts/project_registry.py sync-collections --save-path data/collection
 
 ```bash
 python3 scripts/project_registry.py sync-github-search
-python3 scripts/project_registry.py sync-github-search --execute --create-unmatched
+python3 scripts/project_registry.py sync-github-search --execute
 python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
@@ -304,7 +331,7 @@ python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT p
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
 ```bash
-python3 scripts/project_registry.py sync-github-search --execute --create-unmatched --lookback-days 10
+python3 scripts/project_registry.py sync-github-search --execute --lookback-days 10
 python3 scripts/project_registry.py sync-github-search --pages 3 --per-page 100
 ```
 
@@ -313,7 +340,6 @@ python3 scripts/project_registry.py sync-github-search --pages 3 --per-page 100
 ```bash
 python3 scripts/project_registry.py sync-github-search \
   --all-history \
-  --create-unmatched \
   --screen-unmatched \
   --pages 10 \
   --per-page 100
@@ -450,16 +476,59 @@ python3 scripts/project_registry.py promotion-queue --include-personal-tools
 python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_introduction --interactive
 ```
 
-signal は今のところ 2 種類です。
+signal は今のところ 3 種類です。
 
 - `service_ready_for_introduction`
   - 既定では `category=project` で、`service_status` が `live` / `beta` / `invite_only`
 - `lexicon_ready_for_introduction`
   - `category=lexicon` で、NSID ヒントと公開先 (`website_url` / repo / resource) があり、紹介用メタデータが大きく欠けていない
+- `technical_insight_candidate`
+  - 実用性とは別に、新しい設計パターン、プロトコル不足の露呈、相互運用実験、特徴的なアーキテクチャ、参照実装としての価値が傑出している
+  - LLM の暫定評価が `technical_interest_level=high` / `exceptional` で、具体的な理由と説明があるものだけを出す
 
 `category=personal_tool` は既定では除外します。含めたい場合だけ `--include-personal-tools` を付けます。
 
 `--interactive` を付けると `review-queue` と同じく 1 件ずつ見られます。`suggested_commands` には `show` や `enrich --deep-investigation` を出します。
+
+interactive では `h` で理由付きの一時保留にできます。既定では 7 日間 `promotion-queue` から除外し、期限切れ後に自動復活します。期限切れ履歴は残るため、同じ project を再保留する時は Enter だけで直近理由を再利用できます。
+
+明示的に設定、再設定、解除する場合:
+
+```bash
+python3 scripts/project_registry.py defer-promotion \
+  --project-key proj:xxxxxxxxxxxx \
+  --reason '中核機能であるXXがまだ実装されていない'
+
+# 直近理由を再利用して再保留
+python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxxxxx
+
+# active な保留だけ解除。履歴は残す
+python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxxxxx --clear
+```
+
+`promotion_deferrals` の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。Web UI 操作も未接続で、将来は promotion queue に `Hold 7d`、project detail に期限・理由・再保留・解除を追加できます。
+
+表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
+
+## URL field の棚卸し
+
+URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で確認できます。
+
+```bash
+python3 scripts/project_registry.py audit-url-fields
+python3 scripts/project_registry.py audit-url-fields --example-limit 5
+```
+
+このコマンドは DB を更新しません。`website_url_candidates`、`github_repo_urls`、`tangled_repo_urls` などの compatibility view を縮退させる前に、実 DB の分布と caller 移行の影響を確認するために使います。
+
+保存済み `record_json.app.links` を正本から再構築する場合:
+
+```bash
+python3 scripts/project_registry.py cleanup-app-links
+python3 scripts/project_registry.py cleanup-app-links --execute
+```
+
+既定は dry-run です。全削除ではなく、`website_url`、`source_code_url(s)`、`service_urls`、confirmed な `resource_url_records` から再構築します。
 
 適用する場合:
 
@@ -525,6 +594,18 @@ python3 scripts/project_registry.py block-identifier \
 ```
 
 この block は `finalize` / `enrich` のたびに適用されるので、次回の再調査でも同じ identifier はその project に戻りません。
+
+恒久 block ではなく、一定期間だけ様子を見る場合は `defer-identifier` を使います:
+
+```bash
+python3 scripts/project_registry.py defer-identifier \
+  --project-key proj:aaaa1111bbbb \
+  --identifier-type service_url \
+  --value https://example.com \
+  --days 30
+```
+
+URL は confirmed から candidate に降格し、NSID は `deferred_identifiers` に保持されます。期限内は自動 confirmed 化を抑制します。解除する場合は同じ引数に `--clear` を付けます。解除しても自動 confirm はしません。
 
 ## 誤マージの分割
 

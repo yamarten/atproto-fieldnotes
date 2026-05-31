@@ -76,6 +76,51 @@
 - `features`
 - `developer_accounts`
 
+### ATProto 寄与度の独立評価
+
+`category=auth_only` とは別に、「ATProto が無くてもサービスの主要価値が成立するか」を
+評価する rule-based v1 を実装済みです。`ops_json` に evidence 付きの寄与度を保存し、
+review queue と promotion queue の優先度に使います。
+
+- `atproto_contribution_level`
+  - `core`
+    - ATProto record、repository、lexicon、federated identity などが主要機能を構成する
+  - `substantial`
+    - ATProto が主要機能の一部を担い、除くとサービスの価値が明確に下がる
+  - `optional`
+    - ATProto integration はあるが、除いてもサービスの中心機能は成立する
+  - `auth_only`
+    - sign-in / identity provider としてのみ使う
+  - `incidental`
+    - link、share、cross-post など周辺機能に限る
+  - `unknown`
+- `atproto_contribution_score`
+  - queue の sort 用。level の説明可能性を失わない範囲で数値化する
+- `atproto_contribution_evidence`
+  - owned / consumed NSID
+  - record sample
+  - repository / README の実装根拠
+  - service docs の説明
+  - sign-in 導線だけか、主要データモデルまで使うか
+
+LLM は evidence の要約と暫定分類に使えますが、単独で高スコアを確定しません。
+紹介対象では `core` / `substantial` を優先します。manual review は寄与度そのものが不明な時、
+または確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる時に寄せます。
+
+実装済みの v1 は次の保守的な rule です。
+
+- resolved NSID または lexicon schema sample があれば `core`
+- recent record sample または record count を持つ collection observation があれば `substantial`
+- `category=auth_only` で強い protocol surface が無ければ `auth_only`
+- input NSID または external lexicon hint だけなら `optional`
+- それ以外は `unknown`
+
+未接続:
+
+- `incidental` を確定できる evidence source
+- docs / README を材料にした「主要機能か追加機能か」の細分化
+- LLM による曖昧ケースの補助分類
+
 ### provider 別 convenience field
 
 次は evidence から再構成できるなら、将来的に縮退候補です。
@@ -201,10 +246,64 @@ UI は `Search` タブ内に次を置きます。
 - offset / cursor pagination
 - raw JSON 任意パス検索
 
+### Web UI: core 追従候補
+
+2026-06-01 時点で core 側の追加機能を Web UI と照合したメモです。
+
+通常導線へ反映済み:
+
+- sync の `create_unmatched` 既定値は Web UI でも `true`
+- promotion queue のグローバル sort、`technical_insight_candidate`、review queue の contribution score 補正は、既存 queue builder を再利用しているため Web UI の一覧順と signal に反映される
+- title filter、authority service URL 保持、lexicon scope 分類は enrich / queue の core 処理として反映される
+
+未接続で、次に追加する価値が高いもの:
+
+1. identifier の一時保留
+   - confirmed / candidate row に `Defer 30d`
+   - Guards に `deferred_identifiers` の期限、note、`Clear defer`
+   - 恒久 block と一時保留を視覚的に分ける
+2. promotion の理由付き保留
+   - promotion queue に `Hold 7d`
+   - project detail に active な期限、理由、再保留、解除
+3. project detail の調査情報
+   - `atproto_contribution_level / score / evidence`
+   - `technical_interest_level / score / reasons / summary`
+   - `promotion_blockers`
+   - `resource_url_records`
+4. Search filter の追加
+   - contribution level
+   - technical interest level
+   - active promotion deferral の有無
+
+運用画面として追加を検討するもの:
+
+- `audit-source-config` の hosted suffix split 監査
+  - 既存 project detail の単体 split とは別導線
+  - tenant group と仮分割後 merge candidate を確認してから実行する
+- `audit-url-fields`
+  - 原則 read-only report
+- `cleanup-app-links`
+  - dry-run を先に表示し、execute は明示確認を必須にする
+
+raw JSON では上記 field を確認できますが、専用表示・更新操作は未接続です。
+
 ## TODO
 
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
+- URL field migration
+  - `audit-url-fields` の raw 保存監査を基準に進める
+  - `website_url_candidates` の caller を `service_url_candidates` へ寄せ、derive-only または削除にする
+  - `github_repo_urls` / `tangled_repo_urls` の caller を `source_code_urls` / `source_repo_records` へ寄せ、provider view として導出にする
+  - `resource_url_records` への実 DB migration は適用済み。one-shot migration CLI は削除済み
+  - `resource_urls` は新規保存 payload から除外済み。runtime caller を `resource_url_records` へ寄せ、最終的に runtime compatibility view も縮退させる
+  - `cleanup-app-links` は追加・実 DB 適用済み。URL heuristic 変更後の再構築用として残す
+  - confirmed / candidate service URL の overlap を新規・更新導線で除く invariant は実装済み。実 DB には既存 overlap が 4 project 残る。`repair-db --execute` は他の正規化も広く適用するため、実行前に dry-run の差分を確認する
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
+- `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
+- 旧 field 互換の名残を整理する
+  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
+  - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする
+- `developer_accounts` / `candidate_developer_accounts` の confirmed 条件と UI 露出を整理する

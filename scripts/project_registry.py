@@ -11,7 +11,6 @@ import os
 import re
 import shlex
 import sqlite3
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -49,7 +48,6 @@ ENRICH_IO_MAX_WORKERS = 4
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
-BSKY_APP_API = "https://api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
 BSKY_SYNC_API = "https://bsky.network"
@@ -122,6 +120,36 @@ def reset_domain_extractors() -> None:
     _TLD_EXTRACTORS = {}
 
 
+def reset_domain_config_cache() -> None:
+    global _CONFIGURED_MULTI_TENANT_SUFFIXES
+    _CONFIGURED_MULTI_TENANT_SUFFIXES = None
+    reset_domain_extractors()
+
+
+def normalize_multi_tenant_suffix(value: str) -> str:
+    suffix = str(value or "").strip().lower().rstrip(".")
+    if not suffix or "." not in suffix or not re.fullmatch(r"[a-z0-9.-]+", suffix):
+        raise ValueError(f"invalid multi-tenant suffix: {value}")
+    if any(not label for label in suffix.split(".")):
+        raise ValueError(f"invalid multi-tenant suffix: {value}")
+    return suffix
+
+
+def add_configured_multi_tenant_suffix(suffix: str) -> bool:
+    normalized = normalize_multi_tenant_suffix(suffix)
+    config = load_config()
+    values = config.get("custom_multi_tenant_suffixes", [])
+    if not isinstance(values, list):
+        raise ValueError("custom_multi_tenant_suffixes must be a JSON array")
+    existing = [normalize_multi_tenant_suffix(str(item)) for item in values]
+    if normalized in existing:
+        return False
+    config["custom_multi_tenant_suffixes"] = existing + [normalized]
+    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    reset_domain_config_cache()
+    return True
+
+
 def load_json(value: str) -> Any:
     return json.loads(value) if value else None
 
@@ -132,6 +160,14 @@ def dump_json(value: Any, *, sort_keys: bool = True) -> str:
 
 SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"}
 SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
+TECHNICAL_INTEREST_SCORES = {"none": 0, "notable": 40, "high": 70, "exceptional": 90}
+TECHNICAL_INTEREST_REASONS = {
+    "novel_design_pattern",
+    "protocol_gap_exposed",
+    "interoperability_experiment",
+    "unusual_architecture",
+    "implementation_reference",
+}
 
 
 def compact_grouped_payload(group_fields: dict[str, tuple[str, ...]], source: dict[str, Any]) -> dict[str, Any]:
@@ -199,6 +235,21 @@ GENERIC_ERROR_PAGE_TITLE_VALUES = {
     "unauthorized",
 }
 
+GENERIC_NAVIGATION_PAGE_TITLE_VALUES = {
+    "about",
+    "blog",
+    "contact",
+    "docs",
+    "documentation",
+    "home",
+    "index",
+    "login",
+    "privacy",
+    "sign in",
+    "signin",
+    "terms",
+}
+
 
 PROJECT_SCALAR_FIELDS = (
     "project_key",
@@ -213,23 +264,23 @@ PROJECT_SCALAR_FIELDS = (
 
 PROJECT_STORAGE_SCALAR_FIELDS = PROJECT_SCALAR_FIELDS + ("introduced_url",)
 
-RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
-    "core": (
-        "tagline",
-        "tagline_is_provisional",
-        "summary",
-        "manual_seeds",
-        "brand_did",
-        "source_code_url",
-        "lexicon_namespaces",
-        "notes",
-    ),
-    "app": (
-        "tags",
-        "platforms",
-        "links",
-    ),
-}
+URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
+    {"field": "website_url", "layer": "canonical", "role": "primary public website", "migration": "keep"},
+    {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference", "migration": "keep"},
+    {"field": "source_code_url", "layer": "canonical", "role": "primary source repository", "migration": "keep"},
+    {"field": "service_urls", "layer": "confirmed_set", "role": "confirmed service surfaces", "migration": "keep"},
+    {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories", "migration": "keep"},
+    {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces", "migration": "keep"},
+    {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories", "migration": "keep"},
+    {"field": "resource_urls", "layer": "derived_compat", "role": "URL view of resource_url_records", "migration": "derive_only_later"},
+    {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations", "migration": "keep"},
+    {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs", "migration": "keep"},
+    {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes", "migration": "keep"},
+    {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes", "migration": "keep"},
+    {"field": "website_url_candidates", "layer": "derived_compat", "role": "legacy alias of service_url_candidates", "migration": "derive_or_drop"},
+    {"field": "github_repo_urls", "layer": "derived_compat", "role": "GitHub view of source_code_urls", "migration": "derive_or_drop"},
+    {"field": "tangled_repo_urls", "layer": "derived_compat", "role": "Tangled view of source_code_urls", "migration": "derive_or_drop"},
+)
 
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "ops": (
@@ -252,11 +303,22 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "merge_recommendation",
         "separate_project_keys",
         "blocked_identifiers",
+        "deferred_identifiers",
+        "promotion_deferrals",
         "collection_observations",
         "promotion_events",
         "last_run_errors",
         "service_status_confidence",
         "service_status_evidence",
+        "atproto_contribution_level",
+        "atproto_contribution_score",
+        "atproto_contribution_evidence",
+        "lexicon_scope",
+        "lexicon_scope_evidence",
+        "technical_interest_level",
+        "technical_interest_score",
+        "technical_interest_reasons",
+        "technical_interest_summary",
     ),
     "evidence": (
         "discovery_sources",
@@ -281,9 +343,10 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "tagline_candidates",
         "website_url_candidates",
         "service_urls",
-        "resource_urls",
+        "resource_url_records",
         "service_url_candidates",
         "failed_service_urls",
+        "supported_service_urls",
         "source_code_urls",
         "candidate_source_code_urls",
         "github_repo_urls",
@@ -300,104 +363,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "watch_reason",
         "confidence",
     ),
-}
-
-INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
-    "introduced",
-    "promoted_now",
-    "seed_type",
-    "seed_value",
-    "candidate_nsids",
-}
-
-MAPPED_LEGACY_FIELDS = {
-    "project_key",
-    "status",
-    "category",
-    "app_category",
-    "name",
-    "tagline",
-    "tagline_is_provisional",
-    "summary",
-    "name_candidates",
-    "summary_candidates",
-    "tagline_candidates",
-    "features",
-    "inspired_by",
-    "tags",
-    "platforms",
-    "links",
-    "project_state",
-    "brand_did",
-    "ownership_signal",
-    "introduced_url",
-    "tracking_state",
-    "tracking_note",
-    "bluesky_handles",
-    "tangled_handles",
-    "discovery_sources",
-    "evidence_urls",
-    "primary_nsid",
-    "input_nsids",
-    "confirmed_nsids",
-    "resolved_nsids",
-    "resolved_lexicon_nsids",
-    "lexicon_resolution_entries",
-    "recorded_lexicon_namespaces",
-    "lexicon_namespaces",
-    "lexicons",
-    "lexicon_count",
-    "lexicon_schema_samples",
-    "recent_record_samples",
-    "record_creators",
-    "authority_domains",
-    "external_lexicons",
-    "website_url",
-    "website_url_candidates",
-    "service_urls",
-    "resource_urls",
-    "service_url_candidates",
-    "failed_service_urls",
-    "service_status",
-    "service_status_confidence",
-    "service_status_evidence",
-    "source_code_url",
-    "source_code_urls",
-    "candidate_source_code_urls",
-    "source_repo_records",
-    "github_repo_urls",
-    "tangled_repo_urls",
-    "developer_accounts",
-    "candidate_developer_accounts",
-    "investigation_queries",
-    "investigation_log",
-    "classification_reason",
-    "exclude_reason",
-    "watch_reason",
-    "dismissed_review_kinds",
-    "manual_review_recommended",
-    "manual_review_kind",
-    "manual_review_priority",
-    "manual_review_reason",
-    "confidence",
-    "llm_source",
-    "llm_output",
-    "last_llm_review_at",
-    "promotion_ready",
-    "promotion_blockers",
-    "last_promoted_at",
-    "promotion_events",
-    "duplicate_candidates",
-    "merge_recommendation",
-    "separate_project_keys",
-    "blocked_identifiers",
-    "collection_observations",
-    "notes",
-    "last_run_errors",
-    "manual_seeds",
-    "first_seen_at",
-    "last_seen_at",
-    "last_enriched_at",
 }
 
 def ensure_dirs() -> None:
@@ -520,11 +485,6 @@ def is_bsky_post_url(url: str) -> bool:
     return bool(re.match(r"^/profile/[^/]+/post/[^/]+$", parsed.path))
 
 
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug or "project"
-
-
 def unique_list(values: list[str]) -> list[str]:
     seen: set[str] = set()
     output: list[str] = []
@@ -555,6 +515,8 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
     "/sign-up",
     "/dashboard",
 )
+RESOURCE_URL_ROLES = {"unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService"}
+RESOURCE_URL_CONFIDENCE_VALUES = {"legacy", "candidate", "confirmed"}
 
 
 def normalize_app_link_role(value: str | None) -> str:
@@ -660,8 +622,8 @@ def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
     return ""
 
 
-def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
-    links = normalize_app_links(list(project.get("links", []) or []))
+def build_project_app_links(project: dict[str, Any], *, include_existing: bool = True) -> list[dict[str, Any]]:
+    links = normalize_app_links(list(project.get("links", []) or [])) if include_existing else []
 
     website_url = normalize_url(str(project.get("website_url") or ""))
     if website_url:
@@ -680,10 +642,10 @@ def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
         if role:
             append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
 
-    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
-        role = app_link_role_from_resource_url(url)
-        if role:
-            append_or_merge_app_link(links, {"uri": url, "role": role, "official": True})
+    for record in normalize_resource_url_records(project.get("resource_url_records", [])):
+        role = str(record.get("role") or "")
+        if record.get("confidence") == "confirmed" and role not in {"", "unknown", "blog"}:
+            append_or_merge_app_link(links, {"uri": record["url"], "role": role, "official": True})
 
     return links
 
@@ -720,10 +682,6 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
 
 def add_unique(values: list[str], value: str) -> list[str]:
     return unique_list(values + [value])
-
-
-def is_opaque_project_key(value: str) -> bool:
-    return bool(re.fullmatch(r"proj:[0-9a-f]{12}", str(value or "")))
 
 
 def generate_project_key(existing_keys: set[str] | None = None) -> str:
@@ -852,6 +810,11 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
         if normalize_nsid(str(item or ""))
     }
     guesses: set[str] = set()
+    supported_urls = {
+        normalize_url(str(item or ""))
+        for item in project.get("supported_service_urls", [])
+        if normalize_url(str(item or ""))
+    }
     for raw_nsid in project.get("input_nsids", []):
         nsid = normalize_nsid(str(raw_nsid or ""))
         if not nsid or nsid in resolved_nsids:
@@ -861,7 +824,11 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             continue
         if authority_service_candidates_allowed(project, authority_domain, verified=False):
             continue
-        guesses.update(candidate_service_origins_for_authority_domain(authority_domain))
+        guesses.update(
+            candidate_url
+            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain)
+            if normalize_url(candidate_url) not in supported_urls
+        )
     return guesses
 
 
@@ -1081,11 +1048,22 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "website_url_candidates": [],
         "service_urls": [],
         "resource_urls": [],
+        "resource_url_records": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
+        "supported_service_urls": [],
         "service_status": "unknown",
         "service_status_confidence": "none",
         "service_status_evidence": [],
+        "atproto_contribution_level": "unknown",
+        "atproto_contribution_score": 0,
+        "atproto_contribution_evidence": [],
+        "lexicon_scope": "unknown",
+        "lexicon_scope_evidence": [],
+        "technical_interest_level": "none",
+        "technical_interest_score": 0,
+        "technical_interest_reasons": [],
+        "technical_interest_summary": "",
         "source_code_url": "",
         "source_code_urls": [],
         "candidate_source_code_urls": [],
@@ -1118,6 +1096,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "merge_recommendation": {},
         "separate_project_keys": [],
         "blocked_identifiers": [],
+        "deferred_identifiers": [],
+        "promotion_deferrals": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -1143,6 +1123,91 @@ def normalize_service_status(value: str | None) -> str:
 def normalize_service_status_confidence(value: str | None) -> str:
     confidence = str(value or "none").strip().lower()
     return confidence if confidence in SERVICE_STATUS_CONFIDENCE_VALUES else "none"
+
+
+def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
+    evidence: list[dict[str, Any]] = []
+
+    def count_value(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def add(kind: str, values: list[Any]) -> None:
+        cleaned = unique_list([str(item).strip() for item in values if str(item).strip()])
+        if cleaned:
+            evidence.append({"kind": kind, "count": len(cleaned), "values": cleaned[:5]})
+
+    resolved_nsids = list(project.get("resolved_nsids", []))
+    schema_samples = list(project.get("lexicon_schema_samples", []))
+    recent_records = list(project.get("recent_record_samples", []))
+    collection_observations = [
+        item
+        for item in project.get("collection_observations", [])
+        if isinstance(item, dict) and (count_value(item.get("count")) > 0 or count_value(item.get("recent_count")) > 0)
+    ]
+    input_nsids = list(project.get("input_nsids", []))
+    external_lexicons = list(project.get("external_lexicons", []))
+
+    add("resolved_nsids", resolved_nsids)
+    if schema_samples:
+        evidence.append({"kind": "lexicon_schema_samples", "count": len(schema_samples)})
+    if recent_records:
+        evidence.append({"kind": "recent_record_samples", "count": len(recent_records)})
+    if collection_observations:
+        evidence.append(
+            {
+                "kind": "collection_observations",
+                "count": len(collection_observations),
+                "record_count": sum(count_value(item.get("count")) for item in collection_observations),
+                "recent_record_count": sum(count_value(item.get("recent_count")) for item in collection_observations),
+            }
+        )
+    add("input_nsids", input_nsids)
+    add("external_lexicons", external_lexicons)
+
+    if resolved_nsids or schema_samples:
+        level, score = "core", 90
+    elif recent_records or collection_observations:
+        level, score = "substantial", 70
+    elif str(project.get("category") or "") == "auth_only":
+        level, score = "auth_only", 20
+        evidence.append({"kind": "category_auth_only", "count": 1})
+    elif input_nsids or external_lexicons:
+        level, score = "optional", 40
+    else:
+        level, score = "unknown", 0
+
+    return {
+        "atproto_contribution_level": level,
+        "atproto_contribution_score": score,
+        "atproto_contribution_evidence": evidence,
+    }
+
+
+def apply_atproto_contribution_state(project: dict[str, Any]) -> dict[str, Any]:
+    project.update(compute_atproto_contribution(project))
+    return project
+
+
+def apply_technical_interest_state(project: dict[str, Any]) -> dict[str, Any]:
+    level = str(project.get("technical_interest_level") or "none").strip().lower()
+    if level not in TECHNICAL_INTEREST_SCORES:
+        level = "none"
+    project["technical_interest_level"] = level
+    project["technical_interest_score"] = TECHNICAL_INTEREST_SCORES[level]
+    project["technical_interest_reasons"] = unique_list(
+        [
+            str(item).strip().lower()
+            for item in project.get("technical_interest_reasons", [])
+            if str(item).strip().lower() in TECHNICAL_INTEREST_REASONS
+        ]
+    )
+    project["technical_interest_summary"] = normalize_ja_en_mixed_spacing(
+        str(project.get("technical_interest_summary") or "").strip()
+    )
+    return project
 
 
 def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
@@ -1180,6 +1245,105 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
             }
         )
     return output
+
+
+DEFAULT_DEFER_IDENTIFIER_DAYS = 30
+DEFAULT_PROMOTION_DEFER_DAYS = 7
+
+
+def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    now = dt.datetime.now(dt.timezone.utc)
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        identifier_type = str(item.get("type") or "").strip()
+        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+            continue
+        normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
+        expires_at = str(item.get("expires_at") or "").strip()
+        expires = parse_iso(expires_at)
+        if not normalized_value or expires is None or expires <= now:
+            continue
+        key = (identifier_type, normalized_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "type": identifier_type,
+                "value": normalized_value,
+                "note": str(item.get("note") or "").strip(),
+                "added_at": str(item.get("added_at") or ""),
+                "expires_at": expires.isoformat(),
+            }
+        )
+    return output
+
+
+def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        reason = str(item.get("reason") or "").strip()
+        expires = parse_iso(str(item.get("expires_at") or "").strip())
+        if not reason or expires is None:
+            continue
+        normalized = {
+            "reason": reason,
+            "added_at": str(item.get("added_at") or ""),
+            "expires_at": expires.isoformat(),
+        }
+        cleared_at = str(item.get("cleared_at") or "").strip()
+        if cleared_at:
+            normalized["cleared_at"] = cleared_at
+        output.append(normalized)
+    return output
+
+
+def active_promotion_deferral(project: dict[str, Any]) -> dict[str, str] | None:
+    now = dt.datetime.now(dt.timezone.utc)
+    active = [
+        item
+        for item in normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+        if not item.get("cleared_at") and (parse_iso(item.get("expires_at")) or now) > now
+    ]
+    return active[-1] if active else None
+
+
+def latest_promotion_deferral_reason(project: dict[str, Any]) -> str:
+    deferrals = normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+    return str(deferrals[-1].get("reason") or "") if deferrals else ""
+
+
+def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", days: int = DEFAULT_PROMOTION_DEFER_DAYS) -> dict[str, str]:
+    effective_reason = str(reason or latest_promotion_deferral_reason(project)).strip()
+    if not effective_reason:
+        raise ValueError("promotion deferral reason is required")
+    expires_at = (
+        dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=max(1, int(days or DEFAULT_PROMOTION_DEFER_DAYS)))
+    ).replace(microsecond=0).isoformat()
+    entry = {
+        "reason": effective_reason,
+        "added_at": iso_now(),
+        "expires_at": expires_at,
+    }
+    project["promotion_deferrals"] = normalize_promotion_deferrals(
+        list(project.get("promotion_deferrals", [])) + [entry]
+    )
+    return entry
+
+
+def clear_active_promotion_deferrals(project: dict[str, Any]) -> None:
+    cleared_at = iso_now()
+    deferrals = normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+    now = dt.datetime.now(dt.timezone.utc)
+    for item in deferrals:
+        if not item.get("cleared_at") and (parse_iso(item.get("expires_at")) or now) > now:
+            item["cleared_at"] = cleared_at
+    project["promotion_deferrals"] = deferrals
 
 
 def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
@@ -1245,6 +1409,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         ]
     )
     defaults["blocked_identifiers"] = normalize_blocked_identifiers(list(defaults.get("blocked_identifiers") or []))
+    defaults["deferred_identifiers"] = normalize_deferred_identifiers(list(defaults.get("deferred_identifiers") or []))
+    defaults["promotion_deferrals"] = normalize_promotion_deferrals(list(defaults.get("promotion_deferrals") or []))
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
     defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
@@ -1272,8 +1438,10 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         + compute_external_lexicons(defaults)
     )
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
+    sync_resource_url_records(defaults)
+    defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
-    return defaults
+    return apply_technical_interest_state(apply_atproto_contribution_state(defaults))
 
 
 def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1696,6 +1864,112 @@ def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return ensure_project_shape(payload)
 
 
+def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set[str]:
+    value = project.get(field_name)
+    if field_name == "resource_url_records":
+        return {record["url"] for record in normalize_resource_url_records(value if isinstance(value, list) else [])}
+    values = value if isinstance(value, list) else ([value] if value else [])
+    if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls", "github_repo_urls", "tangled_repo_urls"}:
+        return {normalized for item in values if (normalized := canonical_repo_url(str(item)))}
+    return {normalized for item in values if (normalized := normalize_url(str(item)))}
+
+
+def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    projects = [project_from_row_payload(row) for row in rows]
+    field_summaries: list[dict[str, Any]] = []
+    for spec in URL_FIELD_INVENTORY:
+        field_name = spec["field"]
+        values: list[str] = []
+        nonempty_projects = 0
+        for project in projects:
+            field_values = normalized_url_field_values(project, field_name)
+            if field_values:
+                nonempty_projects += 1
+                values.extend(sorted(field_values))
+        field_summaries.append(
+            {
+                **spec,
+                "nonempty_projects": nonempty_projects,
+                "value_count": len(values),
+                "unique_value_count": len(set(values)),
+            }
+        )
+
+    alias_pairs = (
+        ("website_url", "service_urls", "canonical_in_confirmed_set"),
+        ("website_url_candidates", "service_url_candidates", "legacy_alias"),
+        ("source_code_url", "source_code_urls", "canonical_in_confirmed_set"),
+        ("github_repo_urls", "source_code_urls", "provider_view"),
+        ("tangled_repo_urls", "source_code_urls", "provider_view"),
+    )
+    alias_summaries: list[dict[str, Any]] = []
+    for left, right, relation in alias_pairs:
+        left_nonempty = 0
+        exact_match = 0
+        left_subset = 0
+        overlap_values: set[str] = set()
+        for project in projects:
+            left_values = normalized_url_field_values(project, left)
+            right_values = normalized_url_field_values(project, right)
+            if not left_values:
+                continue
+            left_nonempty += 1
+            if left_values == right_values:
+                exact_match += 1
+            if left_values <= right_values:
+                left_subset += 1
+            overlap_values.update(left_values & right_values)
+        alias_summaries.append(
+            {
+                "left": left,
+                "right": right,
+                "relation": relation,
+                "left_nonempty_projects": left_nonempty,
+                "exact_match_projects": exact_match,
+                "left_subset_projects": left_subset,
+                "overlap_unique_value_count": len(overlap_values),
+            }
+        )
+
+    anomaly_specs = (
+        ("website_url_missing_from_service_urls", lambda p: normalized_url_field_values(p, "website_url") - normalized_url_field_values(p, "service_urls")),
+        ("website_candidate_alias_mismatch", lambda p: normalized_url_field_values(p, "website_url_candidates") ^ normalized_url_field_values(p, "service_url_candidates")),
+        ("source_code_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "source_code_url") - normalized_url_field_values(p, "source_code_urls")),
+        ("github_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "github_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
+        ("tangled_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "tangled_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
+        ("confirmed_candidate_service_overlap", lambda p: normalized_url_field_values(p, "service_urls") & normalized_url_field_values(p, "service_url_candidates")),
+        ("confirmed_candidate_repo_overlap", lambda p: normalized_url_field_values(p, "source_code_urls") & normalized_url_field_values(p, "candidate_source_code_urls")),
+        ("introduced_url_in_evidence_urls", lambda p: normalized_url_field_values(p, "introduced_url") & normalized_url_field_values(p, "evidence_urls")),
+    )
+    anomalies: list[dict[str, Any]] = []
+    for kind, collect_values in anomaly_specs:
+        examples: list[dict[str, Any]] = []
+        project_count = 0
+        value_count = 0
+        for project in projects:
+            values = sorted(collect_values(project))
+            if not values:
+                continue
+            project_count += 1
+            value_count += len(values)
+            if len(examples) < max(0, int(example_limit)):
+                examples.append({"project_key": str(project.get("project_key") or ""), "values": values})
+        anomalies.append({"kind": kind, "project_count": project_count, "value_count": value_count, "examples": examples})
+
+    return {
+        "project_count": len(projects),
+        "field_inventory": field_summaries,
+        "alias_relationships": alias_summaries,
+        "anomalies": anomalies,
+        "migration_candidates": [
+            "derive_or_drop website_url_candidates after callers use service_url_candidates",
+            "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
+            "shrink runtime resource_urls compatibility callers after persisted migration",
+        ],
+    }
+
+
 def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
     payload = dict(project)
     for field in PROJECT_STORAGE_SCALAR_FIELDS:
@@ -1705,15 +1979,6 @@ def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
 
 def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
     return unique_list([normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))])
-
-def grouped_payload_field_names(payload: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
-    for value in payload.values():
-        if not isinstance(value, dict):
-            continue
-        names.update(str(key) for key in value.keys())
-    return names
-
 
 def name_is_safe_for_record(project: dict[str, Any]) -> bool:
     name = str(project.get("name") or "").strip()
@@ -1928,6 +2193,11 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "manual_review_priority": str(project.get("manual_review_priority") or "none"),
         "manual_review_reason": str(project.get("manual_review_reason") or ""),
         "service_status_confidence": normalize_service_status_confidence(project.get("service_status_confidence")),
+        "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
+        "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
+        "technical_interest_level": str(project.get("technical_interest_level") or "none"),
+        "technical_interest_score": int(project.get("technical_interest_score", 0) or 0),
+        "technical_interest_summary": str(project.get("technical_interest_summary") or ""),
         "watch_reason": str(project.get("watch_reason") or ""),
         "source_code_url": str(project.get("source_code_url") or ""),
         "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
@@ -1953,10 +2223,14 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "github_repo_urls",
         "tangled_repo_urls",
         "resource_urls",
+        "resource_url_records",
         "collection_observations",
         "source_repo_records",
+        "promotion_deferrals",
         "lexicon_schema_samples",
         "recent_record_samples",
+        "atproto_contribution_evidence",
+        "technical_interest_reasons",
     )
     for field in list_fields:
         value = project.get(field)
@@ -1978,7 +2252,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
         + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
     )
-    return shaped
+    return apply_technical_interest_state(apply_atproto_contribution_state(shaped))
 
 
 def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
@@ -2367,8 +2641,10 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["website_url_candidates"] = unique_list(project.get("website_url_candidates", []))
     project["service_urls"] = unique_list(project.get("service_urls", []))
     project["resource_urls"] = unique_list(project.get("resource_urls", []))
+    sync_resource_url_records(project)
     project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
+    project["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in project.get("supported_service_urls", []) if normalize_url(str(item))])
     project["service_status"] = normalize_service_status(project.get("service_status"))
     project["service_status_confidence"] = normalize_service_status_confidence(project.get("service_status_confidence"))
     project["service_status_evidence"] = unique_list([str(item).strip() for item in project.get("service_status_evidence", []) if str(item).strip()])
@@ -2404,6 +2680,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     sync_primary_service_urls(project)
     project["lexicon_count"] = len(project.get("lexicons", []))
     reclassify_service_specific_lexicon(project)
+    apply_atproto_contribution_state(project)
 
     existing = conn.execute(
         """
@@ -2509,7 +2786,7 @@ def ensure_project_for_seed(
 
 
 def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: str) -> None:
-    if identifier_is_blocked(project, seed_type, seed_value):
+    if identifier_is_blocked(project, seed_type, seed_value) or identifier_is_deferred(project, seed_type, seed_value):
         return
     project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "manual_seed")
     if seed_type == "nsid":
@@ -2598,6 +2875,75 @@ def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: 
     return normalized in blocked_identifier_values(project, identifier_type)
 
 
+def deferred_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if isinstance(item, dict) and str(item.get("type") or "").strip() == identifier_type and str(item.get("value") or "").strip()
+    }
+
+
+def identifier_is_deferred(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    return normalized in deferred_identifier_values(project, identifier_type)
+
+
+def downgrade_identifier_to_candidate(project: dict[str, Any], identifier_type: str, value: str) -> None:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return
+    remove_identifier_from_project(project, identifier_type, normalized)
+    if identifier_type == "service_url":
+        add_candidate_url(project, "service_url", normalized)
+        add_candidate_url(project, "website_url", normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+    elif identifier_type == "repo_url":
+        project["candidate_source_code_urls"] = add_unique(project.get("candidate_source_code_urls", []), normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+
+
+def defer_identifier_on_project(
+    project: dict[str, Any],
+    identifier_type: str,
+    value: str,
+    *,
+    note: str = "",
+    days: int = DEFAULT_DEFER_IDENTIFIER_DAYS,
+) -> str:
+    if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        raise ValueError("identifier value could not be normalized")
+    effective_days = max(1, min(365, int(days or DEFAULT_DEFER_IDENTIFIER_DAYS)))
+    expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=effective_days)).isoformat()
+    deferred = [
+        item
+        for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized)
+    ]
+    deferred.append(
+        {
+            "type": identifier_type,
+            "value": normalized,
+            "note": note or "deferred for observation",
+            "added_at": iso_now(),
+            "expires_at": expires_at,
+        }
+    )
+    project["deferred_identifiers"] = deferred
+    downgrade_identifier_to_candidate(project, identifier_type, normalized)
+    return normalized
+
+
+def apply_deferred_identifier_guards(project: dict[str, Any]) -> None:
+    project["deferred_identifiers"] = normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+    for item in project["deferred_identifiers"]:
+        downgrade_identifier_to_candidate(project, str(item.get("type") or ""), str(item.get("value") or ""))
+
+
 def purge_blocked_identifiers(project: dict[str, Any]) -> None:
     blocked_services = blocked_identifier_values(project, "service_url")
     blocked_repos = blocked_identifier_values(project, "repo_url")
@@ -2610,6 +2956,7 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
         project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
+        project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) not in blocked_services]
 
     if blocked_repos:
@@ -2665,6 +3012,7 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
         project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) != normalized]
         project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) != normalized]
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) != normalized]
+        project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) != normalized]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) != normalized]
     elif identifier_type == "repo_url":
         if canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
@@ -2709,16 +3057,6 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
     refresh_project_seed_identity(project)
 
 
-def preprocess_project_json_rows(
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    return {
-        "updated_rows": 0,
-        "skipped": True,
-        "reason": "legacy data_json preprocessing disabled after storage layout migration",
-    }
-
-
 def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
         """
@@ -2731,12 +3069,21 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
     pruned_projects = 0
     normalized_projects = 0
     for row in rows:
+        stored_payload = project_from_row_payload(row)
         raw = project_from_row(row)
         original = ensure_project_shape(raw)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        contribution_changed = any(
+            dump_json(stored_payload.get(field, default)) != dump_json(normalized.get(field, default))
+            for field, default in (
+                ("atproto_contribution_level", "unknown"),
+                ("atproto_contribution_score", 0),
+                ("atproto_contribution_evidence", []),
+            )
+        )
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(original)):
             normalized_projects += 1
-        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)):
+        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)) or contribution_changed:
             pruned_projects += 1
             save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
@@ -2982,13 +3329,6 @@ NOISY_SERVICE_PATH_TOKENS = {
     "/packages",
 }
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".avif"}
-NON_PROJECT_SERVICE_PATH_PREFIXES = {
-    "/profile/",
-    "/developers/",
-    "/guides/",
-    "/specs/",
-    "/blog/",
-}
 KNOWN_MULTI_TENANT_SUFFIXES = {
     "vercel.app",
     "microcosm.blue",
@@ -3212,7 +3552,8 @@ def clean_title(title: str) -> str:
     # Treat pipe as a strong separator, and only trim dash/colon subtitles when
     # they are presented as a spaced title separator rather than part of a name.
     text = re.sub(r"\s*\|\s*.*$", "", text)
-    text = re.sub(r"\s+[—–\-:：]\s+.*$", "", text)
+    text = re.sub(r"\s+[—–\-]\s+.*$", "", text)
+    text = re.sub(r"[:：]\s+.*$", "", text)
     text = re.sub(r"\s+[·•]\s+.*$", "", text)
     text = re.sub(r"\s+>>\s+.*$", "", text)
     text = re.sub(r"\s+//\s+.*$", "", text)
@@ -3284,11 +3625,155 @@ def name_source_url(source: str) -> str:
     return ""
 
 
+def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
+    origins: set[str] = set()
+    nsids = unique_list(
+        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+        + [str(item or "") for item in project.get("input_nsids", [])]
+        + [str(item or "") for item in project.get("resolved_nsids", [])]
+    )
+    for raw_nsid in nsids:
+        nsid = normalize_nsid(raw_nsid)
+        authority_domain = derive_authority_domain(nsid)
+        if not authority_domain:
+            continue
+        origins.update(candidate_service_origins_for_authority_domain(authority_domain))
+    return {normalize_url(url) for url in origins if normalize_url(url)}
+
+
+def nsid_seed_name_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    nsids = unique_list(
+        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
+        + [str(item or "") for item in project.get("input_nsids", [])]
+        + [str(item or "") for item in project.get("resolved_nsids", [])]
+    )
+    for raw_nsid in nsids:
+        nsid = normalize_nsid(raw_nsid)
+        if not nsid:
+            continue
+        tokens.update(seed_value_identity_tokens(nsid))
+    return {token for token in tokens if token and len(token) >= 4 and token not in GENERIC_NSID_NAME_TOKENS}
+
+
+def name_value_matches_nsid_seed(project: dict[str, Any], value: str) -> bool:
+    compact = normalize_alias_token(clean_title(value))
+    if not compact:
+        return False
+    return any(token in compact for token in nsid_seed_name_tokens(project))
+
+
+def unsupported_nsid_authority_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
+    source_url = name_source_url(source)
+    if not source_url or source_url not in nsid_authority_service_origins(project):
+        return False
+    return not name_value_matches_nsid_seed(project, value)
+
+
+def value_matches_unsupported_nsid_authority_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not unsupported_nsid_authority_title_candidate(project, raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
+
+
 def generic_error_page_title_candidate(value: str, source: str) -> bool:
     lowered = normalize_name_candidate(value).lower()
     if lowered in GENERIC_ERROR_PAGE_TITLE_VALUES:
         return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
     return bool(re.fullmatch(r"(?:[45]\d\d\s+)?(?:error|not found|forbidden|unauthorized)", lowered))
+
+
+def generic_navigation_page_title_candidate(value: str, source: str) -> bool:
+    lowered = normalize_name_candidate(value).lower()
+    if lowered not in GENERIC_NAVIGATION_PAGE_TITLE_VALUES:
+        return False
+    return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
+
+
+def value_matches_generic_navigation_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not generic_navigation_page_title_candidate(raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
+
+
+def title_identity_parts(value: str) -> set[str]:
+    parts = {
+        normalize_alias_token(part)
+        for part in re.split(r"[\s./:_-]+", clean_title(value))
+        if part.strip()
+    }
+    return {token for token in parts if token and len(token) >= 4}
+
+
+def service_title_matches_project_identity(project: dict[str, Any], value: str, source: str) -> bool:
+    if generic_platform_name_supported_by_source(value, source):
+        return True
+    title_parts = title_identity_parts(value)
+    if not title_parts:
+        return False
+    identity_tokens = set(project_trusted_identity_tokens(project))
+    expanded_identity: set[str] = set()
+    for token in identity_tokens:
+        if not token:
+            continue
+        expanded_identity.add(token)
+        if len(token) > 4 and token.endswith("s"):
+            expanded_identity.add(token[:-1])
+    identity_tokens = {token for token in expanded_identity if token and len(token) >= 4}
+    if not identity_tokens:
+        return False
+    if normalize_alias_token(value) in identity_tokens:
+        return True
+    matched = {
+        token
+        for token in title_parts
+        if token in identity_tokens or (len(token) > 4 and token.endswith("s") and token[:-1] in identity_tokens)
+    }
+    if not matched:
+        return False
+    return len(matched) / len(title_parts) >= 0.66
+
+
+def weak_service_page_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
+    if not (source.startswith("service_title:") or source.startswith("resource_title:")):
+        return False
+    return not service_title_matches_project_identity(project, value, source)
+
+
+def value_matches_weak_service_page_title(project: dict[str, Any], value: str) -> bool:
+    normalized_value = normalize_name_candidate(value)
+    if not normalized_value:
+        return False
+    for item in project.get("name_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if not weak_service_page_title_candidate(project, raw_value, source):
+            continue
+        if normalize_name_candidate(raw_value) == normalized_value:
+            return True
+    return False
 
 
 def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
@@ -3324,18 +3809,42 @@ def generic_platform_name_candidate(project: dict[str, Any], value: str, source:
 def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    current_name = normalize_name_candidate(str(project.get("name") or ""))
-    if current_name and not weak_nsid_derived_name(project, current_name) and not generic_error_page_title_candidate(current_name, "existing_name"):
+    current_name = normalize_name_candidate(clean_title(str(project.get("name") or "")))
+    if (
+        current_name
+        and not weak_nsid_derived_name(project, current_name)
+        and not generic_error_page_title_candidate(current_name, "existing_name")
+        and not generic_navigation_page_title_candidate(current_name, "existing_name")
+        and not value_matches_unsupported_nsid_authority_title(project, current_name)
+        and not value_matches_weak_service_page_title(project, current_name)
+    ):
         candidates.append({"value": current_name, "source": "existing_name"})
         seen.add((current_name, "existing_name"))
     for item in project.get("name_candidates", []):
         if not isinstance(item, dict):
             continue
-        value = normalize_name_candidate(str(item.get("value") or ""))
         source = str(item.get("source") or "").strip()
+        raw_value = str(item.get("value") or "")
+        if source.startswith("service_title:") or source.startswith("resource_title:"):
+            raw_value = clean_title(raw_value)
+        value = normalize_name_candidate(raw_value)
         if not value or not source:
             continue
+        if not source.startswith("lexicon_name:") and weak_nsid_derived_name(project, value):
+            continue
         if generic_error_page_title_candidate(value, source):
+            continue
+        if generic_navigation_page_title_candidate(value, source):
+            continue
+        if weak_service_page_title_candidate(project, value, source):
+            continue
+        if unsupported_nsid_authority_title_candidate(project, value, source):
+            continue
+        if source == "llm_output" and value_matches_unsupported_nsid_authority_title(project, value):
+            continue
+        if source == "llm_output" and value_matches_generic_navigation_title(project, value):
+            continue
+        if source == "llm_output" and value_matches_weak_service_page_title(project, value):
             continue
         if generic_platform_name_candidate(project, value, source):
             continue
@@ -4187,7 +4696,7 @@ def confirm_source_code_url(
     updated_at: str = "",
 ) -> None:
     normalized = canonical_repo_url(url)
-    if identifier_is_blocked(project, "repo_url", normalized):
+    if identifier_is_blocked(project, "repo_url", normalized) or identifier_is_deferred(project, "repo_url", normalized):
         return
     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
@@ -4221,7 +4730,7 @@ def confirm_source_code_url(
 
 def confirm_service_url(project: dict[str, Any], url: str) -> None:
     normalized = normalize_confirmed_service_url(url)
-    if not normalized or identifier_is_blocked(project, "service_url", normalized):
+    if not normalized or identifier_is_blocked(project, "service_url", normalized) or identifier_is_deferred(project, "service_url", normalized):
         return
     project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
     project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != normalized]
@@ -4231,7 +4740,81 @@ def confirm_service_url(project: dict[str, Any], url: str) -> None:
     project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != normalized]
 
 
-def add_resource_url(project: dict[str, Any], url: str) -> None:
+def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        url = normalize_url(str(item.get("url") or ""))
+        if not url:
+            continue
+        role = str(item.get("role") or app_link_role_from_resource_url(url) or "unknown").strip()
+        if role not in RESOURCE_URL_ROLES:
+            role = "unknown"
+        confidence = str(item.get("confidence") or "candidate").strip().lower()
+        if confidence not in RESOURCE_URL_CONFIDENCE_VALUES:
+            confidence = "candidate"
+        source = str(item.get("source") or "").strip()
+        observed_at = str(item.get("observed_at") or "").strip()
+        key = (url, role, confidence, source)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "url": url,
+                "role": role,
+                "source": source,
+                "observed_at": observed_at,
+                "confidence": confidence,
+            }
+        )
+    confirmed_urls = {
+        record["url"]
+        for record in output
+        if record["confidence"] == "confirmed"
+    }
+    return [
+        record
+        for record in output
+        if record["confidence"] != "legacy" or record["url"] not in confirmed_urls
+    ]
+
+
+def sync_resource_url_records(project: dict[str, Any]) -> None:
+    records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
+    recorded_urls = {record["url"] for record in records}
+    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
+        if url in recorded_urls:
+            continue
+        records.append(
+            {
+                "url": url,
+                "role": "unknown",
+                "source": "legacy_resource_urls",
+                "observed_at": "",
+                "confidence": "legacy",
+            }
+        )
+    website_url = normalize_url(str(project.get("website_url") or ""))
+    service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
+    project["resource_url_records"] = [
+        record
+        for record in records
+        if record["url"] != website_url and record["url"] not in service_urls
+    ]
+    project["resource_urls"] = unique_list([record["url"] for record in project["resource_url_records"]])
+
+
+def add_resource_url(
+    project: dict[str, Any],
+    url: str,
+    *,
+    role: str = "",
+    source: str = "",
+    confidence: str = "candidate",
+) -> None:
     normalized = normalize_url(url)
     if not normalized:
         return
@@ -4239,7 +4822,26 @@ def add_resource_url(project: dict[str, Any], url: str) -> None:
         return
     if normalized in {normalize_url(str(item or "")) for item in project.get("service_urls", [])}:
         return
+    normalized_role = str(role or app_link_role_from_resource_url(normalized) or "unknown").strip()
+    if normalized_role not in RESOURCE_URL_ROLES:
+        normalized_role = "unknown"
+    normalized_confidence = str(confidence or "candidate").strip().lower()
+    if normalized_confidence not in RESOURCE_URL_CONFIDENCE_VALUES:
+        normalized_confidence = "candidate"
+    project["resource_url_records"] = normalize_resource_url_records(
+        list(project.get("resource_url_records", []))
+        + [
+            {
+                "url": normalized,
+                "role": normalized_role,
+                "source": str(source or "").strip(),
+                "observed_at": iso_now(),
+                "confidence": normalized_confidence,
+            }
+        ]
+    )
     project["resource_urls"] = add_unique(project.get("resource_urls", []), normalized)
+    sync_resource_url_records(project)
 
 
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
@@ -4250,21 +4852,14 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
     if website_url:
         project["website_url"] = website_url
         project["service_urls"] = add_unique(project.get("service_urls", []), website_url)
-        project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != website_url]
-        project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != website_url]
     elif project.get("service_urls"):
         project["website_url"] = project["service_urls"][0]
     else:
         project["website_url"] = ""
-    project["resource_urls"] = unique_list(
-        [
-            item
-            for item in [normalize_url(str(item or "")) for item in project.get("resource_urls", []) if item]
-            if item
-            and item != normalize_url(str(project.get("website_url") or ""))
-            and item not in set(project.get("service_urls", []))
-        ]
-    )
+    confirmed_urls = {normalize_url(item) for item in project.get("service_urls", []) if item}
+    project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) not in confirmed_urls]
+    project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) not in confirmed_urls]
+    sync_resource_url_records(project)
 
 
 def prune_project_urls(project: dict[str, Any]) -> None:
@@ -4299,7 +4894,10 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         confidence = str(record.get("confidence") or "candidate")
         evidence_url = str(record.get("evidence_url") or "")
         same_site_evidence = bool(evidence_url and project.get("website_url") and is_same_site_family(evidence_url, project["website_url"]))
-        if relation in {"official_link", "same_site_repo"} and same_site_evidence:
+        if identifier_is_deferred(project, "repo_url", url):
+            record = dict(record)
+            record["confidence"] = "candidate"
+        elif relation in {"official_link", "same_site_repo"} and same_site_evidence:
             record = dict(record)
             record["confidence"] = "confirmed"
         elif confidence == "confirmed" and not repo_url_allowed_for_project(project, url):
@@ -4553,42 +5151,6 @@ def applog_seed_from_url(url: str) -> tuple[str, str] | None:
     return None
 
 
-ROOT_SERVICE_BLOCKED_HOSTS = {
-    "github.com",
-    "raw.githubusercontent.com",
-    "tangled.org",
-    "bsky.app",
-    "public.api.bsky.app",
-    "api.bsky.app",
-    "api.bsky.chat",
-    "discover.bsky.app",
-    "docs.bsky.app",
-    "docs.tangled.org",
-    "blog.tangled.org",
-    "discourse.atprotocol.community",
-    "web.plc.directory",
-    "atproto.com",
-    "youtube.com",
-    "www.youtube.com",
-    "youtu.be",
-}
-
-
-def import_seed_from_url(url: str, *, accept_service_root_paths: bool) -> tuple[str, str] | None:
-    seed = applog_seed_from_url(url)
-    if seed is not None:
-        return seed
-    if not accept_service_root_paths:
-        return None
-    normalized = normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return None
-    if parsed.netloc in ROOT_SERVICE_BLOCKED_HOSTS:
-        return None
-    return ("service_url", f"{parsed.scheme}://{parsed.netloc}")
-
-
 def clean_imported_name(label: str) -> str:
     text = str(label or "").strip()
     text = text.strip("* ")
@@ -4597,30 +5159,10 @@ def clean_imported_name(label: str) -> str:
     return text
 
 
-def should_replace_project_name(project: dict[str, Any], candidate_name: str) -> bool:
-    candidate = clean_imported_name(candidate_name)
-    if not candidate:
-        return False
-    current = str(project.get("name") or "").strip()
-    if not current:
-        return True
-    current_normalized = normalize_alias_token(current)
-    candidate_normalized = normalize_alias_token(candidate)
-    if not current_normalized:
-        return True
-    if current_normalized == candidate_normalized:
-        return False
-    website = str(project.get("website_url") or "")
-    if website:
-        host = urllib.parse.urlparse(normalize_url(website)).netloc.lower()
-        first = host.split(".", 1)[0] if host else ""
-        if normalize_alias_token(first) == current_normalized:
-            return True
-    return False
-
-
 def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *, source: str) -> None:
     normalized_value = canonical_seed_value(seed_type, seed_value)
+    if identifier_is_deferred(project, seed_type, normalized_value):
+        return
     project["manual_seeds"] = unique_manual_seeds(
         list(project.get("manual_seeds", [])) + [{"type": seed_type, "value": normalized_value, "added_at": iso_now()}]
     )
@@ -4631,7 +5173,7 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
 
 def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: str) -> str:
     normalized = normalize_url(service_url)
-    if not normalized:
+    if not normalized or identifier_is_deferred(project, "service_url", normalized):
         return ""
     add_manual_seed(project, "service_url", normalized, source=source)
     if service_url_allowed_for_project(project, normalized, confirmed=True):
@@ -4651,7 +5193,7 @@ def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: s
 
 def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) -> str:
     normalized = canonical_repo_url(repo_url)
-    if not normalized:
+    if not normalized or identifier_is_deferred(project, "repo_url", normalized):
         return ""
     add_manual_seed(project, "repo_url", normalized, source=source)
     if repo_url_allowed_for_project(project, normalized):
@@ -4673,17 +5215,6 @@ def all_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     cur = conn.execute("SELECT * FROM projects ORDER BY project_key")
     rows = cur.fetchall()
     return [project_from_row(row) for row in rows]
-
-
-def project_keys_for_alias(conn: sqlite3.Connection, alias: str) -> list[str]:
-    target = normalize_alias_token(alias)
-    if not target:
-        return []
-    matches: list[str] = []
-    for project in all_projects(conn):
-        if target in project_merge_aliases(project):
-            matches.append(project["project_key"])
-    return matches
 
 
 def project_search_candidates(
@@ -4845,40 +5376,6 @@ def parse_db_edit_request(
     except Exception:
         pass
     return heuristic_db_edit_request(text), {"transport": "heuristic", "generated_at": iso_now()}
-
-
-def summarize_project_candidate(project: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "project_key": str(project.get("project_key") or ""),
-        "name": str(project.get("name") or ""),
-        "seed_type": str(project.get("seed_type") or ""),
-        "seed_value": str(project.get("seed_value") or ""),
-        "tracking_state": str(project.get("tracking_state") or "active"),
-        "status": str(project.get("status") or ""),
-        "website_url": str(project.get("website_url") or ""),
-    }
-
-
-def resolve_import_project_key(
-    conn: sqlite3.Connection,
-    *,
-    exact_identifiers: list[tuple[str, str]],
-    names: list[str] | None = None,
-) -> str | None:
-    for identifier_type, identifier_value in exact_identifiers:
-        project_key = find_project_key_by_identifier(conn, identifier_type, identifier_value)
-        if project_key:
-            return project_key
-        if identifier_type == "nsid":
-            project_key = find_project_key_by_identifier(conn, "resolved_nsid", identifier_value)
-            if project_key:
-                return project_key
-    alias_matches: set[str] = set()
-    for name in names or []:
-        alias_matches.update(project_keys_for_alias(conn, name))
-    if len(alias_matches) == 1:
-        return next(iter(alias_matches))
-    return None
 
 
 def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any], *, source: str, merge_existing: bool = False) -> None:
@@ -6428,7 +6925,13 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="linked_repo_candidate",
                 )
         elif classification in {"docs", "blog"}:
-            add_resource_url(project, url)
+            add_resource_url(
+                project,
+                url,
+                role=classification,
+                source=source,
+                confidence="confirmed" if is_same_site_family(base_url, url) else "candidate",
+            )
             if is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
@@ -6459,7 +6962,13 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="same_site_candidate",
                 )
             else:
-                add_resource_url(project, url)
+                add_resource_url(
+                    project,
+                    url,
+                    role=app_link_role_from_resource_url(url),
+                    source=source,
+                    confidence="confirmed",
+                )
     return unique_list(follow_up_urls)
 
 
@@ -7198,6 +7707,13 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
     apply_service_probe_redirect_final_url(project, normalized_service_url, result)
     if 0 < result["status_code"] < 400:
+        if supported:
+            project["supported_service_urls"] = add_unique(project.get("supported_service_urls", []), canonical_service_url)
+        else:
+            project["supported_service_urls"] = [
+                item for item in project.get("supported_service_urls", [])
+                if normalize_url(str(item or "")) != canonical_service_url
+            ]
         if supported and service_url_auto_confirmable(project, canonical_service_url):
             confirm_service_url(project, canonical_service_url)
         elif supported:
@@ -7206,6 +7722,10 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         else:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
     elif result["status_code"] >= 400 or result.get("fetch_error"):
+        project["supported_service_urls"] = [
+            item for item in project.get("supported_service_urls", [])
+            if normalize_url(str(item or "")) != normalized_service_url
+        ]
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
         parsed = urllib.parse.urlparse(url)
@@ -7221,11 +7741,6 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
             add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=iso_now())
         except Exception as exc:
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
-
-
-def enrich_from_service(project: dict[str, Any], service_url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> None:
-    result = probe_service_url(service_url, timeout=timeout)
-    apply_service_probe_result(project, service_url, result, follow_up_timeout=min(timeout, REQUEST_TIMEOUT_SHORT))
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
@@ -7492,17 +8007,31 @@ def has_shared_lexicon_positioning(project: dict[str, Any]) -> bool:
     return any(marker in text_blob for marker in strong_markers)
 
 
-def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
-    if str(project.get("category") or "") != "lexicon":
-        return
+def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
+    has_lexicon_surface = bool(
+        project.get("primary_nsid")
+        or project.get("input_nsids")
+        or project.get("resolved_nsids")
+        or project.get("recorded_lexicon_namespaces")
+    )
+    if not has_lexicon_surface:
+        return {"lexicon_scope": "unknown", "lexicon_scope_evidence": []}
+
+    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+    llm_scope = str(llm_output.get("lexicon_scope") or "").strip().lower()
+    if llm_scope == "shared":
+        return {
+            "lexicon_scope": "shared",
+            "lexicon_scope_evidence": ["llm_output:shared"],
+        }
     if has_shared_lexicon_positioning(project):
-        return
+        return {
+            "lexicon_scope": "shared",
+            "lexicon_scope_evidence": ["shared_lexicon_positioning"],
+        }
+
     namespace_tokens = lexicon_brand_tokens(project)
-    if not namespace_tokens:
-        return
     identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project) | project_repo_owner_tokens(project)
-    if not (namespace_tokens & identity_tokens):
-        return
     has_service_surface = bool(
         project.get("website_url")
         or project.get("service_urls")
@@ -7511,7 +8040,34 @@ def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
         or project.get("resource_urls")
         or project.get("collection_observations")
     )
-    if not has_service_surface:
+    if namespace_tokens & identity_tokens and has_service_surface:
+        return {
+            "lexicon_scope": "service_specific",
+            "lexicon_scope_evidence": [
+                "namespace_matches_project_identity",
+                "service_or_collection_surface_detected",
+            ],
+        }
+    if llm_scope == "service_specific":
+        return {
+            "lexicon_scope": "service_specific",
+            "lexicon_scope_evidence": ["llm_output:service_specific"],
+        }
+    return {
+        "lexicon_scope": "unknown",
+        "lexicon_scope_evidence": ["shared_lexicon_positioning_not_found"],
+    }
+
+
+def apply_lexicon_scope_state(project: dict[str, Any]) -> None:
+    project.update(compute_lexicon_scope(project))
+
+
+def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
+    apply_lexicon_scope_state(project)
+    if str(project.get("category") or "") != "lexicon":
+        return
+    if project.get("lexicon_scope") != "service_specific":
         return
     project["category"] = "project"
 
@@ -7593,8 +8149,12 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
         "resource_urls": project.get("resource_urls", []),
+        "resource_url_records": project.get("resource_url_records", []),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
+        "supported_service_urls": project.get("supported_service_urls", []),
+        "lexicon_scope": project.get("lexicon_scope") or "unknown",
+        "lexicon_scope_evidence": project.get("lexicon_scope_evidence", []),
         "service_status_hint": project.get("service_status") or "unknown",
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
@@ -7671,15 +8231,6 @@ def strip_json_fence(text: str) -> str:
         if match:
             return match.group(1).strip()
     return stripped
-
-
-def llm_endpoint_url(endpoint: str) -> str:
-    normalized = endpoint.rstrip("/")
-    if normalized.endswith("/v1/chat/completions") or normalized.endswith("/chat/completions"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/chat/completions"
-    return f"{normalized}/v1/chat/completions"
 
 
 def normalize_llm_api_style(value: str | None) -> str:
@@ -8292,6 +8843,23 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     project["classification_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
     project["exclude_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
+    if any(
+        key in payload
+        for key in ("technical_interest_level", "technical_interest_reasons", "technical_interest_summary")
+    ):
+        project["technical_interest_level"] = str(
+            payload.get("technical_interest_level", project.get("technical_interest_level") or "none") or "none"
+        ).strip().lower()
+        project["technical_interest_reasons"] = clean_string_list(
+            payload.get("technical_interest_reasons", project.get("technical_interest_reasons", [])),
+            limit=5,
+        )
+        project["technical_interest_summary"] = normalize_ja_en_mixed_spacing(
+            str(
+                payload.get("technical_interest_summary", project.get("technical_interest_summary") or "") or ""
+            ).strip()
+        )
+        apply_technical_interest_state(project)
     project["manual_review_recommended"] = bool(payload.get("manual_review_recommended"))
     manual_review_kind = str(payload.get("manual_review_kind") or "other").strip().lower()
     project["manual_review_kind"] = (
@@ -8527,6 +9095,33 @@ def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
     return text
 
 
+def service_status_manual_review_action_basis(project: dict[str, Any]) -> list[str]:
+    service_status = normalize_service_status(str(project.get("service_status") or "unknown"))
+    service_confidence = normalize_service_status_confidence(str(project.get("service_status_confidence") or "none"))
+    service_evidence = {str(item) for item in project.get("service_status_evidence", []) if str(item).strip()}
+    blockers = set(str(item) for item in project.get("promotion_blockers", []))
+    basis: list[str] = []
+
+    if str(project.get("status") or "draft") == "draft" and (
+        service_status == "unknown"
+        or "service_status is still unknown" in blockers
+    ):
+        basis.append("promotion_status_resolution")
+
+    if (
+        not str(project.get("introduced_url") or "").strip()
+        and str(project.get("category") or "") in {"project", "personal_tool"}
+        and service_status in {"live", "beta", "invite_only"}
+        and service_confidence in {"none", "low"}
+    ):
+        basis.append("introduction_validation")
+
+    if "mixed_launch_signals_detected" in service_evidence:
+        basis.append("conflicting_service_status_evidence")
+
+    return basis
+
+
 def compute_review_signals(
     project: dict[str, Any],
     *,
@@ -8556,16 +9151,27 @@ def compute_review_signals(
         + [str(item or "") for item in shaped.get("input_nsids", [])]
         + [str(item or "") for item in shaped.get("resolved_nsids", [])]
     ))
-    if shaped.get("manual_review_recommended") and str(shaped.get("manual_review_kind") or "other") != "other":
+    manual_review_kind = str(shaped.get("manual_review_kind") or "other")
+    manual_review_action_basis = (
+        service_status_manual_review_action_basis(shaped)
+        if manual_review_kind == "service_status_manual_check"
+        else []
+    )
+    if (
+        shaped.get("manual_review_recommended")
+        and manual_review_kind != "other"
+        and (manual_review_kind != "service_status_manual_check" or manual_review_action_basis)
+    ):
         llm_priority = {"none": 0, "low": 4, "medium": 7, "high": 9}.get(str(shaped.get("manual_review_priority") or "none"), 4)
         signals.append(
             {
                 "kind": "llm_manual_review_recommended",
                 "priority": llm_priority,
                 "details": {
-                    "manual_review_kind": str(shaped.get("manual_review_kind") or "other"),
+                    "manual_review_kind": manual_review_kind,
                     "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
                     "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
+                    "action_basis": manual_review_action_basis,
                 },
             }
         )
@@ -8992,6 +9598,8 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         score += 200
     if "lexicon_ready_for_introduction" in signal_kinds:
         score += 100
+    if "technical_insight_candidate" in signal_kinds:
+        score += int(project.get("technical_interest_score", 0) or 0)
 
     service_status = normalize_service_status(project.get("service_status"))
     score += {
@@ -9027,6 +9635,7 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         score += min(4, len(nsid_hints))
     if not bool(project.get("manual_review_recommended")):
         score += 4
+    score += int(project.get("atproto_contribution_score", 0) or 0) // 5
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
     score -= len(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"})
     latest_activity = project_latest_activity_at(project)
@@ -9055,11 +9664,18 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
     return score
 
 
+def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
+    top_priority = max([int(item.get("priority", 0) or 0) for item in signals] or [0])
+    return top_priority * 10 + int(project.get("atproto_contribution_score", 0) or 0)
+
+
 def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools: bool = False) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
     if shaped.get("introduced_url"):
         return []
     if str(shaped.get("tracking_state") or "") == "ignore":
+        return []
+    if active_promotion_deferral(shaped):
         return []
 
     signals: list[dict[str, Any]] = []
@@ -9105,6 +9721,28 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
             }
         )
 
+    technical_interest_level = str(shaped.get("technical_interest_level") or "none")
+    technical_interest_reasons = list(shaped.get("technical_interest_reasons", []))
+    technical_interest_summary = str(shaped.get("technical_interest_summary") or "").strip()
+    if (
+        technical_interest_level in {"high", "exceptional"}
+        and technical_interest_reasons
+        and technical_interest_summary
+        and category not in {"reject", "name_only", "auth_only"}
+    ):
+        signals.append(
+            {
+                "kind": "technical_insight_candidate",
+                "priority": 9 if technical_interest_level == "exceptional" else 8,
+                "details": {
+                    "technical_interest_level": technical_interest_level,
+                    "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+                    "technical_interest_reasons": technical_interest_reasons,
+                    "technical_interest_summary": technical_interest_summary,
+                },
+            }
+        )
+
     return signals
 
 
@@ -9112,7 +9750,7 @@ def build_showcase_queue(
     conn: sqlite3.Connection,
     *,
     tracking_states: set[str] | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
 ) -> list[dict[str, Any]]:
@@ -9135,6 +9773,11 @@ def build_showcase_queue(
                 "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
+                "technical_interest_level": shaped.get("technical_interest_level", "none"),
+                "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+                "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9154,62 +9797,7 @@ def build_showcase_queue(
             }
         )
     queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
-    return queue[: max(1, int(limit or 50))]
-
-
-def build_showcase_queue_batch(
-    conn: sqlite3.Connection,
-    *,
-    tracking_states: set[str] | None = None,
-    kinds: set[str] | None = None,
-    include_personal_tools: bool = False,
-    project_list: list[dict[str, Any]] | None = None,
-    start_index: int = 0,
-    batch_size: int = 100,
-) -> tuple[list[dict[str, Any]], int]:
-    batch: list[dict[str, Any]] = []
-    projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-    index = max(0, int(start_index or 0))
-    target_size = max(1, int(batch_size or 100))
-    while index < len(projects) and len(batch) < target_size:
-        project = projects[index]
-        index += 1
-        shaped = apply_promotion_state(dict(project))
-        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
-        if kinds is not None:
-            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
-        if not signals:
-            continue
-        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
-        sort_score = promotion_queue_sort_score(shaped, signals)
-        batch.append(
-            {
-                "project_key": shaped["project_key"],
-                "name": shaped.get("name", ""),
-                "tracking_state": shaped.get("tracking_state", "active"),
-                "status": shaped.get("status", "draft"),
-                "category": shaped.get("category", ""),
-                "service_status": shaped.get("service_status", "unknown"),
-                "first_seen_at": shaped.get("first_seen_at", ""),
-                "last_seen_at": shaped.get("last_seen_at", ""),
-                "seed_type": shaped.get("seed_type", ""),
-                "seed_value": shaped.get("seed_value", ""),
-                "nsids": unique_list(
-                    [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
-                    + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
-                )[:5],
-                "website_url": shaped.get("website_url", ""),
-                "repo_urls": project_repo_hint_urls(shaped)[:3],
-                "tagline": shaped.get("tagline", ""),
-                "summary": shaped.get("summary", ""),
-                "top_priority": top_priority,
-                "sort_score": sort_score,
-                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-                "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
-            }
-        )
-    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
-    return batch, index
+    return queue if limit is None else queue[: max(1, int(limit or 50))]
 
 
 def build_showcase_queue_item(
@@ -9237,6 +9825,11 @@ def build_showcase_queue_item(
         "status": shaped.get("status", "draft"),
         "category": shaped.get("category", ""),
         "service_status": shaped.get("service_status", "unknown"),
+        "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+        "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
+        "technical_interest_level": shaped.get("technical_interest_level", "none"),
+        "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
+        "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
         "first_seen_at": shaped.get("first_seen_at", ""),
         "last_seen_at": shaped.get("last_seen_at", ""),
         "seed_type": shaped.get("seed_type", ""),
@@ -9274,6 +9867,7 @@ def build_review_queue(
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = review_queue_sort_score(shaped, signals)
         queue.append(
             {
                 "project_key": shaped["project_key"],
@@ -9281,15 +9875,18 @@ def build_review_queue(
                 "tracking_state": shaped.get("tracking_state", "active"),
                 "status": shaped.get("status", "draft"),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "website_url": shaped.get("website_url", ""),
                 "top_priority": top_priority,
+                "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": review_queue_suggested_commands(shaped, signals),
             }
         )
-    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    queue.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return queue[: max(1, int(limit or 50))]
 
 
@@ -9317,6 +9914,7 @@ def build_review_queue_batch(
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = review_queue_sort_score(shaped, signals)
         batch.append(
             {
                 "project_key": shaped["project_key"],
@@ -9324,15 +9922,18 @@ def build_review_queue_batch(
                 "tracking_state": shaped.get("tracking_state", "active"),
                 "status": shaped.get("status", "draft"),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "website_url": shaped.get("website_url", ""),
                 "top_priority": top_priority,
+                "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": review_queue_suggested_commands(shaped, signals),
             }
         )
-    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    batch.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return batch, index
 
 
@@ -9353,16 +9954,20 @@ def build_review_queue_item(
     if not signals:
         return None
     top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+    sort_score = review_queue_sort_score(shaped, signals)
     return {
         "project_key": shaped["project_key"],
         "name": shaped.get("name", ""),
         "tracking_state": shaped.get("tracking_state", "active"),
         "status": shaped.get("status", "draft"),
         "service_status": shaped.get("service_status", "unknown"),
+        "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+        "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
         "seed_type": shaped.get("seed_type", ""),
         "seed_value": shaped.get("seed_value", ""),
         "website_url": shaped.get("website_url", ""),
         "top_priority": top_priority,
+        "sort_score": sort_score,
         "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
         "suggested_commands": review_queue_suggested_commands(shaped, signals),
     }
@@ -9647,22 +10252,6 @@ def is_strict_tangled_repo_url(url: str) -> bool:
         return False
     owner, repo = segments
     return bool(STRICT_REPO_SEGMENT_RE.fullmatch(owner) and STRICT_REPO_SEGMENT_RE.fullmatch(repo))
-
-
-def batch_safe_merge_reasons(reasons: dict[str, list[str]]) -> dict[str, list[str]]:
-    safe: dict[str, list[str]] = {}
-    if reasons.get("github_repo_urls"):
-        valid = [value for value in reasons["github_repo_urls"] if is_strict_github_repo_url(value)]
-        if valid:
-            safe["github_repo_urls"] = valid
-    if reasons.get("source_code_urls"):
-        valid = [
-            value for value in reasons["source_code_urls"]
-            if is_strict_github_repo_url(value) or is_strict_tangled_repo_url(value)
-        ]
-        if valid:
-            safe["source_code_urls"] = valid
-    return safe
 
 
 def manual_seed_values(project: dict[str, Any], seed_type: str) -> list[str]:
@@ -10030,6 +10619,12 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["blocked_identifiers"] = normalize_blocked_identifiers(
         list(merged.get("blocked_identifiers", [])) + list(source.get("blocked_identifiers", []))
     )
+    merged["deferred_identifiers"] = normalize_deferred_identifiers(
+        list(merged.get("deferred_identifiers", [])) + list(source.get("deferred_identifiers", []))
+    )
+    merged["promotion_deferrals"] = normalize_promotion_deferrals(
+        list(merged.get("promotion_deferrals", [])) + list(source.get("promotion_deferrals", []))
+    )
     merged["dismissed_review_kinds"] = unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
     )
@@ -10079,8 +10674,12 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["website_url_candidates"] = unique_list(list(merged.get("website_url_candidates", [])) + list(source.get("website_url_candidates", [])))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
     merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
+    merged["resource_url_records"] = normalize_resource_url_records(
+        list(merged.get("resource_url_records", [])) + list(source.get("resource_url_records", []))
+    )
     merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
+    merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
     merged["service_status_confidence"] = merge_service_status_confidence(
         str(merged.get("service_status_confidence") or "none"),
@@ -10121,6 +10720,13 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["classification_reason"] = choose_preferred_scalar(merged.get("classification_reason"), source.get("classification_reason"))
     merged["exclude_reason"] = choose_preferred_scalar(merged.get("exclude_reason"), source.get("exclude_reason"))
     merged["watch_reason"] = choose_preferred_scalar(merged.get("watch_reason"), source.get("watch_reason"))
+    if int(source.get("technical_interest_score", 0) or 0) > int(merged.get("technical_interest_score", 0) or 0):
+        merged["technical_interest_level"] = source.get("technical_interest_level", "none")
+        merged["technical_interest_summary"] = source.get("technical_interest_summary", "")
+    merged["technical_interest_reasons"] = unique_list(
+        list(merged.get("technical_interest_reasons", [])) + list(source.get("technical_interest_reasons", []))
+    )
+    apply_technical_interest_state(merged)
     merged["confidence"] = max(float(merged.get("confidence") or 0.0), float(source.get("confidence") or 0.0))
     merged["llm_source"] = dict(merged.get("llm_source") or source.get("llm_source") or {})
     merged["llm_output"] = dict(merged.get("llm_output") or source.get("llm_output") or {})
@@ -10145,6 +10751,7 @@ def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
 
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
+    apply_deferred_identifier_guards(project)
     pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
@@ -10242,6 +10849,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     sync_primary_service_urls(project)
     purge_blocked_identifiers(project)
+    apply_deferred_identifier_guards(project)
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("resolved_nsids", []))
     project["lexicon_count"] = len(project.get("lexicons", []))
@@ -10267,6 +10875,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         unique_list(project.get("tangled_repo_urls", []) + [record["url"] for record in project["source_repo_records"] if record.get("provider") == "tangled" and record.get("confidence") == "confirmed"]),
         provider="tangled",
     )
+    apply_deferred_identifier_guards(project)
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
@@ -10562,6 +11171,8 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             "promotion_ready": project.get("promotion_ready", False),
             "promotion_blockers": project.get("promotion_blockers", []),
             "service_status": project.get("service_status", ""),
+            "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
+            "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
             "category": project.get("category", ""),
             "app_category": project.get("app_category", ""),
             "tagline_is_provisional": project.get("tagline_is_provisional", False),
@@ -10613,6 +11224,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  website={project.get('website_url') or '-'}")
         print(f"  website_candidates={', '.join(project.get('website_url_candidates', [])) or '-'}")
         print(f"  service_status={project.get('service_status') or '-'}")
+        print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
         print(f"  introduced={project.get('introduced', False)} introduced_url={project.get('introduced_url') or '-'}")
         print(f"  last_promoted_at={project.get('last_promoted_at') or '-'} promotion_events={len(project.get('promotion_events', []))}")
         print(f"  github={', '.join(project.get('github_repo_urls', [])) or '-'}")
@@ -10630,6 +11242,23 @@ def cmd_show(args: argparse.Namespace) -> int:
                 if item.get("type") and item.get("value")
             ]
             print(f"  blocked_identifiers={', '.join(blocked_parts) or '-'}")
+        if project.get("deferred_identifiers"):
+            deferred_parts = [
+                f"{item.get('type')}:{item.get('value')} until {item.get('expires_at')}"
+                for item in project.get("deferred_identifiers", [])
+                if item.get("type") and item.get("value")
+            ]
+            print(f"  deferred_identifiers={', '.join(deferred_parts) or '-'}")
+        if project.get("promotion_deferrals"):
+            promotion_deferral = active_promotion_deferral(project)
+            print(
+                "  promotion_deferral="
+                + (
+                    f"{promotion_deferral.get('reason')} until {promotion_deferral.get('expires_at')}"
+                    if promotion_deferral
+                    else f"inactive; last reason={latest_promotion_deferral_reason(project) or '-'}"
+                )
+            )
         if project.get("separate_project_keys"):
             print(f"  separate_project_keys={', '.join(project.get('separate_project_keys', []))}")
         duplicate_candidates = project.get("duplicate_candidates", [])
@@ -10691,6 +11320,8 @@ def output_project_queue(
                             "status": current_item.get("status", ""),
                             "category": current_item.get("category", ""),
                             "service_status": current_item.get("service_status", ""),
+                            "atproto_contribution_level": current_item.get("atproto_contribution_level", "unknown"),
+                            "atproto_contribution_score": int(current_item.get("atproto_contribution_score", 0) or 0),
                             "first_seen_at": current_item.get("first_seen_at", ""),
                             "last_seen_at": current_item.get("last_seen_at", ""),
                             "seed_type": current_item.get("seed_type", ""),
@@ -10700,6 +11331,7 @@ def output_project_queue(
                             "repo_urls": current_item.get("repo_urls", []),
                             "tagline": current_item.get("tagline", ""),
                             "summary": current_item.get("summary", ""),
+                            "last_promotion_deferral_reason": current_item.get("last_promotion_deferral_reason", ""),
                             "signals": current_item.get("signals", []),
                             "suggested_commands": current_item.get("suggested_commands", []),
                         },
@@ -10735,6 +11367,7 @@ def output_project_queue(
                         actions.append("R=reject repo")
                 elif queue_name == "promotion":
                     actions.append("p=pick")
+                    actions.append("h=hold 7d")
                     actions.append("k=tracking-state")
                 print(", ".join(actions), file=sys.stderr)
                 try:
@@ -10843,6 +11476,41 @@ def output_project_queue(
                             {
                                 "picked_for_introduction": True,
                                 "project_key": current_item.get("project_key", ""),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                    break
+                if queue_name == "promotion" and lowered == "h":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is None:
+                        print(json.dumps({"warning": "project_not_found"}, ensure_ascii=False))
+                        continue
+                    previous_reason = latest_promotion_deferral_reason(project)
+                    prompt = "Hold reason"
+                    if previous_reason:
+                        prompt += f" [Enter=reuse: {previous_reason}]"
+                    else:
+                        prompt += " [required]"
+                    print(prompt, file=sys.stderr)
+                    try:
+                        reason = input().strip()
+                    except EOFError:
+                        stop_interactive = True
+                        break
+                    if not reason and not previous_reason:
+                        print(json.dumps({"warning": "promotion_deferral_reason_required"}, ensure_ascii=False))
+                        continue
+                    entry = defer_promotion_on_project(project, reason=reason)
+                    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+                    conn.commit()
+                    print(
+                        json.dumps(
+                            {
+                                "promotion_deferred": True,
+                                "project_key": current_item.get("project_key", ""),
+                                "reason": entry["reason"],
+                                "expires_at": entry["expires_at"],
                             },
                             ensure_ascii=False,
                         )
@@ -11154,36 +11822,15 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     include_personal_tools = bool(getattr(args, "include_personal_tools", False))
-    load_more: Callable[[], list[dict[str, Any]]] | None = None
     if interactive:
-        batch_size = 100
-        total_limit = max(1, int(args.limit)) if args.limit is not None else None
-        project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-        next_index = 0
-        emitted = 0
-
-        def load_showcase_batch() -> list[dict[str, Any]]:
-            nonlocal next_index, emitted
-            if total_limit is not None and emitted >= total_limit:
-                return []
-            current_batch_size = batch_size
-            if total_limit is not None:
-                current_batch_size = min(current_batch_size, total_limit - emitted)
-            items, next_index_result = build_showcase_queue_batch(
-                conn,
-                tracking_states=tracking_states,
-                kinds=kinds,
-                include_personal_tools=include_personal_tools,
-                project_list=project_list,
-                start_index=next_index,
-                batch_size=current_batch_size,
-            )
-            next_index = next_index_result
-            emitted += len(items)
-            return items
-
-        queue = load_showcase_batch()
-        load_more = load_showcase_batch
+        effective_limit = max(1, int(args.limit)) if args.limit is not None else None
+        queue = build_showcase_queue(
+            conn,
+            tracking_states=tracking_states,
+            limit=effective_limit,
+            kinds=kinds,
+            include_personal_tools=include_personal_tools,
+        )
     else:
         effective_limit = max(1, int(args.limit)) if args.limit is not None else 50
         queue = build_showcase_queue(
@@ -11200,7 +11847,7 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
         tracking_states=tracking_states,
         kinds=kinds,
         interactive=interactive,
-        load_more=load_more,
+        load_more=None,
         include_personal_tools=include_personal_tools,
     )
 
@@ -11794,9 +12441,90 @@ def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
 
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
-    preprocessed = preprocess_project_json_rows(conn)
     summary = audit_and_repair_identifiers(conn)
-    summary["preprocess"] = preprocessed
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_audit_url_fields(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = build_url_field_audit(conn, example_limit=max(0, int(args.example_limit)))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    changed_projects = 0
+    links_before = 0
+    links_after = 0
+    removed_links = 0
+    added_links = 0
+    examples: list[dict[str, Any]] = []
+
+    for row in rows:
+        project_key = str(row["project_key"])
+        record_payload = load_json(str(row["record_json"] or "{}")) or {}
+        if not isinstance(record_payload, dict):
+            raise ValueError(f"record_json must be an object: {project_key}")
+        project = project_from_row(row)
+        existing_links = normalize_app_links(list(project.get("links", []) or []))
+        rebuilt_links = build_project_app_links(project, include_existing=False)
+        links_before += len(existing_links)
+        links_after += len(rebuilt_links)
+        existing_keys = {(link["uri"], link["role"]) for link in existing_links}
+        rebuilt_keys = {(link["uri"], link["role"]) for link in rebuilt_links}
+        removed = sorted(existing_keys - rebuilt_keys)
+        added = sorted(rebuilt_keys - existing_keys)
+        if not removed and not added:
+            continue
+        changed_projects += 1
+        removed_links += len(removed)
+        added_links += len(added)
+        if len(examples) < 20:
+            examples.append(
+                {
+                    "project_key": project_key,
+                    "removed_count": len(removed),
+                    "removed": [{"uri": uri, "role": role} for uri, role in removed[:20]],
+                    "added_count": len(added),
+                    "added": [{"uri": uri, "role": role} for uri, role in added[:20]],
+                }
+            )
+        app = dict(record_payload.get("app") or {})
+        if rebuilt_links:
+            app["links"] = rebuilt_links
+        else:
+            app.pop("links", None)
+        record_payload["app"] = app
+        if execute:
+            conn.execute(
+                "UPDATE projects SET record_json = ? WHERE project_key = ?",
+                (dump_json(record_payload, sort_keys=False), project_key),
+            )
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": changed_projects,
+        "link_count_before": links_before,
+        "link_count_after": links_after,
+        "removed_link_count": removed_links,
+        "added_link_count": added_links,
+        "examples": examples,
+    }
+
+
+def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = cleanup_project_app_links(conn, execute=bool(args.execute))
+    finally:
+        conn.close()
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
@@ -11882,6 +12610,336 @@ def cmd_block_identifier(args: argparse.Namespace) -> int:
         "source_code_urls": project.get("source_code_urls", []),
         "input_nsids": project.get("input_nsids", []),
     }, ensure_ascii=False))
+    return 0
+
+
+def cmd_defer_identifier(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    project = ensure_project_shape(project)
+    identifier_type = str(args.identifier_type)
+    normalized_value = normalize_blocked_identifier_value(identifier_type, str(args.value))
+    if not normalized_value:
+        raise ValueError("identifier value could not be normalized")
+
+    if args.clear:
+        project["deferred_identifiers"] = [
+            item for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+            if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
+        ]
+    else:
+        defer_identifier_on_project(
+            project,
+            identifier_type,
+            normalized_value,
+            note=str(args.note or "").strip(),
+            days=int(args.days or DEFAULT_DEFER_IDENTIFIER_DAYS),
+        )
+        project = finalize_project_shape(project)
+    project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = compute_merge_recommendation(project)
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "identifier_type": identifier_type,
+        "value": normalized_value,
+        "deferred_identifiers": project.get("deferred_identifiers", []),
+        "website_url": project.get("website_url", ""),
+        "service_urls": project.get("service_urls", []),
+        "service_url_candidates": project.get("service_url_candidates", []),
+        "source_code_urls": project.get("source_code_urls", []),
+        "candidate_source_code_urls": project.get("candidate_source_code_urls", []),
+        "input_nsids": project.get("input_nsids", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_defer_promotion(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    project = ensure_project_shape(project)
+    if args.clear:
+        clear_active_promotion_deferrals(project)
+        entry = None
+    else:
+        entry = defer_promotion_on_project(
+            project,
+            reason=str(args.reason or "").strip(),
+            days=int(args.days or DEFAULT_PROMOTION_DEFER_DAYS),
+        )
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "promotion_deferral": entry,
+        "active_promotion_deferral": active_promotion_deferral(project),
+        "promotion_deferrals": project.get("promotion_deferrals", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def tenant_identity_for_suffix(host: str, suffix: str) -> str:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    normalized_suffix = normalize_multi_tenant_suffix(suffix)
+    if not lowered.endswith(f".{normalized_suffix}"):
+        return ""
+    prefix_labels = lowered[: -(len(normalized_suffix) + 1)].split(".")
+    return f"{prefix_labels[-1]}.{normalized_suffix}" if prefix_labels and prefix_labels[-1] else ""
+
+
+def project_split_identifiers_by_tenant(project: dict[str, Any], suffix: str) -> dict[str, dict[str, list[str]]]:
+    groups: dict[str, dict[str, list[str]]] = {}
+
+    def add(tenant: str, identifier_type: str, value: str) -> None:
+        if not tenant or not value:
+            return
+        group = groups.setdefault(
+            tenant,
+            {"service_urls": [], "nsids": [], "authority_domains": []},
+        )
+        field = {
+            "service_url": "service_urls",
+            "nsid": "nsids",
+            "authority_domain": "authority_domains",
+        }[identifier_type]
+        group[field] = add_unique(group[field], value)
+
+    service_urls = unique_list(
+        ([project.get("website_url")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        + manual_seed_values(project, "service_url")
+    )
+    for service_url in service_urls:
+        normalized = normalize_url(str(service_url or ""))
+        host = urllib.parse.urlparse(normalized).netloc.lower()
+        add(tenant_identity_for_suffix(host, suffix), "service_url", normalized)
+
+    nsids = unique_list(
+        ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
+        + list(project.get("input_nsids", []))
+        + list(project.get("resolved_nsids", []))
+        + manual_seed_values(project, "nsid")
+    )
+    for nsid in nsids:
+        normalized = normalize_nsid(str(nsid or ""))
+        authority = derive_authority_domain_from_namespace(normalized)
+        add(tenant_identity_for_suffix(authority, suffix), "nsid", normalized)
+
+    for authority in project.get("authority_domains", []):
+        normalized = str(authority or "").strip().lower().rstrip(".")
+        add(tenant_identity_for_suffix(normalized, suffix), "authority_domain", normalized)
+    return groups
+
+
+def virtual_tenant_project(project: dict[str, Any], tenant: str, group: dict[str, list[str]]) -> dict[str, Any]:
+    virtual = default_project_record(f"virtual:{project['project_key']}:{tenant}", "service_url", "")
+    virtual["name"] = tenant
+    virtual["website_url"] = group.get("service_urls", [""])[0] if group.get("service_urls") else ""
+    virtual["service_urls"] = list(group.get("service_urls", []))
+    virtual["input_nsids"] = list(group.get("nsids", []))
+    virtual["resolved_nsids"] = list(group.get("nsids", []))
+    virtual["authority_domains"] = list(group.get("authority_domains", []))
+    virtual["recorded_lexicon_namespaces"] = unique_list(
+        [
+            namespace_from_collection_nsid(nsid)
+            for nsid in group.get("nsids", [])
+            if namespace_from_collection_nsid(nsid)
+        ]
+    )
+    return finalize_project_shape(virtual)
+
+
+def split_commands_for_tenant(project_key: str, group: dict[str, list[str]]) -> list[str]:
+    commands: list[str] = []
+    for identifier_type, values in (
+        ("service_url", group.get("service_urls", [])),
+        ("nsid", group.get("nsids", [])),
+    ):
+        for value in values:
+            commands.append(
+                "python3 scripts/project_registry.py split-project "
+                f"--project-key {shlex.quote(project_key)} "
+                f"--identifier-type {identifier_type} "
+                f"--value {shlex.quote(str(value))}"
+            )
+    return commands
+
+
+def split_project_tenant_group(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+    tenant: str,
+    group: dict[str, list[str]],
+) -> dict[str, Any]:
+    source = fetch_project(conn, source_project_key)
+    if source is None:
+        raise ValueError(f"source project not found: {source_project_key}")
+    source = ensure_project_shape(source)
+    identifiers = [
+        (identifier_type, str(value))
+        for identifier_type, values in (
+            ("service_url", group.get("service_urls", [])),
+            ("nsid", group.get("nsids", [])),
+        )
+        for value in values
+        if str(value).strip()
+    ]
+    if not identifiers:
+        raise ValueError(f"tenant group has no movable identifiers: {tenant}")
+
+    target_key = generate_project_key({project["project_key"] for project in all_projects(conn)})
+    first_type, first_value = identifiers[0]
+    target = default_project_record(target_key, first_type, first_value)
+    target["tracking_state"] = source.get("tracking_state", "active")
+    target["status"] = source.get("status", "draft")
+    target["discovery_sources"] = unique_list(list(source.get("discovery_sources", [])) + ["split_from_source_config_audit"])
+    target["tracking_note"] = f"split tenant {tenant} from {source['project_key']}"
+
+    blocked = normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    for identifier_type, identifier_value in identifiers:
+        if identifier_type == "service_url":
+            confirm_service_seed(target, identifier_value, source="source_config_audit_split")
+        else:
+            add_manual_seed(target, identifier_type, identifier_value, source="source_config_audit_split")
+        remove_identifier_from_project(source, identifier_type, identifier_value)
+        block_key = (identifier_type, identifier_value)
+        if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
+            blocked.append(
+                {
+                    "type": identifier_type,
+                    "value": identifier_value,
+                    "note": f"split tenant {tenant} to {target_key}",
+                    "added_at": iso_now(),
+                }
+            )
+    source["blocked_identifiers"] = blocked
+    source["separate_project_keys"] = unique_list(list(source.get("separate_project_keys", [])) + [target_key])
+    target["separate_project_keys"] = unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+    append_project_note(source, f"split tenant {tenant} -> {target_key}")
+
+    source = finalize_project_shape(source)
+    target = finalize_project_shape(target)
+    source["duplicate_candidates"] = compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = compute_merge_recommendation(source)
+    target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
+    target["merge_recommendation"] = compute_merge_recommendation(target)
+    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+    save_project(conn, target, enriched=False)
+    conn.commit()
+    return {
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "tenant": tenant,
+        "moved_identifiers": [
+            {"type": identifier_type, "value": identifier_value}
+            for identifier_type, identifier_value in identifiers
+        ],
+        "target_merge_recommendation": target.get("merge_recommendation", {}),
+    }
+
+
+def build_source_config_split_suggestions(conn: sqlite3.Connection, suffixes: list[str] | None = None) -> list[dict[str, Any]]:
+    normalized_suffixes = sorted(
+        {normalize_multi_tenant_suffix(item) for item in (suffixes or sorted(configured_multi_tenant_suffixes()))}
+    )
+    projects = [ensure_project_shape(project) for project in list_projects(conn)]
+    suggestions: list[dict[str, Any]] = []
+    for project in projects:
+        for suffix in normalized_suffixes:
+            groups = project_split_identifiers_by_tenant(project, suffix)
+            if len(groups) < 2:
+                continue
+            tenant_groups: list[dict[str, Any]] = []
+            for tenant_group_index, (tenant, group) in enumerate(sorted(groups.items()), start=1):
+                virtual = virtual_tenant_project(project, tenant, group)
+                comparison_projects = [
+                    item for item in projects if item.get("project_key") != project.get("project_key")
+                ] + [virtual]
+                candidates = compute_duplicate_candidates(conn, virtual, projects=comparison_projects)
+                tenant_groups.append(
+                    {
+                        "tenant_group_index": tenant_group_index,
+                        "tenant": tenant,
+                        "identifiers": group,
+                        "merge_candidates_after_split": candidates[:10],
+                        "suggested_split_commands": split_commands_for_tenant(str(project["project_key"]), group),
+                    }
+                )
+            suggestions.append(
+                {
+                    "source_project_key": project["project_key"],
+                    "source_name": project.get("name", ""),
+                    "trigger": f"custom_multi_tenant_suffix:{suffix}",
+                    "tenant_groups": tenant_groups,
+                    "shared_or_ambiguous_identifiers": {
+                        "repo_urls": unique_list(
+                            list(project.get("source_code_urls", []))
+                            + list(project.get("candidate_source_code_urls", []))
+                        ),
+                    },
+                    "requires_manual_confirmation": True,
+                }
+            )
+    return suggestions
+
+
+def cmd_audit_source_config(args: argparse.Namespace) -> int:
+    interactive = bool(args.interactive)
+    if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
+        raise ValueError("default interactive mode requires a TTY; use --no-interactive for JSON dry-run output")
+
+    requested_suffix = normalize_multi_tenant_suffix(args.domain) if args.domain else ""
+    added_suffix = False
+    if requested_suffix and requested_suffix not in configured_multi_tenant_suffixes():
+        should_add = bool(args.execute)
+        if interactive and not should_add:
+            should_add = prompt_for_confirmation(f"Add {requested_suffix} to config/sources.json? [y/N]")
+        if should_add:
+            added_suffix = add_configured_multi_tenant_suffix(requested_suffix)
+
+    suffixes = [requested_suffix] if requested_suffix else sorted(configured_multi_tenant_suffixes())
+    conn = open_db()
+    suggestions = build_source_config_split_suggestions(conn, suffixes=suffixes)
+    payload = {
+        "mode": "interactive" if interactive else "dry_run",
+        "requested_suffix": requested_suffix,
+        "suffix_added": added_suffix,
+        "audited_suffixes": suffixes,
+        "split_suggestion_count": len(suggestions),
+        "split_suggestions": suggestions,
+    }
+    if not interactive:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    for index, suggestion in enumerate(suggestions, start=1):
+        print(json.dumps({"index": index, "total": len(suggestions), **suggestion}, ensure_ascii=False, indent=2, sort_keys=True))
+        answer = input("split which tenant group? [number]/[Enter]next/[q]uit: ").strip().lower()
+        if answer in {"q", "quit"}:
+            break
+        if not answer:
+            continue
+        try:
+            selected_index = int(answer)
+        except ValueError:
+            print(json.dumps({"warning": "invalid_tenant_group_selection", "answer": answer}, ensure_ascii=False))
+            continue
+        tenant_groups = suggestion.get("tenant_groups", [])
+        if selected_index < 1 or selected_index > len(tenant_groups):
+            print(json.dumps({"warning": "tenant_group_selection_out_of_range", "answer": answer}, ensure_ascii=False))
+            continue
+        selected = tenant_groups[selected_index - 1]
+        result = split_project_tenant_group(
+            conn,
+            str(suggestion.get("source_project_key") or ""),
+            str(selected.get("tenant") or ""),
+            dict(selected.get("identifiers") or {}),
+        )
+        print(json.dumps({"split_applied": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps({key: value for key, value in payload.items() if key != "split_suggestions"}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
@@ -13081,6 +14139,7 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_ready_for_introduction",
         "lexicon_ready_for_introduction",
+        "technical_insight_candidate",
     ], help="Restrict to specific promotion signal kinds.")
     promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
@@ -13123,14 +14182,14 @@ def build_parser() -> argparse.ArgumentParser:
     sync_github_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider repos updated within this many days. Default: 10.")
     sync_github_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
     sync_github_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_github_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unknown GitHub repos.")
+    sync_github_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown GitHub repos. Default: enabled; use --no-create-unmatched to list only.")
     sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
     sync_github_parser.set_defaults(func=cmd_sync_github_search)
 
     sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
     sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")
     sync_collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_collections_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unmatched imported collections.")
+    sync_collections_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unmatched imported collections. Default: enabled; use --no-create-unmatched to list only.")
     sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider collections whose min timestamp is within this many days. Default: 10.")
     sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
     sync_collections_parser.set_defaults(func=cmd_sync_collections)
@@ -13141,11 +14200,19 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.add_argument("--lookback-days", type=int, default=14, help="Only consider cards updated within this many days. Default: 14.")
     sync_semble_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
     sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_semble_parser.add_argument("--create-unmatched", action="store_true", help="Create new projects for unknown seeds discovered from Semble collection cards.")
+    sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
     sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.set_defaults(func=cmd_repair_db)
+
+    audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
+    audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
+    audit_url_parser.set_defaults(func=cmd_audit_url_fields)
+
+    cleanup_app_links_parser = subparsers.add_parser("cleanup-app-links", help="Rebuild stored app.links from canonical URL fields and confirmed resource records.")
+    cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply record_json updates. Without this flag, show a dry-run summary only.")
+    cleanup_app_links_parser.set_defaults(func=cmd_cleanup_app_links)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
@@ -13188,6 +14255,34 @@ def build_parser() -> argparse.ArgumentParser:
     block_parser.add_argument("--note", help="Optional operator note recorded with the block.")
     block_parser.add_argument("--clear", action="store_true", help="Remove the block instead of adding it.")
     block_parser.set_defaults(func=cmd_block_identifier)
+
+    defer_parser = subparsers.add_parser("defer-identifier", help="Temporarily downgrade one identifier while preventing automatic confirmation.")
+    defer_target = defer_parser.add_mutually_exclusive_group(required=True)
+    defer_target.add_argument("-p", "--project-key", help="Target one project key.")
+    defer_target.add_argument("-s", "--seed", help="Target by known seed value.")
+    defer_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    defer_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to defer.")
+    defer_parser.add_argument("-v", "--value", required=True, help="Identifier value to defer on this project.")
+    defer_parser.add_argument("--days", type=int, default=DEFAULT_DEFER_IDENTIFIER_DAYS, help="How many days to keep the temporary guard. Default: 30.")
+    defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
+    defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
+    defer_parser.set_defaults(func=cmd_defer_identifier)
+
+    defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue while recording the reason.")
+    defer_promotion_target = defer_promotion_parser.add_mutually_exclusive_group(required=True)
+    defer_promotion_target.add_argument("-p", "--project-key", help="Target one project key.")
+    defer_promotion_target.add_argument("-s", "--seed", help="Target by known seed value.")
+    defer_promotion_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    defer_promotion_parser.add_argument("--days", type=int, default=DEFAULT_PROMOTION_DEFER_DAYS, help="How many days to hide the project from promotion-queue. Default: 7.")
+    defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
+    defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
+    defer_promotion_parser.set_defaults(func=cmd_defer_promotion)
+
+    audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
+    audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/sources.json before auditing it.")
+    audit_source_parser.add_argument("--interactive", action=argparse.BooleanOptionalAction, default=True, help="Review split suggestions interactively. Default: enabled; use --no-interactive for JSON dry-run output.")
+    audit_source_parser.add_argument("--execute", action="store_true", help="Add the requested suffix without an interactive confirmation. Split suggestions are never auto-applied.")
+    audit_source_parser.set_defaults(func=cmd_audit_source_config)
 
     split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
     split_target = split_parser.add_mutually_exclusive_group(required=True)

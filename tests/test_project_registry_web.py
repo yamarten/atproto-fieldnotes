@@ -612,9 +612,15 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(captured["kind"], "collections")
         self.assertFalse(captured["execute"])
+        self.assertTrue(captured["create_unmatched"])
         self.assertEqual(captured["lookback_days"], 7)
         self.assertEqual(job_payload["status"], "done")
         self.assertEqual(job_payload["result"]["mode"], "dry_run")
+
+    def test_sync_payload_can_disable_create_unmatched(self) -> None:
+        payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False})
+
+        self.assertFalse(payload["create_unmatched"])
 
     def test_enrich_all_job_runs_limited_selection(self) -> None:
         original_enrich = web.registry.enrich_project

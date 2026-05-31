@@ -12,7 +12,14 @@
   - `ops_json`
 - `record_json` は高信頼の project record
 - `ops_json` は候補・調査・LLM・merge 制御などの運用情報
-- `project_identifiers` はもう使わない
+- `deferred_identifiers` は CLI の `defer-identifier` で追加する一時保留 guard
+  - URL は candidate に降格し、NSID は deferred category に保持する
+  - 期限内は自動 confirmed 化を抑制する
+  - Web UI 操作は未接続。confirmed/candidate row の `Defer 30d` と `Guards` の期限表示を追加する余地がある
+- `promotion_deferrals` は CLI の `defer-promotion` または `promotion-queue --interactive` の `h` で追加する理由付き一時保留履歴
+  - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
+  - 履歴は残し、再保留時に直近理由を再利用できる
+  - Web UI 操作と理由からの復活条件自動判定は未接続
 
 ## 運用上の注意
 
@@ -24,6 +31,8 @@
   - `merge --execute`
   - `merge-batch --execute`
   - DB への直接 SQL 更新
+- `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
+  - 棚卸しだけ行う場合は `--no-create-unmatched`
 - GUI で DB を触った後は `repair-db` を回す
 
 ## 現在の主要レーン
@@ -40,13 +49,12 @@
   - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
   - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
 
-`list.json` / `services.json` 系の一時 import は削除済みです。今後の前提にしません。
-
 ## 直近の残件
 
 - `NSID` ownership 判定は直近で一段強化した
   - authority domain 由来の service URL は、即 candidate 化せずまず probe だけする
   - probe が `supported` を通った時だけ `website_url_candidates` / `service_url_candidates` に残す
+  - supported URL は `supported_service_urls` に URL 単位で保存し、guess prune から除外する
   - unsupported な authority probe からは `service_title` を `name` 候補へ入れない
   - `developer_accounts` は confirmed 専用、service/search 由来は `candidate_developer_accounts` に分離した
   - `project_owned_lexicon_nsid()` は次を優先して `owned` 判定する
@@ -106,7 +114,10 @@
 - `tagline` / `summary` の再編集
   - 既存 project には collection/lexicon 主体の文面が残っているものがある
   - service 本体が優先されるよう merge 側は改善済みだが、保存済み文面の洗い替えはまだ
-  - `service project` と `lexicon project` で LLM prompt を分ける余地がある
+  - NSID seed だけで共有 schema とみなさない `lexicon_scope=shared/service_specific/unknown` は追加済み
+  - LLM prompt も service 未発見と共有 lexicon を区別するよう更新済み
+  - 既存文面の洗い替えには LLM 再 `enrich` が必要
+  - `service project` と `lexicon project` で prompt 自体を分ける余地は残る
 - GitHub / Bluesky rate limit 耐性
   - GitHub は query 数削減とキャッシュを入れているが、live fetch が続くとまだ 403 に当たる
   - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
@@ -114,6 +125,11 @@
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
+- hosted suffix 追加後の split 監査
+  - `audit-source-config [domain]` は実装済み
+  - suffix 追記、tenant 混在の `split_suggestions`、仮分割後の merge candidate 表示まで接続済み
+  - interactive で tenant group を選ぶと service URL / NSID を原子的に切り出す
+  - 共有 repo / lexicon や URL 移転の例外があるため確認必須。non-interactive の自動 split は入れない
 - 旧 discovery フローから取り込み済みでないアイディア
   - 手動候補を一旦積む inbox 的な導線
   - `first_seen_at` / `last_seen_at` / recent activity を使った差分ベースの priority 補正
@@ -126,29 +142,26 @@
 - review 系の改善
   - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
   - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
+  - `llm_manual_review_recommended` のうち `service_status_manual_check` は絞り込み済み
+    - 単なる `service_status_confidence=low` では queue に載せない
+    - draft の昇格判断、未紹介 service の紹介前検証、矛盾した status evidence の解消に限る
+    - 採用理由は `details.action_basis`
+  - 他の LLM manual review kind は、レビュー後に変わる判断や完了条件の表現がまだ弱い
+  - `atproto_contribution_level` / score / evidence の rule-based v1 は実装済み
+    - resolved NSID / schema sample は `core`
+    - record sample / collection observation は `substantial`
+    - NSID hint だけなら `optional`
+    - `category=auth_only` は強い protocol surface が無ければ `auth_only`
+    - review / promotion queue の sort に反映済み
+  - docs / README evidence と LLM 補助分類は未接続
+  - 寄与度レビューも、確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる場合に寄せる
+  - 実用性と別軸の `technical_interest_level / score / reasons / summary` は追加済み
+    - LLM の暫定評価で `high / exceptional` のものを `promotion-queue` の `technical_insight_candidate` に出す
+    - 新規設計パターン、protocol gap、相互運用実験、特徴的 architecture、参照実装を区別する
 - Web UI 詳細検索
   - `Search` は自由語 score 検索と tracking state / service status / category / introduced / candidate / error / review signal / 日付 filter の AND 条件に対応済み
   - browser 側の `key:value` 演算子は canonical な API query parameter へ変換する。API に別 DSL は追加していない
   - schema 追加なしの in-memory filter なので、遅さが問題になったら scalar 条件を SQLite `WHERE` に寄せる
-
-## 低優先の整理
-
-- 旧 field 互換の名残整理
-  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残っている
-  - schema からは落としているが、コード内部では完全には消えていない
-- `confirmed_nsids` と lexicon analysis 情報の境界整理
-  - 今は `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` が混在する箇所がまだある
-  - 長期的には `record` と `ops` で役割をさらに明確にしたい
-- `developer_accounts` の表現整理
-  - 現在は
-    - `developer_accounts`
-    - `candidate_developer_accounts`
-    の二層
-  - confirmed/candidate の UI 露出はまだ薄い
-  - repo/readme/profile 由来の confirmed 条件をもう少し増やせる
-- `resource_urls` の運用整理
-  - 現在は docs/blog/about をまとめて入れている
-  - service 判定強化を進めるなら、`resource_urls` 内の種類も持ちたくなる可能性がある
 
 ## `project_registry.py` の重要ポイント
 
@@ -208,10 +221,8 @@
 - 設計・内部仕様
   - [docs/registry-internals.md](registry-internals.md)
   - [docs/project-record.md](project-record.md)
-- 調査背景
-  - [docs/manual-workflow.md](manual-workflow.md)
-  - [docs/automation-plan.md](automation-plan.md)
-  - [docs/automation-architecture.md](automation-architecture.md)
+- 将来課題
+  - [docs/roadmap.md](roadmap.md)
 
 ## コミット時に気をつけること
 

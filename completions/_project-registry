@@ -8,6 +8,7 @@ subcommands=(
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
   'review-queue:List projects that deserve human review'
+  'promotion-queue:List unintroduced projects worth showcasing'
   'review-stalled:Suggest lower-frequency tracking or revival'
   'review-ignore:Suggest low-value fork repos and derivative tools for ignore'
   'import-seed-list:Import a mixed text seed list'
@@ -16,10 +17,15 @@ subcommands=(
   'sync-collections:Fetch and import collection inventory'
   'sync-semble-collections:Sync fixed Semble collections into project seeds'
   'repair-db:Normalize stored data and refresh derived fields'
+  'audit-url-fields:Report URL field usage and invariant violations'
+  'cleanup-app-links:Rebuild stored app links from canonical URL fields'
   'set-tracking-state:Set tracking state for one project'
   'set-tracking-state-batch:Set tracking state for a filtered set of projects'
   'set-separate:Mark two projects as distinct'
   'block-identifier:Block one identifier from being reattached'
+  'defer-identifier:Temporarily downgrade one identifier'
+  'defer-promotion:Temporarily hide one project from promotion queue'
+  'audit-source-config:Audit registered projects after suffix changes'
   'split-project:Split one identifier out into a new project'
   'inspect-merge-pair:Inspect merge evidence for one pair'
   'merge:Merge one project into another'
@@ -48,6 +54,7 @@ review_kinds=(
 promotion_kinds=(
   service_ready_for_introduction
   lexicon_ready_for_introduction
+  technical_insight_candidate
 )
 
 _project_registry_tracking_states() {
@@ -186,6 +193,7 @@ case "$cmd" in
       '--all-history[Disable updated_at lookback]' \
       '--execute[Apply imports]' \
       '--create-unmatched[Create new projects for unknown GitHub repos]' \
+      '--no-create-unmatched[List only without creating unknown GitHub repos]' \
       '--screen-unmatched[Fetch metadata before creating unmatched repos]'
     ;;
   sync-collections)
@@ -193,6 +201,7 @@ case "$cmd" in
       '--source-url[Override the collection inventory URL]:url:' \
       '--execute[Apply imports]' \
       '--create-unmatched[Create new projects for unmatched imported collections]' \
+      '--no-create-unmatched[List only without creating unmatched collections]' \
       '--lookback-days[Only consider collections whose min timestamp is within this many days]:days:' \
       '--save-path[Optional path to save the fetched JSON payload]:path:_files'
     ;;
@@ -203,10 +212,19 @@ case "$cmd" in
       '--lookback-days[Only consider cards updated within this many days]:days:' \
       '--all-history[Disable updated_at lookback]' \
       '--execute[Apply imports]' \
-      '--create-unmatched[Create new projects for unknown seeds discovered from cards]'
+      '--create-unmatched[Create new projects for unknown seeds discovered from cards]' \
+      '--no-create-unmatched[List only without creating unknown seeds]'
     ;;
   repair-db)
     _arguments -S
+    ;;
+  audit-url-fields)
+    _arguments -S \
+      '--example-limit[Maximum anomaly examples per kind]:count:'
+    ;;
+  cleanup-app-links)
+    _arguments -S \
+      '--execute[Apply record_json updates]'
     ;;
   set-tracking-state)
     _arguments -S \
@@ -244,6 +262,33 @@ case "$cmd" in
       '--value[Identifier value to block on this project]:value:' \
       '--note[Optional operator note]:note:' \
       '--clear[Remove the block instead of adding it]'
+    ;;
+  defer-identifier)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Target by known seed value]:seed:' \
+      "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      "--identifier-type[Identifier class to defer]:identifier type:_project_registry_seed_types" \
+      '--value[Identifier value to defer on this project]:value:' \
+      '--days[Temporary guard duration in days]:days:' \
+      '--note[Optional operator note]:note:' \
+      '--clear[Remove the defer guard instead of adding it]'
+    ;;
+  defer-promotion)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Target by known seed value]:seed:' \
+      "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      '--days[Temporary hold duration in days]:days:' \
+      '--reason[Reason for postponing promotion]:reason:' \
+      '--clear[Clear active promotion deferrals]'
+    ;;
+  audit-source-config)
+    _arguments -S \
+      '1:optional hosted suffix:' \
+      '--interactive[Review split suggestions interactively]' \
+      '--no-interactive[Show JSON dry-run output]' \
+      '--execute[Add the requested suffix without interactive confirmation]'
     ;;
   split-project)
     _arguments -S \

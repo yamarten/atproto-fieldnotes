@@ -95,6 +95,29 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 
 詳細な field 一覧は [docs/project-record.md](project-record.md) を参照してください。
 
+### URL field の整理
+
+URL field は次の 5 層で扱います。
+
+- canonical
+  - `website_url`, `source_code_url`, `introduced_url`
+- confirmed set
+  - `service_urls`, `source_code_urls`
+- candidate
+  - `service_url_candidates`, `candidate_source_code_urls`
+- observation
+  - `resource_url_records`, `evidence_urls`, `failed_service_urls`, `supported_service_urls`
+- derived compatibility view
+  - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls`, `resource_urls`, `record_json.app.links`
+
+`introduced_url` は editorial reference であり service identity ではありません。`resource_url_records` は調査時の補助 page 群の正本であり、confirmed service set ではありません。`resource_urls` はその compatibility view です。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
+
+`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
+
+`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
+
+旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
+
 ## enrich の流れ
 
 `enrich` は次の順で動きます。
@@ -138,6 +161,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
     - まず probe する
     - `service_probe_supports_project()` を通った時だけ candidate に残す
     - unsupported なら候補化しない
+    - supported だった URL は `supported_service_urls` に URL 単位で保存し、後段の guess prune で消さない
 
 ### 2. GitHub repo から取るもの
 
@@ -201,6 +225,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - その URL は project から外します
 - `4xx` / fetch error は:
   - `failed_service_urls` に残します
+- probe が project を支持し、HTTP が成功した時:
+  - `supported_service_urls` に URL 単位で残します
+  - NSID authority から推測した registrable root でも、後段 prune で未検証 guess として消しません
 
 ### 3.2 `developer_accounts` の confirmed / candidate
 
@@ -224,6 +251,20 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - ただし `https://bsky.app` の title が `Bluesky` であるように、source URL の host が名前と強く対応する場合は候補として残します
 - ただし repo 自体がその名前を明示している場合は、repo 由来候補として別扱いします
 - `Error` / `Not Found` / `Forbidden` のような汎用エラーページ title は、service/resource title および既存 name から除外します
+- service/resource title と既存 name は title cleanup を通して評価します
+  - 例: `Relay.app: Turn plain English into reliable automations` は `Relay.app` として扱い、tagline 部分を project name に残しません
+- NSID authority domain から推定した URL の title は、NSID 固有 token と対応しない場合は name 候補から除外します
+  - 例: `com.hectorsector.book.status` 由来の `https://hectorsector.com` が `@hectorsector.com on Bluesky` を返しても、`book` / `status` と対応しないため project name には採用しません
+  - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service title 候補と照合して除外します
+- LLM などが full NSID そのものを name として返した場合は弱い候補として除外します
+  - lexicon name 由来の tail 候補は別扱いで残します
+- `Home` / `About` / `Docs` / `Login` のような短いページ役割名は、service/resource title 由来なら name 候補から除外します
+  - 同じ値が既存 `name` や LLM output にコピーされている場合も、元の service/resource title 候補と照合して除外します
+  - repo 由来など、ページ title ではない経路の同名候補はこの rule では除外しません
+- service/resource title 由来の名前は、title の意味 token の大半が seed / repo / NSID / authority domain に対応する場合だけ採用します
+  - 例: `Book Status` は `com.hectorsector.book.status` と対応するため残します
+  - 例: `Browse Listings` は `listing` だけが対応し、`Browse` がページ操作名なので除外します
+  - 汚染値が既存 `name` や LLM output にコピーされている場合も、元の service/resource title 候補と照合して除外します
 
 ### 3.1 `service_status` の現在地と残件
 
@@ -296,7 +337,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - first-party page が repo を明示し、owner や site family が project と噛む時
   - same-site family の repo URL で owner も噛む時
 - それ以外の repo-like URL は candidate に留めます
-- docs/blog/same-site 補助ページは `resource_urls` に残し、必要なら追加 probe の対象にします
+- docs/blog/same-site 補助ページは `resource_url_records` に残し、runtime view の `resource_urls` を必要なら追加 probe の対象にします
 
 ### 4.1 NSID ownership の現在の優先順位
 
@@ -438,6 +479,46 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `service_status` についても、LLM は補助更新に留めます。最終的な保存値は rule-based probe の evidence を優先し、特に `unverified` は安易に `live/private` へ確定させません。
 
+### 6.1 ATProto 寄与度
+
+`atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` は
+category と独立した derived field です。`ensure_project_shape()` と `save_project()` で
+rule-based に再計算します。
+
+- `core` / `90`
+  - resolved NSID または lexicon schema sample がある
+- `substantial` / `70`
+  - recent record sample または record count を持つ collection observation がある
+- `optional` / `40`
+  - input NSID または external lexicon hint だけがある
+- `auth_only` / `20`
+  - `category=auth_only` で、上記の強い protocol surface が無い
+- `unknown` / `0`
+  - rule-based evidence が無い
+
+`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。
+review queue は寄与度を sort score に足し、promotion queue も寄与度を補助点として使います。
+LLM による曖昧ケースの補助分類は将来の設計目標です。
+既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に
+対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
+
+### 6.2 service status manual review の絞り込み
+
+LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`
+は単に `service_status_confidence=low` というだけでは review queue に載せません。
+
+`llm_manual_review_recommended` signal を残すのは、手動確認の結果で次のいずれかが変わる時です。
+
+- `promotion_status_resolution`
+  - `draft` で、service status の解決が昇格判断に影響する
+- `introduction_validation`
+  - 未紹介の `project` / `personal_tool` で、usable service の confidence が `none` / `low`
+- `conflicting_service_status_evidence`
+  - `mixed_launch_signals_detected` があり、status evidence が矛盾している
+
+採用した理由は signal の `details.action_basis` に残します。
+`identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
+
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です
@@ -452,6 +533,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 - blocker が 1 件でもあれば `status=draft` のままです
 
 ## sync の判断材料
+
+`sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が
+既定 ON です。候補を作らず `unmatched_entries` の棚卸しだけ行う場合は `--no-create-unmatched`
+を付けます。`sync-introduced` は紹介済み判定専用なので、新規 project を作りません。
 
 ### `sync-introduced`
 
@@ -782,13 +867,26 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 - confirmed
   - `website_url`
   - `service_urls`
-  - `resource_urls`
   - `source_code_urls`
   - `confirmed_nsids`
+- observation
+  - `resource_url_records`
+  - record ごとに `legacy / candidate / confirmed` を持つ
 - candidate
   - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
+- deferred
+  - `deferred_identifiers`
+  - URL / NSID を恒久 block せず一時保留する運用カテゴリ
+  - URL は candidate に降格して観測可能なまま残す
+  - NSID は専用 candidate 配列を追加せず `deferred_identifiers` に保持する
+  - 既定 30 日。期限内は confirmed への自動昇格を抑制し、期限切れ後は通常導線へ戻す
+- promotion deferred
+  - `promotion_deferrals`
+  - 紹介候補として再浮上させるまでの理由付き一時保留履歴
+  - 既定 7 日。active な期限内 entry がある間だけ `promotion-queue` から除外する
+  - 期限切れ entry や clear 済み entry も履歴として残し、再保留時の理由再利用と将来の復活条件判定に使える形にする
 - `summary_candidates`
 - `name_candidates`
 - `tagline_candidates`
@@ -817,10 +915,35 @@ LLM は discovery の主役ではなく、整理の補助です。
 - `features`
 - `category`
 - `service_status`
+- `lexicon_scope`
+- `technical_interest_level`
+- `technical_interest_reasons`
+- `technical_interest_summary`
 
 を生成します。説明系フィールドは日本語で出させます。`tagline` は助詞を含まない短い名詞句を想定し、最大30文字です。
 
 `summary` / `tagline` / `features` は stability-first です。新しい LLM 出力は candidate / evidence として保持しますが、canonical 値は毎回そのまま置き換えず、既存値が十分近い場合は維持します。
+
+NSID seed は、それだけでは共有 lexicon の根拠にしません。`lexicon_scope` は次の 3 値で保持します。
+
+- `shared`
+  - `standard.site` のように、第三者実装や相互運用を意図した共有 schema と判断できる
+- `service_specific`
+  - namespace と service / collection 面が同一 project を指している
+- `unknown`
+  - service がまだ見つかっていないだけか、共有 lexicon として設計されているかを区別できない
+
+`category=lexicon` の project で `lexicon_scope=service_specific` になった場合は `category=project` へ戻します。`unknown` は無理に確定しません。LLM prompt にも、service URL 未発見を shared の根拠にしないことと、service の実態がある場合は schema 説明だけに縮退させないことを明記しています。
+
+技術的な学習価値は、実用性や紹介準備とは別軸で `technical_interest_*` に保持します。LLM は evidence に基づいて `none / notable / high / exceptional` を暫定評価し、理由を enum と短い説明で残します。`promotion-queue` の `technical_insight_candidate` は `high` / `exceptional` だけを対象にします。`notable` は将来の再評価材料として保存しますが、推薦 signal にはしません。
+
+理由 enum:
+
+- `novel_design_pattern`
+- `protocol_gap_exposed`
+- `interoperability_experiment`
+- `unusual_architecture`
+- `implementation_reference`
 
 endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
 
@@ -833,6 +956,14 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 `review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。
 
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。
+
+`promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`top_priority`, `sort_score`, `project_key` の順でグローバルソートしてから `--limit` を適用します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
+
+`promotion_deferrals` に active な entry がある project は signal 計算前に除外します。interactive の `h` は理由付きで既定 7 日の entry を追加します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
+
+`audit-source-config [domain]` は `custom_multi_tenant_suffixes` の追加後基準で既存 project を読み取り監査します。service URL と NSID authority を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
+
+このコマンドはデフォルト interactive です。tenant group の番号を選んだ場合だけ、service URL / NSID を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` の責務は引数 domain の `sources.json` 追記だけで、split は自動適用しません。
 
 ### duplicate candidate の作り方
 

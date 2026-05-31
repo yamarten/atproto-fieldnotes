@@ -15,8 +15,6 @@
   - 継続調査
 - 紹介済みかどうか、継続調査対象かどうかを管理する
 
-## 主要コマンド
-
 ## 環境準備
 
 隔離した Python 環境を使う前提にします。
@@ -30,6 +28,14 @@ pip install -r requirements.txt
 `tldextract` を使って PSL 判定を行います。入力は repo 内の [vendor/public_suffix_list.dat](vendor/public_suffix_list.dat) に固定し、ライブラリの cache は [data/tldextract-cache](data/tldextract-cache) 配下に置きます。外部の絶対パスには依存しません。
 
 PSL に無い hosted suffix を手動で足したい場合は、[config/sources.json](config/sources.json) の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。
+
+登録済み project への影響も確認する場合は、監査コマンドから追加できます。
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com
+```
+
+既定は interactive です。追加確認後に `sources.json` を更新し、新しい family 基準で同一 project に複数 tenant が混在していないかを表示します。tenant group の番号を選んだ場合だけ、その group の identifier をまとめて新 project へ切り出します。JSON dry-run だけを見る場合は `--no-interactive`、確認なしで suffix 追記まで行う場合は `--execute --no-interactive` を使います。non-interactive では split を適用しません。
 
 ## テスト
 
@@ -120,7 +126,7 @@ project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `serv
 
 `Merge` タブでは `merge-batch --interactive` に近い確認作業ができます。`build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ `Merge`、`Block pair`、`Ignore source`、`Ignore target`、`Skip` を選べます。`Skip` はブラウザ上だけの非破壊操作ですが、それ以外は SQLite に書き込みます。実DBではなく、まず `data/survey.dev.db` のようなコピーDBで試す前提です。
 
-`Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
+`Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、未知候補の project 作成はチェック済みです。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
 
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `archived` / `ignore` を含められます。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、`logs` が表示されます。
 
@@ -176,22 +182,38 @@ python3 scripts/project_registry.py sync-introduced --execute
 
 `sync-introduced` は seed を追加せず、既存 project に対して `introduced_url` を付けるためだけに使います。
 
+URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で棚卸し:
+
+```bash
+python3 scripts/project_registry.py audit-url-fields
+```
+
+保存済み `record_json.app.links` を正本から再構築する場合:
+
+```bash
+python3 scripts/project_registry.py cleanup-app-links
+python3 scripts/project_registry.py cleanup-app-links --execute
+```
+
+既定は dry-run です。URL heuristic を変更した後などに、stale な link を整理できます。
+
 collection inventory APIから直接同期:
 
 ```bash
 python3 scripts/project_registry.py sync-collections
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched
-python3 scripts/project_registry.py sync-collections --execute --create-unmatched --lookback-days 10
+python3 scripts/project_registry.py sync-collections --execute
+python3 scripts/project_registry.py sync-collections --execute --lookback-days 10
 ```
 
 `sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「`min` が直近 `--lookback-days` 日以内」のものだけです。
 既知 collection についても、`count` / `recent_count` / `max` は activity refresh 用に見直します。これにより `latest_collection_activity_at` は「最後に新規 collection が生えた日」ではなく、既知 collection を含めた最近の record 活動に近い値になります。`tracking_state=stalled` の project でも、ここで最近の活動が見えれば `active` に戻せます。
+未知候補は既定で project として作成します。棚卸しだけ行う場合は `--no-create-unmatched` を付けます。
 
 GitHub repository search から repo seed を同期:
 
 ```bash
 python3 scripts/project_registry.py sync-github-search
-python3 scripts/project_registry.py sync-github-search --execute --create-unmatched
+python3 scripts/project_registry.py sync-github-search --execute
 ```
 
 `sync-github-search` は `config/sources.json` の `github_repo_search` を使い、既知 repo を除いた「`updated_at` が直近 `--lookback-days` 日以内」の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
@@ -201,7 +223,6 @@ python3 scripts/project_registry.py sync-github-search --execute --create-unmatc
 ```bash
 python3 scripts/project_registry.py sync-github-search \
   --all-history \
-  --create-unmatched \
   --screen-unmatched \
   --pages 10 \
   --per-page 100
@@ -257,6 +278,12 @@ python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_in
 
 ```bash
 python3 scripts/project_registry.py block-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com
+```
+
+恒久 block ではなく 30 日だけ candidate 相当に降格して様子を見る場合:
+
+```bash
+python3 scripts/project_registry.py defer-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com --days 30
 ```
 
 曖昧な自然文から DB 修正コマンド案を出したい場合:
@@ -339,13 +366,11 @@ python3 scripts/project_registry.py enrich --all --new-only --llm-reasoning-effo
 
 - [docs/project-registry.md](docs/project-registry.md)
 - [docs/project-record.md](docs/project-record.md)
-- [docs/manual-workflow.md](docs/manual-workflow.md)
 
 運用・設計向け:
 
-- [docs/automation-plan.md](docs/automation-plan.md)
-- [docs/automation-architecture.md](docs/automation-architecture.md)
 - [docs/registry-internals.md](docs/registry-internals.md)
+- [docs/roadmap.md](docs/roadmap.md)
 - [docs/thread-handoff.md](docs/thread-handoff.md)
 
 実装:
