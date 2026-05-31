@@ -130,7 +130,11 @@
 - review 系の改善
   - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
   - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
-  - `llm_manual_review_recommended` は現状 LLM の提案を汎用 signal に包むだけで、レビュー後に変わる判断や完了条件を十分表現していない
+  - `llm_manual_review_recommended` のうち `service_status_manual_check` は絞り込み済み
+    - 単なる `service_status_confidence=low` では queue に載せない
+    - draft の昇格判断、未紹介 service の紹介前検証、矛盾した status evidence の解消に限る
+    - 採用理由は `details.action_basis`
+  - 他の LLM manual review kind は、レビュー後に変わる判断や完了条件の表現がまだ弱い
   - `atproto_contribution_level` / score / evidence の rule-based v1 は実装済み
     - resolved NSID / schema sample は `core`
     - record sample / collection observation は `substantial`

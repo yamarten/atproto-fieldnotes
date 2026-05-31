@@ -525,5 +525,89 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         )
 
 
+class ProjectRegistryManualReviewSignalTest(unittest.TestCase):
+    def project(self) -> dict:
+        project = registry.default_project_record("proj:manualreview", "service_url", "https://example.com")
+        project["manual_review_recommended"] = True
+        project["manual_review_kind"] = "service_status_manual_check"
+        project["manual_review_priority"] = "medium"
+        project["manual_review_reason"] = "サービスを確認する"
+        return project
+
+    def llm_signal(self, project: dict) -> dict | None:
+        return next(
+            (signal for signal in registry.compute_review_signals(project) if signal["kind"] == "llm_manual_review_recommended"),
+            None,
+        )
+
+    def test_low_confidence_published_infra_service_is_not_actionable(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "status": "published",
+                "category": "infra_tool",
+                "website_url": "https://example.com",
+                "service_status": "live",
+                "service_status_confidence": "low",
+            }
+        )
+
+        self.assertIsNone(self.llm_signal(project))
+
+    def test_draft_unknown_service_can_change_promotion_status(self) -> None:
+        signal = self.llm_signal(self.project())
+
+        self.assertIsNotNone(signal)
+        self.assertIn("promotion_status_resolution", signal["details"]["action_basis"])
+
+    def test_draft_unverified_service_without_conflict_is_not_actionable(self) -> None:
+        project = self.project()
+        project["service_status"] = "unverified"
+
+        self.assertIsNone(self.llm_signal(project))
+
+    def test_unintroduced_project_service_can_require_introduction_validation(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "status": "published",
+                "category": "project",
+                "website_url": "https://example.com",
+                "service_status": "live",
+                "service_status_confidence": "low",
+            }
+        )
+
+        signal = self.llm_signal(project)
+
+        self.assertIsNotNone(signal)
+        self.assertIn("introduction_validation", signal["details"]["action_basis"])
+
+    def test_conflicting_service_evidence_remains_actionable(self) -> None:
+        project = self.project()
+        project.update(
+            {
+                "status": "published",
+                "category": "infra_tool",
+                "website_url": "https://example.com",
+                "service_status": "unverified",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["mixed_launch_signals_detected"],
+            }
+        )
+
+        signal = self.llm_signal(project)
+
+        self.assertIsNotNone(signal)
+        self.assertIn("conflicting_service_status_evidence", signal["details"]["action_basis"])
+
+    def test_non_service_manual_review_kind_is_unchanged(self) -> None:
+        project = self.project()
+        project["manual_review_kind"] = "identity_resolution"
+        project["status"] = "published"
+
+        self.assertIsNotNone(self.llm_signal(project))
+
+
 if __name__ == "__main__":
     unittest.main()

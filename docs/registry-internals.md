@@ -475,6 +475,23 @@ LLM による曖昧ケースの補助分類は将来の設計目標です。
 既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に
 対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
 
+### 6.2 service status manual review の絞り込み
+
+LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`
+は単に `service_status_confidence=low` というだけでは review queue に載せません。
+
+`llm_manual_review_recommended` signal を残すのは、手動確認の結果で次のいずれかが変わる時です。
+
+- `promotion_status_resolution`
+  - `draft` で、service status の解決が昇格判断に影響する
+- `introduction_validation`
+  - 未紹介の `project` / `personal_tool` で、usable service の confidence が `none` / `low`
+- `conflicting_service_status_evidence`
+  - `mixed_launch_signals_detected` があり、status evidence が矛盾している
+
+採用した理由は signal の `details.action_basis` に残します。
+`identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
+
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です

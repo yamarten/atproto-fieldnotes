@@ -8920,6 +8920,33 @@ def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
     return text
 
 
+def service_status_manual_review_action_basis(project: dict[str, Any]) -> list[str]:
+    service_status = normalize_service_status(str(project.get("service_status") or "unknown"))
+    service_confidence = normalize_service_status_confidence(str(project.get("service_status_confidence") or "none"))
+    service_evidence = {str(item) for item in project.get("service_status_evidence", []) if str(item).strip()}
+    blockers = set(str(item) for item in project.get("promotion_blockers", []))
+    basis: list[str] = []
+
+    if str(project.get("status") or "draft") == "draft" and (
+        service_status == "unknown"
+        or "service_status is still unknown" in blockers
+    ):
+        basis.append("promotion_status_resolution")
+
+    if (
+        not str(project.get("introduced_url") or "").strip()
+        and str(project.get("category") or "") in {"project", "personal_tool"}
+        and service_status in {"live", "beta", "invite_only"}
+        and service_confidence in {"none", "low"}
+    ):
+        basis.append("introduction_validation")
+
+    if "mixed_launch_signals_detected" in service_evidence:
+        basis.append("conflicting_service_status_evidence")
+
+    return basis
+
+
 def compute_review_signals(
     project: dict[str, Any],
     *,
@@ -8949,16 +8976,27 @@ def compute_review_signals(
         + [str(item or "") for item in shaped.get("input_nsids", [])]
         + [str(item or "") for item in shaped.get("resolved_nsids", [])]
     ))
-    if shaped.get("manual_review_recommended") and str(shaped.get("manual_review_kind") or "other") != "other":
+    manual_review_kind = str(shaped.get("manual_review_kind") or "other")
+    manual_review_action_basis = (
+        service_status_manual_review_action_basis(shaped)
+        if manual_review_kind == "service_status_manual_check"
+        else []
+    )
+    if (
+        shaped.get("manual_review_recommended")
+        and manual_review_kind != "other"
+        and (manual_review_kind != "service_status_manual_check" or manual_review_action_basis)
+    ):
         llm_priority = {"none": 0, "low": 4, "medium": 7, "high": 9}.get(str(shaped.get("manual_review_priority") or "none"), 4)
         signals.append(
             {
                 "kind": "llm_manual_review_recommended",
                 "priority": llm_priority,
                 "details": {
-                    "manual_review_kind": str(shaped.get("manual_review_kind") or "other"),
+                    "manual_review_kind": manual_review_kind,
                     "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
                     "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
+                    "action_basis": manual_review_action_basis,
                 },
             }
         )
