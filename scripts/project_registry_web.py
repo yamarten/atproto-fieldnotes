@@ -652,7 +652,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
+    const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], contributionLevels: [], technicalInterestLevels: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", promotionHold: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
     const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, searchFilters: defaultSearchFilters(), settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
@@ -828,10 +828,12 @@ INDEX_HTML = r"""<!doctype html>
       const chips = [];
       for (const value of filters.trackingStates) chips.push(`state:${value}`);
       for (const value of filters.serviceStatuses) chips.push(`service:${value}`);
+      for (const value of filters.contributionLevels) chips.push(`contribution:${value}`);
+      for (const value of filters.technicalInterestLevels) chips.push(`technical:${value}`);
       for (const [key, value] of [["record-status", filters.statuses], ["category", filters.categories], ["review", filters.reviewKinds]]) {
         if (value) chips.push(`${key}:${value}`);
       }
-      for (const [key, value] of [["introduced", filters.introduced], ["candidate", filters.hasCandidates], ["error", filters.hasErrors]]) {
+      for (const [key, value] of [["introduced", filters.introduced], ["candidate", filters.hasCandidates], ["error", filters.hasErrors], ["promotion-hold", filters.promotionHold]]) {
         if (value !== "any") chips.push(`${key}:${value}`);
       }
       if (filters.seenSince) chips.push(`seen:>=${filters.seenSince}`);
@@ -849,11 +851,14 @@ INDEX_HTML = r"""<!doctype html>
           <div class="search-filter-grid">
             <div class="search-filter-group"><span>Tracking state</span><div class="search-filter-options">${searchCheckboxes("search-tracking-state", ["active", "watchlist", "stable", "stalled", "archived", "ignore"], filters.trackingStates)}</div></div>
             <div class="search-filter-group"><span>Service status</span><div class="search-filter-options">${searchCheckboxes("search-service-status", ["unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"], filters.serviceStatuses)}</div></div>
+            <div class="search-filter-group"><span>ATProto contribution</span><div class="search-filter-options">${searchCheckboxes("search-contribution-level", ["unknown", "optional", "auth_only", "substantial", "core"], filters.contributionLevels)}</div></div>
+            <div class="search-filter-group"><span>Technical interest</span><div class="search-filter-options">${searchCheckboxes("search-technical-interest-level", ["none", "notable", "high", "exceptional"], filters.technicalInterestLevels)}</div></div>
             <label class="search-filter-group"><span>Record status</span><input id="search-statuses" type="text" value="${esc(filters.statuses)}" placeholder="comma-separated"></label>
             <label class="search-filter-group"><span>Category</span><input id="search-categories" type="text" value="${esc(filters.categories)}" placeholder="comma-separated"></label>
             <label class="search-filter-group"><span>Introduced</span><select id="search-introduced">${searchChoiceOptions(filters.introduced)}</select></label>
             <label class="search-filter-group"><span>Candidates remaining</span><select id="search-has-candidates">${searchChoiceOptions(filters.hasCandidates)}</select></label>
             <label class="search-filter-group"><span>Errors</span><select id="search-has-errors">${searchChoiceOptions(filters.hasErrors)}</select></label>
+            <label class="search-filter-group"><span>Promotion hold</span><select id="search-promotion-hold">${searchChoiceOptions(filters.promotionHold)}</select></label>
             <label class="search-filter-group"><span>Review signal kind</span><input id="search-review-kinds" type="text" value="${esc(filters.reviewKinds)}" placeholder="comma-separated"></label>
             <label class="search-filter-group"><span>Last seen since</span><input id="search-seen-since" type="date" value="${esc(filters.seenSince)}"></label>
             <label class="search-filter-group"><span>Enriched before</span><input id="search-enriched-before" type="date" value="${esc(filters.enrichedBefore)}"></label>
@@ -863,7 +868,7 @@ INDEX_HTML = r"""<!doctype html>
             </select></label>
           </div>
         </details>
-        <div class="muted">Operators: state:, service:, status:, record-status:, category:, introduced:, candidate:, error:, review:, seen:&gt;=YYYY-MM-DD, enriched:&lt;YYYY-MM-DD, sort:</div>
+        <div class="muted">Operators: state:, service:, status:, contribution:, technical:, record-status:, category:, introduced:, candidate:, error:, promotion-hold:, review:, seen:&gt;=YYYY-MM-DD, enriched:&lt;YYYY-MM-DD, sort:</div>
       </div>`;
     }
 
@@ -880,11 +885,14 @@ INDEX_HTML = r"""<!doctype html>
       state.searchFilters = {
         trackingStates: selectedSearchValues("search-tracking-state"),
         serviceStatuses: selectedSearchValues("search-service-status"),
+        contributionLevels: selectedSearchValues("search-contribution-level"),
+        technicalInterestLevels: selectedSearchValues("search-technical-interest-level"),
         statuses: $("search-statuses").value.trim(),
         categories: $("search-categories").value.trim(),
         introduced: $("search-introduced").value,
         hasCandidates: $("search-has-candidates").value,
         hasErrors: $("search-has-errors").value,
+        promotionHold: $("search-promotion-hold").value,
         reviewKinds: $("search-review-kinds").value.trim(),
         seenSince: $("search-seen-since").value,
         enrichedBefore: $("search-enriched-before").value,
@@ -903,11 +911,14 @@ INDEX_HTML = r"""<!doctype html>
         const value = match[2];
         if (key === "state") setList("trackingStates", value);
         else if (key === "service" || key === "status") setList("serviceStatuses", value);
+        else if (key === "contribution") setList("contributionLevels", value);
+        else if (key === "technical") setList("technicalInterestLevels", value);
         else if (key === "record-status") filters.statuses = value;
         else if (key === "category") filters.categories = value;
         else if (key === "introduced") filters.introduced = value;
         else if (key === "candidate" || key === "candidates") filters.hasCandidates = value;
         else if (key === "error" || key === "errors") filters.hasErrors = value;
+        else if (key === "promotion-hold" || key === "hold") filters.promotionHold = value;
         else if (key === "review") filters.reviewKinds = value;
         else if (key === "seen" && value.startsWith(">=")) filters.seenSince = value.slice(2);
         else if (key === "enriched" && value.startsWith("<")) filters.enrichedBefore = value.slice(1);
@@ -949,7 +960,9 @@ INDEX_HTML = r"""<!doctype html>
       if (q) params.set("q", q);
       if (filters.trackingStates.length) params.set("tracking_states", filters.trackingStates.join(","));
       if (filters.serviceStatuses.length) params.set("service_statuses", filters.serviceStatuses.join(","));
-      for (const [key, value] of [["statuses", filters.statuses], ["categories", filters.categories], ["introduced", filters.introduced], ["has_candidates", filters.hasCandidates], ["has_errors", filters.hasErrors], ["review_kinds", filters.reviewKinds], ["seen_since", filters.seenSince], ["enriched_before", filters.enrichedBefore], ["sort", filters.sort]]) {
+      if (filters.contributionLevels.length) params.set("contribution_levels", filters.contributionLevels.join(","));
+      if (filters.technicalInterestLevels.length) params.set("technical_interest_levels", filters.technicalInterestLevels.join(","));
+      for (const [key, value] of [["statuses", filters.statuses], ["categories", filters.categories], ["introduced", filters.introduced], ["has_candidates", filters.hasCandidates], ["has_errors", filters.hasErrors], ["promotion_hold", filters.promotionHold], ["review_kinds", filters.reviewKinds], ["seen_since", filters.seenSince], ["enriched_before", filters.enrichedBefore], ["sort", filters.sort]]) {
         if (value && value !== "any") params.set(key, value);
       }
       return "/api/projects?" + params.toString();
@@ -2408,11 +2421,14 @@ def project_matches_search_filters(
     *,
     tracking_states: set[str],
     service_statuses: set[str],
+    contribution_levels: set[str],
+    technical_interest_levels: set[str],
     statuses: set[str],
     categories: set[str],
     introduced: str,
     has_candidates: str,
     has_errors: str,
+    promotion_hold: str,
     seen_since: str,
     enriched_before: str,
 ) -> bool:
@@ -2420,6 +2436,10 @@ def project_matches_search_filters(
     if tracking_states and str(shaped.get("tracking_state") or "") not in tracking_states:
         return False
     if service_statuses and str(shaped.get("service_status") or "") not in service_statuses:
+        return False
+    if contribution_levels and str(shaped.get("atproto_contribution_level") or "") not in contribution_levels:
+        return False
+    if technical_interest_levels and str(shaped.get("technical_interest_level") or "") not in technical_interest_levels:
         return False
     if statuses and str(shaped.get("status") or "") not in statuses:
         return False
@@ -2437,6 +2457,9 @@ def project_matches_search_filters(
     has_run_errors = bool(shaped.get("last_run_errors"))
     if has_errors != "any" and has_run_errors != (has_errors == "yes"):
         return False
+    has_promotion_hold = registry.active_promotion_deferral(shaped) is not None
+    if promotion_hold != "any" and has_promotion_hold != (promotion_hold == "yes"):
+        return False
     if seen_since and str(shaped.get("last_seen_at") or "")[:10] < seen_since:
         return False
     last_enriched = str(shaped.get("last_enriched_at") or "")[:10]
@@ -2450,12 +2473,15 @@ def search_projects_payload(conn: sqlite3.Connection, query: dict[str, list[str]
     search = str(query.get("q", [""])[0] or "").strip()
     tracking_states = parse_state_set(query.get("tracking_states", []), set())
     service_statuses = parse_csv_set(query.get("service_statuses", []))
+    contribution_levels = parse_csv_set(query.get("contribution_levels", []))
+    technical_interest_levels = parse_csv_set(query.get("technical_interest_levels", []))
     statuses = parse_csv_set(query.get("statuses", []))
     categories = parse_csv_set(query.get("categories", []))
     review_kinds = parse_csv_set(query.get("review_kinds", []))
     introduced = parse_choice(query.get("introduced", ["any"])[0], allowed={"yes", "no", "any"})
     has_candidates = parse_choice(query.get("has_candidates", ["any"])[0], allowed={"yes", "no", "any"})
     has_errors = parse_choice(query.get("has_errors", ["any"])[0], allowed={"yes", "no", "any"})
+    promotion_hold = parse_choice(query.get("promotion_hold", ["any"])[0], allowed={"yes", "no", "any"})
     seen_since = parse_iso_date(query.get("seen_since", [""])[0])
     enriched_before = parse_iso_date(query.get("enriched_before", [""])[0])
     default_sort = "relevance" if search else "last_seen_desc"
@@ -2471,11 +2497,14 @@ def search_projects_payload(conn: sqlite3.Connection, query: dict[str, list[str]
             project,
             tracking_states=tracking_states,
             service_statuses=service_statuses,
+            contribution_levels=contribution_levels,
+            technical_interest_levels=technical_interest_levels,
             statuses=statuses,
             categories=categories,
             introduced=introduced,
             has_candidates=has_candidates,
             has_errors=has_errors,
+            promotion_hold=promotion_hold,
             seen_since=seen_since,
             enriched_before=enriched_before,
         )

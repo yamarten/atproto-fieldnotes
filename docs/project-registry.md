@@ -195,18 +195,19 @@ v1 でできること:
 
 exact match、prefix match、substring match、alias match を加点し、score の高い順、同点なら `project_key` 順で返します。
 
-`Filters` では tracking state、service status、record status、category、紹介済みか、candidate URL が残っているか、run error があるか、review signal kind、last seen、last enriched、sort を指定できます。filter panel はモバイルで場所を取りすぎないよう初期状態では閉じています。
+`Filters` では tracking state、service status、ATProto contribution level、technical interest level、record status、category、紹介済みか、candidate URL が残っているか、run error があるか、active な promotion hold があるか、review signal kind、last seen、last enriched、sort を指定できます。filter panel はモバイルで場所を取りすぎないよう初期状態では閉じています。
 
 自由語欄では短い演算子も使えます。演算子は browser 側で構造化 filter に変換され、API には通常の query parameter として送られます。未認識の `key:value` は URL などを壊さないよう自由語として扱います。
 
 ```text
 state:active,watchlist introduced:no candidate:yes whisper
 status:unverified error:yes
+contribution:core,substantial technical:high,exceptional promotion-hold:no
 review:service_candidate_needs_confirmation
 seen:>=2026-05-01 enriched:<2026-05-31
 ```
 
-API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `statuses`, `categories`, `introduced`, `has_candidates`, `has_errors`, `review_kinds`, `seen_since`, `enriched_before`, `sort`, `limit` を受け付けます。
+API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `contribution_levels`, `technical_interest_levels`, `statuses`, `categories`, `introduced`, `has_candidates`, `has_errors`, `promotion_hold`, `review_kinds`, `seen_since`, `enriched_before`, `sort`, `limit` を受け付けます。
 
 実装済みですが、大規模 DB 向けの SQL 最適化、FTS、OR 条件、保存済み検索条件、pagination は未接続です。後続候補は [docs/roadmap.md](roadmap.md) の「Web UI 詳細検索」を参照してください。
 

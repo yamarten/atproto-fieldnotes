@@ -183,6 +183,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Technical interest", web.INDEX_HTML)
         self.assertIn("Promotion blockers", web.INDEX_HTML)
         self.assertIn("Resource URLs", web.INDEX_HTML)
+        self.assertIn("search-contribution-level", web.INDEX_HTML)
+        self.assertIn("search-technical-interest-level", web.INDEX_HTML)
+        self.assertIn("search-promotion-hold", web.INDEX_HTML)
+        self.assertIn("promotion-hold:", web.INDEX_HTML)
         self.assertIn("data-split-type", web.INDEX_HTML)
         self.assertIn("identifier-row", web.INDEX_HTML)
         self.assertIn("identifier-value", web.INDEX_HTML)
@@ -311,6 +315,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
     def test_project_search_filters_service_status_and_candidates(self) -> None:
         status, payload = self.request("GET", "/api/projects?service_statuses=live&has_candidates=yes")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
+    def test_project_search_filters_research_state_and_active_promotion_hold(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            project["resolved_nsids"] = ["app.example.post"]
+            project["technical_interest_level"] = "high"
+            registry.defer_promotion_on_project(project, reason="review later", days=7)
+            registry.save_project(conn, project)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, payload = self.request(
+            "GET",
+            "/api/projects?contribution_levels=core&technical_interest_levels=high&promotion_hold=yes",
+        )
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["count"], 1)

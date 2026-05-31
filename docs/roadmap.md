@@ -145,11 +145,14 @@ GET /api/projects
   ?q=
   &tracking_states=
   &service_statuses=
+  &contribution_levels=
+  &technical_interest_levels=
   &statuses=
   &categories=
   &introduced=
   &has_candidates=
   &has_errors=
+  &promotion_hold=
   &review_kinds=
   &seen_since=
   &enriched_before=
@@ -168,6 +171,12 @@ filter の意味:
 - `service_statuses`
   - 複数指定可
   - 現行 `service_status` enum を使う
+- `contribution_levels`
+  - 複数指定可
+  - `atproto_contribution_level` に一致
+- `technical_interest_levels`
+  - 複数指定可
+  - `technical_interest_level` に一致
 - `statuses`
   - 複数指定可
   - project record の `status`
@@ -183,6 +192,9 @@ filter の意味:
 - `has_errors`
   - `yes`, `no`, `any`
   - `last_run_errors` の有無
+- `promotion_hold`
+  - `yes`, `no`, `any`
+  - active な `promotion_deferrals` の有無
 - `review_kinds`
   - 複数指定可
   - `build_review_queue_item()` が返す signal kind のいずれかに一致
@@ -208,9 +220,12 @@ UI は `Search` タブ内に次を置きます。
 - 折り畳み `Filters`:
   - tracking state
   - service status
+  - ATProto contribution
+  - technical interest
   - introduced
   - candidates remaining
   - errors
+  - promotion hold
   - category
   - review signal kind
   - last seen / last enriched
@@ -270,7 +285,7 @@ UI は `Search` タブ内に次を置きます。
    - `technical_interest_level / score / reasons / summary`
    - `promotion_blockers`
    - `resource_url_records`
-4. Search filter の追加
+4. Search filter の追加（実装済み）
    - contribution level
    - technical interest level
    - active promotion deferral の有無
@@ -285,7 +300,7 @@ UI は `Search` タブ内に次を置きます。
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
 
-raw JSON では上記 field を確認できますが、専用表示・更新操作は未接続です。
+調査情報の専用表示と Search filter は接続済みです。運用画面として列挙した audit / cleanup 操作は未接続で、引き続き CLI を使います。
 
 ## TODO
 
