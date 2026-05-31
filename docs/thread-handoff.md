@@ -130,6 +130,15 @@
 - review 系の改善
   - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
   - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
+  - `llm_manual_review_recommended` は現状 LLM の提案を汎用 signal に包むだけで、レビュー後に変わる判断や完了条件を十分表現していない
+  - `atproto_contribution_level` / score / evidence の rule-based v1 は実装済み
+    - resolved NSID / schema sample は `core`
+    - record sample / collection observation は `substantial`
+    - NSID hint だけなら `optional`
+    - `category=auth_only` は強い protocol surface が無ければ `auth_only`
+    - review / promotion queue の sort に反映済み
+  - docs / README evidence と LLM 補助分類は未接続
+  - 寄与度レビューも、確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる場合に寄せる
 
 ## 低優先の整理
 

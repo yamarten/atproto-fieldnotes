@@ -143,6 +143,9 @@ review / merge / 紹介運用の制御情報です。
 - `last_llm_review_at`
 - `service_status_confidence`
 - `service_status_evidence`
+- `atproto_contribution_level`
+- `atproto_contribution_score`
+- `atproto_contribution_evidence`
 
 ## `ops_json.evidence`
 

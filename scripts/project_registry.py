@@ -132,6 +132,7 @@ def dump_json(value: Any, *, sort_keys: bool = True) -> str:
 
 SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"}
 SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
+ATPROTO_CONTRIBUTION_LEVELS = {"unknown", "incidental", "auth_only", "optional", "substantial", "core"}
 
 
 def compact_grouped_payload(group_fields: dict[str, tuple[str, ...]], source: dict[str, Any]) -> dict[str, Any]:
@@ -273,6 +274,9 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "last_run_errors",
         "service_status_confidence",
         "service_status_evidence",
+        "atproto_contribution_level",
+        "atproto_contribution_score",
+        "atproto_contribution_evidence",
     ),
     "evidence": (
         "discovery_sources",
@@ -377,6 +381,9 @@ MAPPED_LEGACY_FIELDS = {
     "service_status",
     "service_status_confidence",
     "service_status_evidence",
+    "atproto_contribution_level",
+    "atproto_contribution_score",
+    "atproto_contribution_evidence",
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
@@ -1103,6 +1110,9 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "service_status": "unknown",
         "service_status_confidence": "none",
         "service_status_evidence": [],
+        "atproto_contribution_level": "unknown",
+        "atproto_contribution_score": 0,
+        "atproto_contribution_evidence": [],
         "source_code_url": "",
         "source_code_urls": [],
         "candidate_source_code_urls": [],
@@ -1161,6 +1171,72 @@ def normalize_service_status(value: str | None) -> str:
 def normalize_service_status_confidence(value: str | None) -> str:
     confidence = str(value or "none").strip().lower()
     return confidence if confidence in SERVICE_STATUS_CONFIDENCE_VALUES else "none"
+
+
+def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
+    evidence: list[dict[str, Any]] = []
+
+    def count_value(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def add(kind: str, values: list[Any]) -> None:
+        cleaned = unique_list([str(item).strip() for item in values if str(item).strip()])
+        if cleaned:
+            evidence.append({"kind": kind, "count": len(cleaned), "values": cleaned[:5]})
+
+    resolved_nsids = list(project.get("resolved_nsids", []))
+    schema_samples = list(project.get("lexicon_schema_samples", []))
+    recent_records = list(project.get("recent_record_samples", []))
+    collection_observations = [
+        item
+        for item in project.get("collection_observations", [])
+        if isinstance(item, dict) and (count_value(item.get("count")) > 0 or count_value(item.get("recent_count")) > 0)
+    ]
+    input_nsids = list(project.get("input_nsids", []))
+    external_lexicons = list(project.get("external_lexicons", []))
+
+    add("resolved_nsids", resolved_nsids)
+    if schema_samples:
+        evidence.append({"kind": "lexicon_schema_samples", "count": len(schema_samples)})
+    if recent_records:
+        evidence.append({"kind": "recent_record_samples", "count": len(recent_records)})
+    if collection_observations:
+        evidence.append(
+            {
+                "kind": "collection_observations",
+                "count": len(collection_observations),
+                "record_count": sum(count_value(item.get("count")) for item in collection_observations),
+                "recent_record_count": sum(count_value(item.get("recent_count")) for item in collection_observations),
+            }
+        )
+    add("input_nsids", input_nsids)
+    add("external_lexicons", external_lexicons)
+
+    if resolved_nsids or schema_samples:
+        level, score = "core", 90
+    elif recent_records or collection_observations:
+        level, score = "substantial", 70
+    elif str(project.get("category") or "") == "auth_only":
+        level, score = "auth_only", 20
+        evidence.append({"kind": "category_auth_only", "count": 1})
+    elif input_nsids or external_lexicons:
+        level, score = "optional", 40
+    else:
+        level, score = "unknown", 0
+
+    return {
+        "atproto_contribution_level": level,
+        "atproto_contribution_score": score,
+        "atproto_contribution_evidence": evidence,
+    }
+
+
+def apply_atproto_contribution_state(project: dict[str, Any]) -> dict[str, Any]:
+    project.update(compute_atproto_contribution(project))
+    return project
 
 
 def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
@@ -1326,7 +1402,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
-    return defaults
+    return apply_atproto_contribution_state(defaults)
 
 
 def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1981,6 +2057,8 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "manual_review_priority": str(project.get("manual_review_priority") or "none"),
         "manual_review_reason": str(project.get("manual_review_reason") or ""),
         "service_status_confidence": normalize_service_status_confidence(project.get("service_status_confidence")),
+        "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
+        "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
         "watch_reason": str(project.get("watch_reason") or ""),
         "source_code_url": str(project.get("source_code_url") or ""),
         "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
@@ -2010,6 +2088,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "source_repo_records",
         "lexicon_schema_samples",
         "recent_record_samples",
+        "atproto_contribution_evidence",
     )
     for field in list_fields:
         value = project.get(field)
@@ -2031,7 +2110,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
         + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
     )
-    return shaped
+    return apply_atproto_contribution_state(shaped)
 
 
 def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
@@ -2457,6 +2536,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     sync_primary_service_urls(project)
     project["lexicon_count"] = len(project.get("lexicons", []))
     reclassify_service_specific_lexicon(project)
+    apply_atproto_contribution_state(project)
 
     existing = conn.execute(
         """
@@ -2853,12 +2933,21 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
     pruned_projects = 0
     normalized_projects = 0
     for row in rows:
+        stored_payload = project_from_row_payload(row)
         raw = project_from_row(row)
         original = ensure_project_shape(raw)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        contribution_changed = any(
+            dump_json(stored_payload.get(field, default)) != dump_json(normalized.get(field, default))
+            for field, default in (
+                ("atproto_contribution_level", "unknown"),
+                ("atproto_contribution_score", 0),
+                ("atproto_contribution_evidence", []),
+            )
+        )
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(original)):
             normalized_projects += 1
-        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)):
+        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)) or contribution_changed:
             pruned_projects += 1
             save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
@@ -9331,6 +9420,7 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         score += min(4, len(nsid_hints))
     if not bool(project.get("manual_review_recommended")):
         score += 4
+    score += int(project.get("atproto_contribution_score", 0) or 0) // 5
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
     score -= len(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"})
     latest_activity = project_latest_activity_at(project)
@@ -9357,6 +9447,11 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
     if repo_days is not None and repo_days <= 14:
         score += 3
     return score
+
+
+def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
+    top_priority = max([int(item.get("priority", 0) or 0) for item in signals] or [0])
+    return top_priority * 10 + int(project.get("atproto_contribution_score", 0) or 0)
 
 
 def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools: bool = False) -> list[dict[str, Any]]:
@@ -9439,6 +9534,8 @@ def build_showcase_queue(
                 "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9494,6 +9591,8 @@ def build_showcase_queue_batch(
                 "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "first_seen_at": shaped.get("first_seen_at", ""),
                 "last_seen_at": shaped.get("last_seen_at", ""),
                 "seed_type": shaped.get("seed_type", ""),
@@ -9541,6 +9640,8 @@ def build_showcase_queue_item(
         "status": shaped.get("status", "draft"),
         "category": shaped.get("category", ""),
         "service_status": shaped.get("service_status", "unknown"),
+        "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+        "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
         "first_seen_at": shaped.get("first_seen_at", ""),
         "last_seen_at": shaped.get("last_seen_at", ""),
         "seed_type": shaped.get("seed_type", ""),
@@ -9578,6 +9679,7 @@ def build_review_queue(
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = review_queue_sort_score(shaped, signals)
         queue.append(
             {
                 "project_key": shaped["project_key"],
@@ -9585,15 +9687,18 @@ def build_review_queue(
                 "tracking_state": shaped.get("tracking_state", "active"),
                 "status": shaped.get("status", "draft"),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "website_url": shaped.get("website_url", ""),
                 "top_priority": top_priority,
+                "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": review_queue_suggested_commands(shaped, signals),
             }
         )
-    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    queue.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return queue[: max(1, int(limit or 50))]
 
 
@@ -9621,6 +9726,7 @@ def build_review_queue_batch(
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+        sort_score = review_queue_sort_score(shaped, signals)
         batch.append(
             {
                 "project_key": shaped["project_key"],
@@ -9628,15 +9734,18 @@ def build_review_queue_batch(
                 "tracking_state": shaped.get("tracking_state", "active"),
                 "status": shaped.get("status", "draft"),
                 "service_status": shaped.get("service_status", "unknown"),
+                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
                 "seed_type": shaped.get("seed_type", ""),
                 "seed_value": shaped.get("seed_value", ""),
                 "website_url": shaped.get("website_url", ""),
                 "top_priority": top_priority,
+                "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": review_queue_suggested_commands(shaped, signals),
             }
         )
-    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), str(item.get("project_key") or "")))
+    batch.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
     return batch, index
 
 
@@ -9657,16 +9766,20 @@ def build_review_queue_item(
     if not signals:
         return None
     top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
+    sort_score = review_queue_sort_score(shaped, signals)
     return {
         "project_key": shaped["project_key"],
         "name": shaped.get("name", ""),
         "tracking_state": shaped.get("tracking_state", "active"),
         "status": shaped.get("status", "draft"),
         "service_status": shaped.get("service_status", "unknown"),
+        "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
+        "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
         "seed_type": shaped.get("seed_type", ""),
         "seed_value": shaped.get("seed_value", ""),
         "website_url": shaped.get("website_url", ""),
         "top_priority": top_priority,
+        "sort_score": sort_score,
         "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
         "suggested_commands": review_queue_suggested_commands(shaped, signals),
     }
@@ -10872,6 +10985,8 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             "promotion_ready": project.get("promotion_ready", False),
             "promotion_blockers": project.get("promotion_blockers", []),
             "service_status": project.get("service_status", ""),
+            "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
+            "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
             "category": project.get("category", ""),
             "app_category": project.get("app_category", ""),
             "tagline_is_provisional": project.get("tagline_is_provisional", False),
@@ -10923,6 +11038,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  website={project.get('website_url') or '-'}")
         print(f"  website_candidates={', '.join(project.get('website_url_candidates', [])) or '-'}")
         print(f"  service_status={project.get('service_status') or '-'}")
+        print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
         print(f"  introduced={project.get('introduced', False)} introduced_url={project.get('introduced_url') or '-'}")
         print(f"  last_promoted_at={project.get('last_promoted_at') or '-'} promotion_events={len(project.get('promotion_events', []))}")
         print(f"  github={', '.join(project.get('github_repo_urls', [])) or '-'}")
@@ -11008,6 +11124,8 @@ def output_project_queue(
                             "status": current_item.get("status", ""),
                             "category": current_item.get("category", ""),
                             "service_status": current_item.get("service_status", ""),
+                            "atproto_contribution_level": current_item.get("atproto_contribution_level", "unknown"),
+                            "atproto_contribution_score": int(current_item.get("atproto_contribution_score", 0) or 0),
                             "first_seen_at": current_item.get("first_seen_at", ""),
                             "last_seen_at": current_item.get("last_seen_at", ""),
                             "seed_type": current_item.get("seed_type", ""),

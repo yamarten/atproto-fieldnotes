@@ -452,6 +452,29 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `service_status` についても、LLM は補助更新に留めます。最終的な保存値は rule-based probe の evidence を優先し、特に `unverified` は安易に `live/private` へ確定させません。
 
+### 6.1 ATProto 寄与度
+
+`atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` は
+category と独立した derived field です。`ensure_project_shape()` と `save_project()` で
+rule-based に再計算します。
+
+- `core` / `90`
+  - resolved NSID または lexicon schema sample がある
+- `substantial` / `70`
+  - recent record sample または record count を持つ collection observation がある
+- `optional` / `40`
+  - input NSID または external lexicon hint だけがある
+- `auth_only` / `20`
+  - `category=auth_only` で、上記の強い protocol surface が無い
+- `unknown` / `0`
+  - rule-based evidence が無い
+
+`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。
+review queue は寄与度を sort score に足し、promotion queue も寄与度を補助点として使います。
+LLM による曖昧ケースの補助分類は将来の設計目標です。
+既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に
+対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
+
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です

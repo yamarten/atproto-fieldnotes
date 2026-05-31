@@ -76,6 +76,51 @@
 - `features`
 - `developer_accounts`
 
+### ATProto 寄与度の独立評価
+
+`category=auth_only` とは別に、「ATProto が無くてもサービスの主要価値が成立するか」を
+評価する rule-based v1 を実装済みです。`ops_json` に evidence 付きの寄与度を保存し、
+review queue と promotion queue の優先度に使います。
+
+- `atproto_contribution_level`
+  - `core`
+    - ATProto record、repository、lexicon、federated identity などが主要機能を構成する
+  - `substantial`
+    - ATProto が主要機能の一部を担い、除くとサービスの価値が明確に下がる
+  - `optional`
+    - ATProto integration はあるが、除いてもサービスの中心機能は成立する
+  - `auth_only`
+    - sign-in / identity provider としてのみ使う
+  - `incidental`
+    - link、share、cross-post など周辺機能に限る
+  - `unknown`
+- `atproto_contribution_score`
+  - queue の sort 用。level の説明可能性を失わない範囲で数値化する
+- `atproto_contribution_evidence`
+  - owned / consumed NSID
+  - record sample
+  - repository / README の実装根拠
+  - service docs の説明
+  - sign-in 導線だけか、主要データモデルまで使うか
+
+LLM は evidence の要約と暫定分類に使えますが、単独で高スコアを確定しません。
+紹介対象では `core` / `substantial` を優先します。manual review は寄与度そのものが不明な時、
+または確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる時に寄せます。
+
+実装済みの v1 は次の保守的な rule です。
+
+- resolved NSID または lexicon schema sample があれば `core`
+- recent record sample または record count を持つ collection observation があれば `substantial`
+- `category=auth_only` で強い protocol surface が無ければ `auth_only`
+- input NSID または external lexicon hint だけなら `optional`
+- それ以外は `unknown`
+
+未接続:
+
+- `incidental` を確定できる evidence source
+- docs / README を材料にした「主要機能か追加機能か」の細分化
+- LLM による曖昧ケースの補助分類
+
 ### provider 別 convenience field
 
 次は evidence から再構成できるなら、将来的に縮退候補です。
@@ -89,3 +134,4 @@
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
 - `inspired_by` を app metadata として昇格させるか再判断する
+- `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する

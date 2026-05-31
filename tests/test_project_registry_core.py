@@ -479,5 +479,51 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         )
 
 
+class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
+    def project(self) -> dict:
+        return registry.default_project_record("proj:contribution", "service_url", "https://example.com")
+
+    def test_resolved_nsid_is_core(self) -> None:
+        result = registry.compute_atproto_contribution(dict(self.project(), resolved_nsids=["app.example.post"]))
+
+        self.assertEqual(result["atproto_contribution_level"], "core")
+        self.assertEqual(result["atproto_contribution_score"], 90)
+
+    def test_record_observation_is_substantial(self) -> None:
+        result = registry.compute_atproto_contribution(
+            dict(self.project(), collection_observations=[{"collection": "app.example.post", "count": 12, "recent_count": 3}])
+        )
+
+        self.assertEqual(result["atproto_contribution_level"], "substantial")
+        self.assertEqual(result["atproto_contribution_score"], 70)
+
+    def test_nsid_hint_only_is_optional(self) -> None:
+        result = registry.compute_atproto_contribution(dict(self.project(), input_nsids=["app.example.post"]))
+
+        self.assertEqual(result["atproto_contribution_level"], "optional")
+        self.assertEqual(result["atproto_contribution_score"], 40)
+
+    def test_auth_only_category_is_kept_without_protocol_surface(self) -> None:
+        result = registry.compute_atproto_contribution(dict(self.project(), category="auth_only"))
+
+        self.assertEqual(result["atproto_contribution_level"], "auth_only")
+        self.assertEqual(result["atproto_contribution_score"], 20)
+
+    def test_strong_evidence_overrides_auth_only_category(self) -> None:
+        result = registry.compute_atproto_contribution(
+            dict(self.project(), category="auth_only", recent_record_samples=[{"collection": "app.example.post"}])
+        )
+
+        self.assertEqual(result["atproto_contribution_level"], "substantial")
+
+    def test_review_sort_score_prioritizes_protocol_contribution(self) -> None:
+        signals = [{"kind": "llm_manual_review_recommended", "priority": 7}]
+
+        self.assertGreater(
+            registry.review_queue_sort_score({"atproto_contribution_score": 90}, signals),
+            registry.review_queue_sort_score({"atproto_contribution_score": 20}, signals),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

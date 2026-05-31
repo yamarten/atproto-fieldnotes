@@ -92,6 +92,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["name_candidates"] = [{"value": "Example App", "source": "service_title:https://example.com"}]
             project["service_status_confidence"] = "medium"
             project["service_status_evidence"] = ["http_200", "login_surface_detected"]
+            project["resolved_nsids"] = ["app.example.post"]
 
             registry.save_project(conn, project, enriched=True)
             conn.commit()
@@ -109,10 +110,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(record_payload["core"]["tagline"], "Example tagline")
             self.assertEqual(ops_payload["evidence"]["name_candidates"][0]["value"], "Example App")
             self.assertEqual(ops_payload["ops"]["service_status_confidence"], "medium")
+            self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "core")
+            self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 90)
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
             self.assertEqual(fetched["name_candidates"][0]["source"], "service_title:https://example.com")
+            self.assertEqual(fetched["atproto_contribution_level"], "core")
         finally:
             conn.close()
 
@@ -170,6 +174,42 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_audit_persists_missing_atproto_contribution_fields(self) -> None:
+        conn = registry.open_db()
+        try:
+            now = registry.iso_now()
+            conn.execute(
+                """
+                INSERT INTO projects (
+                    project_key, name, website_url, service_status, tracking_state,
+                    introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "proj:legacycontri",
+                    "Legacy Contribution",
+                    "",
+                    "unknown",
+                    "active",
+                    "",
+                    "{}",
+                    json.dumps({"evidence": {"input_nsids": ["app.example.post"]}}),
+                    now,
+                    now,
+                    None,
+                ),
+            )
+            conn.commit()
+
+            registry.audit_and_repair_identifiers(conn)
+
+            row = conn.execute("SELECT ops_json FROM projects WHERE project_key = ?", ("proj:legacycontri",)).fetchone()
+            ops_payload = json.loads(row["ops_json"])
+            self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "optional")
+            self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 40)
+        finally:
+            conn.close()
+
     def test_review_queue_does_not_refresh_duplicate_candidates(self) -> None:
         conn = registry.open_db()
         original_compute = registry.compute_duplicate_candidates
@@ -222,6 +262,34 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 [item["kind"] for item in full_signals],
             )
             self.assertEqual(registry.build_review_queue(conn, tracking_states={"active"}, limit=1)[0]["project_key"], "proj:abababababab")
+        finally:
+            conn.close()
+
+    def test_review_queue_prioritizes_atproto_contribution_for_equal_signals(self) -> None:
+        conn = registry.open_db()
+        try:
+            optional = self.make_project("proj:111111111111", "nsid", "app.example.optional")
+            optional["name"] = "Optional"
+            optional["manual_review_recommended"] = True
+            optional["manual_review_kind"] = "identity_resolution"
+            optional["manual_review_priority"] = "medium"
+            optional["input_nsids"] = ["app.example.optional"]
+            registry.save_project(conn, optional)
+
+            substantial = self.make_project("proj:222222222222", "nsid", "app.example.substantial")
+            substantial["name"] = "Substantial"
+            substantial["manual_review_recommended"] = True
+            substantial["manual_review_kind"] = "identity_resolution"
+            substantial["manual_review_priority"] = "medium"
+            substantial["collection_observations"] = [{"collection": "app.example.substantial", "count": 5}]
+            registry.save_project(conn, substantial)
+            conn.commit()
+
+            queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=2)
+
+            self.assertEqual([item["project_key"] for item in queue], ["proj:222222222222", "proj:111111111111"])
+            self.assertEqual(queue[0]["atproto_contribution_level"], "substantial")
+            self.assertGreater(queue[0]["sort_score"], queue[1]["sort_score"])
         finally:
             conn.close()
 
