@@ -5,6 +5,7 @@ import unittest
 import datetime as dt
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 
@@ -391,6 +392,50 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual([item["project_key"] for item in queue], ["proj:222222222222", "proj:111111111111"])
             self.assertEqual(queue[0]["atproto_contribution_level"], "substantial")
             self.assertGreater(queue[0]["sort_score"], queue[1]["sort_score"])
+        finally:
+            conn.close()
+
+    def test_interactive_promotion_queue_applies_limit_after_global_sort(self) -> None:
+        conn = registry.open_db()
+        try:
+            low = self.make_project("proj:111111111111", "service_url", "https://low.example")
+            low.update(
+                {
+                    "name": "Low",
+                    "category": "project",
+                    "service_status": "live",
+                    "summary": "Low summary",
+                    "tagline": "Low tagline",
+                }
+            )
+            registry.confirm_service_seed(low, "https://low.example", source="test")
+            registry.save_project(conn, low)
+
+            high = self.make_project("proj:zzzzzzzzzzzz", "service_url", "https://high.example")
+            high.update(
+                {
+                    "name": "High",
+                    "category": "project",
+                    "service_status": "live",
+                    "summary": "High summary",
+                    "tagline": "High tagline",
+                    "resolved_nsids": ["app.high.post"],
+                }
+            )
+            registry.confirm_service_seed(high, "https://high.example", source="test")
+            registry.save_project(conn, high)
+            conn.commit()
+
+            args = registry.build_parser().parse_args(["promotion-queue", "--interactive", "--limit", "1"])
+            with (
+                mock.patch.object(registry, "open_db", return_value=conn),
+                mock.patch.object(registry, "output_project_queue", return_value=0) as output,
+            ):
+                registry.cmd_promotion_queue(args)
+
+            queue = output.call_args.kwargs["queue"]
+            self.assertEqual([item["project_key"] for item in queue], ["proj:zzzzzzzzzzzz"])
+            self.assertIsNone(output.call_args.kwargs["load_more"])
         finally:
             conn.close()
 

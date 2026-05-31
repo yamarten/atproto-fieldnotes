@@ -914,6 +914,8 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。
 
+`promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`top_priority`, `sort_score`, `project_key` の順でグローバルソートしてから `--limit` を適用します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
+
 `audit-source-config [domain]` は `custom_multi_tenant_suffixes` の追加後基準で既存 project を読み取り監査します。service URL と NSID authority を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
 
 このコマンドはデフォルト interactive です。tenant group の番号を選んだ場合だけ、service URL / NSID を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` の責務は引数 domain の `sources.json` 追記だけで、split は自動適用しません。

@@ -9656,7 +9656,7 @@ def build_showcase_queue(
     conn: sqlite3.Connection,
     *,
     tracking_states: set[str] | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
 ) -> list[dict[str, Any]]:
@@ -9700,7 +9700,7 @@ def build_showcase_queue(
             }
         )
     queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
-    return queue[: max(1, int(limit or 50))]
+    return queue if limit is None else queue[: max(1, int(limit or 50))]
 
 
 def build_showcase_queue_batch(
@@ -11735,36 +11735,15 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     include_personal_tools = bool(getattr(args, "include_personal_tools", False))
-    load_more: Callable[[], list[dict[str, Any]]] | None = None
     if interactive:
-        batch_size = 100
-        total_limit = max(1, int(args.limit)) if args.limit is not None else None
-        project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-        next_index = 0
-        emitted = 0
-
-        def load_showcase_batch() -> list[dict[str, Any]]:
-            nonlocal next_index, emitted
-            if total_limit is not None and emitted >= total_limit:
-                return []
-            current_batch_size = batch_size
-            if total_limit is not None:
-                current_batch_size = min(current_batch_size, total_limit - emitted)
-            items, next_index_result = build_showcase_queue_batch(
-                conn,
-                tracking_states=tracking_states,
-                kinds=kinds,
-                include_personal_tools=include_personal_tools,
-                project_list=project_list,
-                start_index=next_index,
-                batch_size=current_batch_size,
-            )
-            next_index = next_index_result
-            emitted += len(items)
-            return items
-
-        queue = load_showcase_batch()
-        load_more = load_showcase_batch
+        effective_limit = max(1, int(args.limit)) if args.limit is not None else None
+        queue = build_showcase_queue(
+            conn,
+            tracking_states=tracking_states,
+            limit=effective_limit,
+            kinds=kinds,
+            include_personal_tools=include_personal_tools,
+        )
     else:
         effective_limit = max(1, int(args.limit)) if args.limit is not None else 50
         queue = build_showcase_queue(
@@ -11781,7 +11760,7 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
         tracking_states=tracking_states,
         kinds=kinds,
         interactive=interactive,
-        load_more=load_more,
+        load_more=None,
         include_personal_tools=include_personal_tools,
     )
 

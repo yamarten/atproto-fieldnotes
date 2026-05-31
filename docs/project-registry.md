@@ -453,6 +453,8 @@ signal は今のところ 2 種類です。
 
 `--interactive` を付けると `review-queue` と同じく 1 件ずつ見られます。`suggested_commands` には `show` や `enrich --deep-investigation` を出します。
 
+表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
+
 適用する場合:
 
 ```bash
