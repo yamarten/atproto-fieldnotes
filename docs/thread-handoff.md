@@ -124,6 +124,11 @@
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
+- hosted suffix 追加後の split 監査
+  - `audit-source-config [domain]` は実装済み
+  - suffix 追記、tenant 混在の `split_suggestions`、仮分割後の merge candidate 表示まで接続済み
+  - interactive で tenant group を選ぶと service URL / NSID を原子的に切り出す
+  - 共有 repo / lexicon や URL 移転の例外があるため確認必須。non-interactive の自動 split は入れない
 - 旧 discovery フローから取り込み済みでないアイディア
   - 手動候補を一旦積む inbox 的な導線
   - `first_seen_at` / `last_seen_at` / recent activity を使った差分ベースの priority 補正

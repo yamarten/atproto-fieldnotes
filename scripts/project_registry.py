@@ -122,6 +122,36 @@ def reset_domain_extractors() -> None:
     _TLD_EXTRACTORS = {}
 
 
+def reset_domain_config_cache() -> None:
+    global _CONFIGURED_MULTI_TENANT_SUFFIXES
+    _CONFIGURED_MULTI_TENANT_SUFFIXES = None
+    reset_domain_extractors()
+
+
+def normalize_multi_tenant_suffix(value: str) -> str:
+    suffix = str(value or "").strip().lower().rstrip(".")
+    if not suffix or "." not in suffix or not re.fullmatch(r"[a-z0-9.-]+", suffix):
+        raise ValueError(f"invalid multi-tenant suffix: {value}")
+    if any(not label for label in suffix.split(".")):
+        raise ValueError(f"invalid multi-tenant suffix: {value}")
+    return suffix
+
+
+def add_configured_multi_tenant_suffix(suffix: str) -> bool:
+    normalized = normalize_multi_tenant_suffix(suffix)
+    config = load_config()
+    values = config.get("custom_multi_tenant_suffixes", [])
+    if not isinstance(values, list):
+        raise ValueError("custom_multi_tenant_suffixes must be a JSON array")
+    existing = [normalize_multi_tenant_suffix(str(item)) for item in values]
+    if normalized in existing:
+        return False
+    config["custom_multi_tenant_suffixes"] = existing + [normalized]
+    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    reset_domain_config_cache()
+    return True
+
+
 def load_json(value: str) -> Any:
     return json.loads(value) if value else None
 
@@ -12479,6 +12509,268 @@ def cmd_defer_identifier(args: argparse.Namespace) -> int:
     return 0
 
 
+def tenant_identity_for_suffix(host: str, suffix: str) -> str:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    normalized_suffix = normalize_multi_tenant_suffix(suffix)
+    if not lowered.endswith(f".{normalized_suffix}"):
+        return ""
+    prefix_labels = lowered[: -(len(normalized_suffix) + 1)].split(".")
+    return f"{prefix_labels[-1]}.{normalized_suffix}" if prefix_labels and prefix_labels[-1] else ""
+
+
+def project_split_identifiers_by_tenant(project: dict[str, Any], suffix: str) -> dict[str, dict[str, list[str]]]:
+    groups: dict[str, dict[str, list[str]]] = {}
+
+    def add(tenant: str, identifier_type: str, value: str) -> None:
+        if not tenant or not value:
+            return
+        group = groups.setdefault(
+            tenant,
+            {"service_urls": [], "nsids": [], "authority_domains": []},
+        )
+        field = {
+            "service_url": "service_urls",
+            "nsid": "nsids",
+            "authority_domain": "authority_domains",
+        }[identifier_type]
+        group[field] = add_unique(group[field], value)
+
+    service_urls = unique_list(
+        ([project.get("website_url")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        + manual_seed_values(project, "service_url")
+    )
+    for service_url in service_urls:
+        normalized = normalize_url(str(service_url or ""))
+        host = urllib.parse.urlparse(normalized).netloc.lower()
+        add(tenant_identity_for_suffix(host, suffix), "service_url", normalized)
+
+    nsids = unique_list(
+        ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
+        + list(project.get("input_nsids", []))
+        + list(project.get("resolved_nsids", []))
+        + manual_seed_values(project, "nsid")
+    )
+    for nsid in nsids:
+        normalized = normalize_nsid(str(nsid or ""))
+        authority = derive_authority_domain_from_namespace(normalized)
+        add(tenant_identity_for_suffix(authority, suffix), "nsid", normalized)
+
+    for authority in project.get("authority_domains", []):
+        normalized = str(authority or "").strip().lower().rstrip(".")
+        add(tenant_identity_for_suffix(normalized, suffix), "authority_domain", normalized)
+    return groups
+
+
+def virtual_tenant_project(project: dict[str, Any], tenant: str, group: dict[str, list[str]]) -> dict[str, Any]:
+    virtual = default_project_record(f"virtual:{project['project_key']}:{tenant}", "service_url", "")
+    virtual["name"] = tenant
+    virtual["website_url"] = group.get("service_urls", [""])[0] if group.get("service_urls") else ""
+    virtual["service_urls"] = list(group.get("service_urls", []))
+    virtual["input_nsids"] = list(group.get("nsids", []))
+    virtual["resolved_nsids"] = list(group.get("nsids", []))
+    virtual["authority_domains"] = list(group.get("authority_domains", []))
+    virtual["recorded_lexicon_namespaces"] = unique_list(
+        [
+            namespace_from_collection_nsid(nsid)
+            for nsid in group.get("nsids", [])
+            if namespace_from_collection_nsid(nsid)
+        ]
+    )
+    return finalize_project_shape(virtual)
+
+
+def split_commands_for_tenant(project_key: str, group: dict[str, list[str]]) -> list[str]:
+    commands: list[str] = []
+    for identifier_type, values in (
+        ("service_url", group.get("service_urls", [])),
+        ("nsid", group.get("nsids", [])),
+    ):
+        for value in values:
+            commands.append(
+                "python3 scripts/project_registry.py split-project "
+                f"--project-key {shlex.quote(project_key)} "
+                f"--identifier-type {identifier_type} "
+                f"--value {shlex.quote(str(value))}"
+            )
+    return commands
+
+
+def split_project_tenant_group(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+    tenant: str,
+    group: dict[str, list[str]],
+) -> dict[str, Any]:
+    source = fetch_project(conn, source_project_key)
+    if source is None:
+        raise ValueError(f"source project not found: {source_project_key}")
+    source = ensure_project_shape(source)
+    identifiers = [
+        (identifier_type, str(value))
+        for identifier_type, values in (
+            ("service_url", group.get("service_urls", [])),
+            ("nsid", group.get("nsids", [])),
+        )
+        for value in values
+        if str(value).strip()
+    ]
+    if not identifiers:
+        raise ValueError(f"tenant group has no movable identifiers: {tenant}")
+
+    target_key = generate_project_key({project["project_key"] for project in all_projects(conn)})
+    first_type, first_value = identifiers[0]
+    target = default_project_record(target_key, first_type, first_value)
+    target["tracking_state"] = source.get("tracking_state", "active")
+    target["status"] = source.get("status", "draft")
+    target["discovery_sources"] = unique_list(list(source.get("discovery_sources", [])) + ["split_from_source_config_audit"])
+    target["tracking_note"] = f"split tenant {tenant} from {source['project_key']}"
+
+    blocked = normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    for identifier_type, identifier_value in identifiers:
+        if identifier_type == "service_url":
+            confirm_service_seed(target, identifier_value, source="source_config_audit_split")
+        else:
+            add_manual_seed(target, identifier_type, identifier_value, source="source_config_audit_split")
+        remove_identifier_from_project(source, identifier_type, identifier_value)
+        block_key = (identifier_type, identifier_value)
+        if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
+            blocked.append(
+                {
+                    "type": identifier_type,
+                    "value": identifier_value,
+                    "note": f"split tenant {tenant} to {target_key}",
+                    "added_at": iso_now(),
+                }
+            )
+    source["blocked_identifiers"] = blocked
+    source["separate_project_keys"] = unique_list(list(source.get("separate_project_keys", [])) + [target_key])
+    target["separate_project_keys"] = unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+    append_project_note(source, f"split tenant {tenant} -> {target_key}")
+
+    source = finalize_project_shape(source)
+    target = finalize_project_shape(target)
+    source["duplicate_candidates"] = compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = compute_merge_recommendation(source)
+    target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
+    target["merge_recommendation"] = compute_merge_recommendation(target)
+    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+    save_project(conn, target, enriched=False)
+    conn.commit()
+    return {
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "tenant": tenant,
+        "moved_identifiers": [
+            {"type": identifier_type, "value": identifier_value}
+            for identifier_type, identifier_value in identifiers
+        ],
+        "target_merge_recommendation": target.get("merge_recommendation", {}),
+    }
+
+
+def build_source_config_split_suggestions(conn: sqlite3.Connection, suffixes: list[str] | None = None) -> list[dict[str, Any]]:
+    normalized_suffixes = sorted(
+        {normalize_multi_tenant_suffix(item) for item in (suffixes or sorted(configured_multi_tenant_suffixes()))}
+    )
+    projects = [ensure_project_shape(project) for project in list_projects(conn)]
+    suggestions: list[dict[str, Any]] = []
+    for project in projects:
+        for suffix in normalized_suffixes:
+            groups = project_split_identifiers_by_tenant(project, suffix)
+            if len(groups) < 2:
+                continue
+            tenant_groups: list[dict[str, Any]] = []
+            for tenant_group_index, (tenant, group) in enumerate(sorted(groups.items()), start=1):
+                virtual = virtual_tenant_project(project, tenant, group)
+                comparison_projects = [
+                    item for item in projects if item.get("project_key") != project.get("project_key")
+                ] + [virtual]
+                candidates = compute_duplicate_candidates(conn, virtual, projects=comparison_projects)
+                tenant_groups.append(
+                    {
+                        "tenant_group_index": tenant_group_index,
+                        "tenant": tenant,
+                        "identifiers": group,
+                        "merge_candidates_after_split": candidates[:10],
+                        "suggested_split_commands": split_commands_for_tenant(str(project["project_key"]), group),
+                    }
+                )
+            suggestions.append(
+                {
+                    "source_project_key": project["project_key"],
+                    "source_name": project.get("name", ""),
+                    "trigger": f"custom_multi_tenant_suffix:{suffix}",
+                    "tenant_groups": tenant_groups,
+                    "shared_or_ambiguous_identifiers": {
+                        "repo_urls": unique_list(
+                            list(project.get("source_code_urls", []))
+                            + list(project.get("candidate_source_code_urls", []))
+                        ),
+                    },
+                    "requires_manual_confirmation": True,
+                }
+            )
+    return suggestions
+
+
+def cmd_audit_source_config(args: argparse.Namespace) -> int:
+    interactive = bool(args.interactive)
+    if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
+        raise ValueError("default interactive mode requires a TTY; use --no-interactive for JSON dry-run output")
+
+    requested_suffix = normalize_multi_tenant_suffix(args.domain) if args.domain else ""
+    added_suffix = False
+    if requested_suffix and requested_suffix not in configured_multi_tenant_suffixes():
+        should_add = bool(args.execute)
+        if interactive and not should_add:
+            should_add = prompt_for_confirmation(f"Add {requested_suffix} to config/sources.json? [y/N]")
+        if should_add:
+            added_suffix = add_configured_multi_tenant_suffix(requested_suffix)
+
+    suffixes = [requested_suffix] if requested_suffix else sorted(configured_multi_tenant_suffixes())
+    conn = open_db()
+    suggestions = build_source_config_split_suggestions(conn, suffixes=suffixes)
+    payload = {
+        "mode": "interactive" if interactive else "dry_run",
+        "requested_suffix": requested_suffix,
+        "suffix_added": added_suffix,
+        "audited_suffixes": suffixes,
+        "split_suggestion_count": len(suggestions),
+        "split_suggestions": suggestions,
+    }
+    if not interactive:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    for index, suggestion in enumerate(suggestions, start=1):
+        print(json.dumps({"index": index, "total": len(suggestions), **suggestion}, ensure_ascii=False, indent=2, sort_keys=True))
+        answer = input("split which tenant group? [number]/[Enter]next/[q]uit: ").strip().lower()
+        if answer in {"q", "quit"}:
+            break
+        if not answer:
+            continue
+        try:
+            selected_index = int(answer)
+        except ValueError:
+            print(json.dumps({"warning": "invalid_tenant_group_selection", "answer": answer}, ensure_ascii=False))
+            continue
+        tenant_groups = suggestion.get("tenant_groups", [])
+        if selected_index < 1 or selected_index > len(tenant_groups):
+            print(json.dumps({"warning": "tenant_group_selection_out_of_range", "answer": answer}, ensure_ascii=False))
+            continue
+        selected = tenant_groups[selected_index - 1]
+        result = split_project_tenant_group(
+            conn,
+            str(suggestion.get("source_project_key") or ""),
+            str(selected.get("tenant") or ""),
+            dict(selected.get("identifiers") or {}),
+        )
+        print(json.dumps({"split_applied": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps({key: value for key, value in payload.items() if key != "split_suggestions"}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_split_project(args: argparse.Namespace) -> int:
     conn = open_db()
     source = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
@@ -13794,6 +14086,12 @@ def build_parser() -> argparse.ArgumentParser:
     defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
     defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
     defer_parser.set_defaults(func=cmd_defer_identifier)
+
+    audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
+    audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/sources.json before auditing it.")
+    audit_source_parser.add_argument("--interactive", action=argparse.BooleanOptionalAction, default=True, help="Review split suggestions interactively. Default: enabled; use --no-interactive for JSON dry-run output.")
+    audit_source_parser.add_argument("--execute", action="store_true", help="Add the requested suffix without an interactive confirmation. Split suggestions are never auto-applied.")
+    audit_source_parser.set_defaults(func=cmd_audit_source_config)
 
     split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
     split_target = split_parser.add_mutually_exclusive_group(required=True)

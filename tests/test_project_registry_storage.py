@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import unittest
 import datetime as dt
+import tempfile
+from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
 
@@ -32,6 +34,94 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertIs(args.func, registry.cmd_defer_identifier)
         self.assertEqual(args.days, 14)
+
+    def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
+        parser = registry.build_parser()
+
+        args = parser.parse_args(["audit-source-config", "example.com"])
+        dry_run_args = parser.parse_args(["audit-source-config", "example.com", "--no-interactive"])
+
+        self.assertIs(args.func, registry.cmd_audit_source_config)
+        self.assertTrue(args.interactive)
+        self.assertFalse(dry_run_args.interactive)
+
+    def test_add_configured_multi_tenant_suffix_updates_json_and_cache(self) -> None:
+        original_config_path = registry.CONFIG_PATH
+        original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
+        try:
+            config_path = Path(self.tempdir.name) / "sources.json"
+            config_path.write_text('{"custom_multi_tenant_suffixes": ["existing.example"]}\n')
+            registry.CONFIG_PATH = config_path
+            registry.reset_domain_config_cache()
+
+            self.assertTrue(registry.add_configured_multi_tenant_suffix("Example.COM."))
+            self.assertFalse(registry.add_configured_multi_tenant_suffix("example.com"))
+
+            config = json.loads(config_path.read_text())
+            self.assertEqual(config["custom_multi_tenant_suffixes"], ["existing.example", "example.com"])
+            self.assertIn("example.com", registry.configured_multi_tenant_suffixes())
+        finally:
+            registry.CONFIG_PATH = original_config_path
+            registry._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
+            registry.reset_domain_extractors()
+
+    def test_source_config_audit_suggests_multi_tenant_project_split(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:tenanttenant", "service_url", "https://foo.example.com")
+            project["name"] = "Mixed tenants"
+            project["website_url"] = "https://foo.example.com"
+            project["service_urls"] = ["https://foo.example.com", "https://bar.example.com"]
+            project["input_nsids"] = ["com.example.foo.post", "com.example.bar.post"]
+            registry.save_project(conn, project)
+            conn.commit()
+
+            suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
+
+            self.assertEqual(len(suggestions), 1)
+            self.assertEqual(suggestions[0]["source_project_key"], "proj:tenanttenant")
+            tenant_groups = {item["tenant"]: item for item in suggestions[0]["tenant_groups"]}
+            self.assertEqual(set(tenant_groups), {"foo.example.com", "bar.example.com"})
+            self.assertIn("https://foo.example.com", tenant_groups["foo.example.com"]["identifiers"]["service_urls"])
+            self.assertTrue(tenant_groups["foo.example.com"]["suggested_split_commands"])
+        finally:
+            conn.close()
+
+    def test_source_config_tenant_split_moves_group_atomically(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:tenanttenant", "service_url", "https://foo.example.com")
+            registry.add_manual_seed(project, "service_url", "https://foo.example.com", source="test")
+            registry.add_manual_seed(project, "service_url", "https://bar.example.com", source="test")
+            registry.add_manual_seed(project, "nsid", "com.example.foo.post", source="test")
+            registry.add_manual_seed(project, "nsid", "com.example.bar.post", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            result = registry.split_project_tenant_group(
+                conn,
+                "proj:tenanttenant",
+                "bar.example.com",
+                {
+                    "service_urls": ["https://bar.example.com"],
+                    "nsids": ["com.example.bar.post"],
+                    "authority_domains": [],
+                },
+            )
+
+            source = registry.fetch_project(conn, "proj:tenanttenant")
+            target = registry.fetch_project(conn, result["target_project_key"])
+            self.assertNotIn("https://bar.example.com", source["service_urls"])
+            self.assertNotIn("com.example.bar.post", source["input_nsids"])
+            self.assertIn("https://bar.example.com", target["service_urls"])
+            self.assertIn("com.example.bar.post", target["input_nsids"])
+            self.assertIn(target["project_key"], source["separate_project_keys"])
+            self.assertIn(source["project_key"], target["separate_project_keys"])
+            blocked = {(item["type"], item["value"]) for item in source["blocked_identifiers"]}
+            self.assertIn(("service_url", "https://bar.example.com"), blocked)
+            self.assertIn(("nsid", "com.example.bar.post"), blocked)
+        finally:
+            conn.close()
 
     def test_defer_service_url_downgrades_to_candidate_and_blocks_confirmation(self) -> None:
         project = self.make_project("proj:121212121212", "service_url", "https://example.com")

@@ -36,6 +36,28 @@ pip install -r requirements.txt
 
 PSL に載っていない hosted suffix を追加したい場合は、[config/sources.json](../config/sources.json) の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。
 
+既存 DB を追加後の基準で確認しながら追記する場合:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com
+```
+
+このコマンドは既定で interactive です。suffix が未登録なら `sources.json` への追記を確認し、追加後の family 基準で `split_suggestions` を表示します。各 suggestion には tenant ごとの service URL / NSID、曖昧な repo、仮分割後の merge candidate、既存 `split-project` の dry-run コマンドが含まれます。
+
+JSON dry-run のみ:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com --no-interactive
+```
+
+確認なしで suffix 追記まで行う場合:
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com --execute --no-interactive
+```
+
+interactive では tenant group の番号を選んだ場合だけ、その group の service URL / NSID を 1 つの新 project へまとめて切り出します。元 project には block と `set-separate` 相当の相互分離を残します。`--execute --no-interactive` では split を自動適用しません。共有 repo、共有 lexicon、URL 移転などの例外があるため、分割は常に suggestion 確認後に行います。
+
 ## zsh補完
 
 wrapper の [bin/project-registry](../bin/project-registry) と zsh completion の [completions/_project-registry](../completions/_project-registry) を使えます。

@@ -31,6 +31,14 @@ pip install -r requirements.txt
 
 PSL に無い hosted suffix を手動で足したい場合は、[config/sources.json](config/sources.json) の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。
 
+登録済み project への影響も確認する場合は、監査コマンドから追加できます。
+
+```bash
+python3 scripts/project_registry.py audit-source-config example.com
+```
+
+既定は interactive です。追加確認後に `sources.json` を更新し、新しい family 基準で同一 project に複数 tenant が混在していないかを表示します。tenant group の番号を選んだ場合だけ、その group の identifier をまとめて新 project へ切り出します。JSON dry-run だけを見る場合は `--no-interactive`、確認なしで suffix 追記まで行う場合は `--execute --no-interactive` を使います。non-interactive では split を適用しません。
+
 ## テスト
 
 テストは標準ライブラリの `unittest` で実行します。外部 API、実 DB、実 LLM endpoint には触れず、必要な SQLite DB は temp directory に作ります。
