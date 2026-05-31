@@ -20,6 +20,7 @@ subcommands=(
   'set-tracking-state-batch:Set tracking state for a filtered set of projects'
   'set-separate:Mark two projects as distinct'
   'block-identifier:Block one identifier from being reattached'
+  'defer-identifier:Temporarily downgrade one identifier'
   'split-project:Split one identifier out into a new project'
   'inspect-merge-pair:Inspect merge evidence for one pair'
   'merge:Merge one project into another'
@@ -244,6 +245,17 @@ case "$cmd" in
       '--value[Identifier value to block on this project]:value:' \
       '--note[Optional operator note]:note:' \
       '--clear[Remove the block instead of adding it]'
+    ;;
+  defer-identifier)
+    _arguments -S \
+      '(-p --project-key -s --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key -s --seed)'{-s,--seed}'[Target by known seed value]:seed:' \
+      "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
+      "--identifier-type[Identifier class to defer]:identifier type:_project_registry_seed_types" \
+      '--value[Identifier value to defer on this project]:value:' \
+      '--days[Temporary guard duration in days]:days:' \
+      '--note[Optional operator note]:note:' \
+      '--clear[Remove the defer guard instead of adding it]'
     ;;
   split-project)
     _arguments -S \

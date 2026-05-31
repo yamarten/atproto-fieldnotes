@@ -259,6 +259,12 @@ python3 scripts/project_registry.py promotion-queue --kinds lexicon_ready_for_in
 python3 scripts/project_registry.py block-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com
 ```
 
+恒久 block ではなく 30 日だけ candidate 相当に降格して様子を見る場合:
+
+```bash
+python3 scripts/project_registry.py defer-identifier --project-key proj:xxxx --identifier-type service_url --value https://example.com --days 30
+```
+
 曖昧な自然文から DB 修正コマンド案を出したい場合:
 
 ```bash

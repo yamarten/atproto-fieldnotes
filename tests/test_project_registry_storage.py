@@ -2,11 +2,84 @@ from __future__ import annotations
 
 import json
 import unittest
+import datetime as dt
 
 from helpers import TempRegistryDbTestCase, registry
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_parser_accepts_defer_identifier_command(self) -> None:
+        args = registry.build_parser().parse_args(
+            [
+                "defer-identifier",
+                "--project-key",
+                "proj:121212121212",
+                "--identifier-type",
+                "service_url",
+                "--value",
+                "https://example.com",
+                "--days",
+                "14",
+            ]
+        )
+
+        self.assertIs(args.func, registry.cmd_defer_identifier)
+        self.assertEqual(args.days, 14)
+
+    def test_defer_service_url_downgrades_to_candidate_and_blocks_confirmation(self) -> None:
+        project = self.make_project("proj:121212121212", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com"
+        project["service_urls"] = ["https://example.com"]
+
+        registry.defer_identifier_on_project(project, "service_url", "https://example.com", days=30)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://example.com", project["service_urls"])
+        self.assertNotEqual(project["website_url"], "https://example.com")
+        self.assertIn("https://example.com", project["service_url_candidates"])
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+        self.assertNotIn("https://example.com", project["service_urls"])
+
+    def test_defer_repo_url_downgrades_to_candidate(self) -> None:
+        project = self.make_project("proj:343434343434", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["github_repo_urls"] = ["https://github.com/example/app"]
+
+        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertEqual(project["deferred_identifiers"][0]["type"], "repo_url")
+
+    def test_defer_nsid_keeps_value_in_temporary_category(self) -> None:
+        project = self.make_project("proj:565656565656", "nsid", "app.example.post")
+        project["primary_nsid"] = "app.example.post"
+        project["input_nsids"] = ["app.example.post"]
+
+        registry.defer_identifier_on_project(project, "nsid", "app.example.post", days=30)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("app.example.post", project["input_nsids"])
+        self.assertEqual(project["deferred_identifiers"][0]["value"], "app.example.post")
+
+    def test_expired_deferred_identifier_stops_blocking_confirmation(self) -> None:
+        project = self.make_project("proj:defdefdefdef", "service_url", "https://example.com")
+        project["deferred_identifiers"] = [
+            {
+                "type": "service_url",
+                "value": "https://example.com",
+                "added_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).isoformat(),
+            }
+        ]
+
+        project = registry.ensure_project_shape(project)
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        self.assertEqual(project["deferred_identifiers"], [])
+        self.assertIn("https://example.com", project["service_urls"])
+
     def test_save_project_splits_scalars_record_and_ops_payloads(self) -> None:
         conn = registry.open_db()
         try:

@@ -803,6 +803,12 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
+- deferred
+  - `deferred_identifiers`
+  - URL / NSID を恒久 block せず一時保留する運用カテゴリ
+  - URL は candidate に降格して観測可能なまま残す
+  - NSID は専用 candidate 配列を追加せず `deferred_identifiers` に保持する
+  - 既定 30 日。期限内は confirmed への自動昇格を抑制し、期限切れ後は通常導線へ戻す
 - `summary_candidates`
 - `name_candidates`
 - `tagline_candidates`

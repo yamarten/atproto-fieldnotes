@@ -12,6 +12,10 @@
   - `ops_json`
 - `record_json` は高信頼の project record
 - `ops_json` は候補・調査・LLM・merge 制御などの運用情報
+- `deferred_identifiers` は CLI の `defer-identifier` で追加する一時保留 guard
+  - URL は candidate に降格し、NSID は deferred category に保持する
+  - 期限内は自動 confirmed 化を抑制する
+  - Web UI 操作は未接続。confirmed/candidate row の `Defer 30d` と `Guards` の期限表示を追加する余地がある
 - `project_identifiers` はもう使わない
 
 ## 運用上の注意

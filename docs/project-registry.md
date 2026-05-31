@@ -180,6 +180,8 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 
 補助情報として `blocked_identifiers` と `separate_project_keys` は `Guards` に折り畳み表示します。`Clear` は guard record だけを外す操作で、identifier を自動で再付与したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
 
+`deferred_identifiers` の Web UI 操作は未接続です。将来は confirmed/candidate row に `Defer 30d`、`Guards` に期限と `Clear defer` を追加する想定です。
+
 `Sync` タブでは、次の CLI 相当の処理を background job として開始できます。
 
 - `sync-introduced`
@@ -491,6 +493,18 @@ python3 scripts/project_registry.py block-identifier \
 ```
 
 この block は `finalize` / `enrich` のたびに適用されるので、次回の再調査でも同じ identifier はその project に戻りません。
+
+恒久 block ではなく、一定期間だけ様子を見る場合は `defer-identifier` を使います:
+
+```bash
+python3 scripts/project_registry.py defer-identifier \
+  --project-key proj:aaaa1111bbbb \
+  --identifier-type service_url \
+  --value https://example.com \
+  --days 30
+```
+
+URL は confirmed から candidate に降格し、NSID は `deferred_identifiers` に保持されます。期限内は自動 confirmed 化を抑制します。解除する場合は同じ引数に `--clear` を付けます。解除しても自動 confirm はしません。
 
 ## 誤マージの分割
 

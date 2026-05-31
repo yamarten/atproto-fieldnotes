@@ -267,6 +267,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "merge_recommendation",
         "separate_project_keys",
         "blocked_identifiers",
+        "deferred_identifiers",
         "collection_observations",
         "promotion_events",
         "last_run_errors",
@@ -406,6 +407,7 @@ MAPPED_LEGACY_FIELDS = {
     "merge_recommendation",
     "separate_project_keys",
     "blocked_identifiers",
+    "deferred_identifiers",
     "collection_observations",
     "notes",
     "last_run_errors",
@@ -1133,6 +1135,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "merge_recommendation": {},
         "separate_project_keys": [],
         "blocked_identifiers": [],
+        "deferred_identifiers": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -1192,6 +1195,40 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
                 "value": normalized_value,
                 "note": str(item.get("note") or "").strip(),
                 "added_at": str(item.get("added_at") or ""),
+            }
+        )
+    return output
+
+
+DEFAULT_DEFER_IDENTIFIER_DAYS = 30
+
+
+def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    now = dt.datetime.now(dt.timezone.utc)
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        identifier_type = str(item.get("type") or "").strip()
+        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+            continue
+        normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
+        expires_at = str(item.get("expires_at") or "").strip()
+        expires = parse_iso(expires_at)
+        if not normalized_value or expires is None or expires <= now:
+            continue
+        key = (identifier_type, normalized_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "type": identifier_type,
+                "value": normalized_value,
+                "note": str(item.get("note") or "").strip(),
+                "added_at": str(item.get("added_at") or ""),
+                "expires_at": expires.isoformat(),
             }
         )
     return output
@@ -1260,6 +1297,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         ]
     )
     defaults["blocked_identifiers"] = normalize_blocked_identifiers(list(defaults.get("blocked_identifiers") or []))
+    defaults["deferred_identifiers"] = normalize_deferred_identifiers(list(defaults.get("deferred_identifiers") or []))
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
     defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
@@ -2524,7 +2562,7 @@ def ensure_project_for_seed(
 
 
 def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: str) -> None:
-    if identifier_is_blocked(project, seed_type, seed_value):
+    if identifier_is_blocked(project, seed_type, seed_value) or identifier_is_deferred(project, seed_type, seed_value):
         return
     project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "manual_seed")
     if seed_type == "nsid":
@@ -2611,6 +2649,75 @@ def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: 
     if not normalized:
         return False
     return normalized in blocked_identifier_values(project, identifier_type)
+
+
+def deferred_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if isinstance(item, dict) and str(item.get("type") or "").strip() == identifier_type and str(item.get("value") or "").strip()
+    }
+
+
+def identifier_is_deferred(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    return normalized in deferred_identifier_values(project, identifier_type)
+
+
+def downgrade_identifier_to_candidate(project: dict[str, Any], identifier_type: str, value: str) -> None:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return
+    remove_identifier_from_project(project, identifier_type, normalized)
+    if identifier_type == "service_url":
+        add_candidate_url(project, "service_url", normalized)
+        add_candidate_url(project, "website_url", normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+    elif identifier_type == "repo_url":
+        project["candidate_source_code_urls"] = add_unique(project.get("candidate_source_code_urls", []), normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+
+
+def defer_identifier_on_project(
+    project: dict[str, Any],
+    identifier_type: str,
+    value: str,
+    *,
+    note: str = "",
+    days: int = DEFAULT_DEFER_IDENTIFIER_DAYS,
+) -> str:
+    if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        raise ValueError("identifier value could not be normalized")
+    effective_days = max(1, min(365, int(days or DEFAULT_DEFER_IDENTIFIER_DAYS)))
+    expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=effective_days)).isoformat()
+    deferred = [
+        item
+        for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized)
+    ]
+    deferred.append(
+        {
+            "type": identifier_type,
+            "value": normalized,
+            "note": note or "deferred for observation",
+            "added_at": iso_now(),
+            "expires_at": expires_at,
+        }
+    )
+    project["deferred_identifiers"] = deferred
+    downgrade_identifier_to_candidate(project, identifier_type, normalized)
+    return normalized
+
+
+def apply_deferred_identifier_guards(project: dict[str, Any]) -> None:
+    project["deferred_identifiers"] = normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+    for item in project["deferred_identifiers"]:
+        downgrade_identifier_to_candidate(project, str(item.get("type") or ""), str(item.get("value") or ""))
 
 
 def purge_blocked_identifiers(project: dict[str, Any]) -> None:
@@ -4385,7 +4492,7 @@ def confirm_source_code_url(
     updated_at: str = "",
 ) -> None:
     normalized = canonical_repo_url(url)
-    if identifier_is_blocked(project, "repo_url", normalized):
+    if identifier_is_blocked(project, "repo_url", normalized) or identifier_is_deferred(project, "repo_url", normalized):
         return
     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
@@ -4419,7 +4526,7 @@ def confirm_source_code_url(
 
 def confirm_service_url(project: dict[str, Any], url: str) -> None:
     normalized = normalize_confirmed_service_url(url)
-    if not normalized or identifier_is_blocked(project, "service_url", normalized):
+    if not normalized or identifier_is_blocked(project, "service_url", normalized) or identifier_is_deferred(project, "service_url", normalized):
         return
     project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
     project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != normalized]
@@ -4497,7 +4604,10 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         confidence = str(record.get("confidence") or "candidate")
         evidence_url = str(record.get("evidence_url") or "")
         same_site_evidence = bool(evidence_url and project.get("website_url") and is_same_site_family(evidence_url, project["website_url"]))
-        if relation in {"official_link", "same_site_repo"} and same_site_evidence:
+        if identifier_is_deferred(project, "repo_url", url):
+            record = dict(record)
+            record["confidence"] = "candidate"
+        elif relation in {"official_link", "same_site_repo"} and same_site_evidence:
             record = dict(record)
             record["confidence"] = "confirmed"
         elif confidence == "confirmed" and not repo_url_allowed_for_project(project, url):
@@ -4819,6 +4929,8 @@ def should_replace_project_name(project: dict[str, Any], candidate_name: str) ->
 
 def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *, source: str) -> None:
     normalized_value = canonical_seed_value(seed_type, seed_value)
+    if identifier_is_deferred(project, seed_type, normalized_value):
+        return
     project["manual_seeds"] = unique_manual_seeds(
         list(project.get("manual_seeds", [])) + [{"type": seed_type, "value": normalized_value, "added_at": iso_now()}]
     )
@@ -4829,7 +4941,7 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
 
 def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: str) -> str:
     normalized = normalize_url(service_url)
-    if not normalized:
+    if not normalized or identifier_is_deferred(project, "service_url", normalized):
         return ""
     add_manual_seed(project, "service_url", normalized, source=source)
     if service_url_allowed_for_project(project, normalized, confirmed=True):
@@ -4849,7 +4961,7 @@ def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: s
 
 def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) -> str:
     normalized = canonical_repo_url(repo_url)
-    if not normalized:
+    if not normalized or identifier_is_deferred(project, "repo_url", normalized):
         return ""
     add_manual_seed(project, "repo_url", normalized, source=source)
     if repo_url_allowed_for_project(project, normalized):
@@ -10222,6 +10334,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["blocked_identifiers"] = normalize_blocked_identifiers(
         list(merged.get("blocked_identifiers", [])) + list(source.get("blocked_identifiers", []))
     )
+    merged["deferred_identifiers"] = normalize_deferred_identifiers(
+        list(merged.get("deferred_identifiers", [])) + list(source.get("deferred_identifiers", []))
+    )
     merged["dismissed_review_kinds"] = unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
     )
@@ -10337,6 +10452,7 @@ def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
 
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
+    apply_deferred_identifier_guards(project)
     pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
@@ -10434,6 +10550,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     sync_primary_service_urls(project)
     purge_blocked_identifiers(project)
+    apply_deferred_identifier_guards(project)
     project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("resolved_nsids", []))
     project["lexicon_count"] = len(project.get("lexicons", []))
@@ -10459,6 +10576,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         unique_list(project.get("tangled_repo_urls", []) + [record["url"] for record in project["source_repo_records"] if record.get("provider") == "tangled" and record.get("confidence") == "confirmed"]),
         provider="tangled",
     )
+    apply_deferred_identifier_guards(project)
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
@@ -10822,6 +10940,13 @@ def cmd_show(args: argparse.Namespace) -> int:
                 if item.get("type") and item.get("value")
             ]
             print(f"  blocked_identifiers={', '.join(blocked_parts) or '-'}")
+        if project.get("deferred_identifiers"):
+            deferred_parts = [
+                f"{item.get('type')}:{item.get('value')} until {item.get('expires_at')}"
+                for item in project.get("deferred_identifiers", [])
+                if item.get("type") and item.get("value")
+            ]
+            print(f"  deferred_identifiers={', '.join(deferred_parts) or '-'}")
         if project.get("separate_project_keys"):
             print(f"  separate_project_keys={', '.join(project.get('separate_project_keys', []))}")
         duplicate_candidates = project.get("duplicate_candidates", [])
@@ -12072,6 +12197,49 @@ def cmd_block_identifier(args: argparse.Namespace) -> int:
         "website_url": project.get("website_url", ""),
         "service_urls": project.get("service_urls", []),
         "source_code_urls": project.get("source_code_urls", []),
+        "input_nsids": project.get("input_nsids", []),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_defer_identifier(args: argparse.Namespace) -> int:
+    conn = open_db()
+    project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.project_type)
+    project = ensure_project_shape(project)
+    identifier_type = str(args.identifier_type)
+    normalized_value = normalize_blocked_identifier_value(identifier_type, str(args.value))
+    if not normalized_value:
+        raise ValueError("identifier value could not be normalized")
+
+    if args.clear:
+        project["deferred_identifiers"] = [
+            item for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+            if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
+        ]
+    else:
+        defer_identifier_on_project(
+            project,
+            identifier_type,
+            normalized_value,
+            note=str(args.note or "").strip(),
+            days=int(args.days or DEFAULT_DEFER_IDENTIFIER_DAYS),
+        )
+        project = finalize_project_shape(project)
+    project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = compute_merge_recommendation(project)
+    save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    print(json.dumps({
+        "mode": "clear" if args.clear else "set",
+        "project_key": project["project_key"],
+        "identifier_type": identifier_type,
+        "value": normalized_value,
+        "deferred_identifiers": project.get("deferred_identifiers", []),
+        "website_url": project.get("website_url", ""),
+        "service_urls": project.get("service_urls", []),
+        "service_url_candidates": project.get("service_url_candidates", []),
+        "source_code_urls": project.get("source_code_urls", []),
+        "candidate_source_code_urls": project.get("candidate_source_code_urls", []),
         "input_nsids": project.get("input_nsids", []),
     }, ensure_ascii=False))
     return 0
@@ -13380,6 +13548,18 @@ def build_parser() -> argparse.ArgumentParser:
     block_parser.add_argument("--note", help="Optional operator note recorded with the block.")
     block_parser.add_argument("--clear", action="store_true", help="Remove the block instead of adding it.")
     block_parser.set_defaults(func=cmd_block_identifier)
+
+    defer_parser = subparsers.add_parser("defer-identifier", help="Temporarily downgrade one identifier while preventing automatic confirmation.")
+    defer_target = defer_parser.add_mutually_exclusive_group(required=True)
+    defer_target.add_argument("-p", "--project-key", help="Target one project key.")
+    defer_target.add_argument("-s", "--seed", help="Target by known seed value.")
+    defer_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
+    defer_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to defer.")
+    defer_parser.add_argument("-v", "--value", required=True, help="Identifier value to defer on this project.")
+    defer_parser.add_argument("--days", type=int, default=DEFAULT_DEFER_IDENTIFIER_DAYS, help="How many days to keep the temporary guard. Default: 30.")
+    defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
+    defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
+    defer_parser.set_defaults(func=cmd_defer_identifier)
 
     split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
     split_target = split_parser.add_mutually_exclusive_group(required=True)
