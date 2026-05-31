@@ -83,9 +83,124 @@
 - `github_repo_urls`
 - `tangled_repo_urls`
 
+### Web UI 詳細検索
+
+現状の `Search` タブは自由語 1 本だけを受け取り、`project_search_candidates()` の score 順で project を返します。候補探索としては使えますが、調査対象の棚卸しや「未紹介かつ candidate URL が残っている active project」のような絞り込みには不足しています。
+
+次の追加では、自由語検索と structured filter を AND 条件で組み合わせる方針にします。SQLite schema は増やさず、既存の `projects` scalar columns と JSON shape から判定します。
+
+#### v1.1 の対象
+
+API は既存の `GET /api/projects` を拡張します。
+
+```text
+GET /api/projects
+  ?q=
+  &tracking_states=
+  &service_statuses=
+  &statuses=
+  &categories=
+  &introduced=
+  &has_candidates=
+  &has_errors=
+  &review_kinds=
+  &seen_since=
+  &enriched_before=
+  &sort=
+  &limit=
+```
+
+filter の意味:
+
+- `q`
+  - 現在の自由語検索を維持する
+  - `project_key`, name, seed, NSID, website, service URL, repo URL, merge alias を検索する
+- `tracking_states`
+  - 複数指定可
+  - `active`, `watchlist`, `stable`, `stalled`, `archived`, `ignore`
+- `service_statuses`
+  - 複数指定可
+  - 現行 `service_status` enum を使う
+- `statuses`
+  - 複数指定可
+  - project record の `status`
+- `categories`
+  - 複数指定可
+  - `category` と `app_category` のいずれかに一致
+- `introduced`
+  - `yes`, `no`, `any`
+  - v1.1 では `introduced_url` の有無で判定する
+- `has_candidates`
+  - `yes`, `no`, `any`
+  - v1.1 では service / website / repo candidate のいずれかが残っているか
+- `has_errors`
+  - `yes`, `no`, `any`
+  - `last_run_errors` の有無
+- `review_kinds`
+  - 複数指定可
+  - `build_review_queue_item()` が返す signal kind のいずれかに一致
+- `seen_since`
+  - ISO date
+  - `last_seen_at >= value`
+- `enriched_before`
+  - ISO date
+  - 未 enrich、または `last_enriched_at < value`
+- `sort`
+  - `relevance`, `last_seen_desc`, `last_enriched_asc`, `name_asc`
+  - `q` がある時の既定は `relevance`、無い時の既定は `last_seen_desc`
+- `limit`
+  - v1.1 は既存と同様に上限付き件数指定
+  - offset pagination は後段
+
+UI は `Search` タブ内に次を置きます。
+
+- 常時表示:
+  - 自由語入力
+  - Search / Clear
+  - 結果件数
+- 折り畳み `Filters`:
+  - tracking state
+  - service status
+  - introduced
+  - candidates remaining
+  - errors
+  - category
+  - review signal kind
+  - last seen / last enriched
+  - sort
+- filter 適用中:
+  - compact な chip 表示
+  - `Clear filters`
+
+モバイルでは filter panel を初期状態で閉じます。project 結果の `Previous` / `Next` 導線は現在の検索結果順を使います。
+
+#### 実装上の分離
+
+- 自由語 candidate score:
+  - `project_search_candidates()` の既存 score を再利用する
+- structured filter:
+  - 新しい pure function `project_matches_search_filters(project, filters)` に分ける
+- result projection:
+  - `project_summary()` を維持する
+- review signal filter:
+  - 必要な時だけ `build_review_queue_item()` を呼ぶ
+
+初期実装は全 project の in-memory filter でよいものとします。個人用ローカル DB で遅さが問題になった時点で、scalar filter を SQLite `WHERE` に寄せ、必要なら別途 FTS を検討します。
+
+#### v1.1 ではやらないこと
+
+- SQLite FTS table の追加
+- typo tolerance / edit distance
+- OR group や否定条件を含む query builder
+- 保存済み検索条件
+- URL query への filter 状態の永続化
+- offset / cursor pagination
+- raw JSON 任意パス検索
+
 ## TODO
 
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
 - `inspired_by` を app metadata として昇格させるか再判断する
+- Web UI 詳細検索 v1.1 を実装する

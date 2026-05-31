@@ -154,6 +154,27 @@ v1 でできること:
 - project 詳細からの block / separate guard clear
 - project 詳細からの auto-ready merge recommendation 実行
 
+### 現在の project 検索
+
+`Search` タブは、入力した自由語を `GET /api/projects?q=...&limit=50` に渡します。現在の実装は SQLite の全文検索ではなく、全 project を読み込んで `project_search_candidates()` で候補を採点する軽量検索です。
+
+現在検索対象にしているもの:
+
+- `project_key`
+- `seed_value`
+- `name`
+- merge alias
+- `primary_nsid`
+- `input_nsids`
+- `resolved_nsids`
+- `website_url`
+- `service_urls`
+- `source_code_urls`
+
+exact match、prefix match、substring match、alias match を加点し、score の高い順、同点なら `project_key` 順で返します。現状の制約として、`q` を指定した検索では `tracking_states` filter を適用していません。空検索の `GET /api/projects` では `tracking_states` を使えますが、Web UI の `Search` タブからは指定できません。
+
+詳細検索 UI は未接続です。段階的な追加仕様は [docs/roadmap.md](roadmap.md) の「Web UI 詳細検索」を参照してください。
+
 `Merge` タブでは `build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ次の操作を選べます。
 
 - `Merge`: source を target へ merge し、source project を削除する

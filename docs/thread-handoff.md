@@ -126,6 +126,10 @@
 - review 系の改善
   - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
   - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
+- Web UI 詳細検索
+  - 現状の `Search` は `project_search_candidates()` の自由語 score 検索だけ
+  - tracking state / service status / category / introduced / candidate / error / review signal / 日付 filter を AND 条件で足す v1.1 案を [docs/roadmap.md](roadmap.md) に記載した
+  - 初期実装は schema 追加なしの in-memory filter でよい。遅さが問題になったら scalar 条件を SQLite `WHERE` に寄せる
 
 ## 低優先の整理
 
