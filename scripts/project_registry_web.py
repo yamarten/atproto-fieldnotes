@@ -600,7 +600,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -1127,8 +1127,8 @@ INDEX_HTML = r"""<!doctype html>
       closeDetailPane(true);
       $("list").innerHTML = `
         <div class="card">
-        <div><h2>Jobs</h2><div class="muted">Shows recent enrich and enrich-all jobs tracked by this tab. Server restart or browser reload clears this view.</div></div>
-        <div class="section"><h3>Recent Enrich Jobs</h3><div id="enrich-jobs-summary">${renderEnrichJobsSummaryHtml()}</div></div>
+        <div><h2>Jobs</h2><div class="muted">Shows recent background jobs tracked by this tab. Server restart or browser reload clears this view.</div></div>
+        <div class="section"><h3>Recent Jobs</h3><div id="jobs-summary">${renderJobsSummaryHtml()}</div></div>
         </div>
       `;
       status("");
@@ -1245,7 +1245,8 @@ INDEX_HTML = r"""<!doctype html>
           if (payload.execute) clearListCache();
           $("sync-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
-          pollJobInto(data.job_id, "sync-result");
+          updateJobStatus(`job:${data.job_id}`, Object.assign({ kind: `sync-${payload.kind}` }, data));
+          pollJobInto(data.job_id, "sync-result", null, (job) => updateJobStatus(`job:${data.job_id}`, job));
         } catch (err) {
           status(err.message);
         }
@@ -1260,8 +1261,8 @@ INDEX_HTML = r"""<!doctype html>
           clearListCache();
           $("enrich-all-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
-          updateEnrichJobStatus(`job:${data.job_id}`, Object.assign({ kind: "enrich-all" }, data));
-          pollJobInto(data.job_id, "enrich-all-result", null, (job) => updateEnrichJobStatus(`job:${data.job_id}`, job));
+          updateJobStatus(`job:${data.job_id}`, Object.assign({ kind: "enrich-all" }, data));
+          pollJobInto(data.job_id, "enrich-all-result", null, (job) => updateJobStatus(`job:${data.job_id}`, job));
         } catch (err) {
           status(err.message);
         }
@@ -1287,7 +1288,8 @@ INDEX_HTML = r"""<!doctype html>
         if (payload.execute) clearListCache();
         $("review-ops-result").textContent = JSON.stringify(data, null, 2);
         status(`Started job ${data.job_id}`);
-        pollJobInto(data.job_id, "review-ops-result", (job) => renderReviewOpsJob(job, payload));
+        updateJobStatus(`job:${data.job_id}`, Object.assign({ kind: `review-${payload.kind}` }, data));
+        pollJobInto(data.job_id, "review-ops-result", (job) => renderReviewOpsJob(job, payload), (job) => updateJobStatus(`job:${data.job_id}`, job));
       } catch (err) {
         status(err.message);
       }
@@ -1640,7 +1642,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Identity</h3><div>${esc(p.seed_type || "")}: ${esc(p.seed_value || "")}</div>${renderEditableIdentifierRows(asList(p.input_nsids).concat(asList(p.resolved_nsids)), "nsid")}</div>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
           <div class="section"><h3>Repositories</h3>${renderEditableIdentifierRows(asList(p.source_code_urls).concat(asList(p.github_repo_urls)).concat(asList(p.tangled_repo_urls)), "repo_url")}<div class="identifier-list">${renderCandidateRows(data.repo_candidates, "repo_url")}</div></div>
-          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(state.enrichJobs.get(p.project_key)))}</pre></div>
+          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(state.jobs.get(p.project_key)))}</pre></div>
           ${isReviewView ? "" : `<div class="section"><h3>Add Seed</h3><div class="row"><input id="seed-value" type="text" placeholder="NSID, repo URL, service URL" title="Seed to attach to this existing project."><button id="add-seed" title="Attach this seed to the current project and write it to SQLite.">Add</button></div></div>
           <div class="section"><h3>Project Edits</h3>
             <div class="row">
@@ -1828,9 +1830,9 @@ INDEX_HTML = r"""<!doctype html>
       return job ? JSON.stringify(job, null, 2) : "No enrich job running.";
     }
 
-    function renderEnrichJobsSummaryHtml() {
-      const jobs = Array.from(state.enrichJobs.values()).reverse().slice(0, 12);
-      if (!jobs.length) return `<span class="muted">No enrich jobs yet.</span>`;
+    function renderJobsSummaryHtml() {
+      const jobs = Array.from(state.jobs.values()).reverse().slice(0, 12);
+      if (!jobs.length) return `<span class="muted">No jobs yet.</span>`;
       return `<div class="job-list">` + jobs.map((job) => {
         const logs = asList(job.logs).slice(-8).map((entry) => {
           const bits = [entry.at, entry.message, entry.project_key, entry.error].filter(Boolean).join(" ");
@@ -1851,12 +1853,12 @@ INDEX_HTML = r"""<!doctype html>
       }).join("") + `</div>`;
     }
 
-    function updateEnrichJobStatus(key, job) {
-      state.enrichJobs.set(key, job);
+    function updateJobStatus(key, job) {
+      state.jobs.set(key, job);
       const target = $("enrich-job-status");
       if (state.selected === key && target) target.textContent = enrichJobText(job);
-      const summary = $("enrich-jobs-summary");
-      if (summary) summary.innerHTML = renderEnrichJobsSummaryHtml();
+      const summary = $("jobs-summary");
+      if (summary) summary.innerHTML = renderJobsSummaryHtml();
     }
 
     function enrichPayload(deep) {
@@ -1873,16 +1875,16 @@ INDEX_HTML = r"""<!doctype html>
 
     async function startEnrichJob(key, deep) {
       status("Starting enrich...");
-      updateEnrichJobStatus(key, { status: "starting", kind: "enrich", project_key: key, deep_investigation: deep });
+      updateJobStatus(key, { status: "starting", kind: "enrich", project_key: key, deep_investigation: deep });
       try {
         const data = await api(`/api/projects/${encodeURIComponent(key)}/enrich`, { method: "POST", body: JSON.stringify(enrichPayload(deep)) });
         clearListCache();
         status(`Started job ${data.job_id}`);
-        updateEnrichJobStatus(key, Object.assign({ kind: "enrich", project_key: key, deep_investigation: deep }, data));
+        updateJobStatus(key, Object.assign({ kind: "enrich", project_key: key, deep_investigation: deep }, data));
         pollEnrichJob(key, data.job_id);
       } catch (err) {
         status(err.message);
-        updateEnrichJobStatus(key, { status: "failed_to_start", kind: "enrich", project_key: key, error: err.message });
+        updateJobStatus(key, { status: "failed_to_start", kind: "enrich", project_key: key, error: err.message });
       }
     }
 
@@ -1891,7 +1893,7 @@ INDEX_HTML = r"""<!doctype html>
         await new Promise((resolve) => setTimeout(resolve, 1200));
         try {
           const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
-          updateEnrichJobStatus(key, job);
+          updateJobStatus(key, job);
           if (job.status === "done") {
             status("Enrich done.");
             if (state.selected === key) await loadDetail(key, { view: state.detailView, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
@@ -1903,7 +1905,7 @@ INDEX_HTML = r"""<!doctype html>
           }
         } catch (err) {
           status(err.message);
-          updateEnrichJobStatus(key, { status: "poll_failed", kind: "enrich", project_key: key, job_id: jobId, error: err.message });
+          updateJobStatus(key, { status: "poll_failed", kind: "enrich", project_key: key, job_id: jobId, error: err.message });
           return;
         }
       }
