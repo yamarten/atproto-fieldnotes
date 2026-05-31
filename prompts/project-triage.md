@@ -25,6 +25,7 @@ Goal:
 Output schema:
 {
   "category": "project | lexicon | infra_tool | name_only | library | personal_tool | auth_only | reject",
+  "lexicon_scope": "shared | service_specific | unknown",
   "status": "candidate | tracked | published | invite_only | beta | inactive | rejected",
   "name": "string",
   "tagline": "string",
@@ -52,6 +53,7 @@ Language requirements:
 - `tagline_is_provisional`: true when the tagline is inferred or tentative rather than directly evidenced
 - `summary`: Japanese
 - `summary`: Japanese, and do not insert spaces between Japanese text and adjacent English words or digits
+- `summary`: describe the actual service or observed use when evidence supports one; do not reduce an NSID-seeded candidate to a schema description merely because the service identity is unresolved
 - `features`: Japanese short bullet-style strings
 - `features`: Japanese short bullet-style strings, and do not insert spaces between Japanese text and adjacent English words or digits
 - `inspired_by`: common service names may stay in their original language
@@ -65,7 +67,10 @@ Language requirements:
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
-- If it mainly defines lexicons or schema conventions for third parties to implement, prefer lexicon
+- Use `category=lexicon` and `lexicon_scope=shared` only when evidence supports a shared schema convention intended for third parties to implement or interoperate with
+- Use `lexicon_scope=service_specific` when the lexicon appears to belong to a particular service or app
+- Use `lexicon_scope=unknown` when the evidence does not distinguish an undiscovered service from a deliberately shared lexicon
+- The absence of a discovered service URL is not evidence that a lexicon is shared
 - If it is just a library, prefer library
 - If it only uses atproto for sign-in and not data model / records, prefer auth_only
 - If evidence suggests only the author uses it, prefer personal_tool

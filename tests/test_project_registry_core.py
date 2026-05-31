@@ -483,6 +483,54 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://tz2at.xyz", project["website_url_candidates"])
 
 
+class ProjectRegistryLexiconScopeTest(unittest.TestCase):
+    def nsid_project(self) -> dict:
+        project = registry.default_project_record("proj:lexiconscope", "nsid", "xyz.tz2at.raw.observation")
+        project["primary_nsid"] = "xyz.tz2at.raw.observation"
+        project["input_nsids"] = ["xyz.tz2at.raw.observation"]
+        project["authority_domains"] = ["raw.tz2at.xyz"]
+        project["category"] = "lexicon"
+        return project
+
+    def test_shared_lexicon_positioning_preserves_lexicon_category(self) -> None:
+        project = self.nsid_project()
+        project["summary"] = "第三者の相互運用を目的とする共有レキシコン。"
+        project["website_url"] = "https://standard.site"
+
+        registry.reclassify_service_specific_lexicon(project)
+
+        self.assertEqual(project["lexicon_scope"], "shared")
+        self.assertEqual(project["category"], "lexicon")
+
+    def test_matching_service_surface_reclassifies_service_specific_lexicon(self) -> None:
+        project = self.nsid_project()
+        project["supported_service_urls"] = ["https://tz2at.xyz"]
+        project["service_url_candidates"] = ["https://tz2at.xyz"]
+
+        registry.reclassify_service_specific_lexicon(project)
+
+        self.assertEqual(project["lexicon_scope"], "service_specific")
+        self.assertEqual(project["category"], "project")
+
+    def test_nsid_only_candidate_keeps_unknown_scope(self) -> None:
+        project = self.nsid_project()
+
+        registry.reclassify_service_specific_lexicon(project)
+
+        self.assertEqual(project["lexicon_scope"], "unknown")
+        self.assertEqual(project["category"], "lexicon")
+        self.assertIn("shared_lexicon_positioning_not_found", project["lexicon_scope_evidence"])
+
+    def test_llm_evidence_exposes_lexicon_scope(self) -> None:
+        project = self.nsid_project()
+        registry.apply_lexicon_scope_state(project)
+
+        evidence = registry.build_llm_evidence_bundle(project)
+
+        self.assertEqual(evidence["lexicon_scope"], "unknown")
+        self.assertEqual(evidence["lexicon_scope_evidence"], ["shared_lexicon_positioning_not_found"])
+
+
 class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_parse_chat_completion_message_content(self) -> None:
         payload = {"choices": [{"message": {"content": "chat text"}}]}

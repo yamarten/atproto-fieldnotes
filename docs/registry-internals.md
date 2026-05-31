@@ -885,10 +885,22 @@ LLM は discovery の主役ではなく、整理の補助です。
 - `features`
 - `category`
 - `service_status`
+- `lexicon_scope`
 
 を生成します。説明系フィールドは日本語で出させます。`tagline` は助詞を含まない短い名詞句を想定し、最大30文字です。
 
 `summary` / `tagline` / `features` は stability-first です。新しい LLM 出力は candidate / evidence として保持しますが、canonical 値は毎回そのまま置き換えず、既存値が十分近い場合は維持します。
+
+NSID seed は、それだけでは共有 lexicon の根拠にしません。`lexicon_scope` は次の 3 値で保持します。
+
+- `shared`
+  - `standard.site` のように、第三者実装や相互運用を意図した共有 schema と判断できる
+- `service_specific`
+  - namespace と service / collection 面が同一 project を指している
+- `unknown`
+  - service がまだ見つかっていないだけか、共有 lexicon として設計されているかを区別できない
+
+`category=lexicon` の project で `lexicon_scope=service_specific` になった場合は `category=project` へ戻します。`unknown` は無理に確定しません。LLM prompt にも、service URL 未発見を shared の根拠にしないことと、service の実態がある場合は schema 説明だけに縮退させないことを明記しています。
 
 endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
 

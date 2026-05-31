@@ -197,6 +197,15 @@ review / merge / 紹介運用の制御情報です。
 - `lexicon_namespaces` は `record_json.core` の canonical 値とは別に、evidence 側でも比較・調査の補助として保持されます
 - `service_urls` / `resource_urls` / `source_code_urls` は当面 evidence に残しつつ、確信できるものだけ `record_json.app.links` に昇格させます
 
+`ops_json.ops` には lexicon の位置付けを表す派生値も保持します。
+
+- `lexicon_scope`
+  - `shared`: 第三者が実装・相互運用する共有 lexicon と判断できる
+  - `service_specific`: 特定 service / app の名前空間と service 面が対応している
+  - `unknown`: NSID はあるが、service 未発見と共有 lexicon をまだ区別できない
+- `lexicon_scope_evidence`
+  - 上記判定の根拠
+
 ## `tracking_state`
 
 継続調査の対象を制御する enum。

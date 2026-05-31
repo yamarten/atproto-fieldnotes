@@ -120,12 +120,14 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(ops_payload["ops"]["service_status_confidence"], "medium")
             self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "core")
             self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 90)
+            self.assertEqual(ops_payload["ops"]["lexicon_scope"], "service_specific")
             self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
             self.assertEqual(fetched["name_candidates"][0]["source"], "service_title:https://example.com")
             self.assertEqual(fetched["atproto_contribution_level"], "core")
+            self.assertEqual(fetched["lexicon_scope"], "service_specific")
         finally:
             conn.close()
 

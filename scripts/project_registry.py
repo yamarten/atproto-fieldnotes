@@ -277,6 +277,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "atproto_contribution_level",
         "atproto_contribution_score",
         "atproto_contribution_evidence",
+        "lexicon_scope",
+        "lexicon_scope_evidence",
     ),
     "evidence": (
         "discovery_sources",
@@ -386,6 +388,8 @@ MAPPED_LEGACY_FIELDS = {
     "atproto_contribution_level",
     "atproto_contribution_score",
     "atproto_contribution_evidence",
+    "lexicon_scope",
+    "lexicon_scope_evidence",
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
@@ -1125,6 +1129,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "atproto_contribution_level": "unknown",
         "atproto_contribution_score": 0,
         "atproto_contribution_evidence": [],
+        "lexicon_scope": "unknown",
+        "lexicon_scope_evidence": [],
         "source_code_url": "",
         "source_code_urls": [],
         "candidate_source_code_urls": [],
@@ -7912,17 +7918,31 @@ def has_shared_lexicon_positioning(project: dict[str, Any]) -> bool:
     return any(marker in text_blob for marker in strong_markers)
 
 
-def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
-    if str(project.get("category") or "") != "lexicon":
-        return
+def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
+    has_lexicon_surface = bool(
+        project.get("primary_nsid")
+        or project.get("input_nsids")
+        or project.get("resolved_nsids")
+        or project.get("recorded_lexicon_namespaces")
+    )
+    if not has_lexicon_surface:
+        return {"lexicon_scope": "unknown", "lexicon_scope_evidence": []}
+
+    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+    llm_scope = str(llm_output.get("lexicon_scope") or "").strip().lower()
+    if llm_scope == "shared":
+        return {
+            "lexicon_scope": "shared",
+            "lexicon_scope_evidence": ["llm_output:shared"],
+        }
     if has_shared_lexicon_positioning(project):
-        return
+        return {
+            "lexicon_scope": "shared",
+            "lexicon_scope_evidence": ["shared_lexicon_positioning"],
+        }
+
     namespace_tokens = lexicon_brand_tokens(project)
-    if not namespace_tokens:
-        return
     identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project) | project_repo_owner_tokens(project)
-    if not (namespace_tokens & identity_tokens):
-        return
     has_service_surface = bool(
         project.get("website_url")
         or project.get("service_urls")
@@ -7931,7 +7951,34 @@ def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
         or project.get("resource_urls")
         or project.get("collection_observations")
     )
-    if not has_service_surface:
+    if namespace_tokens & identity_tokens and has_service_surface:
+        return {
+            "lexicon_scope": "service_specific",
+            "lexicon_scope_evidence": [
+                "namespace_matches_project_identity",
+                "service_or_collection_surface_detected",
+            ],
+        }
+    if llm_scope == "service_specific":
+        return {
+            "lexicon_scope": "service_specific",
+            "lexicon_scope_evidence": ["llm_output:service_specific"],
+        }
+    return {
+        "lexicon_scope": "unknown",
+        "lexicon_scope_evidence": ["shared_lexicon_positioning_not_found"],
+    }
+
+
+def apply_lexicon_scope_state(project: dict[str, Any]) -> None:
+    project.update(compute_lexicon_scope(project))
+
+
+def reclassify_service_specific_lexicon(project: dict[str, Any]) -> None:
+    apply_lexicon_scope_state(project)
+    if str(project.get("category") or "") != "lexicon":
+        return
+    if project.get("lexicon_scope") != "service_specific":
         return
     project["category"] = "project"
 
@@ -8016,6 +8063,8 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "supported_service_urls": project.get("supported_service_urls", []),
+        "lexicon_scope": project.get("lexicon_scope") or "unknown",
+        "lexicon_scope_evidence": project.get("lexicon_scope_evidence", []),
         "service_status_hint": project.get("service_status") or "unknown",
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),

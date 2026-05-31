@@ -113,7 +113,10 @@
 - `tagline` / `summary` の再編集
   - 既存 project には collection/lexicon 主体の文面が残っているものがある
   - service 本体が優先されるよう merge 側は改善済みだが、保存済み文面の洗い替えはまだ
-  - `service project` と `lexicon project` で LLM prompt を分ける余地がある
+  - NSID seed だけで共有 schema とみなさない `lexicon_scope=shared/service_specific/unknown` は追加済み
+  - LLM prompt も service 未発見と共有 lexicon を区別するよう更新済み
+  - 既存文面の洗い替えには LLM 再 `enrich` が必要
+  - `service project` と `lexicon project` で prompt 自体を分ける余地は残る
 - GitHub / Bluesky rate limit 耐性
   - GitHub は query 数削減とキャッシュを入れているが、live fetch が続くとまだ 403 に当たる
   - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
