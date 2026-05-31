@@ -237,6 +237,8 @@ project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` �
 
 補助情報として `blocked_identifiers`、`deferred_identifiers`、`separate_project_keys` は `Guards` に折り畳み表示します。confirmed / candidate row からも `Defer 30d` を選べます。`Clear` / `Clear defer` は guard record だけを外す操作で、identifier を自動で再付与したり confirm したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
 
+project 詳細の `Research` では、`atproto_contribution` と `technical_interest` の level / score を常時表示し、evidence、reasons、summary、`promotion_blockers`、`resource_url_records` を折り畳み表示します。これは既存 payload の閲覧導線で、Web UI から調査結果を編集する操作は未接続です。
+
 `Sync` タブでは、次の CLI 相当の処理を background job として開始できます。
 
 - `sync-introduced`

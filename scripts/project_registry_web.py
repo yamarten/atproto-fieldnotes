@@ -1840,6 +1840,45 @@ INDEX_HTML = r"""<!doctype html>
         </div>`;
     }
 
+    function renderResearchList(values, emptyText = "None") {
+      const items = asList(values);
+      if (!items.length) return `<span class="muted">${esc(emptyText)}</span>`;
+      return `<ul>${items.map((item) => `<li>${esc(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul>`;
+    }
+
+    function renderResourceUrlRecords(records) {
+      const rows = asList(records).map((item) => `
+        <div class="identifier-row ${item.confidence === "confirmed" ? "identifier-confirmed" : "identifier-candidate"}">
+          <span class="identifier-value">
+            <a href="${esc(item.url || "")}" target="_blank" rel="noreferrer">${esc(item.url || "")}</a>
+            <span class="muted">${esc(item.role || "unknown")} / ${esc(item.confidence || "candidate")}${item.source ? ` / ${esc(item.source)}` : ""}${item.observed_at ? ` / ${esc(item.observed_at)}` : ""}</span>
+          </span>
+        </div>
+      `).join("");
+      return `<div class="identifier-list">${rows || `<span class="muted">None</span>`}</div>`;
+    }
+
+    function renderResearchInfo(project) {
+      const contributionEvidence = project.atproto_contribution_evidence || {};
+      const technicalReasons = asList(project.technical_interest_reasons);
+      const blockers = asList(project.promotion_blockers);
+      const resources = asList(project.resource_url_records);
+      return `
+        <div class="section"><h3>Research</h3>
+          <div class="row">
+            <span class="pill">contribution: ${esc(project.atproto_contribution_level || "unknown")} (${esc(project.atproto_contribution_score || 0)})</span>
+            <span class="pill">technical: ${esc(project.technical_interest_level || "none")} (${esc(project.technical_interest_score || 0)})</span>
+          </div>
+          <details><summary>Contribution evidence</summary><pre>${esc(JSON.stringify(contributionEvidence, null, 2))}</pre></details>
+          <details><summary>Technical interest (${technicalReasons.length})</summary>
+            ${project.technical_interest_summary ? `<div>${esc(project.technical_interest_summary)}</div>` : ""}
+            ${renderResearchList(technicalReasons)}
+          </details>
+          <details><summary>Promotion blockers (${blockers.length})</summary>${renderResearchList(blockers)}</details>
+          <details><summary>Resource URLs (${resources.length})</summary>${renderResourceUrlRecords(resources)}</details>
+        </div>`;
+    }
+
     async function loadDetail(key, options = {}) {
       state.selected = key;
       state.detailView = options.view || "project";
@@ -1876,6 +1915,7 @@ INDEX_HTML = r"""<!doctype html>
             <button id="deep-enrich" title="Start background deep enrich for this project. This may make more external checks and update SQLite.">Deep</button>
           </div>
           <div class="section"><h3>Summary</h3><div>${esc(p.tagline || "")}</div><div class="muted">${esc(p.summary || "")}</div></div>
+          ${renderResearchInfo(p)}
           <div class="section"><h3>Merge Recommendation</h3>${renderMergeRecommendation(p.merge_recommendation)}</div>
           <div class="section"><h3>Signals</h3><div class="signals">${asList(review.signals).map((sig) => `<div class="signal"><b>${esc(sig.kind)}</b> p${esc(sig.priority || 0)} <button data-dismiss="${esc(sig.kind)}" title="Store this review signal kind as dismissed for this project.">Dismiss</button><pre>${esc(JSON.stringify(sig.details || {}, null, 2))}</pre></div>`).join("") || `<span class="muted">None</span>`}</div></div>
           ${renderPromotionHold(p)}

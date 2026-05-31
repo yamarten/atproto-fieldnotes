@@ -265,7 +265,7 @@ UI は `Search` タブ内に次を置きます。
 2. promotion の理由付き保留（実装済み）
    - promotion queue に `Hold 7d`
    - project detail に active な期限、理由、再保留、解除
-3. project detail の調査情報
+3. project detail の調査情報（実装済み）
    - `atproto_contribution_level / score / evidence`
    - `technical_interest_level / score / reasons / summary`
    - `promotion_blockers`

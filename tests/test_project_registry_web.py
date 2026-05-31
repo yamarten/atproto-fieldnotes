@@ -178,6 +178,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("clear-separate", web.INDEX_HTML)
         self.assertIn("renderProjectGuards", web.INDEX_HTML)
         self.assertIn("renderEditableIdentifierRows", web.INDEX_HTML)
+        self.assertIn("renderResearchInfo", web.INDEX_HTML)
+        self.assertIn("Contribution evidence", web.INDEX_HTML)
+        self.assertIn("Technical interest", web.INDEX_HTML)
+        self.assertIn("Promotion blockers", web.INDEX_HTML)
+        self.assertIn("Resource URLs", web.INDEX_HTML)
         self.assertIn("data-split-type", web.INDEX_HTML)
         self.assertIn("identifier-row", web.INDEX_HTML)
         self.assertIn("identifier-value", web.INDEX_HTML)
@@ -430,6 +435,39 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["repo_candidates"], [])
+
+    def test_project_detail_includes_research_metadata(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            project["technical_interest_level"] = "high"
+            project["technical_interest_reasons"] = ["implementation_reference"]
+            project["technical_interest_summary"] = "Useful protocol implementation notes."
+            registry.add_resource_url(
+                project,
+                "https://example.com/docs",
+                role="docs",
+                source="test",
+                confidence="confirmed",
+            )
+            registry.save_project(conn, project)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, payload = self.request("GET", "/api/projects/proj:111111111111")
+
+        self.assertEqual(status, 200)
+        project = payload["project"]
+        self.assertIn("atproto_contribution_level", project)
+        self.assertIn("atproto_contribution_evidence", project)
+        self.assertEqual(project["technical_interest_level"], "high")
+        self.assertEqual(project["technical_interest_score"], 70)
+        self.assertEqual(project["technical_interest_reasons"], ["implementation_reference"])
+        self.assertIn("promotion_blockers", project)
+        self.assertEqual(project["resource_url_records"][0]["url"], "https://example.com/docs")
+        self.assertEqual(project["resource_url_records"][0]["role"], "docs")
+        self.assertEqual(project["resource_url_records"][0]["confidence"], "confirmed")
 
     def test_block_identifier_action_removes_confirmed_repo(self) -> None:
         status, payload = self.request(
