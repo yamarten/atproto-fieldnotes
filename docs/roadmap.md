@@ -258,7 +258,7 @@ UI は `Search` タブ内に次を置きます。
 
 未接続で、次に追加する価値が高いもの:
 
-1. identifier の一時保留
+1. identifier の一時保留（実装済み）
    - confirmed / candidate row に `Defer 30d`
    - Guards に `deferred_identifiers` の期限、note、`Clear defer`
    - 恒久 block と一時保留を視覚的に分ける

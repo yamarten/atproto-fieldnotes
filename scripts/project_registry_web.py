@@ -156,6 +156,12 @@ INDEX_HTML = r"""<!doctype html>
     .identifier-row > button {
       flex: 0 0 auto;
     }
+    .identifier-row-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
     .identifier-list {
       display: grid;
       gap: 6px;
@@ -1721,8 +1727,11 @@ INDEX_HTML = r"""<!doctype html>
       return rows.map((value) => `
         <div class="row identifier-row identifier-confirmed">
           ${renderIdentifierValue(value, type)}
-          <button data-split-type="${esc(type)}" data-split-value="${esc(value)}" title="Move this identifier into a new project and block it from reattaching here.">Split</button>
-          <button class="danger" data-block-type="${esc(type)}" data-block-value="${esc(value)}" title="Remove this identifier from this project and block it from reattaching.">Block</button>
+          <span class="identifier-row-actions">
+            <button data-split-type="${esc(type)}" data-split-value="${esc(value)}" title="Move this identifier into a new project and block it from reattaching here.">Split</button>
+            <button data-defer-type="${esc(type)}" data-defer-value="${esc(value)}" title="Temporarily downgrade this identifier to candidate evidence and prevent automatic confirmation for 30 days.">Defer 30d</button>
+            <button class="danger" data-block-type="${esc(type)}" data-block-value="${esc(value)}" title="Remove this identifier from this project and block it from reattaching.">Block</button>
+          </span>
         </div>
       `).join("");
     }
@@ -1731,8 +1740,11 @@ INDEX_HTML = r"""<!doctype html>
       return uniqueValues(values).map((url) => `
         <div class="row identifier-row identifier-candidate">
           <span class="identifier-value"><a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a></span>
-          <button data-confirm-type="${esc(type)}" data-confirm-value="${esc(url)}" title="Move this URL from candidate evidence into confirmed/manual project data.">Confirm</button>
-          <button class="danger" data-reject-type="${esc(type)}" data-reject-value="${esc(url)}" title="Block this URL from being reattached to this project.">Reject</button>
+          <span class="identifier-row-actions">
+            <button data-confirm-type="${esc(type)}" data-confirm-value="${esc(url)}" title="Move this URL from candidate evidence into confirmed/manual project data.">Confirm</button>
+            <button data-defer-type="${esc(type)}" data-defer-value="${esc(url)}" title="Keep this URL as candidate evidence and prevent automatic confirmation for 30 days.">Defer 30d</button>
+            <button class="danger" data-reject-type="${esc(type)}" data-reject-value="${esc(url)}" title="Block this URL from being reattached to this project.">Reject</button>
+          </span>
         </div>
       `).join("");
     }
@@ -1760,12 +1772,19 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderProjectGuards(project) {
       const blocks = asList(project.blocked_identifiers);
+      const deferred = asList(project.deferred_identifiers);
       const separate = asList(project.separate_project_keys);
-      if (!blocks.length && !separate.length) return `<span class="muted">None</span>`;
+      if (!blocks.length && !deferred.length && !separate.length) return `<span class="muted">None</span>`;
       const blockRows = blocks.map((item) => `
         <div class="row identifier-row">
           <span class="identifier-value">${esc(item.type || "")}: ${esc(item.value || "")}${item.note ? ` <span class="muted">(${esc(item.note)})</span>` : ""}</span>
           <button class="danger" data-clear-block-type="${esc(item.type || "")}" data-clear-block-value="${esc(item.value || "")}" title="Remove this blocked identifier record. This does not reattach the identifier automatically.">Clear</button>
+        </div>
+      `).join("");
+      const deferredRows = deferred.map((item) => `
+        <div class="row identifier-row identifier-candidate">
+          <span class="identifier-value">${esc(item.type || "")}: ${esc(item.value || "")}<span class="muted"> until ${esc(item.expires_at || "")}${item.note ? ` (${esc(item.note)})` : ""}</span></span>
+          <button data-clear-defer-type="${esc(item.type || "")}" data-clear-defer-value="${esc(item.value || "")}" title="Remove this temporary defer guard. This does not confirm or reattach the identifier automatically.">Clear defer</button>
         </div>
       `).join("");
       const separateRows = separate.map((otherKey) => `
@@ -1777,8 +1796,9 @@ INDEX_HTML = r"""<!doctype html>
       `).join("");
       return `
         <details>
-          <summary>${blocks.length} blocked identifiers, ${separate.length} separated projects</summary>
+          <summary>${blocks.length} blocked, ${deferred.length} deferred, ${separate.length} separated</summary>
           <div class="identifier-list">${blockRows || `<span class="muted">No blocked identifiers.</span>`}</div>
+          <div class="identifier-list">${deferredRows || `<span class="muted">No deferred identifiers.</span>`}</div>
           <div class="identifier-list">${separateRows || `<span class="muted">No separated projects.</span>`}</div>
         </details>
       `;
@@ -1839,6 +1859,7 @@ INDEX_HTML = r"""<!doctype html>
             <input id="edit-note" type="text" placeholder="Optional note" title="Optional note stored with the edit.">
             <div class="actions">
               <button id="split-project" title="Move this identifier into a new project, remove it from the current project, and block it from reattaching.">Split</button>
+              <button id="defer-identifier" title="Temporarily downgrade this identifier to candidate evidence and prevent automatic confirmation for 30 days.">Defer 30d</button>
               <button id="block-identifier" class="danger" title="Block this identifier on the current project and remove matching stored values.">Block identifier</button>
             </div>
           </div>`}
@@ -1910,6 +1931,17 @@ INDEX_HTML = r"""<!doctype html>
           }
         };
       }
+      const deferIdentifier = $("defer-identifier");
+      if (deferIdentifier) {
+        deferIdentifier.onclick = async () => {
+          const identifierType = $("edit-identifier-type").value;
+          const value = $("edit-identifier-value").value.trim();
+          const note = $("edit-note").value.trim();
+          if (value && await confirmAction(`Defer this identifier on ${key} for 30 days?\n\n${identifierType}: ${value}\n\nConfirmed URLs are downgraded to candidate evidence. Automatic confirmation is suppressed until the defer expires.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/defer-identifier`, { identifier_type: identifierType, value, note, days: 30 });
+          }
+        };
+      }
       const openProjectDetail = $("open-project-detail");
       if (openProjectDetail) {
         openProjectDetail.onclick = () => loadDetail(key, { view: "project", projectNavigation: state.projectNavigation });
@@ -1953,10 +1985,24 @@ INDEX_HTML = r"""<!doctype html>
           }
         };
       });
+      document.querySelectorAll("[data-defer-type]").forEach((el) => {
+        el.onclick = async () => {
+          if (await confirmAction(`Defer this identifier on ${key} for 30 days?\n\n${el.dataset.deferType}: ${el.dataset.deferValue}\n\nConfirmed URLs are downgraded to candidate evidence. Automatic confirmation is suppressed until the defer expires.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/defer-identifier`, { identifier_type: el.dataset.deferType, value: el.dataset.deferValue, days: 30 });
+          }
+        };
+      });
       document.querySelectorAll("[data-clear-block-type]").forEach((el) => {
         el.onclick = async () => {
           if (await confirmAction(`Clear this blocked identifier on ${key}?\n\n${el.dataset.clearBlockType}: ${el.dataset.clearBlockValue}\n\nThis removes only the guard record and does not reattach the identifier.`)) {
             mutate(`/api/projects/${encodeURIComponent(key)}/clear-block-identifier`, { identifier_type: el.dataset.clearBlockType, value: el.dataset.clearBlockValue });
+          }
+        };
+      });
+      document.querySelectorAll("[data-clear-defer-type]").forEach((el) => {
+        el.onclick = async () => {
+          if (await confirmAction(`Clear this temporary defer on ${key}?\n\n${el.dataset.clearDeferType}: ${el.dataset.clearDeferValue}\n\nThis removes only the defer guard and does not confirm or reattach the identifier.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/clear-defer-identifier`, { identifier_type: el.dataset.clearDeferType, value: el.dataset.clearDeferValue });
           }
         };
       });
@@ -2456,6 +2502,56 @@ def clear_block_identifier_on_project(
     project = registry.finalize_project_shape(project)
     project["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = registry.compute_merge_recommendation(project)
+    registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project
+
+
+def defer_identifier_on_project(
+    conn: sqlite3.Connection,
+    project_key: str,
+    identifier_type: str,
+    value: str,
+    *,
+    note: str = "",
+    days: int = registry.DEFAULT_DEFER_IDENTIFIER_DAYS,
+) -> dict[str, Any]:
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if project is None:
+        raise KeyError(project_key)
+    project = registry.ensure_project_shape(project)
+    registry.defer_identifier_on_project(project, identifier_type, value, note=note, days=days)
+    project = registry.finalize_project_shape(project)
+    project["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = registry.compute_merge_recommendation(project)
+    project = registry.apply_promotion_state(project)
+    registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project
+
+
+def clear_deferred_identifier_on_project(
+    conn: sqlite3.Connection,
+    project_key: str,
+    identifier_type: str,
+    value: str,
+) -> dict[str, Any]:
+    if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if project is None:
+        raise KeyError(project_key)
+    project = registry.ensure_project_shape(project)
+    normalized_value = registry.normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized_value:
+        raise ValueError("identifier value could not be normalized")
+    project["deferred_identifiers"] = [
+        item for item in registry.normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
+    ]
+    project["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = registry.compute_merge_recommendation(project)
+    project = registry.apply_promotion_state(project)
     registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
     conn.commit()
     return project
@@ -3775,6 +3871,25 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 value = str(payload.get("value") or "").strip()
                 project = clear_block_identifier_on_project(conn, project_key, identifier_type, value)
                 self.send_json({"project": project_summary(project), "cleared": {"type": identifier_type, "value": value}})
+                return
+            if action == "defer-identifier":
+                identifier_type = str(payload.get("identifier_type") or "").strip()
+                value = str(payload.get("value") or "").strip()
+                project = defer_identifier_on_project(
+                    conn,
+                    project_key,
+                    identifier_type,
+                    value,
+                    note=str(payload.get("note") or "").strip(),
+                    days=parse_int(str(payload.get("days") or "30"), 30, minimum=1, maximum=365),
+                )
+                self.send_json({"project": project_summary(project), "deferred": {"type": identifier_type, "value": value}})
+                return
+            if action == "clear-defer-identifier":
+                identifier_type = str(payload.get("identifier_type") or "").strip()
+                value = str(payload.get("value") or "").strip()
+                project = clear_deferred_identifier_on_project(conn, project_key, identifier_type, value)
+                self.send_json({"project": project_summary(project), "cleared_defer": {"type": identifier_type, "value": value}})
                 return
             if action == "clear-separate":
                 other_key = str(payload.get("other_project_key") or "").strip()

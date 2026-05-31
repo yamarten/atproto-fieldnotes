@@ -232,11 +232,10 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `sta
 project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` と値を指定して次の操作を実行できます。
 
 - `Split`: 指定 identifier を新規 project へ移し、元 project から除去して `blocked_identifiers` と `separate_project_keys` を記録する
+- `Defer 30d`: 指定 identifier を一時保留する。confirmed URL は candidate に降格し、期限内の自動 confirm を抑制する
 - `Block identifier`: 指定 identifier を元 project から除去し、`blocked_identifiers` に記録する
 
-補助情報として `blocked_identifiers` と `separate_project_keys` は `Guards` に折り畳み表示します。`Clear` は guard record だけを外す操作で、identifier を自動で再付与したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
-
-`deferred_identifiers` の Web UI 操作は未接続です。将来は confirmed/candidate row に `Defer 30d`、`Guards` に期限と `Clear defer` を追加する想定です。
+補助情報として `blocked_identifiers`、`deferred_identifiers`、`separate_project_keys` は `Guards` に折り畳み表示します。confirmed / candidate row からも `Defer 30d` を選べます。`Clear` / `Clear defer` は guard record だけを外す操作で、identifier を自動で再付与したり confirm したり project を merge したりはしません。`Merge Recommendation` は auto-ready な recommendation だけを project 詳細から実行できます。non-auto-ready recommendation や force merge は未接続です。
 
 `Sync` タブでは、次の CLI 相当の処理を background job として開始できます。
 

@@ -166,6 +166,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("merge-recommendation", web.INDEX_HTML)
         self.assertIn("Guards", web.INDEX_HTML)
         self.assertIn("clear-block-identifier", web.INDEX_HTML)
+        self.assertIn("defer-identifier", web.INDEX_HTML)
+        self.assertIn("clear-defer-identifier", web.INDEX_HTML)
+        self.assertIn("Defer 30d", web.INDEX_HTML)
+        self.assertIn("Clear defer", web.INDEX_HTML)
         self.assertIn("clear-separate", web.INDEX_HTML)
         self.assertIn("renderProjectGuards", web.INDEX_HTML)
         self.assertIn("renderEditableIdentifierRows", web.INDEX_HTML)
@@ -463,7 +467,42 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             conn.close()
         blocked = {(item["type"], item["value"]) for item in project["blocked_identifiers"]}
         self.assertNotIn(("repo_url", "https://github.com/example/app"), blocked)
+
+    def test_defer_identifier_action_downgrades_repo_and_clear_removes_guard_only(self) -> None:
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/defer-identifier",
+            {"identifier_type": "repo_url", "value": "https://github.com/example/app", "note": "observe later", "days": 30},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["deferred"]["value"], "https://github.com/example/app")
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
         self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        deferred = {(item["type"], item["value"], item["note"]) for item in project["deferred_identifiers"]}
+        self.assertIn(("repo_url", "https://github.com/example/app", "observe later"), deferred)
+
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:111111111111/clear-defer-identifier",
+            {"identifier_type": "repo_url", "value": "https://github.com/example/app"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["cleared_defer"]["value"], "https://github.com/example/app")
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        self.assertEqual(project["deferred_identifiers"], [])
+        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
 
     def test_split_project_action_creates_new_project(self) -> None:
         status, payload = self.request(
