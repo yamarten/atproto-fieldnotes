@@ -133,5 +133,10 @@ LLM は evidence の要約と暫定分類に使えますが、単独で高スコ
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
+- URL field migration
+  - `audit-url-fields` の raw 保存監査を基準に進める
+  - `website_url_candidates` の caller を `service_url_candidates` へ寄せ、derive-only または削除にする
+  - `github_repo_urls` / `tangled_repo_urls` の caller を `source_code_urls` / `source_repo_records` へ寄せ、provider view として導出にする
+  - `resource_urls` は削除前に role / source / observed_at を持つ structured observation へ移す
 - `inspired_by` を app metadata として昇格させるか再判断する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する

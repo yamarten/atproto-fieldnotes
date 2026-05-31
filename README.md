@@ -184,6 +184,12 @@ python3 scripts/project_registry.py sync-introduced --execute
 
 `sync-introduced` は seed を追加せず、既存 project に対して `introduced_url` を付けるためだけに使います。
 
+URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で棚卸し:
+
+```bash
+python3 scripts/project_registry.py audit-url-fields
+```
+
 collection inventory APIから直接同期:
 
 ```bash

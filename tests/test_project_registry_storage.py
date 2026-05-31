@@ -51,6 +51,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(args.func, registry.cmd_defer_promotion)
         self.assertEqual(args.days, 7)
 
+    def test_parser_accepts_audit_url_fields_command(self) -> None:
+        args = registry.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
+
+        self.assertIs(args.func, registry.cmd_audit_url_fields)
+        self.assertEqual(args.example_limit, 3)
+
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = registry.build_parser()
 
@@ -277,6 +283,54 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["atproto_contribution_level"], "core")
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
+        finally:
+            conn.close()
+
+    def test_url_field_audit_reports_aliases_and_raw_invariant_violations(self) -> None:
+        conn = registry.open_db()
+        try:
+            first = self.make_project("proj:urlfieldaudit1", "service_url", "https://example.com")
+            first["website_url"] = "https://example.com"
+            first["service_urls"] = ["https://example.com"]
+            first["website_url_candidates"] = ["https://candidate.example.com"]
+            first["service_url_candidates"] = ["https://candidate.example.com"]
+            first["source_code_url"] = "https://github.com/example/app"
+            first["source_code_urls"] = ["https://github.com/example/app"]
+            first["github_repo_urls"] = ["https://github.com/example/app"]
+            registry.save_project(conn, first)
+
+            second = self.make_project("proj:urlfieldaudit2", "service_url", "https://broken.example")
+            second["website_url"] = "https://broken.example"
+            second["website_url_candidates"] = ["https://one.example"]
+            second["service_url_candidates"] = ["https://two.example"]
+            second["github_repo_urls"] = ["https://github.com/example/missing"]
+            registry.save_project(conn, second)
+            row = conn.execute(
+                "SELECT ops_json FROM projects WHERE project_key = ?",
+                ("proj:urlfieldaudit2",),
+            ).fetchone()
+            ops_payload = json.loads(row["ops_json"])
+            ops_payload["evidence"]["service_urls"] = []
+            ops_payload["evidence"]["website_url_candidates"] = ["https://one.example"]
+            ops_payload["evidence"]["service_url_candidates"] = ["https://two.example"]
+            ops_payload["evidence"]["github_repo_urls"] = ["https://github.com/example/missing"]
+            ops_payload["evidence"]["source_code_urls"] = []
+            conn.execute(
+                "UPDATE projects SET ops_json = ? WHERE project_key = ?",
+                (json.dumps(ops_payload), "proj:urlfieldaudit2"),
+            )
+            conn.commit()
+
+            summary = registry.build_url_field_audit(conn)
+            aliases = {(item["left"], item["right"]): item for item in summary["alias_relationships"]}
+            anomalies = {item["kind"]: item for item in summary["anomalies"]}
+
+            self.assertEqual(summary["project_count"], 2)
+            self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 1)
+            self.assertEqual(aliases[("website_url_candidates", "service_url_candidates")]["exact_match_projects"], 1)
+            self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 1)
+            self.assertEqual(anomalies["website_candidate_alias_mismatch"]["project_count"], 1)
+            self.assertEqual(anomalies["github_repo_url_missing_from_source_code_urls"]["project_count"], 1)
         finally:
             conn.close()
 

@@ -476,6 +476,17 @@ python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxx
 
 表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
 
+## URL field の棚卸し
+
+URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で確認できます。
+
+```bash
+python3 scripts/project_registry.py audit-url-fields
+python3 scripts/project_registry.py audit-url-fields --example-limit 5
+```
+
+このコマンドは DB を更新しません。`website_url_candidates`、`github_repo_urls`、`tangled_repo_urls` などの compatibility view を縮退させる前に、実 DB の分布と caller 移行の影響を確認するために使います。
+
 適用する場合:
 
 ```bash

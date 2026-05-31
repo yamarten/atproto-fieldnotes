@@ -202,6 +202,60 @@ review / merge / 紹介運用の制御情報です。
 - `lexicon_namespaces` は `record_json.core` の canonical 値とは別に、evidence 側でも比較・調査の補助として保持されます
 - `service_urls` / `resource_urls` / `source_code_urls` は当面 evidence に残しつつ、確信できるものだけ `record_json.app.links` に昇格させます
 
+## URL field の責務
+
+URL は role、confidence、observation state を分けて扱います。現行 DB は移行途中のため重複 field を残しますが、正本と compatibility view を同一視しません。
+
+### canonical
+
+- `website_url`
+  - project の代表公開 URL
+- `source_code_url`
+  - 代表 source repository
+  - `source_code_urls` から選ぶ primary view
+- `introduced_url`
+  - 紹介済み判定の根拠 URL
+  - service identity ではない
+
+### confirmed set
+
+- `service_urls`
+  - 確認済み service surface
+  - `website_url` を含む
+- `source_code_urls`
+  - 確認済み source repository
+
+### candidate
+
+- `service_url_candidates`
+  - 未確認 service surface
+- `candidate_source_code_urls`
+  - 未確認 source repository
+
+### observation
+
+- `resource_urls`
+  - docs / about / blog など、調査中に取得した補助 page
+- `evidence_urls`
+  - 一般 evidence URL
+- `failed_service_urls`
+  - probe 失敗 URL
+- `supported_service_urls`
+  - heuristic probe が project と対応すると判断した URL
+
+### derived compatibility view
+
+- `website_url_candidates`
+  - 現状は `service_url_candidates` と重複する legacy alias
+- `github_repo_urls`
+  - `source_code_urls` の GitHub provider view
+- `tangled_repo_urls`
+  - `source_code_urls` の Tangled provider view
+- `record_json.app.links`
+  - export 用の role 付き view
+
+derived compatibility view は通常導線でまだ参照されています。現時点では保存を止めません。caller を正本へ寄せてから derive-only または削除へ移します。
+
 `ops_json.ops` には lexicon の位置付けを表す派生値も保持します。
 
 - `lexicon_scope`

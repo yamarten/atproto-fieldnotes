@@ -95,6 +95,25 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 
 詳細な field 一覧は [docs/project-record.md](project-record.md) を参照してください。
 
+### URL field の整理
+
+URL field は次の 5 層で扱います。
+
+- canonical
+  - `website_url`, `source_code_url`, `introduced_url`
+- confirmed set
+  - `service_urls`, `source_code_urls`
+- candidate
+  - `service_url_candidates`, `candidate_source_code_urls`
+- observation
+  - `resource_urls`, `evidence_urls`, `failed_service_urls`, `supported_service_urls`
+- derived compatibility view
+  - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls`, `record_json.app.links`
+
+`introduced_url` は editorial reference であり service identity ではありません。`resource_urls` は調査時の補助 page 群であり、confirmed service set ではありません。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
+
+`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
+
 ## enrich の流れ
 
 `enrich` は次の順で動きます。

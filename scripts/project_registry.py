@@ -267,6 +267,23 @@ PROJECT_SCALAR_FIELDS = (
 
 PROJECT_STORAGE_SCALAR_FIELDS = PROJECT_SCALAR_FIELDS + ("introduced_url",)
 
+URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
+    {"field": "website_url", "layer": "canonical", "role": "primary public website", "migration": "keep"},
+    {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference", "migration": "keep"},
+    {"field": "source_code_url", "layer": "canonical", "role": "primary source repository", "migration": "keep"},
+    {"field": "service_urls", "layer": "confirmed_set", "role": "confirmed service surfaces", "migration": "keep"},
+    {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories", "migration": "keep"},
+    {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces", "migration": "keep"},
+    {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories", "migration": "keep"},
+    {"field": "resource_urls", "layer": "observation", "role": "fetched supporting pages", "migration": "structure_later"},
+    {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs", "migration": "keep"},
+    {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes", "migration": "keep"},
+    {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes", "migration": "keep"},
+    {"field": "website_url_candidates", "layer": "derived_compat", "role": "legacy alias of service_url_candidates", "migration": "derive_or_drop"},
+    {"field": "github_repo_urls", "layer": "derived_compat", "role": "GitHub view of source_code_urls", "migration": "derive_or_drop"},
+    {"field": "tangled_repo_urls", "layer": "derived_compat", "role": "Tangled view of source_code_urls", "migration": "derive_or_drop"},
+)
+
 RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "core": (
         "tagline",
@@ -1980,6 +1997,110 @@ def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
 def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
     payload = project_from_row_payload(row)
     return ensure_project_shape(payload)
+
+
+def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set[str]:
+    value = project.get(field_name)
+    values = value if isinstance(value, list) else ([value] if value else [])
+    if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls", "github_repo_urls", "tangled_repo_urls"}:
+        return {normalized for item in values if (normalized := canonical_repo_url(str(item)))}
+    return {normalized for item in values if (normalized := normalize_url(str(item)))}
+
+
+def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    projects = [project_from_row_payload(row) for row in rows]
+    field_summaries: list[dict[str, Any]] = []
+    for spec in URL_FIELD_INVENTORY:
+        field_name = spec["field"]
+        values: list[str] = []
+        nonempty_projects = 0
+        for project in projects:
+            field_values = normalized_url_field_values(project, field_name)
+            if field_values:
+                nonempty_projects += 1
+                values.extend(sorted(field_values))
+        field_summaries.append(
+            {
+                **spec,
+                "nonempty_projects": nonempty_projects,
+                "value_count": len(values),
+                "unique_value_count": len(set(values)),
+            }
+        )
+
+    alias_pairs = (
+        ("website_url", "service_urls", "canonical_in_confirmed_set"),
+        ("website_url_candidates", "service_url_candidates", "legacy_alias"),
+        ("source_code_url", "source_code_urls", "canonical_in_confirmed_set"),
+        ("github_repo_urls", "source_code_urls", "provider_view"),
+        ("tangled_repo_urls", "source_code_urls", "provider_view"),
+    )
+    alias_summaries: list[dict[str, Any]] = []
+    for left, right, relation in alias_pairs:
+        left_nonempty = 0
+        exact_match = 0
+        left_subset = 0
+        overlap_values: set[str] = set()
+        for project in projects:
+            left_values = normalized_url_field_values(project, left)
+            right_values = normalized_url_field_values(project, right)
+            if not left_values:
+                continue
+            left_nonempty += 1
+            if left_values == right_values:
+                exact_match += 1
+            if left_values <= right_values:
+                left_subset += 1
+            overlap_values.update(left_values & right_values)
+        alias_summaries.append(
+            {
+                "left": left,
+                "right": right,
+                "relation": relation,
+                "left_nonempty_projects": left_nonempty,
+                "exact_match_projects": exact_match,
+                "left_subset_projects": left_subset,
+                "overlap_unique_value_count": len(overlap_values),
+            }
+        )
+
+    anomaly_specs = (
+        ("website_url_missing_from_service_urls", lambda p: normalized_url_field_values(p, "website_url") - normalized_url_field_values(p, "service_urls")),
+        ("website_candidate_alias_mismatch", lambda p: normalized_url_field_values(p, "website_url_candidates") ^ normalized_url_field_values(p, "service_url_candidates")),
+        ("source_code_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "source_code_url") - normalized_url_field_values(p, "source_code_urls")),
+        ("github_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "github_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
+        ("tangled_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "tangled_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
+        ("confirmed_candidate_service_overlap", lambda p: normalized_url_field_values(p, "service_urls") & normalized_url_field_values(p, "service_url_candidates")),
+        ("confirmed_candidate_repo_overlap", lambda p: normalized_url_field_values(p, "source_code_urls") & normalized_url_field_values(p, "candidate_source_code_urls")),
+        ("introduced_url_in_evidence_urls", lambda p: normalized_url_field_values(p, "introduced_url") & normalized_url_field_values(p, "evidence_urls")),
+    )
+    anomalies: list[dict[str, Any]] = []
+    for kind, collect_values in anomaly_specs:
+        examples: list[dict[str, Any]] = []
+        project_count = 0
+        value_count = 0
+        for project in projects:
+            values = sorted(collect_values(project))
+            if not values:
+                continue
+            project_count += 1
+            value_count += len(values)
+            if len(examples) < max(0, int(example_limit)):
+                examples.append({"project_key": str(project.get("project_key") or ""), "values": values})
+        anomalies.append({"kind": kind, "project_count": project_count, "value_count": value_count, "examples": examples})
+
+    return {
+        "project_count": len(projects),
+        "field_inventory": field_summaries,
+        "alias_relationships": alias_summaries,
+        "anomalies": anomalies,
+        "migration_candidates": [
+            "derive_or_drop website_url_candidates after callers use service_url_candidates",
+            "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
+            "replace untyped resource_urls with structured resource observations before pruning historical data",
+        ],
+    }
 
 
 def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
@@ -12583,6 +12704,16 @@ def cmd_repair_db(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit_url_fields(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = build_url_field_audit(conn, example_limit=max(0, int(args.example_limit)))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_set_separate(args: argparse.Namespace) -> int:
     conn = open_db()
     project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
@@ -14259,6 +14390,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.set_defaults(func=cmd_repair_db)
+
+    audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
+    audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
+    audit_url_parser.set_defaults(func=cmd_audit_url_fields)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
