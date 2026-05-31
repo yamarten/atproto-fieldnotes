@@ -600,7 +600,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, detailView: "project", mergeItems: [], mergeReturnIndex: null, seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -663,6 +663,13 @@ INDEX_HTML = r"""<!doctype html>
 
     function detailBackButton() {
       return `<div class="mobile-detail-bar"><button id="close-detail" title="Hide details and return to the list.">Back to list</button></div>`;
+    }
+
+    function detailNavigation(previousEnabled, nextEnabled) {
+      return `<div class="actions detail-navigation">
+        <button id="previous-detail" ${previousEnabled ? "" : "disabled"} title="Open the previous item in the current list. This does not change the DB.">Previous</button>
+        <button id="next-detail" ${nextEnabled ? "" : "disabled"} title="Open the next item in the current list. This does not change the DB.">Next</button>
+      </div>`;
     }
 
     function openDetailPane() {
@@ -760,9 +767,11 @@ INDEX_HTML = r"""<!doctype html>
     function renderListFromData(data) {
       if (state.tab === "review") {
         const items = asList(data.items);
+        state.projectItems = items;
         $("list").innerHTML = listCount("Review queue", data.review_count ?? items.length, `limit ${state.settings.reviewLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No review items.</div>`);
       } else if (state.tab === "promotion") {
         const items = asList(data.items);
+        state.projectItems = items;
         $("list").innerHTML = listCount("Promotion queue", data.promotion_count ?? items.length, `limit ${state.settings.promotionLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No promotion items.</div>`);
       } else if (state.tab === "merge") {
         state.mergeItems = asList(data.items);
@@ -771,6 +780,7 @@ INDEX_HTML = r"""<!doctype html>
       } else {
         const q = $("query").value.trim();
         const items = asList(data.items);
+        state.projectItems = items;
         $("list").innerHTML = listCount("Projects", data.count ?? items.length, q ? "search result" : "limit 50") + (items.map(card).join("") || `<div class="card muted">No projects.</div>`);
       }
     }
@@ -1438,6 +1448,7 @@ INDEX_HTML = r"""<!doctype html>
       const reasons = esc(JSON.stringify(item.reasons || {}, null, 2));
       $("detail").innerHTML = `
         ${detailBackButton()}
+        ${detailNavigation(index > 0, index < state.mergeItems.length - 1)}
         <div>
           <h2>${esc(item.source_name || item.source_project_key)} -> ${esc(item.target_name || item.target_project_key)}</h2>
           <div class="row">
@@ -1476,6 +1487,8 @@ INDEX_HTML = r"""<!doctype html>
 
     function wireMergeDetail(item, index) {
       const body = { source_project_key: item.source_project_key, target_project_key: item.target_project_key };
+      $("previous-detail").onclick = () => loadMergeDetail(index - 1);
+      $("next-detail").onclick = () => loadMergeDetail(index + 1);
       $("merge-plan").onclick = async () => {
         if (await confirmAction(`Merge source into target?\n\nSource: ${item.source_project_key} ${item.source_name || ""}\nTarget: ${item.target_project_key} ${item.target_name || ""}\n\nThis writes the merged target and deletes the source project from SQLite.`)) {
           mergeMutate("merge", body);
@@ -1589,6 +1602,7 @@ INDEX_HTML = r"""<!doctype html>
     async function loadDetail(key, options = {}) {
       state.selected = key;
       state.detailView = options.view || "project";
+      state.projectNavigation = Boolean(options.projectNavigation);
       state.mergeReturnIndex = Object.prototype.hasOwnProperty.call(options, "mergeReturnIndex") ? options.mergeReturnIndex : null;
       status("Loading project...");
       try {
@@ -1597,8 +1611,10 @@ INDEX_HTML = r"""<!doctype html>
         const review = data.review_item || {};
         const raw = esc(JSON.stringify(p, null, 2));
         const isReviewView = state.detailView === "review";
+        const projectIndex = state.projectNavigation && state.mergeReturnIndex === null ? state.projectItems.findIndex((item) => item.project_key === p.project_key) : -1;
         $("detail").innerHTML = `
           ${detailBackButton()}
+          ${projectIndex >= 0 ? detailNavigation(projectIndex > 0, projectIndex < state.projectItems.length - 1) : ""}
           ${state.mergeReturnIndex !== null ? `<div class="actions"><button id="back-to-merge-detail" title="Return to the merge detail you opened this project from. This does not change the DB.">Back to merge detail</button></div>` : ""}
           ${isReviewView ? `<div class="actions"><button id="open-project-detail" title="Open the full project detail view. This does not change the DB.">Open project detail</button></div>` : ""}
           <div>
@@ -1644,7 +1660,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Guards</h3>${renderProjectGuards(p)}</div>
           <div class="section"><h3>Raw JSON</h3><details><summary>Show</summary><pre>${raw}</pre></details></div>
         `;
-        wireDetail(p.project_key);
+        wireDetail(p.project_key, projectIndex);
         wireDetailBackButton();
         openDetailPane();
         status("");
@@ -1653,7 +1669,15 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
-    function wireDetail(key) {
+    function wireDetail(key, projectIndex = -1) {
+      const previousDetail = $("previous-detail");
+      if (previousDetail) {
+        previousDetail.onclick = () => loadDetail(state.projectItems[projectIndex - 1]?.project_key, { view: state.detailView, projectNavigation: true });
+      }
+      const nextDetail = $("next-detail");
+      if (nextDetail) {
+        nextDetail.onclick = () => loadDetail(state.projectItems[projectIndex + 1]?.project_key, { view: state.detailView, projectNavigation: true });
+      }
       $("save-state").onclick = async () => {
         const nextState = $("tracking-state").value;
         if (await confirmAction(`Set tracking_state for ${key} to ${nextState}? This writes to SQLite.`)) {
@@ -1703,7 +1727,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       const openProjectDetail = $("open-project-detail");
       if (openProjectDetail) {
-        openProjectDetail.onclick = () => loadDetail(key, { view: "project" });
+        openProjectDetail.onclick = () => loadDetail(key, { view: "project", projectNavigation: state.projectNavigation });
       }
       const backToMerge = $("back-to-merge-detail");
       if (backToMerge) {
@@ -1870,7 +1894,7 @@ INDEX_HTML = r"""<!doctype html>
           updateEnrichJobStatus(key, job);
           if (job.status === "done") {
             status("Enrich done.");
-            if (state.selected === key) await loadDetail(key, { view: state.detailView, mergeReturnIndex: state.mergeReturnIndex });
+            if (state.selected === key) await loadDetail(key, { view: state.detailView, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
             return;
           }
           if (job.status === "failed") {
@@ -1892,7 +1916,7 @@ INDEX_HTML = r"""<!doctype html>
         clearListCache();
         status(data.job_id ? `Started job ${data.job_id}` : "Saved.");
         await loadList({ force: true });
-        if (reloadDetail && state.selected) await loadDetail(state.selected, { view: state.detailView, mergeReturnIndex: state.mergeReturnIndex });
+        if (reloadDetail && state.selected) await loadDetail(state.selected, { view: state.detailView, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
       } catch (err) {
         status(err.message);
       }
@@ -1900,7 +1924,7 @@ INDEX_HTML = r"""<!doctype html>
 
     $("list").onclick = (event) => {
       const button = event.target.closest("[data-key]");
-      if (button) loadDetail(button.dataset.key, { view: state.tab === "review" ? "review" : "project" });
+      if (button) loadDetail(button.dataset.key, { view: state.tab === "review" ? "review" : "project", projectNavigation: true });
       const mergeButton = event.target.closest("[data-merge-index]");
       if (mergeButton) loadMergeDetail(Number(mergeButton.dataset.mergeIndex));
     };
