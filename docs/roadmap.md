@@ -85,11 +85,13 @@
 
 ### Web UI 詳細検索
 
+v1.1 の filter UI と API 拡張は実装済みです。以下は実装時の判断と、後続で最適化する場合の境界を残すための履歴です。
+
 現状の `Search` タブは自由語 1 本だけを受け取り、`project_search_candidates()` の score 順で project を返します。候補探索としては使えますが、調査対象の棚卸しや「未紹介かつ candidate URL が残っている active project」のような絞り込みには不足しています。
 
 次の追加では、自由語検索と structured filter を AND 条件で組み合わせる方針にします。SQLite schema は増やさず、既存の `projects` scalar columns と JSON shape から判定します。
 
-#### v1.1 の対象
+#### v1.1 の対象（実装済み）
 
 API は既存の `GET /api/projects` を拡張します。
 
@@ -174,6 +176,8 @@ UI は `Search` タブ内に次を置きます。
 
 モバイルでは filter panel を初期状態で閉じます。project 結果の `Previous` / `Next` 導線は現在の検索結果順を使います。
 
+自由語欄の `key:value` 演算子も実装済みです。browser 側で解釈し、API にはこの節の query parameter として送ります。API 自体に別 DSL は追加していません。
+
 #### 実装上の分離
 
 - 自由語 candidate score:
@@ -203,4 +207,4 @@ UI は `Search` タブ内に次を置きます。
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
 - `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
 - `inspired_by` を app metadata として昇格させるか再判断する
-- Web UI 詳細検索 v1.1 を実装する
+- Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する

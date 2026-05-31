@@ -4686,15 +4686,21 @@ def project_keys_for_alias(conn: sqlite3.Connection, alias: str) -> list[str]:
     return matches
 
 
-def project_search_candidates(conn: sqlite3.Connection, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+def project_search_candidates(
+    conn: sqlite3.Connection,
+    query: str,
+    *,
+    limit: int = 5,
+    projects: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     text = str(query or "").strip()
     if not text:
         return []
     lowered = text.lower()
     alias = normalize_alias_token(text)
     candidates: list[tuple[int, dict[str, Any]]] = []
-    projects = [ensure_project_shape(project) for project in all_projects(conn)]
-    for project in projects:
+    search_projects = [ensure_project_shape(project) for project in (projects if projects is not None else all_projects(conn))]
+    for project in search_projects:
         score = 0
         reasons: list[str] = []
         project_key = str(project.get("project_key") or "")

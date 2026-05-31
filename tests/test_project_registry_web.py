@@ -195,6 +195,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("clearListCache", web.INDEX_HTML)
         self.assertIn("Refreshing...", web.INDEX_HTML)
         self.assertIn("loadList({ force: true })", web.INDEX_HTML)
+        self.assertIn("searchFilterPanel", web.INDEX_HTML)
+        self.assertIn("parseSearchOperators", web.INDEX_HTML)
+        self.assertIn("Clear filters", web.INDEX_HTML)
+        self.assertIn("state:, service:, status:", web.INDEX_HTML)
 
     def test_parser_accepts_reload_options(self) -> None:
         parser = web.build_parser()
@@ -274,6 +278,35 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["queue_name"], "review")
         self.assertIn("items", payload)
         self.assertIn("kind_counts", payload)
+
+    def test_project_search_combines_text_and_tracking_state_filter(self) -> None:
+        conn = registry.open_db()
+        try:
+            duplicate = registry.fetch_project(conn, "proj:222222222222")
+            duplicate["tracking_state"] = "archived"
+            registry.save_project(conn, duplicate)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, payload = self.request("GET", "/api/projects?q=Example&tracking_states=active")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
+    def test_project_search_filters_service_status_and_candidates(self) -> None:
+        status, payload = self.request("GET", "/api/projects?service_statuses=live&has_candidates=yes")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
+    def test_project_search_rejects_invalid_date(self) -> None:
+        status, payload = self.request("GET", "/api/projects?seen_since=not-a-date")
+
+        self.assertEqual(status, 400)
+        self.assertIn("invalid ISO date", payload["error"])
 
     def test_merge_batch_plan_shape(self) -> None:
         original_build = web.registry.build_batch_merge_plan

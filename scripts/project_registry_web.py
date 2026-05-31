@@ -307,6 +307,51 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 13px;
       min-height: 28px;
     }
+    .search-panel {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .search-panel summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .search-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      padding-top: 8px;
+    }
+    .search-filter-group {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+      min-width: 0;
+    }
+    .search-filter-group > span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .search-filter-options {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .search-filter-options label {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .search-chips {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
     .card, .detail {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -600,7 +645,8 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
+    const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
+    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, searchFilters: defaultSearchFilters(), settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -752,11 +798,148 @@ INDEX_HTML = r"""<!doctype html>
       return `<div class="list-count"><span>${esc(label)}</span><span>${esc(shown)} shown${detail ? ` / ${esc(detail)}` : ""}</span></div>`;
     }
 
+    function searchCheckboxes(name, values, selected) {
+      const active = new Set(asList(selected));
+      return values.map((value) => `<label><input type="checkbox" name="${esc(name)}" value="${esc(value)}" ${active.has(value) ? "checked" : ""}> ${esc(value)}</label>`).join("");
+    }
+
+    function searchFilterPanel() {
+      const filters = state.searchFilters;
+      const chips = [];
+      for (const value of filters.trackingStates) chips.push(`state:${value}`);
+      for (const value of filters.serviceStatuses) chips.push(`service:${value}`);
+      for (const [key, value] of [["record-status", filters.statuses], ["category", filters.categories], ["review", filters.reviewKinds]]) {
+        if (value) chips.push(`${key}:${value}`);
+      }
+      for (const [key, value] of [["introduced", filters.introduced], ["candidate", filters.hasCandidates], ["error", filters.hasErrors]]) {
+        if (value !== "any") chips.push(`${key}:${value}`);
+      }
+      if (filters.seenSince) chips.push(`seen:>=${filters.seenSince}`);
+      if (filters.enrichedBefore) chips.push(`enriched:<${filters.enrichedBefore}`);
+      if (filters.sort) chips.push(`sort:${filters.sort}`);
+      return `<div class="search-panel">
+        <div class="actions">
+          <button id="run-search" class="primary" title="Search using the text and filters below. This does not change the DB.">Search</button>
+          <button id="clear-search" title="Clear the search text and filters. This does not change the DB.">Clear</button>
+          ${chips.length ? `<button id="clear-search-filters" title="Clear structured filters but keep the free-text query. This does not change the DB.">Clear filters</button>` : ""}
+        </div>
+        ${chips.length ? `<div class="search-chips">${chips.map((chip) => `<span class="pill">${esc(chip)}</span>`).join("")}</div>` : ""}
+        <details>
+          <summary>Filters${chips.length ? ` (${chips.length})` : ""}</summary>
+          <div class="search-filter-grid">
+            <div class="search-filter-group"><span>Tracking state</span><div class="search-filter-options">${searchCheckboxes("search-tracking-state", ["active", "watchlist", "stable", "stalled", "archived", "ignore"], filters.trackingStates)}</div></div>
+            <div class="search-filter-group"><span>Service status</span><div class="search-filter-options">${searchCheckboxes("search-service-status", ["unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"], filters.serviceStatuses)}</div></div>
+            <label class="search-filter-group"><span>Record status</span><input id="search-statuses" type="text" value="${esc(filters.statuses)}" placeholder="comma-separated"></label>
+            <label class="search-filter-group"><span>Category</span><input id="search-categories" type="text" value="${esc(filters.categories)}" placeholder="comma-separated"></label>
+            <label class="search-filter-group"><span>Introduced</span><select id="search-introduced">${searchChoiceOptions(filters.introduced)}</select></label>
+            <label class="search-filter-group"><span>Candidates remaining</span><select id="search-has-candidates">${searchChoiceOptions(filters.hasCandidates)}</select></label>
+            <label class="search-filter-group"><span>Errors</span><select id="search-has-errors">${searchChoiceOptions(filters.hasErrors)}</select></label>
+            <label class="search-filter-group"><span>Review signal kind</span><input id="search-review-kinds" type="text" value="${esc(filters.reviewKinds)}" placeholder="comma-separated"></label>
+            <label class="search-filter-group"><span>Last seen since</span><input id="search-seen-since" type="date" value="${esc(filters.seenSince)}"></label>
+            <label class="search-filter-group"><span>Enriched before</span><input id="search-enriched-before" type="date" value="${esc(filters.enrichedBefore)}"></label>
+            <label class="search-filter-group"><span>Sort</span><select id="search-sort">
+              <option value="" ${filters.sort ? "" : "selected"}>auto</option>
+              ${["relevance", "last_seen_desc", "last_enriched_asc", "name_asc"].map((value) => `<option value="${value}" ${filters.sort === value ? "selected" : ""}>${value}</option>`).join("")}
+            </select></label>
+          </div>
+        </details>
+        <div class="muted">Operators: state:, service:, status:, record-status:, category:, introduced:, candidate:, error:, review:, seen:&gt;=YYYY-MM-DD, enriched:&lt;YYYY-MM-DD, sort:</div>
+      </div>`;
+    }
+
+    function searchChoiceOptions(selected) {
+      return ["any", "yes", "no"].map((value) => `<option value="${value}" ${selected === value ? "selected" : ""}>${value}</option>`).join("");
+    }
+
+    function selectedSearchValues(name) {
+      return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map((input) => input.value);
+    }
+
+    function readSearchFilters() {
+      if (!$("search-introduced")) return;
+      state.searchFilters = {
+        trackingStates: selectedSearchValues("search-tracking-state"),
+        serviceStatuses: selectedSearchValues("search-service-status"),
+        statuses: $("search-statuses").value.trim(),
+        categories: $("search-categories").value.trim(),
+        introduced: $("search-introduced").value,
+        hasCandidates: $("search-has-candidates").value,
+        hasErrors: $("search-has-errors").value,
+        reviewKinds: $("search-review-kinds").value.trim(),
+        seenSince: $("search-seen-since").value,
+        enrichedBefore: $("search-enriched-before").value,
+        sort: $("search-sort").value
+      };
+    }
+
+    function parseSearchOperators(text) {
+      const filters = Object.assign(defaultSearchFilters(), state.searchFilters);
+      const terms = [];
+      const setList = (key, value) => { filters[key] = value.split(",").map((item) => item.trim()).filter(Boolean); };
+      for (const token of String(text || "").trim().split(/\s+/).filter(Boolean)) {
+        const match = token.match(/^([^:]+):(.*)$/);
+        if (!match) { terms.push(token); continue; }
+        const key = match[1].toLowerCase();
+        const value = match[2];
+        if (key === "state") setList("trackingStates", value);
+        else if (key === "service" || key === "status") setList("serviceStatuses", value);
+        else if (key === "record-status") filters.statuses = value;
+        else if (key === "category") filters.categories = value;
+        else if (key === "introduced") filters.introduced = value;
+        else if (key === "candidate" || key === "candidates") filters.hasCandidates = value;
+        else if (key === "error" || key === "errors") filters.hasErrors = value;
+        else if (key === "review") filters.reviewKinds = value;
+        else if (key === "seen" && value.startsWith(">=")) filters.seenSince = value.slice(2);
+        else if (key === "enriched" && value.startsWith("<")) filters.enrichedBefore = value.slice(1);
+        else if (key === "sort") filters.sort = value;
+        else { terms.push(token); continue; }
+      }
+      return { text: terms.join(" "), filters };
+    }
+
+    function runSearch() {
+      readSearchFilters();
+      const parsed = parseSearchOperators($("query").value);
+      state.searchFilters = parsed.filters;
+      $("query").value = parsed.text;
+      clearListCache();
+      loadList({ force: true });
+    }
+
+    function wireSearchFilters() {
+      $("run-search").onclick = runSearch;
+      $("clear-search").onclick = () => {
+        $("query").value = "";
+        state.searchFilters = defaultSearchFilters();
+        clearListCache();
+        loadList({ force: true });
+      };
+      const clearFilters = $("clear-search-filters");
+      if (clearFilters) clearFilters.onclick = () => {
+        state.searchFilters = defaultSearchFilters();
+        clearListCache();
+        loadList({ force: true });
+      };
+    }
+
+    function searchApiPath() {
+      const params = new URLSearchParams({ limit: "50" });
+      const q = $("query").value.trim();
+      const filters = state.searchFilters;
+      if (q) params.set("q", q);
+      if (filters.trackingStates.length) params.set("tracking_states", filters.trackingStates.join(","));
+      if (filters.serviceStatuses.length) params.set("service_statuses", filters.serviceStatuses.join(","));
+      for (const [key, value] of [["statuses", filters.statuses], ["categories", filters.categories], ["introduced", filters.introduced], ["has_candidates", filters.hasCandidates], ["has_errors", filters.hasErrors], ["review_kinds", filters.reviewKinds], ["seen_since", filters.seenSince], ["enriched_before", filters.enrichedBefore], ["sort", filters.sort]]) {
+        if (value && value !== "any") params.set(key, value);
+      }
+      return "/api/projects?" + params.toString();
+    }
+
     function listCacheKey() {
       if (state.tab === "review") return `review:${state.settings.reviewLimit || 50}`;
       if (state.tab === "promotion") return `promotion:${state.settings.promotionLimit || 50}:${state.settings.includePersonalTools ? "personal" : "default"}`;
       if (state.tab === "merge") return `merge:${$("merge-mode").value || state.settings.mergeMode || "moderate"}:${state.settings.mergeLimit || 50}`;
-      if (state.tab === "search") return `search:${$("query").value.trim()}`;
+      if (state.tab === "search") return `search:${searchApiPath()}`;
       return `${state.tab}:default`;
     }
 
@@ -781,7 +964,8 @@ INDEX_HTML = r"""<!doctype html>
         const q = $("query").value.trim();
         const items = asList(data.items);
         state.projectItems = items;
-        $("list").innerHTML = listCount("Projects", data.count ?? items.length, q ? "search result" : "limit 50") + (items.map(card).join("") || `<div class="card muted">No projects.</div>`);
+        $("list").innerHTML = searchFilterPanel() + listCount("Projects", data.count ?? items.length, `${items.length} returned${q ? " / text search" : ""}`) + (items.map(card).join("") || `<div class="card muted">No projects.</div>`);
+        wireSearchFilters();
       }
     }
 
@@ -795,8 +979,7 @@ INDEX_HTML = r"""<!doctype html>
         const mode = encodeURIComponent($("merge-mode").value || state.settings.mergeMode || "moderate");
         return `/api/merge-batch?mode=${mode}&limit=${encodeURIComponent(state.settings.mergeLimit || 50)}`;
       }
-      const q = encodeURIComponent($("query").value.trim());
-      return "/api/projects?limit=50" + (q ? "&q=" + q : "");
+      return searchApiPath();
     }
 
     async function loadList(options = {}) {
@@ -1948,7 +2131,7 @@ INDEX_HTML = r"""<!doctype html>
       saveSettings(Object.assign({}, state.settings, { mergeMode: $("merge-mode").value || "moderate" }));
       if (state.tab === "merge") loadList();
     };
-    $("query").onkeydown = (event) => { if (event.key === "Enter") loadList(); };
+    $("query").onkeydown = (event) => { if (event.key === "Enter") runSearch(); };
     $("query").style.display = "none";
     $("merge-mode").style.display = "none";
     if (initialSeedParam) {
@@ -1991,6 +2174,149 @@ def parse_state_set(values: list[str], default: set[str]) -> set[str]:
             if normalized in registry.TRACKING_STATES:
                 states.add(normalized)
     return states or set(default)
+
+
+def parse_csv_set(values: list[str]) -> set[str]:
+    items: set[str] = set()
+    for value in values:
+        for item in value.replace(",", " ").split():
+            normalized = item.strip()
+            if normalized:
+                items.add(normalized)
+    return items
+
+
+def parse_choice(value: str, *, allowed: set[str], default: str = "any") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in allowed:
+        raise ValueError(f"invalid filter value: {normalized}")
+    return normalized
+
+
+def parse_iso_date(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        return dt.date.fromisoformat(normalized).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"invalid ISO date: {normalized}") from exc
+
+
+def project_has_candidates(project: dict[str, Any]) -> bool:
+    return any(
+        registry.clean_string_list(project.get(field, []))
+        for field in ("service_url_candidates", "website_url_candidates", "candidate_source_code_urls")
+    )
+
+
+def project_matches_search_filters(
+    project: dict[str, Any],
+    *,
+    tracking_states: set[str],
+    service_statuses: set[str],
+    statuses: set[str],
+    categories: set[str],
+    introduced: str,
+    has_candidates: str,
+    has_errors: str,
+    seen_since: str,
+    enriched_before: str,
+) -> bool:
+    shaped = registry.ensure_project_shape(project)
+    if tracking_states and str(shaped.get("tracking_state") or "") not in tracking_states:
+        return False
+    if service_statuses and str(shaped.get("service_status") or "") not in service_statuses:
+        return False
+    if statuses and str(shaped.get("status") or "") not in statuses:
+        return False
+    if categories and not categories.intersection({
+        str(shaped.get("category") or ""),
+        str(shaped.get("app_category") or ""),
+    }):
+        return False
+    is_introduced = bool(str(shaped.get("introduced_url") or "").strip())
+    if introduced != "any" and is_introduced != (introduced == "yes"):
+        return False
+    has_pending_candidates = project_has_candidates(shaped)
+    if has_candidates != "any" and has_pending_candidates != (has_candidates == "yes"):
+        return False
+    has_run_errors = bool(shaped.get("last_run_errors"))
+    if has_errors != "any" and has_run_errors != (has_errors == "yes"):
+        return False
+    if seen_since and str(shaped.get("last_seen_at") or "")[:10] < seen_since:
+        return False
+    last_enriched = str(shaped.get("last_enriched_at") or "")[:10]
+    if enriched_before and last_enriched and last_enriched >= enriched_before:
+        return False
+    return True
+
+
+def search_projects_payload(conn: sqlite3.Connection, query: dict[str, list[str]]) -> dict[str, Any]:
+    limit = parse_int(query.get("limit", ["50"])[0], 50)
+    search = str(query.get("q", [""])[0] or "").strip()
+    tracking_states = parse_state_set(query.get("tracking_states", []), set())
+    service_statuses = parse_csv_set(query.get("service_statuses", []))
+    statuses = parse_csv_set(query.get("statuses", []))
+    categories = parse_csv_set(query.get("categories", []))
+    review_kinds = parse_csv_set(query.get("review_kinds", []))
+    introduced = parse_choice(query.get("introduced", ["any"])[0], allowed={"yes", "no", "any"})
+    has_candidates = parse_choice(query.get("has_candidates", ["any"])[0], allowed={"yes", "no", "any"})
+    has_errors = parse_choice(query.get("has_errors", ["any"])[0], allowed={"yes", "no", "any"})
+    seen_since = parse_iso_date(query.get("seen_since", [""])[0])
+    enriched_before = parse_iso_date(query.get("enriched_before", [""])[0])
+    default_sort = "relevance" if search else "last_seen_desc"
+    sort = parse_choice(
+        query.get("sort", [default_sort])[0],
+        allowed={"relevance", "last_seen_desc", "last_enriched_asc", "name_asc"},
+        default=default_sort,
+    )
+    projects = [
+        registry.ensure_project_shape(project)
+        for project in registry.list_projects(conn)
+        if project_matches_search_filters(
+            project,
+            tracking_states=tracking_states,
+            service_statuses=service_statuses,
+            statuses=statuses,
+            categories=categories,
+            introduced=introduced,
+            has_candidates=has_candidates,
+            has_errors=has_errors,
+            seen_since=seen_since,
+            enriched_before=enriched_before,
+        )
+    ]
+    if review_kinds:
+        projects = [
+            project
+            for project in projects
+            if registry.build_review_queue_item(conn, str(project.get("project_key") or ""), kinds=review_kinds)
+        ]
+    by_key = {str(project.get("project_key") or ""): project for project in projects}
+    if search:
+        ranked = registry.project_search_candidates(conn, search, limit=max(1, len(projects)), projects=projects)
+        items = []
+        for candidate in ranked:
+            item = project_summary(by_key[candidate["project_key"]])
+            item.update({"score": candidate.get("score", 0), "reasons": candidate.get("reasons", [])})
+            items.append(item)
+    else:
+        items = [project_summary(project) for project in projects]
+    if sort == "last_seen_desc":
+        items.sort(key=lambda item: str(item.get("project_key") or ""))
+        items.sort(key=lambda item: str(item.get("last_seen_at") or ""), reverse=True)
+    elif sort == "last_enriched_asc":
+        items.sort(key=lambda item: (str(item.get("last_enriched_at") or ""), str(item.get("project_key") or "")))
+    elif sort == "name_asc":
+        items.sort(key=lambda item: (str(item.get("name") or "").lower(), str(item.get("project_key") or "")))
+    return {
+        "items": items[:limit],
+        "count": len(items),
+        "returned_count": min(limit, len(items)),
+        "q": search,
+        "sort": sort,
+    }
 
 
 def llm_source_summary(project: dict[str, Any]) -> dict[str, Any]:
@@ -3261,17 +3587,9 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 conn.close()
             return
         if path == "/api/projects":
-            limit = parse_int(query.get("limit", ["50"])[0], 50)
-            search = str(query.get("q", [""])[0] or "").strip()
-            states = parse_state_set(query.get("tracking_states", []), set())
             conn = open_registry_db()
             try:
-                if search:
-                    items = registry.project_search_candidates(conn, search, limit=limit)
-                else:
-                    projects = registry.list_projects(conn, tracking_states=states or None)[:limit]
-                    items = [project_summary(project) for project in projects]
-                self.send_json({"items": items, "count": len(items)})
+                self.send_json(search_projects_payload(conn, query))
             finally:
                 conn.close()
             return

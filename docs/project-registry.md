@@ -154,9 +154,9 @@ v1 でできること:
 - project 詳細からの block / separate guard clear
 - project 詳細からの auto-ready merge recommendation 実行
 
-### 現在の project 検索
+### project 検索
 
-`Search` タブは、入力した自由語を `GET /api/projects?q=...&limit=50` に渡します。現在の実装は SQLite の全文検索ではなく、全 project を読み込んで `project_search_candidates()` で候補を採点する軽量検索です。
+`Search` タブは自由語と構造化 filter を AND 条件で組み合わせます。現在の実装は SQLite の全文検索ではなく、全 project を読み込んで filter を掛け、自由語がある場合だけ `project_search_candidates()` で候補を採点する軽量検索です。
 
 現在検索対象にしているもの:
 
@@ -171,9 +171,22 @@ v1 でできること:
 - `service_urls`
 - `source_code_urls`
 
-exact match、prefix match、substring match、alias match を加点し、score の高い順、同点なら `project_key` 順で返します。現状の制約として、`q` を指定した検索では `tracking_states` filter を適用していません。空検索の `GET /api/projects` では `tracking_states` を使えますが、Web UI の `Search` タブからは指定できません。
+exact match、prefix match、substring match、alias match を加点し、score の高い順、同点なら `project_key` 順で返します。
 
-詳細検索 UI は未接続です。段階的な追加仕様は [docs/roadmap.md](roadmap.md) の「Web UI 詳細検索」を参照してください。
+`Filters` では tracking state、service status、record status、category、紹介済みか、candidate URL が残っているか、run error があるか、review signal kind、last seen、last enriched、sort を指定できます。filter panel はモバイルで場所を取りすぎないよう初期状態では閉じています。
+
+自由語欄では短い演算子も使えます。演算子は browser 側で構造化 filter に変換され、API には通常の query parameter として送られます。未認識の `key:value` は URL などを壊さないよう自由語として扱います。
+
+```text
+state:active,watchlist introduced:no candidate:yes whisper
+status:unverified error:yes
+review:service_candidate_needs_confirmation
+seen:>=2026-05-01 enriched:<2026-05-31
+```
+
+API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `statuses`, `categories`, `introduced`, `has_candidates`, `has_errors`, `review_kinds`, `seen_since`, `enriched_before`, `sort`, `limit` を受け付けます。
+
+実装済みですが、大規模 DB 向けの SQL 最適化、FTS、OR 条件、保存済み検索条件、pagination は未接続です。後続候補は [docs/roadmap.md](roadmap.md) の「Web UI 詳細検索」を参照してください。
 
 `Merge` タブでは `build_batch_merge_plan()` の結果を `moderate` / `strict` / `broad` で表示し、1件ずつ次の操作を選べます。
 
