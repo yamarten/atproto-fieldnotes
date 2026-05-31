@@ -1,6 +1,8 @@
 # Manual Workflow
 
-現在の手動調査手順を、そのまま機械処理しやすい形に落としたメモです。
+> Notes/history: 手動調査を機械化する前の比較メモです。現在の通常導線は [docs/project-registry.md](project-registry.md) と [docs/thread-handoff.md](thread-handoff.md) を正本にします。
+
+当時の手動調査手順を、そのまま機械処理しやすい形に落としたメモです。
 
 ## 対象
 

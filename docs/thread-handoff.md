@@ -20,7 +20,6 @@
   - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
   - 履歴は残し、再保留時に直近理由を再利用できる
   - Web UI 操作と理由からの復活条件自動判定は未接続
-- `project_identifiers` はもう使わない
 
 ## 運用上の注意
 
@@ -49,8 +48,6 @@
   - `tests/test_project_registry_core.py` は name / service_status / LLM parser / merge scoring
   - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
   - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
-
-`list.json` / `services.json` 系の一時 import は削除済みです。今後の前提にしません。
 
 ## 直近の残件
 

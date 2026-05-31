@@ -337,7 +337,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - first-party page が repo を明示し、owner や site family が project と噛む時
   - same-site family の repo URL で owner も噛む時
 - それ以外の repo-like URL は candidate に留めます
-- docs/blog/same-site 補助ページは `resource_urls` に残し、必要なら追加 probe の対象にします
+- docs/blog/same-site 補助ページは `resource_url_records` に残し、runtime view の `resource_urls` を必要なら追加 probe の対象にします
 
 ### 4.1 NSID ownership の現在の優先順位
 
@@ -867,9 +867,11 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 - confirmed
   - `website_url`
   - `service_urls`
-  - `resource_urls`
   - `source_code_urls`
   - `confirmed_nsids`
+- observation
+  - `resource_url_records`
+  - record ごとに `legacy / candidate / confirmed` を持つ
 - candidate
   - `website_url_candidates`
   - `service_url_candidates`

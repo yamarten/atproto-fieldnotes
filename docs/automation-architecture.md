@@ -1,5 +1,7 @@
 # Automation Architecture
 
+> Notes/history: 初期アーキテクチャ案を残す比較メモです。現在の実装状況や通常導線は [docs/project-registry.md](project-registry.md) と [docs/thread-handoff.md](thread-handoff.md) を正本にします。
+
 ## 方針
 
 この調査は「候補発見」と「候補整理」を分けると安定する。

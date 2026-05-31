@@ -11,7 +11,6 @@ import os
 import re
 import shlex
 import sqlite3
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -49,7 +48,6 @@ ENRICH_IO_MAX_WORKERS = 4
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
-BSKY_APP_API = "https://api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
 BSKY_SYNC_API = "https://bsky.network"
@@ -162,7 +160,6 @@ def dump_json(value: Any, *, sort_keys: bool = True) -> str:
 
 SERVICE_STATUS_VALUES = {"unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"}
 SERVICE_STATUS_CONFIDENCE_VALUES = {"none", "low", "medium", "high"}
-ATPROTO_CONTRIBUTION_LEVELS = {"unknown", "incidental", "auth_only", "optional", "substantial", "core"}
 TECHNICAL_INTEREST_SCORES = {"none": 0, "notable": 40, "high": 70, "exceptional": 90}
 TECHNICAL_INTEREST_REASONS = {
     "novel_design_pattern",
@@ -285,24 +282,6 @@ URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "tangled_repo_urls", "layer": "derived_compat", "role": "Tangled view of source_code_urls", "migration": "derive_or_drop"},
 )
 
-RECORD_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
-    "core": (
-        "tagline",
-        "tagline_is_provisional",
-        "summary",
-        "manual_seeds",
-        "brand_did",
-        "source_code_url",
-        "lexicon_namespaces",
-        "notes",
-    ),
-    "app": (
-        "tags",
-        "platforms",
-        "links",
-    ),
-}
-
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "ops": (
         "status",
@@ -384,117 +363,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "watch_reason",
         "confidence",
     ),
-}
-
-INTENTIONALLY_DROPPED_LEGACY_FIELDS = {
-    "introduced",
-    "promoted_now",
-    "seed_type",
-    "seed_value",
-    "candidate_nsids",
-}
-
-MAPPED_LEGACY_FIELDS = {
-    "project_key",
-    "status",
-    "category",
-    "app_category",
-    "name",
-    "tagline",
-    "tagline_is_provisional",
-    "summary",
-    "name_candidates",
-    "summary_candidates",
-    "tagline_candidates",
-    "features",
-    "inspired_by",
-    "tags",
-    "platforms",
-    "links",
-    "project_state",
-    "brand_did",
-    "ownership_signal",
-    "introduced_url",
-    "tracking_state",
-    "tracking_note",
-    "bluesky_handles",
-    "tangled_handles",
-    "discovery_sources",
-    "evidence_urls",
-    "primary_nsid",
-    "input_nsids",
-    "confirmed_nsids",
-    "resolved_nsids",
-    "resolved_lexicon_nsids",
-    "lexicon_resolution_entries",
-    "recorded_lexicon_namespaces",
-    "lexicon_namespaces",
-    "lexicons",
-    "lexicon_count",
-    "lexicon_schema_samples",
-    "recent_record_samples",
-    "record_creators",
-    "authority_domains",
-    "external_lexicons",
-    "website_url",
-    "website_url_candidates",
-    "service_urls",
-    "resource_urls",
-    "resource_url_records",
-    "service_url_candidates",
-    "failed_service_urls",
-    "supported_service_urls",
-    "service_status",
-    "service_status_confidence",
-    "service_status_evidence",
-    "atproto_contribution_level",
-    "atproto_contribution_score",
-    "atproto_contribution_evidence",
-    "lexicon_scope",
-    "lexicon_scope_evidence",
-    "technical_interest_level",
-    "technical_interest_score",
-    "technical_interest_reasons",
-    "technical_interest_summary",
-    "source_code_url",
-    "source_code_urls",
-    "candidate_source_code_urls",
-    "source_repo_records",
-    "github_repo_urls",
-    "tangled_repo_urls",
-    "developer_accounts",
-    "candidate_developer_accounts",
-    "investigation_queries",
-    "investigation_log",
-    "classification_reason",
-    "exclude_reason",
-    "watch_reason",
-    "dismissed_review_kinds",
-    "manual_review_recommended",
-    "manual_review_kind",
-    "manual_review_priority",
-    "manual_review_reason",
-    "confidence",
-    "llm_source",
-    "llm_output",
-    "last_llm_review_at",
-    "promotion_ready",
-    "promotion_blockers",
-    "last_promoted_at",
-    "promotion_events",
-    "duplicate_candidates",
-    "merge_recommendation",
-    "separate_project_keys",
-    "blocked_identifiers",
-    "deferred_identifiers",
-    "promotion_deferrals",
-    "collection_observations",
-    "notes",
-    "last_run_errors",
-    "manual_seeds",
-    "first_seen_at",
-    "last_seen_at",
-    "last_enriched_at",
 }
 
 def ensure_dirs() -> None:
@@ -615,11 +483,6 @@ def is_bsky_post_url(url: str) -> bool:
     if parsed.netloc != "bsky.app":
         return False
     return bool(re.match(r"^/profile/[^/]+/post/[^/]+$", parsed.path))
-
-
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug or "project"
 
 
 def unique_list(values: list[str]) -> list[str]:
@@ -819,10 +682,6 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
 
 def add_unique(values: list[str], value: str) -> list[str]:
     return unique_list(values + [value])
-
-
-def is_opaque_project_key(value: str) -> bool:
-    return bool(re.fullmatch(r"proj:[0-9a-f]{12}", str(value or "")))
 
 
 def generate_project_key(existing_keys: set[str] | None = None) -> str:
@@ -2121,15 +1980,6 @@ def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
 def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
     return unique_list([normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if normalize_nsid(str(item or ""))])
 
-def grouped_payload_field_names(payload: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
-    for value in payload.values():
-        if not isinstance(value, dict):
-            continue
-        names.update(str(key) for key in value.keys())
-    return names
-
-
 def name_is_safe_for_record(project: dict[str, Any]) -> bool:
     name = str(project.get("name") or "").strip()
     if not name:
@@ -3207,16 +3057,6 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
     refresh_project_seed_identity(project)
 
 
-def preprocess_project_json_rows(
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    return {
-        "updated_rows": 0,
-        "skipped": True,
-        "reason": "legacy data_json preprocessing disabled after storage layout migration",
-    }
-
-
 def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
         """
@@ -3489,13 +3329,6 @@ NOISY_SERVICE_PATH_TOKENS = {
     "/packages",
 }
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".avif"}
-NON_PROJECT_SERVICE_PATH_PREFIXES = {
-    "/profile/",
-    "/developers/",
-    "/guides/",
-    "/specs/",
-    "/blog/",
-}
 KNOWN_MULTI_TENANT_SUFFIXES = {
     "vercel.app",
     "microcosm.blue",
@@ -3881,20 +3714,6 @@ def value_matches_generic_navigation_title(project: dict[str, Any], value: str) 
         if normalize_name_candidate(raw_value) == normalized_value:
             return True
     return False
-
-
-def title_identity_tokens(value: str) -> set[str]:
-    text = clean_title(value)
-    tokens = {normalize_alias_token(text)}
-    tokens.update(normalize_alias_token(part) for part in re.split(r"[\s./:_-]+", text) if part.strip())
-    expanded: set[str] = set()
-    for token in tokens:
-        if not token:
-            continue
-        expanded.add(token)
-        if len(token) > 4 and token.endswith("s"):
-            expanded.add(token[:-1])
-    return {token for token in expanded if token and len(token) >= 4}
 
 
 def title_identity_parts(value: str) -> set[str]:
@@ -5331,70 +5150,12 @@ def applog_seed_from_url(url: str) -> tuple[str, str] | None:
     return None
 
 
-ROOT_SERVICE_BLOCKED_HOSTS = {
-    "github.com",
-    "raw.githubusercontent.com",
-    "tangled.org",
-    "bsky.app",
-    "public.api.bsky.app",
-    "api.bsky.app",
-    "api.bsky.chat",
-    "discover.bsky.app",
-    "docs.bsky.app",
-    "docs.tangled.org",
-    "blog.tangled.org",
-    "discourse.atprotocol.community",
-    "web.plc.directory",
-    "atproto.com",
-    "youtube.com",
-    "www.youtube.com",
-    "youtu.be",
-}
-
-
-def import_seed_from_url(url: str, *, accept_service_root_paths: bool) -> tuple[str, str] | None:
-    seed = applog_seed_from_url(url)
-    if seed is not None:
-        return seed
-    if not accept_service_root_paths:
-        return None
-    normalized = normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return None
-    if parsed.netloc in ROOT_SERVICE_BLOCKED_HOSTS:
-        return None
-    return ("service_url", f"{parsed.scheme}://{parsed.netloc}")
-
-
 def clean_imported_name(label: str) -> str:
     text = str(label or "").strip()
     text = text.strip("* ")
     text = text.rstrip("!！?？")
     text = re.sub(r"\s+", " ", text)
     return text
-
-
-def should_replace_project_name(project: dict[str, Any], candidate_name: str) -> bool:
-    candidate = clean_imported_name(candidate_name)
-    if not candidate:
-        return False
-    current = str(project.get("name") or "").strip()
-    if not current:
-        return True
-    current_normalized = normalize_alias_token(current)
-    candidate_normalized = normalize_alias_token(candidate)
-    if not current_normalized:
-        return True
-    if current_normalized == candidate_normalized:
-        return False
-    website = str(project.get("website_url") or "")
-    if website:
-        host = urllib.parse.urlparse(normalize_url(website)).netloc.lower()
-        first = host.split(".", 1)[0] if host else ""
-        if normalize_alias_token(first) == current_normalized:
-            return True
-    return False
 
 
 def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *, source: str) -> None:
@@ -5453,17 +5214,6 @@ def all_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     cur = conn.execute("SELECT * FROM projects ORDER BY project_key")
     rows = cur.fetchall()
     return [project_from_row(row) for row in rows]
-
-
-def project_keys_for_alias(conn: sqlite3.Connection, alias: str) -> list[str]:
-    target = normalize_alias_token(alias)
-    if not target:
-        return []
-    matches: list[str] = []
-    for project in all_projects(conn):
-        if target in project_merge_aliases(project):
-            matches.append(project["project_key"])
-    return matches
 
 
 def project_search_candidates(conn: sqlite3.Connection, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
@@ -5619,40 +5369,6 @@ def parse_db_edit_request(
     except Exception:
         pass
     return heuristic_db_edit_request(text), {"transport": "heuristic", "generated_at": iso_now()}
-
-
-def summarize_project_candidate(project: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "project_key": str(project.get("project_key") or ""),
-        "name": str(project.get("name") or ""),
-        "seed_type": str(project.get("seed_type") or ""),
-        "seed_value": str(project.get("seed_value") or ""),
-        "tracking_state": str(project.get("tracking_state") or "active"),
-        "status": str(project.get("status") or ""),
-        "website_url": str(project.get("website_url") or ""),
-    }
-
-
-def resolve_import_project_key(
-    conn: sqlite3.Connection,
-    *,
-    exact_identifiers: list[tuple[str, str]],
-    names: list[str] | None = None,
-) -> str | None:
-    for identifier_type, identifier_value in exact_identifiers:
-        project_key = find_project_key_by_identifier(conn, identifier_type, identifier_value)
-        if project_key:
-            return project_key
-        if identifier_type == "nsid":
-            project_key = find_project_key_by_identifier(conn, "resolved_nsid", identifier_value)
-            if project_key:
-                return project_key
-    alias_matches: set[str] = set()
-    for name in names or []:
-        alias_matches.update(project_keys_for_alias(conn, name))
-    if len(alias_matches) == 1:
-        return next(iter(alias_matches))
-    return None
 
 
 def upsert_collection_observation(project: dict[str, Any], item: dict[str, Any], *, source: str, merge_existing: bool = False) -> None:
@@ -8020,11 +7736,6 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
 
 
-def enrich_from_service(project: dict[str, Any], service_url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> None:
-    result = probe_service_url(service_url, timeout=timeout)
-    apply_service_probe_result(project, service_url, result, follow_up_timeout=min(timeout, REQUEST_TIMEOUT_SHORT))
-
-
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
     queued = unique_list(project.get("resource_urls", []))[: max(1, int(max_pages or 6))]
     visited: set[str] = set()
@@ -8513,15 +8224,6 @@ def strip_json_fence(text: str) -> str:
         if match:
             return match.group(1).strip()
     return stripped
-
-
-def llm_endpoint_url(endpoint: str) -> str:
-    normalized = endpoint.rstrip("/")
-    if normalized.endswith("/v1/chat/completions") or normalized.endswith("/chat/completions"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/chat/completions"
-    return f"{normalized}/v1/chat/completions"
 
 
 def normalize_llm_api_style(value: str | None) -> str:
@@ -10091,66 +9793,6 @@ def build_showcase_queue(
     return queue if limit is None else queue[: max(1, int(limit or 50))]
 
 
-def build_showcase_queue_batch(
-    conn: sqlite3.Connection,
-    *,
-    tracking_states: set[str] | None = None,
-    kinds: set[str] | None = None,
-    include_personal_tools: bool = False,
-    project_list: list[dict[str, Any]] | None = None,
-    start_index: int = 0,
-    batch_size: int = 100,
-) -> tuple[list[dict[str, Any]], int]:
-    batch: list[dict[str, Any]] = []
-    projects = project_list or [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-    index = max(0, int(start_index or 0))
-    target_size = max(1, int(batch_size or 100))
-    while index < len(projects) and len(batch) < target_size:
-        project = projects[index]
-        index += 1
-        shaped = apply_promotion_state(dict(project))
-        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
-        if kinds is not None:
-            signals = [item for item in signals if str(item.get("kind") or "") in kinds]
-        if not signals:
-            continue
-        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
-        sort_score = promotion_queue_sort_score(shaped, signals)
-        batch.append(
-            {
-                "project_key": shaped["project_key"],
-                "name": shaped.get("name", ""),
-                "tracking_state": shaped.get("tracking_state", "active"),
-                "status": shaped.get("status", "draft"),
-                "category": shaped.get("category", ""),
-                "service_status": shaped.get("service_status", "unknown"),
-                "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
-                "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
-                "technical_interest_level": shaped.get("technical_interest_level", "none"),
-                "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
-                "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
-                "first_seen_at": shaped.get("first_seen_at", ""),
-                "last_seen_at": shaped.get("last_seen_at", ""),
-                "seed_type": shaped.get("seed_type", ""),
-                "seed_value": shaped.get("seed_value", ""),
-                "nsids": unique_list(
-                    [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
-                    + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
-                )[:5],
-                "website_url": shaped.get("website_url", ""),
-                "repo_urls": project_repo_hint_urls(shaped)[:3],
-                "tagline": shaped.get("tagline", ""),
-                "summary": shaped.get("summary", ""),
-                "top_priority": top_priority,
-                "sort_score": sort_score,
-                "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-                "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
-            }
-        )
-    batch.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
-    return batch, index
-
-
 def build_showcase_queue_item(
     conn: sqlite3.Connection,
     project_key: str,
@@ -10603,22 +10245,6 @@ def is_strict_tangled_repo_url(url: str) -> bool:
         return False
     owner, repo = segments
     return bool(STRICT_REPO_SEGMENT_RE.fullmatch(owner) and STRICT_REPO_SEGMENT_RE.fullmatch(repo))
-
-
-def batch_safe_merge_reasons(reasons: dict[str, list[str]]) -> dict[str, list[str]]:
-    safe: dict[str, list[str]] = {}
-    if reasons.get("github_repo_urls"):
-        valid = [value for value in reasons["github_repo_urls"] if is_strict_github_repo_url(value)]
-        if valid:
-            safe["github_repo_urls"] = valid
-    if reasons.get("source_code_urls"):
-        valid = [
-            value for value in reasons["source_code_urls"]
-            if is_strict_github_repo_url(value) or is_strict_tangled_repo_url(value)
-        ]
-        if valid:
-            safe["source_code_urls"] = valid
-    return safe
 
 
 def manual_seed_values(project: dict[str, Any], seed_type: str) -> list[str]:
@@ -12808,9 +12434,7 @@ def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
 
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
-    preprocessed = preprocess_project_json_rows(conn)
     summary = audit_and_repair_identifiers(conn)
-    summary["preprocess"] = preprocessed
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

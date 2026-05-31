@@ -1,5 +1,7 @@
 # Automation Plan
 
+> Notes/history: 初期構想を残す比較メモです。現在の実装状況や通常導線は [docs/project-registry.md](project-registry.md) と [docs/thread-handoff.md](thread-handoff.md) を正本にします。
+
 ## 目的
 
 新しく生まれた atproto プロジェクトを継続的に発見し、特に新規 lexicon を持つプロジェクトを見逃しにくくする。

@@ -201,11 +201,11 @@ review / merge / 紹介運用の制御情報です。
 
 - `features` と `inspired_by` は紹介判断や要約補助にも使いますが、現時点では app metadata 本体ではなく evidence として保持します
 - `lexicon_namespaces` は `record_json.core` の canonical 値とは別に、evidence 側でも比較・調査の補助として保持されます
-- `service_urls` / `resource_urls` / `source_code_urls` は当面 evidence に残しつつ、確信できるものだけ `record_json.app.links` に昇格させます
+- `service_urls` / `source_code_urls` / `resource_url_records` は evidence に残しつつ、確信できるものだけ `record_json.app.links` に昇格させます
 
 ## URL field の責務
 
-URL は role、confidence、observation state を分けて扱います。現行 DB は移行途中のため重複 field を残しますが、正本と compatibility view を同一視しません。
+URL は role、confidence、observation state を分けて扱います。保存 migration は完了済みですが、runtime compatibility view はまだ残っています。正本と compatibility view を同一視しません。
 
 ### canonical
 
@@ -235,8 +235,6 @@ URL は role、confidence、observation state を分けて扱います。現行 
 
 ### observation
 
-- `resource_urls`
-  - `resource_url_records[].url` から導出する compatibility view
 - `resource_url_records`
   - docs / about / blog など、調査中に取得した補助 page の正本
   - `url`, `role`, `source`, `observed_at`, `confidence`
@@ -255,12 +253,14 @@ URL は role、confidence、observation state を分けて扱います。現行 
   - `source_code_urls` の GitHub provider view
 - `tangled_repo_urls`
   - `source_code_urls` の Tangled provider view
+- `resource_urls`
+  - `resource_url_records[].url` から導出する runtime compatibility view
 - `record_json.app.links`
   - export 用の role 付き view
 
 `resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が得られたら legacy record は畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。
 
-derived compatibility view は通常導線でまだ参照されています。現時点では保存を止めません。caller を正本へ寄せてから derive-only または削除へ移します。
+derived compatibility view は通常導線でまだ参照されています。`resource_urls` は保存を止めましたが、他の view は保存中です。caller を正本へ寄せてから derive-only または削除へ移します。
 
 `ops_json.ops` には lexicon の位置付けを表す派生値も保持します。
 
