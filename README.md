@@ -366,13 +366,11 @@ python3 scripts/project_registry.py enrich --all --new-only --llm-reasoning-effo
 
 - [docs/project-registry.md](docs/project-registry.md)
 - [docs/project-record.md](docs/project-record.md)
-- [docs/manual-workflow.md](docs/manual-workflow.md)
 
 運用・設計向け:
 
-- [docs/automation-plan.md](docs/automation-plan.md)
-- [docs/automation-architecture.md](docs/automation-architecture.md)
 - [docs/registry-internals.md](docs/registry-internals.md)
+- [docs/roadmap.md](docs/roadmap.md)
 - [docs/thread-handoff.md](docs/thread-handoff.md)
 
 実装:

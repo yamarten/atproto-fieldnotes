@@ -4852,12 +4852,13 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
     if website_url:
         project["website_url"] = website_url
         project["service_urls"] = add_unique(project.get("service_urls", []), website_url)
-        project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != website_url]
-        project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != website_url]
     elif project.get("service_urls"):
         project["website_url"] = project["service_urls"][0]
     else:
         project["website_url"] = ""
+    confirmed_urls = {normalize_url(item) for item in project.get("service_urls", []) if item}
+    project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) not in confirmed_urls]
+    project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) not in confirmed_urls]
     sync_resource_url_records(project)
 
 

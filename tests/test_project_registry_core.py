@@ -482,6 +482,17 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://tz2at.xyz", project["service_url_candidates"])
         self.assertNotIn("https://tz2at.xyz", project["website_url_candidates"])
 
+    def test_confirmed_service_url_is_removed_from_candidate_views(self) -> None:
+        project = registry.default_project_record("proj:serviceoverlap", "service_url", "https://example.com")
+        project["service_urls"] = ["https://example.com", "https://app.example.com"]
+        project["service_url_candidates"] = ["https://app.example.com"]
+        project["website_url_candidates"] = ["https://app.example.com"]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://app.example.com", project["service_url_candidates"])
+        self.assertNotIn("https://app.example.com", project["website_url_candidates"])
+
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_legacy_resource_url_becomes_unknown_legacy_record(self) -> None:

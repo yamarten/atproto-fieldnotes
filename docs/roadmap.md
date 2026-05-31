@@ -140,5 +140,10 @@ LLM は evidence の要約と暫定分類に使えますが、単独で高スコ
   - `resource_url_records` への実 DB migration は適用済み。one-shot migration CLI は削除済み
   - `resource_urls` は新規保存 payload から除外済み。runtime caller を `resource_url_records` へ寄せ、最終的に runtime compatibility view も縮退させる
   - `cleanup-app-links` は追加・実 DB 適用済み。URL heuristic 変更後の再構築用として残す
+  - confirmed / candidate service URL の overlap を新規・更新導線で除く invariant は実装済み。実 DB には既存 overlap が 4 project 残る。`repair-db --execute` は他の正規化も広く適用するため、実行前に dry-run の差分を確認する
 - `inspired_by` を app metadata として昇格させるか再判断する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
+- 旧 field 互換の名残を整理する
+  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
+  - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする
+- `developer_accounts` / `candidate_developer_accounts` の confirmed 条件と UI 露出を整理する

@@ -159,35 +159,6 @@
     - LLM の暫定評価で `high / exceptional` のものを `promotion-queue` の `technical_insight_candidate` に出す
     - 新規設計パターン、protocol gap、相互運用実験、特徴的 architecture、参照実装を区別する
 
-## 低優先の整理
-
-- 旧 field 互換の名残整理
-  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残っている
-  - schema からは落としているが、コード内部では完全には消えていない
-- `confirmed_nsids` と lexicon analysis 情報の境界整理
-  - 今は `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` が混在する箇所がまだある
-  - 長期的には `record` と `ops` で役割をさらに明確にしたい
-- `developer_accounts` の表現整理
-  - 現在は
-    - `developer_accounts`
-    - `candidate_developer_accounts`
-    の二層
-  - confirmed/candidate の UI 露出はまだ薄い
-  - repo/readme/profile 由来の confirmed 条件をもう少し増やせる
-- `resource_urls` の運用整理
-  - `resource_url_records` は追加済み。`url / role / source / observed_at / confidence` を持つ
-  - 新規 enrich は records を正本として書き、`resource_urls` は runtime compatibility view として導出する。新規保存 payload には書かない
-  - 既存 `resource_urls` は shape 時に legacy record として lossless に読める
-  - enrich で同じ URL の confirmed observation が得られたら legacy record は畳む
-  - 実 DB migration と `cleanup-app-links --execute` は適用済み。one-shot migration CLI は削除済み
-  - `cleanup-app-links` は URL heuristic 変更後の再構築用として残している
-  - runtime caller の compatibility view 縮退は未接続
-- URL field の棚卸し
-  - `audit-url-fields` は追加済み。raw 保存 payload を読み、field 件数、alias 重複、invariant 違反を読み取り専用で報告する
-  - `website_url_candidates` は `service_url_candidates` の legacy alias
-  - `github_repo_urls` / `tangled_repo_urls` は provider 別 compatibility view
-  - runtime caller 移行と compatibility view の縮退は未接続
-
 ## `project_registry.py` の重要ポイント
 
 - `add-seed`
@@ -246,10 +217,8 @@
 - 設計・内部仕様
   - [docs/registry-internals.md](registry-internals.md)
   - [docs/project-record.md](project-record.md)
-- 調査背景
-  - [docs/manual-workflow.md](manual-workflow.md)
-  - [docs/automation-plan.md](automation-plan.md)
-  - [docs/automation-architecture.md](automation-architecture.md)
+- 将来課題
+  - [docs/roadmap.md](roadmap.md)
 
 ## コミット時に気をつけること
 
