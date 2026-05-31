@@ -593,6 +593,7 @@ INDEX_HTML = r"""<!doctype html>
     <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <h2 id="confirm-title">Confirm Action</h2>
       <div id="confirm-message" class="confirm-message"></div>
+      <label id="confirm-input-label" hidden>Reason <input id="confirm-input" type="text" placeholder="Reason"></label>
       <div class="actions">
         <button id="confirm-cancel" title="Cancel this action. No SQLite changes are made.">Cancel</button>
         <button id="confirm-ok" class="primary" title="Proceed with this action.">Proceed</button>
@@ -767,12 +768,12 @@ INDEX_HTML = r"""<!doctype html>
       return reasoningEffortPresets.includes(value || "") ? "" : (value || "");
     }
 
-    function card(item) {
+    function cardBody(item) {
       const signals = asList(item.signals).slice(0, 2).map((sig) =>
         `<div class="signal">${esc(sig.kind)} <span class="muted">p${esc(sig.priority || 0)}</span></div>`
       ).join("");
       const seedLabel = [item.seed_type, item.seed_value].filter(Boolean).join(": ");
-      return `<button class="card" data-key="${esc(item.project_key)}" title="Open project details. This does not change the DB.">
+      return `
         <h2>${esc(item.name || "(unnamed)")}</h2>
         <div class="row">
           <span class="pill">${esc(item.project_key)}</span>
@@ -781,8 +782,21 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         ${seedLabel ? `<div class="muted">${esc(seedLabel)}</div>` : ""}
         ${item.website_url ? `<a href="${esc(item.website_url)}" target="_blank" rel="noreferrer">${esc(item.website_url)}</a>` : ""}
-        <div class="signals">${signals}</div>
-      </button>`;
+        <div class="signals">${signals}</div>`;
+    }
+
+    function card(item) {
+      return `<button class="card" data-key="${esc(item.project_key)}" title="Open project details. This does not change the DB.">${cardBody(item)}</button>`;
+    }
+
+    function promotionCard(item) {
+      return `<div class="card">
+        ${cardBody(item)}
+        <div class="action-card-actions">
+          <button data-key="${esc(item.project_key)}" title="Open project details. This does not change the DB.">Open</button>
+          <button data-hold-promotion="${esc(item.project_key)}" data-hold-reason="${esc(item.last_promotion_deferral_reason || "")}" title="Hide this project from the promotion queue for 7 days while recording a reason.">Hold 7d</button>
+        </div>
+      </div>`;
     }
 
     function mergeCard(item, index) {
@@ -961,7 +975,7 @@ INDEX_HTML = r"""<!doctype html>
       } else if (state.tab === "promotion") {
         const items = asList(data.items);
         state.projectItems = items;
-        $("list").innerHTML = listCount("Promotion queue", data.promotion_count ?? items.length, `limit ${state.settings.promotionLimit || 50}`) + (items.map(card).join("") || `<div class="card muted">No promotion items.</div>`);
+        $("list").innerHTML = listCount("Promotion queue", data.promotion_count ?? items.length, `limit ${state.settings.promotionLimit || 50}`) + (items.map(promotionCard).join("") || `<div class="card muted">No promotion items.</div>`);
       } else if (state.tab === "merge") {
         state.mergeItems = asList(data.items);
         const detail = `${data.planned_merges || 0} planned, ${data.skipped_count || 0} skipped`;
@@ -1804,6 +1818,28 @@ INDEX_HTML = r"""<!doctype html>
       `;
     }
 
+    function activePromotionDeferral(project) {
+      const now = Date.now();
+      return asList(project.promotion_deferrals).filter((item) => !item.cleared_at && Date.parse(item.expires_at || "") > now).slice(-1)[0] || null;
+    }
+
+    function latestPromotionDeferralReason(project) {
+      return asList(project.promotion_deferrals).slice(-1)[0]?.reason || "";
+    }
+
+    function renderPromotionHold(project) {
+      const active = activePromotionDeferral(project);
+      return `
+        <div class="section"><h3>Promotion Hold</h3>
+          ${active ? `<div class="identifier-row identifier-candidate"><span class="identifier-value">${esc(active.reason || "")}<span class="muted"> until ${esc(active.expires_at || "")}</span></span></div>` : `<span class="muted">No active hold.</span>`}
+          <input id="promotion-hold-reason" type="text" value="${esc(latestPromotionDeferralReason(project))}" placeholder="Reason for holding promotion" title="Reason recorded with a 7-day promotion hold.">
+          <div class="actions">
+            <button id="hold-promotion" title="Hide this project from the promotion queue for 7 days while recording the reason.">Hold 7d</button>
+            ${active ? `<button id="clear-promotion-hold" title="Clear active promotion holds while preserving their history.">Clear hold</button>` : ""}
+          </div>
+        </div>`;
+    }
+
     async function loadDetail(key, options = {}) {
       state.selected = key;
       state.detailView = options.view || "project";
@@ -1842,6 +1878,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Summary</h3><div>${esc(p.tagline || "")}</div><div class="muted">${esc(p.summary || "")}</div></div>
           <div class="section"><h3>Merge Recommendation</h3>${renderMergeRecommendation(p.merge_recommendation)}</div>
           <div class="section"><h3>Signals</h3><div class="signals">${asList(review.signals).map((sig) => `<div class="signal"><b>${esc(sig.kind)}</b> p${esc(sig.priority || 0)} <button data-dismiss="${esc(sig.kind)}" title="Store this review signal kind as dismissed for this project.">Dismiss</button><pre>${esc(JSON.stringify(sig.details || {}, null, 2))}</pre></div>`).join("") || `<span class="muted">None</span>`}</div></div>
+          ${renderPromotionHold(p)}
           <div class="section"><h3>Identity</h3><div>${esc(p.seed_type || "")}: ${esc(p.seed_value || "")}</div>${renderEditableIdentifierRows(asList(p.input_nsids).concat(asList(p.resolved_nsids)), "nsid")}</div>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
           <div class="section"><h3>Repositories</h3>${renderEditableIdentifierRows(asList(p.source_code_urls).concat(asList(p.github_repo_urls)).concat(asList(p.tangled_repo_urls)), "repo_url")}<div class="identifier-list">${renderCandidateRows(data.repo_candidates, "repo_url")}</div></div>
@@ -1906,6 +1943,24 @@ INDEX_HTML = r"""<!doctype html>
           const seed = $("seed-value").value.trim();
           if (seed && await confirmAction(`Attach seed to ${key}?\n\n${seed}\n\nThis writes to SQLite.`)) {
             mutate("/api/seeds", { seed, project_key: key });
+          }
+        };
+      }
+      $("hold-promotion").onclick = async () => {
+        const reason = $("promotion-hold-reason").value.trim();
+        if (!reason) {
+          status("Promotion hold reason is required.");
+          return;
+        }
+        if (await confirmAction(`Hold promotion for ${key} for 7 days?\n\nReason: ${reason}\n\nThis hides the project from the promotion queue until the hold expires.`)) {
+          mutate(`/api/projects/${encodeURIComponent(key)}/defer-promotion`, { reason, days: 7 });
+        }
+      };
+      const clearPromotionHold = $("clear-promotion-hold");
+      if (clearPromotionHold) {
+        clearPromotionHold.onclick = async () => {
+          if (await confirmAction(`Clear active promotion holds for ${key}?\n\nThis preserves hold history and makes the project eligible for the promotion queue again.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/clear-promotion-deferral`, {});
           }
         };
       }
@@ -2028,8 +2083,10 @@ INDEX_HTML = r"""<!doctype html>
     function confirmAction(message) {
       const modal = $("confirm-modal");
       const messageBox = $("confirm-message");
+      const inputLabel = $("confirm-input-label");
       const ok = $("confirm-ok");
       const cancel = $("confirm-cancel");
+      inputLabel.hidden = true;
       messageBox.textContent = message;
       modal.hidden = false;
       ok.focus();
@@ -2050,6 +2107,49 @@ INDEX_HTML = r"""<!doctype html>
         cancel.onclick = () => cleanup(false);
         modal.onclick = (event) => {
           if (event.target === modal) cleanup(false);
+        };
+        document.addEventListener("keydown", onKeydown);
+      });
+    }
+
+    function requestTextAction(message, initialValue = "") {
+      const modal = $("confirm-modal");
+      const messageBox = $("confirm-message");
+      const inputLabel = $("confirm-input-label");
+      const input = $("confirm-input");
+      const ok = $("confirm-ok");
+      const cancel = $("confirm-cancel");
+      messageBox.textContent = message;
+      inputLabel.hidden = false;
+      input.value = initialValue;
+      modal.hidden = false;
+      input.focus();
+      return new Promise((resolve) => {
+        const cleanup = (value) => {
+          ok.onclick = null;
+          cancel.onclick = null;
+          modal.onclick = null;
+          document.removeEventListener("keydown", onKeydown);
+          modal.hidden = true;
+          inputLabel.hidden = true;
+          resolve(value);
+        };
+        const proceed = () => {
+          const value = input.value.trim();
+          if (!value) {
+            input.focus();
+            return;
+          }
+          cleanup(value);
+        };
+        const onKeydown = (event) => {
+          if (event.key === "Escape") cleanup("");
+          if (event.key === "Enter") proceed();
+        };
+        ok.onclick = proceed;
+        cancel.onclick = () => cleanup("");
+        modal.onclick = (event) => {
+          if (event.target === modal) cleanup("");
         };
         document.addEventListener("keydown", onKeydown);
       });
@@ -2153,7 +2253,14 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
-    $("list").onclick = (event) => {
+    $("list").onclick = async (event) => {
+      const holdPromotion = event.target.closest("[data-hold-promotion]");
+      if (holdPromotion) {
+        const key = holdPromotion.dataset.holdPromotion;
+        const reason = await requestTextAction(`Hold promotion for ${key} for 7 days?\n\nThis records a reason and temporarily hides the project from the promotion queue.`, holdPromotion.dataset.holdReason || "");
+        if (reason) mutate(`/api/projects/${encodeURIComponent(key)}/defer-promotion`, { reason, days: 7 }, false);
+        return;
+      }
       const button = event.target.closest("[data-key]");
       if (button) loadDetail(button.dataset.key, { view: state.tab === "review" ? "review" : "project", projectNavigation: true });
       const mergeButton = event.target.closest("[data-merge-index]");
@@ -2552,6 +2659,34 @@ def clear_deferred_identifier_on_project(
     project["duplicate_candidates"] = registry.compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = registry.compute_merge_recommendation(project)
     project = registry.apply_promotion_state(project)
+    registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project
+
+
+def defer_promotion_on_project(
+    conn: sqlite3.Connection,
+    project_key: str,
+    *,
+    reason: str = "",
+    days: int = registry.DEFAULT_PROMOTION_DEFER_DAYS,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if project is None:
+        raise KeyError(project_key)
+    project = registry.ensure_project_shape(project)
+    entry = registry.defer_promotion_on_project(project, reason=reason, days=days)
+    registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    conn.commit()
+    return project, entry
+
+
+def clear_promotion_deferrals_on_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any]:
+    project = registry.fetch_project(conn, registry.resolve_project_key_input(conn, project_key))
+    if project is None:
+        raise KeyError(project_key)
+    project = registry.ensure_project_shape(project)
+    registry.clear_active_promotion_deferrals(project)
     registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
     conn.commit()
     return project
@@ -3890,6 +4025,19 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 value = str(payload.get("value") or "").strip()
                 project = clear_deferred_identifier_on_project(conn, project_key, identifier_type, value)
                 self.send_json({"project": project_summary(project), "cleared_defer": {"type": identifier_type, "value": value}})
+                return
+            if action == "defer-promotion":
+                project, entry = defer_promotion_on_project(
+                    conn,
+                    project_key,
+                    reason=str(payload.get("reason") or "").strip(),
+                    days=parse_int(str(payload.get("days") or "7"), 7, minimum=1, maximum=365),
+                )
+                self.send_json({"project": project_summary(project), "promotion_deferral": entry})
+                return
+            if action == "clear-promotion-deferral":
+                project = clear_promotion_deferrals_on_project(conn, project_key)
+                self.send_json({"project": project_summary(project), "active_promotion_deferral": registry.active_promotion_deferral(project)})
                 return
             if action == "clear-separate":
                 other_key = str(payload.get("other_project_key") or "").strip()

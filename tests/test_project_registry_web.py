@@ -170,6 +170,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("clear-defer-identifier", web.INDEX_HTML)
         self.assertIn("Defer 30d", web.INDEX_HTML)
         self.assertIn("Clear defer", web.INDEX_HTML)
+        self.assertIn("defer-promotion", web.INDEX_HTML)
+        self.assertIn("clear-promotion-deferral", web.INDEX_HTML)
+        self.assertIn("Hold 7d", web.INDEX_HTML)
+        self.assertIn("Clear hold", web.INDEX_HTML)
+        self.assertIn("requestTextAction", web.INDEX_HTML)
         self.assertIn("clear-separate", web.INDEX_HTML)
         self.assertIn("renderProjectGuards", web.INDEX_HTML)
         self.assertIn("renderEditableIdentifierRows", web.INDEX_HTML)
@@ -503,6 +508,47 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(project["deferred_identifiers"], [])
         self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
         self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+
+    def test_promotion_hold_hides_queue_item_and_clear_preserves_history(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:222222222222")
+            project["category"] = "project"
+            registry.save_project(conn, project)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, payload = self.request("GET", "/api/promotion-queue")
+        self.assertEqual(status, 200)
+        self.assertIn("proj:222222222222", {item["project_key"] for item in payload["items"]})
+
+        status, payload = self.request(
+            "POST",
+            "/api/projects/proj:222222222222/defer-promotion",
+            {"reason": "wait for launch", "days": 7},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["promotion_deferral"]["reason"], "wait for launch")
+        status, payload = self.request("GET", "/api/promotion-queue")
+        self.assertEqual(status, 200)
+        self.assertNotIn("proj:222222222222", {item["project_key"] for item in payload["items"]})
+
+        status, payload = self.request("POST", "/api/projects/proj:222222222222/clear-promotion-deferral", {})
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["active_promotion_deferral"])
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:222222222222")
+        finally:
+            conn.close()
+        self.assertEqual(project["promotion_deferrals"][0]["reason"], "wait for launch")
+        self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
+        status, payload = self.request("GET", "/api/promotion-queue")
+        self.assertEqual(status, 200)
+        self.assertIn("proj:222222222222", {item["project_key"] for item in payload["items"]})
 
     def test_split_project_action_creates_new_project(self) -> None:
         status, payload = self.request(

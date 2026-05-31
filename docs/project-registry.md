@@ -505,7 +505,7 @@ python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxx
 python3 scripts/project_registry.py defer-promotion --project-key proj:xxxxxxxxxxxx --clear
 ```
 
-`promotion_deferrals` の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。Web UI 操作も未接続で、将来は promotion queue に `Hold 7d`、project detail に期限・理由・再保留・解除を追加できます。
+`promotion_deferrals` の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。Web UI では promotion queue の `Hold 7d`、project detail の期限・理由・再保留・`Clear hold` を使えます。解除しても履歴は残ります。
 
 表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
 

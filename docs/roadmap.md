@@ -262,7 +262,7 @@ UI は `Search` タブ内に次を置きます。
    - confirmed / candidate row に `Defer 30d`
    - Guards に `deferred_identifiers` の期限、note、`Clear defer`
    - 恒久 block と一時保留を視覚的に分ける
-2. promotion の理由付き保留
+2. promotion の理由付き保留（実装済み）
    - promotion queue に `Hold 7d`
    - project detail に active な期限、理由、再保留、解除
 3. project detail の調査情報
