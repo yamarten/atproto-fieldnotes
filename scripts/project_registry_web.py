@@ -124,6 +124,9 @@ INDEX_HTML = r"""<!doctype html>
       align-items: center;
       flex-wrap: wrap;
     }
+    .tabs, .toolbar {
+      min-width: 0;
+    }
     .identifier-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
@@ -392,6 +395,9 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--muted);
       padding-top: 8px;
     }
+    .status:empty {
+      display: none;
+    }
     .mobile-detail-bar {
       display: none;
     }
@@ -438,7 +444,66 @@ INDEX_HTML = r"""<!doctype html>
       .action-card-actions {
         justify-content: flex-start;
       }
-      header { padding: 9px 10px; }
+      header {
+        position: sticky;
+        padding: 7px 10px;
+      }
+      h1 {
+        display: flex;
+        align-items: center;
+        font-size: 16px;
+        min-height: 32px;
+        margin-bottom: 4px;
+        padding-right: 82px;
+      }
+      .tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        margin: 0 -10px;
+        padding: 0 10px 4px;
+      }
+      .tabs::-webkit-scrollbar {
+        display: none;
+      }
+      .tabs button {
+        flex: 0 0 auto;
+        min-height: 32px;
+        padding: 5px 9px;
+      }
+      .toolbar {
+        display: block;
+        height: 0;
+        min-height: 0;
+        padding: 0;
+        overflow: visible;
+      }
+      .toolbar button,
+      .toolbar select,
+      .toolbar input {
+        min-height: 32px;
+        padding: 5px 8px;
+      }
+      #refresh {
+        position: absolute;
+        top: 7px;
+        right: 10px;
+        min-height: 32px;
+        padding: 5px 9px;
+      }
+      body[data-tab="search"] .toolbar,
+      body[data-tab="merge"] .toolbar {
+        display: flex;
+        gap: 6px;
+        height: auto;
+        padding-top: 6px;
+        padding-right: 76px;
+      }
+      .status {
+        min-height: 18px;
+        padding-top: 4px;
+      }
     }
   </style>
 </head>
@@ -535,7 +600,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllRetryFailures: false,
       enrichAllDeepInvestigation: false
     };
-    const state = { tab: "review", selected: null, mergeItems: [], seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", mergeItems: [], mergeReturnIndex: null, seedPreview: null, enrichJobs: new Map(), listCache: new Map(), listRequestSeq: 0, settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -565,6 +630,7 @@ INDEX_HTML = r"""<!doctype html>
 
     function setTab(tab) {
       state.tab = tab;
+      document.body.dataset.tab = tab;
       document.body.classList.toggle("single-pane", tab === "jobs");
       for (const name of ["review", "review-ops", "promotion", "merge", "sync", "jobs", "search", "new-seed", "settings"]) {
         $("tab-" + name).classList.toggle("active", name === tab);
@@ -1383,8 +1449,6 @@ INDEX_HTML = r"""<!doctype html>
         <div class="actions">
           <button id="merge-plan" class="primary" title="Merge source into target, save the merged target, and delete the source project.">Merge</button>
           <button id="block-plan" title="Mark the two projects as separate so future merge recommendations avoid this pair.">Block pair</button>
-          <button id="ignore-source" class="danger" title="Set the source project tracking_state to ignore.">Ignore source</button>
-          <button id="ignore-target" class="danger" title="Set the target project tracking_state to ignore.">Ignore target</button>
           <button id="skip-plan" title="Hide this plan in the current browser list only. This does not change the DB.">Skip</button>
         </div>
         <div class="section"><h3>Source</h3>${projectMini(fullItem.source)}<div class="actions"><button id="open-source-project" title="Open the source project detail view. This does not change the DB.">Open source</button></div></div>
@@ -1422,23 +1486,13 @@ INDEX_HTML = r"""<!doctype html>
           mergeMutate("block", body);
         }
       };
-      $("ignore-source").onclick = async () => {
-        if (await confirmAction(`Set source project to ignore?\n\n${item.source_project_key} ${item.source_name || ""}\n\nThis writes tracking_state=ignore.`)) {
-          mergeMutate("ignore_source", body);
-        }
-      };
-      $("ignore-target").onclick = async () => {
-        if (await confirmAction(`Set target project to ignore?\n\n${item.target_project_key} ${item.target_name || ""}\n\nThis writes tracking_state=ignore.`)) {
-          mergeMutate("ignore_target", body);
-        }
-      };
       $("skip-plan").onclick = () => {
         state.mergeItems.splice(index, 1);
         $("list").innerHTML = state.mergeItems.map(mergeCard).join("") || `<div class="card muted">No merge plans.</div>`;
         $("detail").innerHTML = `<p class="muted">Skipped locally. No DB change.</p>`;
       };
-      $("open-source-project").onclick = () => loadDetail(item.source_project_key);
-      $("open-target-project").onclick = () => loadDetail(item.target_project_key);
+      $("open-source-project").onclick = () => loadDetail(item.source_project_key, { mergeReturnIndex: index });
+      $("open-target-project").onclick = () => loadDetail(item.target_project_key, { mergeReturnIndex: index });
     }
 
     async function mergeMutate(action, payload) {
@@ -1532,16 +1586,21 @@ INDEX_HTML = r"""<!doctype html>
       `;
     }
 
-    async function loadDetail(key) {
+    async function loadDetail(key, options = {}) {
       state.selected = key;
+      state.detailView = options.view || "project";
+      state.mergeReturnIndex = Object.prototype.hasOwnProperty.call(options, "mergeReturnIndex") ? options.mergeReturnIndex : null;
       status("Loading project...");
       try {
         const data = await api("/api/projects/" + encodeURIComponent(key));
         const p = data.project;
         const review = data.review_item || {};
         const raw = esc(JSON.stringify(p, null, 2));
+        const isReviewView = state.detailView === "review";
         $("detail").innerHTML = `
           ${detailBackButton()}
+          ${state.mergeReturnIndex !== null ? `<div class="actions"><button id="back-to-merge-detail" title="Return to the merge detail you opened this project from. This does not change the DB.">Back to merge detail</button></div>` : ""}
+          ${isReviewView ? `<div class="actions"><button id="open-project-detail" title="Open the full project detail view. This does not change the DB.">Open project detail</button></div>` : ""}
           <div>
             <h2>${esc(p.name || "(unnamed)")}</h2>
             <div class="row">
@@ -1566,7 +1625,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
           <div class="section"><h3>Repositories</h3>${renderEditableIdentifierRows(asList(p.source_code_urls).concat(asList(p.github_repo_urls)).concat(asList(p.tangled_repo_urls)), "repo_url")}<div class="identifier-list">${renderCandidateRows(data.repo_candidates, "repo_url")}</div></div>
           <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(state.enrichJobs.get(p.project_key)))}</pre></div>
-          <div class="section"><h3>Add Seed</h3><div class="row"><input id="seed-value" type="text" placeholder="NSID, repo URL, service URL" title="Seed to attach to this existing project."><button id="add-seed" title="Attach this seed to the current project and write it to SQLite.">Add</button></div></div>
+          ${isReviewView ? "" : `<div class="section"><h3>Add Seed</h3><div class="row"><input id="seed-value" type="text" placeholder="NSID, repo URL, service URL" title="Seed to attach to this existing project."><button id="add-seed" title="Attach this seed to the current project and write it to SQLite.">Add</button></div></div>
           <div class="section"><h3>Project Edits</h3>
             <div class="row">
               <select id="edit-identifier-type" title="Identifier type to edit.">
@@ -1581,7 +1640,7 @@ INDEX_HTML = r"""<!doctype html>
               <button id="split-project" title="Move this identifier into a new project, remove it from the current project, and block it from reattaching.">Split</button>
               <button id="block-identifier" class="danger" title="Block this identifier on the current project and remove matching stored values.">Block identifier</button>
             </div>
-          </div>
+          </div>`}
           <div class="section"><h3>Guards</h3>${renderProjectGuards(p)}</div>
           <div class="section"><h3>Raw JSON</h3><details><summary>Show</summary><pre>${raw}</pre></details></div>
         `;
@@ -1611,28 +1670,45 @@ INDEX_HTML = r"""<!doctype html>
           startEnrichJob(key, true);
         }
       };
-      $("add-seed").onclick = async () => {
-        const seed = $("seed-value").value.trim();
-        if (seed && await confirmAction(`Attach seed to ${key}?\n\n${seed}\n\nThis writes to SQLite.`)) {
-          mutate("/api/seeds", { seed, project_key: key });
-        }
-      };
-      $("split-project").onclick = async () => {
-        const identifierType = $("edit-identifier-type").value;
-        const value = $("edit-identifier-value").value.trim();
-        const note = $("edit-note").value.trim();
-        if (value && await confirmAction(`Split this identifier out of ${key}?\n\n${identifierType}: ${value}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
-          mutate(`/api/projects/${encodeURIComponent(key)}/split-project`, { identifier_type: identifierType, value, note });
-        }
-      };
-      $("block-identifier").onclick = async () => {
-        const identifierType = $("edit-identifier-type").value;
-        const value = $("edit-identifier-value").value.trim();
-        const note = $("edit-note").value.trim();
-        if (value && await confirmAction(`Block this identifier on ${key}?\n\n${identifierType}: ${value}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
-          mutate(`/api/projects/${encodeURIComponent(key)}/block-identifier`, { identifier_type: identifierType, value, note });
-        }
-      };
+      const addSeed = $("add-seed");
+      if (addSeed) {
+        addSeed.onclick = async () => {
+          const seed = $("seed-value").value.trim();
+          if (seed && await confirmAction(`Attach seed to ${key}?\n\n${seed}\n\nThis writes to SQLite.`)) {
+            mutate("/api/seeds", { seed, project_key: key });
+          }
+        };
+      }
+      const splitProject = $("split-project");
+      if (splitProject) {
+        splitProject.onclick = async () => {
+          const identifierType = $("edit-identifier-type").value;
+          const value = $("edit-identifier-value").value.trim();
+          const note = $("edit-note").value.trim();
+          if (value && await confirmAction(`Split this identifier out of ${key}?\n\n${identifierType}: ${value}\n\nThis creates a new project, removes the identifier from the current project, and records a separation/block.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/split-project`, { identifier_type: identifierType, value, note });
+          }
+        };
+      }
+      const blockIdentifier = $("block-identifier");
+      if (blockIdentifier) {
+        blockIdentifier.onclick = async () => {
+          const identifierType = $("edit-identifier-type").value;
+          const value = $("edit-identifier-value").value.trim();
+          const note = $("edit-note").value.trim();
+          if (value && await confirmAction(`Block this identifier on ${key}?\n\n${identifierType}: ${value}\n\nThis removes matching values from the project and records a blocked identifier.`)) {
+            mutate(`/api/projects/${encodeURIComponent(key)}/block-identifier`, { identifier_type: identifierType, value, note });
+          }
+        };
+      }
+      const openProjectDetail = $("open-project-detail");
+      if (openProjectDetail) {
+        openProjectDetail.onclick = () => loadDetail(key, { view: "project" });
+      }
+      const backToMerge = $("back-to-merge-detail");
+      if (backToMerge) {
+        backToMerge.onclick = () => loadMergeDetail(state.mergeReturnIndex);
+      }
       document.querySelectorAll("[data-dismiss]").forEach((el) => {
         el.onclick = async () => {
           if (await confirmAction(`Dismiss review signal for ${key}?\n\n${el.dataset.dismiss}\n\nThis stores the signal kind in dismissed_review_kinds.`)) {
@@ -1794,7 +1870,7 @@ INDEX_HTML = r"""<!doctype html>
           updateEnrichJobStatus(key, job);
           if (job.status === "done") {
             status("Enrich done.");
-            if (state.selected === key) await loadDetail(key);
+            if (state.selected === key) await loadDetail(key, { view: state.detailView, mergeReturnIndex: state.mergeReturnIndex });
             return;
           }
           if (job.status === "failed") {
@@ -1816,7 +1892,7 @@ INDEX_HTML = r"""<!doctype html>
         clearListCache();
         status(data.job_id ? `Started job ${data.job_id}` : "Saved.");
         await loadList({ force: true });
-        if (reloadDetail && state.selected) await loadDetail(state.selected);
+        if (reloadDetail && state.selected) await loadDetail(state.selected, { view: state.detailView, mergeReturnIndex: state.mergeReturnIndex });
       } catch (err) {
         status(err.message);
       }
@@ -1824,7 +1900,7 @@ INDEX_HTML = r"""<!doctype html>
 
     $("list").onclick = (event) => {
       const button = event.target.closest("[data-key]");
-      if (button) loadDetail(button.dataset.key);
+      if (button) loadDetail(button.dataset.key, { view: state.tab === "review" ? "review" : "project" });
       const mergeButton = event.target.closest("[data-merge-index]");
       if (mergeButton) loadMergeDetail(Number(mergeButton.dataset.mergeIndex));
     };
