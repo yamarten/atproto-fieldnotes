@@ -15,11 +15,12 @@
 - `deferred_identifiers` は CLI の `defer-identifier` で追加する一時保留 guard
   - URL は candidate に降格し、NSID は deferred category に保持する
   - 期限内は自動 confirmed 化を抑制する
-  - Web UI 操作は未接続。confirmed/candidate row の `Defer 30d` と `Guards` の期限表示を追加する余地がある
+  - Web UI では confirmed/candidate row の `Defer 30d`、`Guards` の期限表示と `Clear defer` を使える
 - `promotion_deferrals` は CLI の `defer-promotion` または `promotion-queue --interactive` の `h` で追加する理由付き一時保留履歴
   - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
   - 履歴は残し、再保留時に直近理由を再利用できる
-  - Web UI 操作と理由からの復活条件自動判定は未接続
+  - Web UI では promotion queue の `Hold 7d`、project detail の期限・理由・再保留・`Clear hold` を使える
+  - 理由からの復活条件自動判定は未接続
 
 ## 運用上の注意
 
@@ -159,7 +160,7 @@
     - LLM の暫定評価で `high / exceptional` のものを `promotion-queue` の `technical_insight_candidate` に出す
     - 新規設計パターン、protocol gap、相互運用実験、特徴的 architecture、参照実装を区別する
 - Web UI 詳細検索
-  - `Search` は自由語 score 検索と tracking state / service status / category / introduced / candidate / error / review signal / 日付 filter の AND 条件に対応済み
+  - `Search` は自由語 score 検索と tracking state / service status / contribution / technical interest / category / introduced / candidate / error / promotion hold / review signal / 日付 filter の AND 条件に対応済み
   - browser 側の `key:value` 演算子は canonical な API query parameter へ変換する。API に別 DSL は追加していない
   - schema 追加なしの in-memory filter なので、遅さが問題になったら scalar 条件を SQLite `WHERE` に寄せる
 

@@ -271,7 +271,7 @@ UI は `Search` タブ内に次を置きます。
 - promotion queue のグローバル sort、`technical_insight_candidate`、review queue の contribution score 補正は、既存 queue builder を再利用しているため Web UI の一覧順と signal に反映される
 - title filter、authority service URL 保持、lexicon scope 分類は enrich / queue の core 処理として反映される
 
-未接続で、次に追加する価値が高いもの:
+通常導線へ追加済み:
 
 1. identifier の一時保留（実装済み）
    - confirmed / candidate row に `Defer 30d`
@@ -290,15 +290,17 @@ UI は `Search` タブ内に次を置きます。
    - technical interest level
    - active promotion deferral の有無
 
-運用画面として追加を検討するもの:
+原則 CLI に残す保守操作:
 
 - `audit-source-config` の hosted suffix split 監査
   - 既存 project detail の単体 split とは別導線
   - tenant group と仮分割後 merge candidate を確認してから実行する
+  - 複数 identifier を動かすため、通常のモバイル review 導線には出さない
 - `audit-url-fields`
   - 原則 read-only report
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
+  - Web UI には出さず CLI で扱う
 
 調査情報の専用表示と Search filter は接続済みです。運用画面として列挙した audit / cleanup 操作は未接続で、引き続き CLI を使います。
 
