@@ -495,6 +495,15 @@ INDEX_HTML = r"""<!doctype html>
       .action-card-actions {
         justify-content: flex-start;
       }
+      .identifier-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .identifier-row-actions {
+        justify-content: flex-start;
+      }
+      .identifier-row > button {
+        justify-self: start;
+      }
       header {
         position: sticky;
         padding: 7px 10px;
