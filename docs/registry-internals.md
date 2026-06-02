@@ -237,6 +237,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - `candidate_developer_accounts`
     - service page / follow-up / Bluesky search 由来の未確認候補
 - service/search 由来の handle は、まず `candidate_developer_accounts` に入れます
+- `bsky.app/profile/{subject}` は service URL として扱いません
+  - `{subject}` が handle 構文なら `handle`、DID 構文なら `did` として account evidence に分けます
+  - `profile`, `user` のような一般 path 語だけではなく、構造化された handle / DID を優先して account-scoped URL を判定します
 - confirmed に上がる主な条件:
   - confirmed service host と handle ドメインが整合する
   - 例: `https://example.com` と `alice.example.com`

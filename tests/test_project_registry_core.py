@@ -494,6 +494,38 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://app.example.com", project["website_url_candidates"])
 
 
+class ProjectRegistryProfileUrlTest(unittest.TestCase):
+    def test_bluesky_profile_subject_distinguishes_handle_and_did(self) -> None:
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/alice.example.com"),
+            {"handle": "alice.example.com"},
+        )
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"),
+            {"did": "did:plc:abcdefghijklmnopqrstuvwx"},
+        )
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:web:alice.example.com"),
+            {"did": "did:web:alice.example.com"},
+        )
+        self.assertEqual(registry.extract_bluesky_profile_subject("https://bsky.app/profile/not-a-handle"), {})
+
+    def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:
+        profile_url = "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"
+        project = registry.default_project_record("proj:didprofile", "repo_url", "https://github.com/example/app")
+        project["website_url"] = profile_url
+        project["service_urls"] = [profile_url]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "")
+        self.assertNotIn(profile_url, project["service_urls"])
+        self.assertIn(
+            {"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "service_urls:profile_url"},
+            project["candidate_developer_accounts"],
+        )
+
+
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_legacy_resource_url_becomes_unknown_legacy_record(self) -> None:
         project = registry.default_project_record("proj:resourcelegacy", "service_url", "https://example.com")

@@ -3392,14 +3392,36 @@ def is_asset_like_url(url: str) -> bool:
     return any(lowered_path.endswith(ext) for ext in IMAGE_EXTENSIONS)
 
 
-def extract_bluesky_profile_handle(url: str) -> str:
+ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
+DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
+
+
+def extract_bluesky_profile_subject(url: str) -> dict[str, str]:
     normalized = normalize_url(sanitize_extracted_url(url))
     parsed = urllib.parse.urlparse(normalized)
     if parsed.netloc != "bsky.app":
-        return ""
-    if "/profile/" not in parsed.path:
-        return ""
-    return parsed.path.split("/profile/", 1)[-1].split("/", 1)[0].strip()
+        return {}
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) < 2 or segments[0] != "profile":
+        return {}
+    subject = urllib.parse.unquote(segments[1]).strip()
+    if DID_RE.fullmatch(subject):
+        return {"did": subject}
+    if ATPROTO_HANDLE_RE.fullmatch(subject):
+        return {"handle": subject.lower()}
+    return {}
+
+
+def extract_bluesky_profile_handle(url: str) -> str:
+    return extract_bluesky_profile_subject(url).get("handle", "")
+
+
+def extract_bluesky_profile_did(url: str) -> str:
+    return extract_bluesky_profile_subject(url).get("did", "")
+
+
+def is_bluesky_profile_url(url: str) -> bool:
+    return bool(extract_bluesky_profile_subject(url))
 
 
 def is_explicitly_non_project_service_url(url: str) -> bool:
@@ -3409,7 +3431,7 @@ def is_explicitly_non_project_service_url(url: str) -> bool:
     path = parsed.path.lower()
     if not host:
         return True
-    if extract_bluesky_profile_handle(normalized):
+    if is_bluesky_profile_url(normalized):
         return True
     if has_noisy_service_host(host):
         return True
@@ -4583,6 +4605,8 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
     normalized = normalize_url(url)
     lowered_text = text.lower()
     lowered_url = normalized.lower()
+    if is_bluesky_profile_url(normalized):
+        return "bluesky_profile"
     if normalize_github_repo_url(normalized) or normalize_tangled_repo_url(normalized):
         if any(token in lowered_text for token in ["source", "view source", "repo", "repository", "monorepo"]):
             return "source_repo"
@@ -4592,8 +4616,6 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
         return "docs"
     if "blog" in lowered_text or ".org/blog" in lowered_url or normalized.startswith("https://blog."):
         return "blog"
-    if "bluesky" in lowered_text or "bsky.app/profile/" in lowered_url:
-        return "bluesky_profile"
     if is_same_site_family(base_url, normalized):
         return "same_site"
     return "other"
@@ -4845,6 +4867,12 @@ def add_resource_url(
 
 
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
+    for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
+        for item in project.get(field_name, []):
+            if is_bluesky_profile_url(str(item or "")):
+                record_developer_profile_url(project, str(item), f"{field_name}:profile_url")
+    if project.get("website_url") and is_bluesky_profile_url(str(project["website_url"])):
+        record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
     project["service_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("service_url_candidates", []) if item] if item])
     project["website_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("website_url_candidates", []) if item] if item])
@@ -4867,9 +4895,8 @@ def prune_project_urls(project: dict[str, Any]) -> None:
     for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
-            handle = extract_bluesky_profile_handle(url)
-            if handle:
-                record_developer_handle(project, handle, f"{field_name}:profile_url")
+            if is_bluesky_profile_url(url):
+                record_developer_profile_url(project, url, f"{field_name}:profile_url")
                 continue
             is_confirmed = field_name == "service_urls"
             normalized_candidate = normalize_url(str(url or ""))
@@ -4882,7 +4909,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         project[field_name] = unique_list(cleaned_urls)
 
     website_url = str(project.get("website_url") or "").strip()
-    if website_url and extract_bluesky_profile_handle(website_url):
+    if website_url and is_bluesky_profile_url(website_url):
         project["website_url"] = ""
     elif website_url and not service_url_allowed_for_project(project, website_url, confirmed=True):
         project["website_url"] = ""
@@ -5008,6 +5035,16 @@ def record_developer_handle(project: dict[str, Any], handle: str, source: str, d
         add_developer_account(project, handle, source, did=did)
         return
     add_candidate_developer_account(project, handle, source, did=did)
+
+
+def record_developer_profile_url(project: dict[str, Any], url: str, source: str) -> None:
+    subject = extract_bluesky_profile_subject(url)
+    handle = subject.get("handle", "")
+    did = subject.get("did", "")
+    if handle:
+        record_developer_handle(project, handle, source)
+    elif did:
+        add_candidate_developer_account(project, "", source, did=did)
 
 
 def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
@@ -6845,7 +6882,7 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
             continue
         if normalize_github_repo_url(url) and repo_url_allowed_for_project(project, url):
             return True
-        if "/profile/" in urllib.parse.urlparse(url).path and "bsky.app" in urllib.parse.urlparse(url).netloc:
+        if is_bluesky_profile_url(url):
             handle = extract_bluesky_profile_handle(url)
             if handle and handle in set(project.get("bluesky_handles", [])):
                 return True
@@ -6935,11 +6972,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
             if is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
-            parsed = urllib.parse.urlparse(url)
-            if "/profile/" in parsed.path:
-                handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
-                if handle:
-                    record_developer_handle(project, handle, source)
+            record_developer_profile_url(project, url, source)
         elif classification == "same_site":
             if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 confirm_source_code_url(
@@ -7728,11 +7761,8 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         ]
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.netloc.endswith("bsky.app") and "/profile/" in parsed.path:
-            handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
-            if handle:
-                record_developer_handle(project, handle, f"service_raw_url:{normalized_service_url}")
+        if is_bluesky_profile_url(url):
+            record_developer_profile_url(project, url, f"service_raw_url:{normalized_service_url}")
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
     for follow_url in follow_ups[:3]:
         try:
@@ -13176,7 +13206,7 @@ def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
             }
         if is_bsky_post_url(normalized_url):
             return {"status": "skip", "reason": "bsky_post_url", "normalized": normalized_url}
-        if extract_bluesky_profile_handle(normalized_url):
+        if is_bluesky_profile_url(normalized_url):
             return {"status": "skip", "reason": "bsky_profile_url", "normalized": normalized_url}
         if parsed.netloc.lower() == "lexicon.garden":
             return {"status": "skip", "reason": "lexicon_garden_non_seed_url", "normalized": normalized_url}
@@ -13213,16 +13243,17 @@ def classify_derived_seed_values(raw_values: list[str]) -> list[dict[str, Any]]:
 
 
 def resolve_bsky_profile_url_seed_candidates(url: str) -> list[dict[str, Any]]:
-    handle = extract_bluesky_profile_handle(url)
-    if not handle:
+    subject = extract_bluesky_profile_subject(url)
+    actor = subject.get("handle") or subject.get("did") or ""
+    if not actor:
         return []
     try:
-        profile = fetch_bsky_profile(handle)
+        profile = fetch_bsky_profile(actor)
     except Exception:
         return []
     derived_urls = extract_urls(str(profile.get("description") or ""))
     try:
-        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or handle)), limit=5):
+        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or actor)), limit=5):
             derived_urls.extend([str(value or "") for value in item.get("urls", [])])
     except Exception:
         pass
