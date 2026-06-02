@@ -1576,10 +1576,13 @@ INDEX_HTML = r"""<!doctype html>
         try {
           const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
           if (onJob) onJob(job);
-          if (renderDone && (job.status === "done" || job.status === "failed")) {
-            renderDone(job);
-          } else {
-            $(elementId).textContent = JSON.stringify(job, null, 2);
+          const target = $(elementId);
+          if (target) {
+            if (renderDone && (job.status === "done" || job.status === "failed")) {
+              renderDone(job);
+            } else {
+              target.textContent = JSON.stringify(job, null, 2);
+            }
           }
           if (job.status === "done" || job.status === "failed") {
             status(job.status === "done" ? "Job done." : `Job failed: ${job.error || ""}`);
@@ -2221,24 +2224,25 @@ INDEX_HTML = r"""<!doctype html>
       return job ? JSON.stringify(job, null, 2) : "No enrich job running.";
     }
 
-    function renderJobsSummaryHtml() {
+    function renderJobsSummaryHtml(openJobIds = new Set(), openRawJobIds = new Set()) {
       const jobs = Array.from(state.jobs.values()).reverse().slice(0, 12);
       if (!jobs.length) return `<span class="muted">No jobs yet.</span>`;
       return `<div class="job-list">` + jobs.map((job) => {
+        const jobId = job.job_id || "";
         const logs = asList(job.logs).slice(-8).map((entry) => {
           const bits = [entry.at, entry.message, entry.project_key, entry.error].filter(Boolean).join(" ");
           return `<li>${esc(bits)}</li>`;
         }).join("");
         return `
-          <details class="job-item">
+          <details class="job-item" data-job-id="${esc(jobId)}" ${openJobIds.has(jobId) ? "open" : ""}>
             <summary class="job-summary">
               <span class="pill">${esc(job.status || "queued")}</span>
               <span class="pill">${esc(job.kind || "enrich")}</span>
               ${job.project_key ? `<span class="identifier-value">${esc(job.project_key)}</span>` : ""}
-              ${job.job_id ? `<span class="muted">${esc(job.job_id)}</span>` : ""}
+              ${jobId ? `<span class="muted">${esc(jobId)}</span>` : ""}
             </summary>
             ${logs ? `<ul>${logs}</ul>` : `<div class="muted">No logs yet.</div>`}
-            <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
+            <details class="job-raw" data-job-id="${esc(jobId)}" ${openRawJobIds.has(jobId) ? "open" : ""}><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
           </details>
         `;
       }).join("") + `</div>`;
@@ -2249,7 +2253,11 @@ INDEX_HTML = r"""<!doctype html>
       const target = $("enrich-job-status");
       if (state.selected === key && target) target.textContent = enrichJobText(job);
       const summary = $("jobs-summary");
-      if (summary) summary.innerHTML = renderJobsSummaryHtml();
+      if (summary) {
+        const openJobIds = new Set(Array.from(summary.querySelectorAll("details.job-item[open]")).map((el) => el.dataset.jobId));
+        const openRawJobIds = new Set(Array.from(summary.querySelectorAll("details.job-raw[open]")).map((el) => el.dataset.jobId));
+        summary.innerHTML = renderJobsSummaryHtml(openJobIds, openRawJobIds);
+      }
     }
 
     function enrichPayload(deep) {

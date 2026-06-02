@@ -228,6 +228,8 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは in-memory job に紐づく表示で、サーバ再起動後の履歴永続化は未接続です。
 
+`Jobs` タブでは、この browser tab で開始した background job の直近ログと raw JSON を確認できます。実行中 job は polling で更新されますが、展開中の job 詳細と `Raw JSON` は開いた状態を保持します。
+
 `New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`/?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
 project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` と値を指定して次の操作を実行できます。
