@@ -6,10 +6,12 @@ import argparse
 import base64
 import copy
 import datetime as dt
+import ipaddress
 import json
 import os
 import re
 import shlex
+import socket
 import sqlite3
 import sys
 import urllib.error
@@ -45,6 +47,7 @@ REQUEST_TIMEOUT_LEXICON_DNS = 12.0
 REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
+MAX_HTTP_REDIRECTS = 5
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
@@ -369,12 +372,76 @@ def ensure_dirs() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+NO_REDIRECT_OPENER = urllib.request.build_opener(NoRedirectHandler)
+
+
+def outbound_host_is_blocked(host: str) -> bool:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    if not lowered:
+        return True
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        return True
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(lowered, None)}
+    except socket.gaierror:
+        addresses = {lowered}
+    for address in addresses:
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if (
+            parsed.is_loopback
+            or parsed.is_private
+            or parsed.is_link_local
+            or parsed.is_multicast
+            or parsed.is_unspecified
+            or parsed.is_reserved
+            or parsed in ipaddress.ip_network("100.64.0.0/10")
+        ):
+            return True
+    return False
+
+
+def normalize_outbound_fetch_url(url: str) -> str:
+    stripped = str(url or "").strip()
+    try:
+        parsed = urllib.parse.urlparse(stripped)
+    except ValueError:
+        return ""
+    if not parsed.scheme and not parsed.netloc:
+        try:
+            parsed = urllib.parse.urlparse(f"https://{stripped}")
+        except ValueError:
+            return ""
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    path = parsed.path or ""
+    return urllib.parse.urlunparse((scheme, netloc, path, "", parsed.query, ""))
+
+
+def validate_outbound_fetch_url(url: str, *, allow_blocked_hosts: bool = False) -> str:
+    normalized = normalize_outbound_fetch_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"unsupported outbound URL: {url}")
+    if not allow_blocked_hosts and outbound_host_is_blocked(parsed.hostname):
+        raise ValueError(f"blocked internal outbound URL: {normalized}")
+    return normalized
+
+
 def request_bytes(
     url: str,
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[int, bytes, dict[str, str]]:
     status, body, response_headers, _final_url = request_bytes_with_final_url(
         url,
@@ -382,6 +449,7 @@ def request_bytes(
         data=data,
         method=method,
         timeout=timeout,
+        allow_blocked_hosts=allow_blocked_hosts,
     )
     return status, body, response_headers
 
@@ -392,17 +460,45 @@ def request_bytes_with_final_url(
     data: bytes | None = None,
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[int, bytes, dict[str, str], str]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
-    req = urllib.request.Request(url, headers=merged_headers, data=data, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        status = getattr(response, "status", 200)
-        body = response.read()
-        response_headers = {key.lower(): value for key, value in response.headers.items()}
-        final_url = normalize_url(str(response.geturl() or url))
-        return status, body, response_headers, final_url
+    current_url = validate_outbound_fetch_url(url, allow_blocked_hosts=allow_blocked_hosts)
+    for _ in range(MAX_HTTP_REDIRECTS + 1):
+        req = urllib.request.Request(current_url, headers=merged_headers, data=data, method=method)
+        try:
+            response_context = NO_REDIRECT_OPENER.open(req, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code or 0)
+            if status in {301, 302, 303, 307, 308}:
+                location = exc.headers.get("Location", "") if exc.headers else ""
+                if not location:
+                    body = exc.read()
+                    exc.close()
+                    response_headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
+                    return status, body, response_headers, current_url
+                try:
+                    next_url = validate_outbound_fetch_url(
+                        urllib.parse.urljoin(current_url, location),
+                        allow_blocked_hosts=allow_blocked_hosts,
+                    )
+                finally:
+                    exc.close()
+                current_url = next_url
+                if status == 303:
+                    data = None
+                    method = "GET"
+                continue
+            raise
+        with response_context as response:
+            status = getattr(response, "status", 200)
+            body = response.read()
+            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            final_url = normalize_url(str(response.geturl() or current_url))
+            return status, body, response_headers, final_url
+    raise ValueError(f"too many redirects for outbound URL: {url}")
 
 
 def request_json(url: str, headers: dict[str, str] | None = None, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> Any:
@@ -8362,6 +8458,7 @@ def request_json_post_raw(
     headers: dict[str, str] | None = None,
     *,
     timeout: float = 60,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[Any, str]:
     merged_headers = {"Content-Type": "application/json"}
     if headers:
@@ -8372,6 +8469,7 @@ def request_json_post_raw(
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
         timeout=timeout,
+        allow_blocked_hosts=allow_blocked_hosts,
     )
     text = body.decode("utf-8", errors="replace")
     return json.loads(text), text
@@ -8455,7 +8553,13 @@ def run_local_llm_via_endpoint(
             payloads = [completion_payload]
         for payload in payloads:
             try:
-                response_payload, _ = request_json_post_raw(url, payload, headers=headers, timeout=llm_timeout)
+                response_payload, _ = request_json_post_raw(
+                    url,
+                    payload,
+                    headers=headers,
+                    timeout=llm_timeout,
+                    allow_blocked_hosts=True,
+                )
                 raw_content = (
                     parse_openai_compatible_response(response_payload)
                     if endpoint_kind in {"chat", "responses"}

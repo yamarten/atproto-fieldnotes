@@ -714,6 +714,8 @@ export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 ```
 
+`ATPROTO_SURVEY_LLM_ENDPOINT` と Settings で指定する LLM endpoint は、operator が管理する trusted endpoint として扱います。project data から見つかった service / resource URL には内部宛て block が掛かりますが、この LLM endpoint 呼び出しだけは LAN / localhost の endpoint も許可します。
+
 Bluesky post検索を使う場合:
 
 ```bash

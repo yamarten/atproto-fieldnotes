@@ -770,6 +770,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
     - investigation plan
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
+  - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
+  - 実装済み: project data 由来の service / resource URL は同じ `request_bytes()` 系でも内部宛て block の対象です
+  - 未接続: LLM endpoint 以外の内部 URL を operator が個別 allowlist する設定
 
 ### `sync-introduced`
 
