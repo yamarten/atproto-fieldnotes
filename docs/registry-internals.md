@@ -134,9 +134,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
 
-`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
+`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI と Web UI の `Enrich All` background job です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。CLI の Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
 
-実装済みではない範囲として、Web UI の停止ボタンや background job からの checkpoint 再開導線はまだ未接続です。将来的には同じ checkpoint helper を Web job 側から呼び、DB 更新と UI job state の境界を保ったまま停止要求を扱う想定です。
+Web UI の停止は強制 kill ではありません。Jobs の `Stop after current project` は `stop_requested` を立て、現在の project が commit / rollback された後の project 境界で `status=interrupted` を checkpoint に保存します。Web UI の resume は checkpoint の対象 project key list を再利用し、完了済み key を飛ばします。未接続なのは、サーバー再起動後に checkpoint 一覧を自動発見して Jobs に復元する導線です。
 
 ## enrich の判断材料
 

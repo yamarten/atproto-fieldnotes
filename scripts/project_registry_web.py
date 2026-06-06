@@ -659,7 +659,10 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllAllTrackingStates: false,
       enrichAllNewOnly: false,
       enrichAllRetryFailures: false,
-      enrichAllDeepInvestigation: false
+      enrichAllDeepInvestigation: false,
+      enrichAllRunId: "",
+      enrichAllResumeRun: "",
+      enrichAllCheckpointPath: ""
     };
     const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], contributionLevels: [], technicalInterestLevels: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", promotionHold: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
     const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, searchFilters: defaultSearchFilters(), settings: loadSettings() };
@@ -1347,6 +1350,9 @@ INDEX_HTML = r"""<!doctype html>
             <label class="row"><input id="enrich-all-include-stalled" type="checkbox" ${settings.enrichAllIncludeStalled ? "checked" : ""}> Include stalled</label>
             <label class="row"><input id="enrich-all-include-archived" type="checkbox" ${settings.enrichAllIncludeArchived ? "checked" : ""}> Include archived</label>
             <label class="row"><input id="enrich-all-include-ignore" type="checkbox" ${settings.enrichAllIncludeIgnore ? "checked" : ""}> Include ignore</label>
+            <label>Run id <input id="enrich-all-run-id" type="text" value="${esc(settings.enrichAllRunId || "")}" placeholder="blank = auto" title="Optional checkpoint run id. Blank creates a generated id."></label>
+            <label>Resume run id <input id="enrich-all-resume-run" type="text" value="${esc(settings.enrichAllResumeRun || "")}" placeholder="existing run id" title="Resume an existing checkpoint run. Selection options come from that checkpoint."></label>
+            <label>Checkpoint path <input id="enrich-all-checkpoint-path" type="text" value="${esc(settings.enrichAllCheckpointPath || "")}" placeholder="blank = data/enrich-runs/&lt;run_id&gt;.json" title="Optional checkpoint JSON path. Leave blank to use the default data/enrich-runs path."></label>
             <div class="actions">
               <button id="run-enrich-all" class="primary" title="Start an enrich --all style background job using the LLM settings from Settings.">Run enrich all</button>
             </div>
@@ -1370,6 +1376,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="section"><h3>Recent Jobs</h3><div id="jobs-summary">${renderJobsSummaryHtml()}</div></div>
         </div>
       `;
+      wireJobSummaryActions();
       status("");
     }
 
@@ -1442,6 +1449,9 @@ INDEX_HTML = r"""<!doctype html>
         include_stalled: $("enrich-all-include-stalled").checked,
         include_archived: $("enrich-all-include-archived").checked,
         include_ignore: $("enrich-all-include-ignore").checked,
+        run_id: $("enrich-all-run-id").value.trim(),
+        resume_run: $("enrich-all-resume-run").value.trim(),
+        checkpoint_path: $("enrich-all-checkpoint-path").value.trim(),
         ...enrichPayload($("enrich-all-deep").checked)
       };
       saveSettings(Object.assign({}, state.settings, {
@@ -1453,7 +1463,10 @@ INDEX_HTML = r"""<!doctype html>
         enrichAllIncludeStable: payload.include_stable,
         enrichAllIncludeStalled: payload.include_stalled,
         enrichAllIncludeArchived: payload.include_archived,
-        enrichAllIncludeIgnore: payload.include_ignore
+        enrichAllIncludeIgnore: payload.include_ignore,
+        enrichAllRunId: payload.run_id,
+        enrichAllResumeRun: payload.resume_run,
+        enrichAllCheckpointPath: payload.checkpoint_path
       }));
       return payload;
     }
@@ -1495,7 +1508,9 @@ INDEX_HTML = r"""<!doctype html>
         const payload = readEnrichAllPayload();
         const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
         const limitText = payload.limit === null ? "unlimited" : String(payload.limit);
-        if (!(await confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${limitText}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`))) return;
+        const runText = payload.resume_run ? `resume ${payload.resume_run}` : (payload.run_id ? payload.run_id : "auto");
+        const checkpointText = payload.checkpoint_path || "default data/enrich-runs path";
+        if (!(await confirmAction(`Run enrich --all style job?\n\nTargets: ${payload.resume_run ? "checkpoint selection" : stateText}\nMax projects: ${payload.resume_run ? "checkpoint selection" : limitText}\nRun: ${runText}\nCheckpoint: ${checkpointText}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`))) return;
         status("Starting enrich all...");
         try {
           const data = await api("/api/enrich-all", { method: "POST", body: JSON.stringify(payload) });
@@ -2265,11 +2280,35 @@ INDEX_HTML = r"""<!doctype html>
               ${job.project_key ? `<span class="identifier-value">${esc(job.project_key)}</span>` : ""}
               ${jobId ? `<span class="muted">${esc(jobId)}</span>` : ""}
             </summary>
+            ${canStopJob(job) ? `<div class="actions"><button class="danger" data-stop-job="${esc(jobId)}" title="Request this enrich-all job to stop after the current project finishes, then mark its checkpoint interrupted for resume.">Stop after current project</button></div>` : ""}
+            ${job.run_id ? `<div class="muted">run: ${esc(job.run_id)}${job.checkpoint_path ? ` / ${esc(job.checkpoint_path)}` : ""}</div>` : ""}
             ${logs ? `<ul>${logs}</ul>` : `<div class="muted">No logs yet.</div>`}
             <details class="job-raw" data-job-id="${esc(jobId)}" ${openRawJobIds.has(jobId) ? "open" : ""}><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
           </details>
         `;
       }).join("") + `</div>`;
+    }
+
+    function canStopJob(job) {
+      const kind = String(job.kind || "");
+      return (kind === "enrich_all" || kind === "enrich-all") && ["queued", "running"].includes(job.status || "queued") && !job.stop_requested;
+    }
+
+    function wireJobSummaryActions() {
+      document.querySelectorAll("[data-stop-job]").forEach((button) => {
+        button.onclick = async () => {
+          const jobId = button.dataset.stopJob || "";
+          if (!jobId) return;
+          if (!(await confirmAction(`Stop enrich-all job after the current project?\n\nJob: ${jobId}\n\nThe current project may still finish and commit. The checkpoint will be marked interrupted so it can be resumed.`))) return;
+          try {
+            const job = await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST", body: JSON.stringify({ confirm: true }) });
+            updateJobStatus(`job:${jobId}`, job);
+            status(`Stop requested for job ${jobId}`);
+          } catch (err) {
+            status(err.message);
+          }
+        };
+      });
     }
 
     function updateJobStatus(key, job) {
@@ -2281,6 +2320,7 @@ INDEX_HTML = r"""<!doctype html>
         const openJobIds = new Set(Array.from(summary.querySelectorAll("details.job-item[open]")).map((el) => el.dataset.jobId));
         const openRawJobIds = new Set(Array.from(summary.querySelectorAll("details.job-raw[open]")).map((el) => el.dataset.jobId));
         summary.innerHTML = renderJobsSummaryHtml(openJobIds, openRawJobIds);
+        wireJobSummaryActions();
       }
     }
 
@@ -3281,12 +3321,44 @@ def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "all_tracking_states": bool(payload.get("all_tracking_states")),
         "tracking_states": None if bool(payload.get("all_tracking_states")) else sorted(states),
+        "include_stable": bool(payload.get("include_stable")),
+        "include_stalled": bool(payload.get("include_stalled")),
+        "include_archived": bool(payload.get("include_archived")),
+        "include_ignore": bool(payload.get("include_ignore")),
         "limit": optional_positive_int(payload.get("limit")),
         "new_only": bool(payload.get("new_only")),
         "retry_failures": bool(payload.get("retry_failures")),
         "deep_investigation": bool(payload.get("deep_investigation")),
+        "run_id": str(payload.get("run_id") or "").strip(),
+        "resume_run": str(payload.get("resume_run") or "").strip(),
+        "checkpoint_path": str(payload.get("checkpoint_path") or "").strip(),
         **llm_options_from_payload(payload),
     }
+
+
+def enrich_all_args_from_payload(payload: dict[str, Any]) -> argparse.Namespace:
+    return argparse.Namespace(
+        command="enrich",
+        all=True,
+        no_checkpoint=False,
+        all_tracking_states=bool(payload.get("all_tracking_states")),
+        tracking_states=payload.get("tracking_states"),
+        include_stable=bool(payload.get("include_stable")),
+        include_stalled=bool(payload.get("include_stalled")),
+        include_archived=bool(payload.get("include_archived")),
+        include_ignore=bool(payload.get("include_ignore")),
+        new_only=bool(payload.get("new_only")),
+        retry_failures=bool(payload.get("retry_failures")),
+        deep_investigation=bool(payload.get("deep_investigation")),
+        llm_endpoint=payload.get("llm_endpoint") or None,
+        llm_model=payload.get("llm_model") or None,
+        llm_api_key=payload.get("llm_api_key") or None,
+        llm_api_style=payload.get("llm_api_style") or None,
+        llm_reasoning_effort=payload.get("llm_reasoning_effort") or None,
+        run_id=str(payload.get("run_id") or "").strip(),
+        resume_run=str(payload.get("resume_run") or "").strip(),
+        checkpoint_path=str(payload.get("checkpoint_path") or "").strip() or None,
+    )
 
 
 def select_enrich_all_projects(conn: sqlite3.Connection, payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3605,6 +3677,10 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         self.executor.submit(self._run_enrich_all_job, job_id, enrich_payload)
         return job_id
 
+    def job_stop_requested(self, job_id: str) -> bool:
+        with self.jobs_lock:
+            return bool((self.jobs.get(job_id) or {}).get("stop_requested"))
+
     def _run_enrich_all_job(self, job_id: str, payload: dict[str, Any]) -> None:
         with self.jobs_lock:
             self.jobs[job_id]["status"] = "running"
@@ -3613,18 +3689,101 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         completed: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
         promoted_now: list[dict[str, Any]] = []
+        checkpoint: dict[str, Any] | None = None
+        checkpoint_path: Path | None = None
+        args = enrich_all_args_from_payload(payload)
+        resumed = False
+        selected_total = 0
+        completed_before = 0
+
+        def checkpoint_info() -> dict[str, Any]:
+            if checkpoint is None:
+                return {}
+            return {
+                "run_id": checkpoint["run_id"],
+                "checkpoint_status": checkpoint.get("status", "running"),
+                "checkpoint_path": str(checkpoint_path or registry.enrich_run_checkpoint_path(checkpoint["run_id"], args.checkpoint_path)),
+                "resume_command": registry.enrich_resume_command(checkpoint["run_id"], args.checkpoint_path),
+                "selected_project_count": selected_total,
+                "checkpoint_completed_count": len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}),
+                "remaining_project_count": max(0, selected_total - len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})),
+                "resumed": resumed,
+            }
+
+        def write_checkpoint() -> None:
+            nonlocal checkpoint_path
+            if checkpoint is None:
+                return
+            checkpoint_path = registry.write_enrich_run_checkpoint(checkpoint, args.checkpoint_path)
+            with self.jobs_lock:
+                self.jobs[job_id].update(checkpoint_info())
+
+        def interrupt_job() -> None:
+            if checkpoint is not None:
+                registry.mark_enrich_run_interrupted(checkpoint)
+                write_checkpoint()
+            self.append_job_log(job_id, "enrich-all job interrupted", run_id=checkpoint.get("run_id") if checkpoint else "")
+            with self.jobs_lock:
+                self.jobs[job_id].update(
+                    {
+                        "status": "interrupted",
+                        "finished_at": registry.iso_now(),
+                        "completed_count": len(completed),
+                        "failed_count": len(failed),
+                        "recent_completed": completed[-20:],
+                        "recent_failed": failed[-20:],
+                        "result": {
+                            "mode": "execute",
+                            "interrupted": True,
+                            "project_count": len(completed) + len(failed),
+                            "completed_count": len(completed),
+                            "failed_count": len(failed),
+                            "promoted_now_count": len(promoted_now),
+                            "promoted_now": promoted_now[-50:],
+                            "completed": completed[-100:],
+                            "failed": failed[-100:],
+                            **checkpoint_info(),
+                        },
+                    }
+                )
+
         try:
             conn = open_registry_db()
             try:
-                projects = select_enrich_all_projects(conn, payload)
-                total = len(projects)
+                if args.resume_run:
+                    checkpoint = registry.load_enrich_run_checkpoint(args.resume_run, args.checkpoint_path)
+                    registry.apply_enrich_run_options_to_args(args, checkpoint)
+                    all_projects = registry.load_enrich_run_projects(conn, checkpoint)
+                    projects = registry.enrich_run_remaining_projects(all_projects, checkpoint)
+                    resumed = True
+                    selected_total = len(checkpoint.get("selected_project_keys", []))
+                    completed_before = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})
+                    write_checkpoint()
+                else:
+                    projects = select_enrich_all_projects(conn, payload)
+                    checkpoint = registry.new_enrich_run_checkpoint(projects, args)
+                    selected_total = len(checkpoint.get("selected_project_keys", []))
+                    write_checkpoint()
+                total = selected_total or len(projects)
                 with self.jobs_lock:
                     self.jobs[job_id]["total"] = total
+                    self.jobs[job_id]["remaining_project_count"] = len(projects)
                     self.jobs[job_id]["completed_count"] = 0
                     self.jobs[job_id]["failed_count"] = 0
-                self.append_job_log(job_id, "selected projects", total=total)
-                for index, project in enumerate(projects, start=1):
+                    self.jobs[job_id].update(checkpoint_info())
+                self.append_job_log(job_id, "selected projects", total=total, remaining=len(projects), resumed=resumed)
+                if self.job_stop_requested(job_id):
+                    interrupt_job()
+                    return
+                for offset, project in enumerate(projects, start=1):
+                    if self.job_stop_requested(job_id):
+                        interrupt_job()
+                        return
+                    index = completed_before + offset
                     project_key = str(project.get("project_key") or "")
+                    if checkpoint is not None:
+                        registry.mark_enrich_run_project_started(checkpoint, project_key)
+                        write_checkpoint()
                     with self.jobs_lock:
                         self.jobs[job_id]["current"] = {
                             "index": index,
@@ -3638,15 +3797,18 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         enriched = registry.enrich_project(
                             conn,
                             project,
-                            deep_investigation=bool(payload.get("deep_investigation")),
-                            llm_endpoint=payload.get("llm_endpoint"),
-                            llm_model=payload.get("llm_model"),
-                            llm_api_key=payload.get("llm_api_key"),
-                            llm_api_style=payload.get("llm_api_style"),
-                            llm_reasoning_effort=payload.get("llm_reasoning_effort"),
+                            deep_investigation=bool(args.deep_investigation),
+                            llm_endpoint=args.llm_endpoint,
+                            llm_model=args.llm_model,
+                            llm_api_key=args.llm_api_key,
+                            llm_api_style=args.llm_api_style,
+                            llm_reasoning_effort=args.llm_reasoning_effort,
                         )
                         registry.save_project(conn, enriched, enriched=True)
                         conn.commit()
+                        if checkpoint is not None:
+                            registry.mark_enrich_run_project_completed(checkpoint, project_key)
+                            write_checkpoint()
                         item = {
                             "project_key": enriched.get("project_key", project_key),
                             "name": enriched.get("name", ""),
@@ -3662,6 +3824,9 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         self.append_job_log(job_id, "enriched project", project_key=project_key)
                     except Exception as exc:
                         conn.rollback()
+                        if checkpoint is not None:
+                            registry.mark_enrich_run_project_failed(checkpoint, project_key, exc)
+                            write_checkpoint()
                         failed.append({"project_key": project_key, "name": str(project.get("name") or ""), "error": str(exc)})
                         self.append_job_log(job_id, "project enrich failed", project_key=project_key, error=str(exc))
                     with self.jobs_lock:
@@ -3669,6 +3834,10 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         self.jobs[job_id]["failed_count"] = len(failed)
                         self.jobs[job_id]["recent_completed"] = completed[-20:]
                         self.jobs[job_id]["recent_failed"] = failed[-20:]
+                        self.jobs[job_id].update(checkpoint_info())
+                if checkpoint is not None:
+                    registry.mark_enrich_run_completed(checkpoint)
+                    write_checkpoint()
             finally:
                 conn.close()
             with self.jobs_lock:
@@ -3685,6 +3854,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                             "promoted_now": promoted_now[-50:],
                             "completed": completed[-100:],
                             "failed": failed[-100:],
+                            **checkpoint_info(),
                         },
                     }
                 )
@@ -3701,6 +3871,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         "failed_count": len(failed),
                         "recent_completed": completed[-20:],
                         "recent_failed": failed[-20:],
+                        **checkpoint_info(),
                     }
                 )
 
@@ -4009,6 +4180,28 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
         if path == "/api/enrich-all":
             job_id = self.server.start_enrich_all_job(payload)
             self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+            raw_job_id = path.removeprefix("/api/jobs/").removesuffix("/cancel").strip("/")
+            job_id = urllib.parse.unquote(raw_job_id)
+            if payload.get("confirm") is not True:
+                raise ValueError("confirm=true is required")
+            with self.server.jobs_lock:
+                job = self.server.jobs.get(job_id)
+                if not job:
+                    self.send_json({"error": "job not found"}, status=HTTPStatus.NOT_FOUND)
+                    return
+                if job.get("kind") != "enrich_all":
+                    raise ValueError("only enrich_all jobs can be stopped")
+                if job.get("status") not in {"queued", "running"}:
+                    raise ValueError("job is not running")
+                job["stop_requested"] = True
+                job["stop_requested_at"] = registry.iso_now()
+                response = dict(job)
+            self.server.append_job_log(job_id, "stop requested")
+            with self.server.jobs_lock:
+                response = dict(self.server.jobs.get(job_id) or response)
+            self.send_json(response)
             return
         if path == "/api/reload":
             if payload.get("confirm") is not True:

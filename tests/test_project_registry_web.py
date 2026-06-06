@@ -44,6 +44,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         server._run_enrich_job = types.MethodType(web.ProjectRegistryWebServer._run_enrich_job, server)
         server.start_enrich_all_job = types.MethodType(web.ProjectRegistryWebServer.start_enrich_all_job, server)
         server._run_enrich_all_job = types.MethodType(web.ProjectRegistryWebServer._run_enrich_all_job, server)
+        server.job_stop_requested = types.MethodType(web.ProjectRegistryWebServer.job_stop_requested, server)
         server.start_sync_job = types.MethodType(web.ProjectRegistryWebServer.start_sync_job, server)
         server._run_sync_job = types.MethodType(web.ProjectRegistryWebServer._run_sync_job, server)
         server.start_review_job = types.MethodType(web.ProjectRegistryWebServer.start_review_job, server)
@@ -134,7 +135,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("run-enrich-all", web.INDEX_HTML)
         self.assertIn("blank = unlimited", web.INDEX_HTML)
         self.assertIn("optionalNumberSetting", web.INDEX_HTML)
-        self.assertIn("Max projects: ${limitText}", web.INDEX_HTML)
+        self.assertIn("Max projects: ${payload.resume_run ? \"checkpoint selection\" : limitText}", web.INDEX_HTML)
+        self.assertIn("enrich-all-run-id", web.INDEX_HTML)
+        self.assertIn("enrich-all-resume-run", web.INDEX_HTML)
+        self.assertIn("enrich-all-checkpoint-path", web.INDEX_HTML)
+        self.assertIn("Stop after current project", web.INDEX_HTML)
+        self.assertIn("/cancel", web.INDEX_HTML)
         self.assertIn("Reload server", web.INDEX_HTML)
         self.assertIn("/api/reload", web.INDEX_HTML)
         self.assertIn("reload-server", web.INDEX_HTML)
@@ -800,6 +806,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                     "include_stable": True,
                     "deep_investigation": True,
                     "llm_reasoning_effort": "off",
+                    "checkpoint_path": str(Path(self.tempdir.name) / "limited-enrich-run.json"),
                 },
             )
             self.assertEqual(status, 202)
@@ -819,6 +826,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(job_payload["kind"], "enrich_all")
         self.assertEqual(job_payload["payload"]["tracking_states"], ["active", "stable", "watchlist"])
         self.assertEqual(job_payload["payload"]["llm_reasoning_effort"], "off")
+        self.assertTrue(job_payload["run_id"].startswith("enrich-"))
+        self.assertTrue(job_payload["checkpoint_path"].endswith("limited-enrich-run.json"))
         self.assertEqual(job_payload["result"]["completed_count"], 1)
         self.assertEqual(job_payload["result"]["failed_count"], 0)
 
@@ -837,7 +846,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             status, payload = self.request(
                 "POST",
                 "/api/enrich-all",
-                {"llm_reasoning_effort": "off"},
+                {
+                    "llm_reasoning_effort": "off",
+                    "checkpoint_path": str(Path(self.tempdir.name) / "unlimited-enrich-run.json"),
+                },
             )
             self.assertEqual(status, 202)
             job_id = payload["job_id"]
@@ -854,8 +866,81 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(set(seen), {"proj:111111111111", "proj:222222222222"})
         self.assertEqual(job_payload["payload"]["limit"], None)
+        self.assertTrue(job_payload["checkpoint_path"].endswith("unlimited-enrich-run.json"))
         self.assertEqual(job_payload["result"]["completed_count"], 2)
         self.assertEqual(job_payload["result"]["failed_count"], 0)
+
+    def test_enrich_all_job_can_resume_checkpoint(self) -> None:
+        checkpoint_path = Path(self.tempdir.name) / "resume-enrich-run.json"
+        payload = web.enrich_all_payload_from_request(
+            {"llm_reasoning_effort": "off", "run_id": "web-resume-test", "checkpoint_path": str(checkpoint_path)}
+        )
+        conn = registry.open_db()
+        try:
+            projects = web.select_enrich_all_projects(conn, payload)
+        finally:
+            conn.close()
+        args = web.enrich_all_args_from_payload(payload)
+        checkpoint = registry.new_enrich_run_checkpoint(projects, args)
+        first_key = checkpoint["selected_project_keys"][0]
+        registry.mark_enrich_run_project_completed(checkpoint, first_key)
+        registry.write_enrich_run_checkpoint(checkpoint, str(checkpoint_path))
+
+        original_enrich = web.registry.enrich_project
+        seen: list[str] = []
+
+        def fake_enrich(conn, project, **kwargs):
+            seen.append(project["project_key"])
+            project = dict(project)
+            project["summary"] = "Resumed"
+            return registry.finalize_project_shape(project)
+
+        web.registry.enrich_project = fake_enrich
+        try:
+            status, response = self.request(
+                "POST",
+                "/api/enrich-all",
+                {
+                    "resume_run": "web-resume-test",
+                    "checkpoint_path": str(checkpoint_path),
+                    "llm_reasoning_effort": "off",
+                },
+            )
+            self.assertEqual(status, 202)
+            job_id = response["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.enrich_project = original_enrich
+
+        self.assertEqual(status, 200)
+        self.assertEqual(set(seen), set(checkpoint["selected_project_keys"][1:]))
+        self.assertTrue(job_payload["resumed"])
+        self.assertEqual(job_payload["run_id"], "web-resume-test")
+        self.assertEqual(job_payload["checkpoint_completed_count"], len(checkpoint["selected_project_keys"]))
+        saved = json.loads(checkpoint_path.read_text())
+        self.assertEqual(saved["status"], "completed")
+        self.assertEqual(set(saved["completed_project_keys"]), set(checkpoint["selected_project_keys"]))
+
+    def test_enrich_all_cancel_endpoint_requests_stop(self) -> None:
+        with self.server.jobs_lock:
+            self.server.jobs["job-stop-test"] = {
+                "job_id": "job-stop-test",
+                "kind": "enrich_all",
+                "status": "running",
+                "logs": [],
+            }
+
+        status, payload = self.request("POST", "/api/jobs/job-stop-test/cancel", {"confirm": True})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["stop_requested"])
+        self.assertTrue(self.server.jobs["job-stop-test"]["stop_requested"])
 
     def test_review_stalled_job_reports_logs(self) -> None:
         original_run_review = web.run_review_stalled_payload

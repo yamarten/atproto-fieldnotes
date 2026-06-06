@@ -143,10 +143,11 @@
   - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
   - backoff / partial skip / run-level circuit breaker を追加する余地がある
 - `enrich --all` の中断 / 再開
-  - Web UI の `Enrich All` は in-memory background job として実装済み
+  - CLI と Web UI の `Enrich All` は checkpoint helper 接続済み
   - `Max projects` 空欄時は対象件数を制限しない
-  - 永続 checkpoint、途中キャンセル、再開は未接続
-  - 3000 件規模を日常的に回すなら core 側で run state を保存し、Web はその状態を表示 / 操作する設計が候補
+  - Web UI では run id / checkpoint path / resume run id を指定できる
+  - Web UI の停止は project 境界での cooperative stop として実装済み
+  - サーバー再起動後に checkpoint 一覧から選ぶ導線は未接続
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
@@ -211,7 +212,10 @@
     - Ctrl+C は traceback ではなく JSON summary と終了コード `130`
     - `--resume-run <run_id>` は保存済み対象リストから完了済み key を飛ばす
     - LLM API key の値は checkpoint に保存しない
-  - Web UI の停止/再開導線は未接続
+  - Web UI の `Enrich All` も同じ checkpoint helper に接続済み
+    - run id / checkpoint path / resume run id を指定できる
+    - Jobs の `Stop after current project` は強制 kill ではなく、project 境界で `interrupted` checkpoint を保存する
+    - サーバー再起動後に checkpoint 一覧から選ぶ導線は未接続
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない

@@ -292,10 +292,11 @@ UI は `Search` タブ内に次を置きます。
 
 未接続 / 将来候補:
 
-- Enrich All の停止/再開 UI
-  - CLI 側の `enrich --all` checkpoint は実装済み
-  - Web background job から同じ checkpoint helper を使う導線、停止要求、再開ボタンは未実装
-  - UI job state と `data/enrich-runs/*.json` の checkpoint state をどう同期表示するかは未検討
+- Enrich All checkpoint の運用改善
+  - CLI 側と Web background job 側の checkpoint helper 接続は実装済み
+  - Web の停止は project 境界での cooperative stop として実装済み
+  - サーバー再起動後に `data/enrich-runs/*.json` を一覧し、Jobs / Sync から選んで再開する導線は未実装
+  - UI job state と checkpoint state の履歴表示をどう同期するかは未検討
 
 原則 CLI に残す保守操作:
 
