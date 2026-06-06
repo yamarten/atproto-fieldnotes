@@ -201,6 +201,12 @@
   - 既定では `tracking_state=active|watchlist` のみ
   - `stable` と `stalled` は明示 include が必要
   - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `300`
+  - CLI の `enrich --all` checkpoint は実装済み
+    - 既定保存先は `data/enrich-runs/<run_id>.json`
+    - Ctrl+C は traceback ではなく JSON summary と終了コード `130`
+    - `--resume-run <run_id>` は保存済み対象リストから完了済み key を飛ばす
+    - LLM API key の値は checkpoint に保存しない
+  - Web UI の停止/再開導線は未接続
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない

@@ -134,6 +134,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
 
+`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
+
+実装済みではない範囲として、Web UI の停止ボタンや background job からの checkpoint 再開導線はまだ未接続です。将来的には同じ checkpoint helper を Web job 側から呼び、DB 更新と UI job state の境界を保ったまま停止要求を扱う想定です。
+
 ## enrich の判断材料
 
 `enrich` は「confirmed に上げる条件」と「candidate に留める条件」を分けています。LLM は後段ですが、一次情報で確定できないものだけを整理させる位置づけです。

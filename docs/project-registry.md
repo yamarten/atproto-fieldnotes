@@ -106,6 +106,16 @@ python3 scripts/project_registry.py enrich --all
 python3 scripts/project_registry.py enrich --all --new-only
 ```
 
+`enrich --all` は resumable checkpoint を自動作成します。保存先は既定で `data/enrich-runs/<run_id>.json` です。開始時の対象 project key、完了済み key、現在処理中の key、失敗情報、再開に使う実行 option を保存します。ただし LLM API key の値は保存しません。
+
+```bash
+python3 scripts/project_registry.py enrich --all --run-id weekly-20260606
+python3 scripts/project_registry.py enrich --all --resume-run weekly-20260606
+python3 scripts/project_registry.py enrich --all --no-checkpoint
+```
+
+Ctrl+C で中断した場合、Python traceback は出さず、JSON lines に `interrupted: true`、`run_id`、`checkpoint_path`、`resume_command` を出して終了コード `130` で終わります。再開時は checkpoint に保存された最初の対象リストを使い、完了済み project を飛ばします。
+
 `stable` / `stalled` / `archived` / `ignore` も回したい場合:
 
 ```bash

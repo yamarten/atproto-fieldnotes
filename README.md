@@ -166,6 +166,15 @@ python3 scripts/project_registry.py enrich --all
 python3 scripts/project_registry.py enrich --all --new-only
 ```
 
+`enrich --all` は既定で `data/enrich-runs/<run_id>.json` に checkpoint を書きます。各 project は個別 commit され、Ctrl+C で止めても Python traceback にはせず、終了コード `130` と再開用 command を JSON lines に出します。
+
+```bash
+python3 scripts/project_registry.py enrich --all --run-id weekly-20260606
+python3 scripts/project_registry.py enrich --all --resume-run weekly-20260606
+```
+
+再開時は最初に選ばれた project key のうち完了済みを飛ばします。LLM API key の値は checkpoint に保存しないため、必要な環境では再開時にも指定してください。
+
 `stable` や、立ち消え気味で低頻度追跡に落とした `stalled` も回したい場合:
 
 ```bash

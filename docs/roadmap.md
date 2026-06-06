@@ -290,6 +290,13 @@ UI は `Search` タブ内に次を置きます。
    - technical interest level
    - active promotion deferral の有無
 
+未接続 / 将来候補:
+
+- Enrich All の停止/再開 UI
+  - CLI 側の `enrich --all` checkpoint は実装済み
+  - Web background job から同じ checkpoint helper を使う導線、停止要求、再開ボタンは未実装
+  - UI job state と `data/enrich-runs/*.json` の checkpoint state をどう同期表示するかは未検討
+
 原則 CLI に残す保守操作:
 
 - `audit-source-config` の hosted suffix split 監査

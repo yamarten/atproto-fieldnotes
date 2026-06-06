@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - optional dependency
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
+ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
     "User-Agent": "atproto-survey-bot/0.3",
@@ -11251,82 +11252,338 @@ def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
     return None
 
 
+def generate_enrich_run_id() -> str:
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"enrich-{timestamp}-{uuid.uuid4().hex[:8]}"
+
+
+def validate_enrich_run_id(run_id: str) -> str:
+    value = str(run_id or "").strip()
+    if not value:
+        raise ValueError("enrich run id is required")
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
+        raise ValueError(f"invalid enrich run id: {run_id}")
+    return value
+
+
+def enrich_run_checkpoint_path(run_id: str, checkpoint_path: str | None = None) -> Path:
+    if checkpoint_path:
+        return Path(checkpoint_path).expanduser()
+    return ENRICH_RUNS_DIR / f"{validate_enrich_run_id(run_id)}.json"
+
+
+def enrich_resume_command(run_id: str, checkpoint_path: str | None = None) -> str:
+    parts = ["python3", "scripts/project_registry.py", "enrich", "--all", "--resume-run", validate_enrich_run_id(run_id)]
+    if checkpoint_path:
+        parts.extend(["--checkpoint-path", checkpoint_path])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def enrich_run_options_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    option_names = (
+        "all_tracking_states",
+        "tracking_states",
+        "include_stable",
+        "include_stalled",
+        "include_archived",
+        "include_ignore",
+        "new_only",
+        "retry_failures",
+        "deep_investigation",
+        "llm_endpoint",
+        "llm_model",
+        "llm_api_style",
+        "llm_reasoning_effort",
+    )
+    options: dict[str, Any] = {}
+    for name in option_names:
+        value = getattr(args, name, None)
+        if isinstance(value, tuple):
+            value = list(value)
+        options[name] = value
+    options["llm_api_key_configured"] = bool(getattr(args, "llm_api_key", None))
+    return options
+
+
+def apply_enrich_run_options_to_args(args: argparse.Namespace, checkpoint: dict[str, Any]) -> None:
+    options = checkpoint.get("options", {})
+    if not isinstance(options, dict):
+        return
+    for name, value in options.items():
+        if name == "llm_api_key_configured":
+            continue
+        if hasattr(args, name):
+            setattr(args, name, value)
+
+
+def new_enrich_run_checkpoint(projects: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    run_id = validate_enrich_run_id(getattr(args, "run_id", "") or generate_enrich_run_id())
+    now = iso_now()
+    return {
+        "version": 1,
+        "run_id": run_id,
+        "status": "running",
+        "started_at": now,
+        "updated_at": now,
+        "completed_at": "",
+        "interrupted_at": "",
+        "options": enrich_run_options_from_args(args),
+        "selected_project_keys": [str(project.get("project_key") or "") for project in projects if project.get("project_key")],
+        "completed_project_keys": [],
+        "failed_projects": [],
+        "missing_project_keys": [],
+        "current_project_key": "",
+    }
+
+
+def load_enrich_run_checkpoint(run_id: str, checkpoint_path: str | None = None) -> dict[str, Any]:
+    path = enrich_run_checkpoint_path(run_id, checkpoint_path)
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, dict):
+        raise ValueError(f"invalid enrich checkpoint: {path}")
+    checkpoint_run_id = validate_enrich_run_id(str(payload.get("run_id") or run_id))
+    requested_run_id = validate_enrich_run_id(run_id)
+    if checkpoint_run_id != requested_run_id:
+        raise ValueError(f"checkpoint run_id mismatch: expected {requested_run_id}, got {checkpoint_run_id}")
+    payload["run_id"] = checkpoint_run_id
+    return payload
+
+
+def write_enrich_run_checkpoint(checkpoint: dict[str, Any], checkpoint_path: str | None = None) -> Path:
+    run_id = validate_enrich_run_id(str(checkpoint.get("run_id") or ""))
+    path = enrich_run_checkpoint_path(run_id, checkpoint_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint["updated_at"] = iso_now()
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    tmp_path.replace(path)
+    return path
+
+
+def mark_enrich_run_project_started(checkpoint: dict[str, Any], project_key: str) -> None:
+    checkpoint["current_project_key"] = project_key
+    checkpoint["status"] = "running"
+
+
+def mark_enrich_run_project_completed(checkpoint: dict[str, Any], project_key: str) -> None:
+    completed = [str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)]
+    if project_key not in completed:
+        completed.append(project_key)
+    checkpoint["completed_project_keys"] = completed
+    checkpoint["current_project_key"] = ""
+    checkpoint["failed_projects"] = [
+        item
+        for item in checkpoint.get("failed_projects", [])
+        if isinstance(item, dict) and item.get("project_key") != project_key
+    ]
+
+
+def mark_enrich_run_project_failed(checkpoint: dict[str, Any], project_key: str, error: BaseException) -> None:
+    failures = [
+        item
+        for item in checkpoint.get("failed_projects", [])
+        if isinstance(item, dict) and item.get("project_key") != project_key
+    ]
+    failures.append({"project_key": project_key, "error": f"{type(error).__name__}: {error}", "at": iso_now()})
+    checkpoint["failed_projects"] = failures
+    checkpoint["current_project_key"] = ""
+
+
+def mark_enrich_run_interrupted(checkpoint: dict[str, Any]) -> None:
+    checkpoint["status"] = "interrupted"
+    checkpoint["interrupted_at"] = iso_now()
+
+
+def mark_enrich_run_completed(checkpoint: dict[str, Any]) -> None:
+    checkpoint["status"] = "completed"
+    checkpoint["completed_at"] = iso_now()
+    checkpoint["current_project_key"] = ""
+
+
+def enrich_run_remaining_projects(projects: list[dict[str, Any]], checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
+    completed = {str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}
+    return [project for project in projects if str(project.get("project_key") or "") not in completed]
+
+
+def load_enrich_run_projects(conn: sqlite3.Connection, checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
+    projects: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for project_key in checkpoint.get("selected_project_keys", []):
+        key = str(project_key or "").strip()
+        if not key:
+            continue
+        project = fetch_project(conn, key)
+        if project is None:
+            missing.append(key)
+            continue
+        projects.append(project)
+    checkpoint["missing_project_keys"] = missing
+    return projects
+
+
 def cmd_enrich(args: argparse.Namespace) -> int:
+    if getattr(args, "resume_run", None) and not getattr(args, "all", False):
+        raise ValueError("--resume-run requires --all")
+    if getattr(args, "resume_run", None) and getattr(args, "no_checkpoint", False):
+        raise ValueError("--resume-run cannot be combined with --no-checkpoint")
     conn = open_db()
-    projects = select_projects(conn, args)
-    promoted_now: list[dict[str, Any]] = []
-    total = len(projects)
-    started_at = dt.datetime.now(dt.timezone.utc)
-    for index, project in enumerate(projects, start=1):
-        if total > 1:
-            now = dt.datetime.now(dt.timezone.utc)
-            elapsed_seconds = max(0.0, (now - started_at).total_seconds())
-            average_seconds = elapsed_seconds / max(1, index - 1) if index > 1 else 0.0
-            remaining_seconds = max(0.0, average_seconds * max(0, total - index + 1)) if index > 1 else 0.0
+    checkpoint: dict[str, Any] | None = None
+    checkpoint_path: Path | None = None
+    checkpoint_path_arg = getattr(args, "checkpoint_path", None)
+    resumed = False
+    try:
+        if getattr(args, "all", False) and getattr(args, "resume_run", None):
+            checkpoint = load_enrich_run_checkpoint(args.resume_run, checkpoint_path_arg)
+            apply_enrich_run_options_to_args(args, checkpoint)
+            all_projects = load_enrich_run_projects(conn, checkpoint)
+            projects = enrich_run_remaining_projects(all_projects, checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            resumed = True
+        else:
+            projects = select_projects(conn, args)
+            if getattr(args, "all", False) and not getattr(args, "no_checkpoint", False):
+                checkpoint = new_enrich_run_checkpoint(projects, args)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+
+        promoted_now: list[dict[str, Any]] = []
+        selected_total = (
+            len(checkpoint.get("selected_project_keys", []))
+            if checkpoint is not None
+            else len(projects)
+        )
+        completed_before = (
+            len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})
+            if checkpoint is not None
+            else 0
+        )
+        started_at = dt.datetime.now(dt.timezone.utc)
+        if checkpoint is not None:
             print(json.dumps({
-                "progress": {
-                    "current": index,
-                    "total": total,
-                    "at": iso_now(),
-                    "phase": "start",
-                    "elapsed": format_duration_hms(elapsed_seconds),
-                    "eta": format_duration_hms(remaining_seconds),
+                "enrich_run": {
+                    "run_id": checkpoint["run_id"],
+                    "status": checkpoint.get("status", "running"),
+                    "resumed": resumed,
+                    "checkpoint_path": str(checkpoint_path or enrich_run_checkpoint_path(checkpoint["run_id"], checkpoint_path_arg)),
+                    "resume_command": enrich_resume_command(checkpoint["run_id"], checkpoint_path_arg),
+                    "selected_project_count": selected_total,
+                    "completed_project_count": completed_before,
+                    "remaining_project_count": len(projects),
                 }
             }, ensure_ascii=False))
-        project = enrich_project(
-            conn,
-            project,
-            llm_endpoint=args.llm_endpoint,
-            llm_model=args.llm_model,
-            llm_api_key=args.llm_api_key,
-            llm_reasoning_effort=args.llm_reasoning_effort,
-            llm_api_style=getattr(args, "llm_api_style", None),
-            deep_investigation=bool(getattr(args, "deep_investigation", False)),
-        )
-        save_project(conn, project, enriched=True)
-        conn.commit()
-        if project.get("promoted_now"):
-            promoted_now.append(
-                {
-                    "project_key": project["project_key"],
-                    "name": project.get("name", ""),
-                    "status": project.get("status", ""),
-                    "service_status": project.get("service_status", ""),
-                    "website_url": project.get("website_url", ""),
-                    "last_promoted_at": project.get("last_promoted_at", ""),
-                }
-            )
-        print(json.dumps({
-            "project_key": project["project_key"],
-            "name": project.get("name", ""),
-            "status": project.get("status", ""),
-            "tracking_state": project.get("tracking_state", "active"),
-            "promoted_now": project.get("promoted_now", False),
-            "promotion_ready": project.get("promotion_ready", False),
-            "promotion_blockers": project.get("promotion_blockers", []),
-            "service_status": project.get("service_status", ""),
-            "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
-            "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
-            "category": project.get("category", ""),
-            "app_category": project.get("app_category", ""),
-            "tagline_is_provisional": project.get("tagline_is_provisional", False),
-            "website_url": project.get("website_url", ""),
-            "introduced": project.get("introduced", False),
-            "introduced_url": project.get("introduced_url", ""),
-            "last_promoted_at": project.get("last_promoted_at", ""),
-            "last_run_errors": project.get("last_run_errors", []),
-            "merge_recommendation": project.get("merge_recommendation", {}),
-            "github_repo_urls": project.get("github_repo_urls", []),
-            "resolved_nsids": project.get("resolved_nsids", []),
-        }, ensure_ascii=False))
-    if len(projects) > 1:
-        print(json.dumps({
-            "summary": "enrich_all",
-            "project_count": len(projects),
-            "promoted_now_count": len(promoted_now),
-            "promoted_now": promoted_now,
-        }, ensure_ascii=False))
-    return 0
+        for offset, project in enumerate(projects, start=1):
+            project_key = str(project.get("project_key") or "")
+            index = completed_before + offset
+            if selected_total > 1:
+                now = dt.datetime.now(dt.timezone.utc)
+                elapsed_seconds = max(0.0, (now - started_at).total_seconds())
+                average_seconds = elapsed_seconds / max(1, offset - 1) if offset > 1 else 0.0
+                remaining_seconds = max(0.0, average_seconds * max(0, len(projects) - offset + 1)) if offset > 1 else 0.0
+                print(json.dumps({
+                    "progress": {
+                        "current": index,
+                        "total": selected_total,
+                        "at": iso_now(),
+                        "phase": "start",
+                        "elapsed": format_duration_hms(elapsed_seconds),
+                        "eta": format_duration_hms(remaining_seconds),
+                    }
+                }, ensure_ascii=False))
+            if checkpoint is not None:
+                mark_enrich_run_project_started(checkpoint, project_key)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            try:
+                project = enrich_project(
+                    conn,
+                    project,
+                    llm_endpoint=args.llm_endpoint,
+                    llm_model=args.llm_model,
+                    llm_api_key=args.llm_api_key,
+                    llm_reasoning_effort=args.llm_reasoning_effort,
+                    llm_api_style=getattr(args, "llm_api_style", None),
+                    deep_investigation=bool(getattr(args, "deep_investigation", False)),
+                )
+                save_project(conn, project, enriched=True)
+                conn.commit()
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                if checkpoint is not None:
+                    mark_enrich_run_project_failed(checkpoint, project_key, exc)
+                    checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+                raise
+            if checkpoint is not None:
+                mark_enrich_run_project_completed(checkpoint, project_key)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            if project.get("promoted_now"):
+                promoted_now.append(
+                    {
+                        "project_key": project["project_key"],
+                        "name": project.get("name", ""),
+                        "status": project.get("status", ""),
+                        "service_status": project.get("service_status", ""),
+                        "website_url": project.get("website_url", ""),
+                        "last_promoted_at": project.get("last_promoted_at", ""),
+                    }
+                )
+            print(json.dumps({
+                "project_key": project["project_key"],
+                "name": project.get("name", ""),
+                "status": project.get("status", ""),
+                "tracking_state": project.get("tracking_state", "active"),
+                "promoted_now": project.get("promoted_now", False),
+                "promotion_ready": project.get("promotion_ready", False),
+                "promotion_blockers": project.get("promotion_blockers", []),
+                "service_status": project.get("service_status", ""),
+                "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
+                "category": project.get("category", ""),
+                "app_category": project.get("app_category", ""),
+                "tagline_is_provisional": project.get("tagline_is_provisional", False),
+                "website_url": project.get("website_url", ""),
+                "introduced": project.get("introduced", False),
+                "introduced_url": project.get("introduced_url", ""),
+                "last_promoted_at": project.get("last_promoted_at", ""),
+                "last_run_errors": project.get("last_run_errors", []),
+                "merge_recommendation": project.get("merge_recommendation", {}),
+                "github_repo_urls": project.get("github_repo_urls", []),
+                "resolved_nsids": project.get("resolved_nsids", []),
+            }, ensure_ascii=False))
+        if checkpoint is not None:
+            mark_enrich_run_completed(checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+        if len(projects) > 1 or checkpoint is not None:
+            print(json.dumps({
+                "summary": "enrich_all" if getattr(args, "all", False) else "enrich",
+                "run_id": checkpoint.get("run_id") if checkpoint else "",
+                "checkpoint_path": str(checkpoint_path or "") if checkpoint else "",
+                "project_count": len(projects),
+                "selected_project_count": selected_total,
+                "completed_project_count": (
+                    len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(projects)
+                ),
+                "promoted_now_count": len(promoted_now),
+                "promoted_now": promoted_now,
+            }, ensure_ascii=False))
+        return 0
+    except KeyboardInterrupt:
+        if checkpoint is not None:
+            mark_enrich_run_interrupted(checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            print(json.dumps({
+                "summary": "enrich_all",
+                "interrupted": True,
+                "run_id": checkpoint["run_id"],
+                "checkpoint_path": str(checkpoint_path),
+                "resume_command": enrich_resume_command(checkpoint["run_id"], checkpoint_path_arg),
+                "selected_project_count": len(checkpoint.get("selected_project_keys", [])),
+                "completed_project_count": len(checkpoint.get("completed_project_keys", [])),
+                "current_project_key": checkpoint.get("current_project_key", ""),
+            }, ensure_ascii=False))
+        else:
+            print(json.dumps({"summary": "enrich", "interrupted": True}, ensure_ascii=False))
+        return 130
+    finally:
+        conn.close()
 
 
 def cmd_show(args: argparse.Namespace) -> int:
@@ -14232,6 +14489,10 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
     enrich_parser.add_argument("--retry-failures", action="store_true", help="When used with --all, enrich only projects whose previous enrich left last_run_errors.")
+    enrich_parser.add_argument("--run-id", help="When used with --all, use this id for the resumable checkpoint file.")
+    enrich_parser.add_argument("--resume-run", help="Resume a previous --all enrich run from its checkpoint run id.")
+    enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")
+    enrich_parser.add_argument("--no-checkpoint", action="store_true", help="When used with --all, disable resumable checkpoint writing.")
     enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
