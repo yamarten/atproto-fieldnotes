@@ -85,6 +85,23 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"], "unauthorized")
 
+    def test_jobs_api_lists_server_jobs(self) -> None:
+        with self.server.jobs_lock:
+            self.server.jobs["job-list-test"] = {
+                "job_id": "job-list-test",
+                "kind": "enrich_all",
+                "status": "running",
+                "created_at": "2026-01-01T00:00:00Z",
+                "logs": [{"message": "hello"}],
+            }
+
+        status, payload = self.request("GET", "/api/jobs")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["job_id"], "job-list-test")
+        self.assertEqual(payload["items"][0]["logs"][0]["message"], "hello")
+
     def test_index_includes_button_hints_and_confirmations(self) -> None:
         self.assertIn("const safeHref", web.INDEX_HTML)
         self.assertIn('["http:", "https:"].includes(url.protocol)', web.INDEX_HTML)
@@ -112,10 +129,14 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Jobs", web.INDEX_HTML)
         self.assertIn("tab-jobs", web.INDEX_HTML)
         self.assertIn("loadJobsScreen", web.INDEX_HTML)
+        self.assertIn("loadServerJobs", web.INDEX_HTML)
         self.assertIn("Recent Jobs", web.INDEX_HTML)
+        self.assertIn("Shows recent background jobs kept by this server process", web.INDEX_HTML)
         self.assertIn("sync-${payload.kind}", web.INDEX_HTML)
         self.assertIn("review-${payload.kind}", web.INDEX_HTML)
         self.assertIn("job-list", web.INDEX_HTML)
+        self.assertIn("jobProgressText", web.INDEX_HTML)
+        self.assertIn("ETA ${job.eta}", web.INDEX_HTML)
         self.assertIn("openJobIds", web.INDEX_HTML)
         self.assertIn('details.job-item[open]', web.INDEX_HTML)
         self.assertIn('details.job-raw[open]', web.INDEX_HTML)
@@ -828,6 +849,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(job_payload["payload"]["llm_reasoning_effort"], "off")
         self.assertTrue(job_payload["run_id"].startswith("enrich-"))
         self.assertTrue(job_payload["checkpoint_path"].endswith("limited-enrich-run.json"))
+        self.assertEqual(job_payload["processed_project_count"], 1)
+        self.assertIn("elapsed", job_payload)
+        self.assertIn("eta", job_payload)
         self.assertEqual(job_payload["result"]["completed_count"], 1)
         self.assertEqual(job_payload["result"]["failed_count"], 0)
 
@@ -867,6 +891,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(set(seen), {"proj:111111111111", "proj:222222222222"})
         self.assertEqual(job_payload["payload"]["limit"], None)
         self.assertTrue(job_payload["checkpoint_path"].endswith("unlimited-enrich-run.json"))
+        self.assertEqual(job_payload["processed_project_count"], 2)
+        self.assertIn("elapsed", job_payload)
+        self.assertIn("eta", job_payload)
         self.assertEqual(job_payload["result"]["completed_count"], 2)
         self.assertEqual(job_payload["result"]["failed_count"], 0)
 

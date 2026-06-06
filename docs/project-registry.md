@@ -236,9 +236,9 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 - `review-stalled`: inactivity / enrich age 条件から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
 - `review-ignore`: 独自性の薄い fork や派生 Bluesky utility の `ignore` 候補を出す
 
-既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは in-memory job に紐づく表示で、サーバ再起動後の履歴永続化は未接続です。
+既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは server process 内の in-memory job に紐づく表示で、同じサーバーに接続する別 browser / browser restart 後の tab からも `Jobs` で確認できます。サーバ再起動後の履歴永続化は未接続です。
 
-`Jobs` タブでは、この browser tab で開始した background job の直近ログと raw JSON を確認できます。実行中 job は polling で更新されますが、展開中の job 詳細と `Raw JSON` は開いた状態を保持します。
+`Jobs` タブでは、server process が保持している background job の直近ログと raw JSON を確認できます。実行中 job は polling で更新されますが、展開中の job 詳細と `Raw JSON` は開いた状態を保持します。
 
 `New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`/?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
@@ -263,7 +263,7 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
 
-Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`logs` が表示されます。
+Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。ETA はこの Web job 内で完了/失敗した project の平均処理時間から出す概算です。
 
 v1 では、`repair-db` と bulk tracking-state execute は実行しません。これらは引き続き CLI で dry-run を確認してから扱います。
 

@@ -1368,16 +1368,33 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
-    function loadJobsScreen() {
+    async function loadJobsScreen() {
       closeDetailPane(true);
       $("list").innerHTML = `
         <div class="card">
-        <div><h2>Jobs</h2><div class="muted">Shows recent background jobs tracked by this tab. Server restart or browser reload clears this view.</div></div>
+        <div><h2>Jobs</h2><div class="muted">Shows recent background jobs kept by this server process. Server restart clears this view.</div></div>
         <div class="section"><h3>Recent Jobs</h3><div id="jobs-summary">${renderJobsSummaryHtml()}</div></div>
         </div>
       `;
       wireJobSummaryActions();
       status("");
+      await loadServerJobs();
+    }
+
+    async function loadServerJobs() {
+      try {
+        const data = await api("/api/jobs");
+        for (const job of asList(data.items)) {
+          if (job.job_id) state.jobs.set(`job:${job.job_id}`, job);
+        }
+        const summary = $("jobs-summary");
+        if (summary) {
+          summary.innerHTML = renderJobsSummaryHtml();
+          wireJobSummaryActions();
+        }
+      } catch (err) {
+        status(err.message);
+      }
     }
 
     function readSyncPayload() {
@@ -1615,8 +1632,8 @@ INDEX_HTML = r"""<!doctype html>
               target.textContent = JSON.stringify(job, null, 2);
             }
           }
-          if (job.status === "done" || job.status === "failed") {
-            status(job.status === "done" ? "Job done." : `Job failed: ${job.error || ""}`);
+          if (["done", "failed", "interrupted"].includes(job.status)) {
+            status(job.status === "done" ? "Job done." : job.status === "interrupted" ? "Job interrupted." : `Job failed: ${job.error || ""}`);
             return;
           }
         } catch (err) {
@@ -2268,6 +2285,7 @@ INDEX_HTML = r"""<!doctype html>
       if (!jobs.length) return `<span class="muted">No jobs yet.</span>`;
       return `<div class="job-list">` + jobs.map((job) => {
         const jobId = job.job_id || "";
+        const progress = jobProgressText(job);
         const logs = asList(job.logs).slice(-8).map((entry) => {
           const bits = [entry.at, entry.message, entry.project_key, entry.error].filter(Boolean).join(" ");
           return `<li>${esc(bits)}</li>`;
@@ -2282,11 +2300,23 @@ INDEX_HTML = r"""<!doctype html>
             </summary>
             ${canStopJob(job) ? `<div class="actions"><button class="danger" data-stop-job="${esc(jobId)}" title="Request this enrich-all job to stop after the current project finishes, then mark its checkpoint interrupted for resume.">Stop after current project</button></div>` : ""}
             ${job.run_id ? `<div class="muted">run: ${esc(job.run_id)}${job.checkpoint_path ? ` / ${esc(job.checkpoint_path)}` : ""}</div>` : ""}
+            ${progress ? `<div class="muted">${esc(progress)}</div>` : ""}
             ${logs ? `<ul>${logs}</ul>` : `<div class="muted">No logs yet.</div>`}
             <details class="job-raw" data-job-id="${esc(jobId)}" ${openRawJobIds.has(jobId) ? "open" : ""}><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
           </details>
         `;
       }).join("") + `</div>`;
+    }
+
+    function jobProgressText(job) {
+      const processed = Number(job.processed_project_count ?? ((job.completed_count || 0) + (job.failed_count || 0)));
+      const total = Number(job.selected_project_count || job.total || 0);
+      const parts = [];
+      if (total) parts.push(`progress ${processed}/${total}`);
+      if (job.elapsed) parts.push(`elapsed ${job.elapsed}`);
+      if (job.status === "running" && job.eta) parts.push(`ETA ${job.eta}`);
+      if (job.remaining_project_count !== undefined) parts.push(`remaining ${job.remaining_project_count}`);
+      return parts.join(" / ");
     }
 
     function canStopJob(job) {
@@ -3695,19 +3725,37 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         resumed = False
         selected_total = 0
         completed_before = 0
+        started_monotonic = time.monotonic()
 
         def checkpoint_info() -> dict[str, Any]:
             if checkpoint is None:
                 return {}
+            checkpoint_completed = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})
             return {
                 "run_id": checkpoint["run_id"],
                 "checkpoint_status": checkpoint.get("status", "running"),
                 "checkpoint_path": str(checkpoint_path or registry.enrich_run_checkpoint_path(checkpoint["run_id"], args.checkpoint_path)),
                 "resume_command": registry.enrich_resume_command(checkpoint["run_id"], args.checkpoint_path),
                 "selected_project_count": selected_total,
-                "checkpoint_completed_count": len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}),
-                "remaining_project_count": max(0, selected_total - len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})),
+                "checkpoint_completed_count": checkpoint_completed,
+                "remaining_project_count": max(0, selected_total - checkpoint_completed),
                 "resumed": resumed,
+            }
+
+        def progress_info() -> dict[str, Any]:
+            processed_this_run = len(completed) + len(failed)
+            processed_total = completed_before + processed_this_run
+            remaining_this_run = max(0, len(projects) - processed_this_run) if "projects" in locals() else 0
+            elapsed_seconds = max(0.0, time.monotonic() - started_monotonic)
+            average_seconds = elapsed_seconds / processed_this_run if processed_this_run else 0.0
+            eta_seconds = average_seconds * remaining_this_run if processed_this_run else 0.0
+            return {
+                "processed_project_count": processed_total,
+                "remaining_project_count": remaining_this_run,
+                "elapsed_seconds": round(elapsed_seconds, 3),
+                "eta_seconds": round(eta_seconds, 3),
+                "elapsed": registry.format_duration_hms(elapsed_seconds),
+                "eta": registry.format_duration_hms(eta_seconds),
             }
 
         def write_checkpoint() -> None:
@@ -3732,6 +3780,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         "failed_count": len(failed),
                         "recent_completed": completed[-20:],
                         "recent_failed": failed[-20:],
+                        **progress_info(),
                         "result": {
                             "mode": "execute",
                             "interrupted": True,
@@ -3742,6 +3791,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                             "promoted_now": promoted_now[-50:],
                             "completed": completed[-100:],
                             "failed": failed[-100:],
+                            **progress_info(),
                             **checkpoint_info(),
                         },
                     }
@@ -3771,6 +3821,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                     self.jobs[job_id]["completed_count"] = 0
                     self.jobs[job_id]["failed_count"] = 0
                     self.jobs[job_id].update(checkpoint_info())
+                    self.jobs[job_id].update(progress_info())
                 self.append_job_log(job_id, "selected projects", total=total, remaining=len(projects), resumed=resumed)
                 if self.job_stop_requested(job_id):
                     interrupt_job()
@@ -3835,6 +3886,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         self.jobs[job_id]["recent_completed"] = completed[-20:]
                         self.jobs[job_id]["recent_failed"] = failed[-20:]
                         self.jobs[job_id].update(checkpoint_info())
+                        self.jobs[job_id].update(progress_info())
                 if checkpoint is not None:
                     registry.mark_enrich_run_completed(checkpoint)
                     write_checkpoint()
@@ -3854,6 +3906,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                             "promoted_now": promoted_now[-50:],
                             "completed": completed[-100:],
                             "failed": failed[-100:],
+                            **progress_info(),
                             **checkpoint_info(),
                         },
                     }
@@ -3871,6 +3924,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                         "failed_count": len(failed),
                         "recent_completed": completed[-20:],
                         "recent_failed": failed[-20:],
+                        **progress_info(),
                         **checkpoint_info(),
                     }
                 )
@@ -4119,6 +4173,12 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 self.send_json(search_projects_payload(conn, query))
             finally:
                 conn.close()
+            return
+        if path == "/api/jobs":
+            with self.server.jobs_lock:
+                jobs = [dict(job) for job in self.server.jobs.values()]
+            jobs.sort(key=lambda job: str(job.get("created_at") or ""), reverse=True)
+            self.send_json({"items": jobs[:50], "count": len(jobs)})
             return
         if path.startswith("/api/projects/"):
             project_key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")
