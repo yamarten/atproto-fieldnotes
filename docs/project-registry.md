@@ -251,7 +251,7 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
-同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、`logs` が表示されます。
 
 v1 では、`repair-db` と bulk tracking-state execute は実行しません。これらは引き続き CLI で dry-run を確認してから扱います。
 

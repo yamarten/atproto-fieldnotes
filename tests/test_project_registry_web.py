@@ -129,6 +129,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Enrich All", web.INDEX_HTML)
         self.assertIn("/api/enrich-all", web.INDEX_HTML)
         self.assertIn("run-enrich-all", web.INDEX_HTML)
+        self.assertIn("blank = unlimited", web.INDEX_HTML)
+        self.assertIn("optionalNumberSetting", web.INDEX_HTML)
+        self.assertIn("Max projects: ${limitText}", web.INDEX_HTML)
         self.assertIn("Reload server", web.INDEX_HTML)
         self.assertIn("/api/reload", web.INDEX_HTML)
         self.assertIn("reload-server", web.INDEX_HTML)
@@ -814,6 +817,41 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(job_payload["payload"]["tracking_states"], ["active", "stable", "watchlist"])
         self.assertEqual(job_payload["payload"]["llm_reasoning_effort"], "off")
         self.assertEqual(job_payload["result"]["completed_count"], 1)
+        self.assertEqual(job_payload["result"]["failed_count"], 0)
+
+    def test_enrich_all_job_without_limit_selects_all_matching_projects(self) -> None:
+        original_enrich = web.registry.enrich_project
+        seen: list[str] = []
+
+        def fake_enrich(conn, project, **kwargs):
+            seen.append(project["project_key"])
+            project = dict(project)
+            project["summary"] = "Bulk enriched"
+            return registry.finalize_project_shape(project)
+
+        web.registry.enrich_project = fake_enrich
+        try:
+            status, payload = self.request(
+                "POST",
+                "/api/enrich-all",
+                {"llm_reasoning_effort": "off"},
+            )
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.enrich_project = original_enrich
+
+        self.assertEqual(status, 200)
+        self.assertEqual(set(seen), {"proj:111111111111", "proj:222222222222"})
+        self.assertEqual(job_payload["payload"]["limit"], None)
+        self.assertEqual(job_payload["result"]["completed_count"], 2)
         self.assertEqual(job_payload["result"]["failed_count"], 0)
 
     def test_review_stalled_job_reports_logs(self) -> None:

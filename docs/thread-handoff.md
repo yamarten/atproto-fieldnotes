@@ -123,6 +123,11 @@
   - GitHub は query 数削減とキャッシュを入れているが、live fetch が続くとまだ 403 に当たる
   - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
   - backoff / partial skip / run-level circuit breaker を追加する余地がある
+- `enrich --all` の中断 / 再開
+  - Web UI の `Enrich All` は in-memory background job として実装済み
+  - `Max projects` 空欄時は対象件数を制限しない
+  - 永続 checkpoint、途中キャンセル、再開は未接続
+  - 3000 件規模を日常的に回すなら core 側で run state を保存し、Web はその状態を表示 / 操作する設計が候補
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい

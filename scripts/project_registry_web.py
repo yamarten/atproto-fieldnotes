@@ -651,7 +651,7 @@ INDEX_HTML = r"""<!doctype html>
       reviewOpsIncludeStalled: true,
       reviewOpsNoteReason: "",
       reviewOpsNote: "",
-      enrichAllLimit: 25,
+      enrichAllLimit: "",
       enrichAllIncludeStable: false,
       enrichAllIncludeStalled: false,
       enrichAllIncludeArchived: false,
@@ -1324,7 +1324,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Result</h3><pre id="sync-result">No job yet.</pre></div>
           <div class="section"><h3>Enrich All</h3>
             <div class="muted">Runs enrich over matching projects in one background job. Each project is committed separately.</div>
-            <label>Max projects <input id="enrich-all-limit" type="number" min="1" max="500" value="${esc(settings.enrichAllLimit)}"></label>
+            <label>Max projects <input id="enrich-all-limit" type="number" min="1" value="${esc(settings.enrichAllLimit ?? "")}" placeholder="blank = unlimited"></label>
             <label class="row"><input id="enrich-all-deep" type="checkbox" ${settings.enrichAllDeepInvestigation ? "checked" : ""}> Deep investigation</label>
             <label class="row"><input id="enrich-all-new-only" type="checkbox" ${settings.enrichAllNewOnly ? "checked" : ""}> New only</label>
             <label class="row"><input id="enrich-all-retry-failures" type="checkbox" ${settings.enrichAllRetryFailures ? "checked" : ""}> Retry failures only</label>
@@ -1417,8 +1417,9 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function readEnrichAllPayload() {
+      const limit = optionalNumberSetting("enrich-all-limit");
       const payload = {
-        limit: numberSetting("enrich-all-limit", 25),
+        limit,
         deep_investigation: $("enrich-all-deep").checked,
         new_only: $("enrich-all-new-only").checked,
         retry_failures: $("enrich-all-retry-failures").checked,
@@ -1430,7 +1431,7 @@ INDEX_HTML = r"""<!doctype html>
         ...enrichPayload($("enrich-all-deep").checked)
       };
       saveSettings(Object.assign({}, state.settings, {
-        enrichAllLimit: payload.limit,
+        enrichAllLimit: payload.limit ?? "",
         enrichAllDeepInvestigation: payload.deep_investigation,
         enrichAllNewOnly: payload.new_only,
         enrichAllRetryFailures: payload.retry_failures,
@@ -1479,7 +1480,8 @@ INDEX_HTML = r"""<!doctype html>
       $("run-enrich-all").onclick = async () => {
         const payload = readEnrichAllPayload();
         const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
-        if (!(await confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${payload.limit}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`))) return;
+        const limitText = payload.limit === null ? "unlimited" : String(payload.limit);
+        if (!(await confirmAction(`Run enrich --all style job?\n\nTargets: ${stateText}\nMax projects: ${limitText}\nDeep investigation: ${payload.deep_investigation ? "yes" : "no"}\n\nThis writes enriched project records to SQLite.`))) return;
         status("Starting enrich all...");
         try {
           const data = await api("/api/enrich-all", { method: "POST", body: JSON.stringify(payload) });
@@ -1616,6 +1618,14 @@ INDEX_HTML = r"""<!doctype html>
       const value = Number($(id).value);
       if (!Number.isFinite(value)) return fallback;
       return Math.max(1, Math.min(500, Math.round(value)));
+    }
+
+    function optionalNumberSetting(id) {
+      const raw = String($(id).value || "").trim();
+      if (!raw) return null;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) return null;
+      return Math.max(1, Math.round(value));
     }
 
     function wireSettings() {
@@ -3231,6 +3241,15 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
     raise ValueError(f"unsupported sync kind: {kind}")
 
 
+def optional_positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
     states = {"active", "watchlist"}
     if bool(payload.get("include_stable")):
@@ -3248,7 +3267,7 @@ def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "all_tracking_states": bool(payload.get("all_tracking_states")),
         "tracking_states": None if bool(payload.get("all_tracking_states")) else sorted(states),
-        "limit": max(1, min(500, int(payload.get("limit") or 25))),
+        "limit": optional_positive_int(payload.get("limit")),
         "new_only": bool(payload.get("new_only")),
         "retry_failures": bool(payload.get("retry_failures")),
         "deep_investigation": bool(payload.get("deep_investigation")),
@@ -3264,7 +3283,8 @@ def select_enrich_all_projects(conn: sqlite3.Connection, payload: dict[str, Any]
     if payload.get("retry_failures"):
         projects = [project for project in projects if project.get("last_run_errors")]
     projects.sort(key=registry.enrich_project_sort_key)
-    return projects[: int(payload.get("limit") or 25)]
+    limit = payload.get("limit")
+    return projects if limit is None else projects[: int(limit)]
 
 
 def review_stalled_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3562,7 +3582,12 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 "created_at": registry.iso_now(),
                 "logs": [],
             }
-        self.append_job_log(job_id, "queued enrich-all job", limit=int(enrich_payload.get("limit") or 25))
+        log_limit = enrich_payload.get("limit")
+        self.append_job_log(
+            job_id,
+            "queued enrich-all job",
+            limit="unlimited" if log_limit is None else log_limit,
+        )
         self.executor.submit(self._run_enrich_all_job, job_id, enrich_payload)
         return job_id
 
