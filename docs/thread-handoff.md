@@ -226,6 +226,10 @@
   - invalid JSON の自動救済はしない
 - storage layout migration は完了済み
   - 現行 DB は `record_json` / `ops_json` / `introduced_url` を含む現在の schema を前提にする
+- URL compatibility view の runtime 整理は一段進めた
+  - `website_url_candidates` は `service_url_candidates` の alias として helper 経由で同期する
+  - `github_repo_urls` / `tangled_repo_urls` は `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する
+  - 保存 field 自体は互換のためまだ残している
 
 ## 既知の前提
 

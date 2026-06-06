@@ -316,11 +316,14 @@ UI は `Search` タブ内に次を置きます。
 
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
-- `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
+- `github_repo_urls` / `tangled_repo_urls` は runtime では `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する方針
+  - 保存 field は compatibility view としてまだ残す
+  - 最終的に保存を止めるかは、caller と export の整理後に判断する
 - URL field migration
   - `audit-url-fields` の raw 保存監査を基準に進める
-  - `website_url_candidates` の caller を `service_url_candidates` へ寄せ、derive-only または削除にする
-  - `github_repo_urls` / `tangled_repo_urls` の caller を `source_code_urls` / `source_repo_records` へ寄せ、provider view として導出にする
+  - `website_url_candidates` は runtime で `service_url_candidates` の compatibility alias として同期済み
+  - `github_repo_urls` / `tangled_repo_urls` は runtime で `source_code_urls` / confirmed `source_repo_records` から provider view として再構成済み
+  - 次の候補は保存 payload から compatibility view を落とせるかの確認
   - `resource_url_records` への実 DB migration は適用済み。one-shot migration CLI は削除済み
   - `resource_urls` は新規保存 payload から除外済み。runtime caller を `resource_url_records` へ寄せ、最終的に runtime compatibility view も縮退させる
   - `cleanup-app-links` は追加・実 DB 適用済み。URL heuristic 変更後の再構築用として残す

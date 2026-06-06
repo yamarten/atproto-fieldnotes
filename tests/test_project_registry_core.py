@@ -9,6 +9,54 @@ from io import BytesIO
 from helpers import registry
 
 
+class ProjectRegistryUrlCompatibilityTest(unittest.TestCase):
+    def test_legacy_website_candidates_are_folded_into_service_candidates(self) -> None:
+        project = registry.default_project_record("proj:urlcompat", "service_url", "https://example.com")
+        project["website_url_candidates"] = ["https://app.example.com"]
+        project["service_url_candidates"] = []
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["service_url_candidates"], ["https://app.example.com"])
+        self.assertEqual(shaped["website_url_candidates"], ["https://app.example.com"])
+        self.assertEqual(registry.service_url_candidate_values(shaped), ["https://app.example.com"])
+
+    def test_provider_repo_views_are_derived_from_confirmed_source_records(self) -> None:
+        project = registry.default_project_record("proj:repoview", "nsid", "app.example.post")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["source_repo_records"] = [
+            {
+                "url": "https://tangled.sh/@example/lexicons",
+                "provider": "tangled",
+                "confidence": "confirmed",
+                "relation": "source_repo",
+                "source": "test",
+            }
+        ]
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["github_repo_urls"], ["https://github.com/example/app"])
+        self.assertEqual(shaped["tangled_repo_urls"], ["https://tangled.org/example/lexicons"])
+        self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
+
+    def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
+        project = registry.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
+        registry.add_candidate_source_code_url(
+            project,
+            "https://github.com/example/candidate",
+            "test",
+            reason="candidate only",
+        )
+        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["source_code_urls"], [])
+        self.assertEqual(shaped["github_repo_urls"], [])
+        self.assertEqual(shaped["candidate_source_code_urls"], ["https://github.com/example/candidate"])
+
+
 class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
     def test_validate_outbound_fetch_url_blocks_internal_hosts(self) -> None:
         for url in (

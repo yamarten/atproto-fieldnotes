@@ -114,7 +114,11 @@ URL field は次の 5 層で扱います。
 
 `resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
 
-`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
+`website_url_candidates` は保存上はまだ残しますが、runtime では `service_url_candidates` の compatibility alias として同期します。通常導線の候補判定、review signal、merge/finalize は `service_url_candidate_values()` を通して読みます。
+
+`github_repo_urls` / `tangled_repo_urls` も保存上はまだ残しますが、runtime では `source_code_urls` と confirmed `source_repo_records` から provider view を再構成します。通常導線の repo 判定、review signal、merge/finalize は `source_code_url_values()` / `provider_repo_url_values()` を通して読みます。
+
+`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は保存 field としてまだ残しているため、現状は削除せず migration 候補として扱います。
 
 旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
 
