@@ -35,6 +35,25 @@
 - `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
   - 棚卸しだけ行う場合は `--no-create-unmatched`
 - GUI で DB を触った後は `repair-db` を回す
+- セキュリティ scan 後の軽量 hardening
+  - 実装済み:
+    - outbound HTTP fetch は `request_bytes_with_final_url()` で redirect を手動追跡し、各 hop で内部宛てを block する
+    - outbound HTTP fetch の URL validation は query string を保持する
+    - block 対象は loopback / private / link-local / multicast / unspecified / reserved / Tailscale CGNAT `100.64.0.0/10`
+    - operator が明示設定する LLM endpoint 呼び出しは trusted endpoint として扱い、LAN / local endpoint への POST を許可する
+    - Web UI の外部リンク表示は `safeHref()` / `renderExternalLink()` 経由にし、`http:` / `https:` 以外はリンク化しない
+  - 動作確認済み:
+    - private / localhost / Tailscale CGNAT / `javascript:` URL の outbound fetch block
+    - redirect 先が private URL の場合の block
+    - GitHub / Bluesky search のような query parameter 付き URL が validation 後も query string を保持すること
+    - Bluesky actor search は Python request 経路で live 200
+    - LLM endpoint 呼び出しだけは private host を許可する regression test
+    - 全 unittest
+  - 未検証:
+    - 実 LAN / Tailscale endpoint への SSRF 再現
+    - 実ブラウザでの active URL scheme click 再現
+  - 未接続:
+    - LLM endpoint 以外で、operator が明示的に内部 URL を許可する allowlist
 
 ## 現在の主要レーン
 
@@ -187,6 +206,12 @@
   - 既定では `tracking_state=active|watchlist` のみ
   - `stable` と `stalled` は明示 include が必要
   - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `300`
+  - CLI の `enrich --all` checkpoint は実装済み
+    - 既定保存先は `data/enrich-runs/<run_id>.json`
+    - Ctrl+C は traceback ではなく JSON summary と終了コード `130`
+    - `--resume-run <run_id>` は保存済み対象リストから完了済み key を飛ばす
+    - LLM API key の値は checkpoint に保存しない
+  - Web UI の停止/再開導線は未接続
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない

@@ -134,6 +134,10 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
 
+`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
+
+実装済みではない範囲として、Web UI の停止ボタンや background job からの checkpoint 再開導線はまだ未接続です。将来的には同じ checkpoint helper を Web job 側から呼び、DB 更新と UI job state の境界を保ったまま停止要求を扱う想定です。
+
 ## enrich の判断材料
 
 `enrich` は「confirmed に上げる条件」と「candidate に留める条件」を分けています。LLM は後段ですが、一次情報で確定できないものだけを整理させる位置づけです。
@@ -237,6 +241,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
   - `candidate_developer_accounts`
     - service page / follow-up / Bluesky search 由来の未確認候補
 - service/search 由来の handle は、まず `candidate_developer_accounts` に入れます
+- `bsky.app/profile/{subject}` は service URL として扱いません
+  - `{subject}` が handle 構文なら `handle`、DID 構文なら `did` として account evidence に分けます
+  - `profile`, `user` のような一般 path 語だけではなく、構造化された handle / DID を優先して account-scoped URL を判定します
 - confirmed に上がる主な条件:
   - confirmed service host と handle ドメインが整合する
   - 例: `https://example.com` と `alice.example.com`
@@ -767,6 +774,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
     - investigation plan
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
+  - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
+  - 実装済み: project data 由来の service / resource URL は同じ `request_bytes()` 系でも内部宛て block の対象です
+  - 未接続: LLM endpoint 以外の内部 URL を operator が個別 allowlist する設定
 
 ### `sync-introduced`
 

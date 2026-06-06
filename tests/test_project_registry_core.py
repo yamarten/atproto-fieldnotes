@@ -3,8 +3,126 @@ from __future__ import annotations
 import socket
 import unittest
 import urllib.error
+import urllib.request
+from io import BytesIO
 
 from helpers import registry
+
+
+class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
+    def test_validate_outbound_fetch_url_blocks_internal_hosts(self) -> None:
+        for url in (
+            "http://127.0.0.1:8000/secret",
+            "http://localhost:8000/secret",
+            "http://192.168.0.1/admin",
+            "http://100.64.0.1/status",
+            "javascript:alert(1)",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    registry.validate_outbound_fetch_url(url)
+
+    def test_validate_outbound_fetch_url_preserves_query_string(self) -> None:
+        url = "https://api.github.com/search/repositories?q=Skyrdle+OR+farm.smol.games.skyrdle.score&per_page=5"
+
+        self.assertEqual(registry.validate_outbound_fetch_url(url), url)
+
+    def test_request_bytes_revalidates_redirect_targets(self) -> None:
+        class RedirectOpener:
+            def open(self, req: urllib.request.Request, timeout: float = 0):
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    302,
+                    "Found",
+                    {"Location": "http://127.0.0.1:8765/private"},
+                    BytesIO(b""),
+                )
+
+        original_opener = registry.NO_REDIRECT_OPENER
+        original_blocker = registry.outbound_host_is_blocked
+        registry.NO_REDIRECT_OPENER = RedirectOpener()
+        registry.outbound_host_is_blocked = lambda host: host == "127.0.0.1"
+        try:
+            with self.assertRaises(ValueError):
+                registry.request_bytes_with_final_url("https://example.com/redirect")
+        finally:
+            registry.NO_REDIRECT_OPENER = original_opener
+            registry.outbound_host_is_blocked = original_blocker
+
+    def test_request_bytes_can_allow_trusted_operator_endpoint(self) -> None:
+        class Response:
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"{}"
+
+            def geturl(self) -> str:
+                return "http://192.168.1.2:1234/v1/responses"
+
+        class LocalOpener:
+            def open(self, req: urllib.request.Request, timeout: float = 0):
+                return Response()
+
+        original_opener = registry.NO_REDIRECT_OPENER
+        registry.NO_REDIRECT_OPENER = LocalOpener()
+        try:
+            with self.assertRaises(ValueError):
+                registry.request_bytes_with_final_url("http://192.168.1.2:1234/v1/responses")
+            status, body, _headers, final_url = registry.request_bytes_with_final_url(
+                "http://192.168.1.2:1234/v1/responses",
+                allow_blocked_hosts=True,
+            )
+        finally:
+            registry.NO_REDIRECT_OPENER = original_opener
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"{}")
+        self.assertEqual(final_url, "http://192.168.1.2:1234/v1/responses")
+
+    def test_request_bytes_sends_query_string(self) -> None:
+        seen_urls: list[str] = []
+
+        class Response:
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"{}"
+
+            def geturl(self) -> str:
+                return seen_urls[-1]
+
+        class RecordingOpener:
+            def open(self, req: urllib.request.Request, timeout: float = 0):
+                seen_urls.append(req.full_url)
+                return Response()
+
+        original_opener = registry.NO_REDIRECT_OPENER
+        registry.NO_REDIRECT_OPENER = RecordingOpener()
+        try:
+            registry.request_bytes_with_final_url(
+                "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q=Skyrdle+%7C+skyrdle.com&limit=5",
+            )
+        finally:
+            registry.NO_REDIRECT_OPENER = original_opener
+
+        self.assertEqual(
+            seen_urls,
+            ["https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q=Skyrdle+%7C+skyrdle.com&limit=5"],
+        )
 
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
@@ -492,6 +610,38 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
         self.assertNotIn("https://app.example.com", project["service_url_candidates"])
         self.assertNotIn("https://app.example.com", project["website_url_candidates"])
+
+
+class ProjectRegistryProfileUrlTest(unittest.TestCase):
+    def test_bluesky_profile_subject_distinguishes_handle_and_did(self) -> None:
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/alice.example.com"),
+            {"handle": "alice.example.com"},
+        )
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"),
+            {"did": "did:plc:abcdefghijklmnopqrstuvwx"},
+        )
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:web:alice.example.com"),
+            {"did": "did:web:alice.example.com"},
+        )
+        self.assertEqual(registry.extract_bluesky_profile_subject("https://bsky.app/profile/not-a-handle"), {})
+
+    def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:
+        profile_url = "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"
+        project = registry.default_project_record("proj:didprofile", "repo_url", "https://github.com/example/app")
+        project["website_url"] = profile_url
+        project["service_urls"] = [profile_url]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "")
+        self.assertNotIn(profile_url, project["service_urls"])
+        self.assertIn(
+            {"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "service_urls:profile_url"},
+            project["candidate_developer_accounts"],
+        )
 
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):

@@ -85,6 +85,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["error"], "unauthorized")
 
     def test_index_includes_button_hints_and_confirmations(self) -> None:
+        self.assertIn("const safeHref", web.INDEX_HTML)
+        self.assertIn('["http:", "https:"].includes(url.protocol)', web.INDEX_HTML)
+        self.assertIn("renderExternalLink(item.url || \"\")", web.INDEX_HTML)
         self.assertIn("Open project details. This does not change the DB.", web.INDEX_HTML)
         self.assertIn("Review Ops", web.INDEX_HTML)
         self.assertIn("tab-review-ops", web.INDEX_HTML)

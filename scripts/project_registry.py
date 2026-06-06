@@ -6,10 +6,12 @@ import argparse
 import base64
 import copy
 import datetime as dt
+import ipaddress
 import json
 import os
 import re
 import shlex
+import socket
 import sqlite3
 import sys
 import urllib.error
@@ -31,6 +33,7 @@ except Exception:  # pragma: no cover - optional dependency
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
+ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
     "User-Agent": "atproto-survey-bot/0.3",
@@ -45,6 +48,7 @@ REQUEST_TIMEOUT_LEXICON_DNS = 12.0
 REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
+MAX_HTTP_REDIRECTS = 5
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
@@ -369,12 +373,76 @@ def ensure_dirs() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+NO_REDIRECT_OPENER = urllib.request.build_opener(NoRedirectHandler)
+
+
+def outbound_host_is_blocked(host: str) -> bool:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    if not lowered:
+        return True
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        return True
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(lowered, None)}
+    except socket.gaierror:
+        addresses = {lowered}
+    for address in addresses:
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if (
+            parsed.is_loopback
+            or parsed.is_private
+            or parsed.is_link_local
+            or parsed.is_multicast
+            or parsed.is_unspecified
+            or parsed.is_reserved
+            or parsed in ipaddress.ip_network("100.64.0.0/10")
+        ):
+            return True
+    return False
+
+
+def normalize_outbound_fetch_url(url: str) -> str:
+    stripped = str(url or "").strip()
+    try:
+        parsed = urllib.parse.urlparse(stripped)
+    except ValueError:
+        return ""
+    if not parsed.scheme and not parsed.netloc:
+        try:
+            parsed = urllib.parse.urlparse(f"https://{stripped}")
+        except ValueError:
+            return ""
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    path = parsed.path or ""
+    return urllib.parse.urlunparse((scheme, netloc, path, "", parsed.query, ""))
+
+
+def validate_outbound_fetch_url(url: str, *, allow_blocked_hosts: bool = False) -> str:
+    normalized = normalize_outbound_fetch_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"unsupported outbound URL: {url}")
+    if not allow_blocked_hosts and outbound_host_is_blocked(parsed.hostname):
+        raise ValueError(f"blocked internal outbound URL: {normalized}")
+    return normalized
+
+
 def request_bytes(
     url: str,
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[int, bytes, dict[str, str]]:
     status, body, response_headers, _final_url = request_bytes_with_final_url(
         url,
@@ -382,6 +450,7 @@ def request_bytes(
         data=data,
         method=method,
         timeout=timeout,
+        allow_blocked_hosts=allow_blocked_hosts,
     )
     return status, body, response_headers
 
@@ -392,17 +461,45 @@ def request_bytes_with_final_url(
     data: bytes | None = None,
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[int, bytes, dict[str, str], str]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
-    req = urllib.request.Request(url, headers=merged_headers, data=data, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        status = getattr(response, "status", 200)
-        body = response.read()
-        response_headers = {key.lower(): value for key, value in response.headers.items()}
-        final_url = normalize_url(str(response.geturl() or url))
-        return status, body, response_headers, final_url
+    current_url = validate_outbound_fetch_url(url, allow_blocked_hosts=allow_blocked_hosts)
+    for _ in range(MAX_HTTP_REDIRECTS + 1):
+        req = urllib.request.Request(current_url, headers=merged_headers, data=data, method=method)
+        try:
+            response_context = NO_REDIRECT_OPENER.open(req, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code or 0)
+            if status in {301, 302, 303, 307, 308}:
+                location = exc.headers.get("Location", "") if exc.headers else ""
+                if not location:
+                    body = exc.read()
+                    exc.close()
+                    response_headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
+                    return status, body, response_headers, current_url
+                try:
+                    next_url = validate_outbound_fetch_url(
+                        urllib.parse.urljoin(current_url, location),
+                        allow_blocked_hosts=allow_blocked_hosts,
+                    )
+                finally:
+                    exc.close()
+                current_url = next_url
+                if status == 303:
+                    data = None
+                    method = "GET"
+                continue
+            raise
+        with response_context as response:
+            status = getattr(response, "status", 200)
+            body = response.read()
+            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            final_url = normalize_url(str(response.geturl() or current_url))
+            return status, body, response_headers, final_url
+    raise ValueError(f"too many redirects for outbound URL: {url}")
 
 
 def request_json(url: str, headers: dict[str, str] | None = None, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> Any:
@@ -3392,14 +3489,36 @@ def is_asset_like_url(url: str) -> bool:
     return any(lowered_path.endswith(ext) for ext in IMAGE_EXTENSIONS)
 
 
-def extract_bluesky_profile_handle(url: str) -> str:
+ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
+DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
+
+
+def extract_bluesky_profile_subject(url: str) -> dict[str, str]:
     normalized = normalize_url(sanitize_extracted_url(url))
     parsed = urllib.parse.urlparse(normalized)
     if parsed.netloc != "bsky.app":
-        return ""
-    if "/profile/" not in parsed.path:
-        return ""
-    return parsed.path.split("/profile/", 1)[-1].split("/", 1)[0].strip()
+        return {}
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) < 2 or segments[0] != "profile":
+        return {}
+    subject = urllib.parse.unquote(segments[1]).strip()
+    if DID_RE.fullmatch(subject):
+        return {"did": subject}
+    if ATPROTO_HANDLE_RE.fullmatch(subject):
+        return {"handle": subject.lower()}
+    return {}
+
+
+def extract_bluesky_profile_handle(url: str) -> str:
+    return extract_bluesky_profile_subject(url).get("handle", "")
+
+
+def extract_bluesky_profile_did(url: str) -> str:
+    return extract_bluesky_profile_subject(url).get("did", "")
+
+
+def is_bluesky_profile_url(url: str) -> bool:
+    return bool(extract_bluesky_profile_subject(url))
 
 
 def is_explicitly_non_project_service_url(url: str) -> bool:
@@ -3409,7 +3528,7 @@ def is_explicitly_non_project_service_url(url: str) -> bool:
     path = parsed.path.lower()
     if not host:
         return True
-    if extract_bluesky_profile_handle(normalized):
+    if is_bluesky_profile_url(normalized):
         return True
     if has_noisy_service_host(host):
         return True
@@ -4583,6 +4702,8 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
     normalized = normalize_url(url)
     lowered_text = text.lower()
     lowered_url = normalized.lower()
+    if is_bluesky_profile_url(normalized):
+        return "bluesky_profile"
     if normalize_github_repo_url(normalized) or normalize_tangled_repo_url(normalized):
         if any(token in lowered_text for token in ["source", "view source", "repo", "repository", "monorepo"]):
             return "source_repo"
@@ -4592,8 +4713,6 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
         return "docs"
     if "blog" in lowered_text or ".org/blog" in lowered_url or normalized.startswith("https://blog."):
         return "blog"
-    if "bluesky" in lowered_text or "bsky.app/profile/" in lowered_url:
-        return "bluesky_profile"
     if is_same_site_family(base_url, normalized):
         return "same_site"
     return "other"
@@ -4845,6 +4964,12 @@ def add_resource_url(
 
 
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
+    for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
+        for item in project.get(field_name, []):
+            if is_bluesky_profile_url(str(item or "")):
+                record_developer_profile_url(project, str(item), f"{field_name}:profile_url")
+    if project.get("website_url") and is_bluesky_profile_url(str(project["website_url"])):
+        record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
     project["service_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("service_url_candidates", []) if item] if item])
     project["website_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("website_url_candidates", []) if item] if item])
@@ -4867,9 +4992,8 @@ def prune_project_urls(project: dict[str, Any]) -> None:
     for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
-            handle = extract_bluesky_profile_handle(url)
-            if handle:
-                record_developer_handle(project, handle, f"{field_name}:profile_url")
+            if is_bluesky_profile_url(url):
+                record_developer_profile_url(project, url, f"{field_name}:profile_url")
                 continue
             is_confirmed = field_name == "service_urls"
             normalized_candidate = normalize_url(str(url or ""))
@@ -4882,7 +5006,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         project[field_name] = unique_list(cleaned_urls)
 
     website_url = str(project.get("website_url") or "").strip()
-    if website_url and extract_bluesky_profile_handle(website_url):
+    if website_url and is_bluesky_profile_url(website_url):
         project["website_url"] = ""
     elif website_url and not service_url_allowed_for_project(project, website_url, confirmed=True):
         project["website_url"] = ""
@@ -5008,6 +5132,16 @@ def record_developer_handle(project: dict[str, Any], handle: str, source: str, d
         add_developer_account(project, handle, source, did=did)
         return
     add_candidate_developer_account(project, handle, source, did=did)
+
+
+def record_developer_profile_url(project: dict[str, Any], url: str, source: str) -> None:
+    subject = extract_bluesky_profile_subject(url)
+    handle = subject.get("handle", "")
+    did = subject.get("did", "")
+    if handle:
+        record_developer_handle(project, handle, source)
+    elif did:
+        add_candidate_developer_account(project, "", source, did=did)
 
 
 def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
@@ -6845,7 +6979,7 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
             continue
         if normalize_github_repo_url(url) and repo_url_allowed_for_project(project, url):
             return True
-        if "/profile/" in urllib.parse.urlparse(url).path and "bsky.app" in urllib.parse.urlparse(url).netloc:
+        if is_bluesky_profile_url(url):
             handle = extract_bluesky_profile_handle(url)
             if handle and handle in set(project.get("bluesky_handles", [])):
                 return True
@@ -6935,11 +7069,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
             if is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
-            parsed = urllib.parse.urlparse(url)
-            if "/profile/" in parsed.path:
-                handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
-                if handle:
-                    record_developer_handle(project, handle, source)
+            record_developer_profile_url(project, url, source)
         elif classification == "same_site":
             if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 confirm_source_code_url(
@@ -7728,11 +7858,8 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         ]
         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.netloc.endswith("bsky.app") and "/profile/" in parsed.path:
-            handle = parsed.path.split("/profile/", 1)[-1].split("/", 1)[0]
-            if handle:
-                record_developer_handle(project, handle, f"service_raw_url:{normalized_service_url}")
+        if is_bluesky_profile_url(url):
+            record_developer_profile_url(project, url, f"service_raw_url:{normalized_service_url}")
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
     for follow_url in follow_ups[:3]:
         try:
@@ -8332,6 +8459,7 @@ def request_json_post_raw(
     headers: dict[str, str] | None = None,
     *,
     timeout: float = 60,
+    allow_blocked_hosts: bool = False,
 ) -> tuple[Any, str]:
     merged_headers = {"Content-Type": "application/json"}
     if headers:
@@ -8342,6 +8470,7 @@ def request_json_post_raw(
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
         timeout=timeout,
+        allow_blocked_hosts=allow_blocked_hosts,
     )
     text = body.decode("utf-8", errors="replace")
     return json.loads(text), text
@@ -8425,7 +8554,13 @@ def run_local_llm_via_endpoint(
             payloads = [completion_payload]
         for payload in payloads:
             try:
-                response_payload, _ = request_json_post_raw(url, payload, headers=headers, timeout=llm_timeout)
+                response_payload, _ = request_json_post_raw(
+                    url,
+                    payload,
+                    headers=headers,
+                    timeout=llm_timeout,
+                    allow_blocked_hosts=True,
+                )
                 raw_content = (
                     parse_openai_compatible_response(response_payload)
                     if endpoint_kind in {"chat", "responses"}
@@ -11117,82 +11252,338 @@ def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
     return None
 
 
+def generate_enrich_run_id() -> str:
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"enrich-{timestamp}-{uuid.uuid4().hex[:8]}"
+
+
+def validate_enrich_run_id(run_id: str) -> str:
+    value = str(run_id or "").strip()
+    if not value:
+        raise ValueError("enrich run id is required")
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
+        raise ValueError(f"invalid enrich run id: {run_id}")
+    return value
+
+
+def enrich_run_checkpoint_path(run_id: str, checkpoint_path: str | None = None) -> Path:
+    if checkpoint_path:
+        return Path(checkpoint_path).expanduser()
+    return ENRICH_RUNS_DIR / f"{validate_enrich_run_id(run_id)}.json"
+
+
+def enrich_resume_command(run_id: str, checkpoint_path: str | None = None) -> str:
+    parts = ["python3", "scripts/project_registry.py", "enrich", "--all", "--resume-run", validate_enrich_run_id(run_id)]
+    if checkpoint_path:
+        parts.extend(["--checkpoint-path", checkpoint_path])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def enrich_run_options_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    option_names = (
+        "all_tracking_states",
+        "tracking_states",
+        "include_stable",
+        "include_stalled",
+        "include_archived",
+        "include_ignore",
+        "new_only",
+        "retry_failures",
+        "deep_investigation",
+        "llm_endpoint",
+        "llm_model",
+        "llm_api_style",
+        "llm_reasoning_effort",
+    )
+    options: dict[str, Any] = {}
+    for name in option_names:
+        value = getattr(args, name, None)
+        if isinstance(value, tuple):
+            value = list(value)
+        options[name] = value
+    options["llm_api_key_configured"] = bool(getattr(args, "llm_api_key", None))
+    return options
+
+
+def apply_enrich_run_options_to_args(args: argparse.Namespace, checkpoint: dict[str, Any]) -> None:
+    options = checkpoint.get("options", {})
+    if not isinstance(options, dict):
+        return
+    for name, value in options.items():
+        if name == "llm_api_key_configured":
+            continue
+        if hasattr(args, name):
+            setattr(args, name, value)
+
+
+def new_enrich_run_checkpoint(projects: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    run_id = validate_enrich_run_id(getattr(args, "run_id", "") or generate_enrich_run_id())
+    now = iso_now()
+    return {
+        "version": 1,
+        "run_id": run_id,
+        "status": "running",
+        "started_at": now,
+        "updated_at": now,
+        "completed_at": "",
+        "interrupted_at": "",
+        "options": enrich_run_options_from_args(args),
+        "selected_project_keys": [str(project.get("project_key") or "") for project in projects if project.get("project_key")],
+        "completed_project_keys": [],
+        "failed_projects": [],
+        "missing_project_keys": [],
+        "current_project_key": "",
+    }
+
+
+def load_enrich_run_checkpoint(run_id: str, checkpoint_path: str | None = None) -> dict[str, Any]:
+    path = enrich_run_checkpoint_path(run_id, checkpoint_path)
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, dict):
+        raise ValueError(f"invalid enrich checkpoint: {path}")
+    checkpoint_run_id = validate_enrich_run_id(str(payload.get("run_id") or run_id))
+    requested_run_id = validate_enrich_run_id(run_id)
+    if checkpoint_run_id != requested_run_id:
+        raise ValueError(f"checkpoint run_id mismatch: expected {requested_run_id}, got {checkpoint_run_id}")
+    payload["run_id"] = checkpoint_run_id
+    return payload
+
+
+def write_enrich_run_checkpoint(checkpoint: dict[str, Any], checkpoint_path: str | None = None) -> Path:
+    run_id = validate_enrich_run_id(str(checkpoint.get("run_id") or ""))
+    path = enrich_run_checkpoint_path(run_id, checkpoint_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint["updated_at"] = iso_now()
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    tmp_path.replace(path)
+    return path
+
+
+def mark_enrich_run_project_started(checkpoint: dict[str, Any], project_key: str) -> None:
+    checkpoint["current_project_key"] = project_key
+    checkpoint["status"] = "running"
+
+
+def mark_enrich_run_project_completed(checkpoint: dict[str, Any], project_key: str) -> None:
+    completed = [str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)]
+    if project_key not in completed:
+        completed.append(project_key)
+    checkpoint["completed_project_keys"] = completed
+    checkpoint["current_project_key"] = ""
+    checkpoint["failed_projects"] = [
+        item
+        for item in checkpoint.get("failed_projects", [])
+        if isinstance(item, dict) and item.get("project_key") != project_key
+    ]
+
+
+def mark_enrich_run_project_failed(checkpoint: dict[str, Any], project_key: str, error: BaseException) -> None:
+    failures = [
+        item
+        for item in checkpoint.get("failed_projects", [])
+        if isinstance(item, dict) and item.get("project_key") != project_key
+    ]
+    failures.append({"project_key": project_key, "error": f"{type(error).__name__}: {error}", "at": iso_now()})
+    checkpoint["failed_projects"] = failures
+    checkpoint["current_project_key"] = ""
+
+
+def mark_enrich_run_interrupted(checkpoint: dict[str, Any]) -> None:
+    checkpoint["status"] = "interrupted"
+    checkpoint["interrupted_at"] = iso_now()
+
+
+def mark_enrich_run_completed(checkpoint: dict[str, Any]) -> None:
+    checkpoint["status"] = "completed"
+    checkpoint["completed_at"] = iso_now()
+    checkpoint["current_project_key"] = ""
+
+
+def enrich_run_remaining_projects(projects: list[dict[str, Any]], checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
+    completed = {str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}
+    return [project for project in projects if str(project.get("project_key") or "") not in completed]
+
+
+def load_enrich_run_projects(conn: sqlite3.Connection, checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
+    projects: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for project_key in checkpoint.get("selected_project_keys", []):
+        key = str(project_key or "").strip()
+        if not key:
+            continue
+        project = fetch_project(conn, key)
+        if project is None:
+            missing.append(key)
+            continue
+        projects.append(project)
+    checkpoint["missing_project_keys"] = missing
+    return projects
+
+
 def cmd_enrich(args: argparse.Namespace) -> int:
+    if getattr(args, "resume_run", None) and not getattr(args, "all", False):
+        raise ValueError("--resume-run requires --all")
+    if getattr(args, "resume_run", None) and getattr(args, "no_checkpoint", False):
+        raise ValueError("--resume-run cannot be combined with --no-checkpoint")
     conn = open_db()
-    projects = select_projects(conn, args)
-    promoted_now: list[dict[str, Any]] = []
-    total = len(projects)
-    started_at = dt.datetime.now(dt.timezone.utc)
-    for index, project in enumerate(projects, start=1):
-        if total > 1:
-            now = dt.datetime.now(dt.timezone.utc)
-            elapsed_seconds = max(0.0, (now - started_at).total_seconds())
-            average_seconds = elapsed_seconds / max(1, index - 1) if index > 1 else 0.0
-            remaining_seconds = max(0.0, average_seconds * max(0, total - index + 1)) if index > 1 else 0.0
+    checkpoint: dict[str, Any] | None = None
+    checkpoint_path: Path | None = None
+    checkpoint_path_arg = getattr(args, "checkpoint_path", None)
+    resumed = False
+    try:
+        if getattr(args, "all", False) and getattr(args, "resume_run", None):
+            checkpoint = load_enrich_run_checkpoint(args.resume_run, checkpoint_path_arg)
+            apply_enrich_run_options_to_args(args, checkpoint)
+            all_projects = load_enrich_run_projects(conn, checkpoint)
+            projects = enrich_run_remaining_projects(all_projects, checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            resumed = True
+        else:
+            projects = select_projects(conn, args)
+            if getattr(args, "all", False) and not getattr(args, "no_checkpoint", False):
+                checkpoint = new_enrich_run_checkpoint(projects, args)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+
+        promoted_now: list[dict[str, Any]] = []
+        selected_total = (
+            len(checkpoint.get("selected_project_keys", []))
+            if checkpoint is not None
+            else len(projects)
+        )
+        completed_before = (
+            len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)})
+            if checkpoint is not None
+            else 0
+        )
+        started_at = dt.datetime.now(dt.timezone.utc)
+        if checkpoint is not None:
             print(json.dumps({
-                "progress": {
-                    "current": index,
-                    "total": total,
-                    "at": iso_now(),
-                    "phase": "start",
-                    "elapsed": format_duration_hms(elapsed_seconds),
-                    "eta": format_duration_hms(remaining_seconds),
+                "enrich_run": {
+                    "run_id": checkpoint["run_id"],
+                    "status": checkpoint.get("status", "running"),
+                    "resumed": resumed,
+                    "checkpoint_path": str(checkpoint_path or enrich_run_checkpoint_path(checkpoint["run_id"], checkpoint_path_arg)),
+                    "resume_command": enrich_resume_command(checkpoint["run_id"], checkpoint_path_arg),
+                    "selected_project_count": selected_total,
+                    "completed_project_count": completed_before,
+                    "remaining_project_count": len(projects),
                 }
             }, ensure_ascii=False))
-        project = enrich_project(
-            conn,
-            project,
-            llm_endpoint=args.llm_endpoint,
-            llm_model=args.llm_model,
-            llm_api_key=args.llm_api_key,
-            llm_reasoning_effort=args.llm_reasoning_effort,
-            llm_api_style=getattr(args, "llm_api_style", None),
-            deep_investigation=bool(getattr(args, "deep_investigation", False)),
-        )
-        save_project(conn, project, enriched=True)
-        conn.commit()
-        if project.get("promoted_now"):
-            promoted_now.append(
-                {
-                    "project_key": project["project_key"],
-                    "name": project.get("name", ""),
-                    "status": project.get("status", ""),
-                    "service_status": project.get("service_status", ""),
-                    "website_url": project.get("website_url", ""),
-                    "last_promoted_at": project.get("last_promoted_at", ""),
-                }
-            )
-        print(json.dumps({
-            "project_key": project["project_key"],
-            "name": project.get("name", ""),
-            "status": project.get("status", ""),
-            "tracking_state": project.get("tracking_state", "active"),
-            "promoted_now": project.get("promoted_now", False),
-            "promotion_ready": project.get("promotion_ready", False),
-            "promotion_blockers": project.get("promotion_blockers", []),
-            "service_status": project.get("service_status", ""),
-            "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
-            "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
-            "category": project.get("category", ""),
-            "app_category": project.get("app_category", ""),
-            "tagline_is_provisional": project.get("tagline_is_provisional", False),
-            "website_url": project.get("website_url", ""),
-            "introduced": project.get("introduced", False),
-            "introduced_url": project.get("introduced_url", ""),
-            "last_promoted_at": project.get("last_promoted_at", ""),
-            "last_run_errors": project.get("last_run_errors", []),
-            "merge_recommendation": project.get("merge_recommendation", {}),
-            "github_repo_urls": project.get("github_repo_urls", []),
-            "resolved_nsids": project.get("resolved_nsids", []),
-        }, ensure_ascii=False))
-    if len(projects) > 1:
-        print(json.dumps({
-            "summary": "enrich_all",
-            "project_count": len(projects),
-            "promoted_now_count": len(promoted_now),
-            "promoted_now": promoted_now,
-        }, ensure_ascii=False))
-    return 0
+        for offset, project in enumerate(projects, start=1):
+            project_key = str(project.get("project_key") or "")
+            index = completed_before + offset
+            if selected_total > 1:
+                now = dt.datetime.now(dt.timezone.utc)
+                elapsed_seconds = max(0.0, (now - started_at).total_seconds())
+                average_seconds = elapsed_seconds / max(1, offset - 1) if offset > 1 else 0.0
+                remaining_seconds = max(0.0, average_seconds * max(0, len(projects) - offset + 1)) if offset > 1 else 0.0
+                print(json.dumps({
+                    "progress": {
+                        "current": index,
+                        "total": selected_total,
+                        "at": iso_now(),
+                        "phase": "start",
+                        "elapsed": format_duration_hms(elapsed_seconds),
+                        "eta": format_duration_hms(remaining_seconds),
+                    }
+                }, ensure_ascii=False))
+            if checkpoint is not None:
+                mark_enrich_run_project_started(checkpoint, project_key)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            try:
+                project = enrich_project(
+                    conn,
+                    project,
+                    llm_endpoint=args.llm_endpoint,
+                    llm_model=args.llm_model,
+                    llm_api_key=args.llm_api_key,
+                    llm_reasoning_effort=args.llm_reasoning_effort,
+                    llm_api_style=getattr(args, "llm_api_style", None),
+                    deep_investigation=bool(getattr(args, "deep_investigation", False)),
+                )
+                save_project(conn, project, enriched=True)
+                conn.commit()
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                if checkpoint is not None:
+                    mark_enrich_run_project_failed(checkpoint, project_key, exc)
+                    checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+                raise
+            if checkpoint is not None:
+                mark_enrich_run_project_completed(checkpoint, project_key)
+                checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            if project.get("promoted_now"):
+                promoted_now.append(
+                    {
+                        "project_key": project["project_key"],
+                        "name": project.get("name", ""),
+                        "status": project.get("status", ""),
+                        "service_status": project.get("service_status", ""),
+                        "website_url": project.get("website_url", ""),
+                        "last_promoted_at": project.get("last_promoted_at", ""),
+                    }
+                )
+            print(json.dumps({
+                "project_key": project["project_key"],
+                "name": project.get("name", ""),
+                "status": project.get("status", ""),
+                "tracking_state": project.get("tracking_state", "active"),
+                "promoted_now": project.get("promoted_now", False),
+                "promotion_ready": project.get("promotion_ready", False),
+                "promotion_blockers": project.get("promotion_blockers", []),
+                "service_status": project.get("service_status", ""),
+                "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
+                "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
+                "category": project.get("category", ""),
+                "app_category": project.get("app_category", ""),
+                "tagline_is_provisional": project.get("tagline_is_provisional", False),
+                "website_url": project.get("website_url", ""),
+                "introduced": project.get("introduced", False),
+                "introduced_url": project.get("introduced_url", ""),
+                "last_promoted_at": project.get("last_promoted_at", ""),
+                "last_run_errors": project.get("last_run_errors", []),
+                "merge_recommendation": project.get("merge_recommendation", {}),
+                "github_repo_urls": project.get("github_repo_urls", []),
+                "resolved_nsids": project.get("resolved_nsids", []),
+            }, ensure_ascii=False))
+        if checkpoint is not None:
+            mark_enrich_run_completed(checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+        if len(projects) > 1 or checkpoint is not None:
+            print(json.dumps({
+                "summary": "enrich_all" if getattr(args, "all", False) else "enrich",
+                "run_id": checkpoint.get("run_id") if checkpoint else "",
+                "checkpoint_path": str(checkpoint_path or "") if checkpoint else "",
+                "project_count": len(projects),
+                "selected_project_count": selected_total,
+                "completed_project_count": (
+                    len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(projects)
+                ),
+                "promoted_now_count": len(promoted_now),
+                "promoted_now": promoted_now,
+            }, ensure_ascii=False))
+        return 0
+    except KeyboardInterrupt:
+        if checkpoint is not None:
+            mark_enrich_run_interrupted(checkpoint)
+            checkpoint_path = write_enrich_run_checkpoint(checkpoint, checkpoint_path_arg)
+            print(json.dumps({
+                "summary": "enrich_all",
+                "interrupted": True,
+                "run_id": checkpoint["run_id"],
+                "checkpoint_path": str(checkpoint_path),
+                "resume_command": enrich_resume_command(checkpoint["run_id"], checkpoint_path_arg),
+                "selected_project_count": len(checkpoint.get("selected_project_keys", [])),
+                "completed_project_count": len(checkpoint.get("completed_project_keys", [])),
+                "current_project_key": checkpoint.get("current_project_key", ""),
+            }, ensure_ascii=False))
+        else:
+            print(json.dumps({"summary": "enrich", "interrupted": True}, ensure_ascii=False))
+        return 130
+    finally:
+        conn.close()
 
 
 def cmd_show(args: argparse.Namespace) -> int:
@@ -13176,7 +13567,7 @@ def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
             }
         if is_bsky_post_url(normalized_url):
             return {"status": "skip", "reason": "bsky_post_url", "normalized": normalized_url}
-        if extract_bluesky_profile_handle(normalized_url):
+        if is_bluesky_profile_url(normalized_url):
             return {"status": "skip", "reason": "bsky_profile_url", "normalized": normalized_url}
         if parsed.netloc.lower() == "lexicon.garden":
             return {"status": "skip", "reason": "lexicon_garden_non_seed_url", "normalized": normalized_url}
@@ -13213,16 +13604,17 @@ def classify_derived_seed_values(raw_values: list[str]) -> list[dict[str, Any]]:
 
 
 def resolve_bsky_profile_url_seed_candidates(url: str) -> list[dict[str, Any]]:
-    handle = extract_bluesky_profile_handle(url)
-    if not handle:
+    subject = extract_bluesky_profile_subject(url)
+    actor = subject.get("handle") or subject.get("did") or ""
+    if not actor:
         return []
     try:
-        profile = fetch_bsky_profile(handle)
+        profile = fetch_bsky_profile(actor)
     except Exception:
         return []
     derived_urls = extract_urls(str(profile.get("description") or ""))
     try:
-        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or handle)), limit=5):
+        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or actor)), limit=5):
             derived_urls.extend([str(value or "") for value in item.get("urls", [])])
     except Exception:
         pass
@@ -14097,6 +14489,10 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
     enrich_parser.add_argument("--retry-failures", action="store_true", help="When used with --all, enrich only projects whose previous enrich left last_run_errors.")
+    enrich_parser.add_argument("--run-id", help="When used with --all, use this id for the resumable checkpoint file.")
+    enrich_parser.add_argument("--resume-run", help="Resume a previous --all enrich run from its checkpoint run id.")
+    enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")
+    enrich_parser.add_argument("--no-checkpoint", action="store_true", help="When used with --all, disable resumable checkpoint writing.")
     enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")

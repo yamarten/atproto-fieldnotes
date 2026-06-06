@@ -290,6 +290,13 @@ UI は `Search` タブ内に次を置きます。
    - technical interest level
    - active promotion deferral の有無
 
+未接続 / 将来候補:
+
+- Enrich All の停止/再開 UI
+  - CLI 側の `enrich --all` checkpoint は実装済み
+  - Web background job から同じ checkpoint helper を使う導線、停止要求、再開ボタンは未実装
+  - UI job state と `data/enrich-runs/*.json` の checkpoint state をどう同期表示するかは未検討
+
 原則 CLI に残す保守操作:
 
 - `audit-source-config` の hosted suffix split 監査
@@ -316,7 +323,9 @@ UI は `Search` タブ内に次を置きます。
   - `resource_url_records` への実 DB migration は適用済み。one-shot migration CLI は削除済み
   - `resource_urls` は新規保存 payload から除外済み。runtime caller を `resource_url_records` へ寄せ、最終的に runtime compatibility view も縮退させる
   - `cleanup-app-links` は追加・実 DB 適用済み。URL heuristic 変更後の再構築用として残す
-  - confirmed / candidate service URL の overlap を新規・更新導線で除く invariant は実装済み。実 DB には既存 overlap が 4 project 残る。`repair-db --execute` は他の正規化も広く適用するため、実行前に dry-run の差分を確認する
+  - confirmed / candidate service URL の overlap を新規・更新導線で除く invariant は実装済み。実 DB に残る既存 overlap 件数は `audit-url-fields` で確認する。`repair-db --execute` は他の正規化も広く適用するため、実行前に dry-run の差分を確認する
+  - `bsky.app/profile/{subject}` は handle / DID 構文で account-scoped と判定し、service URL から除外して account evidence に分ける処理を接続済み
+  - 将来は provider ごとの account/resource scope extractor と `owned_service / likely_owned_service / upstream_dependency / unknown` relation classifier を追加する
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する

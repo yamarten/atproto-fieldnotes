@@ -667,6 +667,20 @@ INDEX_HTML = r"""<!doctype html>
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
     const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
+    const safeHref = (value) => {
+      try {
+        const url = new URL(String(value || ""), window.location.href);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+      } catch {
+        return "";
+      }
+    };
+    const renderExternalLink = (value) => {
+      const text = String(value || "");
+      const href = safeHref(text);
+      if (!href) return `<span class="unsafe-url">${esc(text)}</span>`;
+      return `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(text)}</a>`;
+    };
     const asList = (value) => Array.isArray(value) ? value : [];
     const uniqueValues = (values) => {
       const seen = new Set();
@@ -790,7 +804,7 @@ INDEX_HTML = r"""<!doctype html>
           <span class="pill">${esc(item.service_status || "")}</span>
         </div>
         ${seedLabel ? `<div class="muted">${esc(seedLabel)}</div>` : ""}
-        ${item.website_url ? `<a href="${esc(item.website_url)}" target="_blank" rel="noreferrer">${esc(item.website_url)}</a>` : ""}
+        ${item.website_url ? renderExternalLink(item.website_url) : ""}
         <div class="signals">${signals}</div>`;
     }
 
@@ -1722,7 +1736,7 @@ INDEX_HTML = r"""<!doctype html>
           <span class="pill">${esc(project.service_status || "")}</span>
         </div>
         <div class="muted">${esc(project.seed_type || "")}: ${esc(project.seed_value || "")}</div>
-        ${project.website_url ? `<a href="${esc(project.website_url)}" target="_blank" rel="noreferrer">${esc(project.website_url)}</a>` : ""}`;
+        ${project.website_url ? renderExternalLink(project.website_url) : ""}`;
     }
 
     function wireMergeDetail(item, index) {
@@ -1762,12 +1776,12 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderLinks(values) {
-      return uniqueValues(values).map((url) => `<div><a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a></div>`).join("") || `<span class="muted">None</span>`;
+      return uniqueValues(values).map((url) => `<div>${renderExternalLink(url)}</div>`).join("") || `<span class="muted">None</span>`;
     }
 
     function renderIdentifierValue(value, type) {
       if (type === "nsid") return `<span class="identifier-value">${esc(value)}</span>`;
-      return `<span class="identifier-value"><a href="${esc(value)}" target="_blank" rel="noreferrer">${esc(value)}</a></span>`;
+      return `<span class="identifier-value">${renderExternalLink(value)}</span>`;
     }
 
     function renderEditableIdentifierRows(values, type) {
@@ -1788,7 +1802,7 @@ INDEX_HTML = r"""<!doctype html>
     function renderCandidateRows(values, type) {
       return uniqueValues(values).map((url) => `
         <div class="row identifier-row identifier-candidate">
-          <span class="identifier-value"><a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a></span>
+          <span class="identifier-value">${renderExternalLink(url)}</span>
           <span class="identifier-row-actions">
             <button data-confirm-type="${esc(type)}" data-confirm-value="${esc(url)}" title="Move this URL from candidate evidence into confirmed/manual project data.">Confirm</button>
             <button data-defer-type="${esc(type)}" data-defer-value="${esc(url)}" title="Keep this URL as candidate evidence and prevent automatic confirmation for 30 days.">Defer 30d</button>
@@ -1885,7 +1899,7 @@ INDEX_HTML = r"""<!doctype html>
       const rows = asList(records).map((item) => `
         <div class="identifier-row ${item.confidence === "confirmed" ? "identifier-confirmed" : "identifier-candidate"}">
           <span class="identifier-value">
-            <a href="${esc(item.url || "")}" target="_blank" rel="noreferrer">${esc(item.url || "")}</a>
+            ${renderExternalLink(item.url || "")}
             <span class="muted">${esc(item.role || "unknown")} / ${esc(item.confidence || "candidate")}${item.source ? ` / ${esc(item.source)}` : ""}${item.observed_at ? ` / ${esc(item.observed_at)}` : ""}</span>
           </span>
         </div>
