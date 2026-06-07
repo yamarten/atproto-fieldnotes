@@ -258,9 +258,9 @@ URL は role、confidence、observation state を分けて扱います。保存 
 - `record_json.app.links`
   - export 用の role 付き view
 
-`resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が得られたら legacy record は畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。
+`resource_url_records` の `confidence=confirmed` かつ role が export 対象のものだけを `record_json.app.links` に昇格します。既存 `resource_urls` は `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が得られたら legacy record は畳みます。通常導線は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` を読み、`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。
 
-derived compatibility view は通常導線でまだ参照されています。`resource_urls` は保存を止めましたが、他の view は保存中です。caller を正本へ寄せてから derive-only または削除へ移します。
+derived compatibility view は保存 payload / API payload / export 互換のためまだ残っています。`resource_urls` は保存を止め、runtime caller は正本へ寄せました。他の view は保存中です。caller と外部表示の整理後に derive-only または削除へ移します。
 
 `ops_json.ops` には lexicon の位置付けを表す派生値も保持します。
 

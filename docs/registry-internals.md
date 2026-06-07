@@ -112,7 +112,7 @@ URL field は次の 5 層で扱います。
 
 `introduced_url` は editorial reference であり service identity ではありません。`resource_url_records` は調査時の補助 page 群の正本であり、confirmed service set ではありません。`resource_urls` はその compatibility view です。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
 
-`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
+`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。通常導線の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` を通して読みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
 
 `website_url_candidates` は保存上はまだ残しますが、runtime では `service_url_candidates` の compatibility alias として同期します。通常導線の候補判定、review signal、merge/finalize は `service_url_candidate_values()` を通して読みます。
 
@@ -348,7 +348,7 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - first-party page が repo を明示し、owner や site family が project と噛む時
   - same-site family の repo URL で owner も噛む時
 - それ以外の repo-like URL は candidate に留めます
-- docs/blog/same-site 補助ページは `resource_url_records` に残し、runtime view の `resource_urls` を必要なら追加 probe の対象にします
+- docs/blog/same-site 補助ページは `resource_url_records` に残し、`resource_url_values()` 経由で必要なら追加 probe の対象にします
 
 ### 4.1 NSID ownership の現在の優先順位
 

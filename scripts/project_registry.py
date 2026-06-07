@@ -2086,7 +2086,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "migration_candidates": [
             "derive_or_drop website_url_candidates after callers use service_url_candidates",
             "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
-            "shrink runtime resource_urls compatibility callers after persisted migration",
+            "derive_or_drop resource_urls compatibility view after API/export callers no longer need it",
         ],
     }
 
@@ -4948,29 +4948,54 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
     ]
 
 
-def sync_resource_url_records(project: dict[str, Any]) -> None:
+def resource_url_record_values(project: dict[str, Any], *, include_legacy_view: bool = True) -> list[dict[str, str]]:
     records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
-    recorded_urls = {record["url"] for record in records}
-    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
-        if url in recorded_urls:
-            continue
-        records.append(
-            {
-                "url": url,
-                "role": "unknown",
-                "source": "legacy_resource_urls",
-                "observed_at": "",
-                "confidence": "legacy",
-            }
-        )
+    if include_legacy_view:
+        recorded_urls = {record["url"] for record in records}
+        for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
+            if url in recorded_urls:
+                continue
+            records.append(
+                {
+                    "url": url,
+                    "role": "unknown",
+                    "source": "legacy_resource_urls",
+                    "observed_at": "",
+                    "confidence": "legacy",
+                }
+            )
+        records = normalize_resource_url_records(records)
     website_url = normalize_url(str(project.get("website_url") or ""))
     service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
-    project["resource_url_records"] = [
+    return [
         record
         for record in records
         if record["url"] != website_url and record["url"] not in service_urls
     ]
-    project["resource_urls"] = unique_list([record["url"] for record in project["resource_url_records"]])
+
+
+def resource_url_values(
+    project: dict[str, Any],
+    *,
+    include_legacy_view: bool = True,
+    confidences: set[str] | None = None,
+    roles: set[str] | None = None,
+) -> list[str]:
+    normalized_confidences = {str(item or "").strip().lower() for item in confidences or set()}
+    normalized_roles = {str(item or "").strip() for item in roles or set()}
+    urls: list[str] = []
+    for record in resource_url_record_values(project, include_legacy_view=include_legacy_view):
+        if normalized_confidences and str(record.get("confidence") or "") not in normalized_confidences:
+            continue
+        if normalized_roles and str(record.get("role") or "") not in normalized_roles:
+            continue
+        urls.append(record["url"])
+    return unique_list(urls)
+
+
+def sync_resource_url_records(project: dict[str, Any]) -> None:
+    project["resource_url_records"] = resource_url_record_values(project)
+    project["resource_urls"] = resource_url_values(project, include_legacy_view=False)
 
 
 def add_resource_url(
@@ -7608,7 +7633,7 @@ def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
         project.get("website_url")
         or project.get("service_urls")
         or project.get("source_code_urls")
-        or project.get("resource_urls")
+        or resource_url_values(project)
     )
     if summary and (tagline or features or presence):
         return True
@@ -7919,7 +7944,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
-    queued = unique_list(project.get("resource_urls", []))[: max(1, int(max_pages or 6))]
+    queued = resource_url_values(project)[: max(1, int(max_pages or 6))]
     visited: set[str] = set()
     for resource_url in queued:
         normalized_resource_url = normalize_url(resource_url)
@@ -8211,7 +8236,7 @@ def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
         project.get("website_url")
         or project.get("service_urls")
         or service_url_candidate_values(project)
-        or project.get("resource_urls")
+        or resource_url_values(project)
         or project.get("collection_observations")
     )
     if namespace_tokens & identity_tokens and has_service_surface:
@@ -8322,8 +8347,8 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "website_url": project.get("website_url") or "",
         "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
-        "resource_urls": project.get("resource_urls", []),
-        "resource_url_records": project.get("resource_url_records", []),
+        "resource_urls": resource_url_values(project),
+        "resource_url_records": resource_url_record_values(project),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "supported_service_urls": project.get("supported_service_urls", []),
@@ -9563,7 +9588,7 @@ def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> b
         project.get("website_url")
         or project.get("source_code_urls")
         or project_repo_hint_urls(project)
-        or project.get("resource_urls")
+        or resource_url_values(project)
     ):
         return False
     disallowed_blockers = blockers - {
@@ -10602,7 +10627,7 @@ def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int
         service_surface += 3
     if project.get("source_code_urls"):
         service_surface += 2
-    if project.get("resource_urls"):
+    if resource_url_values(project):
         service_surface += 1
     status_rank = {
         "dead": 0,
@@ -10846,10 +10871,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["website_url"] = choose_editorial_scalar(merged.get("website_url"), source.get("website_url"), prefer_incoming=prefer_source_editorial)
     set_service_url_candidate_values(merged, service_url_candidate_values(merged) + service_url_candidate_values(source))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
-    merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
     merged["resource_url_records"] = normalize_resource_url_records(
-        list(merged.get("resource_url_records", [])) + list(source.get("resource_url_records", []))
+        list(resource_url_record_values(merged)) + list(resource_url_record_values(source))
     )
+    merged["resource_urls"] = resource_url_values(merged, include_legacy_view=False)
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))

@@ -713,6 +713,33 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             ],
         )
 
+    def test_resource_url_values_use_records_without_compat_view(self) -> None:
+        project = registry.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://example.com/docs",
+                "role": "docs",
+                "source": "service_page:https://example.com",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        self.assertEqual(registry.resource_url_values(project), ["https://example.com/docs"])
+        self.assertEqual(
+            registry.resource_url_record_values(project),
+            [
+                {
+                    "url": "https://example.com/docs",
+                    "role": "docs",
+                    "source": "service_page:https://example.com",
+                    "observed_at": "",
+                    "confidence": "confirmed",
+                }
+            ],
+        )
+
     def test_confirmed_resource_record_adds_app_link(self) -> None:
         project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
         registry.add_resource_url(
@@ -813,6 +840,24 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(project["lexicon_scope"], "service_specific")
         self.assertEqual(project["category"], "project")
 
+    def test_resource_url_records_count_as_service_surface_without_compat_view(self) -> None:
+        project = self.nsid_project()
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://tz2at.xyz/docs",
+                "role": "docs",
+                "source": "service_page:https://tz2at.xyz",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        registry.reclassify_service_specific_lexicon(project)
+
+        self.assertEqual(project["lexicon_scope"], "service_specific")
+        self.assertEqual(project["category"], "project")
+
     def test_nsid_only_candidate_keeps_unknown_scope(self) -> None:
         project = self.nsid_project()
 
@@ -824,12 +869,27 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
     def test_llm_evidence_exposes_lexicon_scope(self) -> None:
         project = self.nsid_project()
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://tz2at.xyz/docs",
+                "role": "docs",
+                "source": "service_page:https://tz2at.xyz",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
         registry.apply_lexicon_scope_state(project)
 
         evidence = registry.build_llm_evidence_bundle(project)
 
-        self.assertEqual(evidence["lexicon_scope"], "unknown")
-        self.assertEqual(evidence["lexicon_scope_evidence"], ["shared_lexicon_positioning_not_found"])
+        self.assertEqual(evidence["resource_urls"], ["https://tz2at.xyz/docs"])
+        self.assertEqual(evidence["resource_url_records"][0]["confidence"], "confirmed")
+        self.assertEqual(evidence["lexicon_scope"], "service_specific")
+        self.assertEqual(
+            evidence["lexicon_scope_evidence"],
+            ["namespace_matches_project_identity", "service_or_collection_surface_detected"],
+        )
 
 
 class ProjectRegistryLlmParserTest(unittest.TestCase):

@@ -68,6 +68,14 @@
   - `tests/test_project_registry_core.py` は name / service_status / LLM parser / merge scoring
   - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
   - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
+- URL field 整理
+  - 実装済み:
+    - `resource_url_records` への実 DB migration は適用済み
+    - `resource_urls` は新規保存 payload から除外済み
+    - runtime の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` を読む
+  - 未接続:
+    - API payload / export 互換から `resource_urls` view を落とせるかの最終判断
+    - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` の保存停止判断
 
 ## 直近の残件
 
