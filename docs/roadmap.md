@@ -333,6 +333,9 @@ UI は `Search` タブ内に次を置きます。
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
+- 調査強化
+  - deep investigation の優先ページ候補生成は接続済み
+  - 次は page 種別ごとの service status signal、LLM evidence の service/lexicon prompt 分岐、ブラウザ確認レーンを検討する
 - 旧 field 互換の名残を整理する
   - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
   - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする

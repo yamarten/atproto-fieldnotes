@@ -322,18 +322,21 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 - launch 文言と app surface が混在
   - `unverified`
 
-まだ未実装の後半段階:
+実装済み:
 
-1. `--deep-investigation` で優先ページを読む
-   - `/about`
-   - `/docs`
-   - `/faq`
-   - `/app`
-   - `/login`
-   - `/signup`
-2. browser/computer-use 相当で実際にログイン導線まで試す
+- 通常 enrich は service top page と same-site follow-up を軽量 probe します
+- `--deep-investigation` は `resource_url_records` と service surface から優先ページ候補を作り、最大 6 page を追加 probe します
+  - `/about`
+  - `/docs`
+  - `/faq`
+  - `/app`
+  - `/login`
+  - `/signup`
 
-つまり、現状は「トップページ中心の軽量判定」までは常時有効、深い検証はまだ別レーンです。
+未接続:
+
+- browser/computer-use 相当で実際にログイン導線まで試す検証レーン
+- deep investigation の結果を既存 DB 全体へ反映する運用。既存 row の洗い替えには再 `enrich` が必要
 
 ### 4. first-party link の扱い
 
@@ -623,7 +626,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `website_url`
 - `service_urls`
 - `source_code_urls`
-- `resource_urls`
+- `resource_url_records`
 - `service_status`
 - `introduced_url`
 - confirmed NSID 数
@@ -643,27 +646,20 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 1. service 判定の後半強化
 
-- `--deep-investigation` で次を優先 fetch する
-  - `/about`
-  - `/docs`
-  - `/faq`
-  - `/app`
-  - `/login`
-  - `/signup`
-- その本文から:
-  - 実サービスの存在
-  - 利用条件
-  - 招待制かどうか
-  - install / sign-in 導線
-  を抽出し、`service_status_evidence` に流す
-- 最終段階では browser/computer-use を使った login 画面確認を opt-in で追加する
+- `--deep-investigation` の優先ページ probe は実装済み
+  - `resource_url_records` を優先
+  - `website_url` / `service_urls` / `supported_service_urls` / service candidates から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を組み立てる
+- 次の強化候補:
+  - 優先ページごとの signal をより細かく `service_status_evidence` に残す
+  - 実サービスの存在、利用条件、招待制、install / sign-in 導線を区別して記録する
+  - browser/computer-use を使った login 画面確認を opt-in で追加する
 
 ### 2. editorial quality の洗い替え
 
 - merge 時の主従は改善済みだが、既存 `tagline` / `summary` の品質問題は残る
 - 直したい方向:
   - `service project` と `lexicon project` で prompt を分ける
-  - `resource_urls` や repo README を優先 evidence として使う
+  - `resource_url_records` や repo README を優先 evidence として使う
   - `tagline_is_provisional` が長く残っている project を review queue へ送る
 
 ### 3. rate limit / partial failure 耐性
@@ -771,7 +767,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - same-site docs/blog など follow-up を最大 3 URL まで追加
   - つまり 1 service URL あたり最大 4 request
 - `--deep-investigation`:
-  - `resource_urls` を最大 6 page
+  - `resource_url_records` と service surface 由来の優先ページ候補を最大 6 page
   - 各 page で follow-up を最大 2 page
   - 最大 18 request
 - investigation collector:
@@ -1089,7 +1085,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
     - `website_url`
     - `service_urls`
     - `source_code_urls`
-    - `resource_urls`
+    - `resource_url_records`
     - `service_status`
     - `introduced_url`
     - confirmed NSID 数

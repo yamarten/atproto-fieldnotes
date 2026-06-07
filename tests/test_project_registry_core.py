@@ -790,6 +790,50 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             ],
         )
 
+    def test_deep_investigation_page_urls_prioritize_resource_records_then_service_paths(self) -> None:
+        project = registry.default_project_record("proj:deepurls", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com/app"
+        project["service_urls"] = ["https://example.com/app"]
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://example.com/docs",
+                "role": "docs",
+                "source": "service_page:https://example.com",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        self.assertEqual(
+            registry.deep_investigation_page_urls(project, max_pages=4),
+            [
+                "https://example.com/docs",
+                "https://example.com/about",
+                "https://example.com/faq",
+                "https://example.com/app",
+            ],
+        )
+
+    def test_deep_investigation_page_urls_can_use_service_candidates(self) -> None:
+        project = registry.default_project_record("proj:deepcandidate", "nsid", "app.example.post")
+        project["service_url_candidates"] = ["https://candidate.example"]
+
+        self.assertEqual(
+            registry.deep_investigation_page_urls(project, max_pages=3),
+            [
+                "https://candidate.example/about",
+                "https://candidate.example/docs",
+                "https://candidate.example/faq",
+            ],
+        )
+
+    def test_deep_investigation_page_urls_skip_profile_candidates(self) -> None:
+        project = registry.default_project_record("proj:deepprofile", "repo_url", "https://github.com/example/app")
+        project["service_url_candidates"] = ["https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"]
+
+        self.assertEqual(registry.deep_investigation_page_urls(project), [])
+
     def test_confirmed_resource_record_adds_app_link(self) -> None:
         project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
         registry.add_resource_url(

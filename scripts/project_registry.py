@@ -49,6 +49,7 @@ REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 MAX_HTTP_REDIRECTS = 5
+DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
@@ -4998,6 +4999,36 @@ def resource_url_values(
     return unique_list(urls)
 
 
+def url_origin(url: str) -> str:
+    parsed = urllib.parse.urlparse(normalize_url(url))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def deep_investigation_page_urls(project: dict[str, Any], *, max_pages: int = 6) -> list[str]:
+    limit = max(1, int(max_pages or 6))
+    urls: list[str] = []
+    urls.extend(resource_url_values(project))
+
+    service_surfaces = unique_list(
+        ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+        + [str(item or "") for item in project.get("service_urls", [])]
+        + [str(item or "") for item in project.get("supported_service_urls", [])]
+        + [str(item or "") for item in project.get("service_url_candidates", [])]
+        + [str(item or "") for item in project.get("website_url_candidates", [])]
+    )
+    for service_url in service_surfaces:
+        if is_bluesky_profile_url(service_url):
+            continue
+        origin = url_origin(service_url)
+        if not origin:
+            continue
+        for path in DEEP_INVESTIGATION_PATHS:
+            urls.append(normalize_url(f"{origin}{path}"))
+    return unique_list([url for url in urls if url])[:limit]
+
+
 def sync_resource_url_records(project: dict[str, Any]) -> None:
     project["resource_url_records"] = resource_url_record_values(project)
     project["resource_urls"] = resource_url_values(project, include_legacy_view=False)
@@ -7959,7 +7990,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
-    queued = resource_url_values(project)[: max(1, int(max_pages or 6))]
+    queued = deep_investigation_page_urls(project, max_pages=max_pages)
     visited: set[str] = set()
     for resource_url in queued:
         normalized_resource_url = normalize_url(resource_url)
