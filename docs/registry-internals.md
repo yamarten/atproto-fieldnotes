@@ -22,7 +22,7 @@
 - `ops_json`
   - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
 
-`repair-db` は新構造の正規化と派生フィールド再計算を行います。
+`repair-db` は新構造の正規化と派生フィールド再計算の dry-run summary を出します。DB に適用する時は `repair-db --execute` を使います。
 
 ## 旧 discovery フローの扱い
 
@@ -1110,6 +1110,8 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 - `finalize_project_shape()` を通して正規化
 - `duplicate_candidates` / `merge_recommendation` の再計算
 - collision 監査
+
+既定は dry-run です。`--execute` を付けた時だけ正規化と派生フィールド再計算を保存します。collision は報告のみで、自動 merge / separate は行いません。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成と `record_json` / `ops_json` を前提にします。

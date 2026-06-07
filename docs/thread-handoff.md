@@ -35,6 +35,8 @@
 - `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
   - 棚卸しだけ行う場合は `--no-create-unmatched`
 - GUI で DB を触った後は `repair-db` を回す
+  - 既定は dry-run
+  - 実 DB に適用する時だけ `repair-db --execute`
 - セキュリティ scan 後の軽量 hardening
   - 実装済み:
     - outbound HTTP fetch は `request_bytes_with_final_url()` で redirect を手動追跡し、各 hop で内部宛てを block する
@@ -231,6 +233,7 @@
   - scalar 重複除去
   - 派生フィールド再計算
   - collision 監査
+  - 既定は dry-run、保存する時だけ `--execute`
   - invalid JSON の自動救済はしない
 - storage layout migration は完了済み
   - 現行 DB は `record_json` / `ops_json` / `introduced_url` を含む現在の schema を前提にする

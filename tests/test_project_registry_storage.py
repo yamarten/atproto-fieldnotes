@@ -65,6 +65,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(cleanup_args.func, registry.cmd_cleanup_app_links)
         self.assertTrue(cleanup_args.execute)
 
+        repair_args = parser.parse_args(["repair-db", "--execute"])
+
+        self.assertIs(repair_args.func, registry.cmd_repair_db)
+        self.assertTrue(repair_args.execute)
+
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = registry.build_parser()
 
@@ -439,6 +444,14 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             summary = registry.audit_and_repair_identifiers(conn)
             self.assertGreaterEqual(summary["refreshed_derived_project_count"], 1)
+            self.assertEqual(summary["mode"], "dry_run")
+
+            repaired = registry.fetch_project(conn, "proj:cccccccccccc")
+            self.assertEqual(repaired["duplicate_candidates"], [])
+            self.assertEqual(repaired["merge_recommendation"], {})
+
+            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            self.assertEqual(executed["mode"], "execute")
 
             repaired = registry.fetch_project(conn, "proj:cccccccccccc")
             duplicate_keys = {item["project_key"] for item in repaired["duplicate_candidates"]}
@@ -475,7 +488,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
             conn.commit()
 
-            registry.audit_and_repair_identifiers(conn)
+            summary = registry.audit_and_repair_identifiers(conn, execute=True)
+            self.assertEqual(summary["mode"], "execute")
 
             row = conn.execute("SELECT ops_json FROM projects WHERE project_key = ?", ("proj:legacycontri",)).fetchone()
             ops_payload = json.loads(row["ops_json"])

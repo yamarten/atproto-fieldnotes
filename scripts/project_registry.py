@@ -3170,7 +3170,7 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
     refresh_project_seed_identity(project)
 
 
-def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
+def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT *
@@ -3198,7 +3198,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             normalized_projects += 1
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)) or contribution_changed:
             pruned_projects += 1
-            save_project(conn, normalized, enriched=False)
+            if execute:
+                save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
 
     expected_by_project: dict[str, set[tuple[str, str]]] = {
@@ -3227,11 +3228,13 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
         ):
             project["duplicate_candidates"] = duplicate_candidates
             project["merge_recommendation"] = merge_recommendation
-            save_project(conn, project, enriched=False)
+            if execute:
+                save_project(conn, project, enriched=False)
             project_map[project_key] = project
             refreshed_derived_projects += 1
 
-    conn.commit()
+    if execute:
+        conn.commit()
 
     expected_owners: dict[tuple[str, str], list[str]] = {}
     for project_key, identifiers in expected_by_project.items():
@@ -3253,6 +3256,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             )
 
     return {
+        "mode": "execute" if execute else "dry_run",
         "project_count": len(rows),
         "normalized_project_count": normalized_projects,
         "pruned_project_count": pruned_projects,
@@ -12885,8 +12889,11 @@ def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
 
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
-    summary = audit_and_repair_identifiers(conn)
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    try:
+        summary = audit_and_repair_identifiers(conn, execute=bool(args.execute))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
 
 
@@ -14653,6 +14660,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
+    repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=cmd_repair_db)
 
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
