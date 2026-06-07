@@ -816,13 +816,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function promotionCard(item) {
-      return `<div class="card">
-        ${cardBody(item)}
-        <div class="action-card-actions">
-          <button data-key="${esc(item.project_key)}" title="Open project details. This does not change the DB.">Open</button>
-          <button data-hold-promotion="${esc(item.project_key)}" data-hold-reason="${esc(item.last_promotion_deferral_reason || "")}" title="Hide this project from the promotion queue for 7 days while recording a reason.">Hold 7d</button>
-        </div>
-      </div>`;
+      return card(item);
     }
 
     function mergeCard(item, index) {
@@ -2458,13 +2452,6 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     $("list").onclick = async (event) => {
-      const holdPromotion = event.target.closest("[data-hold-promotion]");
-      if (holdPromotion) {
-        const key = holdPromotion.dataset.holdPromotion;
-        const reason = await requestTextAction(`Hold promotion for ${key} for 7 days?\n\nThis records a reason and temporarily hides the project from the promotion queue.`, holdPromotion.dataset.holdReason || "");
-        if (reason) mutate(`/api/projects/${encodeURIComponent(key)}/defer-promotion`, { reason, days: 7 }, false);
-        return;
-      }
       const button = event.target.closest("[data-key]");
       if (button) loadDetail(button.dataset.key, { view: state.tab === "review" ? "review" : "project", projectNavigation: true });
       const mergeButton = event.target.closest("[data-merge-index]");

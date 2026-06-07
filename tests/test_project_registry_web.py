@@ -215,6 +215,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("clear-promotion-deferral", web.INDEX_HTML)
         self.assertIn("Hold 7d", web.INDEX_HTML)
         self.assertIn("Clear hold", web.INDEX_HTML)
+        self.assertNotIn("data-hold-promotion", web.INDEX_HTML)
         self.assertIn("requestTextAction", web.INDEX_HTML)
         self.assertIn("clear-separate", web.INDEX_HTML)
         self.assertIn("renderProjectGuards", web.INDEX_HTML)

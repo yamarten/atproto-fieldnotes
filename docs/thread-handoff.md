@@ -19,7 +19,7 @@
 - `promotion_deferrals` は CLI の `defer-promotion` または `promotion-queue --interactive` の `h` で追加する理由付き一時保留履歴
   - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
   - 履歴は残し、再保留時に直近理由を再利用できる
-  - Web UI では promotion queue の `Hold 7d`、project detail の期限・理由・再保留・`Clear hold` を使える
+  - Web UI では project detail の期限・理由・`Hold 7d`・`Clear hold` を使える
   - 理由からの復活条件自動判定は未接続
 
 ## 運用上の注意
