@@ -665,7 +665,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllCheckpointPath: ""
     };
     const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], contributionLevels: [], technicalInterestLevels: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", promotionHold: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
-    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, activeMergeDetailIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, detailRequestSeq: 0, mergeDetailRequestSeq: 0, inflightMutations: new Set(), searchFilters: defaultSearchFilters(), settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", reviewReturn: false, projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, activeMergeDetailIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, detailRequestSeq: 0, mergeDetailRequestSeq: 0, inflightMutations: new Set(), searchFilters: defaultSearchFilters(), settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -1980,6 +1980,7 @@ INDEX_HTML = r"""<!doctype html>
       state.activeMergeDetailIndex = null;
       state.selected = key;
       state.detailView = options.view || "project";
+      state.reviewReturn = Boolean(options.reviewReturn);
       state.projectNavigation = Boolean(options.projectNavigation);
       state.mergeReturnIndex = Object.prototype.hasOwnProperty.call(options, "mergeReturnIndex") ? options.mergeReturnIndex : null;
       status("Loading project...");
@@ -1995,7 +1996,8 @@ INDEX_HTML = r"""<!doctype html>
           ${detailBackButton()}
           ${projectIndex >= 0 ? detailNavigation(projectIndex > 0, projectIndex < state.projectItems.length - 1) : ""}
           ${state.mergeReturnIndex !== null ? `<div class="actions"><button id="back-to-merge-detail" title="Return to the merge detail you opened this project from. This does not change the DB.">Back to merge detail</button></div>` : ""}
-          ${isReviewView ? `<div class="actions"><button id="open-project-detail" title="Open the full project detail view. This does not change the DB.">Open project detail</button></div>` : ""}
+          ${isReviewView ? `<div class="actions"><button id="open-project-detail" title="Open the full project detail view with Add Seed and Project Edits. This does not change the DB by itself.">Open project detail</button></div>` : ""}
+          ${!isReviewView && state.reviewReturn ? `<div class="actions"><button id="back-to-review-detail" title="Return to the review-focused detail view for this project. This does not change the DB.">Back to review detail</button></div>` : ""}
           <div>
             <h2>${esc(p.name || "(unnamed)")}</h2>
             <div class="row">
@@ -2055,11 +2057,19 @@ INDEX_HTML = r"""<!doctype html>
     function wireDetail(key, projectIndex = -1) {
       const previousDetail = $("previous-detail");
       if (previousDetail) {
-        previousDetail.onclick = () => loadDetail(state.projectItems[projectIndex - 1]?.project_key, { view: state.detailView, projectNavigation: true });
+        previousDetail.onclick = () => loadDetail(state.projectItems[projectIndex - 1]?.project_key, { view: state.detailView, reviewReturn: state.reviewReturn, projectNavigation: true });
       }
       const nextDetail = $("next-detail");
       if (nextDetail) {
-        nextDetail.onclick = () => loadDetail(state.projectItems[projectIndex + 1]?.project_key, { view: state.detailView, projectNavigation: true });
+        nextDetail.onclick = () => loadDetail(state.projectItems[projectIndex + 1]?.project_key, { view: state.detailView, reviewReturn: state.reviewReturn, projectNavigation: true });
+      }
+      const openProjectDetail = $("open-project-detail");
+      if (openProjectDetail) {
+        openProjectDetail.onclick = () => loadDetail(key, { view: "project", reviewReturn: true, projectNavigation: state.projectNavigation });
+      }
+      const backToReviewDetail = $("back-to-review-detail");
+      if (backToReviewDetail) {
+        backToReviewDetail.onclick = () => loadDetail(key, { view: "review", projectNavigation: state.projectNavigation });
       }
       $("save-state").onclick = async () => {
         const nextState = $("tracking-state").value;
@@ -2136,10 +2146,6 @@ INDEX_HTML = r"""<!doctype html>
             mutate(`/api/projects/${encodeURIComponent(key)}/defer-identifier`, { identifier_type: identifierType, value, note, days: 30 });
           }
         };
-      }
-      const openProjectDetail = $("open-project-detail");
-      if (openProjectDetail) {
-        openProjectDetail.onclick = () => loadDetail(key, { view: "project", projectNavigation: state.projectNavigation });
       }
       const backToMerge = $("back-to-merge-detail");
       if (backToMerge) {
@@ -2408,7 +2414,7 @@ INDEX_HTML = r"""<!doctype html>
           updateJobStatus(key, job);
           if (job.status === "done") {
             status("Enrich done.");
-            if (state.selected === key) await loadDetail(key, { view: state.detailView, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
+            if (state.selected === key) await loadDetail(key, { view: state.detailView, reviewReturn: state.reviewReturn, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
             return;
           }
           if (job.status === "failed") {
@@ -2432,6 +2438,7 @@ INDEX_HTML = r"""<!doctype html>
       state.inflightMutations.add(signature);
       const selectedAtStart = state.selected;
       const detailViewAtStart = state.detailView;
+      const reviewReturnAtStart = state.reviewReturn;
       const projectNavigationAtStart = state.projectNavigation;
       const mergeReturnIndexAtStart = state.mergeReturnIndex;
       const detailRequestId = state.detailRequestSeq;
@@ -2442,7 +2449,7 @@ INDEX_HTML = r"""<!doctype html>
         status(data.job_id ? `Started job ${data.job_id}` : "Saved.");
         await loadList({ force: true });
         if (reloadDetail && selectedAtStart && state.selected === selectedAtStart && state.detailRequestSeq === detailRequestId) {
-          await loadDetail(selectedAtStart, { view: detailViewAtStart, projectNavigation: projectNavigationAtStart, mergeReturnIndex: mergeReturnIndexAtStart });
+          await loadDetail(selectedAtStart, { view: detailViewAtStart, reviewReturn: reviewReturnAtStart, projectNavigation: projectNavigationAtStart, mergeReturnIndex: mergeReturnIndexAtStart });
         }
       } catch (err) {
         status(err.message);
