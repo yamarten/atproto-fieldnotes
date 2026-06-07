@@ -173,6 +173,56 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
         )
 
 
+class ProjectRegistrySembleSyncTest(unittest.TestCase):
+    def test_fetch_semble_collection_uses_current_xrpc_endpoint(self) -> None:
+        seen_urls: list[str] = []
+
+        def fake_request_json(url: str, headers=None, *, timeout=0):
+            seen_urls.append(url)
+            return {
+                "uri": "at://did:plc:example/network.cosmik.collection/rkey123",
+                "name": "current collection name",
+                "urlCards": [
+                    {
+                        "url": "https://github.com/example/project",
+                        "uri": "at://did:plc:example/network.cosmik.card/card123",
+                        "updatedAt": "2026-06-01T00:00:00Z",
+                        "createdAt": "2026-05-30T00:00:00Z",
+                        "cardContent": {
+                            "title": "Example Project",
+                            "description": "Example description",
+                            "siteName": "GitHub",
+                        },
+                    }
+                ],
+                "pagination": {"hasMore": False},
+            }
+
+        original_request_json = registry.request_json
+        original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
+        registry.request_json = fake_request_json
+        registry.SEMBLE_TRACKED_COLLECTIONS = (
+            {"handle": "byarielm.fyi", "rkey": "rkey123", "label": "stale label"},
+        )
+        try:
+            results = registry.fetch_semble_collection_sync_results(pages=1, per_page=20)
+        finally:
+            registry.request_json = original_request_json
+            registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
+
+        self.assertEqual(
+            seen_urls,
+            [
+                "https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri"
+                "?handle=byarielm.fyi&recordKey=rkey123&page=1&limit=20"
+            ],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["seed_type"], "repo_url")
+        self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
+        self.assertEqual(results[0]["collection_label"], "current collection name")
+
+
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
     def project_with_candidates(self, candidates: list[dict[str, str]], *, name: str = "") -> dict:
         project = registry.default_project_record("proj:aaaaaaaaaaaa", "nsid", "app.example.post")

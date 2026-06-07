@@ -56,6 +56,7 @@ BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
 BSKY_SYNC_API = "https://bsky.network"
 UFOS_API = "https://ufos-api.microcosm.blue"
+SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
@@ -6256,11 +6257,21 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
         if not handle or not rkey:
             continue
         for page in range(1, max(1, pages) + 1):
+            params = urllib.parse.urlencode(
+                {
+                    "handle": handle,
+                    "recordKey": rkey,
+                    "page": str(page),
+                    "limit": str(clamped_per_page),
+                }
+            )
             payload = request_json(
-                f"https://api.semble.so/api/collections/at/{urllib.parse.quote(handle, safe='')}/{urllib.parse.quote(rkey, safe='')}"
-                f"?page={page}&limit={clamped_per_page}"
+                f"{SEMBLE_API}/xrpc/network.cosmik.collection.getByAtUri?{params}"
             )
             cards = payload.get("urlCards", [])
+            if not isinstance(cards, list):
+                cards = []
+            collection_label = str(payload.get("name") or label).strip()
             for raw in cards:
                 if not isinstance(raw, dict):
                     continue
@@ -6285,7 +6296,7 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
                     "site_name": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("siteName") or ""),
                     "collection_handle": handle,
                     "collection_rkey": rkey,
-                    "collection_label": label,
+                    "collection_label": collection_label,
                     "collection_uri": str(payload.get("uri") or f"at://{handle}/collections/{rkey}"),
                 }
                 existing = deduped.get(key)

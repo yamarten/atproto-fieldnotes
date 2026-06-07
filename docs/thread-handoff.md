@@ -34,6 +34,10 @@
   - DB への直接 SQL 更新
 - `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
   - 棚卸しだけ行う場合は `--no-create-unmatched`
+- `sync-semble-collections` は Semble の現行 XRPC API
+  `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使う
+  - 旧 `/api/collections/at/{handle}/{rkey}` は 2026-06-07 時点で live 404 を返すことを確認済み
+  - 2026-06-07 に dry-run で `pages=1`, `per-page=1`, `--all-history`, `--no-create-unmatched` を実行し、tracked 2 collection から 2 cards を取得できることを確認済み
 - GUI で DB を触った後は `repair-db` を回す
   - 既定は dry-run
   - 実 DB に適用する時だけ `repair-db --execute`

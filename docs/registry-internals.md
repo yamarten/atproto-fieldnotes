@@ -725,6 +725,13 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 ### `sync-semble-collections`
 
 - 対象はコード内で固定した tracked Semble collection だけです
+- 実装済み:
+  - Semble の現行 XRPC API `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使います
+  - `handle`, `recordKey`, `page`, `limit` を query parameter として渡し、返却 payload の `urlCards` を取り込みます
+  - collection label は Semble payload の `name` があればそれを優先し、無ければ tracked collection の local label を使います
+- 動作確認済み:
+  - 2026-06-07 時点で旧 `/api/collections/at/{handle}/{rkey}` は Semble live API で 404
+  - 同日時点で現行 XRPC API は tracked 2 collection について 200 を返し、`sync-semble-collections --pages 1 --per-page 1 --all-history --no-create-unmatched` の dry-run が成功
 - 各 card URL を `classify_text_seed_value()` で seed に落とせるものだけ使います
   - `nsid`
   - `repo_url`
