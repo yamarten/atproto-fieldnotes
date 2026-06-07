@@ -240,6 +240,8 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 
 `Jobs` タブでは、server process が保持している background job の直近ログと raw JSON を確認できます。実行中 job は polling で更新されますが、展開中の job 詳細と `Raw JSON` は開いた状態を保持します。
 
+Web UI は同一 browser session 内で、同じ mutation の二重送信を抑止します。また、project detail / merge detail の読み込みや mutation 完了が遅れて返ってきた場合、開始時と同じ detail を見ている時だけ再描画します。これにより、Merge 実行後に別 detail へ移動した時の古い結果表示による上書きを避けます。これは browser 側の表示制御で、サーバー側の複数 client 間排他ではありません。
+
 `New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`/?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
 project 詳細の `Project Edits` では、`nsid` / `repo_url` / `service_url` と値を指定して次の操作を実行できます。

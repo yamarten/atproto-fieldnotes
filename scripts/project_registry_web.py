@@ -665,7 +665,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllCheckpointPath: ""
     };
     const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], contributionLevels: [], technicalInterestLevels: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", promotionHold: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
-    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, searchFilters: defaultSearchFilters(), settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, activeMergeDetailIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, detailRequestSeq: 0, mergeDetailRequestSeq: 0, inflightMutations: new Set(), searchFilters: defaultSearchFilters(), settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -1720,13 +1720,18 @@ INDEX_HTML = r"""<!doctype html>
     async function loadMergeDetail(index) {
       const item = state.mergeItems[index];
       if (!item) return;
+      const requestId = ++state.mergeDetailRequestSeq;
+      state.detailRequestSeq++;
+      state.activeMergeDetailIndex = index;
       state.selected = null;
       status("Loading merge details...");
       let detail = {};
       try {
         detail = await api(`/api/merge-pair?source_project_key=${encodeURIComponent(item.source_project_key)}&target_project_key=${encodeURIComponent(item.target_project_key)}`);
+        if (requestId !== state.mergeDetailRequestSeq || state.activeMergeDetailIndex !== index) return;
         status("");
       } catch (err) {
+        if (requestId !== state.mergeDetailRequestSeq || state.activeMergeDetailIndex !== index) return;
         status(err.message);
       }
       const fullItem = Object.assign({}, item, detail);
@@ -1777,12 +1782,12 @@ INDEX_HTML = r"""<!doctype html>
       $("next-detail").onclick = () => loadMergeDetail(index + 1);
       $("merge-plan").onclick = async () => {
         if (await confirmAction(`Merge source into target?\n\nSource: ${item.source_project_key} ${item.source_name || ""}\nTarget: ${item.target_project_key} ${item.target_name || ""}\n\nThis writes the merged target and deletes the source project from SQLite.`)) {
-          mergeMutate("merge", body);
+          mergeMutate("merge", body, index);
         }
       };
       $("block-plan").onclick = async () => {
         if (await confirmAction(`Block this merge pair?\n\n${item.source_project_key} and ${item.target_project_key}\n\nThis records separate_project_keys on both projects.`)) {
-          mergeMutate("block", body);
+          mergeMutate("block", body, index);
         }
       };
       $("skip-plan").onclick = () => {
@@ -1794,16 +1799,31 @@ INDEX_HTML = r"""<!doctype html>
       $("open-target-project").onclick = () => loadDetail(item.target_project_key, { mergeReturnIndex: index });
     }
 
-    async function mergeMutate(action, payload) {
+    function mutationSignature(path, payload) {
+      return `${path}\n${JSON.stringify(payload || {})}`;
+    }
+
+    async function mergeMutate(action, payload, index) {
+      const requestId = state.mergeDetailRequestSeq;
+      const signature = mutationSignature("/api/merge-batch/action", Object.assign({ action }, payload));
+      if (state.inflightMutations.has(signature)) {
+        status("Already saving this action.");
+        return;
+      }
+      state.inflightMutations.add(signature);
       status("Saving...");
       try {
           const data = await api("/api/merge-batch/action", { method: "POST", body: JSON.stringify(Object.assign({ action }, payload)) });
           clearListCache();
           status(data.mode || "Saved.");
           await loadList({ force: true });
-        $("detail").innerHTML = `<pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
+        if (requestId === state.mergeDetailRequestSeq && state.activeMergeDetailIndex === index) {
+          $("detail").innerHTML = `<pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
+        }
       } catch (err) {
         status(err.message);
+      } finally {
+        state.inflightMutations.delete(signature);
       }
     }
 
@@ -1961,6 +1981,9 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function loadDetail(key, options = {}) {
+      const requestId = ++state.detailRequestSeq;
+      state.mergeDetailRequestSeq++;
+      state.activeMergeDetailIndex = null;
       state.selected = key;
       state.detailView = options.view || "project";
       state.projectNavigation = Boolean(options.projectNavigation);
@@ -1968,6 +1991,7 @@ INDEX_HTML = r"""<!doctype html>
       status("Loading project...");
       try {
         const data = await api("/api/projects/" + encodeURIComponent(key));
+        if (requestId !== state.detailRequestSeq || state.selected !== key) return;
         const p = data.project;
         const review = data.review_item || {};
         const raw = esc(JSON.stringify(p, null, 2));
@@ -2029,6 +2053,7 @@ INDEX_HTML = r"""<!doctype html>
         openDetailPane();
         status("");
       } catch (err) {
+        if (requestId !== state.detailRequestSeq || state.selected !== key) return;
         status(err.message);
       }
     }
@@ -2405,15 +2430,30 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function mutate(path, payload, reloadDetail = true) {
+      const signature = mutationSignature(path, payload || {});
+      if (state.inflightMutations.has(signature)) {
+        status("Already saving this action.");
+        return;
+      }
+      state.inflightMutations.add(signature);
+      const selectedAtStart = state.selected;
+      const detailViewAtStart = state.detailView;
+      const projectNavigationAtStart = state.projectNavigation;
+      const mergeReturnIndexAtStart = state.mergeReturnIndex;
+      const detailRequestId = state.detailRequestSeq;
       status("Saving...");
       try {
         const data = await api(path, { method: "POST", body: JSON.stringify(payload || {}) });
         clearListCache();
         status(data.job_id ? `Started job ${data.job_id}` : "Saved.");
         await loadList({ force: true });
-        if (reloadDetail && state.selected) await loadDetail(state.selected, { view: state.detailView, projectNavigation: state.projectNavigation, mergeReturnIndex: state.mergeReturnIndex });
+        if (reloadDetail && selectedAtStart && state.selected === selectedAtStart && state.detailRequestSeq === detailRequestId) {
+          await loadDetail(selectedAtStart, { view: detailViewAtStart, projectNavigation: projectNavigationAtStart, mergeReturnIndex: mergeReturnIndexAtStart });
+        }
       } catch (err) {
         status(err.message);
+      } finally {
+        state.inflightMutations.delete(signature);
       }
     }
 
