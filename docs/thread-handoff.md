@@ -34,7 +34,13 @@
   - DB への直接 SQL 更新
 - `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
   - 棚卸しだけ行う場合は `--no-create-unmatched`
+- `sync-semble-collections` は Semble の現行 XRPC API
+  `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使う
+  - 旧 `/api/collections/at/{handle}/{rkey}` は 2026-06-07 時点で live 404 を返すことを確認済み
+  - 2026-06-07 に dry-run で `pages=1`, `per-page=1`, `--all-history`, `--no-create-unmatched` を実行し、tracked 2 collection から 2 cards を取得できることを確認済み
 - GUI で DB を触った後は `repair-db` を回す
+  - 既定は dry-run
+  - 実 DB に適用する時だけ `repair-db --execute`
 - セキュリティ scan 後の軽量 hardening
   - 実装済み:
     - outbound HTTP fetch は `request_bytes_with_final_url()` で redirect を手動追跡し、各 hop で内部宛てを block する
@@ -68,6 +74,14 @@
   - `tests/test_project_registry_core.py` は name / service_status / LLM parser / merge scoring
   - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
   - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
+- URL field 整理
+  - 実装済み:
+    - `resource_url_records` への実 DB migration は適用済み
+    - `resource_urls` は新規保存 payload から除外済み
+    - runtime の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` を読む
+  - 未接続:
+    - API payload / export 互換から `resource_urls` view を落とせるかの最終判断
+    - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` の保存停止判断
 
 ## 直近の残件
 
@@ -101,8 +115,12 @@
       - login surface
       - invite / beta / coming soon
       - docs-only surface
+    - `--deep-investigation` の優先ページ probe
+      - `resource_url_records` を優先
+      - service surface から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を補う
+      - `deep_page:*` evidence として page kind を残し、service status / confidence を補助更新する
   - まだ残っているもの:
-    - `--deep-investigation` で `/about`, `/docs`, `/login`, `/app` など優先ページを読んで `service_status` を補強する
+    - deep investigation の page 種別ごとの signal をさらに細かくする
     - browser/computer-use 相当の「実際にログイン導線まで試す」検証レーン
 - `service_status=unverified` は「未確認」であって dead/private の確定ではない
   - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
@@ -128,8 +146,9 @@
   - CLI subprocess smoke test
   - fixture JSON corpus による回帰テスト
 - `service_status` の深掘り
-  - `--deep-investigation` で `about/docs/login/app` を優先的に読む
-  - top page だけでは判断できない service を `none/unverified/live` でより安定して分ける
+  - `--deep-investigation` の優先ページ probe は接続済み
+  - page kind evidence は最低限接続済み
+  - 次は page 本文から実サービス、利用条件、招待制、install / sign-in 導線をより安定して分ける
   - 最終的には browser/computer-use を使った login 導線確認レーンを別コマンド化したい
 - `tagline` / `summary` の再編集
   - 既存 project には collection/lexicon 主体の文面が残っているものがある
@@ -223,9 +242,18 @@
   - scalar 重複除去
   - 派生フィールド再計算
   - collision 監査
+  - 既定は dry-run、保存する時だけ `--execute`
   - invalid JSON の自動救済はしない
 - storage layout migration は完了済み
   - 現行 DB は `record_json` / `ops_json` / `introduced_url` を含む現在の schema を前提にする
+- URL compatibility view の runtime 整理は一段進めた
+  - `website_url_candidates` は `service_url_candidates` の alias として helper 経由で同期する
+  - `github_repo_urls` / `tangled_repo_urls` は `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する
+  - 保存 field 自体は互換のためまだ残している
+- `developer_accounts` / `candidate_developer_accounts`
+  - confirmed / candidate の保存境界は分離済み
+  - merge 時も candidate を保持し、confirmed へ自動昇格しない
+  - 候補 account の Web 確認・昇格操作は未接続
 
 ## 既知の前提
 

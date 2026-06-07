@@ -9,6 +9,54 @@ from io import BytesIO
 from helpers import registry
 
 
+class ProjectRegistryUrlCompatibilityTest(unittest.TestCase):
+    def test_legacy_website_candidates_are_folded_into_service_candidates(self) -> None:
+        project = registry.default_project_record("proj:urlcompat", "service_url", "https://example.com")
+        project["website_url_candidates"] = ["https://app.example.com"]
+        project["service_url_candidates"] = []
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["service_url_candidates"], ["https://app.example.com"])
+        self.assertEqual(shaped["website_url_candidates"], ["https://app.example.com"])
+        self.assertEqual(registry.service_url_candidate_values(shaped), ["https://app.example.com"])
+
+    def test_provider_repo_views_are_derived_from_confirmed_source_records(self) -> None:
+        project = registry.default_project_record("proj:repoview", "nsid", "app.example.post")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["source_repo_records"] = [
+            {
+                "url": "https://tangled.sh/@example/lexicons",
+                "provider": "tangled",
+                "confidence": "confirmed",
+                "relation": "source_repo",
+                "source": "test",
+            }
+        ]
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["github_repo_urls"], ["https://github.com/example/app"])
+        self.assertEqual(shaped["tangled_repo_urls"], ["https://tangled.org/example/lexicons"])
+        self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
+
+    def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
+        project = registry.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
+        registry.add_candidate_source_code_url(
+            project,
+            "https://github.com/example/candidate",
+            "test",
+            reason="candidate only",
+        )
+        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["source_code_urls"], [])
+        self.assertEqual(shaped["github_repo_urls"], [])
+        self.assertEqual(shaped["candidate_source_code_urls"], ["https://github.com/example/candidate"])
+
+
 class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
     def test_validate_outbound_fetch_url_blocks_internal_hosts(self) -> None:
         for url in (
@@ -123,6 +171,56 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
             seen_urls,
             ["https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q=Skyrdle+%7C+skyrdle.com&limit=5"],
         )
+
+
+class ProjectRegistrySembleSyncTest(unittest.TestCase):
+    def test_fetch_semble_collection_uses_current_xrpc_endpoint(self) -> None:
+        seen_urls: list[str] = []
+
+        def fake_request_json(url: str, headers=None, *, timeout=0):
+            seen_urls.append(url)
+            return {
+                "uri": "at://did:plc:example/network.cosmik.collection/rkey123",
+                "name": "current collection name",
+                "urlCards": [
+                    {
+                        "url": "https://github.com/example/project",
+                        "uri": "at://did:plc:example/network.cosmik.card/card123",
+                        "updatedAt": "2026-06-01T00:00:00Z",
+                        "createdAt": "2026-05-30T00:00:00Z",
+                        "cardContent": {
+                            "title": "Example Project",
+                            "description": "Example description",
+                            "siteName": "GitHub",
+                        },
+                    }
+                ],
+                "pagination": {"hasMore": False},
+            }
+
+        original_request_json = registry.request_json
+        original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
+        registry.request_json = fake_request_json
+        registry.SEMBLE_TRACKED_COLLECTIONS = (
+            {"handle": "byarielm.fyi", "rkey": "rkey123", "label": "stale label"},
+        )
+        try:
+            results = registry.fetch_semble_collection_sync_results(pages=1, per_page=20)
+        finally:
+            registry.request_json = original_request_json
+            registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
+
+        self.assertEqual(
+            seen_urls,
+            [
+                "https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri"
+                "?handle=byarielm.fyi&recordKey=rkey123&page=1&limit=20"
+            ],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["seed_type"], "repo_url")
+        self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
+        self.assertEqual(results[0]["collection_label"], "current collection name")
 
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
@@ -665,6 +763,96 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             ],
         )
 
+    def test_resource_url_values_use_records_without_compat_view(self) -> None:
+        project = registry.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://example.com/docs",
+                "role": "docs",
+                "source": "service_page:https://example.com",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        self.assertEqual(registry.resource_url_values(project), ["https://example.com/docs"])
+        self.assertEqual(
+            registry.resource_url_record_values(project),
+            [
+                {
+                    "url": "https://example.com/docs",
+                    "role": "docs",
+                    "source": "service_page:https://example.com",
+                    "observed_at": "",
+                    "confidence": "confirmed",
+                }
+            ],
+        )
+
+    def test_deep_investigation_page_urls_prioritize_resource_records_then_service_paths(self) -> None:
+        project = registry.default_project_record("proj:deepurls", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com/app"
+        project["service_urls"] = ["https://example.com/app"]
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://example.com/docs",
+                "role": "docs",
+                "source": "service_page:https://example.com",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        self.assertEqual(
+            registry.deep_investigation_page_urls(project, max_pages=4),
+            [
+                "https://example.com/docs",
+                "https://example.com/about",
+                "https://example.com/faq",
+                "https://example.com/app",
+            ],
+        )
+
+    def test_deep_investigation_page_urls_can_use_service_candidates(self) -> None:
+        project = registry.default_project_record("proj:deepcandidate", "nsid", "app.example.post")
+        project["service_url_candidates"] = ["https://candidate.example"]
+
+        self.assertEqual(
+            registry.deep_investigation_page_urls(project, max_pages=3),
+            [
+                "https://candidate.example/about",
+                "https://candidate.example/docs",
+                "https://candidate.example/faq",
+            ],
+        )
+
+    def test_deep_investigation_page_urls_skip_profile_candidates(self) -> None:
+        project = registry.default_project_record("proj:deepprofile", "repo_url", "https://github.com/example/app")
+        project["service_url_candidates"] = ["https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"]
+
+        self.assertEqual(registry.deep_investigation_page_urls(project), [])
+
+    def test_apply_resource_page_probe_status_records_page_kind_without_confirming_url(self) -> None:
+        project = registry.default_project_record("proj:deeplogin", "service_url", "https://example.com")
+        project["service_urls"] = []
+
+        registry.apply_resource_page_probe_status(
+            project,
+            "https://example.com/login",
+            {
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["login_surface_detected"],
+            },
+        )
+
+        self.assertEqual(project["service_status"], "live")
+        self.assertEqual(project["service_status_confidence"], "medium")
+        self.assertEqual(project["service_status_evidence"], ["login_surface_detected", "deep_page:login"])
+        self.assertEqual(project["service_urls"], [])
+
     def test_confirmed_resource_record_adds_app_link(self) -> None:
         project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
         registry.add_resource_url(
@@ -765,6 +953,24 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(project["lexicon_scope"], "service_specific")
         self.assertEqual(project["category"], "project")
 
+    def test_resource_url_records_count_as_service_surface_without_compat_view(self) -> None:
+        project = self.nsid_project()
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://tz2at.xyz/docs",
+                "role": "docs",
+                "source": "service_page:https://tz2at.xyz",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+
+        registry.reclassify_service_specific_lexicon(project)
+
+        self.assertEqual(project["lexicon_scope"], "service_specific")
+        self.assertEqual(project["category"], "project")
+
     def test_nsid_only_candidate_keeps_unknown_scope(self) -> None:
         project = self.nsid_project()
 
@@ -776,12 +982,34 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
     def test_llm_evidence_exposes_lexicon_scope(self) -> None:
         project = self.nsid_project()
+        project["resource_urls"] = []
+        project["resource_url_records"] = [
+            {
+                "url": "https://tz2at.xyz/docs",
+                "role": "docs",
+                "source": "service_page:https://tz2at.xyz",
+                "observed_at": "",
+                "confidence": "confirmed",
+            }
+        ]
+        project["candidate_developer_accounts"] = [
+            {"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}
+        ]
         registry.apply_lexicon_scope_state(project)
 
         evidence = registry.build_llm_evidence_bundle(project)
 
-        self.assertEqual(evidence["lexicon_scope"], "unknown")
-        self.assertEqual(evidence["lexicon_scope_evidence"], ["shared_lexicon_positioning_not_found"])
+        self.assertEqual(evidence["resource_urls"], ["https://tz2at.xyz/docs"])
+        self.assertEqual(evidence["resource_url_records"][0]["confidence"], "confirmed")
+        self.assertEqual(evidence["lexicon_scope"], "service_specific")
+        self.assertEqual(
+            evidence["lexicon_scope_evidence"],
+            ["namespace_matches_project_identity", "service_or_collection_surface_detected"],
+        )
+        self.assertEqual(
+            evidence["candidate_developer_accounts"],
+            [{"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}],
+        )
 
 
 class ProjectRegistryLlmParserTest(unittest.TestCase):
@@ -831,6 +1059,23 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(
             self.confidence_for({"record_creators_and_namespace_lineage": ["app.example"]}),
             ("high", True),
+        )
+
+
+class ProjectRegistryMergeRecordTest(unittest.TestCase):
+    def test_merge_preserves_candidate_developer_accounts_without_promoting_them(self) -> None:
+        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        target["developer_accounts"] = [{"handle": "alice.example.com", "source": "manual"}]
+        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        source["candidate_developer_accounts"] = [{"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}]
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertIn({"handle": "alice.example.com", "source": "manual"}, merged["developer_accounts"])
+        self.assertNotIn({"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}, merged["developer_accounts"])
+        self.assertIn(
+            {"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"},
+            merged["candidate_developer_accounts"],
         )
 
 

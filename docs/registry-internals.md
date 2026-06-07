@@ -22,7 +22,7 @@
 - `ops_json`
   - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
 
-`repair-db` は新構造の正規化と派生フィールド再計算を行います。
+`repair-db` は新構造の正規化と派生フィールド再計算の dry-run summary を出します。DB に適用する時は `repair-db --execute` を使います。
 
 ## 旧 discovery フローの扱い
 
@@ -112,11 +112,38 @@ URL field は次の 5 層で扱います。
 
 `introduced_url` は editorial reference であり service identity ではありません。`resource_url_records` は調査時の補助 page 群の正本であり、confirmed service set ではありません。`resource_urls` はその compatibility view です。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
 
-`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
+`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。通常導線の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` を通して読みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
 
-`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は通常導線でまだ参照されているため、現状は削除せず migration 候補として扱います。
+`website_url_candidates` は保存上はまだ残しますが、runtime では `service_url_candidates` の compatibility alias として同期します。通常導線の候補判定、review signal、merge/finalize は `service_url_candidate_values()` を通して読みます。
+
+`github_repo_urls` / `tangled_repo_urls` も保存上はまだ残しますが、runtime では `source_code_urls` と confirmed `source_repo_records` から provider view を再構成します。通常導線の repo 判定、review signal、merge/finalize は `source_code_url_values()` / `provider_repo_url_values()` を通して読みます。
+
+`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は保存 field としてまだ残しているため、現状は削除せず migration 候補として扱います。
 
 旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
+
+### Legacy field 直接参照の棚卸し
+
+実装済み:
+
+- `website_url_candidates` は `service_url_candidate_values()` / `set_service_url_candidate_values()` 経由で `service_url_candidates` と同期する
+- `github_repo_urls` / `tangled_repo_urls` は `source_code_url_values()` / `provider_repo_url_values()` / `sync_source_repo_provider_views()` 経由で confirmed source repo view として再構成する
+- `resource_urls` は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` 正本から読む
+- `developer_accounts` は confirmed、`candidate_developer_accounts` は未確認候補として分離する
+  - merge 時も candidate を失わず、confirmed へ自動昇格しない
+
+互換・表示のため残す直接参照:
+
+- `project_json_payload()` / `shape_project_for_api()` / `show` / Web payload の出力互換
+- `audit-url-fields` の raw 保存監査
+- `ensure_project_shape()` / `save_project()` / `finalize_project_shape()` の legacy fold-in と正規化
+- test fixture で legacy 入力を再現する箇所
+
+未接続 / 将来候補:
+
+- 保存 payload から `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` を止める判断
+- API / export 互換から `resource_urls` view を落とせるかの判断
+- `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` の record / ops 境界整理
 
 ## enrich の流れ
 
@@ -318,18 +345,24 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 - launch 文言と app surface が混在
   - `unverified`
 
-まだ未実装の後半段階:
+実装済み:
 
-1. `--deep-investigation` で優先ページを読む
-   - `/about`
-   - `/docs`
-   - `/faq`
-   - `/app`
-   - `/login`
-   - `/signup`
-2. browser/computer-use 相当で実際にログイン導線まで試す
+- 通常 enrich は service top page と same-site follow-up を軽量 probe します
+- `--deep-investigation` は `resource_url_records` と service surface から優先ページ候補を作り、最大 6 page を追加 probe します
+  - `/about`
+  - `/docs`
+  - `/faq`
+  - `/app`
+  - `/login`
+  - `/signup`
+- deep page probe は `service_status` / `service_status_confidence` / `service_status_evidence` を補助更新します
+  - URL の path から `deep_page:about`, `deep_page:docs`, `deep_page:login` などを evidence に追加します
+  - この処理は service URL の confirmed 化や merge 判断までは行いません
 
-つまり、現状は「トップページ中心の軽量判定」までは常時有効、深い検証はまだ別レーンです。
+未接続:
+
+- browser/computer-use 相当で実際にログイン導線まで試す検証レーン
+- deep investigation の結果を既存 DB 全体へ反映する運用。既存 row の洗い替えには再 `enrich` が必要
 
 ### 4. first-party link の扱い
 
@@ -344,7 +377,7 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - first-party page が repo を明示し、owner や site family が project と噛む時
   - same-site family の repo URL で owner も噛む時
 - それ以外の repo-like URL は candidate に留めます
-- docs/blog/same-site 補助ページは `resource_url_records` に残し、runtime view の `resource_urls` を必要なら追加 probe の対象にします
+- docs/blog/same-site 補助ページは `resource_url_records` に残し、`resource_url_values()` 経由で必要なら追加 probe の対象にします
 
 ### 4.1 NSID ownership の現在の優先順位
 
@@ -619,7 +652,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `website_url`
 - `service_urls`
 - `source_code_urls`
-- `resource_urls`
+- `resource_url_records`
 - `service_status`
 - `introduced_url`
 - confirmed NSID 数
@@ -639,27 +672,20 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 1. service 判定の後半強化
 
-- `--deep-investigation` で次を優先 fetch する
-  - `/about`
-  - `/docs`
-  - `/faq`
-  - `/app`
-  - `/login`
-  - `/signup`
-- その本文から:
-  - 実サービスの存在
-  - 利用条件
-  - 招待制かどうか
-  - install / sign-in 導線
-  を抽出し、`service_status_evidence` に流す
-- 最終段階では browser/computer-use を使った login 画面確認を opt-in で追加する
+- `--deep-investigation` の優先ページ probe は実装済み
+  - `resource_url_records` を優先
+  - `website_url` / `service_urls` / `supported_service_urls` / service candidates から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を組み立てる
+- 次の強化候補:
+  - 優先ページごとの signal をさらに細かく `service_status_evidence` に残す
+  - 実サービスの存在、利用条件、招待制、install / sign-in 導線を区別して記録する
+  - browser/computer-use を使った login 画面確認を opt-in で追加する
 
 ### 2. editorial quality の洗い替え
 
 - merge 時の主従は改善済みだが、既存 `tagline` / `summary` の品質問題は残る
 - 直したい方向:
   - `service project` と `lexicon project` で prompt を分ける
-  - `resource_urls` や repo README を優先 evidence として使う
+  - `resource_url_records` や repo README を優先 evidence として使う
   - `tagline_is_provisional` が長く残っている project を review queue へ送る
 
 ### 3. rate limit / partial failure 耐性
@@ -721,6 +747,13 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 ### `sync-semble-collections`
 
 - 対象はコード内で固定した tracked Semble collection だけです
+- 実装済み:
+  - Semble の現行 XRPC API `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使います
+  - `handle`, `recordKey`, `page`, `limit` を query parameter として渡し、返却 payload の `urlCards` を取り込みます
+  - collection label は Semble payload の `name` があればそれを優先し、無ければ tracked collection の local label を使います
+- 動作確認済み:
+  - 2026-06-07 時点で旧 `/api/collections/at/{handle}/{rkey}` は Semble live API で 404
+  - 同日時点で現行 XRPC API は tracked 2 collection について 200 を返し、`sync-semble-collections --pages 1 --per-page 1 --all-history --no-create-unmatched` の dry-run が成功
 - 各 card URL を `classify_text_seed_value()` で seed に落とせるものだけ使います
   - `nsid`
   - `repo_url`
@@ -760,7 +793,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - same-site docs/blog など follow-up を最大 3 URL まで追加
   - つまり 1 service URL あたり最大 4 request
 - `--deep-investigation`:
-  - `resource_urls` を最大 6 page
+  - `resource_url_records` と service surface 由来の優先ページ候補を最大 6 page
   - 各 page で follow-up を最大 2 page
   - 最大 18 request
 - investigation collector:
@@ -1078,7 +1111,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
     - `website_url`
     - `service_urls`
     - `source_code_urls`
-    - `resource_urls`
+    - `resource_url_records`
     - `service_status`
     - `introduced_url`
     - confirmed NSID 数
@@ -1106,6 +1139,8 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 - `finalize_project_shape()` を通して正規化
 - `duplicate_candidates` / `merge_recommendation` の再計算
 - collision 監査
+
+既定は dry-run です。`--execute` を付けた時だけ正規化と派生フィールド再計算を保存します。collision は報告のみで、自動 merge / separate は行いません。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成と `record_json` / `ops_json` を前提にします。

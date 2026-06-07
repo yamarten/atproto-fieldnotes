@@ -252,6 +252,7 @@ DB直接編集後の整合性回復:
 
 ```bash
 python3 scripts/project_registry.py repair-db
+python3 scripts/project_registry.py repair-db --execute
 ```
 
 追跡頻度を見直す候補の確認:

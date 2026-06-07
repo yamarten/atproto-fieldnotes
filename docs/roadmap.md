@@ -316,13 +316,16 @@ UI は `Search` タブ内に次を置きます。
 
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
-- `github_repo_urls` / `tangled_repo_urls` を provider 別 convenience field のまま残すか、evidence から導出に寄せるか決める
+- `github_repo_urls` / `tangled_repo_urls` は runtime では `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する方針
+  - 保存 field は compatibility view としてまだ残す
+  - 最終的に保存を止めるかは、caller と export の整理後に判断する
 - URL field migration
   - `audit-url-fields` の raw 保存監査を基準に進める
-  - `website_url_candidates` の caller を `service_url_candidates` へ寄せ、derive-only または削除にする
-  - `github_repo_urls` / `tangled_repo_urls` の caller を `source_code_urls` / `source_repo_records` へ寄せ、provider view として導出にする
+  - `website_url_candidates` は runtime で `service_url_candidates` の compatibility alias として同期済み
+  - `github_repo_urls` / `tangled_repo_urls` は runtime で `source_code_urls` / confirmed `source_repo_records` から provider view として再構成済み
   - `resource_url_records` への実 DB migration は適用済み。one-shot migration CLI は削除済み
-  - `resource_urls` は新規保存 payload から除外済み。runtime caller を `resource_url_records` へ寄せ、最終的に runtime compatibility view も縮退させる
+  - `resource_urls` は新規保存 payload から除外済み。runtime caller は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` 正本へ寄せ済み
+  - 次の候補は保存 payload / API payload / export から compatibility view を落とせるかの確認
   - `cleanup-app-links` は追加・実 DB 適用済み。URL heuristic 変更後の再構築用として残す
   - confirmed / candidate service URL の overlap を新規・更新導線で除く invariant は実装済み。実 DB に残る既存 overlap 件数は `audit-url-fields` で確認する。`repair-db --execute` は他の正規化も広く適用するため、実行前に dry-run の差分を確認する
   - `bsky.app/profile/{subject}` は handle / DID 構文で account-scoped と判定し、service URL から除外して account evidence に分ける処理を接続済み
@@ -330,7 +333,12 @@ UI は `Search` タブ内に次を置きます。
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
+- 調査強化
+  - deep investigation の優先ページ候補生成と page kind evidence は接続済み
+  - 次は service status signal の粒度改善、LLM evidence の service/lexicon prompt 分岐、ブラウザ確認レーンを検討する
 - 旧 field 互換の名残を整理する
   - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
   - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする
-- `developer_accounts` / `candidate_developer_accounts` の confirmed 条件と UI 露出を整理する
+- `developer_accounts` / `candidate_developer_accounts`
+  - confirmed / candidate の保存・merge 境界は整理済み
+  - 次は Web UI で候補 account をどう確認・昇格するかの操作設計

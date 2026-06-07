@@ -49,6 +49,7 @@ REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 MAX_HTTP_REDIRECTS = 5
+DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
@@ -56,6 +57,7 @@ BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
 BSKY_SYNC_API = "https://bsky.network"
 UFOS_API = "https://ufos-api.microcosm.blue"
+SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
@@ -777,6 +779,29 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
     return output
 
 
+def service_url_candidate_values(project: dict[str, Any]) -> list[str]:
+    candidates = list(project.get("service_url_candidates", [])) + list(project.get("website_url_candidates", []))
+    return unique_list(
+        [
+            normalized
+            for item in candidates
+            if (normalized := normalize_service_candidate_url(str(item or "")))
+        ]
+    )
+
+
+def set_service_url_candidate_values(project: dict[str, Any], values: list[str]) -> None:
+    candidates = unique_list(
+        [
+            normalized
+            for item in values
+            if (normalized := normalize_service_candidate_url(str(item or "")))
+        ]
+    )
+    project["service_url_candidates"] = candidates
+    project["website_url_candidates"] = list(candidates)
+
+
 def add_unique(values: list[str], value: str) -> list[str]:
     return unique_list(values + [value])
 
@@ -832,7 +857,7 @@ def refresh_project_seed_identity(project: dict[str, Any]) -> None:
     if project.get("primary_nsid"):
         set_project_seed_identity(project, "nsid", str(project.get("primary_nsid") or ""))
         return
-    repo_url = next(iter(project.get("source_code_urls", []) or project.get("github_repo_urls", []) or project.get("tangled_repo_urls", [])), "")
+    repo_url = next(iter(source_code_url_values(project)), "")
     if repo_url:
         set_project_seed_identity(project, "repo_url", str(repo_url))
         return
@@ -935,8 +960,7 @@ def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
         for url in (
             ([project.get("website_url")] if project.get("website_url") else [])
             + list(project.get("service_urls", []))
-            + list(project.get("website_url_candidates", []))
-            + list(project.get("service_url_candidates", []))
+            + service_url_candidate_values(project)
         )
         if normalize_url(str(url or ""))
     }
@@ -1523,6 +1547,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["tangled_repo_urls"] = normalize_repo_collection(defaults.get("tangled_repo_urls", []), provider="tangled")
     defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
+    sync_source_repo_provider_views(defaults)
+    set_service_url_candidate_values(defaults, service_url_candidate_values(defaults))
     defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
     defaults["candidate_developer_accounts"] = normalize_developer_accounts(list(defaults.get("candidate_developer_accounts") or []))
     if defaults["status"] == "candidate":
@@ -2062,7 +2088,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "migration_candidates": [
             "derive_or_drop website_url_candidates after callers use service_url_candidates",
             "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
-            "shrink runtime resource_urls compatibility callers after persisted migration",
+            "derive_or_drop resource_urls compatibility view after API/export callers no longer need it",
         ],
     }
 
@@ -2397,9 +2423,7 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
             return 0, True
         if normalized in [normalize_url(str(item)) for item in project.get("service_urls", []) if item]:
             return 0, True
-        if normalized in [normalize_url(str(item)) for item in project.get("service_url_candidates", []) if item]:
-            return 1, True
-        if normalized in [normalize_url(str(item)) for item in project.get("website_url_candidates", []) if item]:
+        if normalized in [normalize_url(str(item)) for item in service_url_candidate_values(project) if item]:
             return 1, True
         return 99, False
     if identifier_type == "nsid":
@@ -2413,19 +2437,13 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
     if identifier_type == "resolved_nsid":
         return (0, True) if normalized in [normalize_nsid(str(item)) for item in project.get("resolved_nsids", []) if item] else (99, False)
     if identifier_type == "repo_url":
-        repo_urls = (
-            list(project.get("source_code_urls", []))
-            + list(project.get("github_repo_urls", []))
-            + list(project.get("tangled_repo_urls", []))
-        )
-        return (0, True) if normalized in [normalize_url(str(item)) for item in repo_urls if item] else (99, False)
+        return (0, True) if normalized in [normalize_url(str(item)) for item in source_code_url_values(project) if item] else (99, False)
     if identifier_type == "github_repo_url":
-        return (0, True) if normalized in [normalize_url(str(item)) for item in project.get("github_repo_urls", []) if item] else (99, False)
+        return (0, True) if normalized in [normalize_url(str(item)) for item in provider_repo_url_values(project, "github") if item] else (99, False)
     if identifier_type == "tangled_repo_url":
-        return (0, True) if normalized in [normalize_url(str(item)) for item in project.get("tangled_repo_urls", []) if item] else (99, False)
+        return (0, True) if normalized in [normalize_url(str(item)) for item in provider_repo_url_values(project, "tangled") if item] else (99, False)
     if identifier_type == "service_url_candidate":
-        candidate_urls = list(project.get("service_url_candidates", [])) + list(project.get("website_url_candidates", []))
-        return (0, True) if normalized in [normalize_url(str(item)) for item in candidate_urls if item] else (99, False)
+        return (0, True) if normalized in [normalize_url(str(item)) for item in service_url_candidate_values(project) if item] else (99, False)
     return 99, False
 
 
@@ -2735,11 +2753,10 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["lexicons"] = unique_list(project.get("lexicons", []))
     project["authority_domains"] = unique_list(project.get("authority_domains", []))
     project["external_lexicons"] = unique_list(project.get("external_lexicons", []) + compute_external_lexicons(project))
-    project["website_url_candidates"] = unique_list(project.get("website_url_candidates", []))
+    set_service_url_candidate_values(project, service_url_candidate_values(project))
     project["service_urls"] = unique_list(project.get("service_urls", []))
     project["resource_urls"] = unique_list(project.get("resource_urls", []))
     sync_resource_url_records(project)
-    project["service_url_candidates"] = unique_list(project.get("service_url_candidates", []))
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
     project["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in project.get("supported_service_urls", []) if normalize_url(str(item))])
     project["service_status"] = normalize_service_status(project.get("service_status"))
@@ -2750,6 +2767,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     project["github_repo_urls"] = normalize_repo_collection(project.get("github_repo_urls", []), provider="github")
     project["tangled_repo_urls"] = normalize_repo_collection(project.get("tangled_repo_urls", []), provider="tangled")
+    sync_source_repo_provider_views(project)
     project["bluesky_handles"] = unique_list(project.get("bluesky_handles", []))
     project["tangled_handles"] = unique_list(project.get("tangled_handles", []))
     project["investigation_queries"] = unique_list(project.get("investigation_queries", []))
@@ -2928,23 +2946,17 @@ def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
         identifiers.add(("nsid", normalize_nsid(nsid)))
     for nsid in project.get("resolved_nsids", []):
         identifiers.add(("resolved_nsid", normalize_nsid(nsid)))
-    for url in project.get("github_repo_urls", []):
-        normalized = normalize_url(url)
-        identifiers.add(("repo_url", normalized))
-        identifiers.add(("github_repo_url", normalized))
-    for url in project.get("tangled_repo_urls", []):
-        normalized = normalize_url(url)
-        identifiers.add(("repo_url", normalized))
-        identifiers.add(("tangled_repo_url", normalized))
-    for url in project.get("source_code_urls", []):
+    for url in source_code_url_values(project):
         identifiers.add(("repo_url", normalize_url(url)))
+    for url in provider_repo_url_values(project, "github"):
+        identifiers.add(("github_repo_url", normalize_url(url)))
+    for url in provider_repo_url_values(project, "tangled"):
+        identifiers.add(("tangled_repo_url", normalize_url(url)))
     for url in project.get("service_urls", []):
         identifiers.add(("service_url", normalize_url(url)))
-    for url in project.get("service_url_candidates", []):
-        identifiers.add(("service_url_candidate", normalize_url(url)))
     if project.get("website_url"):
         identifiers.add(("service_url", normalize_url(project["website_url"])))
-    for url in project.get("website_url_candidates", []):
+    for url in service_url_candidate_values(project):
         identifiers.add(("service_url_candidate", normalize_url(url)))
     return {item for item in identifiers if item[1]}
 
@@ -3050,8 +3062,10 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         if normalize_url(str(project.get("website_url") or "")) in blocked_services:
             project["website_url"] = ""
         project["service_urls"] = [url for url in project.get("service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
-        project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
-        project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) not in blocked_services]
+        set_service_url_candidate_values(
+            project,
+            [url for url in service_url_candidate_values(project) if normalize_url(str(url or "")) not in blocked_services],
+        )
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
         project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) not in blocked_services]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) not in blocked_services]
@@ -3069,6 +3083,7 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
             if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) not in blocked_repos
         ]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        sync_source_repo_provider_views(project)
 
     if blocked_nsids:
         if normalize_nsid(str(project.get("primary_nsid") or "")) in blocked_nsids:
@@ -3106,8 +3121,10 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
         if normalize_url(str(project.get("website_url") or "")) == normalized:
             project["website_url"] = ""
         project["service_urls"] = [url for url in project.get("service_urls", []) if normalize_url(str(url or "")) != normalized]
-        project["service_url_candidates"] = [url for url in project.get("service_url_candidates", []) if normalize_url(str(url or "")) != normalized]
-        project["website_url_candidates"] = [url for url in project.get("website_url_candidates", []) if normalize_url(str(url or "")) != normalized]
+        set_service_url_candidate_values(
+            project,
+            [url for url in service_url_candidate_values(project) if normalize_url(str(url or "")) != normalized],
+        )
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if normalize_url(str(url or "")) != normalized]
         project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if normalize_url(str(url or "")) != normalized]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if normalize_url(str(url or "")) != normalized]
@@ -3124,6 +3141,7 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
             if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) != normalized
         ]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        sync_source_repo_provider_views(project)
     elif identifier_type == "nsid":
         if normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
             project["primary_nsid"] = ""
@@ -3154,7 +3172,7 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
     refresh_project_seed_identity(project)
 
 
-def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
+def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT *
@@ -3182,7 +3200,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             normalized_projects += 1
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)) or contribution_changed:
             pruned_projects += 1
-            save_project(conn, normalized, enriched=False)
+            if execute:
+                save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
 
     expected_by_project: dict[str, set[tuple[str, str]]] = {
@@ -3211,11 +3230,13 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
         ):
             project["duplicate_candidates"] = duplicate_candidates
             project["merge_recommendation"] = merge_recommendation
-            save_project(conn, project, enriched=False)
+            if execute:
+                save_project(conn, project, enriched=False)
             project_map[project_key] = project
             refreshed_derived_projects += 1
 
-    conn.commit()
+    if execute:
+        conn.commit()
 
     expected_owners: dict[tuple[str, str], list[str]] = {}
     for project_key, identifiers in expected_by_project.items():
@@ -3237,6 +3258,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection) -> dict[str, Any]:
             )
 
     return {
+        "mode": "execute" if execute else "dry_run",
         "project_count": len(rows),
         "normalized_project_count": normalized_projects,
         "pruned_project_count": pruned_projects,
@@ -3919,7 +3941,7 @@ def generic_platform_name_candidate(project: dict[str, Any], value: str, source:
         return False
     repo_names = {
         normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
-        for url in list(project.get("source_code_urls", [])) + list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", []))
+        for url in source_code_url_values(project)
         if urllib.parse.urlparse(normalize_url(str(url or ""))).path.rstrip("/")
     }
     return normalized not in repo_names
@@ -4094,8 +4116,7 @@ def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
         *[str(item or "") for item in project.get("source_code_urls", [])],
         *[str(item or "") for item in project.get("candidate_source_code_urls", [])],
         *[str(item or "") for item in project.get("service_urls", [])],
-        *[str(item or "") for item in project.get("service_url_candidates", [])],
-        *[str(item or "") for item in project.get("website_url_candidates", [])],
+        *[str(item or "") for item in service_url_candidate_values(project)],
     ]
     for raw_url in candidate_urls:
         normalized = normalize_url(raw_url)
@@ -4429,6 +4450,35 @@ def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -
             continue
         normalized_urls.append(normalize_url(url))
     return unique_list(normalized_urls)
+
+
+def source_code_url_values(project: dict[str, Any], *, include_legacy_provider_views: bool = True) -> list[str]:
+    urls = list(project.get("source_code_urls", []))
+    if include_legacy_provider_views:
+        urls += list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", []))
+    urls += [
+        str(record.get("url") or "")
+        for record in normalize_source_repo_records(project.get("source_repo_records", []))
+        if str(record.get("confidence") or "") == "confirmed"
+    ]
+    return normalize_repo_collection(urls)
+
+
+def provider_repo_url_values(project: dict[str, Any], provider: str) -> list[str]:
+    return normalize_repo_collection(
+        [
+            url
+            for url in source_code_url_values(project)
+            if infer_repo_provider(url) == provider
+        ],
+        provider=provider,
+    )
+
+
+def sync_source_repo_provider_views(project: dict[str, Any]) -> None:
+    project["source_code_urls"] = source_code_url_values(project)
+    project["github_repo_urls"] = provider_repo_url_values(project, "github")
+    project["tangled_repo_urls"] = provider_repo_url_values(project, "tangled")
 
 
 def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -4845,6 +4895,7 @@ def confirm_source_code_url(
         for item in project["source_repo_records"]
     ):
         project["source_repo_records"].append(record)
+    sync_source_repo_provider_views(project)
 
 
 def confirm_service_url(project: dict[str, Any], url: str) -> None:
@@ -4852,11 +4903,13 @@ def confirm_service_url(project: dict[str, Any], url: str) -> None:
     if not normalized or identifier_is_blocked(project, "service_url", normalized) or identifier_is_deferred(project, "service_url", normalized):
         return
     project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
-    project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) != normalized]
+    set_service_url_candidate_values(
+        project,
+        [item for item in service_url_candidate_values(project) if normalize_url(item) != normalized],
+    )
     project["failed_service_urls"] = [item for item in project.get("failed_service_urls", []) if normalize_url(item) != normalized]
     if not project.get("website_url"):
         project["website_url"] = normalized
-    project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) != normalized]
 
 
 def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
@@ -4901,29 +4954,122 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
     ]
 
 
-def sync_resource_url_records(project: dict[str, Any]) -> None:
+def resource_url_record_values(project: dict[str, Any], *, include_legacy_view: bool = True) -> list[dict[str, str]]:
     records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
-    recorded_urls = {record["url"] for record in records}
-    for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
-        if url in recorded_urls:
-            continue
-        records.append(
-            {
-                "url": url,
-                "role": "unknown",
-                "source": "legacy_resource_urls",
-                "observed_at": "",
-                "confidence": "legacy",
-            }
-        )
+    if include_legacy_view:
+        recorded_urls = {record["url"] for record in records}
+        for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
+            if url in recorded_urls:
+                continue
+            records.append(
+                {
+                    "url": url,
+                    "role": "unknown",
+                    "source": "legacy_resource_urls",
+                    "observed_at": "",
+                    "confidence": "legacy",
+                }
+            )
+        records = normalize_resource_url_records(records)
     website_url = normalize_url(str(project.get("website_url") or ""))
     service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
-    project["resource_url_records"] = [
+    return [
         record
         for record in records
         if record["url"] != website_url and record["url"] not in service_urls
     ]
-    project["resource_urls"] = unique_list([record["url"] for record in project["resource_url_records"]])
+
+
+def resource_url_values(
+    project: dict[str, Any],
+    *,
+    include_legacy_view: bool = True,
+    confidences: set[str] | None = None,
+    roles: set[str] | None = None,
+) -> list[str]:
+    normalized_confidences = {str(item or "").strip().lower() for item in confidences or set()}
+    normalized_roles = {str(item or "").strip() for item in roles or set()}
+    urls: list[str] = []
+    for record in resource_url_record_values(project, include_legacy_view=include_legacy_view):
+        if normalized_confidences and str(record.get("confidence") or "") not in normalized_confidences:
+            continue
+        if normalized_roles and str(record.get("role") or "") not in normalized_roles:
+            continue
+        urls.append(record["url"])
+    return unique_list(urls)
+
+
+def url_origin(url: str) -> str:
+    parsed = urllib.parse.urlparse(normalize_url(url))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def deep_investigation_page_urls(project: dict[str, Any], *, max_pages: int = 6) -> list[str]:
+    limit = max(1, int(max_pages or 6))
+    urls: list[str] = []
+    urls.extend(resource_url_values(project))
+
+    service_surfaces = unique_list(
+        ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+        + [str(item or "") for item in project.get("service_urls", [])]
+        + [str(item or "") for item in project.get("supported_service_urls", [])]
+        + [str(item or "") for item in project.get("service_url_candidates", [])]
+        + [str(item or "") for item in project.get("website_url_candidates", [])]
+    )
+    for service_url in service_surfaces:
+        if is_bluesky_profile_url(service_url):
+            continue
+        origin = url_origin(service_url)
+        if not origin:
+            continue
+        for path in DEEP_INVESTIGATION_PATHS:
+            urls.append(normalize_url(f"{origin}{path}"))
+    return unique_list([url for url in urls if url])[:limit]
+
+
+def deep_investigation_page_kind(url: str) -> str:
+    path = urllib.parse.urlparse(normalize_url(url)).path.strip("/").lower()
+    first = path.split("/", 1)[0] if path else ""
+    return {
+        "about": "about",
+        "docs": "docs",
+        "documentation": "docs",
+        "faq": "faq",
+        "app": "app",
+        "login": "login",
+        "signin": "login",
+        "sign-in": "login",
+        "signup": "signup",
+        "sign-up": "signup",
+        "register": "signup",
+    }.get(first, "resource")
+
+
+def apply_resource_page_probe_status(project: dict[str, Any], page_url: str, result: dict[str, Any]) -> None:
+    observed_service_status = normalize_service_status(result.get("service_status"))
+    observed_confidence = normalize_service_status_confidence(result.get("service_status_confidence"))
+    observed_evidence = [str(item).strip() for item in result.get("service_status_evidence", []) if str(item).strip()]
+    page_kind = deep_investigation_page_kind(page_url)
+    if page_kind != "resource":
+        observed_evidence = add_unique(observed_evidence, f"deep_page:{page_kind}")
+    if observed_service_status in {"unknown"} and not observed_evidence:
+        return
+    project["service_status"] = merge_service_status(
+        str(project.get("service_status") or "unknown"),
+        observed_service_status,
+    )
+    project["service_status_confidence"] = merge_service_status_confidence(
+        str(project.get("service_status_confidence") or "none"),
+        observed_confidence,
+    )
+    project["service_status_evidence"] = unique_list(list(project.get("service_status_evidence", [])) + observed_evidence)
+
+
+def sync_resource_url_records(project: dict[str, Any]) -> None:
+    project["resource_url_records"] = resource_url_record_values(project)
+    project["resource_urls"] = resource_url_values(project, include_legacy_view=False)
 
 
 def add_resource_url(
@@ -4964,15 +5110,17 @@ def add_resource_url(
 
 
 def sync_primary_service_urls(project: dict[str, Any]) -> None:
-    for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
+    for field_name in ("service_urls",):
         for item in project.get(field_name, []):
             if is_bluesky_profile_url(str(item or "")):
                 record_developer_profile_url(project, str(item), f"{field_name}:profile_url")
+    for item in service_url_candidate_values(project):
+        if is_bluesky_profile_url(str(item or "")):
+            record_developer_profile_url(project, str(item), "service_url_candidates:profile_url")
     if project.get("website_url") and is_bluesky_profile_url(str(project["website_url"])):
         record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
-    project["service_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("service_url_candidates", []) if item] if item])
-    project["website_url_candidates"] = unique_list([item for item in [normalize_service_candidate_url(item) for item in project.get("website_url_candidates", []) if item] if item])
+    set_service_url_candidate_values(project, service_url_candidate_values(project))
     website_url = normalize_confirmed_service_url(str(project.get("website_url") or "")) if project.get("website_url") else ""
     if website_url:
         project["website_url"] = website_url
@@ -4982,14 +5130,16 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
     else:
         project["website_url"] = ""
     confirmed_urls = {normalize_url(item) for item in project.get("service_urls", []) if item}
-    project["website_url_candidates"] = [item for item in project.get("website_url_candidates", []) if normalize_url(item) not in confirmed_urls]
-    project["service_url_candidates"] = [item for item in project.get("service_url_candidates", []) if normalize_url(item) not in confirmed_urls]
+    set_service_url_candidate_values(
+        project,
+        [item for item in service_url_candidate_values(project) if normalize_url(item) not in confirmed_urls],
+    )
     sync_resource_url_records(project)
 
 
 def prune_project_urls(project: dict[str, Any]) -> None:
     blocked_guesses = unverified_authority_service_guesses(project)
-    for field_name in ("service_urls", "service_url_candidates", "website_url_candidates"):
+    for field_name in ("service_urls",):
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
             if is_bluesky_profile_url(url):
@@ -5004,6 +5154,19 @@ def prune_project_urls(project: dict[str, Any]) -> None:
                 if normalized:
                     cleaned_urls.append(normalized)
         project[field_name] = unique_list(cleaned_urls)
+    cleaned_candidates: list[str] = []
+    for url in service_url_candidate_values(project):
+        if is_bluesky_profile_url(url):
+            record_developer_profile_url(project, url, "service_url_candidates:profile_url")
+            continue
+        normalized_candidate = normalize_url(str(url or ""))
+        if normalized_candidate in blocked_guesses:
+            continue
+        if service_url_allowed_for_project(project, url, confirmed=False):
+            normalized = normalize_service_candidate_url(url)
+            if normalized:
+                cleaned_candidates.append(normalized)
+    set_service_url_candidate_values(project, cleaned_candidates)
 
     website_url = str(project.get("website_url") or "").strip()
     if website_url and is_bluesky_profile_url(website_url):
@@ -5050,16 +5213,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
     project["candidate_source_code_urls"] = unique_list(project["candidate_source_code_urls"] + sorted(kept_candidates - set(project["source_code_urls"])))
     project["source_code_urls"] = unique_list(project["source_code_urls"] + sorted(kept_confirmed))
 
-    project["github_repo_urls"] = [
-        url for url in normalize_repo_collection(project.get("github_repo_urls", []), provider="github")
-        if (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
-        and (repo_url_allowed_for_project(project, url) if url in project["source_code_urls"] else repo_candidate_allowed_for_project(project, url))
-    ]
-    project["tangled_repo_urls"] = [
-        url for url in normalize_repo_collection(project.get("tangled_repo_urls", []), provider="tangled")
-        if (url in project["source_code_urls"] or url in project["candidate_source_code_urls"])
-        and (repo_url_allowed_for_project(project, url) if url in project["source_code_urls"] else repo_candidate_allowed_for_project(project, url))
-    ]
+    sync_source_repo_provider_views(project)
 
     ignored_handles = generic_platform_handles_to_ignore(project)
     if ignored_handles:
@@ -5314,14 +5468,10 @@ def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: s
         if not str(project.get("website_url") or "").strip():
             project["website_url"] = normalized
         project["service_urls"] = add_unique(project.get("service_urls", []), normalized)
-    project["service_url_candidates"] = [
-        item for item in project.get("service_url_candidates", [])
-        if normalize_url(str(item or "")) != normalized
-    ]
-    project["website_url_candidates"] = [
-        item for item in project.get("website_url_candidates", [])
-        if normalize_url(str(item or "")) != normalized
-    ]
+    set_service_url_candidate_values(
+        project,
+        [item for item in service_url_candidate_values(project) if normalize_url(str(item or "")) != normalized],
+    )
     return normalized
 
 
@@ -5338,6 +5488,7 @@ def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) ->
             project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
         elif parsed.netloc in {"tangled.org", "tangled.sh"}:
             project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
+        sync_source_repo_provider_views(project)
     project["candidate_source_code_urls"] = [
         item for item in project.get("candidate_source_code_urls", [])
         if canonical_repo_url(str(item or "")) != normalized
@@ -6175,11 +6326,21 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
         if not handle or not rkey:
             continue
         for page in range(1, max(1, pages) + 1):
+            params = urllib.parse.urlencode(
+                {
+                    "handle": handle,
+                    "recordKey": rkey,
+                    "page": str(page),
+                    "limit": str(clamped_per_page),
+                }
+            )
             payload = request_json(
-                f"https://api.semble.so/api/collections/at/{urllib.parse.quote(handle, safe='')}/{urllib.parse.quote(rkey, safe='')}"
-                f"?page={page}&limit={clamped_per_page}"
+                f"{SEMBLE_API}/xrpc/network.cosmik.collection.getByAtUri?{params}"
             )
             cards = payload.get("urlCards", [])
+            if not isinstance(cards, list):
+                cards = []
+            collection_label = str(payload.get("name") or label).strip()
             for raw in cards:
                 if not isinstance(raw, dict):
                     continue
@@ -6204,7 +6365,7 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
                     "site_name": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("siteName") or ""),
                     "collection_handle": handle,
                     "collection_rkey": rkey,
-                    "collection_label": label,
+                    "collection_label": collection_label,
                     "collection_uri": str(payload.get("uri") or f"at://{handle}/collections/{rkey}"),
                 }
                 existing = deduped.get(key)
@@ -6267,7 +6428,7 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
         reasons.append("lexicon_schema_sample")
     if homepage:
         reasons.append("repo_homepage")
-    if temp_project.get("service_url_candidates") or temp_project.get("website_url_candidates"):
+    if service_url_candidate_values(temp_project):
         reasons.append("derived_service_candidate")
     if keyword_hits:
         reasons.append("atproto_keywords")
@@ -6279,7 +6440,7 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
     fork_independent_signals = unique_list(
         (["repo_homepage"] if homepage else [])
         + (["owned_lexicon_surface"] if (repo_lexicons or temp_project.get("input_nsids") or temp_project.get("lexicon_schema_samples")) else [])
-        + (["derived_service_candidate"] if (temp_project.get("service_url_candidates") or temp_project.get("website_url_candidates")) else [])
+        + (["derived_service_candidate"] if service_url_candidate_values(temp_project) else [])
     )
     if fork and not fork_independent_signals:
         return {
@@ -6353,11 +6514,7 @@ def sync_github_search(
     known_repo_urls = {
         normalize_url(url)
         for project in existing_projects
-        for url in (
-            list(project.get("source_code_urls", []))
-            + list(project.get("github_repo_urls", []))
-            + list(project.get("tangled_repo_urls", []))
-        )
+        for url in source_code_url_values(project)
         if normalize_url(url)
     }
     existing_keys = {str(project["project_key"]) for project in existing_projects}
@@ -7560,7 +7717,7 @@ def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
         project.get("website_url")
         or project.get("service_urls")
         or project.get("source_code_urls")
-        or project.get("resource_urls")
+        or resource_url_values(project)
     )
     if summary and (tagline or features or presence):
         return True
@@ -7871,7 +8028,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
-    queued = unique_list(project.get("resource_urls", []))[: max(1, int(max_pages or 6))]
+    queued = deep_investigation_page_urls(project, max_pages=max_pages)
     visited: set[str] = set()
     for resource_url in queued:
         normalized_resource_url = normalize_url(resource_url)
@@ -7879,6 +8036,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             continue
         visited.add(normalized_resource_url)
         result = probe_service_url(normalized_resource_url)
+        apply_resource_page_probe_status(project, normalized_resource_url, result)
         title = clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
@@ -7891,6 +8049,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             project,
             "resource_probe",
             url=normalized_resource_url,
+            page_kind=deep_investigation_page_kind(normalized_resource_url),
             status_code=int(result.get("status_code") or 0),
             title=title,
             at=iso_now(),
@@ -7902,6 +8061,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 continue
             visited.add(normalized_follow_url)
             nested = probe_service_url(normalized_follow_url)
+            apply_resource_page_probe_status(project, normalized_follow_url, nested)
             nested_title = clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
@@ -7915,6 +8075,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 project,
                 "resource_follow_up",
                 url=normalized_follow_url,
+                page_kind=deep_investigation_page_kind(normalized_follow_url),
                 status_code=int(nested.get("status_code") or 0),
                 title=nested_title,
                 at=iso_now(),
@@ -8056,7 +8217,7 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
         token = normalize_alias_token(first)
         if token:
             aliases.add(token)
-    for url in list(project.get("source_code_urls", [])) + list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", [])):
+    for url in source_code_url_values(project):
         parsed = urllib.parse.urlparse(normalize_url(url))
         segs = [s for s in parsed.path.split("/") if s]
         if segs:
@@ -8068,7 +8229,7 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
 
 def project_repo_owner_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
-    for url in list(project.get("source_code_urls", [])) + list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", [])):
+    for url in source_code_url_values(project):
         parsed = urllib.parse.urlparse(normalize_url(url))
         segs = [s for s in parsed.path.split("/") if s]
         if segs:
@@ -8162,9 +8323,8 @@ def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
     has_service_surface = bool(
         project.get("website_url")
         or project.get("service_urls")
-        or project.get("website_url_candidates")
-        or project.get("service_url_candidates")
-        or project.get("resource_urls")
+        or service_url_candidate_values(project)
+        or resource_url_values(project)
         or project.get("collection_observations")
     )
     if namespace_tokens & identity_tokens and has_service_surface:
@@ -8275,8 +8435,8 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "website_url": project.get("website_url") or "",
         "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
-        "resource_urls": project.get("resource_urls", []),
-        "resource_url_records": project.get("resource_url_records", []),
+        "resource_urls": resource_url_values(project),
+        "resource_url_records": resource_url_record_values(project),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
         "supported_service_urls": project.get("supported_service_urls", []),
@@ -8292,6 +8452,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
         "developer_accounts": project.get("developer_accounts", []),
+        "candidate_developer_accounts": project.get("candidate_developer_accounts", []),
         "summary_candidates": project.get("summary_candidates", []),
         "tagline_candidates": project.get("tagline_candidates", []),
         "evidence_urls": [
@@ -9024,9 +9185,9 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         if parsed.netloc == "github.com":
             normalized = normalize_github_repo_url(url)
             if normalized:
-                if normalized in project.get("source_code_urls", []) or normalized in project.get("github_repo_urls", []):
-                    project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
+                if normalized in source_code_url_values(project):
                     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
+                    sync_source_repo_provider_views(project)
                 else:
                     add_candidate_source_code_url(
                         project,
@@ -9039,9 +9200,9 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         elif parsed.netloc == "tangled.org":
             normalized = normalize_tangled_repo_url(url)
             if normalized:
-                if normalized in project.get("source_code_urls", []) or normalized in project.get("tangled_repo_urls", []):
-                    project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
+                if normalized in source_code_url_values(project):
                     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
+                    sync_source_repo_provider_views(project)
                 else:
                     add_candidate_source_code_url(
                         project,
@@ -9096,9 +9257,7 @@ def evaluate_promotion(project: dict[str, Any]) -> list[str]:
         blockers.append("no seeds registered")
     has_confirmed_identifier = bool(
         project.get("website_url")
-        or project.get("source_code_urls")
-        or project.get("github_repo_urls")
-        or project.get("tangled_repo_urls")
+        or source_code_url_values(project)
         or project.get("resolved_nsids")
     )
     if not has_confirmed_identifier:
@@ -9165,10 +9324,8 @@ def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
 def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
     hints = normalize_repo_collection(
         unique_list(
-            [str(item or "") for item in project.get("source_code_urls", [])]
+            [str(item or "") for item in source_code_url_values(project)]
             + [str(item or "") for item in project.get("candidate_source_code_urls", [])]
-            + [str(item or "") for item in project.get("github_repo_urls", [])]
-            + [str(item or "") for item in project.get("tangled_repo_urls", [])]
         )
     )
     manual_repo_hints: list[str] = []
@@ -9197,8 +9354,7 @@ def project_service_hint_urls(project: dict[str, Any]) -> list[str]:
         if normalize_url(str(item or ""))
     }
     hints = unique_list(
-        [str(item or "") for item in project.get("service_url_candidates", [])]
-        + [str(item or "") for item in project.get("website_url_candidates", [])]
+        [str(item or "") for item in service_url_candidate_values(project)]
     )
     normalized_hints = [
         normalize_url(str(item or ""))
@@ -9276,8 +9432,7 @@ def compute_review_signals(
     service_candidates = unique_list(
         ([str(shaped.get("website_url") or "")] if shaped.get("website_url") else [])
         + [str(item or "") for item in shaped.get("service_urls", [])]
-        + [str(item or "") for item in shaped.get("service_url_candidates", [])]
-        + [str(item or "") for item in shaped.get("website_url_candidates", [])]
+        + [str(item or "") for item in service_url_candidate_values(shaped)]
     )
     repo_candidates = project_repo_hint_urls(shaped)
     standalone_service_candidates = project_service_hint_urls(shaped)
@@ -9522,7 +9677,7 @@ def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> b
         project.get("website_url")
         or project.get("source_code_urls")
         or project_repo_hint_urls(project)
-        or project.get("resource_urls")
+        or resource_url_values(project)
     ):
         return False
     disallowed_blockers = blockers - {
@@ -9678,8 +9833,7 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
         + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
     )
     repo_urls = unique_list(
-        [str(item or "") for item in project.get("source_code_urls", []) if str(item or "").strip()]
-        + [str(item or "") for item in project.get("github_repo_urls", []) if str(item or "").strip()]
+        [str(item or "") for item in source_code_url_values(project) if str(item or "").strip()]
     )
     return {
         "project_key": project.get("project_key", ""),
@@ -10301,8 +10455,8 @@ def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
     if project.get("website_url"):
         services.add(str(project.get("website_url") or ""))
     return {
-        "source_code_urls": set(project.get("source_code_urls", [])),
-        "github_repo_urls": set(project.get("github_repo_urls", [])),
+        "source_code_urls": set(source_code_url_values(project)),
+        "github_repo_urls": set(provider_repo_url_values(project, "github")),
         "candidate_source_code_urls": set(project.get("candidate_source_code_urls", [])),
         "service_urls": services,
         "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),
@@ -10435,7 +10589,7 @@ def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -
         return {}
     reasons: dict[str, list[str]] = {}
     alias_overlap = sorted(project_alias_tokens(project_a) & project_alias_tokens(project_b))
-    source_overlap = sorted(set(project_a.get("source_code_urls", [])) & set(project_b.get("source_code_urls", [])))
+    source_overlap = sorted(set(source_code_url_values(project_a)) & set(source_code_url_values(project_b)))
     if source_overlap:
         valid = [
             value for value in source_overlap
@@ -10444,7 +10598,7 @@ def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -
         if valid and alias_overlap:
             reasons["source_code_urls"] = valid
             reasons["alias_overlap"] = alias_overlap
-    github_overlap = sorted(set(project_a.get("github_repo_urls", [])) & set(project_b.get("github_repo_urls", [])))
+    github_overlap = sorted(set(provider_repo_url_values(project_a, "github")) & set(provider_repo_url_values(project_b, "github")))
     if github_overlap:
         valid = [value for value in github_overlap if is_strict_github_repo_url(value)]
         if valid and alias_overlap:
@@ -10562,7 +10716,7 @@ def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int
         service_surface += 3
     if project.get("source_code_urls"):
         service_surface += 2
-    if project.get("resource_urls"):
+    if resource_url_values(project):
         service_surface += 1
     status_rank = {
         "dead": 0,
@@ -10593,9 +10747,7 @@ def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, tuple[
     confirmed_count = sum(
         1 for value in [
             bool(project.get("website_url")),
-            bool(project.get("source_code_urls")),
-            bool(project.get("github_repo_urls")),
-            bool(project.get("tangled_repo_urls")),
+            bool(source_code_url_values(project)),
             bool(project.get("resolved_nsids")),
         ]
         if value
@@ -10806,13 +10958,12 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["inspired_by"] = unique_list(list(merged.get("inspired_by", [])) + list(source.get("inspired_by", [])))
 
     merged["website_url"] = choose_editorial_scalar(merged.get("website_url"), source.get("website_url"), prefer_incoming=prefer_source_editorial)
-    merged["website_url_candidates"] = unique_list(list(merged.get("website_url_candidates", [])) + list(source.get("website_url_candidates", [])))
+    set_service_url_candidate_values(merged, service_url_candidate_values(merged) + service_url_candidate_values(source))
     merged["service_urls"] = unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
-    merged["resource_urls"] = unique_list(list(merged.get("resource_urls", [])) + list(source.get("resource_urls", [])))
     merged["resource_url_records"] = normalize_resource_url_records(
-        list(merged.get("resource_url_records", [])) + list(source.get("resource_url_records", []))
+        list(resource_url_record_values(merged)) + list(resource_url_record_values(source))
     )
-    merged["service_url_candidates"] = unique_list(list(merged.get("service_url_candidates", [])) + list(source.get("service_url_candidates", [])))
+    merged["resource_urls"] = resource_url_values(merged, include_legacy_view=False)
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
@@ -10824,19 +10975,21 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
         list(merged.get("service_status_evidence", [])) + list(source.get("service_status_evidence", []))
     )
 
-    merged["source_code_urls"] = normalize_repo_collection(list(merged.get("source_code_urls", [])) + list(source.get("source_code_urls", [])))
+    merged["source_code_urls"] = normalize_repo_collection(source_code_url_values(merged) + source_code_url_values(source))
     merged["candidate_source_code_urls"] = normalize_repo_collection(
         list(merged.get("candidate_source_code_urls", [])) + list(source.get("candidate_source_code_urls", []))
     )
     merged["source_repo_records"] = normalize_source_repo_records(
         list(merged.get("source_repo_records", [])) + list(source.get("source_repo_records", []))
     )
-    merged["github_repo_urls"] = normalize_repo_collection(list(merged.get("github_repo_urls", [])) + list(source.get("github_repo_urls", [])), provider="github")
-    merged["tangled_repo_urls"] = normalize_repo_collection(list(merged.get("tangled_repo_urls", [])) + list(source.get("tangled_repo_urls", [])), provider="tangled")
+    sync_source_repo_provider_views(merged)
 
     merged["bluesky_handles"] = unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))
     merged["tangled_handles"] = unique_list(list(merged.get("tangled_handles", [])) + list(source.get("tangled_handles", [])))
     merged["developer_accounts"] = normalize_developer_accounts(list(merged.get("developer_accounts", [])) + list(source.get("developer_accounts", [])))
+    merged["candidate_developer_accounts"] = normalize_developer_accounts(
+        list(merged.get("candidate_developer_accounts", [])) + list(source.get("candidate_developer_accounts", []))
+    )
 
     merged["introduced"] = bool(merged.get("introduced") or source.get("introduced"))
     merged["introduced_url"] = choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url"))
@@ -11002,14 +11155,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         url for url in normalize_repo_collection(unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
         if url not in project.get("source_code_urls", [])
     ]
-    project["github_repo_urls"] = normalize_repo_collection(
-        unique_list(project.get("github_repo_urls", []) + [record["url"] for record in project["source_repo_records"] if record.get("provider") == "github" and record.get("confidence") == "confirmed"]),
-        provider="github",
-    )
-    project["tangled_repo_urls"] = normalize_repo_collection(
-        unique_list(project.get("tangled_repo_urls", []) + [record["url"] for record in project["source_repo_records"] if record.get("provider") == "tangled" and record.get("confidence") == "confirmed"]),
-        provider="tangled",
-    )
+    sync_source_repo_provider_views(project)
     apply_deferred_identifier_guards(project)
     chosen_name = choose_best_project_name(project)
     if chosen_name:
@@ -11019,10 +11165,10 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     if not project.get("name"):
         if project.get("website_url"):
             project["name"] = urllib.parse.urlparse(project["website_url"]).netloc
-        elif project.get("website_url_candidates"):
-            project["name"] = urllib.parse.urlparse(project["website_url_candidates"][0]).netloc
-        elif project.get("github_repo_urls"):
-            slug = extract_github_slug(project["github_repo_urls"][0])
+        elif service_url_candidate_values(project):
+            project["name"] = urllib.parse.urlparse(service_url_candidate_values(project)[0]).netloc
+        elif provider_repo_url_values(project, "github"):
+            slug = extract_github_slug(provider_repo_url_values(project, "github")[0])
             if slug:
                 project["name"] = slug.split("/")[-1]
     return project
@@ -11068,7 +11214,7 @@ def enrich_project(
         except Exception as exc:
             note_failure(project, f"recent record sampling failed: {exc}")
 
-    initial_repo_urls = unique_list(project.get("github_repo_urls", []) + project.get("source_code_urls", []))
+    initial_repo_urls = unique_list(source_code_url_values(project))
     for repo_url in initial_repo_urls:
         if extract_github_slug(repo_url) is None:
             continue
@@ -11092,8 +11238,7 @@ def enrich_project(
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
         + project.get("service_urls", [])
-        + project.get("website_url_candidates", [])
-        + project.get("service_url_candidates", [])
+        + service_url_candidate_values(project)
         + derived_authority_probe_urls(project)
     )
     if initial_service_urls:
@@ -11121,7 +11266,7 @@ def enrich_project(
                         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
                     note_failure(project, f"service probe failed for {service_url}: {exc}")
 
-    secondary_repo_urls = unique_list(project.get("github_repo_urls", []))
+    secondary_repo_urls = unique_list(provider_repo_url_values(project, "github"))
     for repo_url in secondary_repo_urls:
         try:
             enrich_from_github_repo(project, repo_url)
@@ -12832,8 +12977,11 @@ def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
 
 def cmd_repair_db(args: argparse.Namespace) -> int:
     conn = open_db()
-    summary = audit_and_repair_identifiers(conn)
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    try:
+        summary = audit_and_repair_identifiers(conn, execute=bool(args.execute))
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
 
 
@@ -14600,6 +14748,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
+    repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=cmd_repair_db)
 
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
