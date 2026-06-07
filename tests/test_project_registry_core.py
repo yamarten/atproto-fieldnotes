@@ -992,6 +992,9 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
                 "confidence": "confirmed",
             }
         ]
+        project["candidate_developer_accounts"] = [
+            {"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}
+        ]
         registry.apply_lexicon_scope_state(project)
 
         evidence = registry.build_llm_evidence_bundle(project)
@@ -1002,6 +1005,10 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(
             evidence["lexicon_scope_evidence"],
             ["namespace_matches_project_identity", "service_or_collection_surface_detected"],
+        )
+        self.assertEqual(
+            evidence["candidate_developer_accounts"],
+            [{"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}],
         )
 
 
@@ -1052,6 +1059,23 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(
             self.confidence_for({"record_creators_and_namespace_lineage": ["app.example"]}),
             ("high", True),
+        )
+
+
+class ProjectRegistryMergeRecordTest(unittest.TestCase):
+    def test_merge_preserves_candidate_developer_accounts_without_promoting_them(self) -> None:
+        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        target["developer_accounts"] = [{"handle": "alice.example.com", "source": "manual"}]
+        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        source["candidate_developer_accounts"] = [{"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}]
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertIn({"handle": "alice.example.com", "source": "manual"}, merged["developer_accounts"])
+        self.assertNotIn({"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}, merged["developer_accounts"])
+        self.assertIn(
+            {"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"},
+            merged["candidate_developer_accounts"],
         )
 
 

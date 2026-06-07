@@ -339,4 +339,6 @@ UI は `Search` タブ内に次を置きます。
 - 旧 field 互換の名残を整理する
   - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
   - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする
-- `developer_accounts` / `candidate_developer_accounts` の confirmed 条件と UI 露出を整理する
+- `developer_accounts` / `candidate_developer_accounts`
+  - confirmed / candidate の保存・merge 境界は整理済み
+  - 次は Web UI で候補 account をどう確認・昇格するかの操作設計

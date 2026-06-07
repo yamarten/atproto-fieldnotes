@@ -8452,6 +8452,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
         "developer_accounts": project.get("developer_accounts", []),
+        "candidate_developer_accounts": project.get("candidate_developer_accounts", []),
         "summary_candidates": project.get("summary_candidates", []),
         "tagline_candidates": project.get("tagline_candidates", []),
         "evidence_urls": [
@@ -10986,6 +10987,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["bluesky_handles"] = unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))
     merged["tangled_handles"] = unique_list(list(merged.get("tangled_handles", [])) + list(source.get("tangled_handles", [])))
     merged["developer_accounts"] = normalize_developer_accounts(list(merged.get("developer_accounts", [])) + list(source.get("developer_accounts", [])))
+    merged["candidate_developer_accounts"] = normalize_developer_accounts(
+        list(merged.get("candidate_developer_accounts", [])) + list(source.get("candidate_developer_accounts", []))
+    )
 
     merged["introduced"] = bool(merged.get("introduced") or source.get("introduced"))
     merged["introduced_url"] = choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url"))

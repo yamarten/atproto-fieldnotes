@@ -122,6 +122,29 @@ URL field は次の 5 層で扱います。
 
 旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
 
+### Legacy field 直接参照の棚卸し
+
+実装済み:
+
+- `website_url_candidates` は `service_url_candidate_values()` / `set_service_url_candidate_values()` 経由で `service_url_candidates` と同期する
+- `github_repo_urls` / `tangled_repo_urls` は `source_code_url_values()` / `provider_repo_url_values()` / `sync_source_repo_provider_views()` 経由で confirmed source repo view として再構成する
+- `resource_urls` は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` 正本から読む
+- `developer_accounts` は confirmed、`candidate_developer_accounts` は未確認候補として分離する
+  - merge 時も candidate を失わず、confirmed へ自動昇格しない
+
+互換・表示のため残す直接参照:
+
+- `project_json_payload()` / `shape_project_for_api()` / `show` / Web payload の出力互換
+- `audit-url-fields` の raw 保存監査
+- `ensure_project_shape()` / `save_project()` / `finalize_project_shape()` の legacy fold-in と正規化
+- test fixture で legacy 入力を再現する箇所
+
+未接続 / 将来候補:
+
+- 保存 payload から `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` を止める判断
+- API / export 互換から `resource_urls` view を落とせるかの判断
+- `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` の record / ops 境界整理
+
 ## enrich の流れ
 
 `enrich` は次の順で動きます。

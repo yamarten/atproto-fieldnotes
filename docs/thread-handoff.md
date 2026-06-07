@@ -250,6 +250,10 @@
   - `website_url_candidates` は `service_url_candidates` の alias として helper 経由で同期する
   - `github_repo_urls` / `tangled_repo_urls` は `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する
   - 保存 field 自体は互換のためまだ残している
+- `developer_accounts` / `candidate_developer_accounts`
+  - confirmed / candidate の保存境界は分離済み
+  - merge 時も candidate を保持し、confirmed へ自動昇格しない
+  - 候補 account の Web 確認・昇格操作は未接続
 
 ## 既知の前提
 
