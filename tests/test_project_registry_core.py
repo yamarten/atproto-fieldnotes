@@ -834,6 +834,25 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertEqual(registry.deep_investigation_page_urls(project), [])
 
+    def test_apply_resource_page_probe_status_records_page_kind_without_confirming_url(self) -> None:
+        project = registry.default_project_record("proj:deeplogin", "service_url", "https://example.com")
+        project["service_urls"] = []
+
+        registry.apply_resource_page_probe_status(
+            project,
+            "https://example.com/login",
+            {
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["login_surface_detected"],
+            },
+        )
+
+        self.assertEqual(project["service_status"], "live")
+        self.assertEqual(project["service_status_confidence"], "medium")
+        self.assertEqual(project["service_status_evidence"], ["login_surface_detected", "deep_page:login"])
+        self.assertEqual(project["service_urls"], [])
+
     def test_confirmed_resource_record_adds_app_link(self) -> None:
         project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
         registry.add_resource_url(

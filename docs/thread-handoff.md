@@ -118,8 +118,9 @@
     - `--deep-investigation` の優先ページ probe
       - `resource_url_records` を優先
       - service surface から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を補う
+      - `deep_page:*` evidence として page kind を残し、service status / confidence を補助更新する
   - まだ残っているもの:
-    - deep investigation の page 種別ごとの signal をより細かく保存する
+    - deep investigation の page 種別ごとの signal をさらに細かくする
     - browser/computer-use 相当の「実際にログイン導線まで試す」検証レーン
 - `service_status=unverified` は「未確認」であって dead/private の確定ではない
   - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
@@ -146,7 +147,8 @@
   - fixture JSON corpus による回帰テスト
 - `service_status` の深掘り
   - `--deep-investigation` の優先ページ probe は接続済み
-  - 次は page 種別ごとの signal を厚くし、top page だけでは判断できない service を `none/unverified/live` でより安定して分ける
+  - page kind evidence は最低限接続済み
+  - 次は page 本文から実サービス、利用条件、招待制、install / sign-in 導線をより安定して分ける
   - 最終的には browser/computer-use を使った login 導線確認レーンを別コマンド化したい
 - `tagline` / `summary` の再編集
   - 既存 project には collection/lexicon 主体の文面が残っているものがある

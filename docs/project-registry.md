@@ -265,7 +265,7 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。ETA はこの Web job 内で完了/失敗した project の平均処理時間から出す概算です。
 
-deep investigation は `resource_url_records` を優先し、service surface から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を補って追加 probe します。実ブラウザでログイン導線を確認する処理は未接続です。
+deep investigation は `resource_url_records` を優先し、service surface から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を補って追加 probe します。page kind は `deep_page:*` evidence として残し、service status / confidence を補助更新します。実ブラウザでログイン導線を確認する処理は未接続です。
 
 v1 では、`repair-db --execute` と bulk tracking-state execute は実行しません。これらは引き続き CLI で dry-run を確認してから扱います。
 

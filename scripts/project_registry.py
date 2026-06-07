@@ -5029,6 +5029,44 @@ def deep_investigation_page_urls(project: dict[str, Any], *, max_pages: int = 6)
     return unique_list([url for url in urls if url])[:limit]
 
 
+def deep_investigation_page_kind(url: str) -> str:
+    path = urllib.parse.urlparse(normalize_url(url)).path.strip("/").lower()
+    first = path.split("/", 1)[0] if path else ""
+    return {
+        "about": "about",
+        "docs": "docs",
+        "documentation": "docs",
+        "faq": "faq",
+        "app": "app",
+        "login": "login",
+        "signin": "login",
+        "sign-in": "login",
+        "signup": "signup",
+        "sign-up": "signup",
+        "register": "signup",
+    }.get(first, "resource")
+
+
+def apply_resource_page_probe_status(project: dict[str, Any], page_url: str, result: dict[str, Any]) -> None:
+    observed_service_status = normalize_service_status(result.get("service_status"))
+    observed_confidence = normalize_service_status_confidence(result.get("service_status_confidence"))
+    observed_evidence = [str(item).strip() for item in result.get("service_status_evidence", []) if str(item).strip()]
+    page_kind = deep_investigation_page_kind(page_url)
+    if page_kind != "resource":
+        observed_evidence = add_unique(observed_evidence, f"deep_page:{page_kind}")
+    if observed_service_status in {"unknown"} and not observed_evidence:
+        return
+    project["service_status"] = merge_service_status(
+        str(project.get("service_status") or "unknown"),
+        observed_service_status,
+    )
+    project["service_status_confidence"] = merge_service_status_confidence(
+        str(project.get("service_status_confidence") or "none"),
+        observed_confidence,
+    )
+    project["service_status_evidence"] = unique_list(list(project.get("service_status_evidence", [])) + observed_evidence)
+
+
 def sync_resource_url_records(project: dict[str, Any]) -> None:
     project["resource_url_records"] = resource_url_record_values(project)
     project["resource_urls"] = resource_url_values(project, include_legacy_view=False)
@@ -7998,6 +8036,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             continue
         visited.add(normalized_resource_url)
         result = probe_service_url(normalized_resource_url)
+        apply_resource_page_probe_status(project, normalized_resource_url, result)
         title = clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
@@ -8010,6 +8049,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             project,
             "resource_probe",
             url=normalized_resource_url,
+            page_kind=deep_investigation_page_kind(normalized_resource_url),
             status_code=int(result.get("status_code") or 0),
             title=title,
             at=iso_now(),
@@ -8021,6 +8061,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 continue
             visited.add(normalized_follow_url)
             nested = probe_service_url(normalized_follow_url)
+            apply_resource_page_probe_status(project, normalized_follow_url, nested)
             nested_title = clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
@@ -8034,6 +8075,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 project,
                 "resource_follow_up",
                 url=normalized_follow_url,
+                page_kind=deep_investigation_page_kind(normalized_follow_url),
                 status_code=int(nested.get("status_code") or 0),
                 title=nested_title,
                 at=iso_now(),

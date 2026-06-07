@@ -332,6 +332,9 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - `/app`
   - `/login`
   - `/signup`
+- deep page probe は `service_status` / `service_status_confidence` / `service_status_evidence` を補助更新します
+  - URL の path から `deep_page:about`, `deep_page:docs`, `deep_page:login` などを evidence に追加します
+  - この処理は service URL の confirmed 化や merge 判断までは行いません
 
 未接続:
 
@@ -650,7 +653,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - `resource_url_records` を優先
   - `website_url` / `service_urls` / `supported_service_urls` / service candidates から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を組み立てる
 - 次の強化候補:
-  - 優先ページごとの signal をより細かく `service_status_evidence` に残す
+  - 優先ページごとの signal をさらに細かく `service_status_evidence` に残す
   - 実サービスの存在、利用条件、招待制、install / sign-in 導線を区別して記録する
   - browser/computer-use を使った login 画面確認を opt-in で追加する
 
