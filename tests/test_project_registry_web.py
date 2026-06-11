@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
 import threading
@@ -37,6 +38,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         server.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="registry-web-test")
         server.reload_requests = []
         server.shutdown_requests = []
+        server.prune_jobs = types.MethodType(web.ProjectRegistryWebServer.prune_jobs, server)
+        server.store_job = types.MethodType(web.ProjectRegistryWebServer.store_job, server)
         server.append_job_log = types.MethodType(web.ProjectRegistryWebServer.append_job_log, server)
         server.request_process_reload = lambda reason: server.reload_requests.append(reason) or "reload-test-id"
         server.request_process_shutdown = lambda reason: server.shutdown_requests.append(reason) or "shutdown-test-id"
@@ -101,6 +104,83 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["items"][0]["job_id"], "job-list-test")
         self.assertEqual(payload["items"][0]["logs"][0]["message"], "hello")
+        self.assertEqual(payload["retention"]["finished_days"], web.JOB_RETENTION_DAYS)
+        self.assertEqual(payload["retention"]["finished_limit"], web.JOB_RETENTION_LIMIT)
+        self.assertEqual(payload["retention"]["logs_per_job"], web.JOB_LOG_LIMIT)
+
+    def test_jobs_prune_old_finished_jobs_but_keep_active_jobs(self) -> None:
+        now = dt.datetime(2026, 6, 11, tzinfo=dt.timezone.utc)
+        old = (now - dt.timedelta(days=web.JOB_RETENTION_DAYS + 1)).isoformat()
+        recent = (now - dt.timedelta(days=1)).isoformat()
+        with self.server.jobs_lock:
+            self.server.jobs["old-finished"] = {
+                "job_id": "old-finished",
+                "kind": "sync",
+                "status": "done",
+                "created_at": old,
+                "finished_at": old,
+                "logs": [],
+            }
+            self.server.jobs["old-running"] = {
+                "job_id": "old-running",
+                "kind": "enrich_all",
+                "status": "running",
+                "created_at": old,
+                "logs": [],
+            }
+            self.server.jobs["recent-finished"] = {
+                "job_id": "recent-finished",
+                "kind": "review_stalled",
+                "status": "done",
+                "created_at": recent,
+                "finished_at": recent,
+                "logs": [],
+            }
+
+        self.server.prune_jobs(now=now)
+
+        self.assertNotIn("old-finished", self.server.jobs)
+        self.assertIn("old-running", self.server.jobs)
+        self.assertIn("recent-finished", self.server.jobs)
+
+    def test_jobs_prune_finished_jobs_by_count(self) -> None:
+        now = dt.datetime(2026, 6, 11, tzinfo=dt.timezone.utc)
+        with self.server.jobs_lock:
+            for index in range(web.JOB_RETENTION_LIMIT + 5):
+                timestamp = (now - dt.timedelta(minutes=index)).isoformat()
+                job_id = f"finished-{index:03d}"
+                self.server.jobs[job_id] = {
+                    "job_id": job_id,
+                    "kind": "sync",
+                    "status": "done",
+                    "created_at": timestamp,
+                    "finished_at": timestamp,
+                    "logs": [],
+                }
+
+        self.server.prune_jobs(now=now)
+
+        self.assertEqual(len(self.server.jobs), web.JOB_RETENTION_LIMIT)
+        self.assertIn("finished-000", self.server.jobs)
+        self.assertNotIn(f"finished-{web.JOB_RETENTION_LIMIT + 4:03d}", self.server.jobs)
+
+    def test_job_logs_are_capped(self) -> None:
+        self.server.store_job(
+            {
+                "job_id": "log-cap-test",
+                "kind": "sync",
+                "status": "running",
+                "created_at": registry.iso_now(),
+                "logs": [],
+            }
+        )
+
+        for index in range(web.JOB_LOG_LIMIT + 5):
+            self.server.append_job_log("log-cap-test", f"entry {index}")
+
+        logs = self.server.jobs["log-cap-test"]["logs"]
+        self.assertEqual(len(logs), web.JOB_LOG_LIMIT)
+        self.assertEqual(logs[0]["message"], "entry 5")
 
     def test_index_includes_button_hints_and_confirmations(self) -> None:
         self.assertIn("const safeHref", web.INDEX_HTML)
@@ -131,7 +211,13 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("loadJobsScreen", web.INDEX_HTML)
         self.assertIn("loadServerJobs", web.INDEX_HTML)
         self.assertIn("Recent Jobs", web.INDEX_HTML)
-        self.assertIn("Shows recent background jobs kept by this server process", web.INDEX_HTML)
+        self.assertIn("Shows and refreshes recent enrich, enrich-all, sync, and review jobs", web.INDEX_HTML)
+        self.assertIn("jobs-retention", web.INDEX_HTML)
+        self.assertIn("Running jobs are retained.", web.INDEX_HTML)
+        self.assertIn("jobsRefreshTimer", web.INDEX_HTML)
+        self.assertIn("window.setInterval(loadServerJobs, 2000)", web.INDEX_HTML)
+        self.assertIn("jobKindLabel", web.INDEX_HTML)
+        self.assertIn("latestProjectJob", web.INDEX_HTML)
         self.assertIn("sync-${payload.kind}", web.INDEX_HTML)
         self.assertIn("review-${payload.kind}", web.INDEX_HTML)
         self.assertIn("job-list", web.INDEX_HTML)
@@ -810,6 +896,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(captured["lookback_days"], 7)
         self.assertEqual(job_payload["status"], "done")
         self.assertEqual(job_payload["result"]["mode"], "dry_run")
+        list_status, jobs_payload = self.request("GET", "/api/jobs")
+        self.assertEqual(list_status, 200)
+        listed = {item["job_id"]: item for item in jobs_payload["items"]}
+        self.assertEqual(listed[job_id]["kind"], "sync")
+        self.assertEqual(listed[job_id]["sync_kind"], "collections")
 
     def test_sync_payload_can_disable_create_unmatched(self) -> None:
         payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False})

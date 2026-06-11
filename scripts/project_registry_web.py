@@ -26,6 +26,9 @@ DEFAULT_REVIEW_STATES = {"active", "watchlist", "stable", "stalled"}
 DEFAULT_PROMOTION_STATES = {"active", "watchlist"}
 MERGE_BATCH_MODES = {"strict", "moderate", "broad"}
 SYNC_KINDS = {"introduced", "collections", "github-search", "semble-collections"}
+JOB_RETENTION_DAYS = 7
+JOB_RETENTION_LIMIT = 100
+JOB_LOG_LIMIT = 200
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -665,7 +668,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllCheckpointPath: ""
     };
     const defaultSearchFilters = () => ({ trackingStates: [], serviceStatuses: [], contributionLevels: [], technicalInterestLevels: [], statuses: "", categories: "", introduced: "any", hasCandidates: "any", hasErrors: "any", promotionHold: "any", reviewKinds: "", seenSince: "", enrichedBefore: "", sort: "" });
-    const state = { tab: "review", selected: null, detailView: "project", reviewReturn: false, projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, activeMergeDetailIndex: null, jobs: new Map(), seedPreview: null, listCache: new Map(), listRequestSeq: 0, detailRequestSeq: 0, mergeDetailRequestSeq: 0, inflightMutations: new Set(), searchFilters: defaultSearchFilters(), settings: loadSettings() };
+    const state = { tab: "review", selected: null, detailView: "project", reviewReturn: false, projectItems: [], projectNavigation: false, mergeItems: [], mergeReturnIndex: null, activeMergeDetailIndex: null, jobs: new Map(), jobsRequestSeq: 0, jobsRefreshTimer: null, seedPreview: null, listCache: new Map(), listRequestSeq: 0, detailRequestSeq: 0, mergeDetailRequestSeq: 0, inflightMutations: new Set(), searchFilters: defaultSearchFilters(), settings: loadSettings() };
     const reasoningEffortPresets = ["", "none", "minimal", "low", "medium", "high", "on", "off"];
     const $ = (id) => document.getElementById(id);
     const status = (text) => { $("status").textContent = text || ""; };
@@ -708,6 +711,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function setTab(tab) {
+      stopJobsRefresh();
       state.tab = tab;
       document.body.dataset.tab = tab;
       document.body.classList.toggle("single-pane", tab === "jobs");
@@ -1366,24 +1370,50 @@ INDEX_HTML = r"""<!doctype html>
       closeDetailPane(true);
       $("list").innerHTML = `
         <div class="card">
-        <div><h2>Jobs</h2><div class="muted">Shows recent background jobs kept by this server process. Server restart clears this view.</div></div>
+        <div><h2>Jobs</h2><div class="muted">Shows and refreshes recent enrich, enrich-all, sync, and review jobs kept by this server process. Server restart clears this view.</div><div id="jobs-retention" class="muted">Loading retention policy...</div></div>
         <div class="section"><h3>Recent Jobs</h3><div id="jobs-summary">${renderJobsSummaryHtml()}</div></div>
         </div>
       `;
       wireJobSummaryActions();
       status("");
       await loadServerJobs();
+      if (state.tab === "jobs") {
+        state.jobsRefreshTimer = window.setInterval(loadServerJobs, 2000);
+      }
+    }
+
+    function stopJobsRefresh() {
+      if (state.jobsRefreshTimer !== null) {
+        window.clearInterval(state.jobsRefreshTimer);
+        state.jobsRefreshTimer = null;
+      }
     }
 
     async function loadServerJobs() {
+      const requestId = ++state.jobsRequestSeq;
       try {
         const data = await api("/api/jobs");
+        if (requestId !== state.jobsRequestSeq) return;
+        const retention = data.retention || {};
+        const retentionTarget = $("jobs-retention");
+        if (retentionTarget) {
+          retentionTarget.textContent = `Finished jobs: ${retention.finished_days || "?"} days / ${retention.finished_limit || "?"} newest. Logs: ${retention.logs_per_job || "?"} entries per job. Running jobs are retained.`;
+        }
+        const serverJobKeys = new Set();
         for (const job of asList(data.items)) {
-          if (job.job_id) state.jobs.set(`job:${job.job_id}`, job);
+          if (!job.job_id) continue;
+          const key = `job:${job.job_id}`;
+          serverJobKeys.add(key);
+          state.jobs.set(key, job);
+        }
+        for (const key of Array.from(state.jobs.keys())) {
+          if (String(key).startsWith("job:") && !serverJobKeys.has(key)) state.jobs.delete(key);
         }
         const summary = $("jobs-summary");
         if (summary) {
-          summary.innerHTML = renderJobsSummaryHtml();
+          const openJobIds = new Set(Array.from(summary.querySelectorAll("details.job-item[open]")).map((el) => el.dataset.jobId));
+          const openRawJobIds = new Set(Array.from(summary.querySelectorAll("details.job-raw[open]")).map((el) => el.dataset.jobId));
+          summary.innerHTML = renderJobsSummaryHtml(openJobIds, openRawJobIds);
           wireJobSummaryActions();
         }
       } catch (err) {
@@ -2023,7 +2053,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section"><h3>Identity</h3><div>${esc(p.seed_type || "")}: ${esc(p.seed_value || "")}</div>${renderEditableIdentifierRows(asList(p.input_nsids).concat(asList(p.resolved_nsids)), "nsid")}</div>
           <div class="section"><h3>Website / Service</h3>${renderEditableIdentifierRows([p.website_url].filter(Boolean).concat(asList(p.service_urls)), "service_url")}<div class="identifier-list">${renderCandidateRows(data.service_candidates, "service_url")}</div></div>
           <div class="section"><h3>Repositories</h3>${renderEditableIdentifierRows(asList(p.source_code_urls).concat(asList(p.github_repo_urls)).concat(asList(p.tangled_repo_urls)), "repo_url")}<div class="identifier-list">${renderCandidateRows(data.repo_candidates, "repo_url")}</div></div>
-          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(state.jobs.get(p.project_key)))}</pre></div>
+          <div class="section"><h3>Enrich Job</h3><pre id="enrich-job-status">${esc(enrichJobText(latestProjectJob(p.project_key)))}</pre></div>
           ${isReviewView ? "" : `<div class="section"><h3>Add Seed</h3><div class="row"><input id="seed-value" type="text" placeholder="NSID, repo URL, service URL" title="Seed to attach to this existing project."><button id="add-seed" title="Attach this seed to the current project and write it to SQLite.">Add</button></div></div>
           <div class="section"><h3>Project Edits</h3>
             <div class="row">
@@ -2305,8 +2335,22 @@ INDEX_HTML = r"""<!doctype html>
       return job ? JSON.stringify(job, null, 2) : "No enrich job running.";
     }
 
+    function latestProjectJob(projectKey) {
+      return Array.from(state.jobs.values())
+        .filter((job) => job.project_key === projectKey)
+        .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0];
+    }
+
+    function jobKindLabel(job) {
+      if (job.kind === "sync" && job.sync_kind) return `sync-${job.sync_kind}`;
+      return String(job.kind || "enrich").replaceAll("_", "-");
+    }
+
     function renderJobsSummaryHtml(openJobIds = new Set(), openRawJobIds = new Set()) {
-      const jobs = Array.from(state.jobs.values()).reverse().slice(0, 12);
+      const jobs = Array.from(state.jobs.values())
+        .filter((job) => job.job_id)
+        .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
+        .slice(0, 50);
       if (!jobs.length) return `<span class="muted">No jobs yet.</span>`;
       return `<div class="job-list">` + jobs.map((job) => {
         const jobId = job.job_id || "";
@@ -2319,7 +2363,7 @@ INDEX_HTML = r"""<!doctype html>
           <details class="job-item" data-job-id="${esc(jobId)}" ${openJobIds.has(jobId) ? "open" : ""}>
             <summary class="job-summary">
               <span class="pill">${esc(job.status || "queued")}</span>
-              <span class="pill">${esc(job.kind || "enrich")}</span>
+              <span class="pill">${esc(jobKindLabel(job))}</span>
               ${job.project_key ? `<span class="identifier-value">${esc(job.project_key)}</span>` : ""}
               ${jobId ? `<span class="muted">${esc(jobId)}</span>` : ""}
             </summary>
@@ -2367,9 +2411,11 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function updateJobStatus(key, job) {
-      state.jobs.set(key, job);
+      const normalizedKey = job.job_id ? `job:${job.job_id}` : key;
+      if (normalizedKey !== key) state.jobs.delete(key);
+      state.jobs.set(normalizedKey, job);
       const target = $("enrich-job-status");
-      if (state.selected === key && target) target.textContent = enrichJobText(job);
+      if (state.selected === job.project_key && target) target.textContent = enrichJobText(job);
       const summary = $("jobs-summary");
       if (summary) {
         const openJobIds = new Set(Array.from(summary.querySelectorAll("details.job-item[open]")).map((el) => el.dataset.jobId));
@@ -3601,6 +3647,31 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         self.jobs_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="registry-web")
 
+    def prune_jobs(self, *, now: dt.datetime | None = None) -> None:
+        now = now or dt.datetime.now(dt.timezone.utc)
+        cutoff = now - dt.timedelta(days=JOB_RETENTION_DAYS)
+        with self.jobs_lock:
+            finished: list[tuple[str, dt.datetime]] = []
+            for job_id, job in self.jobs.items():
+                if str(job.get("status") or "") in {"queued", "running"}:
+                    continue
+                timestamp = registry.parse_iso(str(job.get("finished_at") or job.get("created_at") or ""))
+                finished.append((job_id, timestamp or dt.datetime.fromtimestamp(0, tz=dt.timezone.utc)))
+            retained = [(job_id, timestamp) for job_id, timestamp in finished if timestamp >= cutoff]
+            retained.sort(key=lambda item: item[1], reverse=True)
+            retained_ids = {job_id for job_id, _timestamp in retained[:JOB_RETENTION_LIMIT]}
+            for job_id, _timestamp in finished:
+                if job_id not in retained_ids:
+                    self.jobs.pop(job_id, None)
+
+    def store_job(self, job: dict[str, Any]) -> None:
+        job_id = str(job.get("job_id") or "")
+        if not job_id:
+            raise ValueError("job_id is required")
+        self.prune_jobs()
+        with self.jobs_lock:
+            self.jobs[job_id] = job
+
     def request_process_reload(self, reason: str) -> str:
         reload_id = uuid.uuid4().hex
 
@@ -3631,7 +3702,7 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
                 return
             logs = list(job.get("logs") or [])
             logs.append(entry)
-            job["logs"] = logs[-200:]
+            job["logs"] = logs[-JOB_LOG_LIMIT:]
 
     def start_enrich_job(self, project_key: str, *, deep_investigation: bool, llm_options: dict[str, str | None] | None = None) -> str:
         job_id = uuid.uuid4().hex
@@ -3646,18 +3717,17 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
             "payload_api_style": llm_options.get("llm_api_style") or "",
             "payload_reasoning_effort": llm_options.get("llm_reasoning_effort") or "",
         }
-        with self.jobs_lock:
-            self.jobs[job_id] = {
-                "job_id": job_id,
-                "status": "queued",
-                "kind": "enrich",
-                "project_key": project_key,
-                "deep_investigation": deep_investigation,
-                "llm_options": {key: ("***" if key == "llm_api_key" and value else value) for key, value in llm_options.items()},
-                "effective_llm": effective_llm,
-                "created_at": registry.iso_now(),
-                "logs": [],
-            }
+        self.store_job({
+            "job_id": job_id,
+            "status": "queued",
+            "kind": "enrich",
+            "project_key": project_key,
+            "deep_investigation": deep_investigation,
+            "llm_options": {key: ("***" if key == "llm_api_key" and value else value) for key, value in llm_options.items()},
+            "effective_llm": effective_llm,
+            "created_at": registry.iso_now(),
+            "logs": [],
+        })
         self.append_job_log(job_id, "queued enrich job", project_key=project_key, deep_investigation=deep_investigation, **effective_llm)
         self.executor.submit(self._run_enrich_job, job_id, project_key, deep_investigation, llm_options)
         return job_id
@@ -3723,15 +3793,14 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
             key: ("***" if key == "llm_api_key" and value else value)
             for key, value in enrich_payload.items()
         }
-        with self.jobs_lock:
-            self.jobs[job_id] = {
-                "job_id": job_id,
-                "status": "queued",
-                "kind": "enrich_all",
-                "payload": public_payload,
-                "created_at": registry.iso_now(),
-                "logs": [],
-            }
+        self.store_job({
+            "job_id": job_id,
+            "status": "queued",
+            "kind": "enrich_all",
+            "payload": public_payload,
+            "created_at": registry.iso_now(),
+            "logs": [],
+        })
         log_limit = enrich_payload.get("limit")
         self.append_job_log(
             job_id,
@@ -3966,17 +4035,16 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
     def start_sync_job(self, payload: dict[str, Any]) -> str:
         sync_payload = sync_payload_from_request(payload)
         job_id = uuid.uuid4().hex
-        with self.jobs_lock:
-            self.jobs[job_id] = {
-                "job_id": job_id,
-                "status": "queued",
-                "kind": "sync",
-                "sync_kind": sync_payload["kind"],
-                "execute": bool(sync_payload.get("execute")),
-                "payload": sync_payload,
-                "created_at": registry.iso_now(),
-                "logs": [],
-            }
+        self.store_job({
+            "job_id": job_id,
+            "status": "queued",
+            "kind": "sync",
+            "sync_kind": sync_payload["kind"],
+            "execute": bool(sync_payload.get("execute")),
+            "payload": sync_payload,
+            "created_at": registry.iso_now(),
+            "logs": [],
+        })
         self.append_job_log(job_id, "queued sync job", sync_kind=sync_payload["kind"], execute=bool(sync_payload.get("execute")))
         self.executor.submit(self._run_sync_job, job_id, sync_payload)
         return job_id
@@ -4021,16 +4089,15 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
         else:
             raise ValueError("review_kind must be stalled or ignore")
         job_id = uuid.uuid4().hex
-        with self.jobs_lock:
-            self.jobs[job_id] = {
-                "job_id": job_id,
-                "status": "queued",
-                "kind": f"review_{review_kind}",
-                "execute": bool(review_payload.get("execute")),
-                "payload": review_payload,
-                "created_at": registry.iso_now(),
-                "logs": [],
-            }
+        self.store_job({
+            "job_id": job_id,
+            "status": "queued",
+            "kind": f"review_{review_kind}",
+            "execute": bool(review_payload.get("execute")),
+            "payload": review_payload,
+            "created_at": registry.iso_now(),
+            "logs": [],
+        })
         self.append_job_log(job_id, f"queued review-{review_kind} job", execute=bool(review_payload.get("execute")))
         self.executor.submit(self._run_review_job, job_id, review_kind, review_payload)
         return job_id
@@ -4209,10 +4276,21 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
                 conn.close()
             return
         if path == "/api/jobs":
+            self.server.prune_jobs()
             with self.server.jobs_lock:
                 jobs = [dict(job) for job in self.server.jobs.values()]
             jobs.sort(key=lambda job: str(job.get("created_at") or ""), reverse=True)
-            self.send_json({"items": jobs[:50], "count": len(jobs)})
+            self.send_json(
+                {
+                    "items": jobs,
+                    "count": len(jobs),
+                    "retention": {
+                        "finished_days": JOB_RETENTION_DAYS,
+                        "finished_limit": JOB_RETENTION_LIMIT,
+                        "logs_per_job": JOB_LOG_LIMIT,
+                    },
+                }
+            )
             return
         if path.startswith("/api/projects/"):
             project_key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")

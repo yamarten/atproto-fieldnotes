@@ -238,7 +238,7 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは server process 内の in-memory job に紐づく表示で、同じサーバーに接続する別 browser / browser restart 後の tab からも `Jobs` で確認できます。サーバ再起動後の履歴永続化は未接続です。
 
-`Jobs` タブでは、server process が保持している background job の直近ログと raw JSON を確認できます。実行中 job は polling で更新されますが、展開中の job 詳細と `Raw JSON` は開いた状態を保持します。
+`Jobs` タブでは、server process が保持している単体 enrich / enrich-all / sync / review background job の直近ログと raw JSON を確認できます。タブ表示中はサーバー一覧を2秒ごとに取得するため、別 browser で開始した job も表示・更新されます。展開中の job 詳細と `Raw JSON` は更新後も開いた状態を保持します。完了済み job は7日間かつ新しい100件まで、各 job の `logs` は新しい200件まで保持し、実行中 job は retention 対象外です。これは process 内保持であり、サーバー再起動後の履歴永続化は未接続です。
 
 Web UI は同一 browser session 内で、同じ mutation の二重送信を抑止します。また、project detail / merge detail の読み込みや mutation 完了が遅れて返ってきた場合、開始時と同じ detail を見ている時だけ再描画します。これにより、Merge 実行後に別 detail へ移動した時の古い結果表示による上書きを避けます。これは browser 側の表示制御で、サーバー側の複数 client 間排他ではありません。
 

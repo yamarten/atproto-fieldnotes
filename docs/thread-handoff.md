@@ -167,6 +167,14 @@
   - Web UI では run id / checkpoint path / resume run id を指定できる
   - Web UI の停止は project 境界での cooperative stop として実装済み
   - サーバー再起動後に checkpoint 一覧から選ぶ導線は未接続
+- Web UI background jobs
+  - 実装済み:
+    - Jobs タブは単体 enrich / enrich-all / sync / review job を同じ server-side 一覧から2秒ごとに取得する
+    - 別 browser から開始した job も同じサーバープロセスへ接続していれば表示する
+    - 完了済み job は7日間かつ新しい100件まで、各 job のログは新しい200件まで保持する
+    - queued / running job は retention で削除しない
+  - 未接続:
+    - サーバー再起動後の job / log 永続化
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
