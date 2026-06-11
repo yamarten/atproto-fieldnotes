@@ -228,12 +228,15 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
 - `service_probe_supports_project()` が真になる主な条件:
+  - lexicon record解決済みのauthority domainと、正常応答したservice hostが完全一致する
   - page text に project の NSID が直接出る
   - authority domain と atproto 系 marker が同時に出る
   - alias token と atproto 系 marker が同時に出る
   - project に許された GitHub/Tangled repo へのリンクがある
   - project に一致する Bluesky handle へのリンクがある
   - manual service seed の host そのもの
+- `authority_domains` へ推測値が入っているだけでは上の完全一致条件を使いません。`lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃う場合だけ検証済みauthorityとして扱います
+- 検証済みauthorityの完全一致hostが正常応答し、titleまたはdescriptionを持つ場合、汎用classifierが `unverified` でも `verified_authority_service_surface` evidence付きの `live` として扱います。`none` / `unreleased` / `beta` などの明示分類は上書きしません
 - `service_status` の決め方:
   - parked domain, `404/410` は `dead`
   - `401/403` は `private`

@@ -686,6 +686,53 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://tz2at.xyz", project["supported_service_urls"])
         self.assertIn("https://tz2at.xyz", retained_urls)
 
+    def test_verified_exact_authority_supports_spa_without_atproto_text(self) -> None:
+        project = registry.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
+        project["primary_nsid"] = "app.userinput.vote"
+        project["input_nsids"] = ["app.userinput.vote"]
+        project["resolved_nsids"] = ["app.userinput.vote"]
+        project["authority_domains"] = ["userinput.app"]
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "app.userinput.vote",
+                "resolved_nsid": "app.userinput.vote",
+                "authority_domain": "userinput.app",
+                "record_uri": "at://did:plc:example/com.atproto.lexicon.schema/app.userinput.vote",
+            }
+        ]
+        result = self.probe_result(
+            '<title>userinput.app</title><meta name="description" content="Collect feedback and vote on ideas">'
+        )
+        result["title"] = "userinput.app"
+        result["description"] = "Collect feedback and vote on ideas"
+        result["service_status"] = "unverified"
+        result["service_status_confidence"] = "low"
+        result["service_status_evidence"] = ["http_200"]
+
+        registry.apply_service_probe_result(project, "https://userinput.app", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "https://userinput.app")
+        self.assertIn("https://userinput.app", project["supported_service_urls"])
+        self.assertEqual(project["service_status"], "live")
+        self.assertIn("verified_authority_service_surface", project["service_status_evidence"])
+
+    def test_unverified_exact_authority_still_requires_page_evidence(self) -> None:
+        project = registry.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
+        project["primary_nsid"] = "app.userinput.vote"
+        project["input_nsids"] = ["app.userinput.vote"]
+        project["authority_domains"] = ["userinput.app"]
+        project["service_url_candidates"] = ["https://userinput.app"]
+        result = self.probe_result("<title>userinput.app</title>")
+        result["title"] = "userinput.app"
+
+        registry.apply_service_probe_result(project, "https://userinput.app", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "")
+        self.assertNotIn("https://userinput.app", project["supported_service_urls"])
+        self.assertNotIn("https://userinput.app", project["service_url_candidates"])
+
     def test_unsupported_authority_root_is_still_pruned(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["primary_nsid"] = "xyz.tz2at.raw.observation"

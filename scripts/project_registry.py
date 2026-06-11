@@ -7093,10 +7093,24 @@ def service_probe_looks_parked(result: dict[str, Any]) -> bool:
     return any(marker in text for marker in PARKED_DOMAIN_MARKERS)
 
 
+def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("authority_domain") or "").strip().lower().rstrip(".")
+        for item in project.get("lexicon_resolution_entries", [])
+        if isinstance(item, dict)
+        and str(item.get("record_uri") or "").strip()
+        and str(item.get("resolved_nsid") or "").strip()
+        and str(item.get("authority_domain") or "").strip()
+    }
+
+
 def service_probe_supports_project(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
     host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
     if not host or service_probe_looks_parked(result):
         return False
+    status_code = int(result.get("status_code") or 0)
+    if 0 < status_code < 400 and host in verified_lexicon_authority_domains(project):
+        return True
     text = "\n".join(
         [
             str(result.get("title") or ""),
@@ -7152,6 +7166,16 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
     if host in manual_service_hosts(project):
         return True
     return False
+
+
+def verified_authority_live_surface(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
+    host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
+    status_code = int(result.get("status_code") or 0)
+    if not host or not (0 < status_code < 400):
+        return False
+    if host not in verified_lexicon_authority_domains(project):
+        return False
+    return bool(str(result.get("title") or "").strip() or str(result.get("description") or "").strip())
 
 
 def service_probe_supported_redirect_final_url(project: dict[str, Any], requested_url: str, result: dict[str, Any]) -> str:
@@ -7969,7 +7993,15 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         add_candidate_text(project, "summary", description, f"service_meta:{normalize_url(service_url)}")
         add_candidate_text(project, "tagline", description, f"service_meta:{normalize_url(service_url)}")
         observed_service_status = normalize_service_status(result.get("service_status"))
+        observed_service_confidence = str(result.get("service_status_confidence") or "none")
         observed_service_evidence = list(result.get("service_status_evidence", []))
+        if observed_service_status == "unverified" and verified_authority_live_surface(project, service_url, result):
+            observed_service_status = "live"
+            observed_service_evidence = add_unique(observed_service_evidence, "verified_authority_service_surface")
+            observed_service_confidence = merge_service_status_confidence(
+                observed_service_confidence,
+                "medium",
+            )
         if observed_service_status == "unverified" and "mixed_launch_signals_detected" in observed_service_evidence:
             project["service_status"] = "unverified"
         else:
@@ -7979,10 +8011,10 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
             )
         project["service_status_confidence"] = merge_service_status_confidence(
             str(project.get("service_status_confidence") or "none"),
-            str(result.get("service_status_confidence") or "none"),
+            observed_service_confidence,
         )
         project["service_status_evidence"] = unique_list(
-            list(project.get("service_status_evidence", [])) + list(result.get("service_status_evidence", []))
+            list(project.get("service_status_evidence", [])) + observed_service_evidence
         )
     normalized_service_url = normalize_url(service_url)
     canonical_service_url = service_probe_canonical_url(normalized_service_url, result)
