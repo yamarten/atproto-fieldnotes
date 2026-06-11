@@ -172,8 +172,10 @@
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
 - hosted suffix 追加後の split 監査
   - `audit-source-config [domain]` は実装済み
+  - suffix の正本は `config/domain-overrides.json`。discovery 設定の `config/sources.json` から分離済み
   - suffix 追記、tenant 混在の `split_suggestions`、仮分割後の merge candidate 表示まで接続済み
   - interactive で tenant group を選ぶと service URL / NSID を原子的に切り出す
+  - split 後に元 project がまだ複数 tenant を含む場合は、再計算して同 project を続けて表示する
   - 共有 repo / lexicon や URL 移転の例外があるため確認必須。non-interactive の自動 split は入れない
 - 旧 discovery フローから取り込み済みでないアイディア
   - 手動候補を一旦積む inbox 的な導線

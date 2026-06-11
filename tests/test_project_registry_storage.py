@@ -87,23 +87,29 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertEqual(args.kinds, ["technical_insight_candidate"])
 
-    def test_add_configured_multi_tenant_suffix_updates_json_and_cache(self) -> None:
+    def test_add_configured_multi_tenant_suffix_updates_domain_overrides_and_cache(self) -> None:
         original_config_path = registry.CONFIG_PATH
+        original_domain_overrides_path = registry.DOMAIN_OVERRIDES_PATH
         original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
         try:
-            config_path = Path(self.tempdir.name) / "sources.json"
-            config_path.write_text('{"custom_multi_tenant_suffixes": ["existing.example"]}\n')
-            registry.CONFIG_PATH = config_path
+            sources_path = Path(self.tempdir.name) / "sources.json"
+            sources_path.write_text('{"collection_inventory": {}}\n')
+            domain_overrides_path = Path(self.tempdir.name) / "domain-overrides.json"
+            domain_overrides_path.write_text('{"custom_multi_tenant_suffixes": ["existing.example"]}\n')
+            registry.CONFIG_PATH = sources_path
+            registry.DOMAIN_OVERRIDES_PATH = domain_overrides_path
             registry.reset_domain_config_cache()
 
             self.assertTrue(registry.add_configured_multi_tenant_suffix("Example.COM."))
             self.assertFalse(registry.add_configured_multi_tenant_suffix("example.com"))
 
-            config = json.loads(config_path.read_text())
+            config = json.loads(domain_overrides_path.read_text())
             self.assertEqual(config["custom_multi_tenant_suffixes"], ["existing.example", "example.com"])
             self.assertIn("example.com", registry.configured_multi_tenant_suffixes())
+            self.assertEqual(json.loads(sources_path.read_text()), {"collection_inventory": {}})
         finally:
             registry.CONFIG_PATH = original_config_path
+            registry.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
             registry._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
             registry.reset_domain_extractors()
 
@@ -162,6 +168,42 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             blocked = {(item["type"], item["value"]) for item in source["blocked_identifiers"]}
             self.assertIn(("service_url", "https://bar.example.com"), blocked)
             self.assertIn(("nsid", "com.example.bar.post"), blocked)
+        finally:
+            conn.close()
+
+    def test_interactive_source_config_audit_rechecks_project_after_each_split(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:threetenants", "service_url", "https://foo.example.com")
+            for url in (
+                "https://foo.example.com",
+                "https://bar.example.com",
+                "https://baz.example.com",
+            ):
+                registry.add_manual_seed(project, "service_url", url, source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            initial_suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
+            with (
+                mock.patch("builtins.input", side_effect=["1", "1"]),
+                mock.patch("sys.stdout", new=io.StringIO()),
+            ):
+                result = registry.review_source_config_split_suggestions(
+                    conn,
+                    ["example.com"],
+                    initial_suggestions=initial_suggestions,
+                )
+
+            source = registry.fetch_project(conn, "proj:threetenants")
+            remaining_groups = registry.project_split_identifiers_by_tenant(source, "example.com")
+            self.assertEqual(result["split_count"], 2)
+            self.assertEqual(
+                [item["tenant"] for item in result["split_results"]],
+                ["bar.example.com", "baz.example.com"],
+            )
+            self.assertEqual(set(remaining_groups), {"foo.example.com"})
+            self.assertEqual(result["remaining_suggestion_count"], 0)
         finally:
             conn.close()
 

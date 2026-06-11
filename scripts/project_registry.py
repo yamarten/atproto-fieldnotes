@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - optional dependency
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
+DOMAIN_OVERRIDES_PATH = ROOT / "config" / "domain-overrides.json"
 ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
@@ -90,6 +91,12 @@ def load_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text())
 
 
+def load_domain_overrides() -> dict[str, Any]:
+    if not DOMAIN_OVERRIDES_PATH.exists():
+        return {}
+    return json.loads(DOMAIN_OVERRIDES_PATH.read_text())
+
+
 def builtin_lexicon_prefixes() -> tuple[str, ...]:
     try:
         config = load_config()
@@ -108,7 +115,7 @@ def configured_multi_tenant_suffixes() -> set[str]:
         return _CONFIGURED_MULTI_TENANT_SUFFIXES
     configured: set[str] = set()
     try:
-        config = load_config()
+        config = load_domain_overrides()
     except Exception:
         config = {}
     values = config.get("custom_multi_tenant_suffixes", [])
@@ -143,7 +150,7 @@ def normalize_multi_tenant_suffix(value: str) -> str:
 
 def add_configured_multi_tenant_suffix(suffix: str) -> bool:
     normalized = normalize_multi_tenant_suffix(suffix)
-    config = load_config()
+    config = load_domain_overrides()
     values = config.get("custom_multi_tenant_suffixes", [])
     if not isinstance(values, list):
         raise ValueError("custom_multi_tenant_suffixes must be a JSON array")
@@ -151,7 +158,8 @@ def add_configured_multi_tenant_suffix(suffix: str) -> bool:
     if normalized in existing:
         return False
     config["custom_multi_tenant_suffixes"] = existing + [normalized]
-    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    DOMAIN_OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DOMAIN_OVERRIDES_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     reset_domain_config_cache()
     return True
 
@@ -13425,6 +13433,92 @@ def build_source_config_split_suggestions(conn: sqlite3.Connection, suffixes: li
     return suggestions
 
 
+def source_config_suggestion_key(suggestion: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(suggestion.get("source_project_key") or ""),
+        str(suggestion.get("trigger") or ""),
+    )
+
+
+def review_source_config_split_suggestions(
+    conn: sqlite3.Connection,
+    suffixes: list[str],
+    *,
+    initial_suggestions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    suggestions = (
+        initial_suggestions
+        if initial_suggestions is not None
+        else build_source_config_split_suggestions(conn, suffixes=suffixes)
+    )
+    skipped: set[tuple[str, str]] = set()
+    preferred_key: tuple[str, str] | None = None
+    split_results: list[dict[str, Any]] = []
+    quit_requested = False
+
+    while True:
+        available = [
+            suggestion
+            for suggestion in suggestions
+            if source_config_suggestion_key(suggestion) not in skipped
+        ]
+        if preferred_key is not None:
+            available.sort(key=lambda suggestion: source_config_suggestion_key(suggestion) != preferred_key)
+        if not available:
+            break
+
+        suggestion = available[0]
+        suggestion_key = source_config_suggestion_key(suggestion)
+        print(json.dumps(
+            {"remaining": len(available), **suggestion},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ))
+        answer = input("split which tenant group? [number]/[Enter]next/[q]uit: ").strip().lower()
+        if answer in {"q", "quit"}:
+            quit_requested = True
+            break
+        if not answer:
+            skipped.add(suggestion_key)
+            preferred_key = None
+            continue
+        try:
+            selected_index = int(answer)
+        except ValueError:
+            print(json.dumps({"warning": "invalid_tenant_group_selection", "answer": answer}, ensure_ascii=False))
+            continue
+        tenant_groups = suggestion.get("tenant_groups", [])
+        if selected_index < 1 or selected_index > len(tenant_groups):
+            print(json.dumps({"warning": "tenant_group_selection_out_of_range", "answer": answer}, ensure_ascii=False))
+            continue
+        selected = tenant_groups[selected_index - 1]
+        result = split_project_tenant_group(
+            conn,
+            str(suggestion.get("source_project_key") or ""),
+            str(selected.get("tenant") or ""),
+            dict(selected.get("identifiers") or {}),
+        )
+        split_results.append(result)
+        print(json.dumps({"split_applied": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
+
+        preferred_key = suggestion_key
+        suggestions = build_source_config_split_suggestions(conn, suffixes=suffixes)
+
+    remaining = [
+        suggestion
+        for suggestion in suggestions
+        if source_config_suggestion_key(suggestion) not in skipped
+    ]
+    return {
+        "split_count": len(split_results),
+        "split_results": split_results,
+        "skipped_count": len(skipped),
+        "remaining_suggestion_count": len(remaining),
+        "quit_requested": quit_requested,
+    }
+
+
 def cmd_audit_source_config(args: argparse.Namespace) -> int:
     interactive = bool(args.interactive)
     if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
@@ -13435,7 +13529,7 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
     if requested_suffix and requested_suffix not in configured_multi_tenant_suffixes():
         should_add = bool(args.execute)
         if interactive and not should_add:
-            should_add = prompt_for_confirmation(f"Add {requested_suffix} to config/sources.json? [y/N]")
+            should_add = prompt_for_confirmation(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]")
         if should_add:
             added_suffix = add_configured_multi_tenant_suffix(requested_suffix)
 
@@ -13454,31 +13548,15 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
 
-    for index, suggestion in enumerate(suggestions, start=1):
-        print(json.dumps({"index": index, "total": len(suggestions), **suggestion}, ensure_ascii=False, indent=2, sort_keys=True))
-        answer = input("split which tenant group? [number]/[Enter]next/[q]uit: ").strip().lower()
-        if answer in {"q", "quit"}:
-            break
-        if not answer:
-            continue
-        try:
-            selected_index = int(answer)
-        except ValueError:
-            print(json.dumps({"warning": "invalid_tenant_group_selection", "answer": answer}, ensure_ascii=False))
-            continue
-        tenant_groups = suggestion.get("tenant_groups", [])
-        if selected_index < 1 or selected_index > len(tenant_groups):
-            print(json.dumps({"warning": "tenant_group_selection_out_of_range", "answer": answer}, ensure_ascii=False))
-            continue
-        selected = tenant_groups[selected_index - 1]
-        result = split_project_tenant_group(
-            conn,
-            str(suggestion.get("source_project_key") or ""),
-            str(selected.get("tenant") or ""),
-            dict(selected.get("identifiers") or {}),
-        )
-        print(json.dumps({"split_applied": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
-    print(json.dumps({key: value for key, value in payload.items() if key != "split_suggestions"}, ensure_ascii=False, indent=2, sort_keys=True))
+    review_result = review_source_config_split_suggestions(
+        conn,
+        suffixes,
+        initial_suggestions=suggestions,
+    )
+    print(json.dumps({
+        **{key: value for key, value in payload.items() if key != "split_suggestions"},
+        **review_result,
+    }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
@@ -14824,7 +14902,7 @@ def build_parser() -> argparse.ArgumentParser:
     defer_promotion_parser.set_defaults(func=cmd_defer_promotion)
 
     audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
-    audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/sources.json before auditing it.")
+    audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/domain-overrides.json before auditing it.")
     audit_source_parser.add_argument("--interactive", action=argparse.BooleanOptionalAction, default=True, help="Review split suggestions interactively. Default: enabled; use --no-interactive for JSON dry-run output.")
     audit_source_parser.add_argument("--execute", action="store_true", help="Add the requested suffix without an interactive confirmation. Split suggestions are never auto-applied.")
     audit_source_parser.set_defaults(func=cmd_audit_source_config)
