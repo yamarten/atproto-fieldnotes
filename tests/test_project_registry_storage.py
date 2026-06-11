@@ -93,6 +93,15 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(review_args.func, registry.cmd_review_out_of_scope)
         self.assertTrue(enrich_args.include_out_of_scope)
 
+    def test_review_stalled_parser_accepts_freshness_option_and_legacy_alias(self) -> None:
+        parser = registry.build_parser()
+
+        args = parser.parse_args(["review-stalled", "--max-enrich-age-days", "21"])
+        legacy_args = parser.parse_args(["review-stalled", "--enrich-age-days", "14"])
+
+        self.assertEqual(args.max_enrich_age_days, 21)
+        self.assertEqual(legacy_args.max_enrich_age_days, 14)
+
     def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
         args = registry.build_parser().parse_args(
             ["promotion-queue", "--kinds", "technical_insight_candidate"]

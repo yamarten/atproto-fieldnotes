@@ -12552,7 +12552,7 @@ def stalled_review_entry(
     *,
     now: dt.datetime,
     inactivity_days: int,
-    enrich_age_days: int,
+    max_enrich_age_days: int,
 ) -> dict[str, Any] | None:
     tracking_state = str(project.get("tracking_state") or "active")
     latest_collection_activity = project_latest_collection_activity_at(project)
@@ -12612,6 +12612,13 @@ def stalled_review_entry(
             }
         return None
 
+    last_enriched_at = parse_iso_datetime(str(project.get("last_enriched_at") or ""))
+    if last_enriched_at is None:
+        return None
+    enrich_age = max(0, (now - last_enriched_at).days)
+    if enrich_age >= max(1, int(max_enrich_age_days)):
+        return None
+
     if latest_collection_activity is not None:
         has_recent_counts = any(
             isinstance(item, dict) and int(item.get("recent_count") or 0) > 0
@@ -12625,16 +12632,6 @@ def stalled_review_entry(
         reasons.append(f"no repo activity for {repo_age_days} days")
         hard_signal = True
 
-    last_enriched_at = parse_iso_datetime(str(project.get("last_enriched_at") or ""))
-    if last_enriched_at is None:
-        never_enriched = True
-    else:
-        enrich_age = (now - last_enriched_at).days
-        if enrich_age >= enrich_age_days:
-            reasons.append(f"not enriched for {enrich_age} days")
-            hard_signal = True
-        never_enriched = False
-
     service_status = str(project.get("service_status") or "unknown")
     if service_status in {"dead", "private"}:
         reasons.append(f"service_status={service_status}")
@@ -12645,9 +12642,6 @@ def stalled_review_entry(
     confirmed_identity_count = int(bool(project.get("website_url"))) + int(bool(project.get("source_code_urls"))) + int(bool(project.get("resolved_nsids")))
     if confirmed_identity_count <= 1:
         reasons.append("weak confirmed identity")
-
-    if never_enriched and service_status == "unknown" and confirmed_identity_count <= 1 and latest_collection_activity is None:
-        return None
 
     if not hard_signal:
         return None
@@ -12674,12 +12668,12 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
     conn = open_db()
     now = dt.datetime.now(dt.timezone.utc)
     inactivity_days = max(1, int(args.inactivity_days or 45))
-    enrich_age_days = max(1, int(args.enrich_age_days or 30))
+    max_enrich_age_days = max(1, int(args.max_enrich_age_days or 30))
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states={"active", "watchlist", "stalled"})]
     candidates = [
         entry
         for project in project_list
-        if (entry := stalled_review_entry(project, now=now, inactivity_days=inactivity_days, enrich_age_days=enrich_age_days))
+        if (entry := stalled_review_entry(project, now=now, inactivity_days=inactivity_days, max_enrich_age_days=max_enrich_age_days))
     ]
     candidates.sort(key=lambda item: (str(item.get("suggested_tracking_state") or "") != "active", item["project_key"]))
     suggested_state_counts: dict[str, int] = {}
@@ -12696,7 +12690,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
     if args.execute:
         updated: list[str] = []
         updated_with_state: list[dict[str, str]] = []
-        note = str(args.note or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
+        note = str(args.note or f"auto-updated after review-stalled inactivity_days={inactivity_days} max_enrich_age_days={max_enrich_age_days}")
         for index, item in enumerate(candidates, start=1):
             if interactive:
                 print(
@@ -12752,7 +12746,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
         payload = {
             "mode": "execute",
             "inactivity_days": inactivity_days,
-            "enrich_age_days": enrich_age_days,
+            "max_enrich_age_days": max_enrich_age_days,
             "updated_count": len(updated),
             "updated_project_keys": updated,
             "updated_projects": updated_with_state,
@@ -12762,7 +12756,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
         payload = {
             "mode": "dry_run",
             "inactivity_days": inactivity_days,
-            "enrich_age_days": enrich_age_days,
+            "max_enrich_age_days": max_enrich_age_days,
             "candidate_count": len(candidates),
             "suggested_state_counts": suggested_state_counts,
             "candidates": candidates,
@@ -14902,7 +14896,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
-    review_stalled_parser.add_argument("--enrich-age-days", type=int, default=30, help="Flag projects that have not been enriched for at least this many days. Default: 30.")
+    review_stalled_parser.add_argument(
+        "--max-enrich-age-days",
+        "--enrich-age-days",
+        dest="max_enrich_age_days",
+        type=int,
+        default=30,
+        help="Only consider stalled downgrades when the project was enriched within this freshness window. Default: 30.",
+    )
     review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
     review_stalled_parser.add_argument("--interactive", action="store_true", help="Step through stalled-review candidates interactively and apply confirmed updates.")
     review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")

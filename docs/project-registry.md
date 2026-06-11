@@ -234,7 +234,7 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 
 `Review Ops` タブでは、review 系の CLI 相当処理を background job として開始できます。
 
-- `review-stalled`: inactivity / enrich age 条件から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
+- `review-stalled`: activity と調査鮮度から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
 - `review-out-of-scope`: 認証用途のみ、または低noveltyのBluesky従属utilityの `out_of_scope` 候補を出す
 - `review-ignore`: 独自性の薄いforkなど、再評価価値の低いノイズの `ignore` 候補を出す
 
@@ -464,7 +464,7 @@ python3 scripts/project_registry.py set-tracking-state \
 
 ```bash
 python3 scripts/project_registry.py review-stalled
-python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --max-enrich-age-days 45
 python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
@@ -480,6 +480,8 @@ python3 scripts/project_registry.py review-ignore --execute
   - いま `stalled` だが、repo または collection の最近 activity が見えた
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
+
+`active/watchlist -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。旧名 `--enrich-age-days` は互換aliasとして受け付けます。
 
 `review-out-of-scope` は、atprotoとの関係を保持したまま現在の紹介・重点調査対象から外す候補を出します。
 

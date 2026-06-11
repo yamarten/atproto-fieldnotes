@@ -1187,10 +1187,10 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
 
 - まず recent repo activity がある project は何もしません
 - そのうえで、collection も recent でない時だけ stalled 判定に進みます
+- `last_enriched_at` が無い、または `max_enrich_age_days` 以上古い場合は、停止を判断する材料が古いため降格候補から外します
 - strong signal (`hard_signal`) として扱うもの:
   - collection が `inactivity_days` 以上止まっていて、しかも `recent_count>0` の observation が無い
   - repo が `inactivity_days` 以上止まっている
-  - `last_enriched_at` から `enrich_age_days` 以上経っている
   - `service_status` が `dead` または `private`
 - weak signal として理由には出すが、単独では落とさないもの:
   - `service_status=unknown` または `none`
@@ -1203,14 +1203,11 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
   - 理由が 2 件以上必要
 - つまり、単に `unknown` で証拠が薄いだけでは `stalled` にしません
 
-### ノイズ抑制
+### 調査鮮度ゲート
 
-- 次の条件をすべて満たす project は、`stalled` 候補を返しません
-  - まだ一度も enrich していない
-  - `service_status=unknown`
-  - confirmed identity が 1 件以下
-  - collection activity も無い
-- これは「まだ何も分かっていない新規/弱証拠 project」を inactivity 判定で早期に落とさないためです
+- `max_enrich_age_days` は停止の根拠ではなく、降格判定に使える調査結果の最大経過日数です
+- 未enrichまたは期限超過の `active/watchlist` は `stalled` 候補を返しません
+- recent activityによる `stalled -> active` と `active -> stable` は、調査鮮度ゲートより先に判定します
 
 ### review-stalled の対象範囲
 

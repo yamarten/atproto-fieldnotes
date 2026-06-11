@@ -240,6 +240,7 @@
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない
+  - `active/watchlist -> stalled` は最近enrich済みのprojectだけを対象にし、古いenrich結果自体は停止根拠にしない
 - `out_of_scope`
   - atproto関連だが現在の紹介・重点調査スコープ外のprojectを保持する状態として実装済み
   - `review-out-of-scope` は owned surfaceのない `auth_only` と低noveltyのBluesky従属utilityを候補化する

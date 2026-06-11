@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import socket
 import unittest
 import urllib.error
@@ -1158,6 +1159,69 @@ class ProjectRegistryOutOfScopeTest(unittest.TestCase):
 
         self.assertIsNotNone(entry)
         self.assertEqual(entry["kind"], "owned_protocol_surface_detected")
+        self.assertEqual(entry["suggested_tracking_state"], "active")
+
+
+class ProjectRegistryStalledReviewTest(unittest.TestCase):
+    NOW = dt.datetime(2026, 6, 12, tzinfo=dt.timezone.utc)
+
+    def inactive_project(self) -> dict:
+        project = registry.default_project_record("proj:inactive", "repo_url", "https://github.com/example/inactive")
+        project["tracking_state"] = "active"
+        project["service_status"] = "unknown"
+        project["source_code_urls"] = ["https://github.com/example/inactive"]
+        project["source_repo_records"] = [
+            {
+                "url": "https://github.com/example/inactive",
+                "provider": "github",
+                "confidence": "confirmed",
+                "relation": "source_repo",
+                "source": "test",
+                "updated_at": "2025-01-01T00:00:00+00:00",
+            }
+        ]
+        return project
+
+    def review(self, project: dict) -> dict | None:
+        return registry.stalled_review_entry(
+            project,
+            now=self.NOW,
+            inactivity_days=45,
+            max_enrich_age_days=30,
+        )
+
+    def test_recent_enrich_allows_inactivity_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["last_enriched_at"] = "2026-06-10T00:00:00+00:00"
+
+        entry = self.review(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["suggested_tracking_state"], "stalled")
+        self.assertNotIn("not enriched", " ".join(entry["reasons"]))
+
+    def test_stale_enrich_suppresses_inactivity_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["last_enriched_at"] = "2026-01-01T00:00:00+00:00"
+
+        self.assertIsNone(self.review(project))
+
+    def test_never_enriched_suppresses_dead_service_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["service_status"] = "dead"
+        project["last_enriched_at"] = ""
+
+        self.assertIsNone(self.review(project))
+
+    def test_stale_enrich_does_not_block_activity_reactivation(self) -> None:
+        project = self.inactive_project()
+        project["tracking_state"] = "stalled"
+        project["last_enriched_at"] = "2026-01-01T00:00:00+00:00"
+        project["source_repo_records"][0]["updated_at"] = "2026-06-11T00:00:00+00:00"
+
+        entry = self.review(project)
+
+        self.assertIsNotNone(entry)
         self.assertEqual(entry["suggested_tracking_state"], "active")
 
 

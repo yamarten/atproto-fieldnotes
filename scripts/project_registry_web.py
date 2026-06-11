@@ -1258,7 +1258,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="section"><h3>Review Stalled</h3>
           <div class="row" data-review-kind="stalled">
             <label>Inactivity days <input id="review-ops-inactivity-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsInactivityDays)}"></label>
-            <label>Enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
+            <label>Max enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
           </div>
         </div>
         <div class="section" data-review-kind="out-of-scope ignore"><h3>Scope / Ignore Review</h3>
@@ -3499,7 +3499,7 @@ def review_out_of_scope_payload_from_request(payload: dict[str, Any]) -> dict[st
 def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
     now = dt.datetime.now(dt.timezone.utc)
     inactivity_days = int(payload.get("inactivity_days") or 45)
-    enrich_age_days = int(payload.get("enrich_age_days") or 30)
+    max_enrich_age_days = int(payload.get("enrich_age_days") or 30)
     project_list = [
         registry.ensure_project_shape(project)
         for project in registry.list_projects(conn, tracking_states={"active", "watchlist", "stalled"})
@@ -3507,7 +3507,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
     candidates = [
         entry
         for project in project_list
-        if (entry := registry.stalled_review_entry(project, now=now, inactivity_days=inactivity_days, enrich_age_days=enrich_age_days))
+        if (entry := registry.stalled_review_entry(project, now=now, inactivity_days=inactivity_days, max_enrich_age_days=max_enrich_age_days))
     ]
     candidates.sort(key=lambda item: (str(item.get("suggested_tracking_state") or "") != "active", str(item.get("project_key") or "")))
     total_candidates = len(candidates)
@@ -3523,7 +3523,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
         return {
             "mode": "dry_run",
             "inactivity_days": inactivity_days,
-            "enrich_age_days": enrich_age_days,
+            "enrich_age_days": max_enrich_age_days,
             "candidate_count": len(candidates),
             "total_candidate_count": total_candidates,
             "suggested_state_counts": suggested_state_counts,
@@ -3532,7 +3532,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
 
     updated: list[str] = []
     updated_with_state: list[dict[str, str]] = []
-    note = str(payload.get("note") or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
+    note = str(payload.get("note") or f"auto-updated after review-stalled inactivity_days={inactivity_days} max_enrich_age_days={max_enrich_age_days}")
     for item in candidates:
         project_key = str(item.get("project_key") or "")
         project = registry.fetch_project(conn, project_key)
@@ -3551,7 +3551,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
     return {
         "mode": "execute",
         "inactivity_days": inactivity_days,
-        "enrich_age_days": enrich_age_days,
+        "enrich_age_days": max_enrich_age_days,
         "updated_count": len(updated),
         "updated_project_keys": updated,
         "updated_projects": updated_with_state,

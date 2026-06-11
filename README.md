@@ -259,13 +259,13 @@ python3 scripts/project_registry.py repair-db --execute
 
 ```bash
 python3 scripts/project_registry.py review-stalled
-python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --max-enrich-age-days 45
 python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
 ```
 
-`review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
+`review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。降格判定は `--max-enrich-age-days` 以内にenrichされたprojectだけを対象にし、未enrichまたは古い調査結果からは `stalled` を提案しません。旧名 `--enrich-age-days` は互換aliasです。
 
 `review-out-of-scope` は、owned protocol surfaceのない `auth_only` projectと、protocol surfaceを持たない低noveltyのBluesky従属ツールを `out_of_scope` 候補として出します。`review-ignore` は独立したwebsite / service / owned lexicon surfaceが見えないGitHub fork repoなど、通常の再評価価値が低いノイズ候補に限定します。まずdry-runで確認してから `--execute` を付ける前提です。
 
