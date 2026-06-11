@@ -115,7 +115,7 @@ v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`track
 
 `New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
-`Review Ops` タブでは、`review-stalled` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
+`Review Ops` タブでは、`review-stalled` / `review-out-of-scope` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
 
 project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `service_url` を指定して次の操作もできます。
 
@@ -128,7 +128,7 @@ project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `serv
 
 `Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、未知候補の project 作成はチェック済みです。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
 
-同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `archived` / `ignore` を含められます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。run id / checkpoint path を指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs では同じサーバーの in-memory job log と raw JSON を別ブラウザからも確認でき、実行中の `enrich_all` に停止要求を出せます。この停止は現在の project が終わった後に checkpoint を `interrupted` として保存し、`Resume run id` から再開できます。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `out_of_scope` / `archived` / `ignore` を含められます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。run id / checkpoint path を指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs では同じサーバーの in-memory job log と raw JSON を別ブラウザからも確認でき、実行中の `enrich_all` に停止要求を出せます。この停止は現在の project が終わった後に checkpoint を `interrupted` として保存し、`Resume run id` から再開できます。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。
 
 `repair-db` と bulk tracking-state execute は Web UI からは実行しません。
 
@@ -260,13 +260,14 @@ python3 scripts/project_registry.py repair-db --execute
 ```bash
 python3 scripts/project_registry.py review-stalled
 python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
 ```
 
 `review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
 
-`review-ignore` は別系統で、独立した website / service / owned lexicon surface が見えない GitHub fork repo と、protocol surface を持たない低 novelty の Bluesky 従属ツールを `ignore` 候補として出します。まず dry-run で確認してから `--execute` を付ける前提です。
+`review-out-of-scope` は、owned protocol surfaceのない `auth_only` projectと、protocol surfaceを持たない低noveltyのBluesky従属ツールを `out_of_scope` 候補として出します。`review-ignore` は独立したwebsite / service / owned lexicon surfaceが見えないGitHub fork repoなど、通常の再評価価値が低いノイズ候補に限定します。まずdry-runで確認してから `--execute` を付ける前提です。
 
 次に紹介する候補の確認:
 

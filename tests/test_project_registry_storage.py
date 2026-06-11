@@ -80,6 +80,19 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(args.interactive)
         self.assertFalse(dry_run_args.interactive)
 
+    def test_out_of_scope_tracking_state_is_available_to_cli(self) -> None:
+        parser = registry.build_parser()
+
+        state_args = parser.parse_args(
+            ["set-tracking-state", "--project-key", "proj:121212121212", "--tracking-state", "out_of_scope"]
+        )
+        review_args = parser.parse_args(["review-out-of-scope"])
+        enrich_args = parser.parse_args(["enrich", "--all", "--include-out-of-scope"])
+
+        self.assertEqual(state_args.tracking_state, "out_of_scope")
+        self.assertIs(review_args.func, registry.cmd_review_out_of_scope)
+        self.assertTrue(enrich_args.include_out_of_scope)
+
     def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
         args = registry.build_parser().parse_args(
             ["promotion-queue", "--kinds", "technical_insight_candidate"]
@@ -276,6 +289,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             [signal["kind"] for signal in registry.compute_showcase_signals(project)],
             ["service_ready_for_introduction"],
         )
+
+    def test_out_of_scope_project_is_not_promoted(self) -> None:
+        project = self.make_project("proj:outofscope", "service_url", "https://example.com")
+        project.update({"category": "project", "service_status": "live", "tracking_state": "out_of_scope"})
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
 
     def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")

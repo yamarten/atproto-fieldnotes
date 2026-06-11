@@ -1125,6 +1125,42 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         )
 
 
+class ProjectRegistryOutOfScopeTest(unittest.TestCase):
+    def test_auth_only_without_owned_protocol_surface_is_candidate(self) -> None:
+        project = registry.default_project_record("proj:authonly", "repo_url", "https://github.com/example/auth")
+        project["category"] = "auth_only"
+
+        entry = registry.out_of_scope_review_entry(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["kind"], "auth_only_without_owned_protocol_surface")
+        self.assertEqual(entry["suggested_tracking_state"], "out_of_scope")
+
+    def test_auth_only_with_owned_protocol_surface_is_not_automatic_candidate(self) -> None:
+        project = registry.default_project_record("proj:authwithnsid", "nsid", "app.example.record")
+        project["category"] = "auth_only"
+        project["resolved_nsids"] = ["app.example.record"]
+
+        self.assertIsNone(registry.out_of_scope_review_entry(project))
+
+    def test_out_of_scope_is_not_an_ignore_candidate(self) -> None:
+        project = registry.default_project_record("proj:scoped", "repo_url", "https://github.com/example/fork")
+        project["tracking_state"] = "out_of_scope"
+
+        self.assertIsNone(registry.ignore_review_entry(project))
+
+    def test_out_of_scope_with_owned_protocol_surface_is_reactivation_candidate(self) -> None:
+        project = registry.default_project_record("proj:reactivate", "nsid", "app.example.record")
+        project["tracking_state"] = "out_of_scope"
+        project["resolved_nsids"] = ["app.example.record"]
+
+        entry = registry.out_of_scope_review_entry(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["kind"], "owned_protocol_surface_detected")
+        self.assertEqual(entry["suggested_tracking_state"], "active")
+
+
 class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
     def project(self) -> dict:
         project = registry.default_project_record("proj:technical", "repo_url", "https://github.com/example/protocol-lab")

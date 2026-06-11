@@ -159,7 +159,7 @@ URL field は次の 5 層で扱います。
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
-`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
+`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI と Web UI の `Enrich All` background job です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。CLI の Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
 
@@ -1218,22 +1218,34 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
   - `active`
   - `watchlist`
   - `stalled`
-- `stable` / `archived` / `ignore` はこの自動判定の対象外です
+- `stable` / `out_of_scope` / `archived` / `ignore` はこの自動判定の対象外です
 - `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します
 
-## review-ignore
+## review-out-of-scope / review-ignore
 
-`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。現状の kind は 2 種類です。
+`review-out-of-scope` は関連性を否定せず、現在のsurvey対象から外す候補を返します。
+
+- `auth_only_without_owned_protocol_surface`
+  - `category=auth_only`
+  - owned protocol surfaceがない
+- `derivative_bluesky_utility`
+  - `service_is_derivative_bluesky_tool()` が真
+  - `introduced_url` がない
+  - owned protocol surfaceがない
+  - `category=lexicon` ではない
+
+accepted projectは `tracking_state=out_of_scope` になります。この状態は通常の enrich/review/promotion対象外ですが、merge候補計算からは除外せず、明示enrichと手動復帰を許します。将来のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
+
+`out_of_scope` projectにowned protocol surfaceが見つかった場合、同じコマンドは `owned_protocol_surface_detected` / `suggested_tracking_state=active` を返します。`--execute` なしでは更新せず、復帰も確認可能なqueueとして扱います。sync/enrichの途中で自動復帰する処理は未接続です。
+
+`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。
+
+現状の kind は次です。
 
 - `fork_without_independent_identity`
   - confirmed な source repo が GitHub fork
   - `website_url` / `service_urls` / `introduced_url` が無い
   - owned protocol surface (`resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `collection_observations`) も無い
   - `service_status=live|beta|invite_only` なら除外
-- `derivative_bluesky_utility`
-  - `service_is_derivative_bluesky_tool()` が真
-  - `introduced_url` が無い
-  - owned protocol surface が無い
-  - `category=lexicon` ではない
 
-目的は「完全な reject ではないが、継続追跡コストに対して registry 上の価値が薄い候補」を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。
+目的はatproto無関係、誤登録、独立identityのない複製など、通常の再評価を期待しない候補を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。

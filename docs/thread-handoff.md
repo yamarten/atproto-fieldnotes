@@ -240,6 +240,14 @@
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない
+- `out_of_scope`
+  - atproto関連だが現在の紹介・重点調査スコープ外のprojectを保持する状態として実装済み
+  - `review-out-of-scope` は owned surfaceのない `auth_only` と低noveltyのBluesky従属utilityを候補化する
+  - 通常の enrich/review/promotionからは外すが、sync/merge照合、明示enrich、手動復帰は維持する
+  - 新しいowned protocol surfaceが見つかると `review-out-of-scope` に `active` 復帰候補として出る
+  - sync/enrich途中での無確認な自動復帰は未接続
+  - 現行DBでは、owned surfaceのない明確な `auth_only` 8件を `out_of_scope` へ移行済み
+  - derivative候補は5件残っているが、`atproto-explorer` や `firehose` のような技術調査対象も含むため未適用
 - `repair-db`
   - scalar 重複除去
   - 派生フィールド再計算

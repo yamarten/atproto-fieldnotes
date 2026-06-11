@@ -64,7 +64,7 @@ _GITHUB_REPO_SEARCH_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
 _TLD_EXTRACTORS: dict[str, Any] = {}
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
-TRACKING_STATES = {"active", "watchlist", "stable", "stalled", "archived", "ignore"}
+TRACKING_STATES = {"active", "watchlist", "stable", "stalled", "out_of_scope", "archived", "ignore"}
 PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
 PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
 SEMBLE_TRACKED_COLLECTIONS = (
@@ -5645,7 +5645,7 @@ def parse_db_edit_request(
         '  "project_query": "string",\n'
         '  "identifier_type": "nsid|repo_url|service_url|",\n'
         '  "identifier_value": "string",\n'
-        '  "tracking_state": "active|watchlist|stable|stalled|archived|ignore|",\n'
+        '  "tracking_state": "active|watchlist|stable|stalled|out_of_scope|archived|ignore|",\n'
         '  "note": "string",\n'
         '  "reason": "string"\n'
         "}\n"
@@ -9672,7 +9672,7 @@ def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> b
         return False
     if project.get("introduced_url"):
         return False
-    if project.get("tracking_state") == "ignore":
+    if project.get("tracking_state") in {"out_of_scope", "ignore"}:
         return False
     nsid_hints = unique_list(
         [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
@@ -9797,7 +9797,7 @@ def fork_without_independent_identity_reasons(project: dict[str, Any]) -> list[s
     return reasons
 
 
-def derivative_bluesky_tool_ignore_reasons(project: dict[str, Any]) -> list[str]:
+def derivative_bluesky_tool_out_of_scope_reasons(project: dict[str, Any]) -> list[str]:
     if str(project.get("introduced_url") or "").strip():
         return []
     if str(project.get("category") or "") == "lexicon":
@@ -9818,22 +9818,14 @@ def derivative_bluesky_tool_ignore_reasons(project: dict[str, Any]) -> list[str]
 
 def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
     tracking_state = str(project.get("tracking_state") or "active")
-    if tracking_state in {"ignore", "archived"}:
+    if tracking_state in {"out_of_scope", "ignore", "archived"}:
         return None
     if str(project.get("introduced_url") or "").strip():
         return None
 
     fork_reasons = fork_without_independent_identity_reasons(project)
-    derivative_reasons = derivative_bluesky_tool_ignore_reasons(project)
-    if not fork_reasons and not derivative_reasons:
+    if not fork_reasons:
         return None
-
-    if fork_reasons:
-        kind = "fork_without_independent_identity"
-        reasons = fork_reasons
-    else:
-        kind = "derivative_bluesky_utility"
-        reasons = derivative_reasons
 
     nsids = unique_list(
         [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
@@ -9849,24 +9841,103 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
         "tracking_state": tracking_state,
         "service_status": normalize_service_status(str(project.get("service_status") or "unknown")),
         "category": str(project.get("category") or ""),
-        "kind": kind,
+        "kind": "fork_without_independent_identity",
         "seed_type": project.get("seed_type", ""),
         "seed_value": project.get("seed_value", ""),
         "website_url": str(project.get("website_url") or ""),
         "repo_urls": repo_urls,
         "nsids": nsids,
-        "reasons": reasons,
+        "reasons": fork_reasons,
         "suggested_tracking_state": "ignore",
+    }
+
+
+def auth_only_out_of_scope_reasons(project: dict[str, Any]) -> list[str]:
+    if str(project.get("category") or "") != "auth_only":
+        return []
+    if project_has_owned_protocol_surface(project):
+        return []
+    return ["authentication-only integration without owned protocol surface"]
+
+
+def out_of_scope_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
+    tracking_state = str(project.get("tracking_state") or "active")
+    if tracking_state == "out_of_scope":
+        if not project_has_owned_protocol_surface(project):
+            return None
+        return {
+            "project_key": project.get("project_key", ""),
+            "name": project.get("name", ""),
+            "tracking_state": tracking_state,
+            "service_status": normalize_service_status(str(project.get("service_status") or "unknown")),
+            "category": str(project.get("category") or ""),
+            "kind": "owned_protocol_surface_detected",
+            "seed_type": project.get("seed_type", ""),
+            "seed_value": project.get("seed_value", ""),
+            "website_url": str(project.get("website_url") or ""),
+            "repo_urls": unique_list(
+                [str(item or "") for item in source_code_url_values(project) if str(item or "").strip()]
+            ),
+            "nsids": unique_list(
+                [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
+                + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
+                + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
+            ),
+            "reasons": ["owned protocol surface detected after out-of-scope classification"],
+            "suggested_tracking_state": "active",
+        }
+    if tracking_state in {"ignore", "archived"}:
+        return None
+    if str(project.get("introduced_url") or "").strip():
+        return None
+
+    auth_reasons = auth_only_out_of_scope_reasons(project)
+    derivative_reasons = derivative_bluesky_tool_out_of_scope_reasons(project)
+    if not auth_reasons and not derivative_reasons:
+        return None
+    if auth_reasons:
+        kind = "auth_only_without_owned_protocol_surface"
+        reasons = auth_reasons
+    else:
+        kind = "derivative_bluesky_utility"
+        reasons = derivative_reasons
+
+    nsids = unique_list(
+        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
+        + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
+    )
+    return {
+        "project_key": project.get("project_key", ""),
+        "name": project.get("name", ""),
+        "tracking_state": tracking_state,
+        "service_status": normalize_service_status(str(project.get("service_status") or "unknown")),
+        "category": str(project.get("category") or ""),
+        "kind": kind,
+        "seed_type": project.get("seed_type", ""),
+        "seed_value": project.get("seed_value", ""),
+        "website_url": str(project.get("website_url") or ""),
+        "repo_urls": unique_list(
+            [str(item or "") for item in source_code_url_values(project) if str(item or "").strip()]
+        ),
+        "nsids": nsids,
+        "reasons": reasons,
+        "suggested_tracking_state": "out_of_scope",
     }
 
 
 IGNORE_REVIEW_NOTE_REASONS: dict[str, str] = {
     "atproto_unrelated": "atproto無関係",
-    "out_of_scope": "DBのスコープ外",
     "personal_experiment": "個人の実験",
-    "derivative_utility": "派生Blueskyツール",
     "fork_without_identity": "独自性の薄いfork",
     "other": "その他",
+}
+
+OUT_OF_SCOPE_REVIEW_NOTE_REASONS: dict[str, str] = {
+    "auth_only": "認証用途のみ",
+    "derivative_utility": "派生Blueskyツール",
+    "client_only": "Blueskyクライアント",
+    "other": "現在の調査スコープ外",
 }
 
 
@@ -9874,14 +9945,31 @@ def default_ignore_review_note_reason(item: dict[str, Any]) -> str:
     kind = str(item.get("kind") or "")
     if kind == "fork_without_independent_identity":
         return "fork_without_identity"
-    if kind == "derivative_bluesky_utility":
-        return "derivative_utility"
     return "other"
 
 
 def build_ignore_review_note(item: dict[str, Any], reason_key: str, extra_note: str = "") -> str:
     label = IGNORE_REVIEW_NOTE_REASONS.get(reason_key, IGNORE_REVIEW_NOTE_REASONS["other"])
     parts = [f"review-ignore: {label}"]
+    if extra_note:
+        parts.append(str(extra_note).strip())
+    return " / ".join([part for part in parts if part])
+
+
+def default_out_of_scope_review_note_reason(item: dict[str, Any]) -> str:
+    kind = str(item.get("kind") or "")
+    if kind == "owned_protocol_surface_detected":
+        return "other"
+    if kind == "auth_only_without_owned_protocol_surface":
+        return "auth_only"
+    if kind == "derivative_bluesky_utility":
+        return "derivative_utility"
+    return "other"
+
+
+def build_out_of_scope_review_note(item: dict[str, Any], reason_key: str, extra_note: str = "") -> str:
+    label = OUT_OF_SCOPE_REVIEW_NOTE_REASONS.get(reason_key, OUT_OF_SCOPE_REVIEW_NOTE_REASONS["other"])
+    parts = [f"review-out-of-scope: {label}"]
     if extra_note:
         parts.append(str(extra_note).strip())
     return " / ".join([part for part in parts if part])
@@ -9970,7 +10058,7 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
     if shaped.get("introduced_url"):
         return []
-    if str(shaped.get("tracking_state") or "") == "ignore":
+    if str(shaped.get("tracking_state") or "") in {"out_of_scope", "ignore"}:
         return []
     if active_promotion_deferral(shaped):
         return []
@@ -11397,6 +11485,8 @@ def requested_tracking_states(args: argparse.Namespace) -> set[str] | None:
             states.add("stable")
         if getattr(args, "include_stalled", False):
             states.add("stalled")
+        if getattr(args, "include_out_of_scope", False):
+            states.add("out_of_scope")
         if getattr(args, "include_archived", False):
             states.add("archived")
         if getattr(args, "include_ignore", False):
@@ -12681,11 +12771,24 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_review_ignore(args: argparse.Namespace) -> int:
+def cmd_review_classification(
+    args: argparse.Namespace,
+    *,
+    review_name: str,
+    target_state: str,
+    entry_builder: Callable[[dict[str, Any]], dict[str, Any] | None],
+    note_reason_choices: dict[str, str],
+    default_note_reason: Callable[[dict[str, Any]], str],
+    build_note: Callable[[dict[str, Any], str, str], str],
+    default_tracking_states: set[str] | None = None,
+) -> int:
     conn = open_db()
-    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    tracking_states = (
+        {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()}
+        or set(default_tracking_states or {"active", "watchlist", "stable", "stalled"})
+    )
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
-    candidates = [entry for project in project_list if (entry := ignore_review_entry(project))]
+    candidates = [entry for project in project_list if (entry := entry_builder(project))]
     candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
     kind_counts: dict[str, int] = {}
     for item in candidates:
@@ -12711,14 +12814,14 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
                     json.dumps(
                         {
                             "index": index,
-                            "review_ignore_count": len(candidates),
+                            f"{review_name.replace('-', '_')}_count": len(candidates),
                             **item,
                         },
                         ensure_ascii=False,
                         indent=2,
                     )
                 )
-                print("[y]=ignore, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
+                print(f"[y]={target_state}, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
                 while True:
                     try:
                         answer = input().strip().lower()
@@ -12745,16 +12848,17 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
             project = fetch_project(conn, str(item.get("project_key") or ""))
             if not project:
                 continue
-            project["tracking_state"] = "ignore"
+            next_state = str(item.get("suggested_tracking_state") or target_state)
+            project["tracking_state"] = next_state
             note = static_note
             if interactive or default_reason_key:
-                reason_key = default_reason_key or default_ignore_review_note_reason(item)
+                reason_key = default_reason_key or default_note_reason(item)
                 extra_note = static_note
                 if interactive and not default_reason_key:
                     print(
                         json.dumps(
                             {
-                                "note_reason_choices": IGNORE_REVIEW_NOTE_REASONS,
+                                "note_reason_choices": note_reason_choices,
                                 "default": reason_key,
                             },
                             ensure_ascii=False,
@@ -12768,7 +12872,7 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
                     except EOFError:
                         chosen_reason = ""
                     if chosen_reason:
-                        if chosen_reason in IGNORE_REVIEW_NOTE_REASONS:
+                        if chosen_reason in note_reason_choices:
                             reason_key = chosen_reason
                         else:
                             print(json.dumps({"warning": "unknown_note_reason", "value": chosen_reason}, ensure_ascii=False), file=sys.stderr)
@@ -12778,10 +12882,12 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
                             extra_note = input().strip()
                         except EOFError:
                             extra_note = ""
-                note = build_ignore_review_note(item, reason_key, extra_note)
+                note = build_note(item, reason_key, extra_note)
             elif not note:
-                note = "auto-updated after review-ignore"
-            if note and not str(project.get("tracking_note") or "").strip():
+                note = f"auto-updated after {review_name}"
+            if next_state == "active" and str(item.get("kind") or "") == "owned_protocol_surface_detected":
+                project["tracking_note"] = "reactivated after owned protocol surface detection"
+            elif note and not str(project.get("tracking_note") or "").strip():
                 project["tracking_note"] = note
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
             updated.append(project["project_key"])
@@ -12805,6 +12911,31 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
         }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_review_ignore(args: argparse.Namespace) -> int:
+    return cmd_review_classification(
+        args,
+        review_name="review-ignore",
+        target_state="ignore",
+        entry_builder=ignore_review_entry,
+        note_reason_choices=IGNORE_REVIEW_NOTE_REASONS,
+        default_note_reason=default_ignore_review_note_reason,
+        build_note=build_ignore_review_note,
+    )
+
+
+def cmd_review_out_of_scope(args: argparse.Namespace) -> int:
+    return cmd_review_classification(
+        args,
+        review_name="review-out-of-scope",
+        target_state="out_of_scope",
+        entry_builder=out_of_scope_review_entry,
+        note_reason_choices=OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
+        default_note_reason=default_out_of_scope_review_note_reason,
+        build_note=build_out_of_scope_review_note,
+        default_tracking_states={"active", "watchlist", "stable", "stalled", "out_of_scope"},
+    )
 
 
 def cmd_set_tracking_state(args: argparse.Namespace) -> int:
@@ -14711,6 +14842,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     enrich_parser.add_argument("--include-stable", action="store_true", help="When used with --all, include projects marked stable.")
     enrich_parser.add_argument("--include-stalled", action="store_true", help="When used with --all, include projects marked stalled.")
+    enrich_parser.add_argument("--include-out-of-scope", action="store_true", help="When used with --all, include projects currently outside the survey scope.")
     enrich_parser.add_argument("--include-archived", action="store_true", help="When used with --all, include projects marked archived.")
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
@@ -14776,7 +14908,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
     review_stalled_parser.set_defaults(func=cmd_review_stalled)
 
-    review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest low-value fork repos and derivative companion tools that likely deserve tracking_state=ignore.")
+    review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest unrelated or identity-less noise that likely deserves tracking_state=ignore.")
     review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active watchlist stable stalled.")
     review_ignore_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
@@ -14784,6 +14916,18 @@ def build_parser() -> argparse.ArgumentParser:
     review_ignore_parser.add_argument("--note", help="Optional tracking note to store when applying ignore updates.")
     review_ignore_parser.add_argument("--note-reason", choices=sorted(IGNORE_REVIEW_NOTE_REASONS), help="Preset review-ignore note category to store with ignored projects.")
     review_ignore_parser.set_defaults(func=cmd_review_ignore)
+
+    review_scope_parser = subparsers.add_parser(
+        "review-out-of-scope",
+        help="Suggest related projects that are currently outside the survey scope but should remain re-evaluable.",
+    )
+    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active watchlist stable stalled out_of_scope.")
+    review_scope_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
+    review_scope_parser.add_argument("--execute", action="store_true", help="Apply suggested tracking_state=out_of_scope updates. Without this flag, show a dry-run summary only.")
+    review_scope_parser.add_argument("--interactive", action="store_true", help="Step through out-of-scope candidates interactively and apply confirmed updates.")
+    review_scope_parser.add_argument("--note", help="Optional tracking note to store when applying out-of-scope updates.")
+    review_scope_parser.add_argument("--note-reason", choices=sorted(OUT_OF_SCOPE_REVIEW_NOTE_REASONS), help="Preset reason category to store with out-of-scope projects.")
+    review_scope_parser.set_defaults(func=cmd_review_out_of_scope)
 
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
     seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")

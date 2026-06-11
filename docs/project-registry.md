@@ -116,11 +116,12 @@ python3 scripts/project_registry.py enrich --all --no-checkpoint
 
 Ctrl+C で中断した場合、Python traceback は出さず、JSON lines に `interrupted: true`、`run_id`、`checkpoint_path`、`resume_command` を出して終了コード `130` で終わります。再開時は checkpoint に保存された最初の対象リストを使い、完了済み project を飛ばします。
 
-`stable` / `stalled` / `archived` / `ignore` も回したい場合:
+`stable` / `stalled` / `out_of_scope` / `archived` / `ignore` も回したい場合:
 
 ```bash
 python3 scripts/project_registry.py enrich --all --include-stable
 python3 scripts/project_registry.py enrich --all --include-stalled
+python3 scripts/project_registry.py enrich --all --include-out-of-scope
 python3 scripts/project_registry.py enrich --all --include-archived
 python3 scripts/project_registry.py enrich --all --include-ignore
 ```
@@ -172,7 +173,7 @@ python3 scripts/project_registry_web.py \
 v1 でできること:
 
 - `review-queue` / `promotion-queue` の確認
-- `review-stalled` / `review-ignore` 相当の dry-run と明示 execute
+- `review-stalled` / `review-out-of-scope` / `review-ignore` 相当の dry-run と明示 execute
 - project 詳細と raw JSON の確認
 - `tracking_state` の単体更新
 - review signal の dismissal
@@ -234,7 +235,8 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 `Review Ops` タブでは、review 系の CLI 相当処理を background job として開始できます。
 
 - `review-stalled`: inactivity / enrich age 条件から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
-- `review-ignore`: 独自性の薄い fork や派生 Bluesky utility の `ignore` 候補を出す
+- `review-out-of-scope`: 認証用途のみ、または低noveltyのBluesky従属utilityの `out_of_scope` 候補を出す
+- `review-ignore`: 独自性の薄いforkなど、再評価価値の低いノイズの `ignore` 候補を出す
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは server process 内の in-memory job に紐づく表示で、同じサーバーに接続する別 browser / browser restart 後の tab からも `Jobs` で確認できます。サーバ再起動後の履歴永続化は未接続です。
 
@@ -263,7 +265,7 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
-同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `out_of_scope` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
 
 Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。ETA はこの Web job 内で完了/失敗した project の平均処理時間から出す概算です。
 
@@ -463,6 +465,7 @@ python3 scripts/project_registry.py set-tracking-state \
 ```bash
 python3 scripts/project_registry.py review-stalled
 python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
 ```
@@ -478,12 +481,18 @@ python3 scripts/project_registry.py review-ignore --execute
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
 
+`review-out-of-scope` は、atprotoとの関係を保持したまま現在の紹介・重点調査対象から外す候補を出します。
+
+- `category=auth_only` で owned protocol surface がない
+- owned protocol surfaceを持たない、低noveltyのBluesky従属ツール
+
+`out_of_scope` は通常の enrich/review/promotionから外れますが、project自体は残り、syncによるidentifier照合、merge候補、明示enrich、手動での `active` 復帰が可能です。さらにowned NSID / collection surfaceが見つかったprojectは、`review-out-of-scope` に `suggested_tracking_state=active` として再登場します。Flashesのように後から独自NSIDやprotocol surfaceを持つ可能性を失わないための状態です。
+
 `review-ignore` は inactivity review とは別で、ノイズ整理用です。現状の候補は次です。
 
 - 独立した website / service / owned lexicon surface が見えない GitHub fork repo
-- owned protocol surface を持たない、低 novelty の Bluesky 従属ツール
 
-このコマンドは既定で `active / watchlist / stable / stalled` を見ます。すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。
+新規のスコープ外候補については、両コマンドとも既定で `active / watchlist / stable / stalled` を見て、すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。`review-out-of-scope` だけは既存の `out_of_scope` も走査し、owned protocol surfaceが見つかった場合の `active` 復帰候補を出します。
 
 ## 紹介候補キュー
 
