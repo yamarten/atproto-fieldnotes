@@ -1,17 +1,4 @@
 {
-  "custom_multi_tenant_suffixes": [
-    "wisp.place",
-    "lexicon.community",
-    "avaast.app",
-    "tomo-x.win",
-    "smokesignal.tools",
-    "microcosm.blue",
-    "atmo.tools",
-    "henry.ink",
-    "tokimeki.tech",
-    "whey.party",
-    "suibari.com"
-  ],
   "collection_inventory": {
     "url": "https://collectiondata.usounds.work/collection_count_view",
     "builtin_prefixes": [
