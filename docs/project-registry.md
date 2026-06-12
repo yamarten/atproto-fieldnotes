@@ -265,6 +265,8 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
+Web UI でも増分同期が既定です。`Use saved incremental state` を外すと `--no-incremental` 相当になり、保存済み state を読み書きせず初回 lookback 条件だけを使います。`All history` は watermark と lookback を無視します。確認ダイアログには今回の selection と state 更新方針を表示し、完了結果には `scan_complete`、`state_updated`、`watermark_before` / `watermark_after` を要約表示します。Jobs タブの sync job にも同じ state 概要を表示します。
+
 同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `out_of_scope` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
 
 Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。ETA はこの Web job 内で完了/失敗した project の平均処理時間から出す概算です。

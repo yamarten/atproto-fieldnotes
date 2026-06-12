@@ -243,6 +243,14 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("sync-github-search", web.INDEX_HTML)
         self.assertIn("data-sync-kind", web.INDEX_HTML)
         self.assertIn("updateSyncVisibility", web.INDEX_HTML)
+        self.assertIn("sync-incremental", web.INDEX_HTML)
+        self.assertIn("Use saved incremental state", web.INDEX_HTML)
+        self.assertIn("renderSyncJob", web.INDEX_HTML)
+        self.assertIn("syncJobStateText", web.INDEX_HTML)
+        self.assertIn("state advanced", web.INDEX_HTML)
+        self.assertIn("scan incomplete", web.INDEX_HTML)
+        self.assertIn("query_scans", web.INDEX_HTML)
+        self.assertIn("collection_scans", web.INDEX_HTML)
         self.assertIn("Enrich All", web.INDEX_HTML)
         self.assertIn("/api/enrich-all", web.INDEX_HTML)
         self.assertIn("run-enrich-all", web.INDEX_HTML)
@@ -905,10 +913,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(listed[job_id]["sync_kind"], "collections")
 
     def test_sync_payload_can_disable_create_unmatched(self) -> None:
-        payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False})
+        default_payload = web.sync_payload_from_request({"kind": "collections"})
+        payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False, "incremental": False})
 
+        self.assertTrue(default_payload["incremental"])
         self.assertFalse(payload["create_unmatched"])
-        self.assertTrue(payload["incremental"])
+        self.assertFalse(payload["incremental"])
 
     def test_enrich_all_job_runs_limited_selection(self) -> None:
         original_enrich = web.registry.enrich_project

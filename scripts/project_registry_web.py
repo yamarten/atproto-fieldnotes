@@ -645,6 +645,7 @@ INDEX_HTML = r"""<!doctype html>
       syncLookbackDays: 10,
       syncCreateUnmatched: true,
       syncScreenUnmatched: false,
+      syncIncremental: true,
       syncAllHistory: false,
       reviewOpsKind: "stalled",
       reviewOpsLimit: 100,
@@ -1318,9 +1319,10 @@ INDEX_HTML = r"""<!doctype html>
               </select>
             </label>
             <label class="row"><input id="sync-execute" type="checkbox"> Execute writes to SQLite</label>
+            <label class="row"><input id="sync-incremental" type="checkbox" ${settings.syncIncremental !== false ? "checked" : ""}> Use saved incremental state</label>
             <label class="row"><input id="sync-create-unmatched" type="checkbox" ${settings.syncCreateUnmatched ? "checked" : ""}> Create unmatched projects</label>
             <label class="row" data-sync-kind="github-search"><input id="sync-screen-unmatched" type="checkbox" ${settings.syncScreenUnmatched ? "checked" : ""}> Screen unmatched GitHub repos</label>
-            <label class="row" data-sync-kind="introduced collections github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
+            <label class="row" data-sync-kind="introduced collections github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history (ignore watermark and lookback)</label>
           </div>
           <div class="section"><h3>Inputs</h3>
             <label data-sync-kind="introduced">Introduced query <input id="sync-query" type="text" value="${esc(settings.syncQuery)}" placeholder="from:yamarten.bsky.social #ATプロトーク"></label>
@@ -1328,7 +1330,7 @@ INDEX_HTML = r"""<!doctype html>
             <label data-sync-kind="github-search">GitHub query <input id="sync-github-query" type="text" value="" placeholder="${esc(defaultGithubQuery)}"></label>
             <div class="row">
               <label data-sync-kind="introduced">Limit <input id="sync-limit" type="number" min="1" max="500" value="${esc(settings.syncLimit)}"></label>
-              <label data-sync-kind="introduced">Max pages <input id="sync-max-pages" type="number" min="1" max="20" value="${esc(settings.syncMaxPages)}"></label>
+              <label data-sync-kind="introduced">Max pages <input id="sync-max-pages" type="number" min="1" max="100" value="${esc(settings.syncMaxPages)}"></label>
             </div>
             <div class="row">
               <label data-sync-kind="github-search semble-collections">Pages <input id="sync-pages" type="number" min="1" max="20" value="${esc(settings.syncPages)}"></label>
@@ -1339,7 +1341,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="actions">
             <button id="run-sync" class="primary" title="Start a sync background job. Dry-run does not write to SQLite; execute does.">Run sync</button>
           </div>
-          <div class="section"><h3>Result</h3><pre id="sync-result">No job yet.</pre></div>
+          <div class="section"><h3>Result</h3><div id="sync-result" class="identifier-list"><span class="muted">No job yet.</span></div></div>
           <div class="section"><h3>Enrich All</h3>
             <div class="muted">Runs enrich over matching projects in one background job. Each project is committed separately.</div>
             <label>Max projects <input id="enrich-all-limit" type="number" min="1" value="${esc(settings.enrichAllLimit ?? "")}" placeholder="blank = unlimited"></label>
@@ -1429,6 +1431,7 @@ INDEX_HTML = r"""<!doctype html>
       const payload = {
         kind: $("sync-kind").value,
         execute: $("sync-execute").checked,
+        incremental: $("sync-incremental").checked,
         create_unmatched: $("sync-create-unmatched").checked,
         screen_unmatched: $("sync-screen-unmatched").checked,
         all_history: $("sync-all-history").checked,
@@ -1451,6 +1454,7 @@ INDEX_HTML = r"""<!doctype html>
         syncLookbackDays: payload.lookback_days,
         syncCreateUnmatched: payload.create_unmatched,
         syncScreenUnmatched: payload.screen_unmatched,
+        syncIncremental: payload.incremental,
         syncAllHistory: payload.all_history
       }));
       return payload;
@@ -1538,7 +1542,15 @@ INDEX_HTML = r"""<!doctype html>
       $("run-sync").onclick = async () => {
         const payload = readSyncPayload();
         const mode = payload.execute ? "EXECUTE and write to SQLite" : "dry-run without DB writes";
-        if (!(await confirmAction(`Run ${payload.kind} sync?\n\nMode: ${mode}\n\nThis may call external APIs and run in the background.`))) return;
+        const selection = payload.all_history
+          ? "all history (ignore saved watermark and lookback)"
+          : payload.incremental
+            ? `saved watermark, or ${payload.lookback_days} day lookback when no state exists`
+            : `${payload.lookback_days} day lookback without reading or writing saved state`;
+        const checkpoint = payload.execute && payload.incremental
+          ? "advance saved state only after a complete successful scan"
+          : "do not update saved state";
+        if (!(await confirmAction(`Run ${payload.kind} sync?\n\nMode: ${mode}\nSelection: ${selection}\nCheckpoint: ${checkpoint}\n\nThis may call external APIs and run in the background.`))) return;
         status("Starting sync...");
         try {
           const data = await api("/api/sync", { method: "POST", body: JSON.stringify(payload) });
@@ -1546,7 +1558,7 @@ INDEX_HTML = r"""<!doctype html>
           $("sync-result").textContent = JSON.stringify(data, null, 2);
           status(`Started job ${data.job_id}`);
           updateJobStatus(`job:${data.job_id}`, Object.assign({ kind: `sync-${payload.kind}` }, data));
-          pollJobInto(data.job_id, "sync-result", null, (job) => updateJobStatus(`job:${data.job_id}`, job));
+          pollJobInto(data.job_id, "sync-result", renderSyncJob, (job) => updateJobStatus(`job:${data.job_id}`, job));
         } catch (err) {
           status(err.message);
         }
@@ -1596,6 +1608,63 @@ INDEX_HTML = r"""<!doctype html>
       } catch (err) {
         status(err.message);
       }
+    }
+
+    function renderSyncJob(job) {
+      const result = job.result || {};
+      const incremental = result.incremental ?? job.payload?.incremental;
+      const allHistory = Boolean(result.all_history ?? job.payload?.all_history);
+      const stateMode = allHistory ? "all history" : incremental === false ? "no saved state" : "incremental";
+      const stateUpdated = result.state_updated === true ? "state advanced" : result.state_updated === false ? "state unchanged" : "state update unknown";
+      const scanComplete = result.scan_complete === true ? "scan complete" : result.scan_complete === false ? "scan incomplete" : "scan completeness not reported";
+      const countFields = [
+        ["entries", result.entries],
+        ["posts", result.posts],
+        ["fetched", result.fetched_posts],
+        ["pages", result.pages],
+        ["created", result.created],
+        ["updated", result.updated],
+        ["unmatched", result.unmatched],
+        ["rejected", result.rejected],
+        ["screened out", result.screened_out]
+      ].filter(([_label, value]) => value !== undefined && value !== null);
+      const counts = countFields.map(([label, value]) => `<span class="pill">${esc(label)} ${esc(value)}</span>`).join("");
+      const before = String(result.watermark_before || "");
+      const after = String(result.watermark_after || "");
+      const scopedWatermarks = [
+        ...asList(result.query_scans).map((scan) => ({
+          scope: scan.query,
+          before: scan.watermark_before,
+          after: scan.watermark_after
+        })),
+        ...asList(result.collection_scans).map((scan) => ({
+          scope: scan.source_key,
+          before: scan.watermark_before,
+          after: scan.watermark_after
+        }))
+      ].filter((item) => item.scope || item.before || item.after);
+      const watermarkHtml = scopedWatermarks.length
+        ? `<div class="identifier-list">${scopedWatermarks.map((item) => `
+            <div class="muted">${esc(item.scope || "scope")}: ${esc(item.before || "(none)")} -> ${esc(item.after || (result.state_updated ? "(not reported)" : "unchanged"))}</div>
+          `).join("")}</div>`
+        : `<div class="muted">watermark: ${esc(before || "(none)")} -> ${esc(after || (result.state_updated ? "(not reported)" : "unchanged"))}</div>`;
+      const target = $("sync-result");
+      if (!target) return;
+      target.innerHTML = `
+        <div class="identifier-list">
+          <div class="row">
+            <span class="pill">${esc(job.status || "done")}</span>
+            <span class="pill">${esc(jobKindLabel(job))}</span>
+            <span class="pill">${esc(result.mode || (job.payload?.execute ? "execute" : "dry_run"))}</span>
+            <span class="pill">${esc(stateMode)}</span>
+            <span class="pill">${esc(stateUpdated)}</span>
+            <span class="pill">${esc(scanComplete)}</span>
+          </div>
+          ${counts ? `<div class="row">${counts}</div>` : ""}
+          ${watermarkHtml}
+          ${job.error ? `<div class="signal"><b>Failed</b> ${esc(job.error)}</div>` : ""}
+          <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
+        </div>`;
     }
 
     function renderReviewOpsJob(job, payload) {
@@ -2352,6 +2421,20 @@ INDEX_HTML = r"""<!doctype html>
       return String(job.kind || "enrich").replaceAll("_", "-");
     }
 
+    function syncJobStateText(job) {
+      if (job.kind !== "sync") return "";
+      const result = job.result || {};
+      const incremental = result.incremental ?? job.payload?.incremental;
+      const allHistory = Boolean(result.all_history ?? job.payload?.all_history);
+      const mode = allHistory ? "all history" : incremental === false ? "no saved state" : "incremental";
+      const parts = [mode];
+      if (result.scan_complete === false) parts.push("scan incomplete");
+      if (result.state_updated === true) parts.push("state advanced");
+      if (result.state_updated === false) parts.push("state unchanged");
+      if (result.watermark_after) parts.push(`watermark ${result.watermark_after}`);
+      return parts.join(" / ");
+    }
+
     function renderJobsSummaryHtml(openJobIds = new Set(), openRawJobIds = new Set()) {
       const jobs = Array.from(state.jobs.values())
         .filter((job) => job.job_id)
@@ -2361,6 +2444,7 @@ INDEX_HTML = r"""<!doctype html>
       return `<div class="job-list">` + jobs.map((job) => {
         const jobId = job.job_id || "";
         const progress = jobProgressText(job);
+        const syncState = syncJobStateText(job);
         const logs = asList(job.logs).slice(-8).map((entry) => {
           const bits = [entry.at, entry.message, entry.project_key, entry.error].filter(Boolean).join(" ");
           return `<li>${esc(bits)}</li>`;
@@ -2376,6 +2460,7 @@ INDEX_HTML = r"""<!doctype html>
             ${canStopJob(job) ? `<div class="actions"><button class="danger" data-stop-job="${esc(jobId)}" title="Request this enrich-all job to stop after the current project finishes, then mark its checkpoint interrupted for resume.">Stop after current project</button></div>` : ""}
             ${job.run_id ? `<div class="muted">run: ${esc(job.run_id)}${job.checkpoint_path ? ` / ${esc(job.checkpoint_path)}` : ""}</div>` : ""}
             ${progress ? `<div class="muted">${esc(progress)}</div>` : ""}
+            ${syncState ? `<div class="muted">${esc(syncState)}</div>` : ""}
             ${logs ? `<ul>${logs}</ul>` : `<div class="muted">No logs yet.</div>`}
             <details class="job-raw" data-job-id="${esc(jobId)}" ${openRawJobIds.has(jobId) ? "open" : ""}><summary>Raw JSON</summary><pre>${esc(JSON.stringify(job, null, 2))}</pre></details>
           </details>

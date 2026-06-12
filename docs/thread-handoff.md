@@ -181,6 +181,15 @@
     - queued / running job は retention で削除しない
   - 未接続:
     - サーバー再起動後の job / log 永続化
+- 直近 core 更新の Web UI 接続状況
+  - 実装済み:
+    - `review-out-of-scope`、`tracking_state=out_of_scope`、検索 filter、Enrich All の include option
+    - review-stalled の `Max enrich age days` 表示と core の freshness gate
+    - sync の増分同期既定、`--no-incremental` 相当 toggle、all-history、scan/state/watermark の結果要約
+  - 追加接続不要:
+    - resolved lexicon authority service host の信頼判定は、Web enrich が通常の `enrich_project()` を呼ぶため同じ core 実装を使用する
+  - 未接続:
+    - sync 実行前に保存済み scope/watermark を一覧・削除する管理画面
 - `assist-db-edit` の強化
   - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
   - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
