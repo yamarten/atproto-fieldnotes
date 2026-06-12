@@ -5,7 +5,8 @@
 ## まず知っておくこと
 
 - DB は `data/survey.db`
-- 主要テーブルは `projects` だけ
+- 主データテーブルは `projects`
+- source ごとの増分 checkpoint は `sync_state`
 - `projects` は現在
   - scalar columns
   - `record_json`
@@ -34,6 +35,11 @@
   - DB への直接 SQL 更新
 - `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
   - 棚卸しだけ行う場合は `--no-create-unmatched`
+- 全 `sync-*` は増分実行が既定
+  - successful execute のみ `sync_state` を更新する
+  - dry-run / 不完全走査 / `--no-create-unmatched` の未一致残りでは更新しない
+  - `sync-introduced` の未一致 URL は state に保留して後日再照合する
+  - 全履歴の再走査は `--all-history`
 - `sync-semble-collections` は Semble の現行 XRPC API
   `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使う
   - 旧 `/api/collections/at/{handle}/{rkey}` は 2026-06-07 時点で live 404 を返すことを確認済み
@@ -191,9 +197,12 @@
   - 差分だけをざっと確認する report view
   - ただし独立 snapshot/state テーブル群は復活させない前提
 - `sync-*` の増分最適化
-  - `sync-collections` は import 自体は増分化済みだが fetch は全件
-  - `sync-github-search` は query の broadness と screen 精度をもう少し詰めたい
-  - `sync-semble-collections` は固定 2 collection 前提なので、必要なら設定化する
+  - 実装済み: introduced / collections / GitHub / Semble の source 別 watermark
+  - 動作確認済み: temp DB と mocked HTTP による state 更新、境界停止、未一致保留、dry-run 非更新
+  - 未検証: 実 API を使った連続 2 回の execute による速度・取得件数の比較
+  - 制約: `sync-collections` は activity refresh のため fetch 自体は全件
+  - 制約: Bluesky search cursor は全検索結果を走査できる保証がない
+  - 将来候補: GitHub query の broadness、screen 精度、Semble tracked collection の設定化
 - review 系の改善
   - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
   - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
@@ -248,6 +257,15 @@
 - `review-stalled`
   - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
   - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない
+  - `active/watchlist -> stalled` は最近enrich済みのprojectだけを対象にし、古いenrich結果自体は停止根拠にしない
+- `out_of_scope`
+  - atproto関連だが現在の紹介・重点調査スコープ外のprojectを保持する状態として実装済み
+  - `review-out-of-scope` は owned surfaceのない `auth_only` と低noveltyのBluesky従属utilityを候補化する
+  - 通常の enrich/review/promotionからは外すが、sync/merge照合、明示enrich、手動復帰は維持する
+  - 新しいowned protocol surfaceが見つかると `review-out-of-scope` に `active` 復帰候補として出る
+  - sync/enrich途中での無確認な自動復帰は未接続
+  - 現行DBでは、owned surfaceのない明確な `auth_only` 8件を `out_of_scope` へ移行済み
+  - derivative候補は5件残っているが、`atproto-explorer` や `firehose` のような技術調査対象も含むため未適用
 - `repair-db`
   - scalar 重複除去
   - 派生フィールド再計算

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import datetime as dt
 import socket
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from io import BytesIO
+from unittest import mock
 
 from helpers import registry
 
@@ -221,6 +224,122 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
         self.assertEqual(results[0]["seed_type"], "repo_url")
         self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
         self.assertEqual(results[0]["collection_label"], "current collection name")
+
+    def test_semble_incremental_scan_stops_only_when_sort_order_is_confirmed(self) -> None:
+        cutoff = dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)
+
+        def payload(*, ordered: bool) -> dict:
+            return {
+                "name": "apps",
+                "urlCards": [
+                    {
+                        "url": "https://new.example/",
+                        "updatedAt": "2026-06-06T00:00:00Z",
+                        "createdAt": "2026-06-06T00:00:00Z",
+                    },
+                    {
+                        "url": "https://old.example/",
+                        "updatedAt": "2026-06-04T00:00:00Z",
+                        "createdAt": "2026-06-04T00:00:00Z",
+                    },
+                ],
+                "pagination": {"hasMore": True},
+                **({"sorting": {"sortBy": "updatedAt", "sortOrder": "desc"}} if ordered else {}),
+            }
+
+        source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
+        with mock.patch.object(registry, "request_json", return_value=payload(ordered=True)):
+            ordered_scan = registry.fetch_semble_collection_source_sync_results(
+                source,
+                pages=2,
+                per_page=2,
+                cutoff=cutoff,
+            )
+        with mock.patch.object(registry, "request_json", side_effect=[payload(ordered=False), {**payload(ordered=False), "urlCards": [], "pagination": {"hasMore": False}}]):
+            unordered_scan = registry.fetch_semble_collection_source_sync_results(
+                source,
+                pages=2,
+                per_page=2,
+                cutoff=cutoff,
+            )
+
+        self.assertTrue(ordered_scan["boundary_reached"])
+        self.assertEqual(ordered_scan["pages"], 1)
+        self.assertFalse(unordered_scan["boundary_reached"])
+        self.assertEqual(unordered_scan["pages"], 2)
+        self.assertTrue(unordered_scan["scan_complete"])
+
+
+class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
+    def test_bsky_search_requests_latest_posts_since_watermark(self) -> None:
+        seen_urls: list[str] = []
+
+        def fake_request(url: str, token: str, headers=None, *, timeout=0):
+            seen_urls.append(url)
+            return {"posts": []}
+
+        with mock.patch.object(registry, "bsky_authenticated_app_url", return_value="https://example.test/xrpc/search"), mock.patch.object(
+            registry,
+            "bsky_access_token",
+            return_value="token",
+        ), mock.patch.object(registry, "request_json_authenticated", side_effect=fake_request):
+            registry.search_bsky_posts_payload(
+                "from:example.test",
+                limit=5,
+                since="2026-06-01T00:00:00+00:00",
+            )
+
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(seen_urls[0]).query)
+        self.assertEqual(query["sort"], ["latest"])
+        self.assertEqual(query["limit"], ["5"])
+        self.assertEqual(query["since"], ["2026-06-01T00:00:00+00:00"])
+
+    def test_github_scan_includes_watermark_timestamp_and_stops_below_it(self) -> None:
+        cutoff = dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)
+        seen_urls: list[str] = []
+        payload = {
+            "items": [
+                {"html_url": "https://github.com/example/new", "updated_at": "2026-06-06T00:00:00Z"},
+                {"html_url": "https://github.com/example/equal", "updated_at": "2026-06-05T00:00:00Z"},
+                {"html_url": "https://github.com/example/old", "updated_at": "2026-06-04T00:00:00Z"},
+            ]
+        }
+
+        def fake_request(url: str, headers=None):
+            seen_urls.append(url)
+            return payload
+
+        with mock.patch.object(registry, "request_json", side_effect=fake_request):
+            scan = registry.fetch_github_search_query_sync_results(
+                "atproto",
+                pages=3,
+                per_page=3,
+                cutoff=cutoff,
+            )
+
+        self.assertEqual([item["url"] for item in scan["results"]], [
+            "https://github.com/example/new",
+            "https://github.com/example/equal",
+        ])
+        self.assertTrue(scan["boundary_reached"])
+        self.assertTrue(scan["scan_complete"])
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(seen_urls[0]).query)["q"][0]
+        self.assertIn("updated:>=2026-06-05", query)
+
+    def test_collection_filter_uses_latest_activity_timestamp(self) -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "collection": "app.example.post",
+                "min": (now - dt.timedelta(days=100)).isoformat(),
+                "max": (now - dt.timedelta(days=1)).isoformat(),
+            }
+        ]
+
+        filtered, stats = registry.filter_sync_collection_inventory_payload(payload, [], lookback_days=7)
+
+        self.assertEqual(filtered, payload)
+        self.assertEqual(stats["cutoff_source"], "lookback")
 
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
@@ -685,6 +804,53 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://tz2at.xyz", project["supported_service_urls"])
         self.assertIn("https://tz2at.xyz", retained_urls)
 
+    def test_verified_exact_authority_supports_spa_without_atproto_text(self) -> None:
+        project = registry.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
+        project["primary_nsid"] = "app.userinput.vote"
+        project["input_nsids"] = ["app.userinput.vote"]
+        project["resolved_nsids"] = ["app.userinput.vote"]
+        project["authority_domains"] = ["userinput.app"]
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "app.userinput.vote",
+                "resolved_nsid": "app.userinput.vote",
+                "authority_domain": "userinput.app",
+                "record_uri": "at://did:plc:example/com.atproto.lexicon.schema/app.userinput.vote",
+            }
+        ]
+        result = self.probe_result(
+            '<title>userinput.app</title><meta name="description" content="Collect feedback and vote on ideas">'
+        )
+        result["title"] = "userinput.app"
+        result["description"] = "Collect feedback and vote on ideas"
+        result["service_status"] = "unverified"
+        result["service_status_confidence"] = "low"
+        result["service_status_evidence"] = ["http_200"]
+
+        registry.apply_service_probe_result(project, "https://userinput.app", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "https://userinput.app")
+        self.assertIn("https://userinput.app", project["supported_service_urls"])
+        self.assertEqual(project["service_status"], "live")
+        self.assertIn("verified_authority_service_surface", project["service_status_evidence"])
+
+    def test_unverified_exact_authority_still_requires_page_evidence(self) -> None:
+        project = registry.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
+        project["primary_nsid"] = "app.userinput.vote"
+        project["input_nsids"] = ["app.userinput.vote"]
+        project["authority_domains"] = ["userinput.app"]
+        project["service_url_candidates"] = ["https://userinput.app"]
+        result = self.probe_result("<title>userinput.app</title>")
+        result["title"] = "userinput.app"
+
+        registry.apply_service_probe_result(project, "https://userinput.app", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["website_url"], "")
+        self.assertNotIn("https://userinput.app", project["supported_service_urls"])
+        self.assertNotIn("https://userinput.app", project["service_url_candidates"])
+
     def test_unsupported_authority_root_is_still_pruned(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["primary_nsid"] = "xyz.tz2at.raw.observation"
@@ -1123,6 +1289,105 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
             registry.review_queue_sort_score({"atproto_contribution_score": 90}, signals),
             registry.review_queue_sort_score({"atproto_contribution_score": 20}, signals),
         )
+
+
+class ProjectRegistryOutOfScopeTest(unittest.TestCase):
+    def test_auth_only_without_owned_protocol_surface_is_candidate(self) -> None:
+        project = registry.default_project_record("proj:authonly", "repo_url", "https://github.com/example/auth")
+        project["category"] = "auth_only"
+
+        entry = registry.out_of_scope_review_entry(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["kind"], "auth_only_without_owned_protocol_surface")
+        self.assertEqual(entry["suggested_tracking_state"], "out_of_scope")
+
+    def test_auth_only_with_owned_protocol_surface_is_not_automatic_candidate(self) -> None:
+        project = registry.default_project_record("proj:authwithnsid", "nsid", "app.example.record")
+        project["category"] = "auth_only"
+        project["resolved_nsids"] = ["app.example.record"]
+
+        self.assertIsNone(registry.out_of_scope_review_entry(project))
+
+    def test_out_of_scope_is_not_an_ignore_candidate(self) -> None:
+        project = registry.default_project_record("proj:scoped", "repo_url", "https://github.com/example/fork")
+        project["tracking_state"] = "out_of_scope"
+
+        self.assertIsNone(registry.ignore_review_entry(project))
+
+    def test_out_of_scope_with_owned_protocol_surface_is_reactivation_candidate(self) -> None:
+        project = registry.default_project_record("proj:reactivate", "nsid", "app.example.record")
+        project["tracking_state"] = "out_of_scope"
+        project["resolved_nsids"] = ["app.example.record"]
+
+        entry = registry.out_of_scope_review_entry(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["kind"], "owned_protocol_surface_detected")
+        self.assertEqual(entry["suggested_tracking_state"], "active")
+
+
+class ProjectRegistryStalledReviewTest(unittest.TestCase):
+    NOW = dt.datetime(2026, 6, 12, tzinfo=dt.timezone.utc)
+
+    def inactive_project(self) -> dict:
+        project = registry.default_project_record("proj:inactive", "repo_url", "https://github.com/example/inactive")
+        project["tracking_state"] = "active"
+        project["service_status"] = "unknown"
+        project["source_code_urls"] = ["https://github.com/example/inactive"]
+        project["source_repo_records"] = [
+            {
+                "url": "https://github.com/example/inactive",
+                "provider": "github",
+                "confidence": "confirmed",
+                "relation": "source_repo",
+                "source": "test",
+                "updated_at": "2025-01-01T00:00:00+00:00",
+            }
+        ]
+        return project
+
+    def review(self, project: dict) -> dict | None:
+        return registry.stalled_review_entry(
+            project,
+            now=self.NOW,
+            inactivity_days=45,
+            max_enrich_age_days=30,
+        )
+
+    def test_recent_enrich_allows_inactivity_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["last_enriched_at"] = "2026-06-10T00:00:00+00:00"
+
+        entry = self.review(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["suggested_tracking_state"], "stalled")
+        self.assertNotIn("not enriched", " ".join(entry["reasons"]))
+
+    def test_stale_enrich_suppresses_inactivity_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["last_enriched_at"] = "2026-01-01T00:00:00+00:00"
+
+        self.assertIsNone(self.review(project))
+
+    def test_never_enriched_suppresses_dead_service_downgrade(self) -> None:
+        project = self.inactive_project()
+        project["service_status"] = "dead"
+        project["last_enriched_at"] = ""
+
+        self.assertIsNone(self.review(project))
+
+    def test_stale_enrich_does_not_block_activity_reactivation(self) -> None:
+        project = self.inactive_project()
+        project["tracking_state"] = "stalled"
+        project["last_enriched_at"] = "2026-01-01T00:00:00+00:00"
+        project["source_repo_records"][0]["updated_at"] = "2026-06-11T00:00:00+00:00"
+
+        entry = self.review(project)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["suggested_tracking_state"], "active")
 
 
 class ProjectRegistryTechnicalInterestTest(unittest.TestCase):

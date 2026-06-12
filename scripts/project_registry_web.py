@@ -575,7 +575,7 @@ INDEX_HTML = r"""<!doctype html>
     <h1>Project Registry</h1>
     <div class="tabs">
       <button id="tab-review" class="active" title="Show projects that need review. This does not change the DB.">Review</button>
-      <button id="tab-review-ops" title="Run review-stalled or review-ignore dry-runs, with explicit execute available.">Review Ops</button>
+      <button id="tab-review-ops" title="Run tracking review dry-runs, with explicit execute available.">Review Ops</button>
       <button id="tab-promotion" title="Show candidates that may be ready for introduction. This does not change the DB.">Promotion</button>
       <button id="tab-merge" title="Review duplicate merge plans. Loading this list does not change the DB.">Merge</button>
       <button id="tab-sync" title="Run sync dry-runs or explicit execute jobs. Dry-run does not change the DB.">Sync</button>
@@ -638,9 +638,9 @@ INDEX_HTML = r"""<!doctype html>
       llmReasoningEffort: "",
       syncKind: "introduced",
       syncQuery: "from:yamarten.bsky.social #ATプロトーク",
-      syncLimit: 25,
-      syncMaxPages: 4,
-      syncPages: 1,
+      syncLimit: 10,
+      syncMaxPages: 20,
+      syncPages: 20,
       syncPerPage: 20,
       syncLookbackDays: 10,
       syncCreateUnmatched: true,
@@ -657,6 +657,7 @@ INDEX_HTML = r"""<!doctype html>
       enrichAllLimit: "",
       enrichAllIncludeStable: false,
       enrichAllIncludeStalled: false,
+      enrichAllIncludeOutOfScope: false,
       enrichAllIncludeArchived: false,
       enrichAllIncludeIgnore: false,
       enrichAllAllTrackingStates: false,
@@ -873,7 +874,7 @@ INDEX_HTML = r"""<!doctype html>
         <details>
           <summary>Filters${chips.length ? ` (${chips.length})` : ""}</summary>
           <div class="search-filter-grid">
-            <div class="search-filter-group"><span>Tracking state</span><div class="search-filter-options">${searchCheckboxes("search-tracking-state", ["active", "watchlist", "stable", "stalled", "archived", "ignore"], filters.trackingStates)}</div></div>
+            <div class="search-filter-group"><span>Tracking state</span><div class="search-filter-options">${searchCheckboxes("search-tracking-state", ["active", "watchlist", "stable", "stalled", "out_of_scope", "archived", "ignore"], filters.trackingStates)}</div></div>
             <div class="search-filter-group"><span>Service status</span><div class="search-filter-options">${searchCheckboxes("search-service-status", ["unknown", "unverified", "none", "dead", "live", "private", "unreleased", "beta", "invite_only"], filters.serviceStatuses)}</div></div>
             <div class="search-filter-group"><span>ATProto contribution</span><div class="search-filter-options">${searchCheckboxes("search-contribution-level", ["unknown", "optional", "auth_only", "substantial", "core"], filters.contributionLevels)}</div></div>
             <div class="search-filter-group"><span>Technical interest</span><div class="search-filter-options">${searchCheckboxes("search-technical-interest-level", ["none", "notable", "high", "exceptional"], filters.technicalInterestLevels)}</div></div>
@@ -1244,12 +1245,13 @@ INDEX_HTML = r"""<!doctype html>
       const settings = state.settings;
       $("detail").innerHTML = `
         ${detailBackButton()}
-        <div><h2>Review Ops</h2><div class="muted">Review-stalled suggests tracking_state changes; review-ignore suggests low-value projects to ignore.</div></div>
+        <div><h2>Review Ops</h2><div class="muted">Review-stalled adjusts tracking frequency; review-out-of-scope retains related projects outside the current survey scope; review-ignore is for noise.</div></div>
         <div class="section"><h3>Command</h3>
           <label>Kind
             <select id="review-ops-kind">
               ${[
                 ["stalled", "review-stalled"],
+                ["out-of-scope", "review-out-of-scope"],
                 ["ignore", "review-ignore"]
               ].map(([value, label]) => `<option value="${value}" ${value === settings.reviewOpsKind ? "selected" : ""}>${label}</option>`).join("")}
             </select>
@@ -1260,10 +1262,10 @@ INDEX_HTML = r"""<!doctype html>
         <div class="section"><h3>Review Stalled</h3>
           <div class="row" data-review-kind="stalled">
             <label>Inactivity days <input id="review-ops-inactivity-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsInactivityDays)}"></label>
-            <label>Enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
+            <label>Max enrich age days <input id="review-ops-enrich-age-days" type="number" min="1" max="3650" value="${esc(settings.reviewOpsEnrichAgeDays)}"></label>
           </div>
         </div>
-        <div class="section" data-review-kind="ignore"><h3>Review Ignore</h3>
+        <div class="section" data-review-kind="out-of-scope ignore"><h3>Scope / Ignore Review</h3>
           <label class="row"><input id="review-ops-include-stable" type="checkbox" ${settings.reviewOpsIncludeStable ? "checked" : ""}> Include stable</label>
           <label class="row"><input id="review-ops-include-stalled" type="checkbox" ${settings.reviewOpsIncludeStalled ? "checked" : ""}> Include stalled</label>
           <label>Note reason
@@ -1271,9 +1273,10 @@ INDEX_HTML = r"""<!doctype html>
               ${[
                 ["", "(auto/default)"],
                 ["atproto_unrelated", "atproto_unrelated"],
-                ["out_of_scope", "out_of_scope"],
+                ["auth_only", "auth_only"],
                 ["personal_experiment", "personal_experiment"],
                 ["derivative_utility", "derivative_utility"],
+                ["client_only", "client_only"],
                 ["fork_without_identity", "fork_without_identity"],
                 ["other", "other"]
               ].map(([value, label]) => `<option value="${value}" ${value === settings.reviewOpsNoteReason ? "selected" : ""}>${label}</option>`).join("")}
@@ -1317,7 +1320,7 @@ INDEX_HTML = r"""<!doctype html>
             <label class="row"><input id="sync-execute" type="checkbox"> Execute writes to SQLite</label>
             <label class="row"><input id="sync-create-unmatched" type="checkbox" ${settings.syncCreateUnmatched ? "checked" : ""}> Create unmatched projects</label>
             <label class="row" data-sync-kind="github-search"><input id="sync-screen-unmatched" type="checkbox" ${settings.syncScreenUnmatched ? "checked" : ""}> Screen unmatched GitHub repos</label>
-            <label class="row" data-sync-kind="github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
+            <label class="row" data-sync-kind="introduced collections github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
           </div>
           <div class="section"><h3>Inputs</h3>
             <label data-sync-kind="introduced">Introduced query <input id="sync-query" type="text" value="${esc(settings.syncQuery)}" placeholder="from:yamarten.bsky.social #ATプロトーク"></label>
@@ -1330,7 +1333,7 @@ INDEX_HTML = r"""<!doctype html>
             <div class="row">
               <label data-sync-kind="github-search semble-collections">Pages <input id="sync-pages" type="number" min="1" max="20" value="${esc(settings.syncPages)}"></label>
               <label data-sync-kind="github-search semble-collections">Per page <input id="sync-per-page" type="number" min="1" max="100" value="${esc(settings.syncPerPage)}"></label>
-              <label data-sync-kind="collections github-search semble-collections">Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
+              <label data-sync-kind="introduced collections github-search semble-collections">Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
             </div>
           </div>
           <div class="actions">
@@ -1346,6 +1349,7 @@ INDEX_HTML = r"""<!doctype html>
             <label class="row"><input id="enrich-all-all-states" type="checkbox" ${settings.enrichAllAllTrackingStates ? "checked" : ""}> All tracking states</label>
             <label class="row"><input id="enrich-all-include-stable" type="checkbox" ${settings.enrichAllIncludeStable ? "checked" : ""}> Include stable</label>
             <label class="row"><input id="enrich-all-include-stalled" type="checkbox" ${settings.enrichAllIncludeStalled ? "checked" : ""}> Include stalled</label>
+            <label class="row"><input id="enrich-all-include-out-of-scope" type="checkbox" ${settings.enrichAllIncludeOutOfScope ? "checked" : ""}> Include out of scope</label>
             <label class="row"><input id="enrich-all-include-archived" type="checkbox" ${settings.enrichAllIncludeArchived ? "checked" : ""}> Include archived</label>
             <label class="row"><input id="enrich-all-include-ignore" type="checkbox" ${settings.enrichAllIncludeIgnore ? "checked" : ""}> Include ignore</label>
             <label>Run id <input id="enrich-all-run-id" type="text" value="${esc(settings.enrichAllRunId || "")}" placeholder="blank = auto" title="Optional checkpoint run id. Blank creates a generated id."></label>
@@ -1431,9 +1435,9 @@ INDEX_HTML = r"""<!doctype html>
         query: $("sync-query").value.trim(),
         source_url: $("sync-source-url").value.trim(),
         github_query: $("sync-github-query").value.trim(),
-        limit: numberSetting("sync-limit", 25),
-        max_pages: numberSetting("sync-max-pages", 4),
-        pages: numberSetting("sync-pages", 1),
+        limit: numberSetting("sync-limit", 10),
+        max_pages: numberSetting("sync-max-pages", 20),
+        pages: numberSetting("sync-pages", 20),
         per_page: numberSetting("sync-per-page", 20),
         lookback_days: numberSetting("sync-lookback-days", 10)
       };
@@ -1488,6 +1492,7 @@ INDEX_HTML = r"""<!doctype html>
         all_tracking_states: $("enrich-all-all-states").checked,
         include_stable: $("enrich-all-include-stable").checked,
         include_stalled: $("enrich-all-include-stalled").checked,
+        include_out_of_scope: $("enrich-all-include-out-of-scope").checked,
         include_archived: $("enrich-all-include-archived").checked,
         include_ignore: $("enrich-all-include-ignore").checked,
         run_id: $("enrich-all-run-id").value.trim(),
@@ -1503,6 +1508,7 @@ INDEX_HTML = r"""<!doctype html>
         enrichAllAllTrackingStates: payload.all_tracking_states,
         enrichAllIncludeStable: payload.include_stable,
         enrichAllIncludeStalled: payload.include_stalled,
+        enrichAllIncludeOutOfScope: payload.include_out_of_scope,
         enrichAllIncludeArchived: payload.include_archived,
         enrichAllIncludeIgnore: payload.include_ignore,
         enrichAllRunId: payload.run_id,
@@ -1547,7 +1553,7 @@ INDEX_HTML = r"""<!doctype html>
       };
       $("run-enrich-all").onclick = async () => {
         const payload = readEnrichAllPayload();
-        const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
+        const stateText = payload.all_tracking_states ? "all tracking states" : ["active", "watchlist"].concat(payload.include_stable ? ["stable"] : [], payload.include_stalled ? ["stalled"] : [], payload.include_out_of_scope ? ["out_of_scope"] : [], payload.include_archived ? ["archived"] : [], payload.include_ignore ? ["ignore"] : []).join(", ");
         const limitText = payload.limit === null ? "unlimited" : String(payload.limit);
         const runText = payload.resume_run ? `resume ${payload.resume_run}` : (payload.run_id ? payload.run_id : "auto");
         const checkpointText = payload.checkpoint_path || "default data/enrich-runs path";
@@ -1576,7 +1582,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function runReviewOpsJob(payload) {
-      const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : "/api/review-stalled";
+      const endpoint = payload.kind === "ignore" ? "/api/review-ignore" : (payload.kind === "out-of-scope" ? "/api/review-out-of-scope" : "/api/review-stalled");
       const mode = payload.execute ? "EXECUTE and write suggested tracking_state changes" : "dry-run without DB writes";
       if (!(await confirmAction(`Run review-${payload.kind}?\n\nMode: ${mode}\nMax candidates: ${payload.limit}\n\nDry-run is for inspection. Execute updates SQLite.`))) return;
       status("Starting review job...");
@@ -2039,7 +2045,7 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div class="actions">
             <select id="tracking-state">
-              ${["active", "watchlist", "stable", "stalled", "archived", "ignore"].map((s) => `<option value="${s}" ${s === p.tracking_state ? "selected" : ""}>${s}</option>`).join("")}
+              ${["active", "watchlist", "stable", "stalled", "out_of_scope", "archived", "ignore"].map((s) => `<option value="${s}" ${s === p.tracking_state ? "selected" : ""}>${s}</option>`).join("")}
             </select>
             <button id="save-state" title="Write the selected tracking_state to SQLite for this project.">Set state</button>
             <button id="enrich" title="Start background enrich for this project. This may update SQLite after external checks finish.">Enrich</button>
@@ -3343,11 +3349,12 @@ def sync_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
         "create_unmatched": bool(payload.get("create_unmatched", True)),
         "screen_unmatched": bool(payload.get("screen_unmatched")),
         "all_history": bool(payload.get("all_history")),
+        "incremental": bool(payload.get("incremental", True)),
         "query": str(payload.get("query") or "").strip(),
         "source_url": str(payload.get("source_url") or "").strip(),
         "github_query": str(payload.get("github_query") or "").strip(),
-        "limit": max(1, min(500, int(payload.get("limit") or 25))),
-        "max_pages": max(1, min(20, int(payload.get("max_pages") or 4))),
+        "limit": max(1, min(100, int(payload.get("limit") or 10))),
+        "max_pages": max(1, min(100, int(payload.get("max_pages") or 20))),
         "pages": max(1, min(20, int(payload.get("pages") or 1))),
         "per_page": max(1, min(100, int(payload.get("per_page") or 20))),
         "lookback_days": max(0, min(3650, int(payload.get("lookback_days") or 10))),
@@ -3362,8 +3369,11 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             conn,
             query=str(payload.get("query") or "from:yamarten.bsky.social #ATプロトーク"),
             execute=bool(payload.get("execute")),
-            limit=int(payload.get("limit") or 25),
-            max_pages=int(payload.get("max_pages") or 4),
+            limit=int(payload.get("limit") or 10),
+            max_pages=int(payload.get("max_pages") or 20),
+            lookback_days=int(payload.get("lookback_days") or 7),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "collections":
         collection_cfg = config.get("collection_inventory", {}) if isinstance(config.get("collection_inventory", {}), dict) else {}
@@ -3376,6 +3386,8 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             execute=bool(payload.get("execute")),
             create_unmatched=bool(payload.get("create_unmatched")),
             lookback_days=int(payload.get("lookback_days") or 10),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "github-search":
         github_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
@@ -3390,17 +3402,21 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             create_unmatched=bool(payload.get("create_unmatched")),
             pages=int(payload.get("pages") or github_cfg.get("pages") or 4),
             per_page=int(payload.get("per_page") or github_cfg.get("per_page") or 50),
-            lookback_days=None if payload.get("all_history") else int(payload.get("lookback_days") or 10),
+            lookback_days=int(payload.get("lookback_days") or 10),
             screen_unmatched=bool(payload.get("screen_unmatched")),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "semble-collections":
         return registry.sync_semble_collections(
             conn,
             execute=bool(payload.get("execute")),
             create_unmatched=bool(payload.get("create_unmatched")),
-            pages=int(payload.get("pages") or 1),
+            pages=int(payload.get("pages") or 20),
             per_page=int(payload.get("per_page") or 20),
-            lookback_days=None if payload.get("all_history") else int(payload.get("lookback_days") or 14),
+            lookback_days=int(payload.get("lookback_days") or 14),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     raise ValueError(f"unsupported sync kind: {kind}")
 
@@ -3420,6 +3436,8 @@ def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
         states.add("stable")
     if bool(payload.get("include_stalled")):
         states.add("stalled")
+    if bool(payload.get("include_out_of_scope")):
+        states.add("out_of_scope")
     if bool(payload.get("include_archived")):
         states.add("archived")
     if bool(payload.get("include_ignore")):
@@ -3433,6 +3451,7 @@ def enrich_all_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
         "tracking_states": None if bool(payload.get("all_tracking_states")) else sorted(states),
         "include_stable": bool(payload.get("include_stable")),
         "include_stalled": bool(payload.get("include_stalled")),
+        "include_out_of_scope": bool(payload.get("include_out_of_scope")),
         "include_archived": bool(payload.get("include_archived")),
         "include_ignore": bool(payload.get("include_ignore")),
         "limit": optional_positive_int(payload.get("limit")),
@@ -3455,6 +3474,7 @@ def enrich_all_args_from_payload(payload: dict[str, Any]) -> argparse.Namespace:
         tracking_states=payload.get("tracking_states"),
         include_stable=bool(payload.get("include_stable")),
         include_stalled=bool(payload.get("include_stalled")),
+        include_out_of_scope=bool(payload.get("include_out_of_scope")),
         include_archived=bool(payload.get("include_archived")),
         include_ignore=bool(payload.get("include_ignore")),
         new_only=bool(payload.get("new_only")),
@@ -3494,21 +3514,28 @@ def review_stalled_payload_from_request(payload: dict[str, Any]) -> dict[str, An
     }
 
 
-def review_ignore_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+def review_classification_payload_from_request(payload: dict[str, Any], review_kind: str) -> dict[str, Any]:
     tracking_states = {"active", "watchlist"}
     if bool(payload.get("include_stable", True)):
         tracking_states.add("stable")
     if bool(payload.get("include_stalled", True)):
         tracking_states.add("stalled")
+    if review_kind == "out-of-scope":
+        tracking_states.add("out_of_scope")
     requested_states = payload.get("tracking_states")
     if isinstance(requested_states, list) and requested_states:
         cleaned = {registry.normalize_tracking_state(str(item or "")) for item in requested_states}
         tracking_states = {state for state in cleaned if state in registry.TRACKING_STATES} or tracking_states
     note_reason = str(payload.get("note_reason") or "").strip()
-    if note_reason and note_reason not in registry.IGNORE_REVIEW_NOTE_REASONS:
+    allowed_note_reasons = (
+        registry.OUT_OF_SCOPE_REVIEW_NOTE_REASONS
+        if review_kind == "out-of-scope"
+        else registry.IGNORE_REVIEW_NOTE_REASONS
+    )
+    if note_reason and note_reason not in allowed_note_reasons:
         raise ValueError("invalid note_reason")
     return {
-        "kind": "ignore",
+        "kind": review_kind,
         "execute": bool(payload.get("execute")),
         "limit": max(1, min(500, int(payload.get("limit") or 100))),
         "tracking_states": sorted(tracking_states),
@@ -3517,10 +3544,18 @@ def review_ignore_payload_from_request(payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def review_ignore_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    return review_classification_payload_from_request(payload, "ignore")
+
+
+def review_out_of_scope_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    return review_classification_payload_from_request(payload, "out-of-scope")
+
+
 def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
     now = dt.datetime.now(dt.timezone.utc)
     inactivity_days = int(payload.get("inactivity_days") or 45)
-    enrich_age_days = int(payload.get("enrich_age_days") or 30)
+    max_enrich_age_days = int(payload.get("enrich_age_days") or 30)
     project_list = [
         registry.ensure_project_shape(project)
         for project in registry.list_projects(conn, tracking_states={"active", "watchlist", "stalled"})
@@ -3528,7 +3563,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
     candidates = [
         entry
         for project in project_list
-        if (entry := registry.stalled_review_entry(project, now=now, inactivity_days=inactivity_days, enrich_age_days=enrich_age_days))
+        if (entry := registry.stalled_review_entry(project, now=now, inactivity_days=inactivity_days, max_enrich_age_days=max_enrich_age_days))
     ]
     candidates.sort(key=lambda item: (str(item.get("suggested_tracking_state") or "") != "active", str(item.get("project_key") or "")))
     total_candidates = len(candidates)
@@ -3544,7 +3579,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
         return {
             "mode": "dry_run",
             "inactivity_days": inactivity_days,
-            "enrich_age_days": enrich_age_days,
+            "enrich_age_days": max_enrich_age_days,
             "candidate_count": len(candidates),
             "total_candidate_count": total_candidates,
             "suggested_state_counts": suggested_state_counts,
@@ -3553,7 +3588,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
 
     updated: list[str] = []
     updated_with_state: list[dict[str, str]] = []
-    note = str(payload.get("note") or f"auto-updated after review-stalled inactivity_days={inactivity_days} enrich_age_days={enrich_age_days}")
+    note = str(payload.get("note") or f"auto-updated after review-stalled inactivity_days={inactivity_days} max_enrich_age_days={max_enrich_age_days}")
     for item in candidates:
         project_key = str(item.get("project_key") or "")
         project = registry.fetch_project(conn, project_key)
@@ -3572,7 +3607,7 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
     return {
         "mode": "execute",
         "inactivity_days": inactivity_days,
-        "enrich_age_days": enrich_age_days,
+        "enrich_age_days": max_enrich_age_days,
         "updated_count": len(updated),
         "updated_project_keys": updated,
         "updated_projects": updated_with_state,
@@ -3580,10 +3615,25 @@ def run_review_stalled_payload(conn: sqlite3.Connection, payload: dict[str, Any]
     }
 
 
-def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
-    tracking_states = set(payload.get("tracking_states") or ["active", "watchlist", "stable", "stalled"])
+def run_review_classification_payload(
+    conn: sqlite3.Connection,
+    payload: dict[str, Any],
+    *,
+    review_name: str,
+    target_state: str,
+    entry_builder: Any,
+    default_note_reason: Any,
+    build_note: Any,
+    default_tracking_states: set[str] | None = None,
+    log: Any | None = None,
+) -> dict[str, Any]:
+    tracking_states = set(
+        payload.get("tracking_states")
+        or default_tracking_states
+        or ["active", "watchlist", "stable", "stalled"]
+    )
     project_list = [registry.ensure_project_shape(project) for project in registry.list_projects(conn, tracking_states=tracking_states)]
-    candidates = [entry for project in project_list if (entry := registry.ignore_review_entry(project))]
+    candidates = [entry for project in project_list if (entry := entry_builder(project))]
     candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
     total_candidates = len(candidates)
     candidates = candidates[: int(payload.get("limit") or 100)]
@@ -3592,7 +3642,7 @@ def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any],
         kind = str(item.get("kind") or "")
         kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
     if log:
-        log("review-ignore candidates selected", candidate_count=len(candidates), total_candidates=total_candidates)
+        log(f"{review_name} candidates selected", candidate_count=len(candidates), total_candidates=total_candidates)
 
     if not payload.get("execute"):
         return {
@@ -3614,18 +3664,21 @@ def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any],
         if not project:
             continue
         project = registry.ensure_project_shape(project)
-        project["tracking_state"] = "ignore"
-        reason_key = default_reason_key or registry.default_ignore_review_note_reason(item)
-        note = static_note or registry.build_ignore_review_note(item, reason_key)
+        next_state = str(item.get("suggested_tracking_state") or target_state)
+        project["tracking_state"] = next_state
+        reason_key = default_reason_key or default_note_reason(item)
+        note = static_note or build_note(item, reason_key)
         if static_note and default_reason_key:
-            note = registry.build_ignore_review_note(item, reason_key, static_note)
-        if note and not str(project.get("tracking_note") or "").strip():
+            note = build_note(item, reason_key, static_note)
+        if next_state == "active" and str(item.get("kind") or "") == "owned_protocol_surface_detected":
+            project["tracking_note"] = "reactivated after owned protocol surface detection"
+        elif note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = note
         registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated.append(project["project_key"])
         noted_project_keys.append({"project_key": project["project_key"], "tracking_note": str(project.get("tracking_note") or "")})
         if log:
-            log("updated ignored review candidate", project_key=project["project_key"], kind=str(item.get("kind") or ""))
+            log(f"updated {target_state} review candidate", project_key=project["project_key"], kind=str(item.get("kind") or ""))
     conn.commit()
     return {
         "mode": "execute",
@@ -3635,6 +3688,33 @@ def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any],
         "updated_tracking_notes": noted_project_keys,
         "kind_counts": kind_counts,
     }
+
+
+def run_review_ignore_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
+    return run_review_classification_payload(
+        conn,
+        payload,
+        review_name="review-ignore",
+        target_state="ignore",
+        entry_builder=registry.ignore_review_entry,
+        default_note_reason=registry.default_ignore_review_note_reason,
+        build_note=registry.build_ignore_review_note,
+        log=log,
+    )
+
+
+def run_review_out_of_scope_payload(conn: sqlite3.Connection, payload: dict[str, Any], *, log: Any | None = None) -> dict[str, Any]:
+    return run_review_classification_payload(
+        conn,
+        payload,
+        review_name="review-out-of-scope",
+        target_state="out_of_scope",
+        entry_builder=registry.out_of_scope_review_entry,
+        default_note_reason=registry.default_out_of_scope_review_note_reason,
+        build_note=registry.build_out_of_scope_review_note,
+        default_tracking_states={"active", "watchlist", "stable", "stalled", "out_of_scope"},
+        log=log,
+    )
 
 
 class ProjectRegistryWebServer(ThreadingHTTPServer):
@@ -4084,10 +4164,12 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
     def start_review_job(self, review_kind: str, payload: dict[str, Any]) -> str:
         if review_kind == "stalled":
             review_payload = review_stalled_payload_from_request(payload)
+        elif review_kind == "out-of-scope":
+            review_payload = review_out_of_scope_payload_from_request(payload)
         elif review_kind == "ignore":
             review_payload = review_ignore_payload_from_request(payload)
         else:
-            raise ValueError("review_kind must be stalled or ignore")
+            raise ValueError("review_kind must be stalled, out-of-scope, or ignore")
         job_id = uuid.uuid4().hex
         self.store_job({
             "job_id": job_id,
@@ -4112,10 +4194,12 @@ class ProjectRegistryWebServer(ThreadingHTTPServer):
             try:
                 if review_kind == "stalled":
                     result = run_review_stalled_payload(conn, payload, log=lambda message, **fields: self.append_job_log(job_id, message, **fields))
+                elif review_kind == "out-of-scope":
+                    result = run_review_out_of_scope_payload(conn, payload, log=lambda message, **fields: self.append_job_log(job_id, message, **fields))
                 elif review_kind == "ignore":
                     result = run_review_ignore_payload(conn, payload, log=lambda message, **fields: self.append_job_log(job_id, message, **fields))
                 else:
-                    raise ValueError("review_kind must be stalled or ignore")
+                    raise ValueError("review_kind must be stalled, out-of-scope, or ignore")
             finally:
                 conn.close()
             self.append_job_log(job_id, f"review-{review_kind} job finished", mode=str(result.get("mode") or ""))
@@ -4393,6 +4477,10 @@ class ProjectRegistryHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/review-ignore":
             job_id = self.server.start_review_job("ignore", payload)
+            self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/review-out-of-scope":
+            job_id = self.server.start_review_job("out-of-scope", payload)
             self.send_json({"job_id": job_id, "status": "queued"}, status=HTTPStatus.ACCEPTED)
             return
         if not path.startswith("/api/projects/"):

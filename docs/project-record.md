@@ -281,10 +281,16 @@ derived compatibility view は保存 payload / API payload / export 互換のた
   - 情報不足、招待制、未公開などで追跡したい
 - `stable`
   - 安定運営。通常の `enrich --all` からは外す
+- `out_of_scope`
+  - atprotoとの関係はあるが、現在の紹介・重点調査スコープ外
+  - Blueskyクライアント、認証用途のみ、従属utilityなどを想定する
+  - registryには残し、sync/merge照合や将来の再評価対象には含める
+  - 通常の `enrich --all`、review queue、promotion queueからは外す
 - `archived`
   - 開発終了や追跡完了。通常の `enrich --all` からは外す
 - `ignore`
-  - ノイズまたは対象外。通常の `enrich --all` からは外す
+  - atproto無関係、誤登録、独立identityのない複製などのノイズ
+  - 通常の再評価を期待しない。通常の `enrich --all` からは外す
 
 ## `service_status`
 

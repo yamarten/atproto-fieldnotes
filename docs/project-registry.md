@@ -116,11 +116,12 @@ python3 scripts/project_registry.py enrich --all --no-checkpoint
 
 Ctrl+C で中断した場合、Python traceback は出さず、JSON lines に `interrupted: true`、`run_id`、`checkpoint_path`、`resume_command` を出して終了コード `130` で終わります。再開時は checkpoint に保存された最初の対象リストを使い、完了済み project を飛ばします。
 
-`stable` / `stalled` / `archived` / `ignore` も回したい場合:
+`stable` / `stalled` / `out_of_scope` / `archived` / `ignore` も回したい場合:
 
 ```bash
 python3 scripts/project_registry.py enrich --all --include-stable
 python3 scripts/project_registry.py enrich --all --include-stalled
+python3 scripts/project_registry.py enrich --all --include-out-of-scope
 python3 scripts/project_registry.py enrich --all --include-archived
 python3 scripts/project_registry.py enrich --all --include-ignore
 ```
@@ -172,7 +173,7 @@ python3 scripts/project_registry_web.py \
 v1 でできること:
 
 - `review-queue` / `promotion-queue` の確認
-- `review-stalled` / `review-ignore` 相当の dry-run と明示 execute
+- `review-stalled` / `review-out-of-scope` / `review-ignore` 相当の dry-run と明示 execute
 - project 詳細と raw JSON の確認
 - `tracking_state` の単体更新
 - review signal の dismissal
@@ -233,8 +234,9 @@ API は `GET /api/projects` の `q`, `tracking_states`, `service_statuses`, `con
 
 `Review Ops` タブでは、review 系の CLI 相当処理を background job として開始できます。
 
-- `review-stalled`: inactivity / enrich age 条件から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
-- `review-ignore`: 独自性の薄い fork や派生 Bluesky utility の `ignore` 候補を出す
+- `review-stalled`: activity と調査鮮度から `active` / `watchlist` / `stalled` の tracking_state 更新候補を出す
+- `review-out-of-scope`: 認証用途のみ、または低noveltyのBluesky従属utilityの `out_of_scope` 候補を出す
+- `review-ignore`: 独自性の薄いforkなど、再評価価値の低いノイズの `ignore` 候補を出す
 
 既定は dry-run です。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。job JSON の `logs` には、候補選択、更新、失敗理由の時系列を残します。現状のログは server process 内の in-memory job に紐づく表示で、同じサーバーに接続する別 browser / browser restart 後の tab からも `Jobs` で確認できます。サーバ再起動後の履歴永続化は未接続です。
 
@@ -263,7 +265,7 @@ project 詳細の `Research` では、`atproto_contribution` と `technical_inte
 
 既定は dry-run です。未知候補の project 作成はチェック済みで、必要なら外せます。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にし、確認ダイアログを通します。外部 API を呼び、実行時間も DB 更新範囲も大きくなり得るため、まず `data/survey.dev.db` のようなコピー DB で dry-run / execute 結果を確認してください。
 
-同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の処理を background job として開始できます。既定の対象 tracking_state は CLI と同じ `active` / `watchlist` です。`stable` / `stalled` / `out_of_scope` / `archived` / `ignore` を含める option、`new only`、`retry failures only`、deep investigation、最大件数を指定できます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。
 
 Web UI の `Enrich All` は CLI と同じ checkpoint helper を使います。run id / checkpoint path は任意指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs の `Stop after current project` は実行中 project の完了後に停止要求を処理し、checkpoint を `interrupted` として保存します。再開時は `Resume run id` と必要なら checkpoint path を指定します。checkpoint には LLM API key の値は保存しないため、再開時も Settings / 環境変数から渡します。各 project は個別に commit され、job JSON に進捗、直近の成功/失敗、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。ETA はこの Web job 内で完了/失敗した project の平均処理時間から出す概算です。
 
@@ -294,7 +296,12 @@ python3 scripts/project_registry.py sync-introduced --execute
 python3 scripts/project_registry.py sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
 ```
 
-このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。一致しなかった URL は `unmatched_entries` に出すだけです。
+このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。既定は増分同期で、初回は直近 7 日、以後は query ごとの前回成功地点から検索します。一致しなかった URL は `unmatched_entries` に出し、sync state に保留して次回も再照合します。
+
+```bash
+python3 scripts/project_registry.py sync-introduced --all-history
+python3 scripts/project_registry.py sync-introduced --no-incremental --lookback-days 14
+```
 
 見出しや注記が混ざったテキスト seed list を取り込む:
 
@@ -315,7 +322,7 @@ python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
 ```
 
-このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。`min` が直近 `10` 日以内の未知collectionだけを対象にします。
+このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。未知 collection は最新活動の `max` を使い、初回は直近 `10` 日、以後は source URL ごとの前回成功地点より新しいものだけを対象にします。
 一方で、既知 collection の activity 情報自体は毎回見直します。`count` / `recent_count` / `max` を既存 project の `collection_observations` に反映するので、最近 record が流れている stalled project を active に戻す判断にも使えます。
 
 未知候補は既定で新規 project にします。棚卸しだけ行い DB 候補を増やしたくない場合は
@@ -346,7 +353,7 @@ python3 scripts/project_registry.py sync-github-search --execute
 python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
-このコマンドは既知 repo を再取り込みしません。`updated_at` が直近 `--lookback-days` 日以内の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。
+このコマンドは既知 repo を再取り込みしません。query ごとに保存した前回成功地点まで `updated_at` 降順で走査します。state が無い初回だけ `--lookback-days` を使います。query には既定で `fork:false` と `archived:false` を足します。
 
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
@@ -366,6 +373,18 @@ python3 scripts/project_registry.py sync-github-search \
 ```
 
 この時、`screened_out_entries` に落ちたものは DB に作りません。現状は GitHub 上で fork と判定され、独立した homepage / service candidate / owned lexicon surface が見えない repo もここで落とします。問題なければ `--execute` を付けて本実行します。
+
+## sync の増分 state
+
+`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` は既定で増分同期です。successful execute の watermark を SQLite の `sync_state` に保存します。
+
+- dry-run、API error、ページ上限到達による不完全走査では state を更新しません
+- `--no-create-unmatched` で未一致候補が残った場合も state を更新しません
+- `--all-history` は保存済み watermark と初回 lookback を無視します。successful execute なら次回用 state を更新します
+- `--no-incremental` は保存済み watermark の読み書きを止めます。`--all-history` が無ければ初回 lookback は適用します
+- timestamp 境界は再取得を許す at-least-once 方式です。重複処理はあり得ますが、同一 timestamp の新規項目を落としにくくします
+
+Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた場合だけ、watermark より古い card で早期停止します。`sync-collections` は既知 project の activity refresh のため、増分化後も inventory API 全件を取得します。
 
 ## merge
 
@@ -462,7 +481,8 @@ python3 scripts/project_registry.py set-tracking-state \
 
 ```bash
 python3 scripts/project_registry.py review-stalled
-python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --max-enrich-age-days 45
+python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
 ```
@@ -478,12 +498,20 @@ python3 scripts/project_registry.py review-ignore --execute
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
 
+`active/watchlist -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。旧名 `--enrich-age-days` は互換aliasとして受け付けます。
+
+`review-out-of-scope` は、atprotoとの関係を保持したまま現在の紹介・重点調査対象から外す候補を出します。
+
+- `category=auth_only` で owned protocol surface がない
+- owned protocol surfaceを持たない、低noveltyのBluesky従属ツール
+
+`out_of_scope` は通常の enrich/review/promotionから外れますが、project自体は残り、syncによるidentifier照合、merge候補、明示enrich、手動での `active` 復帰が可能です。さらにowned NSID / collection surfaceが見つかったprojectは、`review-out-of-scope` に `suggested_tracking_state=active` として再登場します。Flashesのように後から独自NSIDやprotocol surfaceを持つ可能性を失わないための状態です。
+
 `review-ignore` は inactivity review とは別で、ノイズ整理用です。現状の候補は次です。
 
 - 独立した website / service / owned lexicon surface が見えない GitHub fork repo
-- owned protocol surface を持たない、低 novelty の Bluesky 従属ツール
 
-このコマンドは既定で `active / watchlist / stable / stalled` を見ます。すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。
+新規のスコープ外候補については、両コマンドとも既定で `active / watchlist / stable / stalled` を見て、すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。`review-out-of-scope` だけは既存の `out_of_scope` も走査し、owned protocol surfaceが見つかった場合の `active` 復帰候補を出します。
 
 ## 紹介候補キュー
 

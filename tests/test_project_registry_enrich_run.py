@@ -17,6 +17,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             tracking_states=None,
             include_stable=True,
             include_stalled=False,
+            include_out_of_scope=False,
             include_archived=False,
             include_ignore=False,
             new_only=True,

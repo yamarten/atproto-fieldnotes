@@ -76,6 +76,11 @@
 - `features`
 - `developer_accounts`
 
+`review-out-of-scope` の derivative 判定は、Bluesky従属utilityとATProto技術ツールを
+十分に分離できていません。現状は候補提示だけに使い、自動実行しません。将来は
+`technical_interest_level`、owned surface、独自データモデルの有無を加味して、
+紹介スコープ外と技術調査対象を分離します。
+
 ### ATProto 寄与度の独立評価
 
 `category=auth_only` とは別に、「ATProto が無くてもサービスの主要価値が成立するか」を
@@ -167,7 +172,7 @@ filter の意味:
   - `project_key`, name, seed, NSID, website, service URL, repo URL, merge alias を検索する
 - `tracking_states`
   - 複数指定可
-  - `active`, `watchlist`, `stable`, `stalled`, `archived`, `ignore`
+  - `active`, `watchlist`, `stable`, `stalled`, `out_of_scope`, `archived`, `ignore`
 - `service_statuses`
   - 複数指定可
   - 現行 `service_status` enum を使う

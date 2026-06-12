@@ -115,7 +115,7 @@ v1 の対象は `review-queue` 中心です。project 詳細、raw JSON、`track
 
 `New Seed` タブでは、NSID / repo URL / service URL を preview してから登録できます。`?seed=https%3A%2F%2Fexample.com` のように URL query で seed を渡すと、この画面を直接開きます。exact duplicate がある場合は既存 project を開き、近い候補がある場合は登録前に候補を表示します。
 
-`Review Ops` タブでは、`review-stalled` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
+`Review Ops` タブでは、`review-stalled` / `review-out-of-scope` / `review-ignore` 相当を background job として起動できます。既定は dry-run で、SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。job JSON には `logs` が含まれ、候補選択、更新、失敗理由の時系列を確認できます。
 
 project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `service_url` を指定して次の操作もできます。
 
@@ -128,7 +128,7 @@ project 詳細の `Project Edits` では、任意の `nsid` / `repo_url` / `serv
 
 `Sync` タブでは、`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` 相当の background job を開始できます。既定は dry-run で、未知候補の project 作成はチェック済みです。SQLite へ書き込む場合は `Execute writes to SQLite` を明示的に有効にして確認ダイアログを通します。外部 API を呼ぶため、実 DB で execute する前にコピー DB で結果を確認してください。
 
-同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `archived` / `ignore` を含められます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。run id / checkpoint path を指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs では同じサーバーの単体 enrich / enrich-all / sync / review job を2秒ごとに取得するため、別ブラウザからも実行状況、in-memory log、raw JSON を確認できます。実行中の `enrich_all` には停止要求を出せます。この停止は現在の project が終わった後に checkpoint を `interrupted` として保存し、`Resume run id` から再開できます。完了済み job は7日間かつ新しい100件まで、各 job のログは新しい200件まで保持します。実行中 job はこの制限で削除しません。サーバー再起動後の job 履歴は永続化されません。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。
+同じ `Sync` タブの `Enrich All` では、`enrich --all` 相当の background job を開始できます。既定の対象は CLI と同じく `active` / `watchlist` で、必要に応じて `stable` / `stalled` / `out_of_scope` / `archived` / `ignore` を含められます。`Max projects` は空欄なら無制限で、数字を入れた時だけ対象数を制限します。run id / checkpoint path を指定でき、空欄なら `data/enrich-runs/<run_id>.json` に保存します。Jobs では同じサーバーの単体 enrich / enrich-all / sync / review job を2秒ごとに取得するため、別ブラウザからも実行状況、in-memory log、raw JSON を確認できます。実行中の `enrich_all` には停止要求を出せます。この停止は現在の project が終わった後に checkpoint を `interrupted` として保存し、`Resume run id` から再開できます。完了済み job は7日間かつ新しい100件まで、各 job のログは新しい200件まで保持します。実行中 job はこの制限で削除しません。サーバー再起動後の job 履歴は永続化されません。各 project は個別に commit され、job JSON に進捗、成功数、失敗数、直近の結果、checkpoint 情報、`elapsed` / `eta`、`logs` が表示されます。
 
 `repair-db` と bulk tracking-state execute は Web UI からは実行しません。
 
@@ -190,6 +190,7 @@ python3 scripts/project_registry.py sync-introduced --execute
 ```
 
 `sync-introduced` は seed を追加せず、既存 project に対して `introduced_url` を付けるためだけに使います。
+既定では初回だけ直近 7 日を検索し、`--execute` が成功した後は SQLite の sync state から前回地点以降だけを取得します。未一致 URL は state に保留されるため、後から project を登録した場合も次回 sync で再照合されます。全履歴を見直す時は `--all-history`、保存済み state を使わず初回 lookback だけを使う時は `--no-incremental` を指定します。
 
 URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で棚卸し:
 
@@ -214,7 +215,7 @@ python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --execute --lookback-days 10
 ```
 
-`sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「`min` が直近 `--lookback-days` 日以内」のものだけです。
+`sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「最新活動の `max` が前回成功地点より新しいもの」だけです。sync state が無い初回は `--lookback-days` を使います。
 既知 collection についても、`count` / `recent_count` / `max` は activity refresh 用に見直します。これにより `latest_collection_activity_at` は「最後に新規 collection が生えた日」ではなく、既知 collection を含めた最近の record 活動に近い値になります。`tracking_state=stalled` の project でも、ここで最近の活動が見えれば `active` に戻せます。
 未知候補は既定で project として作成します。棚卸しだけ行う場合は `--no-create-unmatched` を付けます。
 
@@ -225,7 +226,9 @@ python3 scripts/project_registry.py sync-github-search
 python3 scripts/project_registry.py sync-github-search --execute
 ```
 
-`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、既知 repo を除いた「`updated_at` が直近 `--lookback-days` 日以内」の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
+`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、query ごとの前回成功地点から `updated_at` 降順で未知 repo を取得します。watermark の日付は `updated:>=YYYY-MM-DD` として API にも渡し、時刻単位の境界は取得後に判定します。state が無い初回は `--lookback-days` を使います。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
+
+各 `sync-*` の state は successful execute でだけ更新します。dry-run、ページ上限に達した不完全走査、`--no-create-unmatched` で未一致候補が残った実行では更新しません。同一 timestamp は次回も含めるため、境界上の項目は重複処理されることがあります。
 
 1回だけ広く取りたい時は、まず dry-run で lookback を外し、未マッチ repo に対して README/tree/lexicon を見たスクリーニングをかけます。
 
@@ -259,14 +262,15 @@ python3 scripts/project_registry.py repair-db --execute
 
 ```bash
 python3 scripts/project_registry.py review-stalled
-python3 scripts/project_registry.py review-stalled --inactivity-days 60 --enrich-age-days 45
+python3 scripts/project_registry.py review-stalled --inactivity-days 60 --max-enrich-age-days 45
+python3 scripts/project_registry.py review-out-of-scope
 python3 scripts/project_registry.py review-ignore
 python3 scripts/project_registry.py review-ignore --execute
 ```
 
-`review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。
+`review-stalled` は `active/watchlist` を `stalled` に落とす候補だけでなく、最近 activity が戻った `stalled` を `active` に戻す候補や、collection だけ動いているものを `stable` に落とす候補も出します。repo 更新日時と collection activity の両方を見ていて、どちらか一方でも最近動いていれば `active` のまま残します。降格判定は `--max-enrich-age-days` 以内にenrichされたprojectだけを対象にし、未enrichまたは古い調査結果からは `stalled` を提案しません。旧名 `--enrich-age-days` は互換aliasです。
 
-`review-ignore` は別系統で、独立した website / service / owned lexicon surface が見えない GitHub fork repo と、protocol surface を持たない低 novelty の Bluesky 従属ツールを `ignore` 候補として出します。まず dry-run で確認してから `--execute` を付ける前提です。
+`review-out-of-scope` は、owned protocol surfaceのない `auth_only` projectと、protocol surfaceを持たない低noveltyのBluesky従属ツールを `out_of_scope` 候補として出します。`review-ignore` は独立したwebsite / service / owned lexicon surfaceが見えないGitHub fork repoなど、通常の再評価価値が低いノイズ候補に限定します。まずdry-runで確認してから `--execute` を付ける前提です。
 
 次に紹介する候補の確認:
 

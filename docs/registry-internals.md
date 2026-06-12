@@ -159,7 +159,7 @@ URL field は次の 5 層で扱います。
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
-`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable` と `stalled` は、明示的に include したときだけ回します。
+`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI と Web UI の `Enrich All` background job です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。CLI の Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
 
@@ -228,12 +228,15 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
 - `service_probe_supports_project()` が真になる主な条件:
+  - lexicon record解決済みのauthority domainと、正常応答したservice hostが完全一致する
   - page text に project の NSID が直接出る
   - authority domain と atproto 系 marker が同時に出る
   - alias token と atproto 系 marker が同時に出る
   - project に許された GitHub/Tangled repo へのリンクがある
   - project に一致する Bluesky handle へのリンクがある
   - manual service seed の host そのもの
+- `authority_domains` へ推測値が入っているだけでは上の完全一致条件を使いません。`lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃う場合だけ検証済みauthorityとして扱います
+- 検証済みauthorityの完全一致hostが正常応答し、titleまたはdescriptionを持つ場合、汎用classifierが `unverified` でも `verified_authority_service_surface` evidence付きの `live` として扱います。`none` / `unreleased` / `beta` などの明示分類は上書きしません
 - `service_status` の決め方:
   - parked domain, `404/410` は `dead`
   - `401/403` は `private`
@@ -600,6 +603,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - `introduced_url`
   - `discovery_sources += bsky_introduced_sync`
 - 新規 project は作りません
+- query ごとの watermark を `sync_state` に保存します
+- 初回は 7 日 lookback、以後は Bluesky search の `since` と `sort=latest` を使います
+- unmatched entry は state に保留し、後から project が登録された時に再照合します
 
 ### `sync-collections`
 
@@ -612,7 +618,8 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - import 対象にするのは:
   - collection NSID が正常
   - 既知 NSID ではない
-  - `min` が `lookback_days` 以内
+  - 最新活動の `max` が watermark より新しい
+  - watermark が無い初回は `lookback_days` 以内
 - import 前に namespace 集約します
   - full collection ではなく registrable namespace 単位で 1 project 候補にまとめます
 - reject する主な条件:
@@ -629,9 +636,11 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 ### `sync-github-search`
 
 - query には `fork:false` と `archived:false` を自動で補います
+- query ごとに `updated_at` watermark を保存し、`updated:>=YYYY-MM-DD` と `sort=updated&order=desc` で候補量を絞ってから時刻単位の境界まで取得します
 - import 対象にするのは:
   - 既知 repo URL ではない
-  - `updated_at` が `lookback_days` 以内
+  - `updated_at` が watermark 以上
+  - watermark が無い初回は `lookback_days` 以内
 - 既存 project への match 順:
   1. `repo_url`
   2. `homepage_exact`
@@ -758,13 +767,28 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - `nsid`
   - `repo_url`
   - `service_url`
-- `card_updated_at` が `lookback_days` 以内の card だけ import 対象です
+- tracked collection ごとに `card_updated_at` watermark を保存します
+- `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた response だけ、古い card 到達で早期停止します
+- watermark が無い初回は `lookback_days` を使います
 - 既存 project 解決は `resolve_project_key_for_seed_value()` を使います
   - `repo_url` / `service_url` は exact identifier match
   - `nsid` は `find_project_key_for_nsid_seed()` で namespace / registrable namespace / service host family まで見ます
 - 注意:
   - 現状の `sync-semble-collections` は、`sync-collections` や `sync-github-search` と違って weak match を suggestion に落とさず、そのまま attach し得ます
   - 仕様として明示されているというより、今の実装挙動です
+
+### sync state の更新条件
+
+- `sync_state` は project record ではなく source ごとの運用 checkpoint です
+- scope:
+  - introduced: search query
+  - collections: inventory source URL
+  - GitHub: query set。watermark は query ごと
+  - Semble: tracked collection set。watermark は collection ごと
+- successful execute かつ走査完了時だけ更新します
+- dry-run、例外終了、ページ上限到達では更新しません
+- `--no-create-unmatched` で未一致が残った場合は、その候補を次回も出すため更新しません
+- 境界 timestamp と同時刻の項目は次回も処理対象にします。exactly-once ではなく at-least-once です
 
 ## 外部アクセス
 
@@ -1187,10 +1211,10 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
 
 - まず recent repo activity がある project は何もしません
 - そのうえで、collection も recent でない時だけ stalled 判定に進みます
+- `last_enriched_at` が無い、または `max_enrich_age_days` 以上古い場合は、停止を判断する材料が古いため降格候補から外します
 - strong signal (`hard_signal`) として扱うもの:
   - collection が `inactivity_days` 以上止まっていて、しかも `recent_count>0` の observation が無い
   - repo が `inactivity_days` 以上止まっている
-  - `last_enriched_at` から `enrich_age_days` 以上経っている
   - `service_status` が `dead` または `private`
 - weak signal として理由には出すが、単独では落とさないもの:
   - `service_status=unknown` または `none`
@@ -1203,14 +1227,11 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
   - 理由が 2 件以上必要
 - つまり、単に `unknown` で証拠が薄いだけでは `stalled` にしません
 
-### ノイズ抑制
+### 調査鮮度ゲート
 
-- 次の条件をすべて満たす project は、`stalled` 候補を返しません
-  - まだ一度も enrich していない
-  - `service_status=unknown`
-  - confirmed identity が 1 件以下
-  - collection activity も無い
-- これは「まだ何も分かっていない新規/弱証拠 project」を inactivity 判定で早期に落とさないためです
+- `max_enrich_age_days` は停止の根拠ではなく、降格判定に使える調査結果の最大経過日数です
+- 未enrichまたは期限超過の `active/watchlist` は `stalled` 候補を返しません
+- recent activityによる `stalled -> active` と `active -> stable` は、調査鮮度ゲートより先に判定します
 
 ### review-stalled の対象範囲
 
@@ -1218,22 +1239,34 @@ schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成�
   - `active`
   - `watchlist`
   - `stalled`
-- `stable` / `archived` / `ignore` はこの自動判定の対象外です
+- `stable` / `out_of_scope` / `archived` / `ignore` はこの自動判定の対象外です
 - `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します
 
-## review-ignore
+## review-out-of-scope / review-ignore
 
-`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。現状の kind は 2 種類です。
+`review-out-of-scope` は関連性を否定せず、現在のsurvey対象から外す候補を返します。
+
+- `auth_only_without_owned_protocol_surface`
+  - `category=auth_only`
+  - owned protocol surfaceがない
+- `derivative_bluesky_utility`
+  - `service_is_derivative_bluesky_tool()` が真
+  - `introduced_url` がない
+  - owned protocol surfaceがない
+  - `category=lexicon` ではない
+
+accepted projectは `tracking_state=out_of_scope` になります。この状態は通常の enrich/review/promotion対象外ですが、merge候補計算からは除外せず、明示enrichと手動復帰を許します。将来のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
+
+`out_of_scope` projectにowned protocol surfaceが見つかった場合、同じコマンドは `owned_protocol_surface_detected` / `suggested_tracking_state=active` を返します。`--execute` なしでは更新せず、復帰も確認可能なqueueとして扱います。sync/enrichの途中で自動復帰する処理は未接続です。
+
+`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。
+
+現状の kind は次です。
 
 - `fork_without_independent_identity`
   - confirmed な source repo が GitHub fork
   - `website_url` / `service_urls` / `introduced_url` が無い
   - owned protocol surface (`resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `collection_observations`) も無い
   - `service_status=live|beta|invite_only` なら除外
-- `derivative_bluesky_utility`
-  - `service_is_derivative_bluesky_tool()` が真
-  - `introduced_url` が無い
-  - owned protocol surface が無い
-  - `category=lexicon` ではない
 
-目的は「完全な reject ではないが、継続追跡コストに対して registry 上の価値が薄い候補」を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。
+目的はatproto無関係、誤登録、独立identityのない複製など、通常の再評価を期待しない候補を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。

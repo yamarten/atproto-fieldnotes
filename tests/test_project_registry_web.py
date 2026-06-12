@@ -190,7 +190,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Review Ops", web.INDEX_HTML)
         self.assertIn("tab-review-ops", web.INDEX_HTML)
         self.assertIn("/api/review-stalled", web.INDEX_HTML)
+        self.assertIn("/api/review-out-of-scope", web.INDEX_HTML)
         self.assertIn("/api/review-ignore", web.INDEX_HTML)
+        self.assertIn("out_of_scope", web.INDEX_HTML)
         self.assertIn("review-ops-result", web.INDEX_HTML)
         self.assertIn("data-review-kind", web.INDEX_HTML)
         self.assertIn("updateReviewOpsVisibility", web.INDEX_HTML)
@@ -906,6 +908,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False})
 
         self.assertFalse(payload["create_unmatched"])
+        self.assertTrue(payload["incremental"])
 
     def test_enrich_all_job_runs_limited_selection(self) -> None:
         original_enrich = web.registry.enrich_project
@@ -1111,7 +1114,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                 "project_key": project["project_key"],
                 "name": project["name"],
                 "tracking_state": project["tracking_state"],
-                "kind": "derivative_bluesky_utility",
+                "kind": "fork_without_independent_identity",
                 "reasons": ["test candidate"],
                 "suggested_tracking_state": "ignore",
             }
@@ -1140,6 +1143,66 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         finally:
             conn.close()
         self.assertEqual(project["tracking_state"], "ignore")
+
+    def test_review_out_of_scope_execute_updates_temp_db(self) -> None:
+        original_entry = web.registry.out_of_scope_review_entry
+
+        def fake_entry(project):
+            if project["project_key"] != "proj:111111111111":
+                return None
+            return {
+                "project_key": project["project_key"],
+                "name": project["name"],
+                "tracking_state": project["tracking_state"],
+                "kind": "auth_only_without_owned_protocol_surface",
+                "reasons": ["test candidate"],
+                "suggested_tracking_state": "out_of_scope",
+            }
+
+        web.registry.out_of_scope_review_entry = fake_entry
+        try:
+            status, payload = self.request("POST", "/api/review-out-of-scope", {"execute": True, "limit": 1})
+            self.assertEqual(status, 202)
+            job_id = payload["job_id"]
+
+            job_payload = {}
+            for _ in range(50):
+                status, job_payload = self.request("GET", f"/api/jobs/{job_id}")
+                if job_payload.get("status") == "done":
+                    break
+                time.sleep(0.05)
+        finally:
+            web.registry.out_of_scope_review_entry = original_entry
+
+        self.assertEqual(status, 200)
+        self.assertEqual(job_payload["kind"], "review_out-of-scope")
+        self.assertEqual(job_payload["result"]["updated_count"], 1)
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        self.assertEqual(project["tracking_state"], "out_of_scope")
+
+    def test_review_out_of_scope_can_reactivate_owned_protocol_project(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            project["tracking_state"] = "out_of_scope"
+            project["resolved_nsids"] = ["app.example.record"]
+            registry.save_project(conn, project)
+
+            result = web.run_review_out_of_scope_payload(
+                conn,
+                {"execute": True, "limit": 10, "tracking_states": ["out_of_scope"]},
+            )
+            updated = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+
+        self.assertEqual(result["updated_count"], 1)
+        self.assertEqual(updated["tracking_state"], "active")
+        self.assertEqual(updated["tracking_note"], "reactivated after owned protocol surface detection")
 
     def test_sync_rejects_unknown_kind(self) -> None:
         status, payload = self.request("POST", "/api/sync", {"kind": "repair-db"})
