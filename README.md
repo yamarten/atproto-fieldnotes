@@ -47,9 +47,12 @@ python3 -m unittest discover -s tests -v
 
 ## zsh補完
 
-wrapper の [bin/project-registry](bin/project-registry) と、zsh completion の [completions/_project-registry](completions/_project-registry) を追加しています。
+CLI / Web UI 用の wrapper と zsh completion を追加しています。
 
-普段 `project-registry` で呼びたい場合:
+- [bin/project-registry](bin/project-registry) / [completions/_project-registry](completions/_project-registry)
+- [bin/project-registry-web](bin/project-registry-web) / [completions/_project-registry-web](completions/_project-registry-web)
+
+wrapper で呼ぶ場合:
 
 ```bash
 export PATH="$PWD/bin:$PATH"
@@ -62,11 +65,13 @@ autoload -Uz compinit && compinit
 ```bash
 project-registry <TAB>
 project-registry enrich --llm-api-style <TAB>
+project-registry-web --<TAB>
+project-registry-web --host <TAB>
 ```
 
 のように subcommand と主要オプションを補完できます。
 
-`scripts/` をそのまま `PATH` に入れると Python ファイルまでコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。`python3 scripts/project_registry.py ...` をそのまま使う場合でも、completion 定義には `project_registry.py` を紐付けているので、zsh 上では同じ候補が出ます。
+`scripts/` をそのまま `PATH` に入れると Python ファイルまでコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。Python ファイルの直接実行は引き続き可能ですが、ここで説明する補完導線は `project-registry` / `project-registry-web` wrapper を対象にします。
 
 ## Web UI
 
@@ -74,20 +79,20 @@ project-registry enrich --llm-api-style <TAB>
 
 ```bash
 export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
-python3 scripts/project_registry_web.py --host 127.0.0.1 --port 8765
+project-registry-web --host 127.0.0.1 --port 8765
 ```
 
 LAN 内の端末から触る場合:
 
 ```bash
 export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
-python3 scripts/project_registry_web.py --host 0.0.0.0 --port 8765
+project-registry-web --host 0.0.0.0 --port 8765
 ```
 
 worktree から起動して普段使いの DB を見る場合は、DB path を明示します。
 
 ```bash
-python3 scripts/project_registry_web.py \
+project-registry-web \
   --host 127.0.0.1 \
   --port 8765 \
   --db-path data/survey.db \
@@ -97,7 +102,7 @@ python3 scripts/project_registry_web.py \
 開発中はブラウザ許可を何度も出さずに済むよう、コピーDBと固定ポートを使います。
 
 ```bash
-python3 scripts/project_registry_web.py \
+project-registry-web \
   --host 127.0.0.1 \
   --port 8769 \
   --db-path data/survey.dev.db \

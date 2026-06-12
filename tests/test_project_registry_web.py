@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
+import subprocess
 import threading
 import time
 import types
@@ -13,7 +14,7 @@ from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 
-from helpers import TempRegistryDbTestCase, seed_web_fixture
+from helpers import ROOT, TempRegistryDbTestCase, seed_web_fixture
 
 import project_registry as registry  # noqa: E402
 import project_registry_web as web  # noqa: E402
@@ -366,6 +367,29 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         self.assertTrue(args.reload)
         self.assertEqual(args.reload_interval, 0.5)
+
+    def test_web_command_wrapper_and_completion(self) -> None:
+        wrapper = ROOT / "bin" / "project-registry-web"
+        script_wrapper = ROOT / "scripts" / "project-registry-web"
+        completion = ROOT / "completions" / "_project-registry-web"
+
+        self.assertTrue(wrapper.exists())
+        self.assertTrue(wrapper.stat().st_mode & 0o111)
+        self.assertTrue(script_wrapper.exists())
+        self.assertTrue(script_wrapper.stat().st_mode & 0o111)
+        completed = subprocess.run(
+            [str(wrapper), "--help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("--db-path", completed.stdout)
+        self.assertIn("--reload-interval", completed.stdout)
+
+        completion_text = completion.read_text()
+        self.assertIn("#compdef project-registry-web project_registry_web.py", completion_text)
+        for option in ("--host", "--port", "--db-path", "--token", "--reload", "--reload-interval"):
+            self.assertIn(option, completion_text)
 
     def test_settings_endpoint_exposes_safe_defaults(self) -> None:
         status, payload = self.request("GET", "/api/settings")

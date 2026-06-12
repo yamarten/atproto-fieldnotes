@@ -60,7 +60,10 @@ interactive では tenant group の番号を選んだ場合だけ、その group
 
 ## zsh補完
 
-wrapper の [bin/project-registry](../bin/project-registry) と zsh completion の [completions/_project-registry](../completions/_project-registry) を使えます。
+CLI / Web UI 用の wrapper と zsh completion を使えます。
+
+- [bin/project-registry](../bin/project-registry) / [completions/_project-registry](../completions/_project-registry)
+- [bin/project-registry-web](../bin/project-registry-web) / [completions/_project-registry-web](../completions/_project-registry-web)
 
 ```bash
 export PATH="$PWD/bin:$PATH"
@@ -68,7 +71,7 @@ fpath=("$PWD/completions" $fpath)
 autoload -Uz compinit && compinit
 ```
 
-これで `project-registry` の subcommand と主要オプションが補完されます。`scripts/` を `PATH` に足すと Python ファイル自体までコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。completion 定義は `project_registry.py` にも紐付けているので、`python3 scripts/project_registry.py ...` を直接呼ぶ場合も zsh 上では同じ候補が出ます。
+これで `project-registry` の subcommand と主要オプション、および `project-registry-web` の起動オプションが補完されます。`scripts/` を `PATH` に足すと Python ファイル自体までコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。Python ファイルの直接実行は引き続き可能ですが、ここで説明する補完導線は wrapper を対象にします。
 
 ## seed登録
 
@@ -140,7 +143,7 @@ python3 scripts/project_registry.py show --all --format json
 
 ```bash
 export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
-python3 scripts/project_registry_web.py --host 127.0.0.1 --port 8765
+project-registry-web --host 127.0.0.1 --port 8765
 ```
 
 LAN 内の別端末から使う場合は `--host 0.0.0.0` で bind します。`/api/*` は共有トークン必須なので、起動時に表示される `?token=...` 付き URL を最初に開くか、`Authorization: Bearer ...` / `X-Project-Registry-Token` を付けてアクセスします。
@@ -148,7 +151,7 @@ LAN 内の別端末から使う場合は `--host 0.0.0.0` で bind します。`
 worktree から起動しつつ普段使いの DB を参照したい場合は `--db-path` を明示します。
 
 ```bash
-python3 scripts/project_registry_web.py \
+project-registry-web \
   --host 127.0.0.1 \
   --port 8765 \
   --db-path data/survey.db \
@@ -158,7 +161,7 @@ python3 scripts/project_registry_web.py \
 開発中は、ブラウザ側の許可を繰り返さないようコピーDBと固定ポートを使います。
 
 ```bash
-python3 scripts/project_registry_web.py \
+project-registry-web \
   --host 127.0.0.1 \
   --port 8769 \
   --db-path data/survey.dev.db \
