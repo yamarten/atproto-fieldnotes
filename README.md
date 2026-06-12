@@ -190,6 +190,7 @@ python3 scripts/project_registry.py sync-introduced --execute
 ```
 
 `sync-introduced` は seed を追加せず、既存 project に対して `introduced_url` を付けるためだけに使います。
+既定では初回だけ直近 7 日を検索し、`--execute` が成功した後は SQLite の sync state から前回地点以降だけを取得します。未一致 URL は state に保留されるため、後から project を登録した場合も次回 sync で再照合されます。全履歴を見直す時は `--all-history`、保存済み state を使わず初回 lookback だけを使う時は `--no-incremental` を指定します。
 
 URL field の利用数、alias 重複、保存済み invariant 違反を読み取り専用で棚卸し:
 
@@ -214,7 +215,7 @@ python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --execute --lookback-days 10
 ```
 
-`sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「`min` が直近 `--lookback-days` 日以内」のものだけです。
+`sync-collections` は API 全件を取得しますが、取り込み対象は既知collectionを除いた「最新活動の `max` が前回成功地点より新しいもの」だけです。sync state が無い初回は `--lookback-days` を使います。
 既知 collection についても、`count` / `recent_count` / `max` は activity refresh 用に見直します。これにより `latest_collection_activity_at` は「最後に新規 collection が生えた日」ではなく、既知 collection を含めた最近の record 活動に近い値になります。`tracking_state=stalled` の project でも、ここで最近の活動が見えれば `active` に戻せます。
 未知候補は既定で project として作成します。棚卸しだけ行う場合は `--no-create-unmatched` を付けます。
 
@@ -225,7 +226,9 @@ python3 scripts/project_registry.py sync-github-search
 python3 scripts/project_registry.py sync-github-search --execute
 ```
 
-`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、既知 repo を除いた「`updated_at` が直近 `--lookback-days` 日以内」の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
+`sync-github-search` は `config/sources.json` の `github_repo_search` を使い、query ごとの前回成功地点から `updated_at` 降順で未知 repo を取得します。watermark の日付は `updated:>=YYYY-MM-DD` として API にも渡し、時刻単位の境界は取得後に判定します。state が無い初回は `--lookback-days` を使います。query には既定で `fork:false` と `archived:false` を足します。さらに `--screen-unmatched` を付けたときは、GitHub 上で fork と判定された repo のうち、独立した homepage / service surface / owned lexicon surface が見えないものを新規 project 候補から落とします。
+
+各 `sync-*` の state は successful execute でだけ更新します。dry-run、ページ上限に達した不完全走査、`--no-create-unmatched` で未一致候補が残った実行では更新しません。同一 timestamp は次回も含めるため、境界上の項目は重複処理されることがあります。
 
 1回だけ広く取りたい時は、まず dry-run で lookback を外し、未マッチ repo に対して README/tree/lexicon を見たスクリーニングをかけます。
 

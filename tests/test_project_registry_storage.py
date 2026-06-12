@@ -19,6 +19,179 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertTrue(parser.parse_args([command]).create_unmatched)
             self.assertFalse(parser.parse_args([command, "--no-create-unmatched"]).create_unmatched)
 
+    def test_sync_parsers_are_incremental_by_default(self) -> None:
+        parser = registry.build_parser()
+
+        for command in ("sync-introduced", "sync-collections", "sync-github-search", "sync-semble-collections"):
+            self.assertTrue(parser.parse_args([command]).incremental)
+            self.assertFalse(parser.parse_args([command, "--no-incremental"]).incremental)
+
+        introduced = parser.parse_args(["sync-introduced"])
+        self.assertEqual(introduced.lookback_days, 7)
+        self.assertEqual(introduced.limit, 10)
+        self.assertEqual(parser.parse_args(["sync-semble-collections"]).pages, 100)
+
+    def test_sync_state_roundtrip_is_scoped(self) -> None:
+        conn = registry.open_db()
+        try:
+            first_scope = {"query": "first"}
+            second_scope = {"query": "second"}
+            registry.write_sync_state(conn, "introduced", first_scope, {"timestamp": "2026-06-01T00:00:00+00:00"})
+            conn.commit()
+
+            first = registry.read_sync_state(conn, "introduced", first_scope)
+            second = registry.read_sync_state(conn, "introduced", second_scope)
+        finally:
+            conn.close()
+
+        self.assertEqual(first["watermark"]["timestamp"], "2026-06-01T00:00:00+00:00")
+        self.assertEqual(second["watermark"], {})
+        self.assertNotEqual(first["scope_key"], second["scope_key"])
+
+    def test_introduced_sync_retains_unmatched_entry_for_later_project(self) -> None:
+        conn = registry.open_db()
+        query = "from:example.test #atproto"
+        entry = {
+            "seed_type": "nsid",
+            "seed_value": "app.example.post",
+            "labels": ["Example"],
+            "post_web_urls": ["https://bsky.app/profile/example.test/post/abc"],
+        }
+        post = {"indexedAt": "2026-06-10T00:00:00Z", "record": {"createdAt": "2026-06-10T00:00:00Z"}}
+        seen_since: list[str] = []
+
+        def fake_search(*args, **kwargs):
+            seen_since.append(str(kwargs.get("since") or ""))
+            return {"posts": [post]}
+
+        try:
+            with mock.patch.object(registry, "search_bsky_posts_payload", side_effect=fake_search), mock.patch.object(
+                registry,
+                "collect_applog_entries",
+                return_value={(entry["seed_type"], entry["seed_value"]): entry},
+            ):
+                first = registry.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
+
+            state = registry.read_sync_state(conn, "introduced", {"query": query})
+            self.assertEqual(first["unmatched"], 1)
+            self.assertEqual(len(state["watermark"]["pending_entries"]), 1)
+            self.assertTrue(seen_since[0])
+
+            project = self.make_project("proj:introduced01", "nsid", "app.example.post")
+            registry.add_manual_seed(project, "nsid", "app.example.post", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            with mock.patch.object(registry, "search_bsky_posts_payload", return_value={"posts": []}):
+                second = registry.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
+            saved = registry.fetch_project(conn, "proj:introduced01")
+            state = registry.read_sync_state(conn, "introduced", {"query": query})
+        finally:
+            conn.close()
+
+        self.assertEqual(second["pending_before"], 1)
+        self.assertEqual(second["pending_after"], 0)
+        self.assertEqual(saved["introduced_url"], "https://bsky.app/profile/example.test/post/abc")
+        self.assertEqual(state["watermark"]["pending_entries"], [])
+
+    def test_introduced_dry_run_does_not_write_sync_state(self) -> None:
+        conn = registry.open_db()
+        query = "dry-run"
+        try:
+            with mock.patch.object(registry, "search_bsky_posts_payload", return_value={"posts": []}):
+                summary = registry.sync_introduced_entries(conn, query=query, execute=False)
+            state = registry.read_sync_state(conn, "introduced", {"query": query})
+        finally:
+            conn.close()
+
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"], {})
+
+    def test_github_no_create_keeps_watermark_when_unmatched_remains(self) -> None:
+        conn = registry.open_db()
+        query = "atproto"
+        scan = {
+            "query": query,
+            "results": [
+                {
+                    "url": "https://github.com/example/new-project",
+                    "full_name": "example/new-project",
+                    "description": "",
+                    "homepage": "",
+                    "updated_at": "2026-06-10T00:00:00Z",
+                    "stargazers_count": 0,
+                    "query": query,
+                }
+            ],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = registry.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=False,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                )
+            state = registry.read_sync_state(conn, "github-search", {"queries": [query]})
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["unmatched"], 1)
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"], {})
+
+    def test_github_screen_failure_does_not_advance_watermark(self) -> None:
+        conn = registry.open_db()
+        query = "atproto"
+        scan = {
+            "query": query,
+            "results": [
+                {
+                    "url": "https://github.com/example/screen-failure",
+                    "full_name": "example/screen-failure",
+                    "description": "",
+                    "homepage": "",
+                    "updated_at": "2026-06-10T00:00:00Z",
+                    "stargazers_count": 0,
+                    "query": query,
+                }
+            ],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan), mock.patch.object(
+                registry,
+                "screen_github_repo_sync_candidate",
+                side_effect=RuntimeError("temporary failure"),
+            ):
+                summary = registry.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=True,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                    screen_unmatched=True,
+                )
+            state = registry.read_sync_state(conn, "github-search", {"queries": [query]})
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["screen_reason_counts"]["screen_failed"], 1)
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"], {})
+
     def test_parser_accepts_defer_identifier_command(self) -> None:
         args = registry.build_parser().parse_args(
             [

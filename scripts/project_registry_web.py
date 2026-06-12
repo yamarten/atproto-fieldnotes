@@ -635,9 +635,9 @@ INDEX_HTML = r"""<!doctype html>
       llmReasoningEffort: "",
       syncKind: "introduced",
       syncQuery: "from:yamarten.bsky.social #ATプロトーク",
-      syncLimit: 25,
-      syncMaxPages: 4,
-      syncPages: 1,
+      syncLimit: 10,
+      syncMaxPages: 20,
+      syncPages: 20,
       syncPerPage: 20,
       syncLookbackDays: 10,
       syncCreateUnmatched: true,
@@ -1316,7 +1316,7 @@ INDEX_HTML = r"""<!doctype html>
             <label class="row"><input id="sync-execute" type="checkbox"> Execute writes to SQLite</label>
             <label class="row"><input id="sync-create-unmatched" type="checkbox" ${settings.syncCreateUnmatched ? "checked" : ""}> Create unmatched projects</label>
             <label class="row" data-sync-kind="github-search"><input id="sync-screen-unmatched" type="checkbox" ${settings.syncScreenUnmatched ? "checked" : ""}> Screen unmatched GitHub repos</label>
-            <label class="row" data-sync-kind="github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
+            <label class="row" data-sync-kind="introduced collections github-search semble-collections"><input id="sync-all-history" type="checkbox" ${settings.syncAllHistory ? "checked" : ""}> All history</label>
           </div>
           <div class="section"><h3>Inputs</h3>
             <label data-sync-kind="introduced">Introduced query <input id="sync-query" type="text" value="${esc(settings.syncQuery)}" placeholder="from:yamarten.bsky.social #ATプロトーク"></label>
@@ -1329,7 +1329,7 @@ INDEX_HTML = r"""<!doctype html>
             <div class="row">
               <label data-sync-kind="github-search semble-collections">Pages <input id="sync-pages" type="number" min="1" max="20" value="${esc(settings.syncPages)}"></label>
               <label data-sync-kind="github-search semble-collections">Per page <input id="sync-per-page" type="number" min="1" max="100" value="${esc(settings.syncPerPage)}"></label>
-              <label data-sync-kind="collections github-search semble-collections">Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
+              <label data-sync-kind="introduced collections github-search semble-collections">Lookback days <input id="sync-lookback-days" type="number" min="0" max="3650" value="${esc(settings.syncLookbackDays)}"></label>
             </div>
           </div>
           <div class="actions">
@@ -1405,9 +1405,9 @@ INDEX_HTML = r"""<!doctype html>
         query: $("sync-query").value.trim(),
         source_url: $("sync-source-url").value.trim(),
         github_query: $("sync-github-query").value.trim(),
-        limit: numberSetting("sync-limit", 25),
-        max_pages: numberSetting("sync-max-pages", 4),
-        pages: numberSetting("sync-pages", 1),
+        limit: numberSetting("sync-limit", 10),
+        max_pages: numberSetting("sync-max-pages", 20),
+        pages: numberSetting("sync-pages", 20),
         per_page: numberSetting("sync-per-page", 20),
         lookback_days: numberSetting("sync-lookback-days", 10)
       };
@@ -3303,11 +3303,12 @@ def sync_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
         "create_unmatched": bool(payload.get("create_unmatched", True)),
         "screen_unmatched": bool(payload.get("screen_unmatched")),
         "all_history": bool(payload.get("all_history")),
+        "incremental": bool(payload.get("incremental", True)),
         "query": str(payload.get("query") or "").strip(),
         "source_url": str(payload.get("source_url") or "").strip(),
         "github_query": str(payload.get("github_query") or "").strip(),
-        "limit": max(1, min(500, int(payload.get("limit") or 25))),
-        "max_pages": max(1, min(20, int(payload.get("max_pages") or 4))),
+        "limit": max(1, min(100, int(payload.get("limit") or 10))),
+        "max_pages": max(1, min(100, int(payload.get("max_pages") or 20))),
         "pages": max(1, min(20, int(payload.get("pages") or 1))),
         "per_page": max(1, min(100, int(payload.get("per_page") or 20))),
         "lookback_days": max(0, min(3650, int(payload.get("lookback_days") or 10))),
@@ -3322,8 +3323,11 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             conn,
             query=str(payload.get("query") or "from:yamarten.bsky.social #ATプロトーク"),
             execute=bool(payload.get("execute")),
-            limit=int(payload.get("limit") or 25),
-            max_pages=int(payload.get("max_pages") or 4),
+            limit=int(payload.get("limit") or 10),
+            max_pages=int(payload.get("max_pages") or 20),
+            lookback_days=int(payload.get("lookback_days") or 7),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "collections":
         collection_cfg = config.get("collection_inventory", {}) if isinstance(config.get("collection_inventory", {}), dict) else {}
@@ -3336,6 +3340,8 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             execute=bool(payload.get("execute")),
             create_unmatched=bool(payload.get("create_unmatched")),
             lookback_days=int(payload.get("lookback_days") or 10),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "github-search":
         github_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
@@ -3350,17 +3356,21 @@ def run_sync_payload(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
             create_unmatched=bool(payload.get("create_unmatched")),
             pages=int(payload.get("pages") or github_cfg.get("pages") or 4),
             per_page=int(payload.get("per_page") or github_cfg.get("per_page") or 50),
-            lookback_days=None if payload.get("all_history") else int(payload.get("lookback_days") or 10),
+            lookback_days=int(payload.get("lookback_days") or 10),
             screen_unmatched=bool(payload.get("screen_unmatched")),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     if kind == "semble-collections":
         return registry.sync_semble_collections(
             conn,
             execute=bool(payload.get("execute")),
             create_unmatched=bool(payload.get("create_unmatched")),
-            pages=int(payload.get("pages") or 1),
+            pages=int(payload.get("pages") or 20),
             per_page=int(payload.get("per_page") or 20),
-            lookback_days=None if payload.get("all_history") else int(payload.get("lookback_days") or 14),
+            lookback_days=int(payload.get("lookback_days") or 14),
+            incremental=bool(payload.get("incremental", True)),
+            all_history=bool(payload.get("all_history")),
         )
     raise ValueError(f"unsupported sync kind: {kind}")
 

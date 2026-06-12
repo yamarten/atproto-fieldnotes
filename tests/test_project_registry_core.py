@@ -4,8 +4,10 @@ import datetime as dt
 import socket
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from io import BytesIO
+from unittest import mock
 
 from helpers import registry
 
@@ -222,6 +224,122 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
         self.assertEqual(results[0]["seed_type"], "repo_url")
         self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
         self.assertEqual(results[0]["collection_label"], "current collection name")
+
+    def test_semble_incremental_scan_stops_only_when_sort_order_is_confirmed(self) -> None:
+        cutoff = dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)
+
+        def payload(*, ordered: bool) -> dict:
+            return {
+                "name": "apps",
+                "urlCards": [
+                    {
+                        "url": "https://new.example/",
+                        "updatedAt": "2026-06-06T00:00:00Z",
+                        "createdAt": "2026-06-06T00:00:00Z",
+                    },
+                    {
+                        "url": "https://old.example/",
+                        "updatedAt": "2026-06-04T00:00:00Z",
+                        "createdAt": "2026-06-04T00:00:00Z",
+                    },
+                ],
+                "pagination": {"hasMore": True},
+                **({"sorting": {"sortBy": "updatedAt", "sortOrder": "desc"}} if ordered else {}),
+            }
+
+        source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
+        with mock.patch.object(registry, "request_json", return_value=payload(ordered=True)):
+            ordered_scan = registry.fetch_semble_collection_source_sync_results(
+                source,
+                pages=2,
+                per_page=2,
+                cutoff=cutoff,
+            )
+        with mock.patch.object(registry, "request_json", side_effect=[payload(ordered=False), {**payload(ordered=False), "urlCards": [], "pagination": {"hasMore": False}}]):
+            unordered_scan = registry.fetch_semble_collection_source_sync_results(
+                source,
+                pages=2,
+                per_page=2,
+                cutoff=cutoff,
+            )
+
+        self.assertTrue(ordered_scan["boundary_reached"])
+        self.assertEqual(ordered_scan["pages"], 1)
+        self.assertFalse(unordered_scan["boundary_reached"])
+        self.assertEqual(unordered_scan["pages"], 2)
+        self.assertTrue(unordered_scan["scan_complete"])
+
+
+class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
+    def test_bsky_search_requests_latest_posts_since_watermark(self) -> None:
+        seen_urls: list[str] = []
+
+        def fake_request(url: str, token: str, headers=None, *, timeout=0):
+            seen_urls.append(url)
+            return {"posts": []}
+
+        with mock.patch.object(registry, "bsky_authenticated_app_url", return_value="https://example.test/xrpc/search"), mock.patch.object(
+            registry,
+            "bsky_access_token",
+            return_value="token",
+        ), mock.patch.object(registry, "request_json_authenticated", side_effect=fake_request):
+            registry.search_bsky_posts_payload(
+                "from:example.test",
+                limit=5,
+                since="2026-06-01T00:00:00+00:00",
+            )
+
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(seen_urls[0]).query)
+        self.assertEqual(query["sort"], ["latest"])
+        self.assertEqual(query["limit"], ["5"])
+        self.assertEqual(query["since"], ["2026-06-01T00:00:00+00:00"])
+
+    def test_github_scan_includes_watermark_timestamp_and_stops_below_it(self) -> None:
+        cutoff = dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)
+        seen_urls: list[str] = []
+        payload = {
+            "items": [
+                {"html_url": "https://github.com/example/new", "updated_at": "2026-06-06T00:00:00Z"},
+                {"html_url": "https://github.com/example/equal", "updated_at": "2026-06-05T00:00:00Z"},
+                {"html_url": "https://github.com/example/old", "updated_at": "2026-06-04T00:00:00Z"},
+            ]
+        }
+
+        def fake_request(url: str, headers=None):
+            seen_urls.append(url)
+            return payload
+
+        with mock.patch.object(registry, "request_json", side_effect=fake_request):
+            scan = registry.fetch_github_search_query_sync_results(
+                "atproto",
+                pages=3,
+                per_page=3,
+                cutoff=cutoff,
+            )
+
+        self.assertEqual([item["url"] for item in scan["results"]], [
+            "https://github.com/example/new",
+            "https://github.com/example/equal",
+        ])
+        self.assertTrue(scan["boundary_reached"])
+        self.assertTrue(scan["scan_complete"])
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(seen_urls[0]).query)["q"][0]
+        self.assertIn("updated:>=2026-06-05", query)
+
+    def test_collection_filter_uses_latest_activity_timestamp(self) -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "collection": "app.example.post",
+                "min": (now - dt.timedelta(days=100)).isoformat(),
+                "max": (now - dt.timedelta(days=1)).isoformat(),
+            }
+        ]
+
+        filtered, stats = registry.filter_sync_collection_inventory_payload(payload, [], lookback_days=7)
+
+        self.assertEqual(filtered, payload)
+        self.assertEqual(stats["cutoff_source"], "lookback")
 
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):

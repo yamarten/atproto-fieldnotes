@@ -296,7 +296,12 @@ python3 scripts/project_registry.py sync-introduced --execute
 python3 scripts/project_registry.py sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
 ```
 
-このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。一致しなかった URL は `unmatched_entries` に出すだけです。
+このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。既定は増分同期で、初回は直近 7 日、以後は query ごとの前回成功地点から検索します。一致しなかった URL は `unmatched_entries` に出し、sync state に保留して次回も再照合します。
+
+```bash
+python3 scripts/project_registry.py sync-introduced --all-history
+python3 scripts/project_registry.py sync-introduced --no-incremental --lookback-days 14
+```
 
 見出しや注記が混ざったテキスト seed list を取り込む:
 
@@ -317,7 +322,7 @@ python3 scripts/project_registry.py sync-collections --execute
 python3 scripts/project_registry.py sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
 ```
 
-このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。`min` が直近 `10` 日以内の未知collectionだけを対象にします。
+このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。未知 collection は最新活動の `max` を使い、初回は直近 `10` 日、以後は source URL ごとの前回成功地点より新しいものだけを対象にします。
 一方で、既知 collection の activity 情報自体は毎回見直します。`count` / `recent_count` / `max` を既存 project の `collection_observations` に反映するので、最近 record が流れている stalled project を active に戻す判断にも使えます。
 
 未知候補は既定で新規 project にします。棚卸しだけ行い DB 候補を増やしたくない場合は
@@ -348,7 +353,7 @@ python3 scripts/project_registry.py sync-github-search --execute
 python3 scripts/project_registry.py sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
-このコマンドは既知 repo を再取り込みしません。`updated_at` が直近 `--lookback-days` 日以内の未知 repo だけを対象にします。query には既定で `fork:false` と `archived:false` を足します。
+このコマンドは既知 repo を再取り込みしません。query ごとに保存した前回成功地点まで `updated_at` 降順で走査します。state が無い初回だけ `--lookback-days` を使います。query には既定で `fork:false` と `archived:false` を足します。
 
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
@@ -368,6 +373,18 @@ python3 scripts/project_registry.py sync-github-search \
 ```
 
 この時、`screened_out_entries` に落ちたものは DB に作りません。現状は GitHub 上で fork と判定され、独立した homepage / service candidate / owned lexicon surface が見えない repo もここで落とします。問題なければ `--execute` を付けて本実行します。
+
+## sync の増分 state
+
+`sync-introduced`、`sync-collections`、`sync-github-search`、`sync-semble-collections` は既定で増分同期です。successful execute の watermark を SQLite の `sync_state` に保存します。
+
+- dry-run、API error、ページ上限到達による不完全走査では state を更新しません
+- `--no-create-unmatched` で未一致候補が残った場合も state を更新しません
+- `--all-history` は保存済み watermark と初回 lookback を無視します。successful execute なら次回用 state を更新します
+- `--no-incremental` は保存済み watermark の読み書きを止めます。`--all-history` が無ければ初回 lookback は適用します
+- timestamp 境界は再取得を許す at-least-once 方式です。重複処理はあり得ますが、同一 timestamp の新規項目を落としにくくします
+
+Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた場合だけ、watermark より古い card で早期停止します。`sync-collections` は既知 project の activity refresh のため、増分化後も inventory API 全件を取得します。
 
 ## merge
 

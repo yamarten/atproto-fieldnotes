@@ -817,6 +817,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         payload = web.sync_payload_from_request({"kind": "collections", "create_unmatched": False})
 
         self.assertFalse(payload["create_unmatched"])
+        self.assertTrue(payload["incremental"])
 
     def test_enrich_all_job_runs_limited_selection(self) -> None:
         original_enrich = web.registry.enrich_project

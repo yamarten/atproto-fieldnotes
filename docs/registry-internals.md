@@ -603,6 +603,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - `introduced_url`
   - `discovery_sources += bsky_introduced_sync`
 - 新規 project は作りません
+- query ごとの watermark を `sync_state` に保存します
+- 初回は 7 日 lookback、以後は Bluesky search の `since` と `sort=latest` を使います
+- unmatched entry は state に保留し、後から project が登録された時に再照合します
 
 ### `sync-collections`
 
@@ -615,7 +618,8 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - import 対象にするのは:
   - collection NSID が正常
   - 既知 NSID ではない
-  - `min` が `lookback_days` 以内
+  - 最新活動の `max` が watermark より新しい
+  - watermark が無い初回は `lookback_days` 以内
 - import 前に namespace 集約します
   - full collection ではなく registrable namespace 単位で 1 project 候補にまとめます
 - reject する主な条件:
@@ -632,9 +636,11 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 ### `sync-github-search`
 
 - query には `fork:false` と `archived:false` を自動で補います
+- query ごとに `updated_at` watermark を保存し、`updated:>=YYYY-MM-DD` と `sort=updated&order=desc` で候補量を絞ってから時刻単位の境界まで取得します
 - import 対象にするのは:
   - 既知 repo URL ではない
-  - `updated_at` が `lookback_days` 以内
+  - `updated_at` が watermark 以上
+  - watermark が無い初回は `lookback_days` 以内
 - 既存 project への match 順:
   1. `repo_url`
   2. `homepage_exact`
@@ -761,13 +767,28 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - `nsid`
   - `repo_url`
   - `service_url`
-- `card_updated_at` が `lookback_days` 以内の card だけ import 対象です
+- tracked collection ごとに `card_updated_at` watermark を保存します
+- `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた response だけ、古い card 到達で早期停止します
+- watermark が無い初回は `lookback_days` を使います
 - 既存 project 解決は `resolve_project_key_for_seed_value()` を使います
   - `repo_url` / `service_url` は exact identifier match
   - `nsid` は `find_project_key_for_nsid_seed()` で namespace / registrable namespace / service host family まで見ます
 - 注意:
   - 現状の `sync-semble-collections` は、`sync-collections` や `sync-github-search` と違って weak match を suggestion に落とさず、そのまま attach し得ます
   - 仕様として明示されているというより、今の実装挙動です
+
+### sync state の更新条件
+
+- `sync_state` は project record ではなく source ごとの運用 checkpoint です
+- scope:
+  - introduced: search query
+  - collections: inventory source URL
+  - GitHub: query set。watermark は query ごと
+  - Semble: tracked collection set。watermark は collection ごと
+- successful execute かつ走査完了時だけ更新します
+- dry-run、例外終了、ページ上限到達では更新しません
+- `--no-create-unmatched` で未一致が残った場合は、その候補を次回も出すため更新しません
+- 境界 timestamp と同時刻の項目は次回も処理対象にします。exactly-once ではなく at-least-once です
 
 ## 外部アクセス
 

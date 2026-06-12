@@ -1960,6 +1960,17 @@ def open_db() -> sqlite3.Connection:
     if "ops_json" not in columns:
         conn.execute("ALTER TABLE projects ADD COLUMN ops_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sync_state (
+            scope_key TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            scope_json TEXT NOT NULL DEFAULT '{}',
+            watermark_json TEXT NOT NULL DEFAULT '{}',
+            last_success_at TEXT NOT NULL
+        )
+        """
+    )
     rows = conn.execute("SELECT project_key, tracking_state, introduced_url FROM projects").fetchall()
     for row in rows:
         normalized = normalize_tracking_state(str(row["tracking_state"] or "active"))
@@ -1976,6 +1987,75 @@ def open_db() -> sqlite3.Connection:
             )
     conn.commit()
     return conn
+
+
+def sync_scope_key(kind: str, scope: dict[str, Any]) -> str:
+    encoded = json.dumps(scope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = uuid.uuid5(uuid.NAMESPACE_URL, f"atproto-survey:{kind}:{encoded}").hex[:16]
+    return f"{kind}:{digest}"
+
+
+def read_sync_state(conn: sqlite3.Connection, kind: str, scope: dict[str, Any]) -> dict[str, Any]:
+    scope_key = sync_scope_key(kind, scope)
+    row = conn.execute(
+        "SELECT scope_key, kind, scope_json, watermark_json, last_success_at FROM sync_state WHERE scope_key = ?",
+        (scope_key,),
+    ).fetchone()
+    if row is None:
+        return {
+            "scope_key": scope_key,
+            "kind": kind,
+            "scope": dict(scope),
+            "watermark": {},
+            "last_success_at": "",
+        }
+    return {
+        "scope_key": str(row["scope_key"]),
+        "kind": str(row["kind"]),
+        "scope": load_json(str(row["scope_json"] or "")) or dict(scope),
+        "watermark": load_json(str(row["watermark_json"] or "")) or {},
+        "last_success_at": str(row["last_success_at"] or ""),
+    }
+
+
+def write_sync_state(
+    conn: sqlite3.Connection,
+    kind: str,
+    scope: dict[str, Any],
+    watermark: dict[str, Any],
+) -> dict[str, Any]:
+    scope_key = sync_scope_key(kind, scope)
+    last_success_at = iso_now()
+    conn.execute(
+        """
+        INSERT INTO sync_state(scope_key, kind, scope_json, watermark_json, last_success_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(scope_key) DO UPDATE SET
+            kind = excluded.kind,
+            scope_json = excluded.scope_json,
+            watermark_json = excluded.watermark_json,
+            last_success_at = excluded.last_success_at
+        """,
+        (
+            scope_key,
+            kind,
+            json.dumps(scope, ensure_ascii=False, sort_keys=True),
+            json.dumps(watermark, ensure_ascii=False, sort_keys=True),
+            last_success_at,
+        ),
+    )
+    return {
+        "scope_key": scope_key,
+        "kind": kind,
+        "scope": dict(scope),
+        "watermark": dict(watermark),
+        "last_success_at": last_success_at,
+    }
+
+
+def sync_watermark_datetime(state: dict[str, Any], key: str = "timestamp") -> dt.datetime | None:
+    watermark = state.get("watermark", {}) if isinstance(state.get("watermark", {}), dict) else {}
+    return parse_iso_datetime(str(watermark.get(key) or ""))
 
 
 def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
@@ -5953,8 +6033,10 @@ def filter_sync_collection_inventory_payload(
     projects: list[dict[str, Any]],
     *,
     lookback_days: int,
+    watermark: dt.datetime | None = None,
+    all_history: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+    cutoff = None if all_history else (watermark or (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))))
     known_nsids = known_collection_nsids(projects)
     filtered: list[dict[str, Any]] = []
     skipped_known = 0
@@ -5970,18 +6052,19 @@ def filter_sync_collection_inventory_payload(
         if collection_nsid in known_nsids:
             skipped_known += 1
             continue
-        min_at = parse_iso(str(item.get("min") or ""))
-        if min_at is None:
+        activity_at = parse_iso(str(item.get("max") or item.get("min") or ""))
+        if activity_at is None:
             skipped_invalid_min += 1
             continue
-        if min_at < cutoff:
+        if cutoff is not None and activity_at < cutoff:
             skipped_old += 1
             continue
         filtered.append(item)
 
     return filtered, {
         "lookback_days": max(0, int(lookback_days)),
-        "cutoff_min": cutoff.replace(microsecond=0).isoformat(),
+        "cutoff_min": cutoff.replace(microsecond=0).isoformat() if cutoff is not None else "",
+        "cutoff_source": "all_history" if cutoff is None else ("watermark" if watermark is not None else "lookback"),
         "fetched_entries": len(payload),
         "eligible_entries": len(filtered),
         "skipped_known": skipped_known,
@@ -6105,7 +6188,12 @@ def sync_collection_inventory(
     create_unmatched: bool,
     lookback_days: int,
     save_path: Path | None = None,
+    incremental: bool = True,
+    all_history: bool = False,
 ) -> dict[str, Any]:
+    scope = {"source_url": normalize_url(source_url)}
+    state = read_sync_state(conn, "collections", scope)
+    stored_watermark = sync_watermark_datetime(state) if incremental and not all_history else None
     payload = fetch_collection_inventory(source_url)
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -6115,7 +6203,15 @@ def sync_collection_inventory(
         payload,
         projects,
         lookback_days=lookback_days,
+        watermark=None if all_history else stored_watermark,
+        all_history=all_history,
     )
+    payload_timestamps = [
+        parsed
+        for item in payload
+        if (parsed := parse_iso_datetime(str(item.get("max") or item.get("min") or ""))) is not None
+    ]
+    newest_timestamp = max(payload_timestamps) if payload_timestamps else None
     activity_refresh = refresh_known_collection_activity(
         conn,
         payload,
@@ -6124,6 +6220,10 @@ def sync_collection_inventory(
         inactivity_days=lookback_days,
     )
     if not filtered_payload:
+        state_updated = bool(execute and incremental and newest_timestamp is not None)
+        if state_updated:
+            write_sync_state(conn, "collections", scope, {"timestamp": newest_timestamp.isoformat()})
+            conn.commit()
         return {
             "source": f"collection_inventory_url:{source_url}",
             "source_url": source_url,
@@ -6141,6 +6241,10 @@ def sync_collection_inventory(
             "rejected_entries": [],
             **filter_stats,
             **activity_refresh,
+            "incremental": incremental and not all_history,
+            "state_updated": state_updated,
+            "watermark_before": stored_watermark.isoformat() if stored_watermark else "",
+            "watermark_after": newest_timestamp.isoformat() if state_updated and newest_timestamp else "",
             **({"saved_payload_path": str(save_path)} if save_path is not None else {}),
         }
     summary = import_collection_inventory_payload(
@@ -6153,6 +6257,14 @@ def sync_collection_inventory(
     )
     summary.update(filter_stats)
     summary.update(activity_refresh)
+    state_updated = bool(execute and incremental and newest_timestamp is not None and (create_unmatched or int(summary.get("unmatched") or 0) == 0))
+    if state_updated:
+        write_sync_state(conn, "collections", scope, {"timestamp": newest_timestamp.isoformat()})
+        conn.commit()
+    summary["incremental"] = incremental and not all_history
+    summary["state_updated"] = state_updated
+    summary["watermark_before"] = stored_watermark.isoformat() if stored_watermark else ""
+    summary["watermark_after"] = newest_timestamp.isoformat() if state_updated and newest_timestamp else ""
     summary["source_url"] = source_url
     if save_path is not None:
         summary["saved_payload_path"] = str(save_path)
@@ -6164,33 +6276,89 @@ def sync_introduced_entries(
     *,
     query: str,
     execute: bool,
-    limit: int,
-    max_pages: int = 4,
+    limit: int = 10,
+    max_pages: int = 100,
+    lookback_days: int = 7,
+    incremental: bool = True,
+    all_history: bool = False,
 ) -> dict[str, Any]:
+    scope = {"query": str(query).strip()}
+    state = read_sync_state(conn, "introduced", scope)
+    saved_watermark = sync_watermark_datetime(state)
+    stored_watermark = saved_watermark if incremental and not all_history else None
+    stored_pending = state.get("watermark", {}).get("pending_entries", []) if isinstance(state.get("watermark", {}), dict) else []
+    if not isinstance(stored_pending, list):
+        stored_pending = []
+    fallback_cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+    cutoff = None if all_history else (stored_watermark or fallback_cutoff)
     posts: list[dict[str, Any]] = []
     cursor = ""
     fetched_posts = 0
     pages = 0
-    while pages < max(1, max_pages) and fetched_posts < max(1, limit):
-        payload = search_bsky_posts_payload(query, limit=min(100, max(1, limit - fetched_posts)), cursor=cursor)
+    boundary_reached = False
+    exhausted = False
+    newest_timestamp: dt.datetime | None = None
+    while pages < max(1, max_pages):
+        payload = search_bsky_posts_payload(
+            query,
+            limit=min(100, max(1, limit)),
+            cursor=cursor,
+            since=cutoff.isoformat() if cutoff is not None else "",
+        )
         page_posts = [item for item in payload.get("posts", []) if isinstance(item, dict)]
         if not page_posts:
+            exhausted = True
             break
-        posts.extend(page_posts)
         fetched_posts += len(page_posts)
         pages += 1
+        for post in page_posts:
+            record = post.get("record", {}) if isinstance(post.get("record"), dict) else {}
+            timestamp = parse_iso_datetime(str(post.get("indexedAt") or record.get("createdAt") or ""))
+            if timestamp and (newest_timestamp is None or timestamp > newest_timestamp):
+                newest_timestamp = timestamp
+            if cutoff is not None and timestamp is not None and timestamp < cutoff:
+                boundary_reached = True
+                continue
+            posts.append(post)
+        if boundary_reached:
+            break
         next_cursor = str(payload.get("cursor") or "").strip()
         if not next_cursor or next_cursor == cursor:
+            exhausted = True
             break
         cursor = next_cursor
 
-    entries_by_seed = collect_applog_entries(posts)
+    scan_complete = boundary_reached or exhausted
+
+    entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
+    if incremental:
+        for item in stored_pending:
+            if not isinstance(item, dict):
+                continue
+            seed_type = str(item.get("seed_type") or "").strip()
+            seed_value = str(item.get("seed_value") or "").strip()
+            if not seed_type or not seed_value:
+                continue
+            entries_by_seed[(seed_type, seed_value)] = {
+                "seed_type": seed_type,
+                "seed_value": seed_value,
+                "labels": clean_string_list(item.get("labels", []), limit=20),
+                "post_web_urls": clean_string_list(item.get("post_web_urls", []), limit=20),
+            }
+    for key, item in collect_applog_entries(posts).items():
+        bucket = entries_by_seed.setdefault(
+            key,
+            {"seed_type": item["seed_type"], "seed_value": item["seed_value"], "labels": [], "post_web_urls": []},
+        )
+        bucket["labels"] = unique_list([*bucket.get("labels", []), *item.get("labels", [])])
+        bucket["post_web_urls"] = unique_list([*bucket.get("post_web_urls", []), *item.get("post_web_urls", [])])
     updated = 0
     already_introduced = 0
     unmatched = 0
     imported_project_keys: list[str] = []
     matched_project_keys: list[str] = []
     unmatched_entries: list[dict[str, Any]] = []
+    pending_entries: list[dict[str, Any]] = []
 
     for item in entries_by_seed.values():
         seed_type = str(item["seed_type"])
@@ -6198,6 +6366,14 @@ def sync_introduced_entries(
         project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
         if project_key is None:
             unmatched += 1
+            pending_entries.append(
+                {
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "labels": clean_string_list(item.get("labels", []), limit=20),
+                    "post_web_urls": clean_string_list(item.get("post_web_urls", []), limit=20),
+                }
+            )
             unmatched_entries.append(
                 {
                     "seed_type": seed_type,
@@ -6229,11 +6405,48 @@ def sync_introduced_entries(
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated += 1
     if execute:
+        if incremental and scan_complete and newest_timestamp is not None:
+            write_sync_state(
+                conn,
+                "introduced",
+                scope,
+                {
+                    "timestamp": newest_timestamp.isoformat(),
+                    "pending_entries": pending_entries,
+                },
+            )
+        elif incremental and scan_complete and saved_watermark is not None:
+            write_sync_state(
+                conn,
+                "introduced",
+                scope,
+                {
+                    "timestamp": saved_watermark.isoformat(),
+                    "pending_entries": pending_entries,
+                },
+            )
         conn.commit()
+
+    state_updated = bool(execute and incremental and scan_complete and (newest_timestamp or saved_watermark))
 
     return {
         "query": query,
         "posts": len(posts),
+        "fetched_posts": fetched_posts,
+        "pages": pages,
+        "scan_complete": scan_complete,
+        "boundary_reached": boundary_reached,
+        "incremental": incremental and not all_history,
+        "state_updated": state_updated,
+        "watermark_before": saved_watermark.isoformat() if saved_watermark else "",
+        "watermark_after": (
+            newest_timestamp.isoformat()
+            if state_updated and newest_timestamp
+            else (saved_watermark.isoformat() if state_updated and saved_watermark else "")
+        ),
+        "fallback_lookback_days": lookback_days,
+        "pending_before": len(stored_pending) if incremental else 0,
+        "pending_after": len(pending_entries),
         "entries": len(entries_by_seed),
         "updated": updated,
         "already_introduced": already_introduced,
@@ -6260,27 +6473,27 @@ def github_search_query_with_defaults(query: str) -> str:
 
 def default_github_search_pages(per_page: int) -> int:
     normalized_per_page = max(1, min(int(per_page or 50), 100))
-    return max(1, (200 + normalized_per_page - 1) // normalized_per_page)
+    return max(1, (1000 + normalized_per_page - 1) // normalized_per_page)
 
 
-def fetch_github_search_sync_results(
-    queries: list[str],
+def fetch_github_search_query_sync_results(
+    raw_query: str,
     *,
     pages: int,
     per_page: int,
-    lookback_days: int | None = None,
-) -> list[dict[str, Any]]:
+    cutoff: dt.datetime | None,
+) -> dict[str, Any]:
     headers = github_headers()
     deduped: dict[str, dict[str, Any]] = {}
     clamped_per_page = max(1, min(per_page, 100))
-    cutoff = (
-        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
-        if lookback_days is not None else None
-    )
-    for raw_query in queries:
-        query = github_search_query_with_defaults(raw_query)
-        if not query:
-            continue
+    query = github_search_query_with_defaults(raw_query)
+    if cutoff is not None and "updated:" not in query.lower():
+        query = f"{query} updated:>={cutoff.date().isoformat()}".strip()
+    reached_cutoff = False
+    exhausted = False
+    fetched_pages = 0
+    newest_timestamp: dt.datetime | None = None
+    if query:
         for page in range(1, max(1, pages) + 1):
             params = urllib.parse.urlencode(
                 {
@@ -6294,7 +6507,7 @@ def fetch_github_search_sync_results(
             )
             payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
             items = payload.get("items", [])
-            reached_cutoff = False
+            fetched_pages += 1
             for raw in items:
                 html_url = str(raw.get("html_url") or "")
                 normalized_repo = normalize_github_repo_url(html_url)
@@ -6302,6 +6515,8 @@ def fetch_github_search_sync_results(
                     continue
                 updated_at = str(raw.get("updated_at") or "")
                 updated_at_dt = parse_iso(updated_at)
+                if updated_at_dt and (newest_timestamp is None or updated_at_dt > newest_timestamp):
+                    newest_timestamp = updated_at_dt
                 if cutoff is not None and updated_at_dt and updated_at_dt < cutoff:
                     reached_cutoff = True
                     break
@@ -6317,22 +6532,66 @@ def fetch_github_search_sync_results(
                 existing = deduped.get(normalized_repo)
                 if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
                     deduped[normalized_repo] = entry
-            if reached_cutoff or len(items) < clamped_per_page:
+            if reached_cutoff:
                 break
+            if len(items) < clamped_per_page:
+                exhausted = True
+                break
+    results = list(deduped.values())
+    results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
+    return {
+        "query": raw_query,
+        "results": results,
+        "pages": fetched_pages,
+        "boundary_reached": reached_cutoff,
+        "scan_complete": reached_cutoff or exhausted,
+        "newest_timestamp": newest_timestamp.isoformat() if newest_timestamp else "",
+    }
+
+
+def fetch_github_search_sync_results(
+    queries: list[str],
+    *,
+    pages: int,
+    per_page: int,
+    lookback_days: int | None = None,
+) -> list[dict[str, Any]]:
+    cutoff = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+        if lookback_days is not None else None
+    )
+    deduped: dict[str, dict[str, Any]] = {}
+    for query in queries:
+        scan = fetch_github_search_query_sync_results(query, pages=pages, per_page=per_page, cutoff=cutoff)
+        for entry in scan["results"]:
+            repo_url = str(entry.get("url") or "")
+            existing = deduped.get(repo_url)
+            if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
+                deduped[repo_url] = entry
     results = list(deduped.values())
     results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
     return results
 
 
-def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[dict[str, Any]]:
+def fetch_semble_collection_source_sync_results(
+    source: dict[str, Any],
+    *,
+    pages: int,
+    per_page: int,
+    cutoff: dt.datetime | None,
+) -> dict[str, Any]:
     deduped: dict[tuple[str, str], dict[str, Any]] = {}
     clamped_per_page = max(1, min(per_page, 100))
-    for source in SEMBLE_TRACKED_COLLECTIONS:
-        handle = str(source.get("handle") or "").strip()
-        rkey = str(source.get("rkey") or "").strip()
-        label = str(source.get("label") or rkey).strip()
-        if not handle or not rkey:
-            continue
+    handle = str(source.get("handle") or "").strip()
+    rkey = str(source.get("rkey") or "").strip()
+    label = str(source.get("label") or rkey).strip()
+    reached_cutoff = False
+    exhausted = False
+    fetched_pages = 0
+    fetched_cards = 0
+    ordered_desc = False
+    newest_timestamp: dt.datetime | None = None
+    if handle and rkey:
         for page in range(1, max(1, pages) + 1):
             params = urllib.parse.urlencode(
                 {
@@ -6348,9 +6607,25 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
             cards = payload.get("urlCards", [])
             if not isinstance(cards, list):
                 cards = []
+            fetched_pages += 1
+            fetched_cards += len(cards)
+            sorting = payload.get("sorting", {}) if isinstance(payload.get("sorting"), dict) else {}
+            page_ordered_desc = (
+                str(sorting.get("sortBy") or "").lower() == "updatedat"
+                and str(sorting.get("sortOrder") or "").lower() == "desc"
+            )
+            ordered_desc = page_ordered_desc if fetched_pages == 1 else ordered_desc and page_ordered_desc
             collection_label = str(payload.get("name") or label).strip()
             for raw in cards:
                 if not isinstance(raw, dict):
+                    continue
+                updated_at = parse_iso_datetime(str(raw.get("updatedAt") or raw.get("createdAt") or ""))
+                if updated_at and (newest_timestamp is None or updated_at > newest_timestamp):
+                    newest_timestamp = updated_at
+                if cutoff is not None and updated_at is not None and updated_at < cutoff:
+                    if ordered_desc:
+                        reached_cutoff = True
+                        break
                     continue
                 url = str(raw.get("url") or "").strip()
                 classified = classify_text_seed_value(url)
@@ -6381,8 +6656,34 @@ def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[d
                     deduped[key] = entry
             pagination = payload.get("pagination", {}) if isinstance(payload.get("pagination"), dict) else {}
             has_more = bool(pagination.get("hasMore"))
-            if not has_more or len(cards) < clamped_per_page:
+            if reached_cutoff:
                 break
+            if not has_more or len(cards) < clamped_per_page:
+                exhausted = True
+                break
+    results = list(deduped.values())
+    results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
+    return {
+        "source_key": f"{handle}/{rkey}",
+        "results": results,
+        "pages": fetched_pages,
+        "fetched_cards": fetched_cards,
+        "ordered_desc": ordered_desc,
+        "boundary_reached": reached_cutoff,
+        "scan_complete": reached_cutoff or exhausted,
+        "newest_timestamp": newest_timestamp.isoformat() if newest_timestamp else "",
+    }
+
+
+def fetch_semble_collection_sync_results(*, pages: int, per_page: int) -> list[dict[str, Any]]:
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
+    for source in SEMBLE_TRACKED_COLLECTIONS:
+        scan = fetch_semble_collection_source_sync_results(source, pages=pages, per_page=per_page, cutoff=None)
+        for entry in scan["results"]:
+            key = (str(entry.get("seed_type") or ""), str(entry.get("seed_value") or ""))
+            existing = deduped.get(key)
+            if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
+                deduped[key] = entry
     results = list(deduped.values())
     results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
     return results
@@ -6515,8 +6816,36 @@ def sync_github_search(
     per_page: int,
     lookback_days: int | None,
     screen_unmatched: bool = False,
+    incremental: bool = True,
+    all_history: bool = False,
 ) -> dict[str, Any]:
-    results = fetch_github_search_sync_results(queries, pages=pages, per_page=per_page, lookback_days=lookback_days)
+    scope = {"queries": sorted(str(query).strip() for query in queries if str(query).strip())}
+    state = read_sync_state(conn, "github-search", scope)
+    stored_watermarks = state.get("watermark", {}).get("queries", {}) if isinstance(state.get("watermark", {}), dict) else {}
+    if not isinstance(stored_watermarks, dict):
+        stored_watermarks = {}
+    fallback_cutoff = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
+        if lookback_days is not None else None
+    )
+    deduped_results: dict[str, dict[str, Any]] = {}
+    scans: list[dict[str, Any]] = []
+    next_watermarks = dict(stored_watermarks)
+    for query in queries:
+        stored_cutoff = parse_iso_datetime(str(stored_watermarks.get(query) or "")) if incremental and not all_history else None
+        cutoff = None if all_history else (stored_cutoff or fallback_cutoff)
+        scan = fetch_github_search_query_sync_results(query, pages=pages, per_page=per_page, cutoff=cutoff)
+        scans.append(scan)
+        for entry in scan["results"]:
+            repo_url = str(entry.get("url") or "")
+            existing = deduped_results.get(repo_url)
+            if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
+                deduped_results[repo_url] = entry
+        if scan.get("scan_complete") and scan.get("newest_timestamp"):
+            next_watermarks[query] = str(scan["newest_timestamp"])
+    results = list(deduped_results.values())
+    results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
+    scan_complete = all(bool(scan.get("scan_complete")) for scan in scans)
     existing_projects = list_projects(conn)
     _, _, service_host_lookup = build_collection_project_matchers(existing_projects)
     known_repo_urls = {
@@ -6526,11 +6855,6 @@ def sync_github_search(
         if normalize_url(url)
     }
     existing_keys = {str(project["project_key"]) for project in existing_projects}
-    cutoff = (
-        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
-        if lookback_days is not None else None
-    )
-
     eligible: list[dict[str, Any]] = []
     skipped_known = 0
     skipped_old = 0
@@ -6540,10 +6864,6 @@ def sync_github_search(
             continue
         if repo_url in known_repo_urls:
             skipped_known += 1
-            continue
-        updated_at = parse_iso(str(entry.get("updated_at") or ""))
-        if cutoff is not None and updated_at and updated_at < cutoff:
-            skipped_old += 1
             continue
         eligible.append(entry)
 
@@ -6668,7 +6988,17 @@ def sync_github_search(
             save_project(conn, project, enriched=False)
         if is_new:
             created += 1
+    state_updated = bool(
+        execute
+        and incremental
+        and scan_complete
+        and bool(next_watermarks)
+        and (create_unmatched or unmatched == 0)
+        and int(screen_reason_counts.get("screen_failed", 0)) == 0
+    )
     if execute:
+        if state_updated:
+            write_sync_state(conn, "github-search", scope, {"queries": next_watermarks})
         conn.commit()
 
     return {
@@ -6688,6 +7018,21 @@ def sync_github_search(
         "mode": "execute" if execute else "dry_run",
         "create_unmatched": create_unmatched,
         "lookback_days": lookback_days,
+        "incremental": incremental and not all_history,
+        "state_updated": state_updated,
+        "scan_complete": scan_complete,
+        "query_scans": [
+            {
+                "query": scan.get("query"),
+                "pages": scan.get("pages"),
+                "boundary_reached": scan.get("boundary_reached"),
+                "scan_complete": scan.get("scan_complete"),
+                "result_count": len(scan.get("results", [])),
+                "watermark_before": str(stored_watermarks.get(str(scan.get("query") or "")) or ""),
+                "watermark_after": str(scan.get("newest_timestamp") or "") if state_updated else "",
+            }
+            for scan in scans
+        ],
         "imported_project_keys": imported_project_keys,
         "suggested_entries": suggested_entries[:100],
         "screened_out_entries": screened_out_entries[:100],
@@ -6703,12 +7048,42 @@ def sync_semble_collections(
     pages: int,
     per_page: int,
     lookback_days: int | None,
+    incremental: bool = True,
+    all_history: bool = False,
 ) -> dict[str, Any]:
-    results = fetch_semble_collection_sync_results(pages=pages, per_page=per_page)
-    cutoff = (
+    scope = {
+        "collections": sorted(
+            f"{str(source.get('handle') or '').strip()}/{str(source.get('rkey') or '').strip()}"
+            for source in SEMBLE_TRACKED_COLLECTIONS
+        )
+    }
+    state = read_sync_state(conn, "semble-collections", scope)
+    stored_watermarks = state.get("watermark", {}).get("collections", {}) if isinstance(state.get("watermark", {}), dict) else {}
+    if not isinstance(stored_watermarks, dict):
+        stored_watermarks = {}
+    fallback_cutoff = (
         dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
         if lookback_days is not None else None
     )
+    deduped_results: dict[tuple[str, str], dict[str, Any]] = {}
+    scans: list[dict[str, Any]] = []
+    next_watermarks = dict(stored_watermarks)
+    for source in SEMBLE_TRACKED_COLLECTIONS:
+        source_key = f"{str(source.get('handle') or '').strip()}/{str(source.get('rkey') or '').strip()}"
+        stored_cutoff = parse_iso_datetime(str(stored_watermarks.get(source_key) or "")) if incremental and not all_history else None
+        cutoff = None if all_history else (stored_cutoff or fallback_cutoff)
+        scan = fetch_semble_collection_source_sync_results(source, pages=pages, per_page=per_page, cutoff=cutoff)
+        scans.append(scan)
+        for entry in scan["results"]:
+            key = (str(entry.get("seed_type") or ""), str(entry.get("seed_value") or ""))
+            existing = deduped_results.get(key)
+            if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
+                deduped_results[key] = entry
+        if scan.get("scan_complete") and scan.get("newest_timestamp"):
+            next_watermarks[source_key] = str(scan["newest_timestamp"])
+    results = list(deduped_results.values())
+    results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
+    scan_complete = all(bool(scan.get("scan_complete")) for scan in scans)
     existing_keys = {str(project["project_key"]) for project in list_projects(conn)}
     imported_project_keys: list[str] = []
     skipped_old = 0
@@ -6724,10 +7099,6 @@ def sync_semble_collections(
         seed_value = str(entry.get("seed_value") or "")
         if not seed_type or not seed_value:
             skipped_non_seed += 1
-            continue
-        updated_at = parse_iso(str(entry.get("card_updated_at") or ""))
-        if cutoff is not None and updated_at and updated_at < cutoff:
-            skipped_old += 1
             continue
         eligible.append(entry)
 
@@ -6791,7 +7162,16 @@ def sync_semble_collections(
         if is_new:
             created += 1
 
+    state_updated = bool(
+        execute
+        and incremental
+        and scan_complete
+        and bool(next_watermarks)
+        and (create_unmatched or unmatched == 0)
+    )
     if execute:
+        if state_updated:
+            write_sync_state(conn, "semble-collections", scope, {"collections": next_watermarks})
         conn.commit()
 
     return {
@@ -6803,7 +7183,7 @@ def sync_semble_collections(
             }
             for source in SEMBLE_TRACKED_COLLECTIONS
         ],
-        "fetched_cards": len(results),
+        "fetched_cards": sum(int(scan.get("fetched_cards") or 0) for scan in scans),
         "eligible_cards": len(eligible),
         "skipped_old": skipped_old,
         "skipped_non_seed": skipped_non_seed,
@@ -6813,6 +7193,23 @@ def sync_semble_collections(
         "mode": "execute" if execute else "dry_run",
         "create_unmatched": create_unmatched,
         "lookback_days": lookback_days,
+        "incremental": incremental and not all_history,
+        "scan_complete": scan_complete,
+        "state_updated": state_updated,
+        "collection_scans": [
+            {
+                "source_key": str(scan.get("source_key") or ""),
+                "pages": int(scan.get("pages") or 0),
+                "fetched_cards": int(scan.get("fetched_cards") or 0),
+                "ordered_desc": bool(scan.get("ordered_desc")),
+                "boundary_reached": bool(scan.get("boundary_reached")),
+                "scan_complete": bool(scan.get("scan_complete")),
+                "result_count": len(scan.get("results", [])),
+                "watermark_before": str(stored_watermarks.get(str(scan.get("source_key") or "")) or ""),
+                "watermark_after": str(scan.get("newest_timestamp") or "") if state_updated else "",
+            }
+            for scan in scans
+        ],
         "imported_project_keys": imported_project_keys,
         "unmatched_entries": unmatched_entries[:100],
     }
@@ -7498,11 +7895,14 @@ def search_bsky_posts_payload(
     *,
     limit: int = 25,
     cursor: str = "",
+    since: str = "",
     timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH,
 ) -> dict[str, Any]:
-    params_dict: dict[str, Any] = {"q": query, "limit": max(1, min(limit, 100))}
+    params_dict: dict[str, Any] = {"q": query, "limit": max(1, min(limit, 100)), "sort": "latest"}
     if cursor:
         params_dict["cursor"] = cursor
+    if since:
+        params_dict["since"] = since
     params = urllib.parse.urlencode(params_dict)
     url = f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}"
     headers = {"atproto-proxy": BSKY_APPVIEW_PROXY}
@@ -13076,8 +13476,11 @@ def cmd_sync_introduced(args: argparse.Namespace) -> int:
         conn,
         query=str(args.query or "from:yamarten.bsky.social #ATプロトーク"),
         execute=args.execute,
-        limit=int(args.limit or 25),
-        max_pages=int(args.max_pages or 4),
+        limit=int(args.limit or 10),
+        max_pages=int(args.max_pages or 100),
+        lookback_days=int(args.lookback_days or 7),
+        incremental=bool(args.incremental),
+        all_history=bool(args.all_history),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
@@ -13090,7 +13493,7 @@ def cmd_sync_github_search(args: argparse.Namespace) -> int:
     queries = clean_string_list(args.query or search_cfg.get("queries") or [], limit=12)
     if not queries:
         raise ValueError("github repo search queries are not configured")
-    lookback_days = None if args.all_history else int(args.lookback_days or 10)
+    lookback_days = int(args.lookback_days or 10)
     per_page = int(args.per_page or search_cfg.get("per_page") or 50)
     pages = int(args.pages or search_cfg.get("pages") or default_github_search_pages(per_page))
     summary = sync_github_search(
@@ -13102,6 +13505,8 @@ def cmd_sync_github_search(args: argparse.Namespace) -> int:
         per_page=per_page,
         lookback_days=lookback_days,
         screen_unmatched=bool(args.screen_unmatched),
+        incremental=bool(args.incremental),
+        all_history=bool(args.all_history),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
@@ -13120,6 +13525,8 @@ def cmd_sync_collections(args: argparse.Namespace) -> int:
         create_unmatched=args.create_unmatched,
         lookback_days=args.lookback_days,
         save_path=args.save_path,
+        incremental=bool(args.incremental),
+        all_history=bool(args.all_history),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
@@ -13127,14 +13534,16 @@ def cmd_sync_collections(args: argparse.Namespace) -> int:
 
 def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
     conn = open_db()
-    lookback_days = None if args.all_history else int(args.lookback_days or 14)
+    lookback_days = int(args.lookback_days or 14)
     summary = sync_semble_collections(
         conn,
         execute=args.execute,
         create_unmatched=args.create_unmatched,
-        pages=int(args.pages or 1),
+        pages=int(args.pages or 100),
         per_page=int(args.per_page or 20),
         lookback_days=lookback_days,
+        incremental=bool(args.incremental),
+        all_history=bool(args.all_history),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0
@@ -14969,8 +15378,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_introduced_parser = subparsers.add_parser("sync-introduced", help="Search Bluesky posts and mark matching projects as introduced.")
     sync_introduced_parser.add_argument("--query", default="from:yamarten.bsky.social #ATプロトーク", help="Bluesky post search query. Default: from:yamarten.bsky.social #ATプロトーク")
-    sync_introduced_parser.add_argument("--limit", type=int, default=25, help="Maximum number of posts to inspect across search pages. Default: 25.")
-    sync_introduced_parser.add_argument("--max-pages", type=int, default=4, help="Maximum number of paginated search requests. Default: 4.")
+    sync_introduced_parser.add_argument("--limit", type=int, default=10, help="Posts to request per search page. Default: 10.")
+    sync_introduced_parser.add_argument("--max-pages", type=int, default=100, help="Safety limit for paginated search requests. Default: 100.")
+    sync_introduced_parser.add_argument("--lookback-days", type=int, default=7, help="Initial lookback before a successful incremental sync exists. Default: 7.")
+    sync_introduced_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the last successful sync. Default: enabled; use --no-incremental to ignore stored state.")
+    sync_introduced_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for this run.")
     sync_introduced_parser.add_argument("--execute", action="store_true", help="Apply introduced flags. Without this flag, show a dry-run summary only.")
     sync_introduced_parser.set_defaults(func=cmd_sync_introduced)
 
@@ -14980,6 +15392,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_github_parser.add_argument("--per-page", type=int, help="How many results to fetch per page.")
     sync_github_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider repos updated within this many days. Default: 10.")
     sync_github_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
+    sync_github_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume each query from its last successful sync. Default: enabled.")
     sync_github_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_github_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown GitHub repos. Default: enabled; use --no-create-unmatched to list only.")
     sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
@@ -14989,15 +15402,18 @@ def build_parser() -> argparse.ArgumentParser:
     sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")
     sync_collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_collections_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unmatched imported collections. Default: enabled; use --no-create-unmatched to list only.")
-    sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider collections whose min timestamp is within this many days. Default: 10.")
+    sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Initial lookback for collections whose latest activity timestamp is recent. Default: 10.")
+    sync_collections_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Use the last successful inventory watermark. Default: enabled.")
+    sync_collections_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for unknown collections.")
     sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
     sync_collections_parser.set_defaults(func=cmd_sync_collections)
 
     sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
-    sync_semble_parser.add_argument("--pages", type=int, default=1, help="How many Semble collection pages to scan per tracked collection. Default: 1.")
+    sync_semble_parser.add_argument("--pages", type=int, default=100, help="Safety limit for Semble pages per tracked collection. Default: 100; incremental scans stop at the saved boundary.")
     sync_semble_parser.add_argument("--per-page", type=int, default=20, help="How many collection cards to fetch per page. Default: 20.")
     sync_semble_parser.add_argument("--lookback-days", type=int, default=14, help="Only consider cards updated within this many days. Default: 14.")
     sync_semble_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
+    sync_semble_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume each tracked collection from its last successful sync. Default: enabled.")
     sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
     sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
