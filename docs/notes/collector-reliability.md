@@ -1,101 +1,56 @@
 # Collector Reliability Notes
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。collectorとfailureの契約は
+> 作業用・検討用文書です。現行仕様の正本ではありません。契約は
 > [../investigation-model.md](../investigation-model.md) を参照してください。
 
 ## 現在地
 
 実装済み:
 
-- GitHub / Bluesky search collectorはsource failureをbundleへ分離する
-- `CollectorFailure`はsource、operation、target、category、message、retryableを持つ
-- timeout、403/429、5xx、network error、その他errorを分類する
-- 一つのsourceが失敗しても、他sourceとLLM reviewは継続できる
-- Bluesky sessionと同一run内のGitHub search resultにはprocess-local cacheがある
+- source/operation 単位の `CollectorResult`
+- `success | partial | skipped | rate_limited | failed`
+- request/result 数、cursor、stop reason、retry 時刻、cache hit の保存欄
+- timeout、429、5xx、network error の retry。最大3 attempt
+- `Retry-After`、exponential backoff、source-local rate-limit stop
+- GitHub search/repo と service probe の process-local TTL cache
+- GitHub/Bluesky search の request budget
+- failure source 以外を継続し、run 後も「証拠なし」と「未実行/失敗」を区別
 
-制約:
+403 は retry せず forbidden として扱います。retryable flag は最終 failure の性質であり、必ず次 run を
+自動 scheduling することを意味しません。
 
-- retryableは分類だけで、retryを実行しない
-- bundleにはsource単位の完了状態、cursor、打ち切り理由がない
-- GitHub repo metadataとservice probeはcacheしない
-- secondary repo走査で同一repoを一run中に再fetchする場合がある
-- failureは最終的に`last_run_errors`へ文字列として統合されるため、保存後は構造が失われる
+## Source 別の残件
 
-## Source別の既知課題
+- GitHub: secondary rate limit と通常 403 の詳細分類、repo contents request の budget 統合
+- Bluesky: session create/refresh の retry と cursor 打ち切り状態
+- service: follow-up/deep 全体の per-host budget、cache freshness
+- Tangled/PDS: handle/DID/PDS 解決 cache と pagination 上限
+- LLM: endpoint 単位の backoff と circuit breaker
 
-### GitHub
+## Source result envelope
 
-- live fetchの連続実行で403 / secondary rate limitに当たり得る
-- repo enrichはmetadata、README、treeに加え、lexicon candidate fileを最大16件取得する
-- run-level stopやretry-after利用は未接続
-
-### Bluesky
-
-- actor / post searchは認証情報に依存する
-- session作成とtoken refreshのretry policyは未接続
-- search cursorで全履歴を走査できる保証はない
-
-### Service probe
-
-- confirmed URLとcandidate URLでtimeoutは分けている
-- follow-upやdeep pageが増えると一projectあたりのrequest数が大きくなる
-- source単位のcircuit breakerやcacheは未接続
-
-### LLM
-
-- endpoint shape差分に対するchat / responses / completions fallbackがある
-- timeoutとparse failureはproject errorとして残る
-- endpoint単位のbackoffは未接続
-
-## 完了状態案
-
-将来はsource実行を少なくとも次に分けます。
-
-- `success`: 予定した範囲を完了
-- `partial`: 一部resultとfailureがある
-- `skipped`: 設定不足、既存evidenceで不要、budget超過などで未実行
-- `rate_limited`: upstream制約で中断
-- `failed`: usable resultなしで失敗
-
-併せて、request数、取得件数、cursor、打ち切り理由、retry-after、cache hitを残す候補があります。
-
-### Source result envelope の参考例
-
-collector境界を検討した際には、source単位の出力を次のように形式化するイメージも挙がっています。
-これは非規範的な参考例であり、現行schemaでも採用決定済みの将来schemaでもありません。
+初期案の source 固有 envelope は、v2 では共通 `CollectorResult` と順序付き `EvidenceRecord` に分離して
+表現しています。integration が `repos` など source 固有 top-level field を知る構造にはしていません。
 
 ```json
 {
   "source": "github_repo",
   "status": "success",
-  "repos": [],
-  "lexicon_hints": [],
-  "service_urls": [],
-  "observed_at": "..."
+  "request_count": 3,
+  "result_count": 1,
+  "stop_reason": ""
 }
 ```
 
-この形の利点は、sourceの完了状態とsource固有の結果集合を一つの境界で読めることです。一方、
-現行の`EvidenceBundle v1`はkind付きの順序付き`records`と`failures`へ正規化するため、`repos`などの
-source固有fieldは持ちません。また、source単位の`status`も未接続です。
-
-将来この案を再検討する場合は、少なくとも次を比較します。
-
-- source固有fieldを保つenvelopeと、共通`EvidenceRecord`へ正規化する方式のどちらをcollector公開契約にするか
-- `status`をbundle全体、source単位、operation単位のどこへ置くか
-- partial result、複数operation、pagination打ち切りを一つの`status`で表せるか
-- integrationがsource固有shapeを知る構造を許容するか
-
 ## 未検証
 
-- source別の適切なretry回数とbackoff上限
-- project単位とrun単位のどちらでcircuit breakerを持つべきか
-- cache freshnessが調査精度へ与える影響
-- partial resultを保存・再開する場合の重複排除
+- 実 API で適切な TTL、budget、backoff 上限
+- process-local cache と保存 run の freshness 表示
+- partial pagination の再開時重複排除
+- 複数 project を跨ぐ run-level circuit breaker
 
 ## 将来目標
 
-- sourceごとのtimeout / retry / rate-limit policyをcollector外から設定する
-- rate limit時は失敗sourceだけを止め、run全体を継続する
-- 人が対応すべきerrorだけを`last_run_errors`へ残す
-- source完了状態をreplayとreview queueの優先度へ利用する
+- source policy を config から調整可能にする
+- retryable failure の次回実行時刻を review/enrich priority に使う
+- operator 対応が必要な error だけを `last_run_errors` へ要約する

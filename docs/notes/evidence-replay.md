@@ -1,68 +1,38 @@
 # Evidence Replay Notes
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。evidenceの現在の契約は
+> 作業用・検討用文書です。現行仕様の正本ではありません。契約は
 > [../investigation-model.md](../investigation-model.md) を参照してください。
 
-## 目的
+## 現在地
 
-- 外部APIや実DBを使わずにintegration / evaluationを反復する
-- 誤判定projectを回帰fixtureへ追加する
-- heuristic変更前後の判定差を説明可能にする
-- 全件再enrichなしでownership、寄与度、service statusを比較する
+実装済み:
 
-## 動作確認済み
+- `investigation_runs` / `collector_runs` への v2 bundle と評価 snapshot 保存
+- v1 fixture の読み込み互換
+- `replay-investigation`, `benchmark-investigation`, `export-investigation-fixture`
+- relation/evaluation を中心にした semantic diff
+- 6 case の synthetic/regression corpus
 
-- `EvidenceBundle` schema version 1のJSON round-trip
-- synthetic GitHub repo snapshot fixtureの読み込み
-- fixture中のlexicon hintからownershipとATProto寄与度を再評価
-- collector non-mutation、GitHub採用閾値、partial failureのunit test
-- temp SQLiteでの `enrich_project -> save_project -> fetch_project`
+動作確認済み:
 
-現在のfixtureはsyntheticな最小例であり、実project corpusではありません。
+- replay 中に collector と service follow-up network を呼ばないこと
+- temp SQLite での run 保存、読み込み、再評価
+- benchmark 6 case の期待評価
 
-## 未接続
+## Corpus 運用
 
-- fixture directoryを走査する専用runner
-- collector outputをsanitized fixtureとして保存する導線
-- project入力、raw evidence、期待evaluationを一つのcaseとして管理するschema
-- heuristic versionや実行commitの記録
-- old/new evaluationのstructured diff
-- operator向けCLI
+1 case は `case_id`、誤判定の説明、入力 project、bundle、期待 evaluation を持ちます。fixture へ
+取り込む際は token、private endpoint、不要な本文、個人情報を除去し、判定に必要な locator、hash、
+bounded extract だけを残します。
 
-## Corpus案
+未接続:
 
-1 caseは少なくとも次を持つ想定です。
-
-- `case_id`と誤判定の説明
-- collector前のproject snapshot
-- source別evidence bundle
-- 期待するconfirmed / candidate / rejected relation
-- ownership、ATProto寄与度、service statusの期待値
-- 許容する未確定値
-
-fixtureへ取り込む際はtoken、private endpoint、個人情報、不要な本文を除去し、判断に必要な最小材料へ縮約します。
-
-## 比較結果
-
-将来のrunnerは次を区別して報告する必要があります。
-
-- intended fix
-- unrelated change
-- regression
-- previously unknownから確定への変化
-- evidence不足で比較不能
-
-単純なJSON全体diffではcandidate順序やtimestamp noiseが大きいため、evaluation結果とrelation単位の
-semantic diffを優先します。
-
-## 未検証
-
-- 実projectを何件集めれば主要heuristicの退行を検知できるか
-- fixture更新を通常の調査運用へ組み込む負担
-- raw responseを残さず縮約evidenceだけで再現できる誤判定の範囲
+- 本番ミラー上の defer/block/manual correction を自動抽出して fixture 候補にするコマンド
+- heuristic version 間で relation の追加・削除理由まで説明する report
+- fixture update の review policy
 
 ## 将来目標
 
-- 実際に修正した誤判定を必ずcorpusへ追加する運用
-- source収集とevaluationを独立してbenchmarkする
-- heuristic変更時にcase別diffと集計を自動出力する
+- 実際に修正した誤判定を corpus へ追加する
+- intended fix、regression、unknown から確定への変化を別集計する
+- source 収集 benchmark と evaluation benchmark を分ける

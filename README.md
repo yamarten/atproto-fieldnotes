@@ -187,6 +187,24 @@ python3 scripts/project_registry.py enrich --all --include-stable
 python3 scripts/project_registry.py enrich --all --include-stalled
 ```
 
+保存済みevidenceの再評価とfixture benchmark:
+
+```bash
+python3 scripts/project_registry.py replay-investigation -p proj:xxxxxxxxxxxx
+python3 scripts/project_registry.py benchmark-investigation
+python3 scripts/project_registry.py export-investigation-fixture --run-id inv:... --output /tmp/case.json
+```
+
+serviceの明示検証とTangled rolling sync:
+
+```bash
+python3 scripts/project_registry.py verify-service -p proj:xxxxxxxxxxxx --lane browser
+python3 scripts/project_registry.py sync-tangled-repos
+```
+
+browser laneは任意依存です。`python3 -m pip install -r requirements-browser.txt` と
+`python3 -m playwright install chromium` を実行した環境でだけ利用します。
+
 Bluesky 検索から紹介済み判定を同期:
 
 ```bash

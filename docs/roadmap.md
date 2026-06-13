@@ -29,17 +29,19 @@
 次の優先候補だけを roadmap として残します。接続済み範囲と恒久的な契約は
 [investigation-model.md](investigation-model.md) を正本とします。
 
-- lexicon resolution / recent record sampling を非mutating collector化する
-- service probe とfirst-party follow-upを分け、source別timeout/retryを設定する
-- deep resource page収集を通常service probeから分離する
-- `CollectorFailure.category` をrun-level backoff / circuit breakerへ接続する
-- evidence fixture corpusへ実際の誤判定projectを追加し、heuristic version比較を行う
-- raw evidenceを通常運用で保存する必要が出た時は、DB field追加より先にartifact retentionと機密情報除去を決める
+- 本番ミラー上のdefer/block/manual correctionから、実際の誤判定fixture候補を抽出する
+- OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
+- Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
+- UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める
+- browser service verificationの実Playwright smoke testと複数surface統合を追加する
+- repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
+- investigation runのretention、pruning、export時sanitize policyを決める
+- Web UIからrun/evidence diffを閲覧する必要性を再評価する
 
 未決定:
 
-- evidence artifactの保存場所とretention
-- collector間の共通retry policy
+- investigation runのretention
+- 複数projectを跨ぐ永続circuit breaker
 - legacy project fieldの廃止順
 - Web UIからのevidence inspection導線
 

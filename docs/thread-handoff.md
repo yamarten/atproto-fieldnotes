@@ -4,6 +4,39 @@
 内部仕様は [registry-internals.md](registry-internals.md)、調査 pipeline の恒久的な契約は
 [investigation-model.md](investigation-model.md) を参照してください。
 
+## 2026-06-13 調査強化
+
+実装済み:
+
+- EvidenceBundle v2、typed relation、source別CollectorResult。v1 fixtureは読み込み可能
+- `investigation_runs` / `collector_runs`へのinput/output/bundle/evaluation保存
+- `replay-investigation`, `benchmark-investigation`, `export-investigation-fixture`
+- GitHub source意味解析、OAuth permission relation、repo/app相互corroboration
+- lexicon/recent record/service/resource pageのevidence境界への移行
+- source別retry、Retry-After、TTL cache、request budget、rate-limit stop
+- static/deep/browser service laneと`verify-service`
+- confirmed accountのPDSからのTangled repo探索、UFOs rolling sync
+- 観測済みroot/`www` aliasによるcandidate抑止
+
+動作確認済み:
+
+- 調査pipelineのunit test 25件
+- 既存Webテストを含む全207 unittest
+- replayがservice follow-up networkを呼ばないこと
+- synthetic 6 case benchmark
+- temp SQLiteでのmigration/run保存/replay
+
+未検証:
+
+- 実Playwright、実Tangled PDS/UFOs、実API rate-limitでのintegration run
+- 本番ミラー全件への`repair-db --execute`または再enrich
+
+未接続:
+
+- Tangled timeline/community search/bot adapterの通常実行
+- OAuth `include:` permission set解決
+- Web UIのrun/evidence表示
+
 ## まず知っておくこと
 
 - DB は `data/survey.db`
@@ -14,7 +47,8 @@
     - `nsid` 20、`repo_url` 29、`service_url` 31
     - `blocked_identifiers`あり8 projects、`separate_project_keys`あり19 projects、`tracking_note`あり10 projects
     - `promotion_deferrals`は保存データ上0件
-- 主データテーブルは `projects`
+- 現在状態の主データテーブルは `projects`
+- 調査履歴は `investigation_runs` / `collector_runs`
 - source ごとの増分 checkpoint は `sync_state`
 - `projects` は現在
   - scalar columns
@@ -79,9 +113,9 @@
 ## 現在の主要レーン
 
 - 調査 pipeline 境界
-  - 実装済み: `scripts/project_registry_core/` に evidence / investigation / integration / evaluation を分離し、GitHub repo、GitHub search、Bluesky actor/post/feed を structured evidence 経路へ接続
-  - 動作確認済み: 2026-06-13 時点の全193 unittest、collector non-mutation、partial failure分類、fixture再評価、temp DBでのenrich/save/fetch
-  - 未接続: lexicon、recent record、service、resource page collector、raw evidence通常保存、retry/backoff/circuit breaker policy
+  - 実装済み: relation、run保存/replay、legacy collector境界、service/Tangled/URL alias、retry/cache/budget
+  - 動作確認済み: collector non-mutation、partial failure、fixture再評価、temp DB run保存
+  - 未接続: Tangled optional adapter通常実行、OAuth include解決、Web evidence表示
   - 正本: [investigation-model.md](investigation-model.md)
   - 将来課題: [roadmap.md](roadmap.md) と [notes](notes/)
 

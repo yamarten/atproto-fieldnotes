@@ -18,6 +18,7 @@
   - scalar columns
   - `record_json`
   - `ops_json`
+- 調査履歴は同じSQLiteの `investigation_runs` / `collector_runs` に保存する
 
 ## DB 操作
 

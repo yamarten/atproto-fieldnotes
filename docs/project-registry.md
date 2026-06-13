@@ -129,6 +129,40 @@ python3 scripts/project_registry.py enrich --all --include-archived
 python3 scripts/project_registry.py enrich --all --include-ignore
 ```
 
+保存済み調査runをnetworkなしで再評価する場合:
+
+```bash
+python3 scripts/project_registry.py replay-investigation --run-id inv:...
+python3 scripts/project_registry.py replay-investigation --project-key proj:...
+python3 scripts/project_registry.py benchmark-investigation
+python3 scripts/project_registry.py export-investigation-fixture --run-id inv:... --output /tmp/case.json
+```
+
+serviceをレーン指定で確認する場合。`--execute`なしはDBを更新しません。
+
+```bash
+python3 scripts/project_registry.py verify-service -p proj:... --lane static
+python3 scripts/project_registry.py verify-service -p proj:... --lane deep --execute
+python3 scripts/project_registry.py verify-service -p proj:... --lane browser --execute
+```
+
+browser laneは任意依存です。
+
+```bash
+python3 -m pip install -r requirements-browser.txt
+python3 -m playwright install chromium
+```
+
+TangledのUFOs rolling windowを確認・同期する場合。既定はdry-runかつunmatched作成offです。
+
+```bash
+python3 scripts/project_registry.py sync-tangled-repos
+python3 scripts/project_registry.py sync-tangled-repos --execute
+python3 scripts/project_registry.py sync-tangled-repos --create-unmatched --execute
+```
+
+UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_possible`, `complete_history`を確認します。
+
 ## 表示
 
 ```bash

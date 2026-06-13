@@ -22,6 +22,13 @@
 - `ops_json`
   - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
 
+調査履歴は同じ SQLite の専用 table に保存します。
+
+- `investigation_runs`
+  - input/output project snapshot、EvidenceBundle、evaluation version、保存済み評価
+- `collector_runs`
+  - source/operation ごとの状態と、対応する record/failure
+
 `repair-db` は新構造の正規化と派生フィールド再計算の dry-run summary を出します。DB に適用する時は `repair-db --execute` を使います。
 
 ## 旧 discovery フローの扱い
@@ -122,6 +129,11 @@ URL field は次の 5 層で扱います。
 
 `github_repo_urls` / `tangled_repo_urls` も保存上はまだ残しますが、runtime では `source_code_urls` と confirmed `source_repo_records` から provider view を再構成します。通常導線の repo 判定、review signal、merge/finalize は `source_code_url_values()` / `provider_repo_url_values()` を通して読みます。
 
+root host と `www` host は文字列だけでは同一視しません。HTTP redirect、HTML canonical、または同一
+content hashを実際に観測した relationだけをconfirmed aliasにします。confirmed canonical URLが既に
+登録されている場合だけalias candidateを抑止します。他subdomainは畳まず、`graph.at.fund`のような
+別surfaceは残します。
+
 `audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は保存 field としてまだ残しているため、現状は削除せず migration 候補として扱います。
 
 旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
@@ -169,18 +181,23 @@ URL field は次の 5 層で扱います。
 実装済み:
 
 - `project_registry_core/evidence.py`
-  - `EvidenceBundle`, `EvidenceRecord`, `CollectorFailure` の schema version 1
-  - JSON round-trip と JSON-compatible value validation
+  - `EvidenceBundle` schema version 2、v1 fixture 読み込み互換
+  - `EvidenceRecord`, relation、`CollectorFailure`, `CollectorResult`
 - `project_registry_core/investigation.py`
   - deterministic / LLM query planning
   - GitHub repository snapshot collector
   - GitHub repository search、Bluesky actor/post/feed collector
   - collector は project dict を変更せず evidence bundle を返す
+  - source別 retry、request budget、rate-limit stop
 - `project_registry_core/integration.py`
-  - GitHub / Bluesky evidence を既存 project field へ適用する
+  - GitHub / Bluesky / service / Tangled / legacy evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
 - `project_registry_core/evaluation.py`
   - ownership、ATProto寄与度、service status の純粋評価本体
+- `project_registry_core/storage.py` / `replay.py`
+  - investigation run保存、network-free replay、fixture benchmark
+- `project_registry_core/service.py` / `tangled.py` / `relations.py`
+  - service lane、Tangled PDS/UFOs、typed relation
 - `project_registry.py`
   - 既存関数名の互換 wrapper
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
@@ -193,20 +210,19 @@ URL field は次の 5 層で扱います。
 - Bluesky/GitHubのpartial failureとtimeout/rate-limit分類
 - fixture evidence から ownership / ATProto寄与度だけをnetworkなしで再評価できること
 - temp SQLiteでの `enrich_project -> save_project -> fetch_project`
+- 保存 run の replay、6 case benchmark、fake browser、Tangled pagination
 
 未接続:
 
-- lexicon resolution collector
-- recent record sampling collector
-- service probe / first-party follow-up collector
-- deep resource page collector
-- raw evidence の通常 DB / run artifact 保存
+- Tangled timeline/community search/bot adapter の通常実行
+- OAuth `include:` permission set の再帰解決
+- Web UI の run/evidence inspection
 
 現行の制約:
 
-- 未接続 collector は引き続き legacy mutating 経路を使う
-- evidence bundleは通常実行中の一時値で、保存後の正本は従来どおり project row
-- source別retry/backoff/circuit breakerはschema上表現できるが、実行policyは未実装
+- project row は現在状態の正本、run table は再評価可能な調査履歴
+- resource page は legacy mutator を project copy 上で実行し、許可 field の patch として統合する暫定実装
+- cache と circuit breaker は process/source 単位で、複数 project を跨ぐ永続 policy ではない
 
 collector reliability と replay の設計途中の論点は
 [collector-reliability.md](notes/collector-reliability.md) と
@@ -261,6 +277,12 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
   - `lexicon/`, `lexicons/`, `schema/` 配下などの JSON を lexicon 候補として走査します
   - その JSON が lexicon らしく、かつ `project_owned_lexicon_nsid()` が真の時だけ project 自身の NSID として採用します
   - ownership が弱い時は `github_repo_lexicon_reference` として investigation log に残すだけです
+  - test / fixture / vendor / generated / docs / example path は `mentions_collection` に留めます
+- source code の意味解析:
+  - write/createRecord 系は `uses_collection` の write
+  - read/query/subscription 系は `uses_collection` の read
+  - operation が取れない出現は `mentions_collection`
+  - package/library 提供、service 実装、用途不明を context に分けます
 - README のリンクの扱い:
   - 同一 repo へのリンクは confirmed の補強に使います
   - 別 repo は `repo_candidate_allowed_for_project()` を満たす時だけ candidate に入れます
@@ -416,11 +438,15 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 - deep page probe は `service_status` / `service_status_confidence` / `service_status_evidence` を補助更新します
   - URL の path から `deep_page:about`, `deep_page:docs`, `deep_page:login` などを evidence に追加します
   - この処理は service URL の confirmed 化や merge 判断までは行いません
+- `verify-service -p KEY --lane browser [--execute]` は optional Playwright で anonymous navigation を行います
+  - 同一 site の login/signup link を最大2件追います
+  - 認証入力、登録、投稿は行いません
+  - browser結果は surface 到達と runtime/network error を evidence に残します
 
 未接続:
 
-- browser/computer-use 相当で実際にログイン導線まで試す検証レーン
 - deep investigation の結果を既存 DB 全体へ反映する運用。既存 row の洗い替えには再 `enrich` が必要
+- browser 認証後の機能確認と Web UI 専用表示
 
 static probe、deep page、browser 検証の役割分担と次段階の検討は
 [service-verification.md](notes/service-verification.md) を参照してください。
@@ -448,13 +474,14 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 2. manual `nsid` seed の親 namespace と一致
 3. confirmed 開発者アカウントが authority domain を持っていそう
 4. confirmed 開発者 DID がその `NSID` の schema record を持っている
-5. confirmed service host と authority domain が整合する
-6. 既存の token ベース整合
+5. confirmed repo の `defines_schema` relation
+6. confirmed service host と authority domain が整合する
+7. 既存の token ベース整合
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを弱めることです。
 
-未接続なのは、`git repo/readme/profile -> confirmed account` と、repo/website に出た NSID の
-`defines_schema` / `uses_collection` に基づく owned/reference の明示分離です。
+`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
+OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
 domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
 [identity-ownership-evidence.md](notes/identity-ownership-evidence.md) に分離しています。
 
@@ -476,6 +503,11 @@ domain、account、DID、NSID、repo、service 間の保証関係と検討中の
 - Bluesky author feed:
   - 最大 2 handle
   - feed 中 URL から repo candidate を追加します
+- request policy:
+  - retry は初回を含め最大3 attempt
+  - timeout、429、5xx、network errorだけを retry
+  - `Retry-After`を優先し、GitHub/Blueskyはsource別request budgetを持ちます
+  - rate limit時はそのsource laneだけを止めます
 
 ### 6. LLM が決めるもの / 決めないもの
 
@@ -633,6 +665,18 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - かつ homepage / service candidate / owned lexicon surface のいずれも見えない
   - この条件なら `github_fork_without_independent_surface` で新規 project 候補から落とします
 
+### `sync-tangled-repos`
+
+- UFOs の `sh.tangled.repo` rolling window を `time_us` watermark で増分走査します
+- 完全履歴とは扱わず、前回watermarkへ届かなければ `gap_possible=true` を返します
+- ATProto relevanceを通過したrecordだけを対象にします
+- owner DIDまたはwebsiteで既存projectへ照合します
+- unmatched project作成は既定offで、`--create-unmatched`が必要です
+- confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、
+  `com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
+- owner DID一致はrepo所有の強い根拠ですが、対象projectとの関連性はname、website、内容で別にscoreします
+- timeline、community search、bot adapterは正規化parserのみ実装済みで、config既定無効かつ通常導線未接続です
+
 ## マージ時の editorial 優先
 
 `merge_project_records()` は単純な `current or incoming` ではなく、`project_editorial_preference()` を使って service 本体らしい project を優先します。
@@ -663,8 +707,8 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 1. service 判定の後半強化
 
-未実装の候補は、優先ページごとの signal 細分化、利用条件や install/sign-in 導線の区別、
-opt-in browser 検証です。現行実装との境界は
+未実装の候補は、優先ページごとの signal 細分化、認証後の利用可能性、複数 surface の統合です。
+anonymous browser 検証は opt-in CLI と review queue に接続済みです。現行実装との境界は
 [service-verification.md](notes/service-verification.md) に整理しています。
 
 ### 2. editorial quality の洗い替え
@@ -677,8 +721,9 @@ opt-in browser 検証です。現行実装との境界は
 
 ### 3. rate limit / partial failure 耐性
 
-source別 retry/backoff、run-level circuit breaker、cache と partial completion policy は未接続です。
-現状と設計候補は [collector-reliability.md](notes/collector-reliability.md) を参照してください。
+source別 retry/backoff、TTL cache、request budget、source-local circuit breaker は接続済みです。
+未接続なのは複数projectを跨ぐ永続circuit breaker、session/PDSを含む全collectorへの統一適用、
+実運用値の調整です。現状と残件は [collector-reliability.md](notes/collector-reliability.md) を参照してください。
 
 ### 4. sync コマンドの整理
 
@@ -794,6 +839,7 @@ source別 retry/backoff、run-level circuit breaker、cache と partial completi
   - Bluesky actor search 最大 2 request
   - Bluesky post search 最大 2 request
   - Bluesky author feed 最大 2 request
+  - retry を含む budget は GitHub 6、Bluesky 12 request
 - LLM:
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
   - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POST
@@ -841,8 +887,8 @@ source別 retry/backoff、run-level circuit breaker、cache と partial completi
   - 同一 run 中の `createSession` は原則 1 回
 - GitHub の search result も process 内 cache します
   - 同じ query を同じ run で繰り返す時だけ有効です
-- GitHub repo metadata や service probe は cache していません
-- `secondary_repo_urls` の再走査があるので、同じ GitHub repo を 1 回の `enrich` 中に再 fetch することがあります
+- GitHub repo metadata と service probe も process-local TTL cache を使います
+- cache は永続化しないため、別 process の再実行では再fetchします
 
 ## 昇格ゲート
 
