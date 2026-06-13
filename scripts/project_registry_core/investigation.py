@@ -203,6 +203,14 @@ class SearchCollectorDependencies:
     timeout: float
 
 
+@dataclass(frozen=True)
+class GitHubRepoCollectorDependencies:
+    now: Callable[[], str]
+    fetch_github_repo: Callable[[str], dict[str, Any]]
+    repo_lexicon_hints: Callable[..., list[dict[str, Any]]]
+    extract_urls: Callable[[str], list[str]]
+
+
 def collector_failure(
     *,
     source: str,
@@ -469,4 +477,40 @@ def collect_investigation_evidence(
                 error=exc,
             ))
 
+    return bundle
+
+
+def collect_github_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    dependencies: GitHubRepoCollectorDependencies,
+) -> EvidenceBundle:
+    data = dependencies.fetch_github_repo(repo_url)
+    repo = dict(data["repo"])
+    readme_text = str(data.get("readme_text") or "")
+    repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
+    default_branch = str(data.get("default_branch") or "")
+    repo_lexicons = dependencies.repo_lexicon_hints(
+        repo_url,
+        ref=default_branch,
+        tree=repo_tree,
+    )
+    observed_at = dependencies.now()
+    bundle = EvidenceBundle(
+        project_key=str(project.get("project_key") or ""),
+        collected_at=observed_at,
+    )
+    bundle.add_record(evidence_record(
+        kind="github_repo_snapshot",
+        source=f"github_repo:{repo_url}",
+        classification="confirmed",
+        observed_at=observed_at,
+        value={
+            "repo_url": repo_url,
+            "repo": repo,
+            "default_branch": default_branch,
+            "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
+            "readme_urls": dependencies.extract_urls(readme_text),
+        },
+    ))
     return bundle

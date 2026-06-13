@@ -73,6 +73,36 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         self.assertEqual(bundle.failures[0].category, "rate_limit")
         self.assertTrue(bundle.failures[0].retryable)
 
+    def test_github_repo_collector_returns_snapshot_without_mutating_project(self) -> None:
+        project = self.make_project("proj:phase0reposnapshot", "repo_url", "https://github.com/example/app")
+        original = copy.deepcopy(project)
+        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+            now=lambda: "2026-06-13T00:00:00+00:00",
+            fetch_github_repo=lambda repo_url: {
+                "repo": {"full_name": "example/app", "description": "Example App"},
+                "readme_text": "https://app.example.com",
+                "tree": [{"path": "lexicons/app.example.post.json"}],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lambda repo_url, **kwargs: [
+                {"nsid": "app.example.post", "path": "lexicons/app.example.post.json", "schema": {"lexicon": 1}}
+            ],
+            extract_urls=lambda text: ["https://app.example.com"],
+        )
+
+        bundle = investigation_core.collect_github_repo_evidence(
+            project,
+            "https://github.com/example/app",
+            dependencies,
+        )
+
+        self.assertEqual(project, original)
+        self.assertEqual(bundle.records[0].kind, "github_repo_snapshot")
+        snapshot = bundle.records[0].value
+        assert isinstance(snapshot, dict)
+        self.assertEqual(snapshot["readme_urls"], ["https://app.example.com"])
+        self.assertEqual(snapshot["lexicon_hints"][0]["nsid"], "app.example.post")
+
     def test_evidence_fixture_roundtrip_preserves_ordered_records(self) -> None:
         fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
         bundle = EvidenceBundle.load(fixture_path)

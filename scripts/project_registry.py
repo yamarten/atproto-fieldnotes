@@ -8275,114 +8275,37 @@ def enrich_from_lexicon(
 
 
 def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
-    data = fetch_github_repo(repo_url)
-    repo = data["repo"]
-    readme_text = data["readme_text"]
-    repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
-    default_branch = str(data.get("default_branch") or "")
-    description = str(repo.get("description") or "")
-    homepage = str(repo.get("homepage") or "")
-    full_name = str(repo.get("full_name") or "")
-    repo_updated_at = str(repo.get("updated_at") or "")
-    fork = bool(repo.get("fork"))
-    fork_parent = repo.get("parent", {}) if isinstance(repo.get("parent", {}), dict) else {}
-    fork_parent_url = normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
-    fork_parent_full_name = str(fork_parent.get("full_name") or "")
-    confirm_source_code_url(
+    bundle = investigation_core.collect_github_repo_evidence(
         project,
         repo_url,
-        "github_repo_seed",
-        relation="fork_repo" if fork else "repo_seed",
-        reason=(
-            f"registered manually as repository seed; GitHub reports fork of {fork_parent_full_name or fork_parent_url}"
-            if fork and (fork_parent_full_name or fork_parent_url)
-            else "registered manually as repository seed"
+        investigation_core.GitHubRepoCollectorDependencies(
+            now=iso_now,
+            fetch_github_repo=fetch_github_repo,
+            repo_lexicon_hints=repo_lexicon_hints,
+            extract_urls=extract_urls,
         ),
-        evidence_kind="manual_seed",
-        evidence_url=repo_url,
-        updated_at=repo_updated_at,
     )
-    if fork:
-        add_investigation_log(
-            project,
-            "github_repo_fork",
-            repo_url=normalize_url(repo_url),
-            parent_url=fork_parent_url,
-            parent_full_name=fork_parent_full_name,
-        )
-    project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalize_url(repo_url))
-    if full_name:
-        add_name_candidate(project, full_name.split("/")[-1], f"github_repo_name:{full_name}")
-    add_candidate_text(project, "summary", description, f"github:{full_name or normalize_url(repo_url)}")
-    add_candidate_text(project, "tagline", description, f"github:{full_name or normalize_url(repo_url)}")
-    if homepage:
-        normalized_homepage = normalize_service_candidate_url(homepage)
-        if normalized_homepage:
-            add_candidate_url(project, "service_url", normalized_homepage)
-            add_candidate_url(project, "website_url", normalized_homepage)
-    repo_lexicons = repo_lexicon_hints(repo_url, ref=default_branch, tree=repo_tree)
-    repo_lexicon_ids = [item["nsid"] for item in repo_lexicons if item.get("nsid")]
-    for item in repo_lexicons:
-        nsid = str(item.get("nsid") or "")
-        if not nsid:
-            continue
-        if not project_owned_lexicon_nsid(project, nsid):
-            add_investigation_log(
-                project,
-                "github_repo_lexicon_reference",
-                repo_url=normalize_url(repo_url),
-                nsid=nsid,
-                path=str(item.get("path") or ""),
-            )
-            continue
-        project["input_nsids"] = add_unique(project.get("input_nsids", []), nsid)
-        authority_domain = derive_authority_domain(nsid)
-        if authority_domain:
-            project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
-            add_authority_service_candidates(project, authority_domain)
-        schema = item.get("schema")
-        if isinstance(schema, dict):
-            upsert_lexicon_schema_sample(project, nsid, schema)
-        add_investigation_log(
-            project,
-            "github_repo_lexicon_hint",
-            repo_url=normalize_url(repo_url),
-            nsid=nsid,
-            path=str(item.get("path") or ""),
-        )
-    urls = extract_urls(readme_text)
-    for url in urls:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.netloc == "github.com":
-            normalized_repo = normalize_github_repo_url(url)
-            if normalized_repo:
-                if normalized_repo == normalize_github_repo_url(repo_url):
-                    confirm_source_code_url(
-                        project,
-                        normalized_repo,
-                        f"github_readme:{full_name or normalize_url(repo_url)}",
-                        relation="readme_link",
-                        reason="linked from repository README",
-                        evidence_kind="readme_link",
-                        evidence_url=repo_url,
-                        updated_at=repo_updated_at if normalized_repo == normalize_github_repo_url(repo_url) else "",
-                    )
-                elif repo_url_allowed_for_project(project, normalized_repo):
-                    add_candidate_source_code_url(
-                        project,
-                        normalized_repo,
-                        f"github_readme:{full_name or normalize_url(repo_url)}",
-                        reason="linked from repository README",
-                        evidence_kind="readme_link",
-                        evidence_url=repo_url,
-                        relation="readme_link",
-                        updated_at=repo_updated_at if normalized_repo == normalize_github_repo_url(repo_url) else "",
-                    )
-        elif parsed.scheme in {"http", "https"}:
-            normalized_service = normalize_service_candidate_url(url)
-            if normalized_service and repo_context_service_candidate_allowed(project, normalized_service, repo_url=repo_url, lexicon_ids=repo_lexicon_ids):
-                add_candidate_url(project, "service_url", normalized_service)
-                add_candidate_url(project, "website_url", normalized_service)
+    integration_core.apply_github_repo_evidence(
+        project,
+        bundle,
+        integration_core.GitHubRepoIntegrationDependencies(
+            normalize_url=normalize_url,
+            normalize_github_repo_url=normalize_github_repo_url,
+            normalize_service_candidate_url=normalize_service_candidate_url,
+            confirm_source_code_url=confirm_source_code_url,
+            add_investigation_log=add_investigation_log,
+            add_name_candidate=add_name_candidate,
+            add_candidate_text=add_candidate_text,
+            add_candidate_url=add_candidate_url,
+            project_owned_lexicon_nsid=project_owned_lexicon_nsid,
+            derive_authority_domain=derive_authority_domain,
+            add_authority_service_candidates=add_authority_service_candidates,
+            upsert_lexicon_schema_sample=upsert_lexicon_schema_sample,
+            repo_url_allowed_for_project=repo_url_allowed_for_project,
+            add_candidate_source_code_url=add_candidate_source_code_url,
+            repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
+        ),
+    )
 
 
 def apply_service_probe_result(project: dict[str, Any], service_url: str, result: dict[str, Any], *, follow_up_timeout: float = REQUEST_TIMEOUT_SHORT) -> None:
