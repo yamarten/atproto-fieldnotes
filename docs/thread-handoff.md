@@ -7,6 +7,13 @@
 ## まず知っておくこと
 
 - DB は `data/survey.db`
+- 2026-06-13 時点のこの worktree の DB は、本番 DB からコピーした分析用ミラー
+  - ユーザー側からの同時更新は行わない前提で、fixture候補の抽出やdry-run比較に利用できる
+  - 本番の正本ではなく、破損しても再コピーできる作業用データとして扱う
+  - 初期read-only棚卸し: 2,540 projects、deferあり29 projects / 80 identifiers
+    - `nsid` 20、`repo_url` 29、`service_url` 31
+    - `blocked_identifiers`あり8 projects、`separate_project_keys`あり19 projects、`tracking_note`あり10 projects
+    - `promotion_deferrals`は保存データ上0件
 - 主データテーブルは `projects`
 - source ごとの増分 checkpoint は `sync_state`
 - `projects` は現在
