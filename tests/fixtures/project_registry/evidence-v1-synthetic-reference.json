@@ -5,18 +5,29 @@
   "records": [
     {
       "classification": "candidate",
-      "context": {
-        "path": "examples/app.external.feed.json",
-        "relation": "mentions_schema"
-      },
-      "kind": "github_repo_lexicon_hint",
+      "context": {},
+      "kind": "github_repo_snapshot",
       "observed_at": "2026-06-13T00:00:00+00:00",
       "source": "github_repo:https://github.com/example/client",
       "value": {
-        "nsid": "app.external.feed",
-        "schema": {
-          "lexicon": 1
-        }
+        "default_branch": "main",
+        "lexicon_hints": [
+          {
+            "nsid": "app.external.feed",
+            "path": "examples/app.external.feed.json",
+            "schema": {
+              "lexicon": 1
+            }
+          }
+        ],
+        "readme_urls": [],
+        "repo": {
+          "description": "A client which uses an external feed schema",
+          "fork": false,
+          "full_name": "example/client",
+          "homepage": ""
+        },
+        "repo_url": "https://github.com/example/client"
       }
     }
   ],

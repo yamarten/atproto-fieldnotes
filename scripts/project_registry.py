@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
+from project_registry_core import evaluation as evaluation_core
 
 try:
     import tldextract  # type: ignore
@@ -1258,64 +1259,7 @@ def normalize_service_status_confidence(value: str | None) -> str:
 
 
 def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
-    evidence: list[dict[str, Any]] = []
-
-    def count_value(value: Any) -> int:
-        try:
-            return int(value or 0)
-        except (TypeError, ValueError):
-            return 0
-
-    def add(kind: str, values: list[Any]) -> None:
-        cleaned = unique_list([str(item).strip() for item in values if str(item).strip()])
-        if cleaned:
-            evidence.append({"kind": kind, "count": len(cleaned), "values": cleaned[:5]})
-
-    resolved_nsids = list(project.get("resolved_nsids", []))
-    schema_samples = list(project.get("lexicon_schema_samples", []))
-    recent_records = list(project.get("recent_record_samples", []))
-    collection_observations = [
-        item
-        for item in project.get("collection_observations", [])
-        if isinstance(item, dict) and (count_value(item.get("count")) > 0 or count_value(item.get("recent_count")) > 0)
-    ]
-    input_nsids = list(project.get("input_nsids", []))
-    external_lexicons = list(project.get("external_lexicons", []))
-
-    add("resolved_nsids", resolved_nsids)
-    if schema_samples:
-        evidence.append({"kind": "lexicon_schema_samples", "count": len(schema_samples)})
-    if recent_records:
-        evidence.append({"kind": "recent_record_samples", "count": len(recent_records)})
-    if collection_observations:
-        evidence.append(
-            {
-                "kind": "collection_observations",
-                "count": len(collection_observations),
-                "record_count": sum(count_value(item.get("count")) for item in collection_observations),
-                "recent_record_count": sum(count_value(item.get("recent_count")) for item in collection_observations),
-            }
-        )
-    add("input_nsids", input_nsids)
-    add("external_lexicons", external_lexicons)
-
-    if resolved_nsids or schema_samples:
-        level, score = "core", 90
-    elif recent_records or collection_observations:
-        level, score = "substantial", 70
-    elif str(project.get("category") or "") == "auth_only":
-        level, score = "auth_only", 20
-        evidence.append({"kind": "category_auth_only", "count": 1})
-    elif input_nsids or external_lexicons:
-        level, score = "optional", 40
-    else:
-        level, score = "unknown", 0
-
-    return {
-        "atproto_contribution_level": level,
-        "atproto_contribution_score": score,
-        "atproto_contribution_evidence": evidence,
-    }
+    return evaluation_core.compute_atproto_contribution(project)
 
 
 def apply_atproto_contribution_state(project: dict[str, Any]) -> dict[str, Any]:
@@ -1824,55 +1768,23 @@ def developer_holds_schema_record(project: dict[str, Any], nsid: str) -> bool:
 
 
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
-    normalized = normalize_nsid(nsid)
-    if not normalized:
-        return False
-
-    manual_nsid_seeds = set(manual_seed_values(project, "nsid"))
-    if normalized in manual_nsid_seeds:
-        return True
-
-    namespace = lexicon_namespace_for_project(normalized)
-    manual_namespaces = {lexicon_namespace_for_project(seed) for seed in manual_nsid_seeds if seed}
-    if any(namespace == item or namespace.startswith(f"{item}.") or item.startswith(f"{namespace}.") for item in manual_namespaces):
-        return True
-
-    authority_domain = derive_authority_domain(normalized)
-    if authority_domain and developer_controls_authority_domain(project, authority_domain):
-        return True
-
-    if developer_holds_schema_record(project, normalized):
-        return True
-
-    if authority_domain:
-        service_hosts_known = ownership_anchor_service_hosts(project)
-        for host in service_hosts_known:
-            if authority_domain == host or authority_domain.endswith(f".{host}") or host.endswith(f".{authority_domain}"):
-                return True
-
-    if nsid_is_builtin_reference(normalized):
-        return False
-
-    identity_tokens = project_identity_anchor_tokens(project)
-    namespace_tokens = {
-        normalize_alias_token(normalized),
-        normalize_alias_token(lexicon_namespace_for_project(normalized)),
-    }
-    if authority_domain:
-        namespace_tokens.add(normalize_alias_token(authority_domain))
-        namespace_tokens.add(normalize_alias_token(root_domain(authority_domain)))
-        namespace_tokens.update(
-            normalize_alias_token(segment)
-            for segment in authority_domain.split(".")
-        )
-    namespace_tokens = {token for token in namespace_tokens if token}
-    if identity_tokens and namespace_tokens & identity_tokens:
-        return True
-
-    if manual_nsid_seeds or ownership_anchor_service_hosts(project) or identity_tokens:
-        return False
-
-    return True
+    return evaluation_core.project_owned_lexicon_nsid(
+        project,
+        nsid,
+        evaluation_core.OwnershipDependencies(
+            normalize_nsid=normalize_nsid,
+            manual_seed_values=manual_seed_values,
+            lexicon_namespace_for_project=lexicon_namespace_for_project,
+            derive_authority_domain=derive_authority_domain,
+            developer_controls_authority_domain=developer_controls_authority_domain,
+            developer_holds_schema_record=developer_holds_schema_record,
+            ownership_anchor_service_hosts=ownership_anchor_service_hosts,
+            nsid_is_builtin_reference=nsid_is_builtin_reference,
+            project_identity_anchor_tokens=project_identity_anchor_tokens,
+            normalize_alias_token=normalize_alias_token,
+            root_domain=root_domain,
+        ),
+    )
 
 
 def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
@@ -7219,50 +7131,19 @@ def sync_semble_collections(
 
 
 def infer_service_status(status_code: int, text: str) -> str:
-    lowered = text.lower()
-    if "domain is for sale" in lowered or "this domain is for sale" in lowered:
-        return "dead"
-    if status_code in {404, 410}:
-        return "dead"
-    if "invite only" in lowered or "waitlist" in lowered:
-        return "invite_only"
-    if "private beta" in lowered or "closed beta" in lowered:
-        return "beta"
-    if "coming soon" in lowered or "under construction" in lowered:
-        return "unreleased"
-    if status_code in {401, 403}:
-        return "private"
-    if status_code >= 500:
-        return "unverified"
-    if "beta" in lowered:
-        return "beta"
-    if status_code and status_code < 400:
-        return "unverified"
-    return "unknown"
+    return evaluation_core.infer_service_status(status_code, text)
 
 
 def merge_service_status(current: str, new_value: str) -> str:
-    rank = {
-        "unknown": 0,
-        "unverified": 1,
-        "none": 2,
-        "dead": 3,
-        "live": 4,
-        "private": 5,
-        "unreleased": 6,
-        "beta": 7,
-        "invite_only": 8,
-    }
-    current_value = normalize_service_status(current)
-    candidate_value = normalize_service_status(new_value)
-    return candidate_value if rank.get(candidate_value, 0) >= rank.get(current_value, 0) else current_value
+    return evaluation_core.merge_service_status(current, new_value, normalize_service_status)
 
 
 def merge_service_status_confidence(current: str, new_value: str) -> str:
-    rank = {"none": 0, "low": 1, "medium": 2, "high": 3}
-    current_value = normalize_service_status_confidence(current)
-    candidate_value = normalize_service_status_confidence(new_value)
-    return candidate_value if rank.get(candidate_value, 0) >= rank.get(current_value, 0) else current_value
+    return evaluation_core.merge_service_status_confidence(
+        current,
+        new_value,
+        normalize_service_status_confidence,
+    )
 
 
 def classify_service_probe_error(exc: Exception) -> str:
@@ -7329,72 +7210,14 @@ def classify_service_probe_result(
     links: list[dict[str, str]],
     fetch_error: str = "",
 ) -> tuple[str, str, list[str]]:
-    lowered = "\n".join([title, description, html[:20000]]).lower()
-    evidence: list[str] = []
-    if status_code:
-        evidence.append(f"http_{status_code}")
-    if fetch_error:
-        evidence.append(fetch_error)
-    if service_probe_looks_parked({"title": title, "description": description, "html": html}):
-        evidence.append("parked_domain_detected")
-        return "dead", "high", unique_list(evidence)
-    if fetch_error:
-        return "unverified", "medium", unique_list(evidence)
-    if status_code in {404, 410}:
-        evidence.append("not_found")
-        return "dead", "high", unique_list(evidence)
-    if status_code >= 500:
-        evidence.append("server_error")
-        return "unverified", "low", unique_list(evidence)
-
-    login_detected = any(
-        marker in lowered
-        for marker in ("sign in", "log in", "login", "ログイン", "sign up", "create account", "register")
-    ) or ('type="password"' in lowered or "type='password'" in lowered)
-    if login_detected:
-        evidence.append("login_surface_detected")
-    invite_detected = any(marker in lowered for marker in ("invite only", "waitlist", "join waitlist", "request invite"))
-    if invite_detected:
-        evidence.append("invite_text_detected")
-    beta_detected = any(marker in lowered for marker in ("private beta", "closed beta", "public beta", "beta"))
-    if beta_detected:
-        evidence.append("beta_text_detected")
-    coming_soon_detected = any(marker in lowered for marker in ("coming soon", "under construction", "launching soon"))
-    if coming_soon_detected:
-        evidence.append("coming_soon_detected")
-    docs_only_detected = False
-    if links and not login_detected:
-        interesting_paths = [urllib.parse.urlparse(str(item.get("url") or "")).path.lower() for item in links if str(item.get("url") or "")]
-        docs_like = [path for path in interesting_paths if any(token in path for token in ("/docs", "/doc", "/guide", "/blog", "/about", "/faq", "/help"))]
-        app_like = [path for path in interesting_paths if any(token in path for token in ("/app", "/login", "/signin", "/signup", "/register", "/download"))]
-        if docs_like and not app_like:
-            docs_only_detected = True
-            evidence.append("docs_only_surface_detected")
-    app_shell_detected = any(
-        marker in lowered
-        for marker in ("open app", "launch app", "download on the app store", "get it on google play", "custom feed", "timeline", "for you")
+    return evaluation_core.classify_service_probe_result(
+        status_code=status_code,
+        title=title,
+        description=description,
+        html=html,
+        links=links,
+        fetch_error=fetch_error,
     )
-    if app_shell_detected:
-        evidence.append("app_shell_detected")
-
-    if invite_detected:
-        return "invite_only", "high" if login_detected else "medium", unique_list(evidence)
-    if beta_detected:
-        return "beta", "medium", unique_list(evidence)
-    if coming_soon_detected and (login_detected or app_shell_detected):
-        evidence.append("mixed_launch_signals_detected")
-        return "unverified", "medium", unique_list(evidence)
-    if coming_soon_detected:
-        return "unreleased", "medium", unique_list(evidence)
-    if status_code in {401, 403}:
-        return "private", "low", unique_list(evidence)
-    if login_detected or app_shell_detected:
-        return "live", "medium", unique_list(evidence)
-    if docs_only_detected:
-        return "none", "medium", unique_list(evidence)
-    if status_code and status_code < 400:
-        return "unverified", "low", unique_list(evidence)
-    return infer_service_status(status_code, lowered), "none", unique_list(evidence)
 
 
 def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> dict[str, Any]:
@@ -7483,14 +7306,7 @@ ATPROTO_EVIDENCE_MARKERS = (
 
 
 def service_probe_looks_parked(result: dict[str, Any]) -> bool:
-    text = "\n".join(
-        [
-            str(result.get("title") or ""),
-            str(result.get("description") or ""),
-            str(result.get("html") or "")[:12000],
-        ]
-    ).lower()
-    return any(marker in text for marker in PARKED_DOMAIN_MARKERS)
+    return evaluation_core.service_probe_looks_parked(result)
 
 
 def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:

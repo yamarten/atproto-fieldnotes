@@ -7,6 +7,7 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
+from project_registry_core import evaluation as evaluation_core
 from project_registry_core import investigation as investigation_core
 
 
@@ -109,8 +110,28 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
 
         self.assertEqual(bundle.schema_version, 1)
         self.assertEqual(bundle.project_key, "proj:synthetic-reference")
-        self.assertEqual(bundle.records[0].kind, "github_repo_lexicon_hint")
+        self.assertEqual(bundle.records[0].kind, "github_repo_snapshot")
         self.assertEqual(EvidenceBundle.from_json(bundle.to_json()).to_dict(), bundle.to_dict())
+
+    def test_saved_evidence_fixture_can_be_re_evaluated_without_collection(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
+        bundle = EvidenceBundle.load(fixture_path)
+        snapshot = bundle.records[0].value
+        assert isinstance(snapshot, dict)
+        hints = snapshot["lexicon_hints"]
+        assert isinstance(hints, list) and isinstance(hints[0], dict)
+        nsid = str(hints[0]["nsid"])
+        project = self.make_project(
+            "proj:synthetic-reference",
+            "repo_url",
+            "https://github.com/example/client",
+        )
+        project["name"] = "Example Client"
+
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, nsid))
+        project["external_lexicons"] = [nsid]
+        contribution = evaluation_core.compute_atproto_contribution(project)
+        self.assertEqual(contribution["atproto_contribution_level"], "optional")
 
     def test_evidence_rejects_non_json_values(self) -> None:
         with self.assertRaises(ValueError):
