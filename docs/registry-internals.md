@@ -157,7 +157,19 @@ URL field は次の 5 層で扱います。
 6. local LLM による summary / category / status 補完
 7. 再度 finalize し、duplicate / merge / 昇格判定を更新
 
-### Phase 0 module boundary
+### 調査 pipeline の責務境界
+
+この分割の目的は、`project_registry.py` の総行数削減ではなく、調査機能を変更する際の
+working set を小さくすることです。collector が共有 project dict を直接変更する範囲を減らし、
+収集済み evidence から integration / evaluation だけを反復できる構造を維持します。
+
+設計上の判断:
+
+- `project_registry.py` は既存 CLI / top-level Python API の互換 facade と orchestration を担当する
+- structured evidence は schema version 1 の一時オブジェクトとし、通常 DB には従来の project field へ統合した結果だけを保存する
+- collector は外部入力を evidence に変換し、project dict の変更は integration に集約する
+- ownership、ATProto寄与度、service status の評価本体は network / DB 非依存にする
+- DB schema、`record_json` / `ops_json`、duplicate / merge / promotion の保存順は変更しない
 
 実装済み:
 

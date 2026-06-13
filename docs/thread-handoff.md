@@ -69,7 +69,7 @@
 
 ## 現在の主要レーン
 
-- 調査pipeline Phase 0
+- 調査pipeline境界の初期導入（Phase 0）
   - 実装済み:
     - `scripts/project_registry_core/` に evidence / investigation / integration / evaluation を分離
     - GitHub repo、GitHub search、Bluesky actor/post/feed は non-mutating collector から `EvidenceBundle v1` を返す
@@ -85,8 +85,10 @@
     - lexicon、recent record、service、resource page collector
     - raw evidenceの通常保存
     - retry/backoff/circuit breaker実行policy
-  - 設計brief:
-    - `docs/research-pipeline-phase0.md`
+  - 現行仕様:
+    - `docs/registry-internals.md` の「調査 pipeline の責務境界」
+  - 将来課題:
+    - `docs/roadmap.md` の「調査 pipeline の残件」
 
 - 新規候補
   - `collection_count_view`

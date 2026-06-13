@@ -11,7 +11,7 @@ from project_registry_core import evaluation as evaluation_core
 from project_registry_core import investigation as investigation_core
 
 
-class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
+class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def search_dependencies(self, **overrides):  # type: ignore[no-untyped-def]
         values = {
             "now": lambda: "2026-06-13T00:00:00+00:00",
@@ -29,7 +29,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         return investigation_core.SearchCollectorDependencies(**values)
 
     def test_search_collector_returns_evidence_without_mutating_project(self) -> None:
-        project = self.make_project("proj:phase0bundle")
+        project = self.make_project("proj:researchbundle")
         project["name"] = "Example App"
         original = copy.deepcopy(project)
         dependencies = self.search_dependencies(
@@ -66,7 +66,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         )
 
         bundle = investigation_core.collect_investigation_evidence(
-            self.make_project("proj:phase0ratelimit"),
+            self.make_project("proj:researchratelimit"),
             {"repo_search_queries": ["Example App"]},
             dependencies,
         )
@@ -75,7 +75,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         self.assertTrue(bundle.failures[0].retryable)
 
     def test_github_repo_collector_returns_snapshot_without_mutating_project(self) -> None:
-        project = self.make_project("proj:phase0reposnapshot", "repo_url", "https://github.com/example/app")
+        project = self.make_project("proj:researchreposnapshot", "repo_url", "https://github.com/example/app")
         original = copy.deepcopy(project)
         dependencies = investigation_core.GitHubRepoCollectorDependencies(
             now=lambda: "2026-06-13T00:00:00+00:00",
@@ -144,7 +144,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
             )
 
     def test_seed_investigation_queries_preserve_order_and_limits(self) -> None:
-        project = self.make_project("proj:phase0queries")
+        project = self.make_project("proj:researchqueries")
         project["name"] = "Example App"
         project["primary_nsid"] = "app.example.post"
         project["authority_domains"] = ["example.com", "api.example.com"]
@@ -163,7 +163,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         )
 
     def test_investigation_collectors_keep_threshold_limit_and_partial_failure(self) -> None:
-        project = self.make_project("proj:phase0collect")
+        project = self.make_project("proj:researchcollect")
         project["name"] = "Example App"
         project["website_url"] = "https://example.com"
         plan = {
@@ -203,7 +203,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         self.assertEqual(github_logs[0]["accepted_count"], 1)
 
     def test_github_repo_enrichment_distinguishes_owned_and_reference_lexicons(self) -> None:
-        project = self.make_project("proj:phase0repo", "repo_url", "https://github.com/example/app")
+        project = self.make_project("proj:researchrepo", "repo_url", "https://github.com/example/app")
         repo_payload = {
             "repo": {
                 "description": "Example App",
@@ -247,7 +247,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
     def test_enrich_save_fetch_preserves_top_level_contract(self) -> None:
         conn = registry.open_db()
         try:
-            project = self.make_project("proj:phase0enrich")
+            project = self.make_project("proj:researchenrich")
             with (
                 mock.patch.object(registry, "should_refresh_lexicon_surface", return_value=False),
                 mock.patch.object(registry, "should_refresh_recent_record_samples", return_value=False),
@@ -271,7 +271,7 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
 
         self.assertIsNotNone(fetched)
         assert fetched is not None
-        self.assertEqual(fetched["project_key"], "proj:phase0enrich")
+        self.assertEqual(fetched["project_key"], "proj:researchenrich")
         self.assertIn("LLM unavailable", "\n".join(fetched["last_run_errors"]))
         self.assertTrue(fetched["last_enriched_at"])
 
