@@ -1,6 +1,8 @@
 # Thread Handoff
 
-次の担当者向けの引き継ぎメモです。利用手順は [docs/project-registry.md](project-registry.md)、内部仕様は [docs/registry-internals.md](registry-internals.md) を参照してください。
+次の担当者向けの引き継ぎメモです。利用手順は [project-registry.md](project-registry.md)、
+内部仕様は [registry-internals.md](registry-internals.md)、調査 pipeline の恒久的な契約は
+[investigation-model.md](investigation-model.md) を参照してください。
 
 ## まず知っておくこと
 
@@ -69,26 +71,12 @@
 
 ## 現在の主要レーン
 
-- 調査pipeline境界の初期導入（Phase 0）
-  - 実装済み:
-    - `scripts/project_registry_core/` に evidence / investigation / integration / evaluation を分離
-    - GitHub repo、GitHub search、Bluesky actor/post/feed は non-mutating collector から `EvidenceBundle v1` を返す
-    - project dictへの反映はintegration moduleへ分離
-    - ownership、ATProto寄与度、service statusの評価本体は純粋関数化
-    - `project_registry.py` の既存CLI/API entrypointはwrapperとして維持
-  - 動作確認済み:
-    - 2026-06-13 時点の全193 unittest
-    - collector non-mutation、partial failure、rate-limit分類
-    - fixture evidenceからの再評価
-    - temp DBへのenrich/save/fetch
-  - 未接続:
-    - lexicon、recent record、service、resource page collector
-    - raw evidenceの通常保存
-    - retry/backoff/circuit breaker実行policy
-  - 現行仕様:
-    - `docs/registry-internals.md` の「調査 pipeline の責務境界」
-  - 将来課題:
-    - `docs/roadmap.md` の「調査 pipeline の残件」
+- 調査 pipeline 境界
+  - 実装済み: `scripts/project_registry_core/` に evidence / investigation / integration / evaluation を分離し、GitHub repo、GitHub search、Bluesky actor/post/feed を structured evidence 経路へ接続
+  - 動作確認済み: 2026-06-13 時点の全193 unittest、collector non-mutation、partial failure分類、fixture再評価、temp DBでのenrich/save/fetch
+  - 未接続: lexicon、recent record、service、resource page collector、raw evidence通常保存、retry/backoff/circuit breaker policy
+  - 正本: [investigation-model.md](investigation-model.md)
+  - 将来課題: [roadmap.md](roadmap.md) と [notes](notes/)
 
 - 新規候補
   - `collection_count_view`
@@ -112,43 +100,12 @@
 
 ## 直近の残件
 
-- `NSID` ownership 判定は直近で一段強化した
-  - authority domain 由来の service URL は、即 candidate 化せずまず probe だけする
-  - probe が `supported` を通った時だけ `website_url_candidates` / `service_url_candidates` に残す
-  - supported URL は `supported_service_urls` に URL 単位で保存し、guess prune から除外する
-  - unsupported な authority probe からは `service_title` を `name` 候補へ入れない
-  - `developer_accounts` は confirmed 専用、service/search 由来は `candidate_developer_accounts` に分離した
-  - `project_owned_lexicon_nsid()` は次を優先して `owned` 判定する
-    - confirmed 開発者アカウントが authority domain を持っていそう
-    - confirmed 開発者 DID がその `NSID` の schema record を持っている
-    - 既存の service/repo/token 整合は後段 fallback
-  - ここでの confirmed account は、現状 service domain と handle ドメインが整合するものが中心
-- まだ残っている ownership 課題
-  - `repo/website` に出た `NSID` を `owned` と `reference` にもっと明確に分ける
-  - 今後は
-    - `uses collection` は強い `reference`
-    - `defines schema` は強い `owned`
-    として扱う方針
-  - `atproto repository` 側の record usage は ownership というより reference 根拠
-  - `listReposByCollection` heuristic は補助根拠に留める。単独で ownership を上げない
-  - 保証関係の整理は [docs/registry-internals.md](registry-internals.md) の「4.2 何が何を保証しているか」を参照
-  - 特に未実装なのは `repo/readme/profile -> confirmed account`
-- `service_status` 強化は 4 段階のうち前半だけ入っています
-  - 既に入っているもの:
-    - evidence / confidence 付き保存
-    - top page の軽量 signal 判定
-      - `dns_failed`, `tls_failed`, `timeout`
-      - parked domain
-      - login surface
-      - invite / beta / coming soon
-      - docs-only surface
-    - `--deep-investigation` の優先ページ probe
-      - `resource_url_records` を優先
-      - service surface から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を補う
-      - `deep_page:*` evidence として page kind を残し、service status / confidence を補助更新する
-  - まだ残っているもの:
-    - deep investigation の page 種別ごとの signal をさらに細かくする
-    - browser/computer-use 相当の「実際にログイン導線まで試す」検証レーン
+- ownership は authority/account/schema-record を優先する判定まで実装済み
+  - 未接続: repo/website上のNSIDを`defines_schema`と`uses_collection`でowned/referenceへ明示分離する処理、repo/readme/profileからconfirmed accountを作る処理
+  - 検討中の保証関係: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
+- `service_status` はtop pageの軽量signalと`--deep-investigation`の優先ページprobeまで実装済み
+  - 未接続: page種別ごとのsignal細分化、実際のlogin導線を試すbrowser検証レーン
+  - 現状と次段階: [service-verification.md](notes/service-verification.md)
 - `service_status=unverified` は「未確認」であって dead/private の確定ではない
   - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
 - service URL の redirect handling は追加済み
@@ -173,10 +130,8 @@
   - CLI subprocess smoke test
   - fixture JSON corpus による回帰テスト
 - `service_status` の深掘り
-  - `--deep-investigation` の優先ページ probe は接続済み
-  - page kind evidence は最低限接続済み
   - 次は page 本文から実サービス、利用条件、招待制、install / sign-in 導線をより安定して分ける
-  - 最終的には browser/computer-use を使った login 導線確認レーンを別コマンド化したい
+  - 詳細は [service-verification.md](notes/service-verification.md)
 - `tagline` / `summary` の再編集
   - 既存 project には collection/lexicon 主体の文面が残っているものがある
   - service 本体が優先されるよう merge 側は改善済みだが、保存済み文面の洗い替えはまだ
@@ -185,9 +140,8 @@
   - 既存文面の洗い替えには LLM 再 `enrich` が必要
   - `service project` と `lexicon project` で prompt 自体を分ける余地は残る
 - GitHub / Bluesky rate limit 耐性
-  - GitHub は query 数削減とキャッシュを入れているが、live fetch が続くとまだ 403 に当たる
-  - Bluesky は authenticated search 前提になったので、認証情報未設定時の degraded path はかなり弱い
-  - backoff / partial skip / run-level circuit breaker を追加する余地がある
+  - backoff / partial skip / run-level circuit breaker は未接続
+  - 現状とpolicy候補は [collector-reliability.md](notes/collector-reliability.md)
 - `enrich --all` の中断 / 再開
   - CLI と Web UI の `Enrich All` は checkpoint helper 接続済み
   - `Max projects` 空欄時は対象件数を制限しない
@@ -341,9 +295,12 @@
   - [docs/project-registry.md](project-registry.md)
 - 設計・内部仕様
   - [docs/registry-internals.md](registry-internals.md)
+  - [docs/investigation-model.md](investigation-model.md)
   - [docs/project-record.md](project-record.md)
 - 将来課題
   - [docs/roadmap.md](roadmap.md)
+- 設計途中の比較・検討メモ
+  - [docs/notes/](notes/)
 
 ## コミット時に気をつけること
 

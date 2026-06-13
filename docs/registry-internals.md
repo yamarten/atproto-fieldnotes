@@ -48,10 +48,14 @@
   - `docs/project-registry.md`
 - 内部の判定基準、保存構造、heuristic、運用前提が変わる時
   - `docs/registry-internals.md`
+- 調査 pipeline の恒久的な責務境界や evidence 契約が変わる時
+  - `docs/investigation-model.md`
 - その場限りではないが、まだ安定していない残件や次の論点を残したい時
   - `docs/thread-handoff.md`
 - 中長期の計画や、まだ着手していない改善案を整理したい時
   - `docs/roadmap.md`
+- 現行仕様へ確定する前の比較、保証関係、運用案を詳しく残したい時
+  - `docs/notes/`
 - データモデルの見方や field の意味が変わる時
   - `docs/project-record.md`
 
@@ -157,19 +161,10 @@ URL field は次の 5 層で扱います。
 6. local LLM による summary / category / status 補完
 7. 再度 finalize し、duplicate / merge / 昇格判定を更新
 
-### 調査 pipeline の責務境界
+### 調査 pipeline の実装状況
 
-この分割の目的は、`project_registry.py` の総行数削減ではなく、調査機能を変更する際の
-working set を小さくすることです。collector が共有 project dict を直接変更する範囲を減らし、
-収集済み evidence から integration / evaluation だけを反復できる構造を維持します。
-
-設計上の判断:
-
-- `project_registry.py` は既存 CLI / top-level Python API の互換 facade と orchestration を担当する
-- structured evidence は schema version 1 の一時オブジェクトとし、通常 DB には従来の project field へ統合した結果だけを保存する
-- collector は外部入力を evidence に変換し、project dict の変更は integration に集約する
-- ownership、ATProto寄与度、service status の評価本体は network / DB 非依存にする
-- DB schema、`record_json` / `ops_json`、duplicate / merge / promotion の保存順は変更しない
+調査 pipeline の責務、evidence classification、正本関係、partial failure、replay、LLM の位置づけは
+[investigation-model.md](investigation-model.md) を正本とします。ここでは実装ファイルと現行接続状況だけを記録します。
 
 実装済み:
 
@@ -207,11 +202,15 @@ working set を小さくすることです。collector が共有 project dict �
 - deep resource page collector
 - raw evidence の通常 DB / run artifact 保存
 
-制約:
+現行の制約:
 
 - 未接続 collector は引き続き legacy mutating 経路を使う
 - evidence bundleは通常実行中の一時値で、保存後の正本は従来どおり project row
 - source別retry/backoff/circuit breakerはschema上表現できるが、実行policyは未実装
+
+collector reliability と replay の設計途中の論点は
+[collector-reliability.md](notes/collector-reliability.md) と
+[evidence-replay.md](notes/evidence-replay.md) に分離しています。
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
@@ -423,6 +422,9 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 - browser/computer-use 相当で実際にログイン導線まで試す検証レーン
 - deep investigation の結果を既存 DB 全体へ反映する運用。既存 row の洗い替えには再 `enrich` が必要
 
+static probe、deep page、browser 検証の役割分担と次段階の検討は
+[service-verification.md](notes/service-verification.md) を参照してください。
+
 ### 4. first-party link の扱い
 
 - service page / resource page のリンクは `classify_official_link()` で分類します
@@ -451,86 +453,10 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを弱めることです。
 
-まだ未解決な点:
-
-- `repo/website` に出た `NSID` の `owned/reference` 区別
-- `uses collection` は `reference` に強いが `owned` には弱い
-- `defines schema` は `owned` に強い
-- `atproto repository` 上の record usage は ownership ではなく reference 補助に留めるべき
-
-### 4.2 何が何を保証しているか
-
-現在の設計では、`domain`, `account`, `NSID`, `service`, `git repo` の関係を同じ強さでは扱いません。ここでの `account` は、開発者/公式アカウントを指し、`DID`, `handle`, `atproto repository` を同一主体の別表現として扱います。保証関係は次のように見る想定です。
-
-- `domain -> account`
-  - 強い
-  - `_lexicon.<authority_domain>` の TXT から DID が引ける
-- `account -> NSID`
-  - 強い
-  - その account の PDS から `com.atproto.lexicon.schema/<nsid>` が引ける
-- `NSID -> domain`
-  - 中程度
-  - `NSID` 自身から authority domain は導ける
-- `domain -> service`
-  - 強い
-  - confirmed `website_url` / `service_url` の host
-- `service -> domain`
-  - 弱い / 導出
-  - service URL から host は取れる
-  - ただし ownership の保証というより正規化用
-- `account -> domain`
-  - 中程度
-  - handle の suffix/domain
-- `git repo -> NSID`
-  - 二種類に分ける
-  - `lexicon file がある`
-    - 強い `defines schema`
-    - `owned` 根拠
-  - `record usage / createRecord / docs mention`
-    - 強い `uses collection`
-    - `reference` 根拠
-- `git repo -> account`
-  - まだ弱い / 未実装
-  - README, project website, GitHub profile, first-party profile link から confirmed account に昇格する処理はまだ入っていない
-- `service -> account`
-  - 直接保証ではなく推移的な confirmed 条件
-  - 現在は
-    - confirmed service host
-    - account の handle ドメイン
-    の整合を見て account を confirmed に上げる
-  - つまり `service -> domain -> account` の近似であって、service が account を直接主張しているわけではない
-  - 今後は first-party profile link / README / repo metadata のような直接根拠と分けて扱う方がよい
-  - 将来的な直接根拠候補:
-    - first-party page 上の `bsky.app/profile/...` link
-    - footer / about / team / contact / official account 導線
-    - service 内での “follow us / official / developer” のような anchor text
-  - 難しい点:
-    - 機械的には開発者/公式アカウントと利用者アカウントの区別が難しい
-    - そのため page location, anchor text, same-site 性, repeat appearance を組み合わせた score 化が必要
-- `account -> NSID`
-  - 二段階
-  - confirmed account が authority domain を持っていそう
-    - まず `account -> domain` の根拠
-    - その上で `NSID -> domain` と一致する時に `owned` 根拠
-  - confirmed account の DID が schema record を持っている
-    - 強い `owned` 根拠
-  - confirmed account の atproto repository がその collection の record usage を持っている
-    - 強い `uses collection`
-    - `reference` 根拠
-  - `NSID` と handle 文字列が似ているだけ
-    - 根拠として使わない
-
-- `git repo -> domain`
-  - 中程度
-  - README, homepage, first-party link から domain/service を引ける
-  - ownership というより `repo/service/account` を結ぶ補助根拠
-
-現時点で特に未実装なのは:
-
-- `git repo/readme/profile -> confirmed account`
-- `git repo/website` に出た `NSID` の `owned/reference` 明示分離
-
-次スレッドで ownership を詰める時は、まずこの保証関係テーブルを前提に考えると整理しやすいです。
+未接続なのは、`git repo/readme/profile -> confirmed account` と、repo/website に出た NSID の
+`defines_schema` / `uses_collection` に基づく owned/reference の明示分離です。
+domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
+[identity-ownership-evidence.md](notes/identity-ownership-evidence.md) に分離しています。
 
 ### 5. investigation collector の扱い
 
@@ -737,13 +663,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 1. service 判定の後半強化
 
-- `--deep-investigation` の優先ページ probe は実装済み
-  - `resource_url_records` を優先
-  - `website_url` / `service_urls` / `supported_service_urls` / service candidates から `/about`, `/docs`, `/faq`, `/app`, `/login`, `/signup` を組み立てる
-- 次の強化候補:
-  - 優先ページごとの signal をさらに細かく `service_status_evidence` に残す
-  - 実サービスの存在、利用条件、招待制、install / sign-in 導線を区別して記録する
-  - browser/computer-use を使った login 画面確認を opt-in で追加する
+未実装の候補は、優先ページごとの signal 細分化、利用条件や install/sign-in 導線の区別、
+opt-in browser 検証です。現行実装との境界は
+[service-verification.md](notes/service-verification.md) に整理しています。
 
 ### 2. editorial quality の洗い替え
 
@@ -755,17 +677,8 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 3. rate limit / partial failure 耐性
 
-- GitHub:
-  - live fetch 連打時の 403 rate limit
-  - secondary rate limit 時の run-level stop
-- Bluesky:
-  - 認証情報未設定時の search failure
-  - `createSession` / token refresh 周りの retry policy
-- LLM:
-  - endpoint shape 差分
-  - timeout / partial parse failure
-
-理想は「失敗した source だけ切り離して run 全体は継続し、`last_run_errors` には本当に人が見る価値のあるものだけ残す」ことです。
+source別 retry/backoff、run-level circuit breaker、cache と partial completion policy は未接続です。
+現状と設計候補は [collector-reliability.md](notes/collector-reliability.md) を参照してください。
 
 ### 4. sync コマンドの整理
 

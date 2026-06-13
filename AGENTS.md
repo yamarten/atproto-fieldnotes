@@ -52,7 +52,10 @@
   - [docs/project-registry.md](docs/project-registry.md)
 - 内部仕様:
   - [docs/registry-internals.md](docs/registry-internals.md)
+  - [docs/investigation-model.md](docs/investigation-model.md)
   - [docs/project-record.md](docs/project-record.md)
+- 設計途中の比較・検討メモ:
+  - [docs/notes/](docs/notes/)
 - 直近の残件・引き継ぎ:
   - [docs/thread-handoff.md](docs/thread-handoff.md)
 
@@ -69,4 +72,5 @@
 1. この `AGENTS.md`
 2. `docs/thread-handoff.md`
 3. `docs/registry-internals.md`
-4. 必要に応じて `README.md` / `docs/project-registry.md`
+4. `docs/investigation-model.md`
+5. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`
