@@ -252,7 +252,14 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
                 mock.patch.object(registry, "should_refresh_lexicon_surface", return_value=False),
                 mock.patch.object(registry, "should_refresh_recent_record_samples", return_value=False),
                 mock.patch.object(registry, "plan_investigation_queries", return_value={}),
-                mock.patch.object(registry, "run_investigation_collectors"),
+                mock.patch.object(
+                    registry,
+                    "collect_investigation_evidence",
+                    return_value=EvidenceBundle(
+                        project_key=project["project_key"],
+                        collected_at="2026-06-13T00:00:00+00:00",
+                    ),
+                ),
                 mock.patch.object(registry, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
                 enriched = registry.enrich_project(conn, project)
@@ -275,6 +282,10 @@ class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
         self.assertEqual(args.command, "enrich")
         for name in (
             "enrich_project",
+            "collect_investigation_evidence",
+            "apply_investigation_evidence",
+            "collect_github_repo_evidence",
+            "apply_github_repo_evidence",
             "plan_investigation_queries",
             "run_investigation_collectors",
             "enrich_from_github_repo",

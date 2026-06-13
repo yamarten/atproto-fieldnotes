@@ -24,6 +24,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
+from project_registry_core import EvidenceBundle
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
@@ -7282,19 +7283,6 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
     }
 
 
-PARKED_DOMAIN_MARKERS = (
-    "domain is for sale",
-    "this domain is for sale",
-    "buy this domain",
-    "domain may be for sale",
-    "parked free",
-    "parkingcrew",
-    "sedo domain parking",
-    "afternic",
-    "dan.com",
-    "undeveloped",
-)
-
 ATPROTO_EVIDENCE_MARKERS = (
     "atproto",
     "bluesky",
@@ -8090,8 +8078,8 @@ def enrich_from_lexicon(
     apply_lexicon_record_result(project, nsid, result)
 
 
-def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
-    bundle = investigation_core.collect_github_repo_evidence(
+def collect_github_repo_evidence(project: dict[str, Any], repo_url: str) -> EvidenceBundle:
+    return investigation_core.collect_github_repo_evidence(
         project,
         repo_url,
         investigation_core.GitHubRepoCollectorDependencies(
@@ -8101,6 +8089,9 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
             extract_urls=extract_urls,
         ),
     )
+
+
+def apply_github_repo_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
     integration_core.apply_github_repo_evidence(
         project,
         bundle,
@@ -8122,6 +8113,11 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
         ),
     )
+
+
+def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
+    bundle = collect_github_repo_evidence(project, repo_url)
+    apply_github_repo_evidence(project, bundle)
 
 
 def apply_service_probe_result(project: dict[str, Any], service_url: str, result: dict[str, Any], *, follow_up_timeout: float = REQUEST_TIMEOUT_SHORT) -> None:
@@ -9093,8 +9089,8 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
         record_developer_handle(project, handle, source)
 
 
-def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
-    bundle = investigation_core.collect_investigation_evidence(
+def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]) -> EvidenceBundle:
+    return investigation_core.collect_investigation_evidence(
         project,
         plan,
         investigation_core.SearchCollectorDependencies(
@@ -9110,6 +9106,9 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
             timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
         ),
     )
+
+
+def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
     integration_core.apply_investigation_evidence(
         project,
         bundle,
@@ -9124,6 +9123,11 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
             note_failure=note_failure,
         ),
     )
+
+
+def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
+    bundle = collect_investigation_evidence(project, plan)
+    apply_investigation_evidence(project, bundle)
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
@@ -11323,7 +11327,8 @@ def enrich_project(
         if extract_github_slug(repo_url) is None:
             continue
         try:
-            enrich_from_github_repo(project, repo_url)
+            repo_evidence = collect_github_repo_evidence(project, repo_url)
+            apply_github_repo_evidence(project, repo_evidence)
         except Exception as exc:
             note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
 
@@ -11373,7 +11378,8 @@ def enrich_project(
     secondary_repo_urls = unique_list(provider_repo_url_values(project, "github"))
     for repo_url in secondary_repo_urls:
         try:
-            enrich_from_github_repo(project, repo_url)
+            repo_evidence = collect_github_repo_evidence(project, repo_url)
+            apply_github_repo_evidence(project, repo_evidence)
         except Exception as exc:
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
 
@@ -11401,7 +11407,8 @@ def enrich_project(
         post_search_queries=clean_string_list(investigation_plan.get("post_search_queries"), limit=6),
         at=iso_now(),
     )
-    run_investigation_collectors(project, investigation_plan)
+    investigation_evidence = collect_investigation_evidence(project, investigation_plan)
+    apply_investigation_evidence(project, investigation_evidence)
 
     try:
         prompt, evidence = build_triage_prompt(project)

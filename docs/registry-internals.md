@@ -152,10 +152,54 @@ URL field は次の 5 層で扱います。
 1. seed由来の事実収集
 2. service / repo / lexicon の確認済み情報を更新
 3. lexicon repository単位で namespace 集約
-4. GitHub / Bluesky 調査
-5. evidence bundle 構築
+4. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
+5. evidence を project へ統合し、rule-based evaluation / finalize を実行
 6. local LLM による summary / category / status 補完
-7. 昇格判定
+7. 再度 finalize し、duplicate / merge / 昇格判定を更新
+
+### Phase 0 module boundary
+
+実装済み:
+
+- `project_registry_core/evidence.py`
+  - `EvidenceBundle`, `EvidenceRecord`, `CollectorFailure` の schema version 1
+  - JSON round-trip と JSON-compatible value validation
+- `project_registry_core/investigation.py`
+  - deterministic / LLM query planning
+  - GitHub repository snapshot collector
+  - GitHub repository search、Bluesky actor/post/feed collector
+  - collector は project dict を変更せず evidence bundle を返す
+- `project_registry_core/integration.py`
+  - GitHub / Bluesky evidence を既存 project field へ適用する
+  - GitHub lexicon hint の owned / reference 判定は収集後に行う
+- `project_registry_core/evaluation.py`
+  - ownership、ATProto寄与度、service status の純粋評価本体
+- `project_registry.py`
+  - 既存関数名の互換 wrapper
+  - `collect -> apply -> finalize/evaluate -> save` の orchestration
+
+動作確認済み:
+
+- collector単体が入力 project を変更しないこと
+- GitHub relevance threshold、最大1 repo採用、最初の採用queryでの打ち切り
+- GitHub README URL、owned/reference lexicon hint の既存反映
+- Bluesky/GitHubのpartial failureとtimeout/rate-limit分類
+- fixture evidence から ownership / ATProto寄与度だけをnetworkなしで再評価できること
+- temp SQLiteでの `enrich_project -> save_project -> fetch_project`
+
+未接続:
+
+- lexicon resolution collector
+- recent record sampling collector
+- service probe / first-party follow-up collector
+- deep resource page collector
+- raw evidence の通常 DB / run artifact 保存
+
+制約:
+
+- 未接続 collector は引き続き legacy mutating 経路を使う
+- evidence bundleは通常実行中の一時値で、保存後の正本は従来どおり project row
+- source別retry/backoff/circuit breakerはschema上表現できるが、実行policyは未実装
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 

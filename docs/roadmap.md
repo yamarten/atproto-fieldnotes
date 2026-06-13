@@ -23,6 +23,24 @@
 
 ## 将来の論点
 
+### Research pipeline Phase 0 後続
+
+Phase 0 では GitHub repo と GitHub / Bluesky search だけを structured evidence 経路へ接続しました。次の優先候補は以下です。
+
+- lexicon resolution / recent record sampling を非mutating collector化する
+- service probe とfirst-party follow-upを分け、source別timeout/retryを設定する
+- deep resource page収集を通常service probeから分離する
+- `CollectorFailure.category` をrun-level backoff / circuit breakerへ接続する
+- evidence fixture corpusへ実際の誤判定projectを追加し、heuristic version比較を行う
+- raw evidenceを通常運用で保存する必要が出た時は、DB field追加より先にartifact retentionと機密情報除去を決める
+
+未決定でありPhase 0には含めないもの:
+
+- evidence artifactの保存場所とretention
+- collector間の共通retry policy
+- legacy project fieldの廃止順
+- Web UIからのevidence inspection導線
+
 ### ステータス系
 
 現行の canonical は `service_status` です。

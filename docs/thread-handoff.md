@@ -69,6 +69,25 @@
 
 ## 現在の主要レーン
 
+- 調査pipeline Phase 0
+  - 実装済み:
+    - `scripts/project_registry_core/` に evidence / investigation / integration / evaluation を分離
+    - GitHub repo、GitHub search、Bluesky actor/post/feed は non-mutating collector から `EvidenceBundle v1` を返す
+    - project dictへの反映はintegration moduleへ分離
+    - ownership、ATProto寄与度、service statusの評価本体は純粋関数化
+    - `project_registry.py` の既存CLI/API entrypointはwrapperとして維持
+  - 動作確認済み:
+    - 2026-06-13 時点の全193 unittest
+    - collector non-mutation、partial failure、rate-limit分類
+    - fixture evidenceからの再評価
+    - temp DBへのenrich/save/fetch
+  - 未接続:
+    - lexicon、recent record、service、resource page collector
+    - raw evidenceの通常保存
+    - retry/backoff/circuit breaker実行policy
+  - 設計brief:
+    - `docs/research-pipeline-phase0.md`
+
 - 新規候補
   - `collection_count_view`
   - `sync-introduced` の Bluesky 投稿検索
