@@ -56,6 +56,14 @@
 - 直近の残件・引き継ぎ:
   - [docs/thread-handoff.md](docs/thread-handoff.md)
 
+## 文書の配置
+
+- `docs/` 直下は、利用手順、現行仕様、データモデル、roadmap、handoff など役割が確立した正本文書を置く
+- 開発フェーズ名や一時的な作業単位だけを理由に、`docs/` 直下へ新規文書を増やさない
+- 調査メモ、比較資料、設計途中の論点、作業記録など、会話だけでは失われるが現行仕様や roadmap に直接混ぜるには重い内容は `docs/notes/` に置いてよい
+- `docs/notes/` の文書は作業用・履歴用であることを明確にし、確定した内容は適切な正本文書へ反映する
+- 現状仕様、将来課題、調査途中の仮説を一つの文書に混ぜず、`registry-internals.md` / `roadmap.md` / `thread-handoff.md` / `docs/notes/` の責務に分ける
+
 ## まず読む順番
 
 1. この `AGENTS.md`
