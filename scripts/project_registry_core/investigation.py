@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 import urllib.error
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .evidence import CollectorFailure, EvidenceBundle, EvidenceRecord
+from .evidence import CollectorFailure, EvidenceBundle, EvidenceRecord, populate_collector_results
+from .relations import classify_lexicon_path, relation_record
+from .reliability import RequestBudget, RetryPolicy, run_with_retry
 
 
 def unique_strings(values: list[str]) -> list[str]:
@@ -201,6 +203,9 @@ class SearchCollectorDependencies:
     handle_matches_project: Callable[[dict[str, Any], str], bool]
     fetch_bsky_author_feed: Callable[..., list[dict[str, Any]]]
     timeout: float
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    github_request_budget: int = 6
+    bluesky_request_budget: int = 12
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,8 @@ class GitHubRepoCollectorDependencies:
     fetch_github_repo: Callable[[str], dict[str, Any]]
     repo_lexicon_hints: Callable[..., list[dict[str, Any]]]
     extract_urls: Callable[[str], list[str]]
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    repo_semantic_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
 
 
 def collector_failure(
@@ -223,8 +230,12 @@ def collector_failure(
     lowered = str(error).lower()
     if isinstance(error, TimeoutError) or "timed out" in lowered or "timeout" in lowered:
         category, retryable = "timeout", True
-    elif status_code in {403, 429}:
+    elif "request budget exhausted" in lowered:
+        category, retryable = "request_budget", False
+    elif status_code == 429:
         category, retryable = "rate_limit", True
+    elif status_code == 403:
+        category, retryable = "forbidden", False
     elif status_code >= 500:
         category, retryable = "remote_server_error", True
     elif isinstance(error, urllib.error.URLError):
@@ -269,6 +280,13 @@ def collect_investigation_evidence(
         project_key=str(project.get("project_key") or ""),
         collected_at=dependencies.now(),
     )
+    github_budget = RequestBudget(max(1, dependencies.github_request_budget))
+    bluesky_budget = RequestBudget(max(1, dependencies.bluesky_request_budget))
+
+    def budgeted(budget: RequestBudget, operation: Callable[[], Any]) -> Any:
+        if not budget.consume():
+            raise RuntimeError("request budget exhausted")
+        return operation()
 
     for query in build_github_repo_search_queries(plan):
         observed_at = dependencies.now()
@@ -280,7 +298,10 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            repos = dependencies.search_github_repositories(query, limit=5, timeout=dependencies.timeout)
+            repos, _attempts = run_with_retry(
+                lambda: budgeted(github_budget, lambda: dependencies.search_github_repositories(query, limit=5, timeout=dependencies.timeout)),
+                policy=dependencies.retry_policy,
+            )
             scored_repos = [
                 (dependencies.github_repo_relevance(project, repo), repo)
                 for repo in repos
@@ -321,15 +342,19 @@ def collect_investigation_evidence(
             if accepted_repos:
                 break
         except Exception as exc:
-            bundle.add_failure(collector_failure(
-                source="github",
+            failure = collector_failure(
+                source="github_search",
                 operation="repo_search",
                 target=query,
                 message=f"github repo search failed for {query}: {exc}",
                 error=exc,
-            ))
+            )
+            bundle.add_failure(failure)
+            if failure.category == "rate_limit" or "budget exhausted" in failure.message:
+                break
 
     actor_handles_to_probe: list[str] = []
+    bluesky_rate_limited = False
     for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
@@ -340,7 +365,10 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            actors = dependencies.search_bsky_actors(query, limit=5, timeout=dependencies.timeout)
+            actors, _attempts = run_with_retry(
+                lambda: budgeted(bluesky_budget, lambda: dependencies.search_bsky_actors(query, limit=5, timeout=dependencies.timeout)),
+                policy=dependencies.retry_policy,
+            )
             accepted_actors = [
                 item for item in actors
                 if dependencies.bsky_actor_relevance(project, item) >= 4
@@ -373,15 +401,19 @@ def collect_investigation_evidence(
             if len(unique_strings(actor_handles_to_probe)) >= 2:
                 break
         except Exception as exc:
-            bundle.add_failure(collector_failure(
-                source="bluesky",
+            failure = collector_failure(
+                source="bsky_actor_search",
                 operation="actor_search",
                 target=query,
                 message=f"Bluesky actor search failed for {query}: {exc}",
                 error=exc,
-            ))
+            )
+            bundle.add_failure(failure)
+            if failure.category == "rate_limit" or "budget exhausted" in failure.message:
+                bluesky_rate_limited = True
+                break
 
-    for query in build_bsky_search_queries(plan, "post_search_queries", max_queries=2):
+    for query in ([] if bluesky_rate_limited else build_bsky_search_queries(plan, "post_search_queries", max_queries=2)):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
             kind="investigation_query",
@@ -391,7 +423,10 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            posts = dependencies.search_bsky_posts(query, limit=5, timeout=dependencies.timeout)
+            posts, _attempts = run_with_retry(
+                lambda: budgeted(bluesky_budget, lambda: dependencies.search_bsky_posts(query, limit=5, timeout=dependencies.timeout)),
+                policy=dependencies.retry_policy,
+            )
             bundle.add_record(evidence_record(
                 kind="investigation_log",
                 source="bsky_post_search",
@@ -428,18 +463,25 @@ def collect_investigation_evidence(
             if found_urls or len(unique_strings(actor_handles_to_probe)) >= 2:
                 break
         except Exception as exc:
-            bundle.add_failure(collector_failure(
-                source="bluesky",
+            failure = collector_failure(
+                source="bsky_post_search",
                 operation="post_search",
                 target=query,
                 message=f"Bluesky post search failed for {query}: {exc}",
                 error=exc,
-            ))
+            )
+            bundle.add_failure(failure)
+            if failure.category == "rate_limit" or "budget exhausted" in failure.message:
+                bluesky_rate_limited = True
+                break
 
-    for handle in unique_strings(actor_handles_to_probe)[:2]:
+    for handle in ([] if bluesky_rate_limited else unique_strings(actor_handles_to_probe)[:2]):
         observed_at = dependencies.now()
         try:
-            feed = dependencies.fetch_bsky_author_feed(handle, limit=8, timeout=dependencies.timeout)
+            feed, _attempts = run_with_retry(
+                lambda: budgeted(bluesky_budget, lambda: dependencies.fetch_bsky_author_feed(handle, limit=8, timeout=dependencies.timeout)),
+                policy=dependencies.retry_policy,
+            )
             bundle.add_record(evidence_record(
                 kind="investigation_log",
                 source="bsky_author_feed",
@@ -470,14 +512,14 @@ def collect_investigation_evidence(
             ))
         except Exception as exc:
             bundle.add_failure(collector_failure(
-                source="bluesky",
+                source="bsky_author_feed",
                 operation="author_feed",
                 target=handle,
                 message=f"Bluesky author feed failed for {handle}: {exc}",
                 error=exc,
             ))
 
-    return bundle
+    return populate_collector_results(bundle)
 
 
 def collect_github_repo_evidence(
@@ -485,7 +527,10 @@ def collect_github_repo_evidence(
     repo_url: str,
     dependencies: GitHubRepoCollectorDependencies,
 ) -> EvidenceBundle:
-    data = dependencies.fetch_github_repo(repo_url)
+    data, _attempts = run_with_retry(
+        lambda: dependencies.fetch_github_repo(repo_url),
+        policy=dependencies.retry_policy,
+    )
     repo = dict(data["repo"])
     readme_text = str(data.get("readme_text") or "")
     repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
@@ -495,6 +540,7 @@ def collect_github_repo_evidence(
         ref=default_branch,
         tree=repo_tree,
     )
+    semantic_hints = dependencies.repo_semantic_hints(repo_url, ref=default_branch, tree=repo_tree)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
         project_key=str(project.get("project_key") or ""),
@@ -510,7 +556,48 @@ def collect_github_repo_evidence(
             "repo": repo,
             "default_branch": default_branch,
             "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
+            "semantic_hints": [dict(item) for item in semantic_hints if isinstance(item, dict)],
             "readme_urls": dependencies.extract_urls(readme_text),
         },
     ))
-    return bundle
+    normalized_repo_url = str(repo_url).rstrip("/")
+    homepage = str(repo.get("homepage") or "").strip()
+    if homepage:
+        bundle.add_record(relation_record(
+            source=f"github_repo_metadata:{repo_url}", classification="candidate", observed_at=observed_at,
+            subject_type="repo", subject_value=normalized_repo_url, predicate="source_repository",
+            object_type="website", object_value=homepage, locator=repo_url, method="github_homepage",
+        ))
+    for item in repo_lexicons:
+        nsid = str(item.get("nsid") or "").strip()
+        if not nsid:
+            continue
+        path = str(item.get("path") or "")
+        predicate, classification = classify_lexicon_path(path, dict(item.get("schema") or {}))
+        bundle.add_record(relation_record(
+            source=f"github_repo:{repo_url}", classification=classification, observed_at=observed_at,
+            subject_type="repo", subject_value=normalized_repo_url, predicate=predicate,
+            object_type="nsid", object_value=nsid, locator=path, method="lexicon_json",
+        ))
+    for item in semantic_hints:
+        nsid = str(item.get("nsid") or "")
+        predicate = str(item.get("predicate") or "mentions_collection")
+        if not nsid:
+            continue
+        bundle.add_record(relation_record(
+            source=f"github_source:{repo_url}", classification="derived", observed_at=observed_at,
+            subject_type="repo", subject_value=normalized_repo_url, predicate=predicate,
+            object_type="nsid", object_value=nsid, locator=str(item.get("path") or ""),
+            method=f"source_{item.get('operation') or 'mention'}",
+            context={"implementation_role": str(item.get("implementation_role") or "unknown")},
+        ))
+    for url in dependencies.extract_urls(readme_text):
+        parsed = urllib.parse.urlparse(url)
+        object_type = "repo" if parsed.netloc in {"github.com", "tangled.org"} else "website"
+        bundle.add_record(relation_record(
+            source=f"github_readme:{repo_url}", classification="candidate", observed_at=observed_at,
+            subject_type="repo", subject_value=normalized_repo_url,
+            predicate="source_repository" if object_type == "website" else "mentions_collection",
+            object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
+        ))
+    return populate_collector_results(bundle)

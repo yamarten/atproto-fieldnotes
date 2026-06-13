@@ -1,5 +1,12 @@
 """Core research pipeline contracts for project_registry."""
 
-from .evidence import CollectorFailure, EvidenceBundle, EvidenceRecord
+from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceEntity, EvidenceRecord, RelationEvidence
 
-__all__ = ["CollectorFailure", "EvidenceBundle", "EvidenceRecord"]
+__all__ = [
+    "CollectorFailure",
+    "CollectorResult",
+    "EvidenceBundle",
+    "EvidenceEntity",
+    "EvidenceRecord",
+    "RelationEvidence",
+]

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .evidence import EvidenceBundle
+from .relations import normalize_relation_records
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,144 @@ class GitHubRepoIntegrationDependencies:
     repo_context_service_candidate_allowed: Callable[..., bool]
 
 
+@dataclass(frozen=True)
+class ServiceIntegrationDependencies:
+    apply_probe: Callable[[dict[str, Any], str, dict[str, Any]], None]
+    note_failure: Callable[[dict[str, Any], str], None]
+
+
+def apply_saved_service_probe(project: dict[str, Any], value: dict[str, Any]) -> None:
+    """Apply only facts stored in an evidence record; never perform follow-up I/O."""
+    status = str(value.get("service_status") or "")
+    confidence = str(value.get("service_status_confidence") or "")
+    if status:
+        current = str(project.get("service_status") or "unknown")
+        rank = {
+            "unknown": 0, "unverified": 1, "none": 2, "dead": 3, "live": 4,
+            "private": 5, "unreleased": 6, "beta": 7, "invite_only": 8,
+        }
+        project["service_status"] = status if rank.get(status, 0) >= rank.get(current, 0) else current
+    if confidence:
+        current = str(project.get("service_status_confidence") or "none")
+        rank = {"none": 0, "low": 1, "medium": 2, "high": 3}
+        project["service_status_confidence"] = confidence if rank.get(confidence, 0) >= rank.get(current, 0) else current
+    project["service_status_evidence"] = list(dict.fromkeys(
+        list(project.get("service_status_evidence", []))
+        + [str(item) for item in value.get("service_status_evidence", []) if str(item)]
+    ))
+
+
+@dataclass(frozen=True)
+class TangledIntegrationDependencies:
+    confirm_source_code_url: Callable[..., None]
+    add_candidate_source_code_url: Callable[..., None]
+    add_developer_account: Callable[[dict[str, Any], str, str, str], None]
+    note_failure: Callable[[dict[str, Any], str], None]
+
+
+@dataclass(frozen=True)
+class LegacyIntegrationDependencies:
+    apply_lexicon_result: Callable[[dict[str, Any], str, dict[str, Any]], None]
+    note_failure: Callable[[dict[str, Any], str], None]
+
+
+def apply_legacy_evidence(
+    project: dict[str, Any],
+    bundle: EvidenceBundle,
+    dependencies: LegacyIntegrationDependencies,
+) -> None:
+    for record in bundle.records:
+        if record.kind == "lexicon_resolution_snapshot" and isinstance(record.value, dict):
+            dependencies.apply_lexicon_result(
+                project, str(record.value.get("nsid") or ""), dict(record.value.get("result") or {})
+            )
+        elif record.kind == "record_samples_snapshot" and isinstance(record.value, dict):
+            project["recent_record_samples"] = [
+                dict(item) for item in record.value.get("samples", []) if isinstance(item, dict)
+            ]
+        elif record.kind == "project_patch" and isinstance(record.value, dict):
+            fields = dict(record.value.get("fields") or {})
+            allowed = {str(item) for item in record.context.get("allowed_fields", [])}
+            for key, value in fields.items():
+                if key in allowed:
+                    project[key] = value
+    for failure in bundle.failures:
+        dependencies.note_failure(project, failure.message)
+
+
+def apply_tangled_evidence(
+    project: dict[str, Any],
+    bundle: EvidenceBundle,
+    dependencies: TangledIntegrationDependencies,
+) -> None:
+    for record in bundle.records:
+        if record.kind == "relation" and isinstance(record.value, dict):
+            project["relation_evidence"] = normalize_relation_records(
+                list(project.get("relation_evidence", []))
+                + [{"relation": dict(record.value), "source": record.source,
+                    "classification": record.classification, "observed_at": record.observed_at,
+                    "context": dict(record.context)}]
+            )
+            continue
+        if record.kind != "tangled_repo_snapshot" or not isinstance(record.value, dict):
+            continue
+        value = dict(record.value)
+        handle = str(value.get("owner_handle") or "")
+        did = str(value.get("owner_did") or "")
+        if handle or did:
+            dependencies.add_developer_account(project, handle, record.source, did)
+        repo_url = str(value.get("repo_url") or "")
+        score = int(value.get("score") or 0)
+        if score >= 5:
+            dependencies.confirm_source_code_url(
+                project, repo_url, record.source, relation="tangled_account_repo",
+                reason=f"Tangled repo belongs to a confirmed developer account and relevance score is {score}",
+                evidence_kind="tangled_pds_record", evidence_url=repo_url,
+            )
+        elif score >= 2:
+            dependencies.add_candidate_source_code_url(
+                project, repo_url, record.source,
+                reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
+                evidence_kind="tangled_pds_record", evidence_url=repo_url,
+            )
+    for failure in bundle.failures:
+        dependencies.note_failure(project, failure.message)
+
+
+def apply_service_evidence(
+    project: dict[str, Any],
+    bundle: EvidenceBundle,
+    dependencies: ServiceIntegrationDependencies,
+) -> None:
+    for record in bundle.records:
+        if record.kind == "relation" and isinstance(record.value, dict):
+            project["relation_evidence"] = normalize_relation_records(
+                list(project.get("relation_evidence", []))
+                + [{"relation": dict(record.value), "source": record.source,
+                    "classification": record.classification, "observed_at": record.observed_at,
+                    "context": dict(record.context)}]
+            )
+        elif record.kind == "service_verification" and isinstance(record.value, dict):
+            value = dict(record.value)
+            project["service_verification_results"] = list(project.get("service_verification_results", [])) + [value]
+            if value.get("lane") in {"static", "deep", "follow_up"}:
+                dependencies.apply_probe(project, str(value.get("requested_url") or ""), value)
+            elif value.get("lane") == "browser":
+                pages = list(value.get("pages") or [])
+                if value.get("login_surface_reached"):
+                    apply_saved_service_probe(project, {
+                        "service_status": "live",
+                        "service_status_confidence": "high",
+                        "service_status_evidence": ["browser_login_surface_reached"],
+                    })
+                elif pages and not any(page.get("network_errors") for page in pages if isinstance(page, dict)):
+                    project["service_status_evidence"] = list(dict.fromkeys(
+                        list(project.get("service_status_evidence", [])) + ["browser_rendered_surface"]
+                    ))
+    for failure in bundle.failures:
+        dependencies.note_failure(project, failure.message)
+
+
 def apply_investigation_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
@@ -47,6 +186,18 @@ def apply_investigation_evidence(
         raise ValueError("evidence project_key does not match target project")
 
     for record in bundle.records:
+        if record.kind == "relation" and isinstance(record.value, dict):
+            project["relation_evidence"] = normalize_relation_records(
+                list(project.get("relation_evidence", []))
+                + [{
+                    "relation": dict(record.value),
+                    "source": record.source,
+                    "classification": record.classification,
+                    "observed_at": record.observed_at,
+                    "context": dict(record.context),
+                }]
+            )
+            continue
         if record.kind == "investigation_query":
             dependencies.add_investigation_query(project, str(record.value or ""))
             continue
@@ -106,6 +257,16 @@ def apply_github_repo_evidence(
         raise ValueError("evidence project_key does not match target project")
 
     for record in bundle.records:
+        if record.kind == "relation" and isinstance(record.value, dict):
+            project["relation_evidence"] = normalize_relation_records(
+                list(project.get("relation_evidence", []))
+                + [{"relation": dict(record.value), "source": record.source,
+                    "classification": record.classification, "observed_at": record.observed_at,
+                    "context": dict(record.context)}]
+            )
+    for record in bundle.records:
+        if record.kind == "relation":
+            continue
         if record.kind != "github_repo_snapshot" or not isinstance(record.value, dict):
             continue
         snapshot = record.value

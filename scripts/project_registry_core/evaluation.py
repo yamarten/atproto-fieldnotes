@@ -54,6 +54,29 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
     ]
     input_nsids = list(project.get("input_nsids", []))
     external_lexicons = list(project.get("external_lexicons", []))
+    relation_predicates: list[str] = []
+    confirmed_repos = {str(item).rstrip("/") for item in project.get("source_code_urls", [])}
+    guarded_nsids = {
+        str(item.get("value") or "")
+        for field in ("blocked_identifiers", "deferred_identifiers")
+        for item in project.get(field, [])
+        if isinstance(item, dict) and item.get("type") == "nsid"
+    }
+    for item in project.get("relation_evidence", []):
+        if not isinstance(item, dict):
+            continue
+        relation = item.get("relation") or item.get("value") or {}
+        if not isinstance(relation, dict) or not relation.get("predicate"):
+            continue
+        predicate = str(relation["predicate"])
+        subject = relation.get("subject") or {}
+        obj = relation.get("object") or {}
+        if predicate == "defines_schema" and (
+            str(obj.get("value") or "") in guarded_nsids
+            or (subject.get("type") == "repo" and str(subject.get("value") or "").rstrip("/") not in confirmed_repos)
+        ):
+            predicate = "mentions_collection"
+        relation_predicates.append(predicate)
 
     add("resolved_nsids", resolved_nsids)
     if schema_samples:
@@ -71,15 +94,16 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
         )
     add("input_nsids", input_nsids)
     add("external_lexicons", external_lexicons)
+    add("relation_predicates", relation_predicates)
 
-    if resolved_nsids or schema_samples:
+    if resolved_nsids or schema_samples or "defines_schema" in relation_predicates:
         level, score = "core", 90
-    elif recent_records or collection_observations:
+    elif recent_records or collection_observations or "uses_collection" in relation_predicates:
         level, score = "substantial", 70
     elif str(project.get("category") or "") == "auth_only":
         level, score = "auth_only", 20
         evidence.append({"kind": "category_auth_only", "count": 1})
-    elif input_nsids or external_lexicons:
+    elif input_nsids or external_lexicons or "requests_permission" in relation_predicates or "mentions_collection" in relation_predicates:
         level, score = "optional", 40
     else:
         level, score = "unknown", 0

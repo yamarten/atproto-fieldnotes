@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "at-fund-root-www-alias",
+    "input_project": {"project_key": "proj:0d837566577c", "seed_type": "service_url", "seed_value": "https://www.at.fund", "manual_seeds": [{"type": "service_url", "value": "https://www.at.fund", "source": "manual"}], "website_url": "https://www.at.fund", "service_urls": ["https://www.at.fund"], "service_url_candidates": ["https://at.fund", "https://graph.at.fund"], "service_status": "live"},
+    "bundle": {"schema_version": 2, "project_key": "proj:0d837566577c", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "relation", "source": "service_static:https://at.fund", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"subject": {"type": "service", "value": "https://at.fund"}, "predicate": "redirects_to", "object": {"type": "service", "value": "https://www.at.fund"}, "locator": "https://at.fund", "method": "http_redirect"}, "context": {}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"service_status": "live", "service_url_candidates": ["https://graph.at.fund"], "url_aliases": [{"alias": "https://at.fund", "canonical": "https://www.at.fund", "reason": "confirmed_redirect", "confidence": "confirmed"}]}
+  },
+  {
+    "case_id": "biosky-deferred-foreign-schema",
+    "input_project": {"project_key": "proj:3e090c2ea1af", "seed_type": "service_url", "seed_value": "https://lexicons.bio", "name": "BioSky", "deferred_identifiers": [{"type": "nsid", "value": "ing.observ.temp.comment"}]},
+    "bundle": {"schema_version": 2, "project_key": "proj:3e090c2ea1af", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "relation", "source": "github_repo:https://github.com/observ-ing/core", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"subject": {"type": "repo", "value": "https://github.com/observ-ing/core"}, "predicate": "defines_schema", "object": {"type": "nsid", "value": "ing.observ.temp.comment"}, "locator": "lexicons/comment.json", "method": "lexicon_json"}, "context": {}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"owned_nsids": [], "atproto_contribution_level": "optional"}
+  },
+  {
+    "case_id": "spores-confirmed-schema-relation",
+    "input_project": {"project_key": "proj:efb92087a7b5", "seed_type": "repo_url", "seed_value": "https://github.com/hyphacoop/spores.garden", "source_code_urls": ["https://github.com/hyphacoop/spores.garden"]},
+    "bundle": {"schema_version": 2, "project_key": "proj:efb92087a7b5", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "relation", "source": "github_repo:https://github.com/hyphacoop/spores.garden", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"subject": {"type": "repo", "value": "https://github.com/hyphacoop/spores.garden"}, "predicate": "defines_schema", "object": {"type": "nsid", "value": "coop.hypha.spores.content.text"}, "locator": "lexicons/content.json", "method": "lexicon_json"}, "context": {}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"atproto_contribution_level": "core"}
+  },
+  {
+    "case_id": "margin-collection-usage",
+    "input_project": {"project_key": "proj:53bd4187999c", "seed_type": "repo_url", "seed_value": "https://github.com/treethought/obsidian-atmosphere", "name": "Margin"},
+    "bundle": {"schema_version": 2, "project_key": "proj:53bd4187999c", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "relation", "source": "github_source:https://github.com/treethought/obsidian-atmosphere", "classification": "derived", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"subject": {"type": "repo", "value": "https://github.com/treethought/obsidian-atmosphere"}, "predicate": "uses_collection", "object": {"type": "nsid", "value": "at.margin.highlight"}, "locator": "src/client.ts", "method": "source_write"}, "context": {"implementation_role": "package_or_library"}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"atproto_contribution_level": "substantial"}
+  },
+  {
+    "case_id": "tangled-account-repository",
+    "input_project": {"project_key": "proj:8926f562c0e5", "seed_type": "service_url", "seed_value": "https://tangled.org", "name": "Tangled", "developer_accounts": [{"handle": "tangled.org", "did": "did:plc:owner", "source": "manual"}]},
+    "bundle": {"schema_version": 2, "project_key": "proj:8926f562c0e5", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "tangled_repo_snapshot", "source": "tangled_pds:tangled.org", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"owner_handle": "tangled.org", "owner_did": "did:plc:owner", "repo_url": "https://tangled.org/tangled.org/core", "repo_did": "did:plc:repo", "record": {"name": "core"}, "score": 5}, "context": {}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"source_code_urls": ["https://tangled.org/tangled.org/core"]}
+  },
+  {
+    "case_id": "passing-reads-browser-surface",
+    "input_project": {"project_key": "proj:963b3e93b616", "seed_type": "service_url", "seed_value": "https://www.passingreads.org", "name": "Passing Reads", "service_status": "unverified"},
+    "bundle": {"schema_version": 2, "project_key": "proj:963b3e93b616", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "service_verification", "source": "service_browser:https://www.passingreads.org", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"requested_url": "https://www.passingreads.org", "lane": "browser", "pages": [{"url": "https://www.passingreads.org", "title": "Passing Reads", "text_extract": "Read", "network_errors": [], "console_errors": []}, {"url": "https://www.passingreads.org/login", "title": "Sign in", "text_extract": "Sign in", "network_errors": [], "console_errors": []}], "login_surface_reached": true, "js_rendered": true}, "context": {}}], "failures": [], "collector_results": []},
+    "expected_evaluation": {"service_status": "live", "service_status_confidence": "high"}
+  }
+]
