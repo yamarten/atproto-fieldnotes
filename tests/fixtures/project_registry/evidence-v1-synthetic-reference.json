@@ -1,0 +1,24 @@
+{
+  "collected_at": "2026-06-13T00:00:00+00:00",
+  "failures": [],
+  "project_key": "proj:synthetic-reference",
+  "records": [
+    {
+      "classification": "candidate",
+      "context": {
+        "path": "examples/app.external.feed.json",
+        "relation": "mentions_schema"
+      },
+      "kind": "github_repo_lexicon_hint",
+      "observed_at": "2026-06-13T00:00:00+00:00",
+      "source": "github_repo:https://github.com/example/client",
+      "value": {
+        "nsid": "app.external.feed",
+        "schema": {
+          "lexicon": 1
+        }
+      }
+    }
+  ],
+  "schema_version": 1
+}

@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 
 class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
+    def test_evidence_fixture_roundtrip_preserves_ordered_records(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
+        bundle = EvidenceBundle.load(fixture_path)
+
+        self.assertEqual(bundle.schema_version, 1)
+        self.assertEqual(bundle.project_key, "proj:synthetic-reference")
+        self.assertEqual(bundle.records[0].kind, "github_repo_lexicon_hint")
+        self.assertEqual(EvidenceBundle.from_json(bundle.to_json()).to_dict(), bundle.to_dict())
+
+    def test_evidence_rejects_non_json_values(self) -> None:
+        with self.assertRaises(ValueError):
+            EvidenceRecord(
+                kind="invalid",
+                source="test",
+                classification="candidate",
+                observed_at="2026-06-13T00:00:00+00:00",
+                value={"invalid": object()},  # type: ignore[dict-item]
+            )
+
     def test_seed_investigation_queries_preserve_order_and_limits(self) -> None:
         project = self.make_project("proj:phase0queries")
         project["name"] = "Example App"
