@@ -1,14 +1,78 @@
 from __future__ import annotations
 
+import copy
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
+from project_registry_core import investigation as investigation_core
 
 
 class ProjectRegistryPhase0CharacterizationTest(TempRegistryDbTestCase):
+    def search_dependencies(self, **overrides):  # type: ignore[no-untyped-def]
+        values = {
+            "now": lambda: "2026-06-13T00:00:00+00:00",
+            "search_github_repositories": lambda *args, **kwargs: [],
+            "github_repo_relevance": lambda project, repo: 0,
+            "repo_candidate_allowed": lambda project, url: True,
+            "search_bsky_actors": lambda *args, **kwargs: [],
+            "bsky_actor_relevance": lambda project, actor: 0,
+            "search_bsky_posts": lambda *args, **kwargs: [],
+            "handle_matches_project": lambda project, handle: False,
+            "fetch_bsky_author_feed": lambda *args, **kwargs: [],
+            "timeout": 12.0,
+        }
+        values.update(overrides)
+        return investigation_core.SearchCollectorDependencies(**values)
+
+    def test_search_collector_returns_evidence_without_mutating_project(self) -> None:
+        project = self.make_project("proj:phase0bundle")
+        project["name"] = "Example App"
+        original = copy.deepcopy(project)
+        dependencies = self.search_dependencies(
+            search_github_repositories=lambda *args, **kwargs: [
+                {
+                    "url": "https://github.com/example/app",
+                    "full_name": "example/app",
+                    "description": "Example App",
+                    "homepage": "https://example.com",
+                }
+            ],
+            github_repo_relevance=lambda project, repo: 9,
+        )
+
+        bundle = investigation_core.collect_investigation_evidence(
+            project,
+            {"repo_search_queries": ["Example App"]},
+            dependencies,
+        )
+
+        self.assertEqual(project, original)
+        self.assertEqual(
+            [record.kind for record in bundle.records],
+            ["investigation_query", "github_repo_search_candidate", "investigation_log"],
+        )
+        self.assertEqual(bundle.failures, [])
+
+    def test_search_collector_classifies_rate_limit_failure(self) -> None:
+        class RateLimitError(RuntimeError):
+            code = 429
+
+        dependencies = self.search_dependencies(
+            search_github_repositories=lambda *args, **kwargs: (_ for _ in ()).throw(RateLimitError("limited")),
+        )
+
+        bundle = investigation_core.collect_investigation_evidence(
+            self.make_project("proj:phase0ratelimit"),
+            {"repo_search_queries": ["Example App"]},
+            dependencies,
+        )
+
+        self.assertEqual(bundle.failures[0].category, "rate_limit")
+        self.assertTrue(bundle.failures[0].retryable)
+
     def test_evidence_fixture_roundtrip_preserves_ordered_records(self) -> None:
         fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
         bundle = EvidenceBundle.load(fixture_path)

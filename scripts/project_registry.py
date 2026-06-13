@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from project_registry_core import investigation as investigation_core
+from project_registry_core import integration as integration_core
 
 try:
     import tldextract  # type: ignore
@@ -9354,89 +9355,36 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
 
 
 def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
-    for query in build_github_repo_search_queries(plan):
-        add_investigation_query(project, query)
-        try:
-            repos = search_github_repositories(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
-            scored_repos = [
-                (github_repo_relevance(project, repo), repo)
-                for repo in repos
-            ]
-            scored_repos = [(score, repo) for score, repo in scored_repos if score >= 3]
-            scored_repos.sort(key=lambda item: item[0], reverse=True)
-            accepted_repos: list[tuple[int, dict[str, Any]]] = []
-            if scored_repos:
-                top_score = scored_repos[0][0]
-                threshold = max(6, top_score - 2)
-                accepted_repos = [
-                    (score, repo)
-                    for score, repo in scored_repos
-                    if score >= threshold and repo_candidate_allowed_for_project(project, str(repo.get("url") or ""))
-                ][:1]
-            accepted = 0
-            for score, repo in accepted_repos:
-                accepted += 1
-                add_candidate_source_code_url(
-                    project,
-                    repo["url"],
-                    f"github_search:{query}",
-                    reason=f"matched GitHub repository search query: {query} (score={score})",
-                    evidence_kind="github_search",
-                    evidence_url=repo["url"],
-                )
-                if repo.get("homepage"):
-                    add_candidate_url(project, "service_url", repo["homepage"])
-                    add_candidate_url(project, "website_url", repo["homepage"])
-            add_investigation_log(project, "github_repo_search", query=query, result_count=len(repos), accepted_count=accepted, at=iso_now())
-            if accepted > 0:
-                break
-        except Exception as exc:
-            note_failure(project, f"github repo search failed for {query}: {exc}")
-
-    actor_handles_to_probe: list[str] = []
-    for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
-        add_investigation_query(project, query)
-        try:
-            actors = search_bsky_actors(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
-            accepted_actors = [item for item in actors if bsky_actor_relevance(project, item) >= 4]
-            add_investigation_log(project, "bsky_actor_search", query=query, result_count=len(actors), accepted_count=len(accepted_actors), at=iso_now())
-            handles = [item["handle"] for item in accepted_actors if item.get("handle")]
-            merge_investigation_results(project, source=f"bsky_actor_search:{query}", urls=[], handles=handles)
-            actor_handles_to_probe.extend(handles[:2])
-            if len(unique_list(actor_handles_to_probe)) >= 2:
-                break
-        except Exception as exc:
-            note_failure(project, f"Bluesky actor search failed for {query}: {exc}")
-
-    for query in build_bsky_search_queries(plan, "post_search_queries", max_queries=2):
-        add_investigation_query(project, query)
-        try:
-            posts = search_bsky_posts(query, limit=5, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
-            add_investigation_log(project, "bsky_post_search", query=query, result_count=len(posts), at=iso_now())
-            urls: list[str] = []
-            handles: list[str] = []
-            for post in posts:
-                urls.extend(post.get("urls", []))
-                if post.get("author_handle"):
-                    if handle_matches_project(project, post["author_handle"]):
-                        handles.append(post["author_handle"])
-            merge_investigation_results(project, source=f"bsky_post_search:{query}", urls=urls, handles=handles)
-            actor_handles_to_probe.extend(handles[:2])
-            if urls or len(unique_list(actor_handles_to_probe)) >= 2:
-                break
-        except Exception as exc:
-            note_failure(project, f"Bluesky post search failed for {query}: {exc}")
-
-    for handle in unique_list(actor_handles_to_probe)[:2]:
-        try:
-            feed = fetch_bsky_author_feed(handle, limit=8, timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH)
-            add_investigation_log(project, "bsky_author_feed", actor=handle, result_count=len(feed), at=iso_now())
-            urls: list[str] = []
-            for item in feed:
-                urls.extend(item.get("urls", []))
-            merge_investigation_results(project, source=f"bsky_author_feed:{handle}", urls=urls, handles=[handle])
-        except Exception as exc:
-            note_failure(project, f"Bluesky author feed failed for {handle}: {exc}")
+    bundle = investigation_core.collect_investigation_evidence(
+        project,
+        plan,
+        investigation_core.SearchCollectorDependencies(
+            now=iso_now,
+            search_github_repositories=search_github_repositories,
+            github_repo_relevance=github_repo_relevance,
+            repo_candidate_allowed=repo_candidate_allowed_for_project,
+            search_bsky_actors=search_bsky_actors,
+            bsky_actor_relevance=bsky_actor_relevance,
+            search_bsky_posts=search_bsky_posts,
+            handle_matches_project=handle_matches_project,
+            fetch_bsky_author_feed=fetch_bsky_author_feed,
+            timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+        ),
+    )
+    integration_core.apply_investigation_evidence(
+        project,
+        bundle,
+        integration_core.IntegrationDependencies(
+            add_investigation_query=add_investigation_query,
+            add_investigation_log=add_investigation_log,
+            add_candidate_source_code_url=add_candidate_source_code_url,
+            add_candidate_url=add_candidate_url,
+            normalize_github_repo_url=normalize_github_repo_url,
+            normalize_tangled_repo_url=normalize_tangled_repo_url,
+            record_developer_handle=record_developer_handle,
+            note_failure=note_failure,
+        ),
+    )
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import re
+import urllib.error
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from .evidence import CollectorFailure, EvidenceBundle, EvidenceRecord
 
 
 def unique_strings(values: list[str]) -> list[str]:
@@ -184,3 +187,286 @@ def plan_investigation_queries(
     except Exception as exc:
         dependencies.note_failure(project, f"investigation planning failed: {exc}")
         return {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
+
+
+@dataclass(frozen=True)
+class SearchCollectorDependencies:
+    now: Callable[[], str]
+    search_github_repositories: Callable[..., list[dict[str, Any]]]
+    github_repo_relevance: Callable[[dict[str, Any], dict[str, Any]], int]
+    repo_candidate_allowed: Callable[[dict[str, Any], str], bool]
+    search_bsky_actors: Callable[..., list[dict[str, Any]]]
+    bsky_actor_relevance: Callable[[dict[str, Any], dict[str, Any]], int]
+    search_bsky_posts: Callable[..., list[dict[str, Any]]]
+    handle_matches_project: Callable[[dict[str, Any], str], bool]
+    fetch_bsky_author_feed: Callable[..., list[dict[str, Any]]]
+    timeout: float
+
+
+def collector_failure(
+    *,
+    source: str,
+    operation: str,
+    target: str,
+    message: str,
+    error: BaseException,
+) -> CollectorFailure:
+    status_code = int(getattr(error, "code", 0) or 0)
+    lowered = str(error).lower()
+    if isinstance(error, TimeoutError) or "timed out" in lowered or "timeout" in lowered:
+        category, retryable = "timeout", True
+    elif status_code in {403, 429}:
+        category, retryable = "rate_limit", True
+    elif status_code >= 500:
+        category, retryable = "remote_server_error", True
+    elif isinstance(error, urllib.error.URLError):
+        category, retryable = "network_error", True
+    else:
+        category, retryable = "collector_error", False
+    return CollectorFailure(
+        source=source,
+        operation=operation,
+        target=target,
+        category=category,
+        message=message,
+        retryable=retryable,
+    )
+
+
+def evidence_record(
+    *,
+    kind: str,
+    source: str,
+    classification: str,
+    observed_at: str,
+    value: Any,
+    context: dict[str, Any] | None = None,
+) -> EvidenceRecord:
+    return EvidenceRecord(
+        kind=kind,
+        source=source,
+        classification=classification,  # type: ignore[arg-type]
+        observed_at=observed_at,
+        value=value,
+        context=context or {},
+    )
+
+
+def collect_investigation_evidence(
+    project: dict[str, Any],
+    plan: dict[str, Any],
+    dependencies: SearchCollectorDependencies,
+) -> EvidenceBundle:
+    bundle = EvidenceBundle(
+        project_key=str(project.get("project_key") or ""),
+        collected_at=dependencies.now(),
+    )
+
+    for query in build_github_repo_search_queries(plan):
+        observed_at = dependencies.now()
+        bundle.add_record(evidence_record(
+            kind="investigation_query",
+            source="github_search",
+            classification="derived",
+            observed_at=observed_at,
+            value=query,
+        ))
+        try:
+            repos = dependencies.search_github_repositories(query, limit=5, timeout=dependencies.timeout)
+            scored_repos = [
+                (dependencies.github_repo_relevance(project, repo), repo)
+                for repo in repos
+            ]
+            scored_repos = [(score, repo) for score, repo in scored_repos if score >= 3]
+            scored_repos.sort(key=lambda item: item[0], reverse=True)
+            accepted_repos: list[tuple[int, dict[str, Any]]] = []
+            if scored_repos:
+                threshold = max(6, scored_repos[0][0] - 2)
+                accepted_repos = [
+                    (score, repo)
+                    for score, repo in scored_repos
+                    if score >= threshold
+                    and dependencies.repo_candidate_allowed(project, str(repo.get("url") or ""))
+                ][:1]
+            for score, repo in accepted_repos:
+                bundle.add_record(evidence_record(
+                    kind="github_repo_search_candidate",
+                    source=f"github_search:{query}",
+                    classification="candidate",
+                    observed_at=observed_at,
+                    value=dict(repo),
+                    context={"query": query, "score": score},
+                ))
+            bundle.add_record(evidence_record(
+                kind="investigation_log",
+                source="github_search",
+                classification="derived",
+                observed_at=observed_at,
+                value={
+                    "kind": "github_repo_search",
+                    "query": query,
+                    "result_count": len(repos),
+                    "accepted_count": len(accepted_repos),
+                    "at": observed_at,
+                },
+            ))
+            if accepted_repos:
+                break
+        except Exception as exc:
+            bundle.add_failure(collector_failure(
+                source="github",
+                operation="repo_search",
+                target=query,
+                message=f"github repo search failed for {query}: {exc}",
+                error=exc,
+            ))
+
+    actor_handles_to_probe: list[str] = []
+    for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
+        observed_at = dependencies.now()
+        bundle.add_record(evidence_record(
+            kind="investigation_query",
+            source="bsky_actor_search",
+            classification="derived",
+            observed_at=observed_at,
+            value=query,
+        ))
+        try:
+            actors = dependencies.search_bsky_actors(query, limit=5, timeout=dependencies.timeout)
+            accepted_actors = [
+                item for item in actors
+                if dependencies.bsky_actor_relevance(project, item) >= 4
+            ]
+            bundle.add_record(evidence_record(
+                kind="investigation_log",
+                source="bsky_actor_search",
+                classification="derived",
+                observed_at=observed_at,
+                value={
+                    "kind": "bsky_actor_search",
+                    "query": query,
+                    "result_count": len(actors),
+                    "accepted_count": len(accepted_actors),
+                    "at": observed_at,
+                },
+            ))
+            for actor in accepted_actors:
+                handle = str(actor.get("handle") or "")
+                if not handle:
+                    continue
+                bundle.add_record(evidence_record(
+                    kind="developer_handle_candidate",
+                    source=f"bsky_actor_search:{query}",
+                    classification="candidate",
+                    observed_at=observed_at,
+                    value=handle,
+                ))
+                actor_handles_to_probe.append(handle)
+            if len(unique_strings(actor_handles_to_probe)) >= 2:
+                break
+        except Exception as exc:
+            bundle.add_failure(collector_failure(
+                source="bluesky",
+                operation="actor_search",
+                target=query,
+                message=f"Bluesky actor search failed for {query}: {exc}",
+                error=exc,
+            ))
+
+    for query in build_bsky_search_queries(plan, "post_search_queries", max_queries=2):
+        observed_at = dependencies.now()
+        bundle.add_record(evidence_record(
+            kind="investigation_query",
+            source="bsky_post_search",
+            classification="derived",
+            observed_at=observed_at,
+            value=query,
+        ))
+        try:
+            posts = dependencies.search_bsky_posts(query, limit=5, timeout=dependencies.timeout)
+            bundle.add_record(evidence_record(
+                kind="investigation_log",
+                source="bsky_post_search",
+                classification="derived",
+                observed_at=observed_at,
+                value={
+                    "kind": "bsky_post_search",
+                    "query": query,
+                    "result_count": len(posts),
+                    "at": observed_at,
+                },
+            ))
+            found_urls = False
+            for post in posts:
+                for url in post.get("urls", []):
+                    found_urls = True
+                    bundle.add_record(evidence_record(
+                        kind="source_code_reference",
+                        source=f"bsky_post_search:{query}",
+                        classification="candidate",
+                        observed_at=observed_at,
+                        value=str(url),
+                    ))
+                handle = str(post.get("author_handle") or "")
+                if handle and dependencies.handle_matches_project(project, handle):
+                    bundle.add_record(evidence_record(
+                        kind="developer_handle_candidate",
+                        source=f"bsky_post_search:{query}",
+                        classification="candidate",
+                        observed_at=observed_at,
+                        value=handle,
+                    ))
+                    actor_handles_to_probe.append(handle)
+            if found_urls or len(unique_strings(actor_handles_to_probe)) >= 2:
+                break
+        except Exception as exc:
+            bundle.add_failure(collector_failure(
+                source="bluesky",
+                operation="post_search",
+                target=query,
+                message=f"Bluesky post search failed for {query}: {exc}",
+                error=exc,
+            ))
+
+    for handle in unique_strings(actor_handles_to_probe)[:2]:
+        observed_at = dependencies.now()
+        try:
+            feed = dependencies.fetch_bsky_author_feed(handle, limit=8, timeout=dependencies.timeout)
+            bundle.add_record(evidence_record(
+                kind="investigation_log",
+                source="bsky_author_feed",
+                classification="derived",
+                observed_at=observed_at,
+                value={
+                    "kind": "bsky_author_feed",
+                    "actor": handle,
+                    "result_count": len(feed),
+                    "at": observed_at,
+                },
+            ))
+            for item in feed:
+                for url in item.get("urls", []):
+                    bundle.add_record(evidence_record(
+                        kind="source_code_reference",
+                        source=f"bsky_author_feed:{handle}",
+                        classification="candidate",
+                        observed_at=observed_at,
+                        value=str(url),
+                    ))
+            bundle.add_record(evidence_record(
+                kind="developer_handle_candidate",
+                source=f"bsky_author_feed:{handle}",
+                classification="candidate",
+                observed_at=observed_at,
+                value=handle,
+            ))
+        except Exception as exc:
+            bundle.add_failure(collector_failure(
+                source="bluesky",
+                operation="author_feed",
+                target=handle,
+                message=f"Bluesky author feed failed for {handle}: {exc}",
+                error=exc,
+            ))
+
+    return bundle
