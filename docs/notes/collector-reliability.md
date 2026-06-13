@@ -59,6 +59,33 @@
 
 併せて、request数、取得件数、cursor、打ち切り理由、retry-after、cache hitを残す候補があります。
 
+### Source result envelope の参考例
+
+collector境界を検討した際には、source単位の出力を次のように形式化するイメージも挙がっています。
+これは非規範的な参考例であり、現行schemaでも採用決定済みの将来schemaでもありません。
+
+```json
+{
+  "source": "github_repo",
+  "status": "success",
+  "repos": [],
+  "lexicon_hints": [],
+  "service_urls": [],
+  "observed_at": "..."
+}
+```
+
+この形の利点は、sourceの完了状態とsource固有の結果集合を一つの境界で読めることです。一方、
+現行の`EvidenceBundle v1`はkind付きの順序付き`records`と`failures`へ正規化するため、`repos`などの
+source固有fieldは持ちません。また、source単位の`status`も未接続です。
+
+将来この案を再検討する場合は、少なくとも次を比較します。
+
+- source固有fieldを保つenvelopeと、共通`EvidenceRecord`へ正規化する方式のどちらをcollector公開契約にするか
+- `status`をbundle全体、source単位、operation単位のどこへ置くか
+- partial result、複数operation、pagination打ち切りを一つの`status`で表せるか
+- integrationがsource固有shapeを知る構造を許容するか
+
 ## 未検証
 
 - source別の適切なretry回数とbackoff上限
