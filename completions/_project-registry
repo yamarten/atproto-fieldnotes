@@ -16,6 +16,11 @@ subcommands=(
   'sync-github-search:Search GitHub repositories and import repo seeds'
   'sync-collections:Fetch and import collection inventory'
   'sync-semble-collections:Sync fixed Semble collections into project seeds'
+  'sync-tangled-repos:Sync the recent UFOs Tangled repository rolling window'
+  'replay-investigation:Replay a saved investigation without network access'
+  'benchmark-investigation:Benchmark an investigation fixture corpus'
+  'export-investigation-fixture:Export a sanitized saved investigation fixture'
+  'verify-service:Verify a service with the static, deep, or browser lane'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'cleanup-app-links:Rebuild stored app links from canonical URL fields'
@@ -214,6 +219,38 @@ case "$cmd" in
       '--execute[Apply imports]' \
       '--create-unmatched[Create new projects for unknown seeds discovered from cards]' \
       '--no-create-unmatched[List only without creating unknown seeds]'
+    ;;
+  sync-tangled-repos)
+    _arguments -S \
+      '--execute[Apply imports]' \
+      '--create-unmatched[Create projects for unmatched ATProto-relevant repos]' \
+      '--no-create-unmatched[Do not create unmatched projects]' \
+      '--incremental[Use the saved time_us watermark]' \
+      '--no-incremental[Ignore and do not update the saved watermark]' \
+      '--all-history[Ignore the saved watermark; source remains a rolling window]'
+    ;;
+  replay-investigation)
+    _arguments -S \
+      '(-p --project-key --run-id)--run-id[Saved investigation run ID]:run id:' \
+      '(--run-id)'{-p,--project-key}'[Replay the latest run for one project]:project key:'
+    ;;
+  benchmark-investigation)
+    _arguments -S '--path[Fixture file or directory]:path:_files'
+    ;;
+  export-investigation-fixture)
+    _arguments -S \
+      '--run-id[Saved investigation run ID]:run id:' \
+      '--case-id[Fixture case ID]:case id:' \
+      '--output[Write fixture JSON to this path]:path:_files'
+    ;;
+  verify-service)
+    _arguments -S \
+      '(-p --project-key --seed)'{-p,--project-key}'[Target one project key]:project key:' \
+      '(-p --project-key --seed)--seed[Target by known seed value]:seed:' \
+      '--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types' \
+      '--url[Override the project service URL]:url:' \
+      '--lane[Verification lane]:lane:(static deep browser)' \
+      '--execute[Apply the result and save an investigation run]'
     ;;
   repair-db)
     _arguments -S

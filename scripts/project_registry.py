@@ -24,10 +24,19 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
-from project_registry_core import EvidenceBundle
+from project_registry_core import CollectorResult, EvidenceBundle
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
+from project_registry_core import replay as replay_core
+from project_registry_core import storage as investigation_storage
+from project_registry_core.evidence import populate_collector_results
+from project_registry_core import relations as relation_core
+from project_registry_core import service as service_core
+from project_registry_core import tangled as tangled_core
+from project_registry_core import url_alias as url_alias_core
+from project_registry_core import legacy_collectors as legacy_collector_core
+from project_registry_core import reliability as reliability_core
 
 try:
     import tldextract  # type: ignore
@@ -65,7 +74,9 @@ BSKY_SYNC_API = "https://bsky.network"
 UFOS_API = "https://ufos-api.microcosm.blue"
 SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
-_GITHUB_REPO_SEARCH_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
+_GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
+_GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
+_SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
 _TLD_EXTRACTORS: dict[str, Any] = {}
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
@@ -381,6 +392,9 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "exclude_reason",
         "watch_reason",
         "confidence",
+        "relation_evidence",
+        "service_verification_results",
+        "url_aliases",
     ),
 }
 
@@ -1494,6 +1508,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["investigation_log"] = list(defaults.get("investigation_log") or [])
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
+    defaults["relation_evidence"] = relation_core.normalize_relation_records(defaults.get("relation_evidence", []))
+    defaults["service_verification_results"] = [
+        dict(item) for item in defaults.get("service_verification_results", []) if isinstance(item, dict)
+    ]
+    defaults["url_aliases"] = [dict(item) for item in defaults.get("url_aliases", []) if isinstance(item, dict)]
     defaults["manual_seeds"] = unique_manual_seeds(defaults.get("manual_seeds", []))
     defaults["source_code_url"] = canonical_repo_url(str(defaults.get("source_code_url") or ""))
     defaults["source_code_urls"] = normalize_repo_collection(defaults.get("source_code_urls", []))
@@ -1769,6 +1788,10 @@ def developer_holds_schema_record(project: dict[str, Any], nsid: str) -> bool:
 
 
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
+    if relation_core.identifier_is_guarded(project, "nsid", normalize_nsid(nsid)):
+        return False
+    if relation_core.relation_supports_nsid_ownership(project, normalize_nsid(nsid)):
+        return True
     return evaluation_core.project_owned_lexicon_nsid(
         project,
         nsid,
@@ -1866,6 +1889,7 @@ def open_db() -> sqlite3.Connection:
         )
         """
     )
+    investigation_storage.ensure_investigation_tables(conn)
     columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "tracking_state" not in columns:
         conn.execute("ALTER TABLE projects ADD COLUMN tracking_state TEXT NOT NULL DEFAULT 'active'")
@@ -2066,6 +2090,10 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         ("github_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "github_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
         ("tangled_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "tangled_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
         ("confirmed_candidate_service_overlap", lambda p: normalized_url_field_values(p, "service_urls") & normalized_url_field_values(p, "service_url_candidates")),
+        ("observed_url_alias_still_candidate", lambda p: {
+            normalize_url(str(item.get("alias") or ""))
+            for item in url_alias_core.observed_url_aliases(p)
+        } & normalized_url_field_values(p, "service_url_candidates")),
         ("confirmed_candidate_repo_overlap", lambda p: normalized_url_field_values(p, "source_code_urls") & normalized_url_field_values(p, "candidate_source_code_urls")),
         ("introduced_url_in_evidence_urls", lambda p: normalized_url_field_values(p, "introduced_url") & normalized_url_field_values(p, "evidence_urls")),
     )
@@ -4793,6 +4821,13 @@ def add_candidate_url(project: dict[str, Any], field_name: str, url: str) -> Non
     key = f"{field_name}_candidates"
     if field_name in {"service_url", "website_url"}:
         normalized = normalize_service_candidate_url(url)
+        canonical_alias = url_alias_core.canonical_alias_url(project, normalized)
+        confirmed = {
+            normalize_url(str(project.get("website_url") or "")),
+            *(normalize_url(str(item)) for item in project.get("service_urls", [])),
+        }
+        if canonical_alias != normalized and canonical_alias in confirmed:
+            return
         if not normalized or identifier_is_blocked(project, "service_url", normalized):
             return
         project[key] = add_unique(project.get(key, []), normalized)
@@ -7131,6 +7166,111 @@ def sync_semble_collections(
     }
 
 
+def fetch_tangled_ufos_window() -> list[dict[str, Any]]:
+    config = dict(load_config().get("tangled_repo_discovery") or {})
+    api_url = str(config.get("ufos_api_url") or f"{UFOS_API}/records")
+    collection = str(config.get("collection") or tangled_core.TANGLED_COLLECTION)
+    separator = "&" if "?" in api_url else "?"
+    payload = request_json(f"{api_url}{separator}{urllib.parse.urlencode({'collection': collection})}", timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+    return tangled_core.normalize_ufos_entries(payload)
+
+
+def project_for_tangled_entry(conn: sqlite3.Connection, owner_did: str, website: str) -> dict[str, Any] | None:
+    normalized_website = normalize_url(website)
+    for project in all_projects(conn):
+        if owner_did and owner_did in confirmed_developer_dids(project):
+            return project
+        urls = unique_list(([project.get("website_url")] if project.get("website_url") else []) + list(project.get("service_urls", [])))
+        if normalized_website and normalized_website in {normalize_url(str(item)) for item in urls}:
+            return project
+    return None
+
+
+def sync_tangled_repos(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    create_unmatched: bool = False,
+    incremental: bool = True,
+    all_history: bool = False,
+) -> dict[str, Any]:
+    scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
+    state = read_sync_state(conn, "tangled-repos", scope)
+    watermark_before = int(state.get("watermark", {}).get("time_us") or 0) if incremental and not all_history else 0
+    entries = fetch_tangled_ufos_window()
+    config = dict(load_config().get("tangled_repo_discovery") or {})
+    entries = entries[:max(1, int(config.get("limit") or 100))]
+    newest = max((int(item.get("time_us") or 0) for item in entries), default=0)
+    oldest = min((int(item.get("time_us") or 0) for item in entries), default=0)
+    boundary_reached = not watermark_before or any(int(item.get("time_us") or 0) <= watermark_before for item in entries)
+    selected = [item for item in entries if not watermark_before or int(item.get("time_us") or 0) > watermark_before]
+    matched = created = unmatched = skipped_irrelevant = 0
+    results: list[dict[str, Any]] = []
+    for entry in selected:
+        record = dict(entry.get("record") or {})
+        relevant = bool(entry.get("atproto_relevant"))
+        if not relevant:
+            skipped_irrelevant += 1
+            continue
+        owner_did = str(entry.get("owner_did") or "")
+        try:
+            profile = fetch_bsky_profile(owner_did) if owner_did else {}
+        except Exception:
+            profile = {}
+        handle = str(profile.get("handle") or owner_did)
+        repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
+        project = project_for_tangled_entry(conn, owner_did, str(record.get("website") or ""))
+        outcome = "unmatched"
+        if project is not None:
+            matched += 1
+            outcome = "matched"
+        elif create_unmatched:
+            project = ensure_project_for_seed(conn, "repo_url", repo_url) if execute else default_project_record("dry-run", "repo_url", repo_url)
+            created += 1
+            outcome = "created"
+        else:
+            unmatched += 1
+        if project is not None:
+            project = ensure_project_shape(project)
+            score = tangled_core.repo_relevance(project, record, handle)
+            bundle = EvidenceBundle(project_key=str(project.get("project_key") or "dry-run"), collected_at=iso_now())
+            bundle.add_record(investigation_core.evidence_record(
+                kind="tangled_repo_snapshot", source="tangled_ufos", classification="candidate",
+                observed_at=iso_now(),
+                value={"owner_handle": handle, "owner_did": owner_did, "repo_url": repo_url,
+                       "repo_did": str(record.get("repoDid") or ""), "record": record, "score": score},
+            ))
+            if execute:
+                apply_tangled_evidence(project, bundle)
+                project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_ufos")
+                save_project(conn, finalize_project_shape(project), enriched=False)
+        results.append({"repo_url": repo_url, "owner_did": owner_did, "outcome": outcome, "time_us": entry["time_us"]})
+    state_updated = bool(
+        execute and incremental and newest and boundary_reached and (create_unmatched or unmatched == 0)
+    )
+    if state_updated:
+        write_sync_state(conn, "tangled-repos", scope, {"time_us": newest, "rolling_window_oldest_time_us": oldest})
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "source": "ufos_rolling_window",
+        "fetched": len(entries),
+        "selected": len(selected),
+        "matched": matched,
+        "created": created,
+        "unmatched": unmatched,
+        "skipped_irrelevant": skipped_irrelevant,
+        "watermark_before": watermark_before,
+        "watermark_after": newest if state_updated else watermark_before,
+        "boundary_reached": boundary_reached,
+        "gap_possible": bool(watermark_before and not boundary_reached),
+        "complete_history": False,
+        "state_updated": state_updated,
+        "results": results[:100],
+    }
+
+
 def infer_service_status(status_code: int, text: str) -> str:
     return evaluation_core.infer_service_status(status_code, text)
 
@@ -7223,6 +7363,11 @@ def classify_service_probe_result(
 
 def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> dict[str, Any]:
     normalized_url = normalize_url(url)
+    cached = _SERVICE_PROBE_CACHE.get(normalized_url)
+    if isinstance(cached, dict):
+        result = copy.deepcopy(cached)
+        result["cache_hit"] = True
+        return result
     status_code = 0
     body = b""
     headers: dict[str, str] = {}
@@ -7268,7 +7413,7 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
             service_status_evidence = add_unique(service_status_evidence, "redirect_same_site_family")
         elif redirect_metadata.get("redirect_cross_host"):
             service_status_evidence = add_unique(service_status_evidence, "redirect_cross_host")
-    return {
+    result = {
         **redirect_metadata,
         "status_code": status_code,
         "title": title,
@@ -7280,7 +7425,10 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
         "service_status_confidence": service_status_confidence,
         "service_status_evidence": service_status_evidence,
         "fetch_error": fetch_error,
+        "cache_hit": False,
     }
+    _SERVICE_PROBE_CACHE.set(normalized_url, copy.deepcopy(result), ttl=300)
+    return result
 
 
 ATPROTO_EVIDENCE_MARKERS = (
@@ -7496,6 +7644,9 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
 
 
 def fetch_github_repo(repo_url: str) -> dict[str, Any]:
+    cached = _GITHUB_REPO_FETCH_CACHE.get(repo_url)
+    if isinstance(cached, dict):
+        return copy.deepcopy(cached)
     slug = extract_github_slug(repo_url)
     if slug is None:
         raise ValueError(f"not a GitHub repo URL: {repo_url}")
@@ -7520,12 +7671,14 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
                 repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
         except Exception:
             repo_tree = []
-    return {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
+    result = {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
+    _GITHUB_REPO_FETCH_CACHE.set(repo_url, copy.deepcopy(result), ttl=300)
+    return result
 
 
 def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
-    cached = _GITHUB_REPO_SEARCH_CACHE.get(cache_key)
+    cached = _GITHUB_REPO_SEARCH_CACHE.get(repr(cache_key))
     if cached is not None:
         return [dict(item) for item in cached]
     headers = github_headers()
@@ -7547,7 +7700,7 @@ def search_github_repositories(query: str, limit: int = 5, *, timeout: float = R
                 "stargazers_count": int(item.get("stargazers_count") or 0),
             }
         )
-    _GITHUB_REPO_SEARCH_CACHE[cache_key] = [dict(item) for item in results]
+    _GITHUB_REPO_SEARCH_CACHE.set(repr(cache_key), [dict(item) for item in results], ttl=300)
     return results
 
 
@@ -7655,6 +7808,59 @@ def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -
         seen.add(nsid)
         hints.append({"nsid": nsid, "path": path, "schema": payload})
     return hints
+
+
+def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
+    scored: list[tuple[int, str]] = []
+    extensions = (".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".swift", ".kt", ".java")
+    for item in tree:
+        if str(item.get("type") or "") != "blob":
+            continue
+        path = str(item.get("path") or "")
+        lowered = path.lower()
+        if not lowered.endswith(extensions) or int(item.get("size") or 0) > 120_000:
+            continue
+        score = 3 if any(segment in f"/{lowered}" for segment in ("/src/", "/app/", "/server/", "/packages/")) else 0
+        if any(segment in f"/{lowered}" for segment in ("/vendor/", "/node_modules/", "/generated/")):
+            score -= 10
+        if any(segment in f"/{lowered}" for segment in ("/test/", "/tests/", "/fixtures/", "/examples/")):
+            score -= 2
+        scored.append((score, path))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [path for score, path in scored if score > -10][:12]
+
+
+def github_repo_implementation_role(tree: list[dict[str, Any]]) -> str:
+    paths = {str(item.get("path") or "").lower() for item in tree}
+    if any(path.endswith(("dockerfile", "docker-compose.yml", "fly.toml")) or "/server/" in f"/{path}" for path in paths):
+        return "service"
+    if any(path.endswith(("package.json", "pyproject.toml", "cargo.toml", "go.mod")) for path in paths):
+        return "package_or_library"
+    return "unknown"
+
+
+def repo_semantic_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    role = github_repo_implementation_role(tree)
+    for path in github_repo_semantic_paths(tree):
+        text = github_repo_file_text(repo_url, path, ref=ref)
+        if not text:
+            continue
+        nsids = unique_list([normalize_nsid(item) for item in re.findall(LOOSE_NSID_PATTERN, text) if normalize_nsid(item)])[:20]
+        if not nsids:
+            continue
+        lowered = text.lower()
+        write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
+        read = any(token in lowered for token in ("getrecord", "listrecords", "query", "subscribe", "searchposts", "gettimeline"))
+        for nsid in nsids:
+            hints.append({
+                "nsid": nsid,
+                "path": path,
+                "predicate": "uses_collection" if write or read else "mentions_collection",
+                "operation": "write" if write else "read" if read else "mention",
+                "implementation_role": role,
+            })
+    return hints[:60]
 
 
 def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
@@ -8087,6 +8293,7 @@ def collect_github_repo_evidence(project: dict[str, Any], repo_url: str) -> Evid
             fetch_github_repo=fetch_github_repo,
             repo_lexicon_hints=repo_lexicon_hints,
             extract_urls=extract_urls,
+            repo_semantic_hints=repo_semantic_hints,
         ),
     )
 
@@ -8120,7 +8327,14 @@ def enrich_from_github_repo(project: dict[str, Any], repo_url: str) -> None:
     apply_github_repo_evidence(project, bundle)
 
 
-def apply_service_probe_result(project: dict[str, Any], service_url: str, result: dict[str, Any], *, follow_up_timeout: float = REQUEST_TIMEOUT_SHORT) -> None:
+def apply_service_probe_result(
+    project: dict[str, Any],
+    service_url: str,
+    result: dict[str, Any],
+    *,
+    follow_up_timeout: float = REQUEST_TIMEOUT_SHORT,
+    collect_follow_ups: bool = True,
+) -> None:
     title = clean_title(result["title"])
     description = result["description"]
     supported = service_probe_supports_project(project, service_url, result)
@@ -8196,7 +8410,7 @@ def apply_service_probe_result(project: dict[str, Any], service_url: str, result
         if is_bluesky_profile_url(url):
             record_developer_profile_url(project, url, f"service_raw_url:{normalized_service_url}")
     follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
-    for follow_url in follow_ups[:3]:
+    for follow_url in follow_ups[:3] if collect_follow_ups else []:
         try:
             nested = probe_service_url(follow_url, timeout=follow_up_timeout)
             collect_first_party_links(project, follow_url, nested.get("links", []), f"service_follow_up:{follow_url}")
@@ -9123,6 +9337,154 @@ def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle
             note_failure=note_failure,
         ),
     )
+
+
+def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    integration_core.apply_service_evidence(
+        project,
+        bundle,
+        integration_core.ServiceIntegrationDependencies(
+            apply_probe=lambda target, url, result: apply_service_probe_result(
+                target,
+                url,
+                {**result, "html": str(result.get("html_extract") or "")},
+                follow_up_timeout=min(service_probe_timeout_for_project(target, url), REQUEST_TIMEOUT_SHORT),
+                collect_follow_ups=False,
+            ),
+            note_failure=note_failure,
+        ),
+    )
+
+
+def collect_service_evidence_with_followups(
+    project: dict[str, Any],
+    service_url: str,
+    result: dict[str, Any],
+    *,
+    lane: str = "static",
+) -> EvidenceBundle:
+    bundle = service_core.collect_service_probe_evidence(
+        str(project.get("project_key") or ""), service_url, result, observed_at=iso_now(), lane=lane,
+    )
+    working = copy.deepcopy(project)
+    follow_urls = collect_first_party_links(
+        working, normalize_url(service_url), result.get("links", []), f"service_page:{normalize_url(service_url)}"
+    )
+    for follow_url in follow_urls[:3]:
+        try:
+            follow_result = probe_service_url(
+                follow_url,
+                timeout=min(service_probe_timeout_for_project(project, follow_url), REQUEST_TIMEOUT_SHORT),
+            )
+            follow_bundle = service_core.collect_service_probe_evidence(
+                str(project.get("project_key") or ""), follow_url, follow_result,
+                observed_at=iso_now(), lane="follow_up",
+            )
+        except Exception as exc:
+            follow_bundle = failed_collector_bundle(
+                project, source="service_follow_up", operation="probe", target=follow_url, exc=exc,
+            )
+        bundle.extend(follow_bundle)
+    return bundle
+
+
+def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    integration_core.apply_service_evidence(
+        project,
+        bundle,
+        integration_core.ServiceIntegrationDependencies(
+            apply_probe=lambda target, url, result: apply_service_probe_result(
+                target,
+                url,
+                {**result, "html": str(result.get("html_extract") or "")},
+                follow_up_timeout=0,
+                collect_follow_ups=False,
+            ),
+            note_failure=note_failure,
+        ),
+    )
+
+
+def list_atproto_records(pds_url: str, did: str, cursor: str = "") -> dict[str, Any]:
+    params: dict[str, Any] = {"repo": did, "collection": tangled_core.TANGLED_COLLECTION, "limit": 100}
+    if cursor:
+        params["cursor"] = cursor
+    payload = request_json(
+        f"{pds_url}/xrpc/com.atproto.repo.listRecords?{urllib.parse.urlencode(params)}",
+        timeout=REQUEST_TIMEOUT_LEXICON_HTTP,
+    )
+    return payload if isinstance(payload, dict) else {}
+
+
+def collect_tangled_account_evidence(project: dict[str, Any], handle: str) -> EvidenceBundle:
+    return tangled_core.collect_account_repos(
+        project,
+        handle,
+        tangled_core.TangledDependencies(
+            now=iso_now,
+            resolve_handle=fetch_bsky_profile,
+            resolve_did_document=resolve_did_document,
+            extract_pds_url=extract_pds_url,
+            list_records=list_atproto_records,
+        ),
+    )
+
+
+def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    integration_core.apply_tangled_evidence(
+        project,
+        bundle,
+        integration_core.TangledIntegrationDependencies(
+            confirm_source_code_url=confirm_source_code_url,
+            add_candidate_source_code_url=add_candidate_source_code_url,
+            add_developer_account=lambda target, handle, source, did: add_developer_account(target, handle, source, did=did),
+            note_failure=note_failure,
+        ),
+    )
+
+
+def apply_legacy_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    integration_core.apply_legacy_evidence(
+        project,
+        bundle,
+        integration_core.LegacyIntegrationDependencies(
+            apply_lexicon_result=apply_lexicon_record_result,
+            note_failure=note_failure,
+        ),
+    )
+
+
+def failed_collector_bundle(
+    project: dict[str, Any], *, source: str, operation: str, target: str, exc: BaseException,
+) -> EvidenceBundle:
+    bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=iso_now())
+    bundle.add_failure(investigation_core.collector_failure(
+        source=source, operation=operation, target=target,
+        message=f"{source} {operation} failed for {target}: {exc}", error=exc,
+    ))
+    return populate_collector_results(bundle)
+
+
+def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) -> EvidenceBundle:
+    observed_at = iso_now()
+    bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
+    try:
+        metadata = request_json(metadata_url, timeout=REQUEST_TIMEOUT_SHORT)
+        if not isinstance(metadata, dict):
+            raise ValueError("OAuth client metadata must be a JSON object")
+        for record in relation_core.oauth_metadata_relation_records(metadata_url, metadata, observed_at):
+            bundle.add_record(record)
+        bundle.add_collector_result(CollectorResult(
+            source="oauth_client_metadata", operation="fetch", status="success", observed_at=observed_at,
+            request_count=1, result_count=len(bundle.records),
+        ))
+    except Exception as exc:
+        bundle.add_failure(investigation_core.collector_failure(
+            source="oauth_client_metadata", operation="fetch", target=metadata_url,
+            message=f"OAuth client metadata fetch failed for {metadata_url}: {exc}", error=exc,
+        ))
+        populate_collector_results(bundle)
+    return bundle
 
 
 def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
@@ -11265,6 +11627,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     ]
     sync_source_repo_provider_views(project)
     apply_deferred_identifier_guards(project)
+    url_alias_core.apply_url_aliases(project)
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
@@ -11294,6 +11657,9 @@ def enrich_project(
     deep_investigation: bool = False,
 ) -> dict[str, Any]:
     project = ensure_project_shape(project)
+    run_started_at = iso_now()
+    run_input_project = copy.deepcopy(project)
+    run_evidence = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=run_started_at)
     previous_status = str(project.get("status") or "draft")
     project["_run_errors"] = []
     reset_investigation_state(project)
@@ -11312,15 +11678,31 @@ def enrich_project(
             }
             for nsid in initial_nsids:
                 try:
-                    apply_lexicon_record_result(project, nsid, lexicon_futures[nsid].result())
+                    lexicon_evidence = legacy_collector_core.collect_lexicon_result(
+                        str(project.get("project_key") or ""), nsid, lexicon_futures[nsid].result(), iso_now()
+                    )
+                    apply_legacy_evidence(project, lexicon_evidence)
+                    run_evidence.extend(lexicon_evidence)
                 except Exception as exc:
                     note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
+                    run_evidence.extend(failed_collector_bundle(
+                        project, source="lexicon_resolution", operation="resolve", target=nsid, exc=exc,
+                    ))
 
     if should_refresh_recent_record_samples(project):
         try:
-            refresh_recent_record_samples(project, timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+            collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+            sample_evidence = legacy_collector_core.collect_record_samples(
+                str(project.get("project_key") or ""), collections,
+                fetch_recent_record_samples(collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),
+            )
+            apply_legacy_evidence(project, sample_evidence)
+            run_evidence.extend(sample_evidence)
         except Exception as exc:
             note_failure(project, f"recent record sampling failed: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source="ufos_record_samples", operation="sample", target=str(project.get("project_key") or ""), exc=exc,
+            ))
 
     initial_repo_urls = unique_list(source_code_url_values(project))
     for repo_url in initial_repo_urls:
@@ -11329,8 +11711,12 @@ def enrich_project(
         try:
             repo_evidence = collect_github_repo_evidence(project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
+            run_evidence.extend(populate_collector_results(repo_evidence))
         except Exception as exc:
             note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
+            ))
 
     discovered_nsids = [
         nsid
@@ -11340,9 +11726,18 @@ def enrich_project(
     if should_refresh_lexicon_surface(project, discovered_nsids):
         for nsid in discovered_nsids:
             try:
-                enrich_from_lexicon(project, nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+                lexicon_evidence = legacy_collector_core.collect_lexicon_result(
+                    str(project.get("project_key") or ""), nsid,
+                    fetch_lexicon_record(nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP),
+                    iso_now(),
+                )
+                apply_legacy_evidence(project, lexicon_evidence)
+                run_evidence.extend(lexicon_evidence)
             except Exception as exc:
                 note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
+                run_evidence.extend(failed_collector_bundle(
+                    project, source="lexicon_resolution", operation="resolve", target=nsid, exc=exc,
+                ))
 
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
@@ -11363,31 +11758,64 @@ def enrich_project(
             for service_url in initial_service_urls:
                 try:
                     timeout = service_probe_timeout_for_project(project, service_url)
-                    apply_service_probe_result(
-                        project,
+                    probe_result = service_futures[service_url].result()
+                    service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result)
+                    apply_service_evidence(project, service_evidence)
+                    run_evidence.extend(service_evidence)
+                    for metadata_url in relation_core.oauth_metadata_candidates(
                         service_url,
-                        service_futures[service_url].result(),
-                        follow_up_timeout=min(timeout, REQUEST_TIMEOUT_SHORT),
-                    )
+                        probe_result.get("links", []),
+                        str(probe_result.get("html") or ""),
+                    ):
+                        try:
+                            oauth_evidence = collect_oauth_metadata_evidence(project, metadata_url)
+                            apply_investigation_evidence(project, oauth_evidence)
+                            run_evidence.extend(oauth_evidence)
+                        except Exception as exc:
+                            note_failure(project, f"OAuth client metadata failed for {metadata_url}: {exc}")
+                            run_evidence.extend(failed_collector_bundle(
+                                project, source="oauth_client_metadata", operation="fetch", target=metadata_url, exc=exc,
+                            ))
                 except Exception as exc:
                     normalized_service_url = normalize_url(service_url)
                     if normalized_service_url:
                         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
                     note_failure(project, f"service probe failed for {service_url}: {exc}")
+                    run_evidence.extend(failed_collector_bundle(
+                        project, source="service_static", operation="probe", target=service_url, exc=exc,
+                    ))
 
     secondary_repo_urls = unique_list(provider_repo_url_values(project, "github"))
     for repo_url in secondary_repo_urls:
         try:
             repo_evidence = collect_github_repo_evidence(project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
+            run_evidence.extend(populate_collector_results(repo_evidence))
         except Exception as exc:
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
+            ))
 
     if deep_investigation:
         try:
-            enrich_from_resource_pages(project)
+            resource_evidence = legacy_collector_core.collect_resource_page_patch(
+                project, enrich_from_resource_pages, iso_now()
+            )
+            apply_legacy_evidence(project, resource_evidence)
+            run_evidence.extend(resource_evidence)
         except Exception as exc:
             note_failure(project, f"resource page enrichment failed: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source="resource_page", operation="deep_probe", target=str(project.get("project_key") or ""), exc=exc,
+            ))
+
+    for repo_url in relation_core.corroborate_source_repositories(project):
+        confirm_source_code_url(
+            project, repo_url, "relation_corroboration", relation="mutual_first_party_link",
+            reason="repository and first-party application independently link to each other",
+            evidence_kind="relation_corroboration", evidence_url=repo_url,
+        )
 
     project = finalize_project_shape(project)
 
@@ -11409,6 +11837,19 @@ def enrich_project(
     )
     investigation_evidence = collect_investigation_evidence(project, investigation_plan)
     apply_investigation_evidence(project, investigation_evidence)
+    run_evidence.extend(populate_collector_results(investigation_evidence))
+
+    tangled_config = dict(load_config().get("tangled_repo_discovery") or {})
+    if tangled_config.get("enabled", True):
+        confirmed_handles = unique_list([
+            str(item.get("handle") or "")
+            for item in project.get("developer_accounts", [])
+            if isinstance(item, dict) and str(item.get("handle") or "")
+        ])[:2]
+        for handle in confirmed_handles:
+            tangled_evidence = collect_tangled_account_evidence(project, handle)
+            apply_tangled_evidence(project, tangled_evidence)
+            run_evidence.extend(tangled_evidence)
 
     try:
         prompt, evidence = build_triage_prompt(project)
@@ -11429,7 +11870,18 @@ def enrich_project(
     project["merge_recommendation"] = compute_merge_recommendation(project)
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
     project = apply_promotion_state(project)
-    return record_promotion_transition(project, previous_status)
+    project = record_promotion_transition(project, previous_status)
+    populate_collector_results(run_evidence)
+    investigation_storage.save_investigation_run(
+        conn,
+        project_key=str(project.get("project_key") or ""),
+        started_at=run_started_at,
+        completed_at=iso_now(),
+        input_project=run_input_project,
+        output_project=project,
+        bundle=run_evidence,
+    )
+    return project
 
 
 def cmd_add_seed(args: argparse.Namespace) -> int:
@@ -11998,6 +12450,11 @@ def output_project_queue(
                     project_hints = ensure_project_shape(project) if project is not None else None
                     service_candidates = project_service_hint_urls(project_hints) if project_hints is not None else []
                     repo_candidates = project_repo_hint_urls(project_hints) if project_hints is not None else []
+                    service_verification_urls = unique_list(
+                        (([project_hints.get("website_url")] if project_hints and project_hints.get("website_url") else [])
+                         + (list(project_hints.get("service_urls", [])) if project_hints else [])
+                         + service_candidates)
+                    )
                     if signal_kinds & {
                         "llm_manual_review_recommended",
                         "service_now_usable_but_needs_editorial_review",
@@ -12011,6 +12468,8 @@ def output_project_queue(
                     if service_candidates:
                         actions.append("c=confirm service")
                         actions.append("C=reject service")
+                    if service_verification_urls:
+                        actions.append("b=browser verify")
                     if repo_candidates:
                         actions.append("r=confirm repo")
                         actions.append("R=reject repo")
@@ -12182,6 +12641,16 @@ def output_project_queue(
                                 ensure_ascii=False,
                             )
                         )
+                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        if refreshed is None:
+                            break
+                        current_item = refreshed
+                    continue
+                if queue_name == "review" and lowered == "b":
+                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                    if project is not None:
+                        payload = verify_service_project(conn, project, lane="browser", execute=True)
+                        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
                         refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
                         if refreshed is None:
                             break
@@ -13129,6 +13598,202 @@ def cmd_sync_semble_collections(args: argparse.Namespace) -> int:
         all_history=bool(args.all_history),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_sync_tangled_repos(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        summary = sync_tangled_repos(
+            conn,
+            execute=bool(args.execute),
+            create_unmatched=bool(args.create_unmatched),
+            incremental=bool(args.incremental),
+            all_history=bool(args.all_history),
+        )
+    finally:
+        conn.close()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def collect_service_verification(project: dict[str, Any], service_url: str, lane: str) -> EvidenceBundle:
+    if lane == "browser":
+        return service_core.collect_browser_service_evidence(
+            project,
+            service_url,
+            service_core.BrowserDependencies(navigate=service_core.playwright_navigate, now=iso_now),
+        )
+    bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=iso_now())
+    urls = [service_url]
+    if lane == "deep":
+        urls.extend(urllib.parse.urljoin(service_url.rstrip("/") + "/", path.lstrip("/")) for path in DEEP_INVESTIGATION_PATHS)
+    for url in unique_list(urls):
+        try:
+            result = probe_service_url(url, timeout=service_probe_timeout_for_project(project, url))
+            evidence = collect_service_evidence_with_followups(project, url, result, lane=lane)
+        except Exception as exc:
+            evidence = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=iso_now())
+            evidence.add_failure(investigation_core.collector_failure(
+                source=f"service_{lane}", operation="probe", target=url,
+                message=f"service {lane} verification failed for {url}: {exc}", error=exc,
+            ))
+            populate_collector_results(evidence)
+        bundle.extend(evidence)
+    return bundle
+
+
+def verify_service_project(
+    conn: sqlite3.Connection,
+    project: dict[str, Any],
+    *,
+    lane: str,
+    service_url: str = "",
+    execute: bool = False,
+) -> dict[str, Any]:
+    project = ensure_project_shape(project)
+    target_url = normalize_url(service_url) or next(iter(unique_list(
+        ([project.get("website_url")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        + service_url_candidate_values(project)
+    )), "")
+    if not target_url:
+        raise ValueError("project has no service URL to verify")
+    input_project = copy.deepcopy(project)
+    started_at = iso_now()
+    bundle = collect_service_verification(project, target_url, lane)
+    if execute:
+        apply_service_evidence(project, bundle)
+        project = finalize_project_shape(project)
+        run_id = investigation_storage.save_investigation_run(
+            conn, project_key=str(project["project_key"]), started_at=started_at, completed_at=iso_now(),
+            input_project=input_project, output_project=project, bundle=bundle,
+        )
+        save_project(conn, project, enriched=True)
+        conn.commit()
+    else:
+        run_id = ""
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_key": str(project.get("project_key") or ""),
+        "lane": lane,
+        "service_url": target_url,
+        "run_id": run_id,
+        "bundle": bundle.to_dict(),
+        "evaluation": investigation_storage.evaluation_snapshot(project) if execute else {},
+    }
+
+
+def cmd_verify_service(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        project = resolve_single_project(conn, project_key=args.project_key, seed=args.seed, seed_type=args.type)
+        payload = verify_service_project(
+            conn, project, lane=args.lane, service_url=str(args.url or ""), execute=bool(args.execute),
+        )
+    finally:
+        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    shaped = ensure_project_shape(project)
+    project.clear()
+    project.update(shaped)
+    apply_investigation_evidence(project, bundle)
+    apply_github_repo_evidence(project, bundle)
+    apply_saved_service_evidence(project, bundle)
+    apply_tangled_evidence(project, bundle)
+    apply_legacy_evidence(project, bundle)
+    for repo_url in relation_core.corroborate_source_repositories(project):
+        confirm_source_code_url(
+            project,
+            repo_url,
+            "relation_corroboration",
+            relation="mutual_first_party_link",
+            reason="repository and first-party application independently link to each other",
+            evidence_kind="relation_corroboration",
+            evidence_url=repo_url,
+        )
+
+
+def replay_dependencies() -> replay_core.ReplayDependencies:
+    return replay_core.ReplayDependencies(
+        apply_evidence=apply_replay_evidence,
+        finalize=lambda project: apply_atproto_contribution_state(finalize_project_shape(project)),
+    )
+
+
+def cmd_replay_investigation(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        if args.run_id:
+            run = investigation_storage.load_investigation_run(conn, args.run_id)
+        else:
+            run = investigation_storage.latest_investigation_run(conn, resolve_project_key_input(conn, args.project_key))
+        if run is None:
+            raise ValueError("investigation run not found")
+        payload = replay_core.replay_and_diff(
+            run["input_project"],
+            run["bundle"],
+            run["evaluation"],
+            replay_dependencies(),
+        )
+        payload["run_id"] = run["run_id"]
+    finally:
+        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def load_benchmark_cases(path: Path) -> list[dict[str, Any]]:
+    if path.is_dir():
+        payloads = [load_json(item.read_text(encoding="utf-8")) for item in sorted(path.glob("*.json"))]
+        return [dict(item) for payload in payloads for item in (payload if isinstance(payload, list) else [payload]) if isinstance(item, dict)]
+    payload = load_json(path.read_text(encoding="utf-8"))
+    return [dict(item) for item in (payload if isinstance(payload, list) else [payload]) if isinstance(item, dict)]
+
+
+def cmd_benchmark_investigation(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    summary = replay_core.benchmark_cases(load_benchmark_cases(path), replay_dependencies())
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 1 if summary["regression_count"] else 0
+
+
+def sanitize_fixture_value(value: Any) -> Any:
+    secret_keys = {"token", "access_token", "refresh_token", "authorization", "api_key", "password"}
+    if isinstance(value, list):
+        return [sanitize_fixture_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): ("[redacted]" if str(key).lower() in secret_keys else sanitize_fixture_value(item))
+            for key, item in value.items()
+            if str(key).lower() not in {"html", "readme_text", "body"}
+        }
+    return value
+
+
+def cmd_export_investigation_fixture(args: argparse.Namespace) -> int:
+    conn = open_db()
+    try:
+        run = investigation_storage.load_investigation_run(conn, args.run_id)
+    finally:
+        conn.close()
+    if run is None:
+        raise ValueError(f"investigation run not found: {args.run_id}")
+    fixture = sanitize_fixture_value({
+        "case_id": args.case_id or run["project_key"],
+        "input_project": run["input_project"],
+        "bundle": run["bundle"].to_dict(),
+        "expected_evaluation": run["evaluation"],
+    })
+    content = json.dumps(fixture, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.output:
+        Path(args.output).write_text(content, encoding="utf-8")
+    else:
+        print(content, end="")
     return 0
 
 
@@ -15000,6 +15665,39 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
     sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
+
+    sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync the recent UFOs Tangled repository rolling window.")
+    sync_tangled_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
+    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched ATProto-relevant repos. Default: disabled.")
+    sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
+    sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
+    sync_tangled_parser.set_defaults(func=cmd_sync_tangled_repos)
+
+    replay_parser = subparsers.add_parser("replay-investigation", help="Replay a saved investigation without collectors or network access.")
+    replay_target = replay_parser.add_mutually_exclusive_group(required=True)
+    replay_target.add_argument("--run-id", help="Replay one saved investigation run.")
+    replay_target.add_argument("-p", "--project-key", help="Replay the latest saved run for one project.")
+    replay_parser.set_defaults(func=cmd_replay_investigation)
+
+    benchmark_parser = subparsers.add_parser("benchmark-investigation", help="Replay an investigation fixture corpus and report semantic regressions.")
+    benchmark_parser.add_argument("--path", default=str(ROOT / "tests" / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"))
+    benchmark_parser.set_defaults(func=cmd_benchmark_investigation)
+
+    export_fixture_parser = subparsers.add_parser("export-investigation-fixture", help="Export a sanitized fixture from a saved investigation run.")
+    export_fixture_parser.add_argument("--run-id", required=True)
+    export_fixture_parser.add_argument("--case-id")
+    export_fixture_parser.add_argument("--output")
+    export_fixture_parser.set_defaults(func=cmd_export_investigation_fixture)
+
+    verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
+    verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)
+    verify_target.add_argument("-p", "--project-key")
+    verify_target.add_argument("--seed")
+    verify_service_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"])
+    verify_service_parser.add_argument("--url", help="Override the project service URL.")
+    verify_service_parser.add_argument("--lane", choices=["static", "deep", "browser"], default="static")
+    verify_service_parser.add_argument("--execute", action="store_true", help="Apply evaluation and save a replayable investigation run.")
+    verify_service_parser.set_defaults(func=cmd_verify_service)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")

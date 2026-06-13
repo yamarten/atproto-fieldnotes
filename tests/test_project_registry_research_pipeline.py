@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import copy
+import json
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
+from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import investigation as investigation_core
+from project_registry_core import relations as relation_core
+from project_registry_core import service as service_core
+from project_registry_core import storage as storage_core
+from project_registry_core import tangled as tangled_core
 
 
 class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
@@ -73,6 +78,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertEqual(bundle.failures[0].category, "rate_limit")
         self.assertTrue(bundle.failures[0].retryable)
+        self.assertEqual(bundle.collector_results[0].status, "rate_limited")
 
     def test_github_repo_collector_returns_snapshot_without_mutating_project(self) -> None:
         project = self.make_project("proj:researchreposnapshot", "repo_url", "https://github.com/example/app")
@@ -274,12 +280,237 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(fetched["project_key"], "proj:researchenrich")
         self.assertIn("LLM unavailable", "\n".join(fetched["last_run_errors"]))
         self.assertTrue(fetched["last_enriched_at"])
+        conn = registry.open_db()
+        try:
+            run = storage_core.latest_investigation_run(conn, "proj:researchenrich")
+        finally:
+            conn.close()
+        self.assertIsNotNone(run)
+
+    def test_evidence_v2_keeps_v1_compatibility_and_source_status(self) -> None:
+        v1 = EvidenceBundle.load(Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json")
+        self.assertEqual(v1.schema_version, 1)
+        bundle = EvidenceBundle(project_key="proj:v2", collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_collector_result(CollectorResult(
+            source="github", operation="search", status="partial", observed_at=bundle.collected_at,
+            request_count=2, result_count=1, stop_reason="rate_limit",
+        ))
+        decoded = EvidenceBundle.from_json(bundle.to_json())
+        self.assertEqual(decoded.schema_version, 2)
+        self.assertEqual(decoded.collector_results[0].status, "partial")
+
+    def test_investigation_storage_and_replay_are_network_free(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:storedrun")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="fixture", classification="derived", observed_at=bundle.collected_at,
+            subject_type="repo", subject_value="https://github.com/example/app",
+            predicate="uses_collection", object_type="nsid", object_value="app.example.post",
+        ))
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn, project_key=project["project_key"], started_at=bundle.collected_at,
+                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
+            )
+            conn.commit()
+            run = storage_core.load_investigation_run(conn, run_id)
+        finally:
+            conn.close()
+        assert run is not None
+        replayed = registry.replay_core.replay_and_diff(
+            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
+        )
+        self.assertEqual(replayed["evaluation"]["atproto_contribution_level"], "substantial")
+
+    def test_collector_run_keeps_github_repo_family_records(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:collector-family")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="github_readme:https://github.com/example/app", classification="candidate",
+            observed_at=bundle.collected_at, subject_type="repo", subject_value="https://github.com/example/app",
+            predicate="source_repository", object_type="website", object_value="https://example.com",
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
+            request_count=3, result_count=1,
+        ))
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn, project_key=project["project_key"], started_at=bundle.collected_at,
+                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
+            )
+            row = conn.execute("SELECT records_json FROM collector_runs WHERE run_id = ?", (run_id,)).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        self.assertEqual(json.loads(row["records_json"])[0]["source"].split(":", 1)[0], "github_readme")
+
+    def test_service_replay_uses_saved_probe_without_follow_up_network(self) -> None:
+        project = self.make_project("proj:service-replay", "service_url", "https://example.com")
+        project["manual_seeds"] = [{"type": "service_url", "value": "https://example.com"}]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], "https://example.com",
+            {"status_code": 200, "title": "Example", "description": "Open app",
+             "service_status": "live", "service_status_confidence": "medium",
+             "service_status_evidence": ["app_shell_detected"], "links": [], "urls": []},
+            observed_at="2026-06-13T00:00:00+00:00",
+        )
+        with mock.patch.object(registry, "probe_service_url", side_effect=AssertionError("network called")):
+            replayed = registry.replay_core.replay_bundle(project, bundle, registry.replay_dependencies())
+        self.assertEqual(replayed["service_status"], "live")
+        self.assertIn("app_shell_detected", replayed["service_status_evidence"])
+
+    def test_service_integration_does_not_collect_follow_up_pages(self) -> None:
+        project = self.make_project("proj:service-apply", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com"
+        project["manual_seeds"] = [{"type": "service_url", "value": "https://example.com"}]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], "https://example.com",
+            {"status_code": 200, "title": "Example", "description": "Example service",
+             "service_status": "live", "service_status_confidence": "medium",
+             "service_status_evidence": ["app_shell_detected"], "urls": [],
+             "links": [{"url": "https://example.com/docs", "text": "Docs"}]},
+            observed_at="2026-06-13T00:00:00+00:00",
+        )
+        with mock.patch.object(registry, "probe_service_url", side_effect=AssertionError("network called")):
+            registry.apply_service_evidence(project, bundle)
+        self.assertEqual(len(project["service_verification_results"]), 1)
+
+    def test_oauth_repo_scope_is_usage_evidence_not_ownership(self) -> None:
+        records = relation_core.oauth_metadata_relation_records(
+            "https://example.com/client-metadata.json",
+            {"client_uri": "https://example.com", "scope": "atproto repo:org.other.post include:org.other.permissions"},
+            "2026-06-13T00:00:00+00:00",
+        )
+        project = self.make_project("proj:oauth", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com"
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00", records=records)
+        registry.apply_investigation_evidence(project, bundle)
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "org.other.post"))
+        self.assertEqual(registry.compute_atproto_contribution(project)["atproto_contribution_level"], "optional")
+
+    def test_github_semantics_distinguish_schema_and_fixture(self) -> None:
+        schema = {"lexicon": 1, "defs": {"main": {"type": "record"}}}
+        self.assertEqual(relation_core.classify_lexicon_path("lexicons/app.example.post.json", schema), ("defines_schema", "confirmed"))
+        self.assertEqual(relation_core.classify_lexicon_path("tests/fixtures/app.example.post.json", schema), ("mentions_collection", "candidate"))
+
+    def test_browser_collector_follows_only_anonymous_login_surface(self) -> None:
+        project = self.make_project("proj:browser", "service_url", "https://example.com")
+        original = copy.deepcopy(project)
+        pages = {
+            "https://example.com": {"url": "https://example.com", "title": "App", "text": "Welcome", "links": [{"href": "https://example.com/login", "text": "Log in"}], "js_rendered": True},
+            "https://example.com/login": {"url": "https://example.com/login", "title": "Sign in", "text": "Sign in", "links": [], "js_rendered": True},
+        }
+        bundle = service_core.collect_browser_service_evidence(
+            project, "https://example.com",
+            service_core.BrowserDependencies(navigate=lambda url: pages[url], now=lambda: "2026-06-13T00:00:00+00:00"),
+        )
+        self.assertEqual(project, original)
+        registry.apply_service_evidence(project, bundle)
+        self.assertEqual(project["service_status"], "live")
+        self.assertIn("browser_login_surface_reached", project["service_status_evidence"])
+
+    def test_tangled_account_collector_paginates_pds_records(self) -> None:
+        project = self.make_project("proj:tangled", "service_url", "https://example.com")
+        project["name"] = "Example"
+        project["developer_accounts"] = [{"handle": "dev.example", "source": "manual"}]
+        cursors: list[str] = []
+        def list_records(_pds: str, _did: str, cursor: str) -> dict:
+            cursors.append(cursor)
+            if not cursor:
+                return {"records": [{"uri": "at://did:plc:dev/sh.tangled.repo/one", "value": {"name": "Example", "repoDid": "did:plc:repo"}}], "cursor": "next"}
+            return {"records": []}
+        bundle = tangled_core.collect_account_repos(
+            project, "dev.example",
+            tangled_core.TangledDependencies(
+                now=lambda: "2026-06-13T00:00:00+00:00",
+                resolve_handle=lambda handle: {"did": "did:plc:dev"},
+                resolve_did_document=lambda did: {"service": [{"id": "#atproto_pds", "type": "AtprotoPersonalDataServer", "serviceEndpoint": "https://pds.example"}]},
+                extract_pds_url=lambda doc: "https://pds.example",
+                list_records=list_records,
+            ),
+        )
+        self.assertEqual(cursors, ["", "next"])
+        self.assertEqual(bundle.records[0].kind, "tangled_repo_snapshot")
+
+    def test_tangled_optional_adapters_remain_weak_candidates(self) -> None:
+        timeline = tangled_core.normalize_optional_adapter_candidates(
+            '<a href="https://tangled.org/dev.example/app">repo</a>', adapter="timeline",
+        )
+        bot = tangled_core.normalize_optional_adapter_candidates(
+            [{"url": "https://tangled.org/dev.example/app", "post_uri": "at://did/post/1"}], adapter="bot",
+        )
+        self.assertEqual(timeline[0]["classification"], "candidate")
+        self.assertEqual(bot[0]["classification"], "heuristic")
+
+    def test_tangled_gap_does_not_advance_watermark(self) -> None:
+        conn = registry.open_db()
+        scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
+        registry.write_sync_state(conn, "tangled-repos", scope, {"time_us": 100})
+        conn.commit()
+        try:
+            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=[{
+                "owner_did": "", "rkey": "one", "time_us": 200,
+                "record": {"name": "Example", "description": "ATProto repo"},
+                "atproto_relevant": True,
+            }]):
+                summary = registry.sync_tangled_repos(conn, execute=True, create_unmatched=False)
+            state = registry.read_sync_state(conn, "tangled-repos", scope)
+        finally:
+            conn.close()
+        self.assertTrue(summary["gap_possible"])
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"]["time_us"], 100)
+
+    def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
+        bundle = EvidenceBundle.from_dict(fixture["bundle"])
+        project = registry.replay_core.replay_bundle(fixture["input_project"], bundle, registry.replay_dependencies())
+        self.assertEqual(project["service_url_candidates"], ["https://graph.at.fund"])
+        self.assertEqual(project["url_aliases"][0]["canonical"], "https://www.at.fund")
+
+    def test_repair_db_folds_only_confirmed_root_www_alias(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:url-repair", "service_url", "https://www.at.fund")
+        project["website_url"] = "https://www.at.fund"
+        project["service_urls"] = ["https://www.at.fund"]
+        project["manual_seeds"] = [{"type": "service_url", "value": "https://www.at.fund"}]
+        project["service_url_candidates"] = ["https://at.fund", "https://graph.at.fund"]
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "service", "value": "https://at.fund"},
+                "predicate": "redirects_to",
+                "object": {"type": "service", "value": "https://www.at.fund"},
+                "locator": "https://at.fund", "method": "http_redirect",
+            },
+            "source": "service_static:https://at.fund", "classification": "confirmed",
+            "observed_at": "2026-06-13T00:00:00+00:00", "context": {},
+        }]
+        try:
+            registry.save_project(conn, project)
+            registry.audit_and_repair_identifiers(conn, execute=True)
+            repaired = registry.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+        assert repaired is not None
+        self.assertEqual(repaired["service_url_candidates"], ["https://graph.at.fund"])
+
+    def test_benchmark_corpus_has_six_passing_cases(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"
+        summary = registry.replay_core.benchmark_cases(registry.load_benchmark_cases(path), registry.replay_dependencies())
+        self.assertEqual(summary["case_count"], 6)
+        self.assertEqual(summary["regression_count"], 0)
 
     def test_cli_and_top_level_api_remain_available(self) -> None:
         parser = registry.build_parser()
         args = parser.parse_args(["enrich", "--seed", "app.example.post"])
 
         self.assertEqual(args.command, "enrich")
+        self.assertEqual(parser.parse_args(["sync-tangled-repos"]).command, "sync-tangled-repos")
+        self.assertEqual(parser.parse_args(["verify-service", "-p", "proj:test", "--lane", "browser"]).lane, "browser")
+        self.assertEqual(parser.parse_args(["replay-investigation", "--run-id", "inv:test"]).run_id, "inv:test")
         for name in (
             "enrich_project",
             "collect_investigation_evidence",
