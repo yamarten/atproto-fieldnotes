@@ -24,6 +24,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
+from project_registry_core import investigation as investigation_core
+
 try:
     import tldextract  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -9271,134 +9273,31 @@ def clean_human_string_list(values: Any, *, limit: int | None = None) -> list[st
 
 
 def clean_search_query(value: str) -> str:
-    query = str(value or "").strip()
-    if not query:
-        return ""
-    query = re.sub(r"\bsite:[^\s]+", "", query)
-    query = re.sub(r"\b(?:github|gitlab|bitbucket|bluesky)\b", "", query, flags=re.IGNORECASE)
-    query = re.sub(r"\s+", " ", query).strip()
-    return query
+    return investigation_core.clean_search_query(value)
 
 
 def github_search_term(value: str) -> str:
-    query = clean_search_query(value)
-    if not query:
-        return ""
-    if re.search(r"\s", query):
-        return f"\"{query}\""
-    return query
+    return investigation_core.github_search_term(value)
 
 
 def build_github_repo_search_queries(plan: dict[str, Any]) -> list[str]:
-    raw_queries = clean_string_list(plan.get("repo_search_queries"), limit=6)
-    normalized: list[str] = []
-    for raw in raw_queries:
-        cleaned = clean_search_query(raw)
-        if not cleaned:
-            continue
-        if re.search(r"\bOR\b", cleaned, flags=re.IGNORECASE):
-            normalized.append(cleaned)
-            continue
-        term = github_search_term(cleaned)
-        if term:
-            normalized.append(term)
-    unique_queries = unique_list(normalized)
-    if not unique_queries:
-        return []
-
-    max_queries = 2
-    terms_per_query = 3
-    if len(unique_queries) == 1:
-        return unique_queries
-
-    bundled: list[str] = []
-    for index in range(0, min(len(unique_queries), max_queries * terms_per_query), terms_per_query):
-        bucket = unique_queries[index:index + terms_per_query]
-        if not bucket:
-            continue
-        bundled.append(" OR ".join(bucket))
-    return unique_list(bundled)[:max_queries]
+    return investigation_core.build_github_repo_search_queries(plan)
 
 
 def query_contains_kana(value: str) -> bool:
-    return bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff]", str(value or "")))
+    return investigation_core.query_contains_kana(value)
 
 
 def bsky_search_term(value: str) -> str:
-    query = clean_search_query(value)
-    if not query:
-        return ""
-    if re.search(r"[\s@#:\$\|/]", query):
-        escaped = query.replace("\\", "\\\\").replace('"', '\\"')
-        return f"\"{escaped}\""
-    return query
+    return investigation_core.bsky_search_term(value)
 
 
 def build_bsky_search_queries(plan: dict[str, Any], key: str, *, max_queries: int = 2) -> list[str]:
-    raw_queries = unique_list(
-        [
-            cleaned
-            for cleaned in (
-                clean_search_query(raw)
-                for raw in clean_string_list(plan.get(key), limit=max_queries * 3)
-            )
-            if cleaned
-        ]
-    )
-    if not raw_queries:
-        return []
-
-    grouped = {True: [], False: []}
-    for query in raw_queries:
-        grouped[query_contains_kana(query)].append(query)
-
-    bundled: list[str] = []
-    for has_kana in (False, True):
-        bucket = unique_list(grouped[has_kana])
-        if not bucket:
-            continue
-        terms = [term for term in (bsky_search_term(item) for item in bucket) if term]
-        if not terms:
-            continue
-        if len(terms) == 1:
-            bundled.append(terms[0])
-            continue
-        bundled.append(" | ".join(terms))
-    return bundled[:max_queries]
+    return investigation_core.build_bsky_search_queries(plan, key, max_queries=max_queries)
 
 
 def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
-    repo_queries: list[str] = []
-    actor_queries: list[str] = []
-    post_queries: list[str] = []
-    focus_terms: list[str] = []
-
-    if project.get("name"):
-        repo_queries.append(str(project["name"]))
-        actor_queries.append(str(project["name"]))
-        post_queries.append(str(project["name"]))
-        focus_terms.append(str(project["name"]))
-    if project.get("primary_nsid"):
-        repo_queries.append(str(project["primary_nsid"]))
-        actor_queries.append(str(project["primary_nsid"]))
-        post_queries.append(str(project["primary_nsid"]))
-        focus_terms.append(str(project["primary_nsid"]))
-    for domain in project.get("authority_domains", [])[:3]:
-        repo_queries.append(domain)
-        actor_queries.append(domain)
-        post_queries.append(domain)
-        focus_terms.append(domain)
-    for handle in project.get("bluesky_handles", [])[:3]:
-        actor_queries.append(handle)
-        post_queries.append(handle)
-        focus_terms.append(handle)
-
-    return {
-        "repo_search_queries": unique_list(repo_queries)[:5],
-        "actor_search_queries": unique_list(actor_queries)[:5],
-        "post_search_queries": unique_list(post_queries)[:5],
-        "focus_terms": unique_list(focus_terms)[:8],
-    }
+    return investigation_core.seed_investigation_queries(project)
 
 
 def plan_investigation_queries(
@@ -9410,29 +9309,19 @@ def plan_investigation_queries(
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
 ) -> dict[str, Any]:
-    seed_plan = seed_investigation_queries(project)
-    try:
-        prompt, evidence = build_investigation_prompt(project)
-        payload, meta = run_local_llm(
-            prompt,
-            llm_endpoint=llm_endpoint,
-            llm_model=llm_model,
-            llm_api_key=llm_api_key,
-            llm_reasoning_effort=llm_reasoning_effort,
-            llm_api_style=llm_api_style,
-        )
-        plan = {
-            "repo_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("repo_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["repo_search_queries"],
-            "actor_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("actor_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["actor_search_queries"],
-            "post_search_queries": unique_list([clean_search_query(item) for item in clean_string_list(payload.get("post_search_queries"), limit=6) if clean_search_query(item)]) or seed_plan["post_search_queries"],
-            "focus_terms": clean_string_list(payload.get("focus_terms"), limit=8) or seed_plan["focus_terms"],
-            "reason": str(payload.get("reason") or "").strip(),
-            "llm_source": {**meta, "evidence": evidence},
-        }
-        return plan
-    except Exception as exc:
-        note_failure(project, f"investigation planning failed: {exc}")
-        return {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
+    return investigation_core.plan_investigation_queries(
+        project,
+        investigation_core.PlanningDependencies(
+            build_prompt=build_investigation_prompt,
+            run_llm=run_local_llm,
+            note_failure=note_failure,
+        ),
+        llm_endpoint=llm_endpoint,
+        llm_model=llm_model,
+        llm_api_key=llm_api_key,
+        llm_reasoning_effort=llm_reasoning_effort,
+        llm_api_style=llm_api_style,
+    )
 
 
 def merge_investigation_results(project: dict[str, Any], *, source: str, urls: list[str], handles: list[str]) -> None:
