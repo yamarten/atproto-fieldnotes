@@ -858,7 +858,7 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 
 `projects`はscalar、`profile_json`、`state_json`だけを持つmaterialized current stateです。`profile_json`は紹介・表示に使う編集済み情報、`state_json`は低頻度の評価結果と調査補助を保持します。
 
-identifier、relation evidence、operator decisionの正本はそれぞれ`project_identifiers`、`project_relations`、`project_decisions`です。`profile_json`/`state_json`へ複製保存しません。詳細なfieldとhydrate規則は[project-record.md](project-record.md)を正本とします。
+identifier、relation evidence、operator decisionの正本はそれぞれ`project_identifiers`、`project_relations`、`project_decisions`です。`profile_json`/`state_json`へ複製保存しません。保存責務、`profile_json`のfield、child tableの契約は[project-record.md](project-record.md)を正本とします。`state_json`の内部fieldは固定payload APIではありません。
 
 ## NSIDの扱い
 

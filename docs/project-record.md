@@ -14,6 +14,8 @@ registryの一次目的は、atproto関連projectを継続的に発見し、紹�
 
 app lexiconとの完全互換や即時exportは主目的ではありません。`profile_json.app`は将来再利用しやすい確定情報の置き場ですが、不確かな情報で埋めるより空のままにします。
 
+この文書では、project保存モデルを構成するrelational tableとcolumn、および人が読む`profile_json`を保存契約として明示します。主に機械が読み書きする`state_json`は、内部fieldを網羅せず、責務、正本との境界、保存上のinvariantだけを定めます。projectに属さないsync stateなどのregistry-wide tableは[registry-internals.md](registry-internals.md)の対象です。
+
 ## Schema Version
 
 現行schemaはversion 2です。`registry_meta.schema_version=2`を持たない旧DBは通常起動では読み込みません。
@@ -63,36 +65,26 @@ scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限�
 
 ### `state_json`
 
-現在の評価・調査状態を`ops`と`evidence`に分けて保持します。専用tableへ移したidentifier、relation、operator decisionは重複保存しません。
+機械による評価・調査のcurrent stateを保持します。内部は概ね次の責務に分かれます。
 
-`ops`の主な内容:
+- `ops`: classification、review/promotion/merge signal、評価score、errorなど、現在の運用・評価結果
+- `evidence`: 候補値、bounded observation、調査logなど、project単位で参照する補助材料
 
-- editorial/classification: `status`, `category`, `app_category`, `project_state`, `ownership_signal`
-- review: `tracking_note`, `manual_review_recommended`, `manual_review_kind`, `manual_review_priority`, `manual_review_reason`
-- promotion: `promotion_ready`, `promotion_blockers`, `last_promoted_at`, `promotion_events`
-- merge: `duplicate_candidates`, `merge_recommendation`
-- service評価: `service_status_confidence`, `service_status_evidence`
-- atproto寄与度: `atproto_contribution_level`, `atproto_contribution_score`, `atproto_contribution_evidence`
-- lexicon位置付け: `lexicon_scope`, `lexicon_scope_evidence`
-- 技術的関心度: `technical_interest_level`, `technical_interest_score`, `technical_interest_reasons`, `technical_interest_summary`
-- activity/error: `collection_observations`, `last_run_errors`, `last_llm_review_at`
+保存上のinvariant:
 
-`evidence`の主な内容:
+- identifier、typed relation、operator decisionの正本を含めない
+- raw EvidenceBundleやsource別実行履歴の正本にしない。それらは`investigation_runs` / `collector_runs`へ保存する
+- 候補や機械評価を`profile_json`の確定値と同じ意味で扱わない
+- fieldの欠落をconfirmedな否定として扱わない。未調査、partial failure、証拠なしは調査履歴と評価detailで区別する
 
-- discovery/tracing: `discovery_sources`, `evidence_urls`, `investigation_queries`, `investigation_log`
-- lexicon調査detail: `lexicon_resolution_entries`, `lexicon_count`, `lexicon_schema_samples`, `recent_record_samples`, `record_creators`
-- 内容候補: `features`, `inspired_by`, `name_candidates`, `summary_candidates`, `tagline_candidates`
-- URL observation: `resource_url_records`, `failed_service_urls`, `supported_service_urls`, `url_aliases`
-- repo observation: `source_repo_records`
-- service深掘り: `service_verification_results`
-- LLM補助: `llm_source`, `llm_output`, `classification_reason`, `exclude_reason`, `watch_reason`, `confidence`
-
-候補を保存することと、profileへ採用することは別です。たとえば`summary_candidates`は再評価材料であり、`profile_json.core.summary`と同じ確度を意味しません。
+代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
 
 ## `project_identifiers`
 
 projectに結び付くNSID、service URL、repo URL、account、DID、authority domainを順序付きで保持します。
 
+- `project_key`: 所属project
+- `ordinal`: project内の保存順
 - `kind`: identifierの種類
 - `value`: 正規化済みの値
 - `role`: project内での役割
@@ -131,6 +123,8 @@ load時はcollector/evaluationが使うcanonical project dictへhydrateします
 
 「何が何をどのように保証・利用しているか」を保持するtyped relation evidenceです。
 
+- `project_key`: 所属project
+- `ordinal`: project内の保存順
 - `subject_type`, `subject_value`
 - `predicate`
 - `object_type`, `object_value`
@@ -157,6 +151,16 @@ load時はcollector/evaluationが使うcanonical project dictへhydrateします
 ## `project_decisions`
 
 operator判断を履歴として保持し、自動収集・評価より優先します。
+
+- `project_key`: 所属project
+- `ordinal`: project内の保存順
+- `kind`: decisionの種類
+- `target_type`, `target_value`: decisionの対象。project全体へのdecisionでは空
+- `note`: operatorが記録した理由
+- `created_at`, `expires_at`, `cleared_at`: 作成、失効、解除時刻
+- `metadata_json`: decision固有の補助情報
+
+現在の`kind`:
 
 - `block_identifier`: 誤ったidentifierの再付着を恒久的に抑止する
 - `defer_identifier`: identifierの確定を期限付きで保留する
@@ -213,7 +217,23 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 ## Investigation History
 
-`investigation_runs`と`collector_runs`はcurrent stateとは別に、入力snapshot、EvidenceBundle、source完了状態、評価snapshot、出力snapshotを保存します。これは履歴とreplay用であり、project rowの代替ではありません。
+`investigation_runs`と`collector_runs`はcurrent stateとは別の履歴・replay用tableであり、project rowの代替ではありません。
+
+`investigation_runs`:
+
+- `run_id`, `project_key`
+- `started_at`, `completed_at`
+- `evidence_schema_version`, `evaluation_version`
+- `input_project_json`, `output_project_json`
+- `evaluation_json`, `bundle_json`
+
+`collector_runs`:
+
+- `run_id`, `ordinal`
+- `source`, `operation`, `status`, `observed_at`
+- `result_json`, `records_json`, `failures_json`
+
+JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
 
 ## Non-goals
 
