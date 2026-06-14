@@ -303,6 +303,9 @@
   - `website_url_candidates` は `service_url_candidates` の alias として helper 経由で同期する
   - `github_repo_urls` / `tangled_repo_urls` は `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する
   - 保存 field 自体は互換のためまだ残している
+- 次のbreaking整理ではtop-level Python wrapperを削除してよい
+  - CLIは専用moduleへ移して既存command/optionを維持できるため、wrapper削除だけでCLIを変える必要はない
+  - DB migrationは旧DBパスだけを受け取り、成功時に旧DBをbackupへ退避して新DBを同じパスへ置く方針
 - `developer_accounts` / `candidate_developer_accounts`
   - confirmed / candidate の保存境界は分離済み
   - merge 時も candidate を保持し、confirmed へ自動昇格しない

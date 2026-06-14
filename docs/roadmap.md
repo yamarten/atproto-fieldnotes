@@ -166,6 +166,16 @@
 - URL field migration
   - 保存 payload / API payload / export から compatibility view を落とせるか確認する
   - provider ごとの account/resource scope extractor と `owned_service / likely_owned_service / upstream_dependency / unknown` relation classifier を追加する
+- breaking DB migration
+  - 旧schemaの通常読み込み互換は維持せず、一方向の書き捨てmigrationを用意する
+  - operatorは旧DBのパスだけを指定する。output pathやbackup pathの指定は通常不要にする
+  - migrationは同じdirectoryへ一時DBを作り、検証成功後に旧DBをtimestamp付きbackupへrenameし、新DBを旧パスへ置く
+  - migration失敗時は旧DBをそのまま残し、一時DBだけを失敗artifactとして報告する
+  - 明示optionが必要ならdry-run、backupを残さない危険操作、出力先overrideなど例外用途に限定する
+- CLI / Python API split
+  - `project_registry.py`のtop-level Python互換wrapperは削除可能
+  - CLI parserと`main()`は専用moduleへ移し、`scripts/project-registry`と既存command/option/outputは必要な範囲で維持する
+  - Python import APIを壊すこととCLI操作を変えることは別migrationとして扱う
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
