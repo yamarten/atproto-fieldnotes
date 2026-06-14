@@ -536,19 +536,16 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             self.assertTrue(callable(getattr(registry, name)))
         self.assertFalse((registry.ROOT / "scripts" / "project_registry.py").exists())
 
-    def test_public_and_compatibility_cli_wrappers_share_the_same_entrypoint(self) -> None:
-        outputs = []
-        for path in (registry.ROOT / "bin" / "project-registry", registry.ROOT / "scripts" / "project-registry"):
-            result = subprocess.run(
-                [str(path), "--help"],
-                cwd=registry.ROOT,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            outputs.append(result.stdout)
-        self.assertEqual(outputs[0], outputs[1])
-        self.assertIn("usage: project-registry", outputs[0])
+    def test_public_cli_wrapper_is_the_only_shell_entrypoint(self) -> None:
+        result = subprocess.run(
+            [str(registry.ROOT / "bin" / "project-registry"), "--help"],
+            cwd=registry.ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("usage: project-registry", result.stdout)
+        self.assertFalse((registry.ROOT / "scripts" / "project-registry").exists())
 
 
 if __name__ == "__main__":

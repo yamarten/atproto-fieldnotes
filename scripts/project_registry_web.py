@@ -4801,7 +4801,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765.")
     parser.add_argument("--db-path", help="SQLite DB path. Defaults to the repository data/survey.db.")
     parser.add_argument("--token", help="Shared token required for /api/* requests. Can also be set with ATPROTO_SURVEY_WEB_TOKEN.")
-    parser.add_argument("--reload", action="store_true", help="Restart this server process when project_registry_web.py or project_registry.py changes.")
+    parser.add_argument("--reload", action="store_true", help="Restart this server process when registry implementation files change.")
     parser.add_argument("--reload-interval", type=float, default=1.0, help="Seconds between reload file checks. Default: 1.0.")
     return parser
 

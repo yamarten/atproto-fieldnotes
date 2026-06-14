@@ -71,7 +71,7 @@ project-registry-web --host <TAB>
 
 のように subcommand と主要オプションを補完できます。
 
-公開CLI入口は`bin/project-registry`です。`scripts/project-registry`は既存のrepo内呼び出しを公開wrapperへ委譲するaliasです。利用手順と生成commandは`project-registry`に統一し、PATHには`bin/`だけを足す前提です。
+公開CLI入口は`bin/project-registry`だけです。利用手順と生成commandは`project-registry`に統一し、PATHには`bin/`だけを足す前提です。
 
 ## Web UI
 

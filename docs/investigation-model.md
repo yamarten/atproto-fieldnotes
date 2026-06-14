@@ -32,7 +32,7 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
    - `projects` を現在状態の materialized record として保存する
    - 同じ SQLite に input/output snapshot、評価、bundle、source 状態も保存する
 
-公開CLI入口は`bin/project-registry`で、`scripts/project-registry`はそこへ委譲するaliasです。`main()`は`project_registry_core.cli`、調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIは削除済みです。
+公開CLI入口は`bin/project-registry`だけです。`main()`は`project_registry_core.cli`、調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIと`scripts/`配下のCLI wrapperは削除済みです。
 
 ## Evidence classification
 

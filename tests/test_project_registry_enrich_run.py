@@ -114,6 +114,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(calls, ["proj:111111111111", "proj:222222222222"])
         lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
         self.assertTrue(lines[-1]["interrupted"])
+        self.assertTrue(lines[-1]["resume_command"].startswith("project-registry enrich --all"))
         self.assertIn("--resume-run interrupt-test", lines[-1]["resume_command"])
 
         checkpoint = json.loads(checkpoint_path.read_text())

@@ -6,7 +6,6 @@
 
 - `atproto` 関連の project / service / library / lexicon を収集・整理する
 - 公開CLI入口は `bin/project-registry`（command名は`project-registry`）
-- `scripts/project-registry`は既存呼び出しを公開wrapperへ委譲するalias
 - 主実装は `scripts/project_registry_core/`
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする

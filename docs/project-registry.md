@@ -33,7 +33,7 @@ pip install -r requirements.txt
 export PATH="$PWD/bin:$PATH"
 ```
 
-この文書では公開CLI入口を`project-registry`と表記します。実体は[bin/project-registry](../bin/project-registry)です。`scripts/project-registry`は既存のrepo内呼び出し向けに公開wrapperへ委譲するaliasです。PATHを変更しない場合は`bin/project-registry`と実行してください。
+この文書では公開CLI入口を`project-registry`と表記します。実体は[bin/project-registry](../bin/project-registry)だけです。PATHを変更しない場合は`bin/project-registry`と実行してください。
 
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 

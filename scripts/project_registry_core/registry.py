@@ -11846,7 +11846,7 @@ def enrich_run_checkpoint_path(run_id: str, checkpoint_path: str | None = None) 
 
 
 def enrich_resume_command(run_id: str, checkpoint_path: str | None = None) -> str:
-    parts = ["python3", "scripts/project_registry.py", "enrich", "--all", "--resume-run", validate_enrich_run_id(run_id)]
+    parts = ["project-registry", "enrich", "--all", "--resume-run", validate_enrich_run_id(run_id)]
     if checkpoint_path:
         parts.extend(["--checkpoint-path", checkpoint_path])
     return " ".join(shlex.quote(part) for part in parts)
