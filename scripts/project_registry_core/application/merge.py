@@ -84,7 +84,12 @@ def merge_projects(
         "merge_recommendation": source.get("merge_recommendation", {}),
     }
     if execute:
-        core.save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
+        core.save_project(
+            conn,
+            merged,
+            enriched=bool(merged.get("last_enriched_at")),
+            preserve_timestamps=True,
+        )
         core.delete_project(conn, source["project_key"])
         conn.commit()
     return summary
@@ -106,7 +111,12 @@ def split_identifier(
     identifier_value = core.canonical_seed_value(identifier_type, value)
     if not identifier_value:
         raise ValueError("identifier value is required")
-    if core.find_project_key_by_identifier(conn, identifier_type, identifier_value) != source["project_key"]:
+    identifier_kind = {"nsid": "nsid", "service_url": "service_url", "repo_url": "repo_url"}.get(identifier_type)
+    belongs_to_source = bool(identifier_kind and conn.execute(
+        "SELECT 1 FROM project_identifiers WHERE project_key = ? AND kind = ? AND value = ? LIMIT 1",
+        (source["project_key"], identifier_kind, identifier_value),
+    ).fetchone())
+    if not belongs_to_source:
         raise ValueError("identifier does not currently belong to the selected source project")
     target_key = (
         core.resolve_project_key_input(conn, new_project_key)
@@ -168,7 +178,12 @@ def split_identifier(
         "target_source_code_urls": target.get("source_code_urls", []),
     }
     if execute:
-        core.save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
-        core.save_project(conn, target, enriched=False)
+        core.save_project(
+            conn,
+            source,
+            enriched=bool(source.get("last_enriched_at")),
+            preserve_timestamps=True,
+        )
+        core.save_project(conn, target, enriched=False, preserve_timestamps=True)
         conn.commit()
     return summary

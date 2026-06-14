@@ -1,0 +1,433 @@
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import mimetypes
+import os
+import sqlite3
+import sys
+import threading
+import time
+import urllib.parse
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Callable
+
+from .. import database
+from .. import registry as core
+from ..application import decisions, merge, projects, web as services
+
+
+STATIC_ROOT = Path(__file__).resolve().parent / "static"
+DEFAULT_REVIEW_STATES = {"active", "watchlist", "stable", "stalled"}
+DEFAULT_PROMOTION_STATES = {"active", "watchlist"}
+
+
+def _int(value: Any, default: int, *, minimum: int = 1, maximum: int = 500) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _set(values: list[str]) -> set[str]:
+    output: set[str] = set()
+    for value in values:
+        output.update(part for part in value.replace(",", " ").split() if part)
+    return output
+
+
+def _choice(value: str, allowed: set[str], *, default: str = "any") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in allowed:
+        raise ValueError(f"invalid value: {normalized}")
+    return normalized
+
+
+def _date(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    import datetime as dt
+
+    return dt.date.fromisoformat(normalized).isoformat()
+
+
+class RegistryWebServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+    def __init__(self, address: tuple[str, int], *, token: str, db_path: Path):
+        super().__init__(address, RegistryWebHandler)
+        self.token = token
+        self.db_path = Path(db_path).expanduser().resolve()
+
+    def open_db(self) -> sqlite3.Connection:
+        return database.open_database(self.db_path)
+
+
+class RegistryWebHandler(BaseHTTPRequestHandler):
+    server: RegistryWebServer
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            if not self.authorized():
+                self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
+                return
+            self.dispatch(lambda: self.handle_api_get(parsed))
+            return
+        self.dispatch(lambda: self.serve_static(parsed.path))
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if not parsed.path.startswith("/api/"):
+            self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+            return
+        if not self.authorized():
+            self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
+            return
+        self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
+
+    def dispatch(self, callback: Callable[[], None]) -> None:
+        try:
+            callback()
+        except KeyError as exc:
+            self.send_error_json("not_found", str(exc).strip("'"), HTTPStatus.NOT_FOUND)
+        except (ValueError, json.JSONDecodeError) as exc:
+            message = str(exc)
+            if message.startswith("project not found:"):
+                self.send_error_json("not_found", message, HTTPStatus.NOT_FOUND)
+            else:
+                self.send_error_json("validation_error", message, HTTPStatus.BAD_REQUEST)
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                self.send_error_json("database_busy", str(exc), HTTPStatus.SERVICE_UNAVAILABLE)
+            else:
+                self.send_error_json("database_error", str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+        except Exception as exc:  # pragma: no cover - defensive HTTP boundary
+            self.send_error_json("internal_error", str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def authorized(self) -> bool:
+        auth = str(self.headers.get("Authorization") or "")
+        header = str(self.headers.get("X-Project-Registry-Token") or "")
+        supplied = auth[7:].strip() if auth.lower().startswith("bearer ") else header.strip()
+        return bool(supplied) and supplied == self.server.token
+
+    def serve_static(self, path: str) -> None:
+        requested = "index.html" if path in {"", "/", "/index.html"} else path.lstrip("/")
+        if requested not in {"index.html", "styles.css", "app.js"}:
+            self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+            return
+        file_path = STATIC_ROOT / requested
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        self.send_bytes(file_path.read_bytes(), content_type=f"{content_type}; charset=utf-8")
+
+    def handle_api_get(self, parsed: urllib.parse.ParseResult) -> None:
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        if path == "/api/settings":
+            self.send_json({
+                "schema_version": database.SCHEMA_VERSION,
+                "db_path": str(self.server.db_path),
+                "token_required": True,
+                "tracking_states": sorted(core.TRACKING_STATES),
+                "operations_connected": False,
+            })
+            return
+        if path == "/api/projects":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.search_projects(
+                    conn,
+                    query=str(query.get("q", [""])[0]),
+                    tracking_states=_set(query.get("tracking_states", [])) or None,
+                    service_statuses=_set(query.get("service_statuses", [])) or None,
+                    contribution_levels=_set(query.get("contribution_levels", [])) or None,
+                    technical_interest_levels=_set(query.get("technical_interest_levels", [])) or None,
+                    introduced=_choice(query.get("introduced", ["any"])[0], {"yes", "no", "any"}),
+                    has_candidates=_choice(query.get("has_candidates", ["any"])[0], {"yes", "no", "any"}),
+                    has_errors=_choice(query.get("has_errors", ["any"])[0], {"yes", "no", "any"}),
+                    promotion_hold=_choice(query.get("promotion_hold", ["any"])[0], {"yes", "no", "any"}),
+                    seen_since=_date(query.get("seen_since", [""])[0]),
+                    enriched_before=_date(query.get("enriched_before", [""])[0]),
+                    sort=str(query.get("sort", [""])[0]),
+                    limit=_int(query.get("limit", [50])[0], 50),
+                ))
+            return
+        if path == "/api/review-queue":
+            states = _set(query.get("tracking_states", [])) or DEFAULT_REVIEW_STATES
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.queue_payload(
+                    conn,
+                    queue="review",
+                    tracking_states=states,
+                    kinds=_set(query.get("kinds", [])) or None,
+                    limit=_int(query.get("limit", [50])[0], 50),
+                ))
+            return
+        if path == "/api/promotion-queue":
+            states = _set(query.get("tracking_states", [])) or DEFAULT_PROMOTION_STATES
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.queue_payload(
+                    conn,
+                    queue="promotion",
+                    tracking_states=states,
+                    kinds=_set(query.get("kinds", [])) or None,
+                    limit=_int(query.get("limit", [50])[0], 50),
+                    include_personal_tools=str(query.get("include_personal_tools", [""])[0]).lower() in {"1", "true", "yes"},
+                ))
+            return
+        if path == "/api/merge-batch":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.merge_batch_plan(
+                    conn,
+                    mode=str(query.get("mode", ["moderate"])[0]),
+                    limit=_int(query.get("limit", [50])[0], 50),
+                ))
+            return
+        if path == "/api/merge-pair":
+            source = str(query.get("source_project_key", [""])[0]).strip()
+            target = str(query.get("target_project_key", [""])[0]).strip()
+            if not source or not target:
+                raise ValueError("source_project_key and target_project_key are required")
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.merge_pair(conn, source_project_key=source, target_project_key=target))
+            return
+        if path == "/api/seeds/preview":
+            seed = str(query.get("seed", [""])[0]).strip()
+            if not seed:
+                raise ValueError("seed is required")
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.seed_preview(
+                    conn,
+                    seed=seed,
+                    seed_type=str(query.get("type", [""])[0]).strip() or None,
+                ))
+            return
+        if path.startswith("/api/projects/"):
+            key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")
+            if not key or "/" in key:
+                raise KeyError("project not found")
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.project_detail(conn, project_key=key))
+            return
+        self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+
+    def handle_api_post(self, parsed: urllib.parse.ParseResult, payload: dict[str, Any]) -> None:
+        path = parsed.path
+        if path == "/api/seeds":
+            seed = str(payload.get("seed") or "").strip()
+            if not seed:
+                raise ValueError("seed is required")
+            with contextlib.closing(self.server.open_db()) as conn:
+                result = projects.add_seed(
+                    conn,
+                    seed=seed,
+                    seed_type=str(payload.get("type") or "").strip() or None,
+                    project_key=str(payload.get("project_key") or "").strip() or None,
+                )
+            self.send_json(result, status=HTTPStatus.CREATED)
+            return
+        if path == "/api/merge-batch/action":
+            action = str(payload.get("action") or "").strip()
+            source = str(payload.get("source_project_key") or "").strip()
+            target = str(payload.get("target_project_key") or "").strip()
+            with contextlib.closing(self.server.open_db()) as conn:
+                if action == "merge":
+                    result = merge.merge_projects(
+                        conn,
+                        project_key=source,
+                        target_project_key=target,
+                        execute=True,
+                    )
+                elif action == "separate":
+                    result = decisions.set_separate(conn, project_key=source, other_project_key=target)
+                else:
+                    raise ValueError("action must be merge or separate")
+            self.send_json(result)
+            return
+        if not path.startswith("/api/projects/"):
+            self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+            return
+        parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/projects/").split("/") if part]
+        if len(parts) != 2:
+            self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+            return
+        project_key, action = parts
+        with contextlib.closing(self.server.open_db()) as conn:
+            result = self.run_project_action(conn, project_key, action, payload)
+            detail_key = str(result.get("target_project_key") or result.get("project_key") or project_key)
+            detail = services.project_detail(conn, project_key=detail_key)
+        self.send_json({"result": result, "detail": detail})
+
+    def run_project_action(
+        self,
+        conn: sqlite3.Connection,
+        project_key: str,
+        action: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        identifier_type = str(payload.get("identifier_type") or "").strip()
+        value = str(payload.get("value") or "").strip()
+        note = str(payload.get("note") or "").strip()
+        if action == "tracking-state":
+            return projects.set_tracking_state(
+                conn,
+                project_key=project_key,
+                tracking_state=str(payload.get("tracking_state") or ""),
+                note=note,
+            )
+        if action == "confirm-candidate":
+            return services.confirm_candidate(
+                conn, project_key=project_key, identifier_type=identifier_type, value=value
+            )
+        if action == "reject-candidate":
+            return services.reject_candidate(
+                conn, project_key=project_key, identifier_type=identifier_type, value=value, note=note
+            )
+        if action in {"block-identifier", "clear-block-identifier"}:
+            return decisions.set_identifier_block(
+                conn,
+                project_key=project_key,
+                identifier_type=identifier_type,
+                value=value,
+                note=note,
+                clear=action.startswith("clear-"),
+            )
+        if action in {"defer-identifier", "clear-defer-identifier"}:
+            return decisions.set_identifier_defer(
+                conn,
+                project_key=project_key,
+                identifier_type=identifier_type,
+                value=value,
+                note=note,
+                days=_int(payload.get("days"), 30, maximum=365),
+                clear=action.startswith("clear-"),
+            )
+        if action in {"defer-promotion", "clear-promotion-deferral"}:
+            return decisions.set_promotion_defer(
+                conn,
+                project_key=project_key,
+                reason=str(payload.get("reason") or note),
+                days=_int(payload.get("days"), 7, maximum=365),
+                clear=action.startswith("clear-"),
+            )
+        if action == "dismiss-review-kind":
+            return decisions.dismiss_review_kind(
+                conn,
+                project_key=project_key,
+                kind=str(payload.get("kind") or "").strip(),
+            )
+        if action == "split-project":
+            return merge.split_identifier(
+                conn,
+                project_key=project_key,
+                identifier_type=identifier_type,
+                value=value,
+                note=note,
+                execute=True,
+            )
+        if action == "clear-separate":
+            return decisions.set_separate(
+                conn,
+                project_key=project_key,
+                other_project_key=str(payload.get("other_project_key") or "").strip(),
+                clear=True,
+            )
+        if action == "merge-recommendation":
+            return merge.merge_projects(
+                conn,
+                project_key=project_key,
+                use_recommendation=True,
+                execute=True,
+            )
+        raise ValueError(f"unknown project action: {action}")
+
+    def read_json(self) -> dict[str, Any]:
+        length = _int(self.headers.get("Content-Length"), 0, minimum=0, maximum=1_000_000)
+        if not length:
+            return {}
+        value = json.loads(self.rfile.read(length).decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("JSON body must be an object")
+        return value
+
+    def send_error_json(self, code: str, message: str, status: HTTPStatus) -> None:
+        self.send_json({"error": {"code": code, "message": message}}, status=status)
+
+    def send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        self.send_bytes(body, content_type="application/json; charset=utf-8", status=status)
+
+    def send_bytes(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self.send_response(int(status))
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Serve the schema v2 project registry Web UI.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 0.0.0.0 for LAN access.")
+    parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765.")
+    parser.add_argument("--db-path", help="SQLite DB path. Defaults to data/survey.db.")
+    parser.add_argument("--token", help="Shared API token. ATPROTO_SURVEY_WEB_TOKEN is also supported.")
+    parser.add_argument("--reload", action="store_true", help="Restart when Web implementation files change.")
+    parser.add_argument("--reload-interval", type=float, default=1.0, help="Reload polling interval in seconds.")
+    return parser
+
+
+def start_reload_watcher(paths: list[Path], interval: float) -> None:
+    watched = {path: path.stat().st_mtime_ns for path in paths if path.exists()}
+
+    def watch() -> None:
+        while True:
+            time.sleep(max(0.2, interval))
+            for path, previous in list(watched.items()):
+                try:
+                    current = path.stat().st_mtime_ns
+                except OSError:
+                    continue
+                if current != previous:
+                    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+    threading.Thread(target=watch, name="registry-web-reload", daemon=True).start()
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    token = str(args.token or os.environ.get("ATPROTO_SURVEY_WEB_TOKEN") or "").strip()
+    if not token:
+        print("error: --token or ATPROTO_SURVEY_WEB_TOKEN is required", file=sys.stderr)
+        return 2
+    db_path = Path(args.db_path).expanduser() if args.db_path else core.DB_PATH
+    server = RegistryWebServer((str(args.host), int(args.port)), token=token, db_path=db_path)
+    if args.reload:
+        package_root = Path(__file__).resolve().parents[1]
+        start_reload_watcher(
+            [path for path in package_root.rglob("*") if path.suffix in {".py", ".html", ".css", ".js"}],
+            float(args.reload_interval or 1.0),
+        )
+    url = f"http://{args.host}:{args.port}/?token={urllib.parse.quote(token)}"
+    print(f"Serving project registry Web UI at {url}", flush=True)
+    print(f"Using DB: {server.db_path}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0

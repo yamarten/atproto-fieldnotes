@@ -72,7 +72,7 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 
 - name / URL / service status / LLM response parser / merge scoring のような DB 非依存の判定は `tests/test_project_registry_core.py`
 - `profile_json` / `state_json` / normalized child tables 分割、`save_project` / `fetch_project` / `repair-db` 相当の保存構造は `tests/test_project_registry_storage.py`
-- Web entrypoint が schema v2 未接続を明示して停止することは `tests/test_project_registry_web_unavailable.py`
+- Web APIの認証、schema v2 payload、normalized mutation、static asset、error shapeは `tests/test_project_registry_web.py`
 
 外部 API、実 DB `data/survey.db`、実 LLM endpoint は通常テストから切り離します。必要な SQLite DB は temp directory に作ります。
 
@@ -151,6 +151,9 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
 - `project_registry_core/commands/`
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
+- `project_registry_core/web/`
+  - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
+  - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
 - `project_registry_core/registry.py`
   - domain helperとcollector/evaluation orchestration
   - `enrich --all`、interactive review classification、`merge-batch`、`assist-db-edit`のoperator workflow
@@ -188,9 +191,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。CLI は開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+C時は`status=interrupted`、処理中key、再開commandを保存・出力し、次回`--resume-run`は完了済みkeyを飛ばします。
 
-Web UI は schema v2 repository へ未接続です。旧Web background jobやcheckpoint操作は通常導線として利用できません。
+Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離し、削除済みcompatibility fieldを再構築しません。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
-Web UIは`project_registry_core.application`を共有入口として使います。Web handlerがhydrated project dictを直接変更して`save_project()`する構造には戻しません。`enrich --all`など進捗・中断・再開を持つ処理は単発request/response serviceへ押し込まず、Web追従時にbackground job境界を定義します。
+未接続なのは長時間operator workflowです。`enrich --all`、sync、review classificationなどは進捗・中断・再開を持つbackground job serviceを設計するまでCLIに残し、旧Web helperを暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面は未接続です。
 
 ## enrich の判断材料
 

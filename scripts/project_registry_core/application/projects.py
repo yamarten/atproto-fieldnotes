@@ -83,7 +83,12 @@ def set_tracking_state(
     project["tracking_state"] = core.normalize_tracking_state(tracking_state)
     if note is not None:
         project["tracking_note"] = str(note).strip()
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
     conn.commit()
     return {
         "project_key": project["project_key"],
@@ -133,7 +138,12 @@ def set_tracking_state_batch(
             project["tracking_state"] = target_state
             if note is not None:
                 project["tracking_note"] = str(note).strip()
-            core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            core.save_project(
+                conn,
+                project,
+                enriched=bool(project.get("last_enriched_at")),
+                preserve_timestamps=True,
+            )
             updated += 1
     if execute:
         conn.commit()

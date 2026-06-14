@@ -48,7 +48,7 @@ python3 -m unittest discover -s tests -v
 
 ## zsh補完
 
-CLI用のwrapperとzsh completionを追加しています。Web wrapperはschema v2未接続を明示するためだけに残しています。
+CLIとWeb UI用のwrapper、zsh completionを追加しています。
 
 - [bin/project-registry](bin/project-registry) / [completions/_project-registry](completions/_project-registry)
 - [bin/project-registry-web](bin/project-registry-web) / [completions/_project-registry-web](completions/_project-registry-web)
@@ -75,7 +75,14 @@ project-registry-web --host <TAB>
 
 ## Web UI
 
-Web UIはregistry schema v2へ未接続です。`project-registry-web`および`scripts/project_registry_web.py`は、旧schemaを誤って更新しないよう明示的なエラーで終了します。Web再接続は後続作業です。
+schema v2対応のローカルWeb UIを起動できます。
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
+project-registry-web --host 127.0.0.1 --port 8765
+```
+
+project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。sync、enrich、review opsなどの長時間処理はまだCLIを使用します。
 
 ## 環境変数
 

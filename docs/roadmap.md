@@ -120,7 +120,7 @@
 
 ### Web UI 詳細検索
 
-Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次です。
+Web UIのschema v2検索は接続済みです。検索拡張候補は次です。
 
 - SQLite FTS table の追加
 - typo tolerance / edit distance
@@ -130,12 +130,13 @@ Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次�
 - offset / cursor pagination
 - raw JSON 任意パス検索
 
-### Web UI: core 追従候補
+### Web UI: 次の接続候補
 
 未接続 / 将来候補:
 
-- schema v2 repositoryとnormalized identifier/relation/decision tableへの接続
-- project detail、編集、merge、review queueのv2 payload化
+- investigation run一覧、evidence全文、replay差分の専用画面
+- relation/collector failureからreview actionへ移る導線
+- candidate developer accountの確認・昇格操作
 - Enrich All checkpoint の運用改善
   - サーバー再起動後に `data/enrich-runs/*.json` を一覧し、Jobs / Sync から選んで再開する導線は未実装
   - UI job state と checkpoint state の履歴表示をどう同期するかは未検討
@@ -157,7 +158,7 @@ Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次�
 - CLI command体系の階層化を、現行flat commandに実際の操作上の支障が出た時点で再評価する
   - 例: `project show`, `review queue`, `sync github`, `decision block`, `db migrate`
   - application serviceはcommand名から独立しているため、階層化時に業務処理は変更しない
-- `enrich --all`、interactive review、`merge-batch`、`assist-db-edit`をWebから扱う場合は、progress event、中断、再開、確認入力を持つbackground job serviceを設計する
+- `enrich --all`、sync、interactive review、`assist-db-edit`をWebから扱う場合は、progress event、中断、再開、確認入力を持つbackground job serviceを設計する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する

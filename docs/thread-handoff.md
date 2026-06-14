@@ -25,6 +25,11 @@
   - project query/tracking、decision、merge/split、review queue
   - sync、investigation replay/verify/export、maintenance
 - 実装済み: 通常CLI adapterを`project_registry_core.commands`へ用途別分割
+- 実装済み: schema v2 Web UI
+  - `Review / Projects / Operations / Settings`
+  - project検索、review/promotion/merge queue、seed preview・追加
+  - normalized identifier/relation/decision、評価、最新investigation概要の表示
+  - tracking、candidate confirm/reject、block/defer、split、separate解除、merge
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -35,8 +40,9 @@
 - merge後のblock/defer保持と優先
 - investigation replay / benchmark
 - CLI helpと既存command parser
-- Web entrypointがschema v2未接続を明示して終了すること
-- 全通常テスト171件
+- Web API認証、static asset、v2 detail、normalized mutation、partial collector failure、SQLite busy error
+- in-app Browserでdesktop検索・mutation・merge確認とmobile detail遷移
+- 全通常テスト176件
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -45,11 +51,10 @@
 
 ## 未接続
 
-- Web UI全体。旧Web実装はschema v2 repositoryへ未接続で、entrypointは意図的に停止する
-- Web background job service。`enrich --all`、interactive review classification、`merge-batch`、`assist-db-edit`はoperator workflowとして`registry.py`に残る
+- Web background job service。sync、`enrich --all`、interactive review classification、`assist-db-edit`はoperator workflowとしてCLIに残る
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
-- Webからのinvestigation run/evidence表示
+- Webからのinvestigation run一覧、evidence全文、replay差分表示
 
 ## 互換性のためだけに残しているもの
 
@@ -61,7 +66,6 @@
 
 ## 次候補
 
-- Web UIをschema v2 repositoryへ接続する
 - Web background jobから長時間operator workflowを起動・監視・中断・再開するservice境界を作る
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす

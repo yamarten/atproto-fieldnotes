@@ -9,6 +9,7 @@
 - 主実装は `scripts/project_registry_core/`
   - `application/`: CLIとWebで共有するquery/mutation service
   - `commands/`: `argparse`と出力を担当するCLI adapter
+  - `web/`: schema v2 Web API adapterと静的UI
   - `registry.py`: domain helperと長時間・interactive operator workflow
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする

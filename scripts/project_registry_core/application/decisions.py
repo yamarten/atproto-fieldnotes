@@ -39,7 +39,12 @@ def set_separate(
     other["separate_project_keys"] = sorted(other_blocked)
     for item in (project, other):
         _refresh_merge_state(conn, item)
-        core.save_project(conn, item, enriched=bool(item.get("last_enriched_at")))
+        core.save_project(
+            conn,
+            item,
+            enriched=bool(item.get("last_enriched_at")),
+            preserve_timestamps=True,
+        )
     conn.commit()
     return {
         "mode": "clear" if clear else "set",
@@ -72,8 +77,15 @@ def set_identifier_block(
     elif not any((str(item.get("type") or ""), str(item.get("value") or "")) == key for item in blocked):
         blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": core.iso_now()})
     project["blocked_identifiers"] = blocked
+    if not clear:
+        core.remove_identifier_from_project(project, identifier_type, normalized_value)
     project = _refresh_merge_state(conn, core.finalize_project_shape(project))
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
     conn.commit()
     return {
         "mode": "clear" if clear else "set",
@@ -113,7 +125,12 @@ def set_identifier_defer(
         core.defer_identifier_on_project(project, identifier_type, normalized_value, note=note.strip(), days=days)
         project = core.finalize_project_shape(project)
     project = _refresh_merge_state(conn, project)
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
     conn.commit()
     return {
         "mode": "clear" if clear else "set",
@@ -146,7 +163,12 @@ def set_promotion_defer(
         entry = None
     else:
         entry = core.defer_promotion_on_project(project, reason=reason.strip(), days=days)
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
     conn.commit()
     return {
         "mode": "clear" if clear else "set",
@@ -173,6 +195,11 @@ def dismiss_review_kind(
     else:
         kinds = core.unique_list(kinds + [kind])
     project["dismissed_review_kinds"] = kinds
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
     conn.commit()
     return {"project_key": project["project_key"], "kind": kind, "cleared": clear, "dismissed_review_kinds": kinds}

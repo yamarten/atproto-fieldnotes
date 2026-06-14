@@ -63,7 +63,7 @@ interactive では tenant group の番号を選んだ場合だけ、その group
 
 ## zsh補完
 
-CLI用のwrapperとzsh completionを使えます。Web wrapperはschema v2未接続を明示する停止入口です。
+CLIとWeb UI用のwrapper、zsh completionを使えます。
 
 - [bin/project-registry](../bin/project-registry) / [completions/_project-registry](../completions/_project-registry)
 - [bin/project-registry-web](../bin/project-registry-web) / [completions/_project-registry-web](../completions/_project-registry-web)
@@ -141,7 +141,38 @@ project-registry show --all --format json
 
 ## Web UI
 
-未接続です。schema version 2への移行後、旧Web entrypointは明示的なエラーで終了します。現在の操作はCLIを使用してください。
+schema version 2対応のローカルWeb UIを起動できます。
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
+project-registry-web --host 127.0.0.1 --port 8765
+```
+
+別のDBを参照する場合:
+
+```bash
+project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
+```
+
+`--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
+
+画面構成:
+
+- `Review`: review queue、promotion queue、merge plan
+- `Projects`: project検索、schema v2 detail、seed preview・追加
+- `Operations`: Web未接続の長時間処理と対応CLIの案内
+- `Settings`: queue limit、merge mode、token、接続DBの確認
+
+project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、auto-ready mergeは明示確認後にSQLiteへ保存します。
+
+未接続:
+
+- sync、単体・全件enrich、review ops
+- background job監視、停止、checkpoint再開
+- investigation run一覧とreplay差分の専用画面
+- LLM設定、server reload/shutdownの画面操作
+
+APIは共有token必須です。起動時URLの`?token=...`を開くか、`Authorization: Bearer ...`または`X-Project-Registry-Token`を付けます。静的assetはtokenなしで配信します。
 
 ## 紹介済み候補の取り込み
 

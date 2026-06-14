@@ -10,18 +10,24 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         try:
             created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")
             selected = projects.select_projects(conn, project_key=created["project_key"])
+            before = registry.fetch_project(conn, created["project_key"])
+            assert before is not None
             updated = projects.set_tracking_state(
                 conn,
                 project_key=created["project_key"],
                 tracking_state="watchlist",
                 note="application service test",
             )
+            after = registry.fetch_project(conn, created["project_key"])
+            assert after is not None
         finally:
             conn.close()
 
         self.assertEqual(len(selected), 1)
         self.assertEqual(updated["tracking_state"], "watchlist")
         self.assertEqual(updated["tracking_note"], "application service test")
+        self.assertEqual(after["last_seen_at"], before["last_seen_at"])
+        self.assertEqual(after["last_enriched_at"], before["last_enriched_at"])
 
     def test_decision_services_persist_normalized_rows(self) -> None:
         conn = registry.open_db()

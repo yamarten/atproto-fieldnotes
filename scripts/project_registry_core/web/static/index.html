@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Registry</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-screen="review">
+  <header class="app-header">
+    <div class="brand-row">
+      <div>
+        <p class="eyebrow">atproto survey</p>
+        <h1>Project Registry</h1>
+      </div>
+      <button id="refresh" class="secondary">Refresh</button>
+    </div>
+    <nav class="primary-nav" aria-label="Primary">
+      <button data-screen="review" class="active">Review</button>
+      <button data-screen="projects">Projects</button>
+      <button data-screen="operations">Operations</button>
+      <button data-screen="settings">Settings</button>
+    </nav>
+    <div id="status" class="status" role="status"></div>
+  </header>
+
+  <main>
+    <section id="workspace" class="workspace">
+      <div class="list-pane">
+        <div id="list-controls"></div>
+        <div id="list" class="list"></div>
+      </div>
+      <aside id="detail" class="detail-pane">
+        <div class="empty-state"><h2>Select a project</h2><p>Review normalized identifiers, evidence, and operator decisions.</p></div>
+      </aside>
+    </section>
+    <section id="single-pane" class="single-pane" hidden></section>
+  </main>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <p class="eyebrow">Confirm database change</p>
+      <h2 id="confirm-title">Confirm action</h2>
+      <p id="confirm-message"></p>
+      <label id="confirm-note-label">Reason or note
+        <input id="confirm-note" type="text" autocomplete="off">
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button id="confirm-submit" value="confirm" class="danger">Apply change</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
