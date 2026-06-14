@@ -25,6 +25,10 @@
   - project query/tracking、decision、merge/split、review queue
   - sync、investigation replay/verify/export、maintenance
 - 実装済み: 通常CLI adapterを`project_registry_core.commands`へ用途別分割
+- 実装済み: enrich background job境界
+  - `OperationRequest` / `OperationEvent` / `OperationResult` / `CancellationToken`
+  - enrichのproject選択、保存、checkpoint、再開をapplication serviceへ移動
+  - CLIはevent dataをJSON linesへ変換するadapter
 - 実装済み: schema v2 Web UI
   - `Review / Projects / Operations / Settings`
   - project検索、review/promotion/merge queue、seed preview・追加
@@ -42,7 +46,8 @@
 - CLI helpと既存command parser
 - Web API認証、static asset、v2 detail、normalized mutation、partial collector failure、SQLite busy error
 - in-app Browserでdesktop検索・mutation・merge確認とmobile detail遷移
-- 全通常テスト176件
+- temp SQLiteでenrichのproject境界中断、checkpoint再開、API key非保存
+- background job変更後の全通常テスト176件
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -51,7 +56,8 @@
 
 ## 未接続
 
-- Web background job service。sync、`enrich --all`、interactive review classification、`assist-db-edit`はoperator workflowとしてCLIに残る
+- Web background job runner。enrich service境界は実装済みだが、subprocess実行、開始・一覧・停止・再開APIは未接続
+- sync、interactive review classification、`assist-db-edit`の共通job化
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
 - Webからのinvestigation run一覧、evidence全文、replay差分表示
@@ -66,8 +72,8 @@
 
 ## 次候補
 
-- Web background jobから長時間operator workflowを起動・監視・中断・再開するservice境界を作る
+- enrich serviceをsubprocess workerへ接続し、Webから起動・監視・中断・再開する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす
 
-恒久仕様は[project-record.md](project-record.md)、調査契約は[investigation-model.md](investigation-model.md)、内部の具体値は[registry-internals.md](registry-internals.md)、将来課題は[roadmap.md](roadmap.md)を参照してください。
+恒久仕様は[project-record.md](project-record.md)、調査契約は[investigation-model.md](investigation-model.md)、長時間処理契約は[background-jobs.md](background-jobs.md)、内部の具体値は[registry-internals.md](registry-internals.md)、将来課題は[roadmap.md](roadmap.md)を参照してください。

@@ -10,7 +10,8 @@
   - `application/`: CLIとWebで共有するquery/mutation service
   - `commands/`: `argparse`と出力を担当するCLI adapter
   - `web/`: schema v2 Web API adapterと静的UI
-  - `registry.py`: domain helperと長時間・interactive operator workflow
+  - `jobs.py`: 長時間処理のrequest/event/result/cancellation契約
+  - `registry.py`: domain helperとcollector/evaluation orchestration
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない
@@ -60,6 +61,7 @@
 - 内部仕様:
   - [docs/registry-internals.md](docs/registry-internals.md)
   - [docs/investigation-model.md](docs/investigation-model.md)
+  - [docs/background-jobs.md](docs/background-jobs.md)
   - [docs/project-record.md](docs/project-record.md)
 - 設計途中の比較・検討メモ:
   - [docs/notes/](docs/notes/)
@@ -80,4 +82,5 @@
 2. `docs/thread-handoff.md`
 3. `docs/registry-internals.md`
 4. `docs/investigation-model.md`
-5. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`
+5. `docs/background-jobs.md`
+6. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`

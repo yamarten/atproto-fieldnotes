@@ -137,9 +137,10 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - investigation run一覧、evidence全文、replay差分の専用画面
 - relation/collector failureからreview actionへ移る導線
 - candidate developer accountの確認・昇格操作
-- Enrich All checkpoint の運用改善
+- Enrich All jobのWeb接続
   - サーバー再起動後に `data/enrich-runs/*.json` を一覧し、Jobs / Sync から選んで再開する導線は未実装
-  - UI job state と checkpoint state の履歴表示をどう同期するかは未検討
+  - 共通request/event/resultとcheckpoint再開は実装済み
+  - subprocess runner、停止API、UI job stateとcheckpoint stateの履歴表示は未実装
 
 原則 CLI に残す保守操作:
 
@@ -158,7 +159,8 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - CLI command体系の階層化を、現行flat commandに実際の操作上の支障が出た時点で再評価する
   - 例: `project show`, `review queue`, `sync github`, `decision block`, `db migrate`
   - application serviceはcommand名から独立しているため、階層化時に業務処理は変更しない
-- `enrich --all`、sync、interactive review、`assist-db-edit`をWebから扱う場合は、progress event、中断、再開、確認入力を持つbackground job serviceを設計する
+- [background-jobs.md](background-jobs.md)の契約をsubprocess runnerへ接続し、Webからenrichを開始・監視・中断・再開できるようにする
+- sync、interactive review、`assist-db-edit`を共通job契約へ移す。interactive確認はworker内TTYではなく、plan作成と明示実行に分離する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する

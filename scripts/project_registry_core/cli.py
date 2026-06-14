@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import registry
 from .commands import decisions as decision_commands
+from .commands import enrichment as enrichment_commands
 from .commands import investigation as investigation_commands
 from .commands import maintenance as maintenance_commands
 from .commands import merge as merge_commands
@@ -71,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
     enrich_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for LLM calls.")
-    enrich_parser.set_defaults(func=registry.cmd_enrich)
+    enrich_parser.set_defaults(func=enrichment_commands.cmd_enrich)
 
     show_parser = subparsers.add_parser("show", help="Show registered projects.")
     show_group = show_parser.add_mutually_exclusive_group(required=True)

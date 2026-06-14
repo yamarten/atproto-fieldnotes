@@ -44,6 +44,8 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
   - `docs/registry-internals.md`
 - 調査 pipeline の恒久的な責務境界や evidence 契約が変わる時
   - `docs/investigation-model.md`
+- 長時間処理のprogress、中断、checkpoint、worker境界が変わる時
+  - `docs/background-jobs.md`
 - その場限りではないが、まだ安定していない残件や次の論点を残したい時
   - `docs/thread-handoff.md`
 - 中長期の計画や、まだ着手していない改善案を整理したい時
@@ -147,8 +149,10 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
 - `project_registry_core/application/`
-  - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenanceのCLI/Web共通service
+  - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
+- `project_registry_core/jobs.py`
+  - 長時間処理のrequest/event/resultと協調的cancellation契約
 - `project_registry_core/commands/`
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
 - `project_registry_core/web/`
@@ -156,7 +160,6 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
 - `project_registry_core/registry.py`
   - domain helperとcollector/evaluation orchestration
-  - `enrich --all`、interactive review classification、`merge-batch`、`assist-db-edit`のoperator workflow
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
 
 動作確認済み:
@@ -189,11 +192,13 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
-`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。CLI は開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+C時は`status=interrupted`、処理中key、再開commandを保存・出力し、次回`--resume-run`は完了済みkeyを飛ばします。
+`enrich`のproject選択、保存、checkpoint、再開は`project_registry_core.application.enrichment`へ接続済みです。CLIは`project_registry_core.commands.enrichment`で引数を`OperationRequest`へ変換し、serviceのevent dataをJSON linesへ変換します。
+
+`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+Cは協調的な停止要求となり、処理中projectを保存した後に`status=interrupted`と再開commandを記録します。次回`--resume-run`は完了済みkeyを飛ばします。契約の正本は[background-jobs.md](background-jobs.md)です。
 
 Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離し、削除済みcompatibility fieldを再構築しません。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
-未接続なのは長時間operator workflowです。`enrich --all`、sync、review classificationなどは進捗・中断・再開を持つbackground job serviceを設計するまでCLIに残し、旧Web helperを暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面は未接続です。
+未接続なのは長時間処理を別processで実行・監視するrunnerです。enrich serviceの共通契約は実装済みですが、Web APIからの開始・一覧・停止・再開、syncとreview classificationの同契約への移行は未接続です。旧Web helperは暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面も未接続です。
 
 ## enrich の判断材料
 
