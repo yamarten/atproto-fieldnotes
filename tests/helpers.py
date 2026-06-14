@@ -14,7 +14,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import project_registry as registry  # noqa: E402
+from project_registry_core import registry  # noqa: E402
 
 
 class TempRegistryDbTestCase(unittest.TestCase):
@@ -44,7 +44,6 @@ def seed_web_fixture() -> None:
         project["service_url_candidates"] = ["https://example.com"]
         project["candidate_source_code_urls"] = ["https://github.com/example/app"]
         project["source_code_urls"] = ["https://github.com/example/app"]
-        project["github_repo_urls"] = ["https://github.com/example/app"]
         registry.save_project(conn, project)
 
         duplicate = registry.default_project_record("proj:222222222222", "service_url", "https://example.com")

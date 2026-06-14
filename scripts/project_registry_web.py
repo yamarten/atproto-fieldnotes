@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+import sys
+
+
+WEB_UNAVAILABLE_MESSAGE = "project_registry_web is not connected to registry schema v2"
+
+if __name__ == "__main__":
+    print(WEB_UNAVAILABLE_MESSAGE, file=sys.stderr)
+    raise SystemExit(2)
+
+raise RuntimeError(WEB_UNAVAILABLE_MESSAGE)
+
 import argparse
 import datetime as dt
 import json

@@ -5,7 +5,8 @@
 ## 目的
 
 - `atproto` 関連の project / service / library / lexicon を収集・整理する
-- 主作業対象は `scripts/project_registry.py`
+- CLI入口は `scripts/project-registry`
+- 主実装は `scripts/project_registry_core/`
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない
@@ -14,10 +15,11 @@
 ## 重要な前提
 
 - `projects` テーブルが主データ
-- 現在の保存構造は:
-  - scalar columns
-  - `record_json`
-  - `ops_json`
+- 現在の保存構造はschema version 2:
+  - `projects`: scalar + `profile_json` + `state_json`
+  - `project_identifiers`
+  - `project_relations`
+  - `project_decisions`
 - 調査履歴は同じSQLiteの `investigation_runs` / `collector_runs` に保存する
 
 ## DB 操作

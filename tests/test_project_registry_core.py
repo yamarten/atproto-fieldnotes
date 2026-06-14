@@ -12,17 +12,16 @@ from unittest import mock
 from helpers import registry
 
 
-class ProjectRegistryUrlCompatibilityTest(unittest.TestCase):
-    def test_legacy_website_candidates_are_folded_into_service_candidates(self) -> None:
+class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
+    def test_legacy_website_candidates_are_not_part_of_runtime_shape(self) -> None:
         project = registry.default_project_record("proj:urlcompat", "service_url", "https://example.com")
         project["website_url_candidates"] = ["https://app.example.com"]
         project["service_url_candidates"] = []
 
         shaped = registry.ensure_project_shape(project)
 
-        self.assertEqual(shaped["service_url_candidates"], ["https://app.example.com"])
-        self.assertEqual(shaped["website_url_candidates"], ["https://app.example.com"])
-        self.assertEqual(registry.service_url_candidate_values(shaped), ["https://app.example.com"])
+        self.assertEqual(shaped["service_url_candidates"], [])
+        self.assertNotIn("website_url_candidates", shaped)
 
     def test_provider_repo_views_are_derived_from_confirmed_source_records(self) -> None:
         project = registry.default_project_record("proj:repoview", "nsid", "app.example.post")
@@ -39,8 +38,10 @@ class ProjectRegistryUrlCompatibilityTest(unittest.TestCase):
 
         shaped = registry.ensure_project_shape(project)
 
-        self.assertEqual(shaped["github_repo_urls"], ["https://github.com/example/app"])
-        self.assertEqual(shaped["tangled_repo_urls"], ["https://tangled.org/example/lexicons"])
+        self.assertEqual(registry.provider_repo_url_values(shaped, "github"), ["https://github.com/example/app"])
+        self.assertEqual(registry.provider_repo_url_values(shaped, "tangled"), ["https://tangled.org/example/lexicons"])
+        self.assertNotIn("github_repo_urls", shaped)
+        self.assertNotIn("tangled_repo_urls", shaped)
         self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
 
     def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
@@ -56,7 +57,7 @@ class ProjectRegistryUrlCompatibilityTest(unittest.TestCase):
         shaped = registry.ensure_project_shape(project)
 
         self.assertEqual(shaped["source_code_urls"], [])
-        self.assertEqual(shaped["github_repo_urls"], [])
+        self.assertEqual(registry.provider_repo_url_values(shaped, "github"), [])
         self.assertEqual(shaped["candidate_source_code_urls"], ["https://github.com/example/candidate"])
 
 
@@ -666,7 +667,6 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertIn("https://example.com", project["service_urls"])
         self.assertNotIn("https://other.example.net", project["service_urls"])
         self.assertNotIn("https://other.example.net", project["service_url_candidates"])
-        self.assertNotIn("https://other.example.net", project["website_url_candidates"])
 
     def test_supported_cross_host_redirect_adds_final_url_as_candidate(self) -> None:
         project = registry.default_project_record("proj:redirectcandidate", "service_url", "https://example.com")
@@ -697,7 +697,6 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
         self.assertNotIn("https://other.example.net", project["service_urls"])
         self.assertIn("https://other.example.net", project["service_url_candidates"])
-        self.assertIn("https://other.example.net", project["website_url_candidates"])
         self.assertIn("https://other.example.net", project["evidence_urls"])
 
     def test_supported_same_site_redirect_sets_empty_primary_website_url(self) -> None:
@@ -761,7 +760,6 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertEqual(project["website_url"], "https://current.example.com")
         self.assertNotIn("https://www.example.com", project["service_urls"])
         self.assertIn("https://www.example.com", project["service_url_candidates"])
-        self.assertIn("https://www.example.com", project["website_url_candidates"])
 
 
 class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
@@ -800,7 +798,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         )
         project = registry.finalize_project_shape(project)
 
-        retained_urls = set(project["service_urls"]) | set(project["service_url_candidates"]) | set(project["website_url_candidates"])
+        retained_urls = set(project["service_urls"]) | set(project["service_url_candidates"])
         self.assertIn("https://tz2at.xyz", project["supported_service_urls"])
         self.assertIn("https://tz2at.xyz", retained_urls)
 
@@ -857,23 +855,21 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
         project["service_url_candidates"] = ["https://tz2at.xyz"]
-        project["website_url_candidates"] = ["https://tz2at.xyz"]
 
         project = registry.finalize_project_shape(project)
 
         self.assertNotIn("https://tz2at.xyz", project["service_url_candidates"])
-        self.assertNotIn("https://tz2at.xyz", project["website_url_candidates"])
+        self.assertNotIn("website_url_candidates", project)
 
     def test_confirmed_service_url_is_removed_from_candidate_views(self) -> None:
         project = registry.default_project_record("proj:serviceoverlap", "service_url", "https://example.com")
         project["service_urls"] = ["https://example.com", "https://app.example.com"]
         project["service_url_candidates"] = ["https://app.example.com"]
-        project["website_url_candidates"] = ["https://app.example.com"]
 
         project = registry.finalize_project_shape(project)
 
         self.assertNotIn("https://app.example.com", project["service_url_candidates"])
-        self.assertNotIn("https://app.example.com", project["website_url_candidates"])
+        self.assertNotIn("website_url_candidates", project)
 
 
 class ProjectRegistryProfileUrlTest(unittest.TestCase):
@@ -909,25 +905,14 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
-    def test_legacy_resource_url_becomes_unknown_legacy_record(self) -> None:
+    def test_legacy_resource_url_is_not_part_of_runtime_shape(self) -> None:
         project = registry.default_project_record("proj:resourcelegacy", "service_url", "https://example.com")
         project["resource_urls"] = ["https://example.com/docs"]
 
         shaped = registry.ensure_project_shape(project)
 
-        self.assertEqual(shaped["resource_urls"], ["https://example.com/docs"])
-        self.assertEqual(
-            shaped["resource_url_records"],
-            [
-                {
-                    "url": "https://example.com/docs",
-                    "role": "unknown",
-                    "source": "legacy_resource_urls",
-                    "observed_at": "",
-                    "confidence": "legacy",
-                }
-            ],
-        )
+        self.assertNotIn("resource_urls", shaped)
+        self.assertEqual(shaped["resource_url_records"], [])
 
     def test_resource_url_values_use_records_without_compat_view(self) -> None:
         project = registry.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
@@ -1165,7 +1150,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
         evidence = registry.build_llm_evidence_bundle(project)
 
-        self.assertEqual(evidence["resource_urls"], ["https://tz2at.xyz/docs"])
+        self.assertNotIn("resource_urls", evidence)
         self.assertEqual(evidence["resource_url_records"][0]["confidence"], "confirmed")
         self.assertEqual(evidence["lexicon_scope"], "service_specific")
         self.assertEqual(

@@ -1,354 +1,63 @@
 # Thread Handoff
 
-次の担当者向けの引き継ぎメモです。利用手順は [project-registry.md](project-registry.md)、
-内部仕様は [registry-internals.md](registry-internals.md)、調査 pipeline の恒久的な契約は
-[investigation-model.md](investigation-model.md) を参照してください。
+## 現在の基準
 
-## 2026-06-13 調査強化
+- 実装済み: registry schema version 2
+  - `projects`のscalar + `profile_json` + `state_json`
+  - `project_identifiers`
+  - `project_relations`
+  - `project_decisions`
+- 実装済み: `scripts/project-registry migrate-db OLD_DB_PATH`
+  - 既定で移行・検証・backup・元path置換まで実行
+  - `--dry-run`は一時DBを検証後に削除
+  - v2 DBへの再実行はno-op
+- 実装済み: CLI launcherは`scripts/project-registry`
+- 削除済み: `scripts/project_registry.py` top-level Python API
+- 削除済み: runtime compatibility field
+  - `website_url_candidates`
+  - `github_repo_urls`
+  - `tangled_repo_urls`
+  - `resource_urls`
+  - `introduced`
+- 実装済み: EvidenceBundleはschema v2のみを通常readerで受理
 
-実装済み:
+## 動作確認済み
 
-- EvidenceBundle v2、typed relation、source別CollectorResult。v1 fixtureは読み込み可能
-- `investigation_runs` / `collector_runs`へのinput/output/bundle/evaluation保存
-- `replay-investigation`, `benchmark-investigation`, `export-investigation-fixture`
-- GitHub source意味解析、OAuth permission relation、repo/app相互corroboration
-- lexicon/recent record/service/resource pageのevidence境界への移行
-- source別retry、Retry-After、TTL cache、request budget、rate-limit stop
-- static/deep/browser service laneと`verify-service`
-- confirmed accountのPDSからのTangled repo探索、UFOs rolling sync
-- 観測済みroot/`www` aliasによるcandidate抑止
+- temp SQLiteでv1→v2 migration、backup、dry-run、再実行
+- identifier/relation/decisionのsave→fetch
+- relation重複排除
+- merge後のblock/defer保持と優先
+- investigation replay / benchmark
+- CLI helpと既存command parser
+- Web entrypointがschema v2未接続を明示して終了すること
+- 全通常テスト166件
+- 2026-06-14にミラー`data/survey.db`を実移行
+  - project 2540件、identifier 18388件、decision 113件、relation 0件
+  - SQLite integrity / foreign key / canonical snapshot検証済み
+  - 旧DBは`data/survey.db.v1-backup-20260614-120431`
+  - 移行後の再実行は`already_current`
 
-動作確認済み:
+## 未接続
 
-- 調査pipelineのunit test 25件
-- 既存Webテストを含む全207 unittest
-- replayがservice follow-up networkを呼ばないこと
-- synthetic 6 case benchmark
-- temp SQLiteでのmigration/run保存/replay
+- Web UI全体。旧Web実装はschema v2 repositoryへ未接続で、entrypointは意図的に停止する
+- command handlerの用途別分割。launcher、parser、`main()`は`project_registry_core.cli`へ分離済みだが、handler本体の多くは`project_registry_core.registry`に残る
+- Tangled optional adapterの通常実行
+- OAuth `include:` permission解決
+- Webからのinvestigation run/evidence表示
 
-未検証:
+## 互換性のためだけに残しているもの
 
-- 実Playwright、実Tangled PDS/UFOs、実API rate-limitでのintegration run
-- 本番ミラー全件への`repair-db --execute`または再enrich
+- CLIの既存command名と主要option
+- collector/evaluationが使うcanonical project dict field
+- `service_url_candidate_values()`、`provider_repo_url_values()`、`resource_url_values()`などの導出helper
 
-未接続:
+旧DB schema、旧Python import API、旧Web payload、EvidenceBundle v1 readerは維持しない。
 
-- Tangled timeline/community search/bot adapterの通常実行
-- OAuth `include:` permission set解決
-- Web UIのrun/evidence表示
+## 次候補
 
-## まず知っておくこと
+- Web UIをschema v2 repositoryへ接続する
+- `project_registry_core.registry`からCLI command handlerを用途別moduleへ切り出す
+- identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
+- service browser laneとidentity corroborationのcorpusを増やす
 
-- DB は `data/survey.db`
-- 2026-06-13 時点のこの worktree の DB は、本番 DB からコピーした分析用ミラー
-  - ユーザー側からの同時更新は行わない前提で、fixture候補の抽出やdry-run比較に利用できる
-  - 本番の正本ではなく、破損しても再コピーできる作業用データとして扱う
-  - 初期read-only棚卸し: 2,540 projects、deferあり29 projects / 80 identifiers
-    - `nsid` 20、`repo_url` 29、`service_url` 31
-    - `blocked_identifiers`あり8 projects、`separate_project_keys`あり19 projects、`tracking_note`あり10 projects
-    - `promotion_deferrals`は保存データ上0件
-- 現在状態の主データテーブルは `projects`
-- 調査履歴は `investigation_runs` / `collector_runs`
-- source ごとの増分 checkpoint は `sync_state`
-- `projects` は現在
-  - scalar columns
-  - `record_json`
-  - `ops_json`
-- `record_json` は高信頼の project record
-- `ops_json` は候補・調査・LLM・merge 制御などの運用情報
-- `deferred_identifiers` は CLI の `defer-identifier` で追加する一時保留 guard
-  - URL は candidate に降格し、NSID は deferred category に保持する
-  - 期限内は自動 confirmed 化を抑制する
-  - Web UI では confirmed/candidate row の `Defer 30d`、`Guards` の期限表示と `Clear defer` を使える
-- `promotion_deferrals` は CLI の `defer-promotion` または `promotion-queue --interactive` の `h` で追加する理由付き一時保留履歴
-  - 既定 7 日。active な期限内 entry がある間だけ promotion queue から除外し、期限切れ後に自動復活する
-  - 履歴は残し、再保留時に直近理由を再利用できる
-  - Web UI では project detail の期限・理由・`Hold 7d`・`Clear hold` を使える
-  - 理由からの復活条件自動判定は未接続
-
-## 運用上の注意
-
-- DB を直接更新する前に、ユーザーへ一声かける
-  - `enrich` が裏で走っている可能性があるため
-- 特に事前確認が必要な操作
-  - `repair-db`
-  - import の `--execute`
-  - `merge --execute`
-  - `merge-batch --execute`
-  - DB への直接 SQL 更新
-- `sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON
-  - 棚卸しだけ行う場合は `--no-create-unmatched`
-- 全 `sync-*` は増分実行が既定
-  - successful execute のみ `sync_state` を更新する
-  - dry-run / 不完全走査 / `--no-create-unmatched` の未一致残りでは更新しない
-  - `sync-introduced` の未一致 URL は state に保留して後日再照合する
-  - 全履歴の再走査は `--all-history`
-- `sync-semble-collections` は Semble の現行 XRPC API
-  `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使う
-  - 旧 `/api/collections/at/{handle}/{rkey}` は 2026-06-07 時点で live 404 を返すことを確認済み
-  - 2026-06-07 に dry-run で `pages=1`, `per-page=1`, `--all-history`, `--no-create-unmatched` を実行し、tracked 2 collection から 2 cards を取得できることを確認済み
-- GUI で DB を触った後は `repair-db` を回す
-  - 既定は dry-run
-  - 実 DB に適用する時だけ `repair-db --execute`
-- セキュリティ scan 後の軽量 hardening
-  - 実装済み:
-    - outbound HTTP fetch は `request_bytes_with_final_url()` で redirect を手動追跡し、各 hop で内部宛てを block する
-    - outbound HTTP fetch の URL validation は query string を保持する
-    - block 対象は loopback / private / link-local / multicast / unspecified / reserved / Tailscale CGNAT `100.64.0.0/10`
-    - operator が明示設定する LLM endpoint 呼び出しは trusted endpoint として扱い、LAN / local endpoint への POST を許可する
-    - Web UI の外部リンク表示は `safeHref()` / `renderExternalLink()` 経由にし、`http:` / `https:` 以外はリンク化しない
-  - 動作確認済み:
-    - private / localhost / Tailscale CGNAT / `javascript:` URL の outbound fetch block
-    - redirect 先が private URL の場合の block
-    - GitHub / Bluesky search のような query parameter 付き URL が validation 後も query string を保持すること
-    - Bluesky actor search は Python request 経路で live 200
-    - LLM endpoint 呼び出しだけは private host を許可する regression test
-    - 全 unittest
-  - 未検証:
-    - 実 LAN / Tailscale endpoint への SSRF 再現
-    - 実ブラウザでの active URL scheme click 再現
-  - 未接続:
-    - LLM endpoint 以外で、operator が明示的に内部 URL を許可する allowlist
-
-## 現在の主要レーン
-
-- 調査 pipeline 境界
-  - 実装済み: relation、run保存/replay、legacy collector境界、service/Tangled/URL alias、retry/cache/budget
-  - 動作確認済み: collector non-mutation、partial failure、fixture再評価、temp DB run保存
-  - 未接続: Tangled optional adapter通常実行、OAuth include解決、Web evidence表示
-  - 正本: [investigation-model.md](investigation-model.md)
-  - 将来課題: [roadmap.md](roadmap.md) と [notes](notes/)
-
-- 新規候補
-  - `collection_count_view`
-  - `sync-introduced` の Bluesky 投稿検索
-- project 調査
-  - `scripts/project_registry.py`
-- テスト
-  - `unittest` ベース
-  - 実行: `python3 -m unittest discover -s tests -v`
-  - `tests/test_project_registry_core.py` は name / service_status / LLM parser / merge scoring
-  - `tests/test_project_registry_storage.py` は temp DB で scalar / `record_json` / `ops_json` / repair 系
-  - `tests/test_project_registry_web.py` は Web UI API と temp DB endpoint
-- URL field 整理
-  - 実装済み:
-    - `resource_url_records` への実 DB migration は適用済み
-    - `resource_urls` は新規保存 payload から除外済み
-    - runtime の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` を読む
-  - 未接続:
-    - API payload / export 互換から `resource_urls` view を落とせるかの最終判断
-    - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` の保存停止判断
-
-## 直近の残件
-
-- ownership は authority/account/schema-record を優先する判定まで実装済み
-  - 未接続: repo/website上のNSIDを`defines_schema`と`uses_collection`でowned/referenceへ明示分離する処理、repo/readme/profileからconfirmed accountを作る処理
-  - 検討中の保証関係: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
-- `service_status` はtop pageの軽量signalと`--deep-investigation`の優先ページprobeまで実装済み
-  - 未接続: page種別ごとのsignal細分化、実際のlogin導線を試すbrowser検証レーン
-  - 現状と次段階: [service-verification.md](notes/service-verification.md)
-- `service_status=unverified` は「未確認」であって dead/private の確定ではない
-  - 特に `coming soon` と app shell が混在するケースは安全側で `unverified`
-- service URL の redirect handling は追加済み
-  - `normalize_url()` は文字列正規化だけで、`http` / `https` や redirect を無条件同一視しない
-  - service probe は `requested_url` / `final_url` / redirect flags を返す
-  - same host の `http -> https` redirect だけ canonical service URL を `https` 側へ寄せる
-  - same site family の redirect 先が project を支持し、`website_url` が未設定なら primary service URL として登録する
-  - 既存 `website_url` がある same site family redirect と、project を支持する cross-host redirect は candidate に留める
-  - cross-host redirect は investigation log に残すが、自動 confirmed にはしない
-- マージ時の主従判定は `project_editorial_preference()` を導入済み
-  - `website_url`, `service_urls`, repo, `service_status`, `introduced_url` を見て service 本体を優先する
-  - ただし既に保存済みの微妙な `tagline` / `summary` を自動で全面修正する仕組みはまだ無い
-  - `proj:f4cead1df6f7` のような既存 project は、LLM 再 `enrich` か手動調整が別途必要
-- LM Studio の `responses` 対応は parser 修正済み
-  - `output_text` が空でも `output[].content[].text` を読める
-  - ただし endpoint 側の shape 差分は今後も増える可能性があるので、再発時は `parse_openai_compatible_response()` を最初に疑う
-
-## 中期の課題
-
-- テスト拡張
-  - HTTP request mock を使った `sync-*` / `enrich_project` の統合テスト
-  - CLI subprocess smoke test
-  - fixture JSON corpus による回帰テスト
-- `service_status` の深掘り
-  - 次は page 本文から実サービス、利用条件、招待制、install / sign-in 導線をより安定して分ける
-  - 詳細は [service-verification.md](notes/service-verification.md)
-- `tagline` / `summary` の再編集
-  - 既存 project には collection/lexicon 主体の文面が残っているものがある
-  - service 本体が優先されるよう merge 側は改善済みだが、保存済み文面の洗い替えはまだ
-  - NSID seed だけで共有 schema とみなさない `lexicon_scope=shared/service_specific/unknown` は追加済み
-  - LLM prompt も service 未発見と共有 lexicon を区別するよう更新済み
-  - 既存文面の洗い替えには LLM 再 `enrich` が必要
-  - `service project` と `lexicon project` で prompt 自体を分ける余地は残る
-- GitHub / Bluesky rate limit 耐性
-  - backoff / partial skip / run-level circuit breaker は未接続
-  - 現状とpolicy候補は [collector-reliability.md](notes/collector-reliability.md)
-- `enrich --all` の中断 / 再開
-  - CLI と Web UI の `Enrich All` は checkpoint helper 接続済み
-  - `Max projects` 空欄時は対象件数を制限しない
-  - Web UI では run id / checkpoint path / resume run id を指定できる
-  - Web UI の停止は project 境界での cooperative stop として実装済み
-  - サーバー再起動後に checkpoint 一覧から選ぶ導線は未接続
-- Web UI background jobs
-  - 実装済み:
-    - Jobs タブは単体 enrich / enrich-all / sync / review job を同じ server-side 一覧から2秒ごとに取得する
-    - 別 browser から開始した job も同じサーバープロセスへ接続していれば表示する
-    - 完了済み job は7日間かつ新しい100件まで、各 job のログは新しい200件まで保持する
-    - queued / running job は retention で削除しない
-  - 未接続:
-    - サーバー再起動後の job / log 永続化
-- 直近 core 更新の Web UI 接続状況
-  - 実装済み:
-    - `review-out-of-scope`、`tracking_state=out_of_scope`、検索 filter、Enrich All の include option
-    - review-stalled の `Max enrich age days` 表示と core の freshness gate
-    - sync の増分同期既定、`--no-incremental` 相当 toggle、all-history、scan/state/watermark の結果要約
-  - 追加接続不要:
-    - resolved lexicon authority service host の信頼判定は、Web enrich が通常の `enrich_project()` を呼ぶため同じ core 実装を使用する
-  - 未接続:
-    - sync 実行前に保存済み scope/watermark を一覧・削除する管理画面
-- `assist-db-edit` の強化
-  - 現状 action は `merge`, `set_separate`, `block_identifier`, `set_tracking_state`
-  - 将来的には `split-project` や seed 追加も自然文から提案できるとよい
-- hosted suffix 追加後の split 監査
-  - `audit-source-config [domain]` は実装済み
-  - suffix の正本は `config/domain-overrides.json`。discovery 設定の `config/sources.json` から分離済み
-  - suffix 追記、tenant 混在の `split_suggestions`、仮分割後の merge candidate 表示まで接続済み
-  - interactive で tenant group を選ぶと service URL / NSID を原子的に切り出す
-  - split 後に元 project がまだ複数 tenant を含む場合は、再計算して同 project を続けて表示する
-  - 共有 repo / lexicon や URL 移転の例外があるため確認必須。non-interactive の自動 split は入れない
-- 旧 discovery フローから取り込み済みでないアイディア
-  - 手動候補を一旦積む inbox 的な導線
-  - `first_seen_at` / `last_seen_at` / recent activity を使った差分ベースの priority 補正
-  - 差分だけをざっと確認する report view
-  - ただし独立 snapshot/state テーブル群は復活させない前提
-- `sync-*` の増分最適化
-  - 実装済み: introduced / collections / GitHub / Semble の source 別 watermark
-  - 動作確認済み: temp DB と mocked HTTP による state 更新、境界停止、未一致保留、dry-run 非更新
-  - 未検証: 実 API を使った連続 2 回の execute による速度・取得件数の比較
-  - 制約: `sync-collections` は activity refresh のため fetch 自体は全件
-  - 制約: Bluesky search cursor は全検索結果を走査できる保証がない
-  - 将来候補: GitHub query の broadness、screen 精度、Semble tracked collection の設定化
-- review 系の改善
-  - `review-queue` は signal を増やしたが、まだ「service は使えそうだが editorial quality が低い」ものの抽出が弱い
-  - `review-stalled` は repo / collection activity を見ているが、`introduced_url` や最近の紹介状況も補助信号に使えるかもしれない
-  - `llm_manual_review_recommended` のうち `service_status_manual_check` は絞り込み済み
-    - 単なる `service_status_confidence=low` では queue に載せない
-    - draft の昇格判断、未紹介 service の紹介前検証、矛盾した status evidence の解消に限る
-    - 採用理由は `details.action_basis`
-  - 他の LLM manual review kind は、レビュー後に変わる判断や完了条件の表現がまだ弱い
-  - `atproto_contribution_level` / score / evidence の rule-based v1 は実装済み
-    - resolved NSID / schema sample は `core`
-    - record sample / collection observation は `substantial`
-    - NSID hint だけなら `optional`
-    - `category=auth_only` は強い protocol surface が無ければ `auth_only`
-    - review / promotion queue の sort に反映済み
-  - docs / README evidence と LLM 補助分類は未接続
-  - 寄与度レビューも、確認結果によって keep / reject、merge、紹介可否、tracking 優先度が変わる場合に寄せる
-  - 実用性と別軸の `technical_interest_level / score / reasons / summary` は追加済み
-    - LLM の暫定評価で `high / exceptional` のものを `promotion-queue` の `technical_insight_candidate` に出す
-    - 新規設計パターン、protocol gap、相互運用実験、特徴的 architecture、参照実装を区別する
-- Web UI 詳細検索
-  - `Search` は自由語 score 検索と tracking state / service status / contribution / technical interest / category / introduced / candidate / error / promotion hold / review signal / 日付 filter の AND 条件に対応済み
-  - browser 側の `key:value` 演算子は canonical な API query parameter へ変換する。API に別 DSL は追加していない
-  - schema 追加なしの in-memory filter なので、遅さが問題になったら scalar 条件を SQLite `WHERE` に寄せる
-
-## `project_registry.py` の重要ポイント
-
-- `add-seed`
-  - `nsid`, `repo_url`, `service_url` を受ける
-  - `pdsls.dev`, `pds.ls`, `at://...` も `nsid` seed として扱う
-- `sync-introduced`
-  - `from:yamarten.bsky.social #ATプロトーク` の Bluesky 検索を既定で使う
-  - seed は増やさず、既存 project の `introduced_url` だけ更新する
-- `sync-collections`
-  - collection inventory API を直接 fetch する
-  - 新規 collection import に加えて、既知 collection の `count/recent_count/max` も refresh する
-- `sync-github-search`
-  - `config/sources.json` の `github_repo_search` を使う
-  - 既知 repo を除いた、最近更新された未知 repo seed を追加する
-- `enrich`
-  - 既定では `tracking_state=active|watchlist` のみ
-  - `stable` と `stalled` は明示 include が必要
-  - local LLM を使う場合、endpoint timeout は `ATPROTO_SURVEY_LLM_TIMEOUT`、既定 `300`
-  - CLI の `enrich --all` checkpoint は実装済み
-    - 既定保存先は `data/enrich-runs/<run_id>.json`
-    - Ctrl+C は traceback ではなく JSON summary と終了コード `130`
-    - `--resume-run <run_id>` は保存済み対象リストから完了済み key を飛ばす
-    - LLM API key の値は checkpoint に保存しない
-  - Web UI の `Enrich All` も同じ checkpoint helper に接続済み
-    - run id / checkpoint path / resume run id を指定できる
-    - Jobs の `Stop after current project` は強制 kill ではなく、project 境界で `interrupted` checkpoint を保存する
-    - サーバー再起動後に checkpoint 一覧から選ぶ導線は未接続
-- `review-stalled`
-  - `stalled` 降格だけでなく `stable` 提案と `active` への復帰提案も返す
-  - repo activity と collection activity のどちらか一方でも最近動いていれば `stalled` に落とさない
-  - `active/watchlist -> stalled` は最近enrich済みのprojectだけを対象にし、古いenrich結果自体は停止根拠にしない
-- `out_of_scope`
-  - atproto関連だが現在の紹介・重点調査スコープ外のprojectを保持する状態として実装済み
-  - `review-out-of-scope` は owned surfaceのない `auth_only` と低noveltyのBluesky従属utilityを候補化する
-  - 通常の enrich/review/promotionからは外すが、sync/merge照合、明示enrich、手動復帰は維持する
-  - 新しいowned protocol surfaceが見つかると `review-out-of-scope` に `active` 復帰候補として出る
-  - sync/enrich途中での無確認な自動復帰は未接続
-  - 現行DBでは、owned surfaceのない明確な `auth_only` 8件を `out_of_scope` へ移行済み
-  - derivative候補は5件残っているが、`atproto-explorer` や `firehose` のような技術調査対象も含むため未適用
-- `repair-db`
-  - scalar 重複除去
-  - 派生フィールド再計算
-  - collision 監査
-  - 既定は dry-run、保存する時だけ `--execute`
-  - invalid JSON の自動救済はしない
-- storage layout migration は完了済み
-  - 現行 DB は `record_json` / `ops_json` / `introduced_url` を含む現在の schema を前提にする
-- URL compatibility view の runtime 整理は一段進めた
-  - `website_url_candidates` は `service_url_candidates` の alias として helper 経由で同期する
-  - `github_repo_urls` / `tangled_repo_urls` は `source_code_urls` / confirmed `source_repo_records` から provider view として再構成する
-  - 保存 field 自体は互換のためまだ残している
-- 次のbreaking整理ではtop-level Python wrapperを削除してよい
-  - CLIは専用moduleへ移して既存command/optionを維持できるため、wrapper削除だけでCLIを変える必要はない
-  - DB migrationは旧DBパスだけを受け取り、成功時に旧DBをbackupへ退避して新DBを同じパスへ置く方針
-- `developer_accounts` / `candidate_developer_accounts`
-  - confirmed / candidate の保存境界は分離済み
-  - merge 時も candidate を保持し、confirmed へ自動昇格しない
-  - 候補 account の Web 確認・昇格操作は未接続
-
-## 既知の前提
-
-- 同一ドメイン配下でも曖昧なら自動吸収しない
-  - 例: `Rito` 本体と派生サービスのようなケース
-  - こういうものは新規 record に落として後で `merge`
-- `merge-batch` は保守的
-  - 危ない候補は通さない前提
-- `set-separate`
-  - 手動で「この 2 件は別物」を相互に記録する
-  - `duplicate_candidates` と `merge_recommendation` からその pair を除外する
-- `block-identifier`
-  - 手動で「この project にこの `service_url` / `repo_url` / `nsid` は付けない」を記録する
-  - `finalize` / `enrich` 後も同じ identifier が戻らないようにする
-- `duplicate_candidates` と `merge_recommendation` は派生データ
-  - 必要なら再計算できる
-  - `review-queue` は高速化のため通常表示では再計算しない
-  - 派生値を明示的に洗い替えたい時は `repair-db` や identifier 更新系操作に寄せる
-- `review-queue` は通常表示で軽量 shape を使う
-  - 保存済み DB を信頼し、一覧表示では full normalization を避ける
-  - 保存時・repair 時の正規化は従来通り
-
-## ドキュメントの読み分け
-
-- 利用者向け
-  - [README.md](../README.md)
-  - [docs/project-registry.md](project-registry.md)
-- 設計・内部仕様
-  - [docs/registry-internals.md](registry-internals.md)
-  - [docs/investigation-model.md](investigation-model.md)
-  - [docs/project-record.md](project-record.md)
-- 将来課題
-  - [docs/roadmap.md](roadmap.md)
-- 設計途中の比較・検討メモ
-  - [docs/notes/](notes/)
-
-## コミット時に気をつけること
-
-- `data/` 配下の JSON は生成物や棚卸しメモが混ざる
-- `data/tldextract-cache/` は生成 cache
-- ユーザーが明示しない限り、`data/*.json` を安易にコミットしない
-- DB スキーマや運用ルールを変えたら、利用者向け文書と内部文書の両方を更新する
+恒久仕様は[project-record.md](project-record.md)、調査契約は[investigation-model.md](investigation-model.md)、内部の具体値は[registry-internals.md](registry-internals.md)、将来課題は[roadmap.md](roadmap.md)を参照してください。

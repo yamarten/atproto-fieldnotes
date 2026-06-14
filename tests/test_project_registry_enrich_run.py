@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
+from project_registry_core import cli
 
 
 class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
@@ -85,7 +86,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             conn.close()
 
         checkpoint_path = Path(self.tempdir.name) / "interrupt.json"
-        args = registry.build_parser().parse_args(
+        args = cli.build_parser().parse_args(
             [
                 "enrich",
                 "--all",

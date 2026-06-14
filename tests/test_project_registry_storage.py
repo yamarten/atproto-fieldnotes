@@ -9,18 +9,19 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+from project_registry_core import cli
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
     def test_sync_parsers_create_unmatched_by_default_with_opt_out(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         for command in ("sync-collections", "sync-github-search", "sync-semble-collections"):
             self.assertTrue(parser.parse_args([command]).create_unmatched)
             self.assertFalse(parser.parse_args([command, "--no-create-unmatched"]).create_unmatched)
 
     def test_sync_parsers_are_incremental_by_default(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         for command in ("sync-introduced", "sync-collections", "sync-github-search", "sync-semble-collections"):
             self.assertTrue(parser.parse_args([command]).incremental)
@@ -193,7 +194,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(state["watermark"], {})
 
     def test_parser_accepts_defer_identifier_command(self) -> None:
-        args = registry.build_parser().parse_args(
+        args = cli.build_parser().parse_args(
             [
                 "defer-identifier",
                 "--project-key",
@@ -211,7 +212,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(args.days, 14)
 
     def test_parser_accepts_defer_promotion_command(self) -> None:
-        args = registry.build_parser().parse_args(
+        args = cli.build_parser().parse_args(
             [
                 "defer-promotion",
                 "--project-key",
@@ -225,13 +226,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(args.days, 7)
 
     def test_parser_accepts_audit_url_fields_command(self) -> None:
-        args = registry.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
+        args = cli.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
 
         self.assertIs(args.func, registry.cmd_audit_url_fields)
         self.assertEqual(args.example_limit, 3)
 
     def test_parser_accepts_cleanup_app_links_command(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         cleanup_args = parser.parse_args(["cleanup-app-links", "--execute"])
 
@@ -244,7 +245,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(repair_args.execute)
 
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         args = parser.parse_args(["audit-source-config", "example.com"])
         dry_run_args = parser.parse_args(["audit-source-config", "example.com", "--no-interactive"])
@@ -254,7 +255,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertFalse(dry_run_args.interactive)
 
     def test_out_of_scope_tracking_state_is_available_to_cli(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         state_args = parser.parse_args(
             ["set-tracking-state", "--project-key", "proj:121212121212", "--tracking-state", "out_of_scope"]
@@ -267,7 +268,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(enrich_args.include_out_of_scope)
 
     def test_review_stalled_parser_accepts_freshness_option_and_legacy_alias(self) -> None:
-        parser = registry.build_parser()
+        parser = cli.build_parser()
 
         args = parser.parse_args(["review-stalled", "--max-enrich-age-days", "21"])
         legacy_args = parser.parse_args(["review-stalled", "--enrich-age-days", "14"])
@@ -276,7 +277,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(legacy_args.max_enrich_age_days, 14)
 
     def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
-        args = registry.build_parser().parse_args(
+        args = cli.build_parser().parse_args(
             ["promotion-queue", "--kinds", "technical_insight_candidate"]
         )
 
@@ -419,7 +420,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
     def test_defer_repo_url_downgrades_to_candidate(self) -> None:
         project = self.make_project("proj:343434343434", "repo_url", "https://github.com/example/app")
         project["source_code_urls"] = ["https://github.com/example/app"]
-        project["github_repo_urls"] = ["https://github.com/example/app"]
 
         registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
         project = registry.finalize_project_shape(project)
@@ -491,7 +491,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
         self.assertEqual(registry.active_promotion_deferral(project)["reason"], "中核機能が未実装")
 
-    def test_save_project_splits_scalars_record_and_ops_payloads(self) -> None:
+    def test_save_project_splits_scalars_profile_state_and_normalized_children(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:aaaaaaaaaaaa", "service_url", "https://example.com")
@@ -527,21 +527,21 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(row["tracking_state"], "active")
             self.assertTrue(row["last_enriched_at"])
 
-            record_payload = json.loads(row["record_json"])
-            ops_payload = json.loads(row["ops_json"])
-            self.assertEqual(record_payload["core"]["summary"], "Example summary")
-            self.assertEqual(record_payload["core"]["tagline"], "Example tagline")
-            self.assertEqual(ops_payload["evidence"]["name_candidates"][0]["value"], "Example App")
-            self.assertEqual(ops_payload["ops"]["service_status_confidence"], "medium")
-            self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "core")
-            self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 90)
-            self.assertEqual(ops_payload["ops"]["lexicon_scope"], "service_specific")
-            self.assertEqual(ops_payload["ops"]["technical_interest_level"], "high")
-            self.assertEqual(ops_payload["ops"]["technical_interest_score"], 70)
-            self.assertEqual(ops_payload["ops"]["promotion_deferrals"][0]["reason"], "中核機能が未実装")
-            self.assertEqual(ops_payload["evidence"]["supported_service_urls"], ["https://example.com"])
-            self.assertEqual(ops_payload["evidence"]["resource_url_records"][0]["role"], "docs")
-            self.assertNotIn("resource_urls", ops_payload["evidence"])
+            profile_payload = json.loads(row["profile_json"])
+            state_payload = json.loads(row["state_json"])
+            self.assertEqual(profile_payload["core"]["summary"], "Example summary")
+            self.assertEqual(profile_payload["core"]["tagline"], "Example tagline")
+            self.assertEqual(state_payload["evidence"]["name_candidates"][0]["value"], "Example App")
+            self.assertEqual(state_payload["ops"]["service_status_confidence"], "medium")
+            self.assertEqual(state_payload["ops"]["atproto_contribution_level"], "core")
+            self.assertEqual(state_payload["ops"]["atproto_contribution_score"], 90)
+            self.assertEqual(state_payload["ops"]["lexicon_scope"], "service_specific")
+            self.assertEqual(state_payload["ops"]["technical_interest_level"], "high")
+            self.assertEqual(state_payload["ops"]["technical_interest_score"], 70)
+            self.assertNotIn("promotion_deferrals", state_payload["ops"])
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM project_decisions WHERE project_key = ?", (project["project_key"],)).fetchone()[0], 1)
+            self.assertEqual(state_payload["evidence"]["supported_service_urls"], ["https://example.com"])
+            self.assertEqual(state_payload["evidence"]["resource_url_records"][0]["role"], "docs")
 
             fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
@@ -549,7 +549,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(fetched["atproto_contribution_level"], "core")
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
-            self.assertEqual(fetched["resource_urls"], ["https://example.com/docs"])
+            self.assertEqual(registry.resource_url_values(fetched), ["https://example.com/docs"])
         finally:
             conn.close()
 
@@ -595,51 +595,33 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_url_field_audit_reports_aliases_and_raw_invariant_violations(self) -> None:
+    def test_url_field_audit_reports_only_canonical_fields(self) -> None:
         conn = registry.open_db()
         try:
             first = self.make_project("proj:urlfieldaudit1", "service_url", "https://example.com")
             first["website_url"] = "https://example.com"
             first["service_urls"] = ["https://example.com"]
-            first["website_url_candidates"] = ["https://candidate.example.com"]
             first["service_url_candidates"] = ["https://candidate.example.com"]
             first["source_code_url"] = "https://github.com/example/app"
             first["source_code_urls"] = ["https://github.com/example/app"]
-            first["github_repo_urls"] = ["https://github.com/example/app"]
             registry.save_project(conn, first)
 
             second = self.make_project("proj:urlfieldaudit2", "service_url", "https://broken.example")
             second["website_url"] = "https://broken.example"
-            second["website_url_candidates"] = ["https://one.example"]
             second["service_url_candidates"] = ["https://two.example"]
-            second["github_repo_urls"] = ["https://github.com/example/missing"]
             registry.save_project(conn, second)
-            row = conn.execute(
-                "SELECT ops_json FROM projects WHERE project_key = ?",
-                ("proj:urlfieldaudit2",),
-            ).fetchone()
-            ops_payload = json.loads(row["ops_json"])
-            ops_payload["evidence"]["service_urls"] = []
-            ops_payload["evidence"]["website_url_candidates"] = ["https://one.example"]
-            ops_payload["evidence"]["service_url_candidates"] = ["https://two.example"]
-            ops_payload["evidence"]["github_repo_urls"] = ["https://github.com/example/missing"]
-            ops_payload["evidence"]["source_code_urls"] = []
-            conn.execute(
-                "UPDATE projects SET ops_json = ? WHERE project_key = ?",
-                (json.dumps(ops_payload), "proj:urlfieldaudit2"),
-            )
-            conn.commit()
 
             summary = registry.build_url_field_audit(conn)
             aliases = {(item["left"], item["right"]): item for item in summary["alias_relationships"]}
             anomalies = {item["kind"]: item for item in summary["anomalies"]}
 
             self.assertEqual(summary["project_count"], 2)
-            self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 1)
-            self.assertEqual(aliases[("website_url_candidates", "service_url_candidates")]["exact_match_projects"], 1)
-            self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 1)
-            self.assertEqual(anomalies["website_candidate_alias_mismatch"]["project_count"], 1)
-            self.assertEqual(anomalies["github_repo_url_missing_from_source_code_urls"]["project_count"], 1)
+            self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 2)
+            self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 0)
+            self.assertEqual(summary["migration_candidates"], [])
+            fields = {item["field"] for item in summary["field_inventory"]}
+            self.assertNotIn("website_url_candidates", fields)
+            self.assertNotIn("github_repo_urls", fields)
         finally:
             conn.close()
 
@@ -713,7 +695,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 """
                 INSERT INTO projects (
                     project_key, name, website_url, service_status, tracking_state,
-                    introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+                    introduced_url, profile_json, state_json, first_seen_at, last_seen_at, last_enriched_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -724,21 +706,25 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "active",
                     "",
                     "{}",
-                    json.dumps({"evidence": {"input_nsids": ["app.example.post"]}}),
+                    json.dumps({"evidence": {"atproto_contribution_level": "unknown"}}),
                     now,
                     now,
                     None,
                 ),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification) VALUES (?, ?, ?, ?, ?, ?)",
+                ("proj:legacycontri", 0, "nsid", "app.example.post", "input_nsid", "candidate"),
             )
             conn.commit()
 
             summary = registry.audit_and_repair_identifiers(conn, execute=True)
             self.assertEqual(summary["mode"], "execute")
 
-            row = conn.execute("SELECT ops_json FROM projects WHERE project_key = ?", ("proj:legacycontri",)).fetchone()
-            ops_payload = json.loads(row["ops_json"])
-            self.assertEqual(ops_payload["ops"]["atproto_contribution_level"], "optional")
-            self.assertEqual(ops_payload["ops"]["atproto_contribution_score"], 40)
+            row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:legacycontri",)).fetchone()
+            state_payload = json.loads(row["state_json"])
+            self.assertEqual(state_payload["ops"]["atproto_contribution_level"], "optional")
+            self.assertEqual(state_payload["ops"]["atproto_contribution_score"], 40)
         finally:
             conn.close()
 
@@ -856,7 +842,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.save_project(conn, high)
             conn.commit()
 
-            args = registry.build_parser().parse_args(["promotion-queue", "--interactive", "--limit", "1"])
+            args = cli.build_parser().parse_args(["promotion-queue", "--interactive", "--limit", "1"])
             with (
                 mock.patch.object(registry, "open_db", return_value=conn),
                 mock.patch.object(registry, "output_project_queue", return_value=0) as output,
@@ -943,7 +929,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 """
                 INSERT INTO projects (
                     project_key, name, website_url, service_status, tracking_state,
-                    introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+                    introduced_url, profile_json, state_json, first_seen_at, last_seen_at, last_enriched_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (

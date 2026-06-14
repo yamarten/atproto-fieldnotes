@@ -42,7 +42,6 @@
 
 - investigation runのretention
 - 複数projectを跨ぐ永続circuit breaker
-- legacy project fieldの廃止順
 - Web UIからのevidence inspection導線
 
 設計途中の詳細は次の作業用文書へ分離しています。
@@ -119,16 +118,9 @@
 - docs / README を材料にした「主要機能か追加機能か」の細分化
 - LLM による曖昧ケースの補助分類
 
-### provider 別 convenience field
-
-次は evidence から再構成できるなら、将来的に縮退候補です。
-
-- `github_repo_urls`
-- `tangled_repo_urls`
-
 ### Web UI 詳細検索
 
-現行のfilterとAPIは [project-registry.md](project-registry.md) を正本とします。将来候補は次です。
+Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次です。
 
 - SQLite FTS table の追加
 - typo tolerance / edit distance
@@ -142,6 +134,8 @@
 
 未接続 / 将来候補:
 
+- schema v2 repositoryとnormalized identifier/relation/decision tableへの接続
+- project detail、編集、merge、review queueのv2 payload化
 - Enrich All checkpoint の運用改善
   - サーバー再起動後に `data/enrich-runs/*.json` を一覧し、Jobs / Sync から選んで再開する導線は未実装
   - UI job state と checkpoint state の履歴表示をどう同期するかは未検討
@@ -160,22 +154,11 @@
 
 ## TODO
 
+- `project_registry_core.registry`に残るcommand handlerを用途別moduleへ切り出す
+- identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
-- `github_repo_urls` / `tangled_repo_urls` の保存を止めるか、caller と export の整理後に判断する
-- URL field migration
-  - 保存 payload / API payload / export から compatibility view を落とせるか確認する
-  - provider ごとの account/resource scope extractor と `owned_service / likely_owned_service / upstream_dependency / unknown` relation classifier を追加する
-- breaking DB migration
-  - 旧schemaの通常読み込み互換は維持せず、一方向の書き捨てmigrationを用意する
-  - operatorは旧DBのパスだけを指定する。output pathやbackup pathの指定は通常不要にする
-  - migrationは同じdirectoryへ一時DBを作り、検証成功後に旧DBをtimestamp付きbackupへrenameし、新DBを旧パスへ置く
-  - migration失敗時は旧DBをそのまま残し、一時DBだけを失敗artifactとして報告する
-  - 明示optionが必要ならdry-run、backupを残さない危険操作、出力先overrideなど例外用途に限定する
-- CLI / Python API split
-  - `project_registry.py`のtop-level Python互換wrapperは削除可能
-  - CLI parserと`main()`は専用moduleへ移し、`scripts/project-registry`と既存command/option/outputは必要な範囲で維持する
-  - Python import APIを壊すこととCLI操作を変えることは別migrationとして扱う
+- providerごとのaccount/resource scope extractorと`owned_service / likely_owned_service / upstream_dependency / unknown` relation classifierを追加する
 - `inspired_by` を app metadata として昇格させるか再判断する
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
@@ -183,6 +166,6 @@
   - service status signal の粒度改善、LLM evidence の service/lexicon prompt 分岐、browser確認レーンを検討する
   - 詳細は [service-verification.md](notes/service-verification.md)
 - 旧 field 互換の名残を整理する
-  - 内部 shape にはまだ `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` など legacy 的な field が残る
-  - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons` の record / ops 境界を明確にする
+  - runtime shapeにはまだ`primary_nsid`, `bluesky_handles`, `tangled_handles`などcanonical flat fieldが残る
+  - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons`のidentifier roleとruntime viewの境界をさらに明確にする
 - Web UI で `candidate_developer_accounts` を確認・昇格する操作を設計する

@@ -32,7 +32,7 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
    - `projects` を現在状態の materialized record として保存する
    - 同じ SQLite に input/output snapshot、評価、bundle、source 状態も保存する
 
-`scripts/project_registry.py` は既存 CLI / top-level API の facade と orchestration を維持します。
+CLI入口は`scripts/project-registry`、`main()`は`project_registry_core.cli`です。調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIは削除済みです。
 
 ## Evidence classification
 
@@ -46,7 +46,7 @@ classification は project field の confidence と同義ではありません�
 
 ## EvidenceBundle v2
 
-実装済みの v2 は v1 fixture を読み込めます。
+通常readerが受理するのはEvidenceBundle v2だけです。旧v1 fixtureはv2へ変換済みで、v1互換readerは削除しました。
 
 - `EvidenceBundle`
   - `schema_version`, `project_key`, `collected_at`

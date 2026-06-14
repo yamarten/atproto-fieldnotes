@@ -67,14 +67,13 @@ def apply_url_aliases(project: dict[str, Any]) -> None:
         for item in project["url_aliases"]
         if item.get("confidence") == "confirmed"
     }
-    for field in ("service_url_candidates", "website_url_candidates"):
-        values = project.get(field, [])
-        project[field] = list(dict.fromkeys(
-            canonical_alias_url(project, str(item))
-            for item in values
-            if canonical_alias_url(project, str(item)) not in canonical_urls
-            or canonical_alias_url(project, str(item)) not in {
-                normalize_origin(str(project.get("website_url") or "")),
-                *(normalize_origin(str(url)) for url in project.get("service_urls", [])),
-            }
-        ))
+    values = project.get("service_url_candidates", [])
+    project["service_url_candidates"] = list(dict.fromkeys(
+        canonical_alias_url(project, str(item))
+        for item in values
+        if canonical_alias_url(project, str(item)) not in canonical_urls
+        or canonical_alias_url(project, str(item)) not in {
+            normalize_origin(str(project.get("website_url") or "")),
+            *(normalize_origin(str(url)) for url in project.get("service_urls", [])),
+        }
+    ))

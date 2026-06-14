@@ -1,6 +1,6 @@
 # Registry Internals
 
-`project_registry.py` の内部仕様と運用メモです。利用者向けの操作手順は [docs/project-registry.md](project-registry.md) を参照してください。
+registry schema version 2の内部仕様と運用メモです。利用手順は [project-registry.md](project-registry.md)、保存モデルの正本は [project-record.md](project-record.md) を参照してください。
 
 ## 運用前提
 
@@ -12,28 +12,15 @@
 
 ## データの持ち方
 
-`projects` テーブルは現在、次の二層で持ちます。
+現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。調査履歴は`investigation_runs` / `collector_runs`です。
 
-- scalar columns
-  - 一覧や絞り込みで多用する値
-  - `project_key`, `name`, `website_url`, `service_status`, `tracking_state`, `introduced_url`, `first_seen_at`, `last_seen_at`, `last_enriched_at`
-- `record_json`
-  - 高信頼の project record
-- `ops_json`
-  - 候補、調査、LLM 出力、merge 制御、activity などの運用情報
+旧schemaは通常起動で自動変換せず、`scripts/project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
 
-調査履歴は同じ SQLite の専用 table に保存します。
-
-- `investigation_runs`
-  - input/output project snapshot、EvidenceBundle、evaluation version、保存済み評価
-- `collector_runs`
-  - source/operation ごとの状態と、対応する record/failure
-
-`repair-db` は新構造の正規化と派生フィールド再計算の dry-run summary を出します。DB に適用する時は `repair-db --execute` を使います。
+`repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 ## 旧 discovery フローの扱い
 
-旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `scripts/project_registry.py` だけを前提にします。
+旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `scripts/project-registry` だけを前提にします。
 
 ただし、次の発想は今後も流用価値があります。
 
@@ -84,8 +71,8 @@ python3 -m unittest discover -s tests -v
 heuristic を変更する時は、該当する core/storage テストを追加または更新します。
 
 - name / URL / service status / LLM response parser / merge scoring のような DB 非依存の判定は `tests/test_project_registry_core.py`
-- `record_json` / `ops_json` / scalar 分割、`save_project` / `fetch_project` / `repair-db` 相当の保存構造は `tests/test_project_registry_storage.py`
-- Web API の操作導線や temp DB 経由の endpoint は `tests/test_project_registry_web.py`
+- `profile_json` / `state_json` / normalized child tables 分割、`save_project` / `fetch_project` / `repair-db` 相当の保存構造は `tests/test_project_registry_storage.py`
+- Web entrypoint が schema v2 未接続を明示して停止することは `tests/test_project_registry_web_unavailable.py`
 
 外部 API、実 DB `data/survey.db`、実 LLM endpoint は通常テストから切り離します。必要な SQLite DB は temp directory に作ります。
 
@@ -108,58 +95,19 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 
 ### URL field の整理
 
-URL field は次の 5 層で扱います。
+canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。補助pageは`resource_url_records`に残します。
 
-- canonical
-  - `website_url`, `source_code_url`, `introduced_url`
-- confirmed set
-  - `service_urls`, `source_code_urls`
-- candidate
-  - `service_url_candidates`, `candidate_source_code_urls`
-- observation
-  - `resource_url_records`, `evidence_urls`, `failed_service_urls`, `supported_service_urls`
-- derived compatibility view
-  - `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls`, `resource_urls`, `record_json.app.links`
+削除済みのruntime compatibility field:
 
-`introduced_url` は editorial reference であり service identity ではありません。`resource_url_records` は調査時の補助 page 群の正本であり、confirmed service set ではありません。`resource_urls` はその compatibility view です。`supported_service_urls` は candidate prune を生き残らせる heuristic observation であり、confirmed set ではありません。
+- `website_url_candidates`
+- `github_repo_urls`
+- `tangled_repo_urls`
+- `resource_urls`
+- `introduced`
 
-`resource_url_records` は `url / role / source / observed_at / confidence` を持ちます。新規 first-party link は same-site の時だけ `confidence=confirmed`、外部 link は `candidate` にします。既存 `resource_urls` は shape 時に `role=unknown`, `source=legacy_resource_urls`, `confidence=legacy` として lossless に読み込みます。同じ URL の confirmed observation が追加された時は legacy record を畳みます。通常導線の補助ページ判定、resource page probe、LLM evidence、merge/finalize は `resource_url_values()` / `resource_url_record_values()` を通して読みます。`resource_urls` は runtime compatibility view として導出しますが、新規保存 payload には書きません。`record_json.app.links` には confirmed かつ export 対象 role の record だけを昇格します。
+provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
-`website_url_candidates` は保存上はまだ残しますが、runtime では `service_url_candidates` の compatibility alias として同期します。通常導線の候補判定、review signal、merge/finalize は `service_url_candidate_values()` を通して読みます。
-
-`github_repo_urls` / `tangled_repo_urls` も保存上はまだ残しますが、runtime では `source_code_urls` と confirmed `source_repo_records` から provider view を再構成します。通常導線の repo 判定、review signal、merge/finalize は `source_code_url_values()` / `provider_repo_url_values()` を通して読みます。
-
-root host と `www` host は文字列だけでは同一視しません。HTTP redirect、HTML canonical、または同一
-content hashを実際に観測した relationだけをconfirmed aliasにします。confirmed canonical URLが既に
-登録されている場合だけalias candidateを抑止します。他subdomainは畳まず、`graph.at.fund`のような
-別surfaceは残します。
-
-`audit-url-fields` は raw 保存 payload を読み、field 件数、alias 関係、invariant 違反を報告します。DB は変更しません。derived compatibility view は保存 field としてまだ残しているため、現状は削除せず migration 候補として扱います。
-
-旧 `resource_urls` の `resource_url_records` への保存 migration は実 DB へ適用済みで、one-shot CLI は削除しました。`cleanup-app-links` は既定 dry-run で、canonical URL field と confirmed resource record から `record_json.app.links` を再構築します。scalar、review 派生値、`last_seen_at` は更新しません。
-
-### Legacy field 直接参照の棚卸し
-
-実装済み:
-
-- `website_url_candidates` は `service_url_candidate_values()` / `set_service_url_candidate_values()` 経由で `service_url_candidates` と同期する
-- `github_repo_urls` / `tangled_repo_urls` は `source_code_url_values()` / `provider_repo_url_values()` / `sync_source_repo_provider_views()` 経由で confirmed source repo view として再構成する
-- `resource_urls` は `resource_url_values()` / `resource_url_record_values()` 経由で `resource_url_records` 正本から読む
-- `developer_accounts` は confirmed、`candidate_developer_accounts` は未確認候補として分離する
-  - merge 時も candidate を失わず、confirmed へ自動昇格しない
-
-互換・表示のため残す直接参照:
-
-- `project_json_payload()` / `shape_project_for_api()` / `show` / Web payload の出力互換
-- `audit-url-fields` の raw 保存監査
-- `ensure_project_shape()` / `save_project()` / `finalize_project_shape()` の legacy fold-in と正規化
-- test fixture で legacy 入力を再現する箇所
-
-未接続 / 将来候補:
-
-- 保存 payload から `website_url_candidates`, `github_repo_urls`, `tangled_repo_urls` を止める判断
-- API / export 互換から `resource_urls` view を落とせるかの判断
-- `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` の record / ops 境界整理
+`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`cleanup-app-links`は`profile_json.app.links`をcanonical identifierとconfirmed resource recordから再構築します。
 
 ## enrich の流れ
 
@@ -181,7 +129,7 @@ content hashを実際に観測した relationだけをconfirmed aliasにしま�
 実装済み:
 
 - `project_registry_core/evidence.py`
-  - `EvidenceBundle` schema version 2、v1 fixture 読み込み互換
+  - `EvidenceBundle` schema version 2
   - `EvidenceRecord`, relation、`CollectorFailure`, `CollectorResult`
 - `project_registry_core/investigation.py`
   - deterministic / LLM query planning
@@ -198,8 +146,8 @@ content hashを実際に観測した relationだけをconfirmed aliasにしま�
   - investigation run保存、network-free replay、fixture benchmark
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service lane、Tangled PDS/UFOs、typed relation
-- `project_registry.py`
-  - 既存関数名の互換 wrapper
+- `project_registry_core/registry.py`
+  - legacy orchestration と既存 CLI command handler
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
 
 動作確認済み:
@@ -232,9 +180,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
-`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。実装済みの範囲は CLI と Web UI の `Enrich All` background job です。開始時に選択された project key list を固定し、各 project の保存後に `completed_project_keys` を更新します。CLI の Ctrl+C 時は `status=interrupted`、処理中 key、再開 command を保存・出力し、次回 `--resume-run` は完了済み key を飛ばします。
+`enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。CLI は開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+C時は`status=interrupted`、処理中key、再開commandを保存・出力し、次回`--resume-run`は完了済みkeyを飛ばします。
 
-Web UI の停止は強制 kill ではありません。Jobs の `Stop after current project` は `stop_requested` を立て、現在の project が commit / rollback された後の project 境界で `status=interrupted` を checkpoint に保存します。Web UI の resume は checkpoint の対象 project key list を再利用し、完了済み key を飛ばします。未接続なのは、サーバー再起動後に checkpoint 一覧を自動発見して Jobs に復元する導線です。
+Web UI は schema v2 repository へ未接続です。旧Web background jobやcheckpoint操作は通常導線として利用できません。
 
 ## enrich の判断材料
 
@@ -271,7 +219,7 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 - repo metadata から取るもの:
   - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
-  - `homepage` は `service_url_candidates` / `website_url_candidates`
+  - `homepage` は `service_url_candidates`
   - `updated_at` は `source_repo_records[].updated_at`
 - tree / lexicon hint の扱い:
   - `lexicon/`, `lexicons/`, `schema/` 配下などの JSON を lexicon 候補として走査します
@@ -331,7 +279,7 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
     - authority domain と一致
     - alias token と host が強く一致
 - 上の条件を満たさないが page は支持している時:
-  - `service_url_candidates` / `website_url_candidates` に留めます
+  - `service_url_candidates` に留めます
 - page が project を支持しない時:
   - その URL は project から外します
 - `4xx` / fetch error は:
@@ -382,7 +330,7 @@ Web UI の停止は強制 kill ではありません。Jobs の `Stop after curr
 
 ### 3.1 `service_status` の現在地と残件
 
-現在の `service_status` は、以前の単純なキーワード分類から一段進めて、`ops_json.ops` に次を持ちます。
+現在の `service_status` は、以前の単純なキーワード分類から一段進めて、scalar columnと`state_json`の評価detailに次を持ちます。
 
 - `service_status`
 - `service_status_confidence`
@@ -748,12 +696,12 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 
 ### 6. 内部 shape の最終整理
 
-- schema は `record_json` / `ops_json` に移行済み
-- ただしコード内部では legacy 的な flat field をまだ多く使う
+- schema v2ではidentifier、relation、decisionを専用tableへ移行済み
+- ただしcollector/evaluation間のruntimeではcanonicalなflat project dictをまだ多く使う
 - 長期的には:
-  - flat shape を減らす
-  - `record` と `ops` の境界をさらに厳密にする
-  - `primary_nsid`, `bluesky_handles`, `tangled_handles`, `introduced` などの名残を消す
+  - typed aggregateまたは用途別viewへ寄せ、全project hydrateを減らす
+  - normalized tableを直接queryする検索・collision監査を増やす
+  - `primary_nsid`, `bluesky_handles`, `tangled_handles`などruntime canonical fieldの責務を狭める
 - 3 は suggestion に落とします
 - unmatched を `--screen-unmatched` する場合:
   - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
@@ -908,25 +856,9 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 
 ## 保存レイヤの方針
 
-`record_json` は高信頼のみを保持します。
+`projects`はscalar、`profile_json`、`state_json`だけを持つmaterialized current stateです。`profile_json`は紹介・表示に使う編集済み情報、`state_json`は低頻度の評価結果と調査補助を保持します。
 
-- `core`
-  - `summary`, `tagline`, `manual_seeds`, `brand_did`, `source_code_url`, `lexicon_namespaces`, `notes`
-- `app`
-  - app export 向けの確かな metadata
-  - 現時点では `tags`, `platforms`, `links` を保持
-  - `links` は role を確信できる URL だけを入れる
-  - 正式対応 role は `website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`
-  - 情報が無ければ空 object のまま保持する
-
-`ops_json` は判断が揺れるものと運用データです。
-
-- `ops`
-  - review / merge / 紹介運用の制御情報
-- `evidence`
-  - URL 候補、repo 観測、NSID 解決、LLM 出力、分類補助の材料
-
-迷うものは `record_json` に入れません。特に `app` は低優先度で、確かな情報が無ければ空 object のままにします。
+identifier、relation evidence、operator decisionの正本はそれぞれ`project_identifiers`、`project_relations`、`project_decisions`です。`profile_json`/`state_json`へ複製保存しません。詳細なfieldとhydrate規則は[project-record.md](project-record.md)を正本とします。
 
 ## NSIDの扱い
 
@@ -955,7 +887,6 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - `resource_url_records`
   - record ごとに `legacy / candidate / confirmed` を持つ
 - candidate
-  - `website_url_candidates`
   - `service_url_candidates`
   - `candidate_source_code_urls`
 - deferred
@@ -1061,6 +992,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
   - `domain_identity_tokens`
   - `merge_aliases`
 - これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
+- `github_repo_urls`は保存fieldではなく、`source_code_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
 - ただし次は最初から除外します
   - 自分自身
   - `separate_project_keys` で相互 block された pair
@@ -1182,7 +1114,7 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 既定は dry-run です。`--execute` を付けた時だけ正規化と派生フィールド再計算を保存します。collision は報告のみで、自動 merge / separate は行いません。
 
 旧 `data_json` 前処理はもう行いません。
-schema cleanup も完了済みで、現行 DB は現在の `projects` 列構成と `record_json` / `ops_json` を前提にします。
+schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは`migrate-db`でのみ読み込みます。
 
 ## review-stalled
 

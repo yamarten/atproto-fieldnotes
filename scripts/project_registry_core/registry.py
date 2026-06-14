@@ -37,6 +37,7 @@ from project_registry_core import tangled as tangled_core
 from project_registry_core import url_alias as url_alias_core
 from project_registry_core import legacy_collectors as legacy_collector_core
 from project_registry_core import reliability as reliability_core
+from project_registry_core import database as registry_database
 
 try:
     import tldextract  # type: ignore
@@ -44,7 +45,7 @@ except Exception:  # pragma: no cover - optional dependency
     tldextract = None
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
 DOMAIN_OVERRIDES_PATH = ROOT / "config" / "domain-overrides.json"
@@ -302,14 +303,10 @@ URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories", "migration": "keep"},
     {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces", "migration": "keep"},
     {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories", "migration": "keep"},
-    {"field": "resource_urls", "layer": "derived_compat", "role": "URL view of resource_url_records", "migration": "derive_only_later"},
     {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations", "migration": "keep"},
     {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs", "migration": "keep"},
     {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes", "migration": "keep"},
     {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes", "migration": "keep"},
-    {"field": "website_url_candidates", "layer": "derived_compat", "role": "legacy alias of service_url_candidates", "migration": "derive_or_drop"},
-    {"field": "github_repo_urls", "layer": "derived_compat", "role": "GitHub view of source_code_urls", "migration": "derive_or_drop"},
-    {"field": "tangled_repo_urls", "layer": "derived_compat", "role": "Tangled view of source_code_urls", "migration": "derive_or_drop"},
 )
 
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
@@ -371,7 +368,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "name_candidates",
         "summary_candidates",
         "tagline_candidates",
-        "website_url_candidates",
         "service_urls",
         "resource_url_records",
         "service_url_candidates",
@@ -379,8 +375,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "supported_service_urls",
         "source_code_urls",
         "candidate_source_code_urls",
-        "github_repo_urls",
-        "tangled_repo_urls",
         "developer_accounts",
         "candidate_developer_accounts",
         "bluesky_handles",
@@ -807,7 +801,7 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
 
 
 def service_url_candidate_values(project: dict[str, Any]) -> list[str]:
-    candidates = list(project.get("service_url_candidates", [])) + list(project.get("website_url_candidates", []))
+    candidates = list(project.get("service_url_candidates", []))
     return unique_list(
         [
             normalized
@@ -826,7 +820,6 @@ def set_service_url_candidate_values(project: dict[str, Any], values: list[str])
         ]
     )
     project["service_url_candidates"] = candidates
-    project["website_url_candidates"] = list(candidates)
 
 
 def add_unique(values: list[str], value: str) -> list[str]:
@@ -1174,7 +1167,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "project_state": "",
         "brand_did": "",
         "ownership_signal": "unknown",
-        "introduced": False,
         "introduced_url": "",
         "tracking_state": "active",
         "tracking_note": "",
@@ -1193,9 +1185,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "authority_domains": [],
         "external_lexicons": [],
         "website_url": "",
-        "website_url_candidates": [],
         "service_urls": [],
-        "resource_urls": [],
         "resource_url_records": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
@@ -1216,8 +1206,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "source_code_urls": [],
         "candidate_source_code_urls": [],
         "source_repo_records": [],
-        "github_repo_urls": [],
-        "tangled_repo_urls": [],
         "bluesky_handles": [],
         "tangled_handles": [],
         "developer_accounts": [],
@@ -1465,7 +1453,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["tags"] = unique_list([str(item).strip() for item in defaults.get("tags", []) if str(item).strip()])
     defaults["platforms"] = unique_list([str(item).strip() for item in defaults.get("platforms", []) if str(item).strip()])
     defaults["links"] = normalize_app_links(list(defaults.get("links", []) or []))
-    defaults["introduced"] = bool(defaults.get("introduced") or defaults.get("introduced_url"))
     defaults["introduced_url"] = normalize_url(str(defaults.get("introduced_url") or "")) if defaults.get("introduced_url") else ""
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
@@ -1518,8 +1505,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["source_code_urls"] = normalize_repo_collection(defaults.get("source_code_urls", []))
     if defaults["source_code_url"] and defaults["source_code_url"] not in defaults["source_code_urls"]:
         defaults["source_code_urls"] = [defaults["source_code_url"], *defaults["source_code_urls"]]
-    defaults["github_repo_urls"] = normalize_repo_collection(defaults.get("github_repo_urls", []), provider="github")
-    defaults["tangled_repo_urls"] = normalize_repo_collection(defaults.get("tangled_repo_urls", []), provider="tangled")
     defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
     sync_source_repo_provider_views(defaults)
@@ -1535,10 +1520,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         [normalize_nsid(str(item)) for item in defaults.get("external_lexicons", []) if item]
         + compute_external_lexicons(defaults)
     )
-    defaults["resource_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("resource_urls", []) if normalize_url(str(item))])
     sync_resource_url_records(defaults)
     defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
+    for removed_field in ("website_url_candidates", "github_repo_urls", "tangled_repo_urls", "resource_urls", "introduced"):
+        defaults.pop(removed_field, None)
     return apply_technical_interest_state(apply_atproto_contribution_state(defaults))
 
 
@@ -1870,61 +1856,8 @@ def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
 
 def open_db() -> sqlite3.Connection:
     ensure_dirs()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS projects (
-            project_key TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            website_url TEXT NOT NULL,
-            service_status TEXT NOT NULL,
-            tracking_state TEXT NOT NULL DEFAULT 'active',
-            introduced_url TEXT NOT NULL DEFAULT '',
-            record_json TEXT NOT NULL DEFAULT '{}',
-            ops_json TEXT NOT NULL DEFAULT '{}',
-            first_seen_at TEXT NOT NULL,
-            last_seen_at TEXT NOT NULL,
-            last_enriched_at TEXT
-        )
-        """
-    )
+    conn = registry_database.open_database(DB_PATH)
     investigation_storage.ensure_investigation_tables(conn)
-    columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
-    if "tracking_state" not in columns:
-        conn.execute("ALTER TABLE projects ADD COLUMN tracking_state TEXT NOT NULL DEFAULT 'active'")
-    if "introduced_url" not in columns:
-        conn.execute("ALTER TABLE projects ADD COLUMN introduced_url TEXT NOT NULL DEFAULT ''")
-    if "record_json" not in columns:
-        conn.execute("ALTER TABLE projects ADD COLUMN record_json TEXT")
-    if "ops_json" not in columns:
-        conn.execute("ALTER TABLE projects ADD COLUMN ops_json TEXT")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sync_state (
-            scope_key TEXT PRIMARY KEY,
-            kind TEXT NOT NULL,
-            scope_json TEXT NOT NULL DEFAULT '{}',
-            watermark_json TEXT NOT NULL DEFAULT '{}',
-            last_success_at TEXT NOT NULL
-        )
-        """
-    )
-    rows = conn.execute("SELECT project_key, tracking_state, introduced_url FROM projects").fetchall()
-    for row in rows:
-        normalized = normalize_tracking_state(str(row["tracking_state"] or "active"))
-        if normalized != str(row["tracking_state"] or "active"):
-            conn.execute(
-                "UPDATE projects SET tracking_state = ? WHERE project_key = ?",
-                (normalized, str(row["project_key"])),
-            )
-        introduced_url = normalize_url(str(row["introduced_url"] or ""))
-        if introduced_url != str(row["introduced_url"] or ""):
-            conn.execute(
-                "UPDATE projects SET introduced_url = ? WHERE project_key = ?",
-                (introduced_url, str(row["project_key"])),
-            )
     conn.commit()
     return conn
 
@@ -2000,18 +1933,19 @@ def sync_watermark_datetime(state: dict[str, Any], key: str = "timestamp") -> dt
 
 def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    record_payload = flatten_grouped_payload(load_json(str(row["record_json"] or "")) or {}) if "record_json" in row.keys() else {}
-    ops_payload = flatten_grouped_payload(load_json(str(row["ops_json"] or "")) or {}) if "ops_json" in row.keys() else {}
-    payload.update(record_payload)
-    payload.update(ops_payload)
+    profile_payload = flatten_grouped_payload(load_json(str(row["profile_json"] or "")) or {})
+    state_payload = flatten_grouped_payload(load_json(str(row["state_json"] or "")) or {})
+    payload.update(profile_payload)
+    payload.update(state_payload)
     for field in PROJECT_STORAGE_SCALAR_FIELDS:
         if field in row.keys():
             payload[field] = row[field]
     return payload
 
 
-def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
+def project_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     payload = project_from_row_payload(row)
+    registry_database.hydrate_project_children(conn, payload)
     return ensure_project_shape(payload)
 
 
@@ -2020,14 +1954,14 @@ def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set
     if field_name == "resource_url_records":
         return {record["url"] for record in normalize_resource_url_records(value if isinstance(value, list) else [])}
     values = value if isinstance(value, list) else ([value] if value else [])
-    if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls", "github_repo_urls", "tangled_repo_urls"}:
+    if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls"}:
         return {normalized for item in values if (normalized := canonical_repo_url(str(item)))}
     return {normalized for item in values if (normalized := normalize_url(str(item)))}
 
 
 def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
     rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
-    projects = [project_from_row_payload(row) for row in rows]
+    projects = [project_from_row(conn, row) for row in rows]
     field_summaries: list[dict[str, Any]] = []
     for spec in URL_FIELD_INVENTORY:
         field_name = spec["field"]
@@ -2049,10 +1983,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
 
     alias_pairs = (
         ("website_url", "service_urls", "canonical_in_confirmed_set"),
-        ("website_url_candidates", "service_url_candidates", "legacy_alias"),
         ("source_code_url", "source_code_urls", "canonical_in_confirmed_set"),
-        ("github_repo_urls", "source_code_urls", "provider_view"),
-        ("tangled_repo_urls", "source_code_urls", "provider_view"),
     )
     alias_summaries: list[dict[str, Any]] = []
     for left, right, relation in alias_pairs:
@@ -2085,10 +2016,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
 
     anomaly_specs = (
         ("website_url_missing_from_service_urls", lambda p: normalized_url_field_values(p, "website_url") - normalized_url_field_values(p, "service_urls")),
-        ("website_candidate_alias_mismatch", lambda p: normalized_url_field_values(p, "website_url_candidates") ^ normalized_url_field_values(p, "service_url_candidates")),
         ("source_code_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "source_code_url") - normalized_url_field_values(p, "source_code_urls")),
-        ("github_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "github_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
-        ("tangled_repo_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "tangled_repo_urls") - normalized_url_field_values(p, "source_code_urls")),
         ("confirmed_candidate_service_overlap", lambda p: normalized_url_field_values(p, "service_urls") & normalized_url_field_values(p, "service_url_candidates")),
         ("observed_url_alias_still_candidate", lambda p: {
             normalize_url(str(item.get("alias") or ""))
@@ -2117,11 +2045,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "field_inventory": field_summaries,
         "alias_relationships": alias_summaries,
         "anomalies": anomalies,
-        "migration_candidates": [
-            "derive_or_drop website_url_candidates after callers use service_url_candidates",
-            "derive_or_drop github_repo_urls and tangled_repo_urls from source_code_urls or source_repo_records",
-            "derive_or_drop resource_urls compatibility view after API/export callers no longer need it",
-        ],
+        "migration_candidates": [],
     }
 
 
@@ -2167,26 +2091,6 @@ def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
         core["tagline_is_provisional"] = True
     if project.get("summary"):
         core["summary"] = project.get("summary")
-    if project.get("manual_seeds"):
-        core["manual_seeds"] = project.get("manual_seeds")
-    if project.get("brand_did"):
-        core["brand_did"] = project.get("brand_did")
-    source_code_url = canonical_repo_url(str(project.get("source_code_url") or ""))
-    if not source_code_url:
-        source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
-        if source_code_urls:
-            source_code_url = source_code_urls[0]
-    if source_code_url:
-        core["source_code_url"] = source_code_url
-    lexicon_namespaces = unique_list(
-        [
-            normalize_nsid(str(item))
-            for item in list(project.get("lexicon_namespaces", [])) + list(project.get("recorded_lexicon_namespaces", []))
-            if str(item or "").strip()
-        ]
-    )
-    if lexicon_namespaces:
-        core["lexicon_namespaces"] = lexicon_namespaces
     if project.get("notes"):
         core["notes"] = project.get("notes")
     if core:
@@ -2207,21 +2111,11 @@ def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
 
 def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
     ops_payload = compact_grouped_payload(OPS_JSON_GROUP_FIELDS, project)
-
-    evidence = dict(ops_payload.get("evidence") or {})
-    lexicon_namespaces = unique_list(
-        [
-            normalize_nsid(str(item))
-            for item in list(project.get("lexicon_namespaces", [])) + list(project.get("recorded_lexicon_namespaces", []))
-            if str(item or "").strip()
-        ]
-    )
-    if lexicon_namespaces:
-        evidence["lexicon_namespaces"] = lexicon_namespaces
-    if evidence:
-        ops_payload["evidence"] = evidence
-
-    return ops_payload
+    return {
+        group: registry_database.strip_normalized_fields(dict(values))
+        for group, values in ops_payload.items()
+        if registry_database.strip_normalized_fields(dict(values))
+    }
 
 
 def build_project_comparison_payload(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -2264,7 +2158,9 @@ def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] 
     ).fetchone()
     if row is None:
         return None
-    return project_from_row(row)
+    payload = project_from_row_payload(row)
+    registry_database.hydrate_project_children(conn, payload)
+    return ensure_project_shape(payload)
 
 
 def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
@@ -2323,7 +2219,7 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
             """,
             tuple(requested),
         ).fetchall()
-    return [project_from_row(row) for row in rows]
+    return [project_from_row(conn, row) for row in rows]
 
 
 def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
@@ -2371,13 +2267,9 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "service_status_evidence",
         "service_urls",
         "service_url_candidates",
-        "website_url_candidates",
         "failed_service_urls",
         "source_code_urls",
         "candidate_source_code_urls",
-        "github_repo_urls",
-        "tangled_repo_urls",
-        "resource_urls",
         "resource_url_records",
         "collection_observations",
         "source_repo_records",
@@ -2433,7 +2325,7 @@ def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | N
             """,
             tuple(requested),
         ).fetchall()
-    return [lightweight_review_project_shape(project_from_row_payload(row)) for row in rows]
+    return [lightweight_review_project_shape(project_from_row(conn, row)) for row in rows]
 
 
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
@@ -2774,7 +2666,13 @@ def find_project_key_for_nsid_seed(projects: list[dict[str, Any]], nsid: str) ->
             return project_key, "service_host_family"
     return None, ""
 
-def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bool = False) -> None:
+def save_project(
+    conn: sqlite3.Connection,
+    project: dict[str, Any],
+    enriched: bool = False,
+    *,
+    preserve_timestamps: bool = False,
+) -> None:
     now = iso_now()
     project = ensure_project_shape(project)
     project["primary_nsid"] = normalize_nsid(project.get("primary_nsid", "")) if project.get("primary_nsid") else ""
@@ -2787,7 +2685,6 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["external_lexicons"] = unique_list(project.get("external_lexicons", []) + compute_external_lexicons(project))
     set_service_url_candidate_values(project, service_url_candidate_values(project))
     project["service_urls"] = unique_list(project.get("service_urls", []))
-    project["resource_urls"] = unique_list(project.get("resource_urls", []))
     sync_resource_url_records(project)
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
     project["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in project.get("supported_service_urls", []) if normalize_url(str(item))])
@@ -2797,8 +2694,6 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["source_code_urls"] = normalize_repo_collection(project.get("source_code_urls", []))
     project["candidate_source_code_urls"] = normalize_repo_collection(project.get("candidate_source_code_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
-    project["github_repo_urls"] = normalize_repo_collection(project.get("github_repo_urls", []), provider="github")
-    project["tangled_repo_urls"] = normalize_repo_collection(project.get("tangled_repo_urls", []), provider="tangled")
     sync_source_repo_provider_views(project)
     project["bluesky_handles"] = unique_list(project.get("bluesky_handles", []))
     project["tangled_handles"] = unique_list(project.get("tangled_handles", []))
@@ -2810,7 +2705,6 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
     project["name_candidates"] = [dict(item) for item in project.get("name_candidates", []) if isinstance(item, dict)]
     project["tags"] = unique_list(project.get("tags", []))
     project["platforms"] = unique_list(project.get("platforms", []))
-    project["introduced"] = bool(project.get("introduced"))
     project["introduced_url"] = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
     project["last_promoted_at"] = str(project.get("last_promoted_at") or "")
     project["promotion_events"] = [dict(item) for item in project.get("promotion_events", []) if isinstance(item, dict)]
@@ -2837,10 +2731,19 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
         """,
         (project["project_key"],),
     ).fetchone()
-    first_seen_at = str(existing["first_seen_at"]) if existing else now
-    last_enriched_at = now if enriched else None
+    first_seen_at = (
+        str(project.get("first_seen_at") or now)
+        if preserve_timestamps
+        else (str(existing["first_seen_at"]) if existing else now)
+    )
+    last_seen_at = str(project.get("last_seen_at") or now) if preserve_timestamps else now
+    last_enriched_at = (
+        str(project.get("last_enriched_at") or "") or None
+        if preserve_timestamps
+        else (now if enriched else None)
+    )
     project["first_seen_at"] = first_seen_at
-    project["last_seen_at"] = now
+    project["last_seen_at"] = last_seen_at
     if last_enriched_at:
         project["last_enriched_at"] = last_enriched_at
     if existing is None:
@@ -2848,7 +2751,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
             """
             INSERT INTO projects (
                 project_key, name, website_url, service_status, tracking_state,
-                introduced_url, record_json, ops_json, first_seen_at, last_seen_at, last_enriched_at
+                introduced_url, profile_json, state_json, first_seen_at, last_seen_at, last_enriched_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -2861,7 +2764,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 dump_json(project_record_payload(project), sort_keys=False),
                 dump_json(project_ops_payload(project), sort_keys=False),
                 first_seen_at,
-                now,
+                last_seen_at,
                 last_enriched_at,
             ),
         )
@@ -2874,7 +2777,7 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
         conn.execute(
             """
             UPDATE projects
-            SET name = ?, website_url = ?, service_status = ?, tracking_state = ?, introduced_url = ?, record_json = ?, ops_json = ?,
+            SET name = ?, website_url = ?, service_status = ?, tracking_state = ?, introduced_url = ?, profile_json = ?, state_json = ?,
                 last_seen_at = ?, last_enriched_at = ?
             WHERE project_key = ?
             """,
@@ -2886,11 +2789,12 @@ def save_project(conn: sqlite3.Connection, project: dict[str, Any], enriched: bo
                 project.get("introduced_url", ""),
                 dump_json(project_record_payload(project), sort_keys=False),
                 dump_json(project_ops_payload(project), sort_keys=False),
-                now,
+                last_seen_at,
                 last_enriched_at or existing_last_enriched,
                 project["project_key"],
             ),
         )
+    registry_database.replace_project_children(conn, project)
     conn.commit()
 
 
@@ -2956,10 +2860,6 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
         parsed = urllib.parse.urlparse(normalized)
-        if parsed.netloc == "github.com":
-            project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
-        elif parsed.netloc == "tangled.org":
-            project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
         segments = [segment for segment in parsed.path.split("/") if segment]
         if segments:
             add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
@@ -3107,8 +3007,6 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
             project["source_code_url"] = ""
         project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
         project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
-        project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
-        project["tangled_repo_urls"] = [url for url in project.get("tangled_repo_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
@@ -3165,8 +3063,6 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
             project["source_code_url"] = ""
         project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
         project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
-        project["github_repo_urls"] = [url for url in project.get("github_repo_urls", []) if canonical_repo_url(str(url or "")) != normalized]
-        project["tangled_repo_urls"] = [url for url in project.get("tangled_repo_urls", []) if canonical_repo_url(str(url or "")) != normalized]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
@@ -3217,7 +3113,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     normalized_projects = 0
     for row in rows:
         stored_payload = project_from_row_payload(row)
-        raw = project_from_row(row)
+        raw = project_from_row(conn, row)
         original = ensure_project_shape(raw)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
         contribution_changed = any(
@@ -4337,6 +4233,10 @@ def manual_service_hosts(project: dict[str, Any]) -> set[str]:
 
 def manual_repo_urls(project: dict[str, Any]) -> set[str]:
     urls: set[str] = set()
+    if str(project.get("seed_type") or "") == "repo_url":
+        seed_url = canonical_repo_url(str(project.get("seed_value") or ""))
+        if seed_url:
+            urls.add(seed_url)
     for seed in project.get("manual_seeds", []):
         if str(seed.get("type") or "") != "repo_url":
             continue
@@ -4484,10 +4384,8 @@ def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -
     return unique_list(normalized_urls)
 
 
-def source_code_url_values(project: dict[str, Any], *, include_legacy_provider_views: bool = True) -> list[str]:
+def source_code_url_values(project: dict[str, Any]) -> list[str]:
     urls = list(project.get("source_code_urls", []))
-    if include_legacy_provider_views:
-        urls += list(project.get("github_repo_urls", [])) + list(project.get("tangled_repo_urls", []))
     urls += [
         str(record.get("url") or "")
         for record in normalize_source_repo_records(project.get("source_repo_records", []))
@@ -4509,8 +4407,6 @@ def provider_repo_url_values(project: dict[str, Any], provider: str) -> list[str
 
 def sync_source_repo_provider_views(project: dict[str, Any]) -> None:
     project["source_code_urls"] = source_code_url_values(project)
-    project["github_repo_urls"] = provider_repo_url_values(project, "github")
-    project["tangled_repo_urls"] = provider_repo_url_values(project, "tangled")
 
 
 def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -4909,10 +4805,6 @@ def confirm_source_code_url(
     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
     provider = infer_repo_provider(normalized)
-    if provider == "github":
-        project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
-    if provider == "tangled":
-        project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
     record = {
         "url": normalized,
         "provider": provider,
@@ -4995,21 +4887,6 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
 
 def resource_url_record_values(project: dict[str, Any], *, include_legacy_view: bool = True) -> list[dict[str, str]]:
     records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
-    if include_legacy_view:
-        recorded_urls = {record["url"] for record in records}
-        for url in unique_list([normalize_url(str(item)) for item in project.get("resource_urls", []) if normalize_url(str(item))]):
-            if url in recorded_urls:
-                continue
-            records.append(
-                {
-                    "url": url,
-                    "role": "unknown",
-                    "source": "legacy_resource_urls",
-                    "observed_at": "",
-                    "confidence": "legacy",
-                }
-            )
-        records = normalize_resource_url_records(records)
     website_url = normalize_url(str(project.get("website_url") or ""))
     service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
     return [
@@ -5055,7 +4932,6 @@ def deep_investigation_page_urls(project: dict[str, Any], *, max_pages: int = 6)
         + [str(item or "") for item in project.get("service_urls", [])]
         + [str(item or "") for item in project.get("supported_service_urls", [])]
         + [str(item or "") for item in project.get("service_url_candidates", [])]
-        + [str(item or "") for item in project.get("website_url_candidates", [])]
     )
     for service_url in service_surfaces:
         if is_bluesky_profile_url(service_url):
@@ -5108,7 +4984,6 @@ def apply_resource_page_probe_status(project: dict[str, Any], page_url: str, res
 
 def sync_resource_url_records(project: dict[str, Any]) -> None:
     project["resource_url_records"] = resource_url_record_values(project)
-    project["resource_urls"] = resource_url_values(project, include_legacy_view=False)
 
 
 def add_resource_url(
@@ -5144,7 +5019,6 @@ def add_resource_url(
             }
         ]
     )
-    project["resource_urls"] = add_unique(project.get("resource_urls", []), normalized)
     sync_resource_url_records(project)
 
 
@@ -5226,7 +5100,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         elif relation in {"official_link", "same_site_repo"} and same_site_evidence:
             record = dict(record)
             record["confidence"] = "confirmed"
-        elif confidence == "confirmed" and not repo_url_allowed_for_project(project, url):
+        elif confidence == "confirmed" and relation != "tangled_account_repo" and not repo_url_allowed_for_project(project, url):
             continue
         elif confidence != "confirmed" and not repo_candidate_allowed_for_project(project, url):
             continue
@@ -5522,11 +5396,6 @@ def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) ->
     if repo_url_allowed_for_project(project, normalized):
         project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
-        parsed = urllib.parse.urlparse(normalized)
-        if parsed.netloc == "github.com":
-            project["github_repo_urls"] = add_unique(project.get("github_repo_urls", []), normalized)
-        elif parsed.netloc in {"tangled.org", "tangled.sh"}:
-            project["tangled_repo_urls"] = add_unique(project.get("tangled_repo_urls", []), normalized)
         sync_source_repo_provider_views(project)
     project["candidate_source_code_urls"] = [
         item for item in project.get("candidate_source_code_urls", [])
@@ -5538,7 +5407,7 @@ def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) ->
 def all_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     cur = conn.execute("SELECT * FROM projects ORDER BY project_key")
     rows = cur.fetchall()
-    return [project_from_row(row) for row in rows]
+    return [project_from_row(conn, row) for row in rows]
 
 
 def project_search_candidates(
@@ -6338,18 +6207,17 @@ def sync_introduced_entries(
         if project is None:
             unmatched += 1
             continue
-        was_introduced = bool(project.get("introduced_url") or project.get("introduced"))
+        was_introduced = bool(project.get("introduced_url"))
         if was_introduced:
             already_introduced += 1
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
-        project["introduced"] = True
         if not project.get("introduced_url") and item["post_web_urls"]:
             project["introduced_url"] = item["post_web_urls"][0]
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)
         matched_project_keys.append(project["project_key"])
-        is_introduced_now = bool(project.get("introduced_url") or project.get("introduced"))
+        is_introduced_now = bool(project.get("introduced_url"))
         if not was_introduced and is_introduced_now:
             imported_project_keys.append(project["project_key"])
         if execute:
@@ -8531,11 +8399,10 @@ def project_identity_hosts(project: dict[str, Any], *, include_candidates: bool 
         if host:
             hosts.add(host)
     if include_candidates:
-        for key in ("service_url_candidates", "website_url_candidates"):
-            for value in project.get(key, []):
-                host = urllib.parse.urlparse(normalize_url(str(value or ""))).netloc.lower()
-                if host and not is_shared_official_identity_host(host):
-                    hosts.add(host)
+        for value in project.get("service_url_candidates", []):
+            host = urllib.parse.urlparse(normalize_url(str(value or ""))).netloc.lower()
+            if host and not is_shared_official_identity_host(host):
+                hosts.add(host)
     return {host for host in hosts if host}
 
 
@@ -8825,9 +8692,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "record_creators": project.get("record_creators", []),
         "authority_domains": project.get("authority_domains", []),
         "website_url": project.get("website_url") or "",
-        "website_url_candidates": project.get("website_url_candidates", []),
         "service_urls": project.get("service_urls", []),
-        "resource_urls": resource_url_values(project),
         "resource_url_records": resource_url_record_values(project),
         "service_url_candidates": project.get("service_url_candidates", []),
         "failed_service_urls": project.get("failed_service_urls", []),
@@ -8839,8 +8704,6 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
         "candidate_source_code_urls": candidate_repo_urls[:2],
-        "github_repo_urls": project.get("github_repo_urls", []),
-        "tangled_repo_urls": project.get("tangled_repo_urls", []),
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
         "developer_accounts": project.get("developer_accounts", []),
@@ -10003,7 +9866,7 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
     project_key = str(project.get("project_key") or "")
     if not project_key:
         return commands
-    commands.append(f"python3 scripts/project_registry.py show -p {project_key} --format json")
+    commands.append(f"scripts/project-registry show -p {project_key} --format json")
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {
         "llm_manual_review_recommended",
@@ -10014,18 +9877,18 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         "external_lexicon_dependency_needs_review",
         "category_recheck_needed",
     }:
-        commands.append(f"python3 scripts/project_registry.py enrich -p {project_key} --deep-investigation")
+        commands.append(f"scripts/project-registry enrich -p {project_key} --deep-investigation")
     if "service_candidate_needs_confirmation" in signal_kinds:
         service_candidates = project_service_hint_urls(project)
         if service_candidates:
             commands.append(
-                f"python3 scripts/project_registry.py add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
+                f"scripts/project-registry add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
             )
     if "candidate_repo_needs_confirmation" in signal_kinds:
         repo_candidates = project_repo_hint_urls(project)
         if repo_candidates:
             commands.append(
-                f"python3 scripts/project_registry.py add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
+                f"scripts/project-registry add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
             )
     return commands
 
@@ -10037,7 +9900,7 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
         return commands
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {"service_ready_for_introduction", "lexicon_ready_for_introduction"}:
-        commands.append(f"python3 scripts/project_registry.py enrich -p {project_key} --deep-investigation")
+        commands.append(f"scripts/project-registry enrich -p {project_key} --deep-investigation")
     return unique_list(commands)
 
 
@@ -11433,7 +11296,6 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["resource_url_records"] = normalize_resource_url_records(
         list(resource_url_record_values(merged)) + list(resource_url_record_values(source))
     )
-    merged["resource_urls"] = resource_url_values(merged, include_legacy_view=False)
     merged["failed_service_urls"] = unique_list(list(merged.get("failed_service_urls", [])) + list(source.get("failed_service_urls", [])))
     merged["supported_service_urls"] = unique_list(list(merged.get("supported_service_urls", [])) + list(source.get("supported_service_urls", [])))
     merged["service_status"] = merge_service_status(str(merged.get("service_status") or "unknown"), str(source.get("service_status") or "unknown"))
@@ -11461,7 +11323,6 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
         list(merged.get("candidate_developer_accounts", [])) + list(source.get("candidate_developer_accounts", []))
     )
 
-    merged["introduced"] = bool(merged.get("introduced") or source.get("introduced"))
     merged["introduced_url"] = choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url"))
 
     merged["app_category"] = choose_preferred_scalar(merged.get("app_category"), source.get("app_category"))
@@ -11642,6 +11503,8 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             slug = extract_github_slug(provider_repo_url_values(project, "github")[0])
             if slug:
                 project["name"] = slug.split("/")[-1]
+    for removed_field in ("website_url_candidates", "github_repo_urls", "tangled_repo_urls", "resource_urls", "introduced"):
+        project.pop(removed_field, None)
     return project
 
 
@@ -12250,12 +12113,12 @@ def cmd_enrich(args: argparse.Namespace) -> int:
                 "app_category": project.get("app_category", ""),
                 "tagline_is_provisional": project.get("tagline_is_provisional", False),
                 "website_url": project.get("website_url", ""),
-                "introduced": project.get("introduced", False),
+                "introduced": bool(project.get("introduced_url")),
                 "introduced_url": project.get("introduced_url", ""),
                 "last_promoted_at": project.get("last_promoted_at", ""),
                 "last_run_errors": project.get("last_run_errors", []),
                 "merge_recommendation": project.get("merge_recommendation", {}),
-                "github_repo_urls": project.get("github_repo_urls", []),
+                "github_repo_urls": provider_repo_url_values(project, "github"),
                 "resolved_nsids": project.get("resolved_nsids", []),
             }, ensure_ascii=False))
         if checkpoint is not None:
@@ -12323,12 +12186,12 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  resolved_nsids={', '.join(project.get('resolved_nsids', [])) or '-'}")
         print(f"  namespaces={', '.join(project.get('recorded_lexicon_namespaces', [])) or '-'}")
         print(f"  website={project.get('website_url') or '-'}")
-        print(f"  website_candidates={', '.join(project.get('website_url_candidates', [])) or '-'}")
+        print(f"  website_candidates={', '.join(project.get('service_url_candidates', [])) or '-'}")
         print(f"  service_status={project.get('service_status') or '-'}")
         print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
-        print(f"  introduced={project.get('introduced', False)} introduced_url={project.get('introduced_url') or '-'}")
+        print(f"  introduced={bool(project.get('introduced_url'))} introduced_url={project.get('introduced_url') or '-'}")
         print(f"  last_promoted_at={project.get('last_promoted_at') or '-'} promotion_events={len(project.get('promotion_events', []))}")
-        print(f"  github={', '.join(project.get('github_repo_urls', [])) or '-'}")
+        print(f"  github={', '.join(provider_repo_url_values(project, 'github')) or '-'}")
         print(f"  source_code={', '.join(project.get('source_code_urls', [])) or '-'}")
         print(f"  candidate_source_code={', '.join(project.get('candidate_source_code_urls', [])) or '-'}")
         print(f"  features={'; '.join(project.get('features', [])) or '-'}")
@@ -13828,10 +13691,10 @@ def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False
 
     for row in rows:
         project_key = str(row["project_key"])
-        record_payload = load_json(str(row["record_json"] or "{}")) or {}
+        record_payload = load_json(str(row["profile_json"] or "{}")) or {}
         if not isinstance(record_payload, dict):
-            raise ValueError(f"record_json must be an object: {project_key}")
-        project = project_from_row(row)
+            raise ValueError(f"profile_json must be an object: {project_key}")
+        project = project_from_row(conn, row)
         existing_links = normalize_app_links(list(project.get("links", []) or []))
         rebuilt_links = build_project_app_links(project, include_existing=False)
         links_before += len(existing_links)
@@ -13863,7 +13726,7 @@ def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False
         record_payload["app"] = app
         if execute:
             conn.execute(
-                "UPDATE projects SET record_json = ? WHERE project_key = ?",
+                "UPDATE projects SET profile_json = ? WHERE project_key = ?",
                 (dump_json(record_payload, sort_keys=False), project_key),
             )
     if execute:
@@ -13887,6 +13750,12 @@ def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_migrate_db(args: argparse.Namespace) -> int:
+    report = registry_database.migrate_database(Path(args.database), dry_run=bool(args.dry_run))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
@@ -14121,7 +13990,7 @@ def split_commands_for_tenant(project_key: str, group: dict[str, list[str]]) -> 
     ):
         for value in values:
             commands.append(
-                "python3 scripts/project_registry.py split-project "
+                "scripts/project-registry split-project "
                 f"--project-key {shlex.quote(project_key)} "
                 f"--identifier-type {identifier_type} "
                 f"--value {shlex.quote(str(value))}"
@@ -15045,7 +14914,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         "merged_tagline_is_provisional": merged.get("tagline_is_provisional", False),
         "merged_service_status": merged.get("service_status", ""),
         "merged_source_code_urls": merged.get("source_code_urls", []),
-        "introduced": merged.get("introduced", False),
+        "introduced": bool(merged.get("introduced_url")),
         "introduced_url": merged.get("introduced_url", ""),
         "merge_recommendation": source.get("merge_recommendation", {}),
     }
@@ -15362,7 +15231,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
             payload["suggested_target"] = target_candidates[0]
         if source_candidates and target_candidates:
             payload["suggested_command"] = (
-                "python3 scripts/project_registry.py "
+                "scripts/project-registry "
                 + ("merge" if action == "merge" else "set-separate")
                 + f" -p {source_candidates[0]['project_key']} "
                 + (f"-t {target_candidates[0]['project_key']}" if action == "merge" else f"-o {target_candidates[0]['project_key']}")
@@ -15430,7 +15299,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
             payload["suggested_project"] = project_candidates[0]
             if identifier_type and identifier_value:
                 payload["suggested_command"] = (
-                    "python3 scripts/project_registry.py block-identifier "
+                    "scripts/project-registry block-identifier "
                     f"-p {project_candidates[0]['project_key']} -i {identifier_type} -v {identifier_value}"
                 )
         can_execute = len(project_candidates) == 1 and identifier_type in {"nsid", "repo_url", "service_url"} and bool(identifier_value)
@@ -15466,7 +15335,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
         if project_candidates:
             payload["suggested_project"] = project_candidates[0]
             payload["suggested_command"] = (
-                "python3 scripts/project_registry.py set-tracking-state "
+                "scripts/project-registry set-tracking-state "
                 f"-p {project_candidates[0]['project_key']} -S {tracking_state}"
             )
         can_execute = len(project_candidates) == 1 and tracking_state in TRACKING_STATES
@@ -15493,366 +15362,3 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
     payload["message"] = "supported actions: merge, set_separate, block_identifier, set_tracking_state"
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Register manual ATProto project seeds and enrich project records.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
-    add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")
-    add_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Override automatic seed type detection.")
-    add_parser.add_argument("-p", "--project-key", help="Attach the seed to an existing project key.")
-    add_parser.set_defaults(func=cmd_add_seed)
-
-    enrich_parser = subparsers.add_parser("enrich", help="Enrich one or more projects.")
-    enrich_group = enrich_parser.add_mutually_exclusive_group(required=True)
-    enrich_group.add_argument("-p", "--project-key", help="Target one project key.")
-    enrich_group.add_argument("--seed", help="Target by known seed value.")
-    enrich_group.add_argument("--all", action="store_true", help="Enrich all registered projects.")
-    enrich_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    enrich_parser.add_argument(
-        "-A",
-        "--all-tracking-states",
-        action="store_true",
-        help="When used with --all, ignore tracking_state filtering and enrich every project.",
-    )
-    enrich_parser.add_argument(
-        "--tracking-states",
-        nargs="+",
-        choices=sorted(TRACKING_STATES),
-        help="When used with --all, override the default tracking_state set explicitly.",
-    )
-    enrich_parser.add_argument("--include-stable", action="store_true", help="When used with --all, include projects marked stable.")
-    enrich_parser.add_argument("--include-stalled", action="store_true", help="When used with --all, include projects marked stalled.")
-    enrich_parser.add_argument("--include-out-of-scope", action="store_true", help="When used with --all, include projects currently outside the survey scope.")
-    enrich_parser.add_argument("--include-archived", action="store_true", help="When used with --all, include projects marked archived.")
-    enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
-    enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
-    enrich_parser.add_argument("--retry-failures", action="store_true", help="When used with --all, enrich only projects whose previous enrich left last_run_errors.")
-    enrich_parser.add_argument("--run-id", help="When used with --all, use this id for the resumable checkpoint file.")
-    enrich_parser.add_argument("--resume-run", help="Resume a previous --all enrich run from its checkpoint run id.")
-    enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")
-    enrich_parser.add_argument("--no-checkpoint", action="store_true", help="When used with --all, disable resumable checkpoint writing.")
-    enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
-    enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
-    enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
-    enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
-    enrich_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
-    enrich_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for LLM calls.")
-    enrich_parser.set_defaults(func=cmd_enrich)
-
-    show_parser = subparsers.add_parser("show", help="Show registered projects.")
-    show_group = show_parser.add_mutually_exclusive_group(required=True)
-    show_group.add_argument("-p", "--project-key", help="Target one project key.")
-    show_group.add_argument("--seed", help="Target by known seed value.")
-    show_group.add_argument("--all", action="store_true", help="Show all projects.")
-    show_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
-    show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
-    show_parser.set_defaults(func=cmd_show)
-
-    review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
-    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
-    review_queue_parser.add_argument("--kinds", nargs="+", choices=[
-        "service_candidate_needs_confirmation",
-        "candidate_repo_needs_confirmation",
-        "llm_manual_review_recommended",
-        "service_now_usable_but_needs_editorial_review",
-        "more_evidence_than_current_classification",
-        "stale_metadata_with_recent_activity",
-        "service_status_unverified_but_promising",
-        "category_recheck_needed",
-        "external_lexicon_dependency_needs_review",
-        "high_information_density",
-        "many_identity_candidates",
-    ], help="Restrict to specific review signal kinds.")
-    review_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
-    review_queue_parser.add_argument("--interactive", action="store_true", help="Step through review items interactively in a TTY.")
-    review_queue_parser.set_defaults(func=cmd_review_queue)
-
-    promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
-    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist.")
-    promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
-        "service_ready_for_introduction",
-        "lexicon_ready_for_introduction",
-        "technical_insight_candidate",
-    ], help="Restrict to specific promotion signal kinds.")
-    promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
-    promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
-    promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
-    promotion_queue_parser.set_defaults(func=cmd_promotion_queue)
-
-    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
-    review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
-    review_stalled_parser.add_argument(
-        "--max-enrich-age-days",
-        "--enrich-age-days",
-        dest="max_enrich_age_days",
-        type=int,
-        default=30,
-        help="Only consider stalled downgrades when the project was enriched within this freshness window. Default: 30.",
-    )
-    review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
-    review_stalled_parser.add_argument("--interactive", action="store_true", help="Step through stalled-review candidates interactively and apply confirmed updates.")
-    review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
-    review_stalled_parser.set_defaults(func=cmd_review_stalled)
-
-    review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest unrelated or identity-less noise that likely deserves tracking_state=ignore.")
-    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active watchlist stable stalled.")
-    review_ignore_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
-    review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
-    review_ignore_parser.add_argument("--interactive", action="store_true", help="Step through ignore candidates interactively and apply confirmed ignores.")
-    review_ignore_parser.add_argument("--note", help="Optional tracking note to store when applying ignore updates.")
-    review_ignore_parser.add_argument("--note-reason", choices=sorted(IGNORE_REVIEW_NOTE_REASONS), help="Preset review-ignore note category to store with ignored projects.")
-    review_ignore_parser.set_defaults(func=cmd_review_ignore)
-
-    review_scope_parser = subparsers.add_parser(
-        "review-out-of-scope",
-        help="Suggest related projects that are currently outside the survey scope but should remain re-evaluable.",
-    )
-    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active watchlist stable stalled out_of_scope.")
-    review_scope_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
-    review_scope_parser.add_argument("--execute", action="store_true", help="Apply suggested tracking_state=out_of_scope updates. Without this flag, show a dry-run summary only.")
-    review_scope_parser.add_argument("--interactive", action="store_true", help="Step through out-of-scope candidates interactively and apply confirmed updates.")
-    review_scope_parser.add_argument("--note", help="Optional tracking note to store when applying out-of-scope updates.")
-    review_scope_parser.add_argument("--note-reason", choices=sorted(OUT_OF_SCOPE_REVIEW_NOTE_REASONS), help="Preset reason category to store with out-of-scope projects.")
-    review_scope_parser.set_defaults(func=cmd_review_out_of_scope)
-
-    seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
-    seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")
-    seed_list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    seed_list_parser.set_defaults(func=cmd_import_seed_list)
-
-    sync_introduced_parser = subparsers.add_parser("sync-introduced", help="Search Bluesky posts and mark matching projects as introduced.")
-    sync_introduced_parser.add_argument("--query", default="from:yamarten.bsky.social #ATプロトーク", help="Bluesky post search query. Default: from:yamarten.bsky.social #ATプロトーク")
-    sync_introduced_parser.add_argument("--limit", type=int, default=10, help="Posts to request per search page. Default: 10.")
-    sync_introduced_parser.add_argument("--max-pages", type=int, default=100, help="Safety limit for paginated search requests. Default: 100.")
-    sync_introduced_parser.add_argument("--lookback-days", type=int, default=7, help="Initial lookback before a successful incremental sync exists. Default: 7.")
-    sync_introduced_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the last successful sync. Default: enabled; use --no-incremental to ignore stored state.")
-    sync_introduced_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for this run.")
-    sync_introduced_parser.add_argument("--execute", action="store_true", help="Apply introduced flags. Without this flag, show a dry-run summary only.")
-    sync_introduced_parser.set_defaults(func=cmd_sync_introduced)
-
-    sync_github_parser = subparsers.add_parser("sync-github-search", help="Search GitHub repositories and import unknown repo seeds.")
-    sync_github_parser.add_argument("--query", action="append", help="Override one GitHub repository search query. Can be passed multiple times.")
-    sync_github_parser.add_argument("--pages", type=int, help="How many GitHub search result pages to scan.")
-    sync_github_parser.add_argument("--per-page", type=int, help="How many results to fetch per page.")
-    sync_github_parser.add_argument("--lookback-days", type=int, default=10, help="Only consider repos updated within this many days. Default: 10.")
-    sync_github_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
-    sync_github_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume each query from its last successful sync. Default: enabled.")
-    sync_github_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_github_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown GitHub repos. Default: enabled; use --no-create-unmatched to list only.")
-    sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
-    sync_github_parser.set_defaults(func=cmd_sync_github_search)
-
-    sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
-    sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")
-    sync_collections_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_collections_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unmatched imported collections. Default: enabled; use --no-create-unmatched to list only.")
-    sync_collections_parser.add_argument("--lookback-days", type=int, default=10, help="Initial lookback for collections whose latest activity timestamp is recent. Default: 10.")
-    sync_collections_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Use the last successful inventory watermark. Default: enabled.")
-    sync_collections_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for unknown collections.")
-    sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
-    sync_collections_parser.set_defaults(func=cmd_sync_collections)
-
-    sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
-    sync_semble_parser.add_argument("--pages", type=int, default=100, help="Safety limit for Semble pages per tracked collection. Default: 100; incremental scans stop at the saved boundary.")
-    sync_semble_parser.add_argument("--per-page", type=int, default=20, help="How many collection cards to fetch per page. Default: 20.")
-    sync_semble_parser.add_argument("--lookback-days", type=int, default=14, help="Only consider cards updated within this many days. Default: 14.")
-    sync_semble_parser.add_argument("--all-history", action="store_true", help="Disable updated_at lookback and inspect every fetched page result once.")
-    sync_semble_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume each tracked collection from its last successful sync. Default: enabled.")
-    sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
-    sync_semble_parser.set_defaults(func=cmd_sync_semble_collections)
-
-    sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync the recent UFOs Tangled repository rolling window.")
-    sync_tangled_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched ATProto-relevant repos. Default: disabled.")
-    sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
-    sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
-    sync_tangled_parser.set_defaults(func=cmd_sync_tangled_repos)
-
-    replay_parser = subparsers.add_parser("replay-investigation", help="Replay a saved investigation without collectors or network access.")
-    replay_target = replay_parser.add_mutually_exclusive_group(required=True)
-    replay_target.add_argument("--run-id", help="Replay one saved investigation run.")
-    replay_target.add_argument("-p", "--project-key", help="Replay the latest saved run for one project.")
-    replay_parser.set_defaults(func=cmd_replay_investigation)
-
-    benchmark_parser = subparsers.add_parser("benchmark-investigation", help="Replay an investigation fixture corpus and report semantic regressions.")
-    benchmark_parser.add_argument("--path", default=str(ROOT / "tests" / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"))
-    benchmark_parser.set_defaults(func=cmd_benchmark_investigation)
-
-    export_fixture_parser = subparsers.add_parser("export-investigation-fixture", help="Export a sanitized fixture from a saved investigation run.")
-    export_fixture_parser.add_argument("--run-id", required=True)
-    export_fixture_parser.add_argument("--case-id")
-    export_fixture_parser.add_argument("--output")
-    export_fixture_parser.set_defaults(func=cmd_export_investigation_fixture)
-
-    verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
-    verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)
-    verify_target.add_argument("-p", "--project-key")
-    verify_target.add_argument("--seed")
-    verify_service_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"])
-    verify_service_parser.add_argument("--url", help="Override the project service URL.")
-    verify_service_parser.add_argument("--lane", choices=["static", "deep", "browser"], default="static")
-    verify_service_parser.add_argument("--execute", action="store_true", help="Apply evaluation and save a replayable investigation run.")
-    verify_service_parser.set_defaults(func=cmd_verify_service)
-
-    repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
-    repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
-    repair_parser.set_defaults(func=cmd_repair_db)
-
-    audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
-    audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
-    audit_url_parser.set_defaults(func=cmd_audit_url_fields)
-
-    cleanup_app_links_parser = subparsers.add_parser("cleanup-app-links", help="Rebuild stored app.links from canonical URL fields and confirmed resource records.")
-    cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply record_json updates. Without this flag, show a dry-run summary only.")
-    cleanup_app_links_parser.set_defaults(func=cmd_cleanup_app_links)
-
-    tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
-    tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
-    tracking_target.add_argument("-p", "--project-key", help="Target one project key.")
-    tracking_target.add_argument("-s", "--seed", help="Target by known seed value.")
-    tracking_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    tracking_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(TRACKING_STATES), help="Tracking state to assign.")
-    tracking_parser.add_argument("--note", help="Optional tracking note.")
-    tracking_parser.set_defaults(func=cmd_set_tracking_state)
-
-    tracking_batch_parser = subparsers.add_parser("set-tracking-state-batch", help="Set tracking state for all projects matching a coarse filter.")
-    tracking_batch_filter = tracking_batch_parser.add_mutually_exclusive_group(required=True)
-    tracking_batch_filter.add_argument("--record-did", help="Match projects whose recent_record_samples include this DID.")
-    tracking_batch_filter.add_argument("--nsid-prefix", help="Match projects whose primary/input/resolved NSID starts with this prefix.")
-    tracking_batch_parser.add_argument("--current-tracking-states", nargs="+", choices=sorted(TRACKING_STATES), help="Optional pre-filter on current tracking state.")
-    tracking_batch_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(TRACKING_STATES), help="Tracking state to assign.")
-    tracking_batch_parser.add_argument("--note", help="Optional tracking note.")
-    tracking_batch_parser.add_argument("--execute", action="store_true", help="Apply the change. Without this flag, show a dry-run summary only.")
-    tracking_batch_parser.set_defaults(func=cmd_set_tracking_state_batch)
-
-    separate_parser = subparsers.add_parser("set-separate", help="Mark two projects as distinct so merge recommendations do not pair them.")
-    separate_source = separate_parser.add_mutually_exclusive_group(required=True)
-    separate_source.add_argument("-p", "--project-key", help="First project key.")
-    separate_source.add_argument("-s", "--seed", help="First project by known seed value.")
-    separate_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    separate_target = separate_parser.add_mutually_exclusive_group(required=True)
-    separate_target.add_argument("-o", "--other-project-key", help="Second project key.")
-    separate_target.add_argument("-O", "--other-seed", help="Second project by known seed value.")
-    separate_parser.add_argument("--other-type", choices=["nsid", "repo_url", "service_url"], help="Required when --other-seed is ambiguous.")
-    separate_parser.add_argument("--clear", action="store_true", help="Remove the separation block instead of adding it.")
-    separate_parser.set_defaults(func=cmd_set_separate)
-
-    block_parser = subparsers.add_parser("block-identifier", help="Block one identifier from being reattached to a project during normalize/enrich.")
-    block_target = block_parser.add_mutually_exclusive_group(required=True)
-    block_target.add_argument("-p", "--project-key", help="Target one project key.")
-    block_target.add_argument("-s", "--seed", help="Target by known seed value.")
-    block_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    block_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to block.")
-    block_parser.add_argument("-v", "--value", required=True, help="Identifier value to block on this project.")
-    block_parser.add_argument("--note", help="Optional operator note recorded with the block.")
-    block_parser.add_argument("--clear", action="store_true", help="Remove the block instead of adding it.")
-    block_parser.set_defaults(func=cmd_block_identifier)
-
-    defer_parser = subparsers.add_parser("defer-identifier", help="Temporarily downgrade one identifier while preventing automatic confirmation.")
-    defer_target = defer_parser.add_mutually_exclusive_group(required=True)
-    defer_target.add_argument("-p", "--project-key", help="Target one project key.")
-    defer_target.add_argument("-s", "--seed", help="Target by known seed value.")
-    defer_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    defer_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to defer.")
-    defer_parser.add_argument("-v", "--value", required=True, help="Identifier value to defer on this project.")
-    defer_parser.add_argument("--days", type=int, default=DEFAULT_DEFER_IDENTIFIER_DAYS, help="How many days to keep the temporary guard. Default: 30.")
-    defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
-    defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
-    defer_parser.set_defaults(func=cmd_defer_identifier)
-
-    defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue while recording the reason.")
-    defer_promotion_target = defer_promotion_parser.add_mutually_exclusive_group(required=True)
-    defer_promotion_target.add_argument("-p", "--project-key", help="Target one project key.")
-    defer_promotion_target.add_argument("-s", "--seed", help="Target by known seed value.")
-    defer_promotion_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    defer_promotion_parser.add_argument("--days", type=int, default=DEFAULT_PROMOTION_DEFER_DAYS, help="How many days to hide the project from promotion-queue. Default: 7.")
-    defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
-    defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
-    defer_promotion_parser.set_defaults(func=cmd_defer_promotion)
-
-    audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
-    audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/domain-overrides.json before auditing it.")
-    audit_source_parser.add_argument("--interactive", action=argparse.BooleanOptionalAction, default=True, help="Review split suggestions interactively. Default: enabled; use --no-interactive for JSON dry-run output.")
-    audit_source_parser.add_argument("--execute", action="store_true", help="Add the requested suffix without an interactive confirmation. Split suggestions are never auto-applied.")
-    audit_source_parser.set_defaults(func=cmd_audit_source_config)
-
-    split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
-    split_target = split_parser.add_mutually_exclusive_group(required=True)
-    split_target.add_argument("-p", "--project-key", help="Source project key.")
-    split_target.add_argument("-s", "--seed", help="Source project by known seed value.")
-    split_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    split_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to split out.")
-    split_parser.add_argument("-v", "--value", required=True, help="Identifier value to split out into a new project.")
-    split_parser.add_argument("-n", "--new-project-key", help="Optional explicit key for the new project.")
-    split_parser.add_argument("--note", help="Optional operator note.")
-    split_parser.add_argument("--execute", action="store_true", help="Apply the split. Without this flag, only show a dry-run summary.")
-    split_parser.set_defaults(func=cmd_split_project)
-
-    inspect_merge_parser = subparsers.add_parser("inspect-merge-pair", help="Inspect merge evidence for one specific project pair without running batch merge.")
-    inspect_merge_source = inspect_merge_parser.add_mutually_exclusive_group(required=True)
-    inspect_merge_source.add_argument("-p", "--project-key", help="Source project key.")
-    inspect_merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
-    inspect_merge_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    inspect_merge_target = inspect_merge_parser.add_mutually_exclusive_group(required=True)
-    inspect_merge_target.add_argument("-t", "--target-project-key", help="Target project key.")
-    inspect_merge_target.add_argument("-T", "--target-seed", help="Target project by known seed value.")
-    inspect_merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
-    inspect_merge_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Include the temporary listReposByCollection first-DID heuristic in the inspection output.")
-    inspect_merge_parser.set_defaults(func=cmd_inspect_merge_pair)
-
-    merge_parser = subparsers.add_parser("merge", help="Merge one project into another.")
-    merge_source = merge_parser.add_mutually_exclusive_group(required=True)
-    merge_source.add_argument("-p", "--project-key", help="Source project key.")
-    merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
-    merge_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    merge_target = merge_parser.add_mutually_exclusive_group(required=False)
-    merge_target.add_argument("-t", "--target-project-key", help="Explicit target project key.")
-    merge_target.add_argument("-T", "--target-seed", help="Explicit target project by known seed value.")
-    merge_target.add_argument("--use-recommendation", action="store_true", help="Use the current merge recommendation for the source project.")
-    merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
-    merge_parser.add_argument("--execute", action="store_true", help="Apply the merge. Without this flag, only show a dry-run summary.")
-    merge_parser.add_argument("--force", action="store_true", help="Allow executing a non-auto-ready recommendation merge.")
-    merge_parser.set_defaults(func=cmd_merge)
-
-    merge_batch_parser = subparsers.add_parser("merge-batch", help="Batch-merge only high-safety duplicate pairs.")
-    merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")
-    merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
-    merge_batch_parser.add_argument("--mode", choices=["strict", "moderate", "broad"], default=None, help="Safety level for automatic batch merge planning. Default: strict, or moderate when --interactive is set.")
-    merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
-    merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
-    merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
-    merge_batch_parser.set_defaults(func=cmd_merge_batch)
-
-    assist_parser = subparsers.add_parser("assist-db-edit", help="Parse a short natural-language DB edit request, suggest a concrete CLI command, and optionally execute it when uniquely resolved.")
-    assist_parser.add_argument("text", help="Short operator request such as 'AとBをマージしたい'.")
-    assist_parser.add_argument("--execute", action="store_true", help="Apply the suggested action only when the request resolves uniquely.")
-    assist_parser.add_argument("--llm-endpoint", help="Optional OpenAI-compatible LLM endpoint or base URL for parsing.")
-    assist_parser.add_argument("--llm-model", help="Optional model name for the parsing LLM.")
-    assist_parser.add_argument("--llm-api-key", help="Optional API key for the parsing LLM.")
-    assist_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
-    assist_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for the parsing LLM.")
-    assist_parser.set_defaults(func=cmd_assist_db_edit)
-
-    return parser
-
-
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-    try:
-        return int(args.func(args))
-    except urllib.error.URLError as exc:
-        print(f"[error] network request failed: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

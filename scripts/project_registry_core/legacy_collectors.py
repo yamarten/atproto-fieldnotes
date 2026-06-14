@@ -7,7 +7,7 @@ from .evidence import CollectorResult, EvidenceBundle, EvidenceRecord
 
 
 RESOURCE_PATCH_FIELDS = (
-    "resource_url_records", "service_url_candidates", "website_url_candidates",
+    "resource_url_records", "service_url_candidates",
     "candidate_source_code_urls", "source_repo_records", "developer_accounts",
     "candidate_developer_accounts", "bluesky_handles", "evidence_urls",
     "investigation_log", "service_status", "service_status_confidence", "service_status_evidence",

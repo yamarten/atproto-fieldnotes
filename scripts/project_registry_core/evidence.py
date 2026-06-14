@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 
 EVIDENCE_SCHEMA_VERSION = 2
-SUPPORTED_EVIDENCE_SCHEMA_VERSIONS = {1, 2}
+SUPPORTED_EVIDENCE_SCHEMA_VERSIONS = {2}
 EvidenceClassification = Literal["confirmed", "candidate", "derived", "heuristic"]
 CollectorStatus = Literal["success", "partial", "skipped", "rate_limited", "failed"]
 EVIDENCE_CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
@@ -251,8 +251,7 @@ class EvidenceBundle:
             "records": [record.to_dict() for record in self.records],
             "failures": [failure.to_dict() for failure in self.failures],
         }
-        if self.schema_version >= 2:
-            payload["collector_results"] = [result.to_dict() for result in self.collector_results]
+        payload["collector_results"] = [result.to_dict() for result in self.collector_results]
         return payload
 
     def to_json(self, *, indent: int = 2) -> str:

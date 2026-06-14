@@ -111,16 +111,16 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(snapshot["lexicon_hints"][0]["nsid"], "app.example.post")
 
     def test_evidence_fixture_roundtrip_preserves_ordered_records(self) -> None:
-        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
+        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v2-synthetic-reference.json"
         bundle = EvidenceBundle.load(fixture_path)
 
-        self.assertEqual(bundle.schema_version, 1)
+        self.assertEqual(bundle.schema_version, 2)
         self.assertEqual(bundle.project_key, "proj:synthetic-reference")
         self.assertEqual(bundle.records[0].kind, "github_repo_snapshot")
         self.assertEqual(EvidenceBundle.from_json(bundle.to_json()).to_dict(), bundle.to_dict())
 
     def test_saved_evidence_fixture_can_be_re_evaluated_without_collection(self) -> None:
-        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json"
+        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v2-synthetic-reference.json"
         bundle = EvidenceBundle.load(fixture_path)
         snapshot = bundle.records[0].value
         assert isinstance(snapshot, dict)
@@ -287,9 +287,15 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             conn.close()
         self.assertIsNotNone(run)
 
-    def test_evidence_v2_keeps_v1_compatibility_and_source_status(self) -> None:
-        v1 = EvidenceBundle.load(Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v1-synthetic-reference.json")
-        self.assertEqual(v1.schema_version, 1)
+    def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
+        with self.assertRaises(ValueError):
+            EvidenceBundle.from_dict({
+                "schema_version": 1,
+                "project_key": "proj:v1",
+                "collected_at": "2026-06-13T00:00:00+00:00",
+                "records": [],
+                "failures": [],
+            })
         bundle = EvidenceBundle(project_key="proj:v2", collected_at="2026-06-13T00:00:00+00:00")
         bundle.add_collector_result(CollectorResult(
             source="github", operation="search", status="partial", observed_at=bundle.collected_at,
@@ -503,8 +509,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(summary["case_count"], 6)
         self.assertEqual(summary["regression_count"], 0)
 
-    def test_cli_and_top_level_api_remain_available(self) -> None:
-        parser = registry.build_parser()
+    def test_cli_and_core_api_remain_available(self) -> None:
+        from project_registry_core import cli
+
+        parser = cli.build_parser()
         args = parser.parse_args(["enrich", "--seed", "app.example.post"])
 
         self.assertEqual(args.command, "enrich")
@@ -525,6 +533,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "classify_service_probe_result",
         ):
             self.assertTrue(callable(getattr(registry, name)))
+        self.assertFalse((registry.ROOT / "scripts" / "project_registry.py").exists())
 
 
 if __name__ == "__main__":

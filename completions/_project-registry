@@ -1,4 +1,4 @@
-#compdef project-registry project_registry.py
+#compdef project-registry
 
 local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes review_kinds
 local -a promotion_kinds
@@ -261,7 +261,7 @@ case "$cmd" in
     ;;
   cleanup-app-links)
     _arguments -S \
-      '--execute[Apply record_json updates]'
+      '--execute[Apply profile_json app link updates]'
     ;;
   set-tracking-state)
     _arguments -S \
