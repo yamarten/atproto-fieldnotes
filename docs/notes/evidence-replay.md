@@ -28,7 +28,7 @@ bounded extract だけを残します。
 
 未接続:
 
-- 本番ミラー上の defer/block/manual correction を自動抽出して fixture 候補にするコマンド
+- 既存DBのdefer/block/manual correctionを自動抽出してfixture候補にするコマンド
 - heuristic version 間で relation の追加・削除理由まで説明する report
 - fixture update の review policy
 

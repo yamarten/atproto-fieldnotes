@@ -7,11 +7,11 @@
   - `project_identifiers`
   - `project_relations`
   - `project_decisions`
-- 実装済み: `scripts/project-registry migrate-db OLD_DB_PATH`
+- 実装済み: `project-registry migrate-db OLD_DB_PATH`
   - 既定で移行・検証・backup・元path置換まで実行
   - `--dry-run`は一時DBを検証後に削除
   - v2 DBへの再実行はno-op
-- 実装済み: CLI launcherは`scripts/project-registry`
+- 実装済み: 公開CLIは`bin/project-registry`、`scripts/project-registry`はdelegate alias
 - 削除済み: `scripts/project_registry.py` top-level Python API
 - 削除済み: runtime compatibility field
   - `website_url_candidates`
@@ -58,6 +58,6 @@
 - Web UIをschema v2 repositoryへ接続する
 - `project_registry_core.registry`からCLI command handlerを用途別moduleへ切り出す
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
-- service browser laneとidentity corroborationのcorpusを増やす
+- service browser検証とidentity corroborationのcorpusを増やす
 
 恒久仕様は[project-record.md](project-record.md)、調査契約は[investigation-model.md](investigation-model.md)、内部の具体値は[registry-internals.md](registry-internals.md)、将来課題は[roadmap.md](roadmap.md)を参照してください。

@@ -9866,7 +9866,7 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
     project_key = str(project.get("project_key") or "")
     if not project_key:
         return commands
-    commands.append(f"scripts/project-registry show -p {project_key} --format json")
+    commands.append(f"project-registry show -p {project_key} --format json")
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {
         "llm_manual_review_recommended",
@@ -9877,18 +9877,18 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         "external_lexicon_dependency_needs_review",
         "category_recheck_needed",
     }:
-        commands.append(f"scripts/project-registry enrich -p {project_key} --deep-investigation")
+        commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
     if "service_candidate_needs_confirmation" in signal_kinds:
         service_candidates = project_service_hint_urls(project)
         if service_candidates:
             commands.append(
-                f"scripts/project-registry add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
+                f"project-registry add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
             )
     if "candidate_repo_needs_confirmation" in signal_kinds:
         repo_candidates = project_repo_hint_urls(project)
         if repo_candidates:
             commands.append(
-                f"scripts/project-registry add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
+                f"project-registry add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
             )
     return commands
 
@@ -9900,7 +9900,7 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
         return commands
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {"service_ready_for_introduction", "lexicon_ready_for_introduction"}:
-        commands.append(f"scripts/project-registry enrich -p {project_key} --deep-investigation")
+        commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
     return unique_list(commands)
 
 
@@ -13990,7 +13990,7 @@ def split_commands_for_tenant(project_key: str, group: dict[str, list[str]]) -> 
     ):
         for value in values:
             commands.append(
-                "scripts/project-registry split-project "
+                "project-registry split-project "
                 f"--project-key {shlex.quote(project_key)} "
                 f"--identifier-type {identifier_type} "
                 f"--value {shlex.quote(str(value))}"
@@ -15231,7 +15231,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
             payload["suggested_target"] = target_candidates[0]
         if source_candidates and target_candidates:
             payload["suggested_command"] = (
-                "scripts/project-registry "
+                "project-registry "
                 + ("merge" if action == "merge" else "set-separate")
                 + f" -p {source_candidates[0]['project_key']} "
                 + (f"-t {target_candidates[0]['project_key']}" if action == "merge" else f"-o {target_candidates[0]['project_key']}")
@@ -15299,7 +15299,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
             payload["suggested_project"] = project_candidates[0]
             if identifier_type and identifier_value:
                 payload["suggested_command"] = (
-                    "scripts/project-registry block-identifier "
+                    "project-registry block-identifier "
                     f"-p {project_candidates[0]['project_key']} -i {identifier_type} -v {identifier_value}"
                 )
         can_execute = len(project_candidates) == 1 and identifier_type in {"nsid", "repo_url", "service_url"} and bool(identifier_value)
@@ -15335,7 +15335,7 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
         if project_candidates:
             payload["suggested_project"] = project_candidates[0]
             payload["suggested_command"] = (
-                "scripts/project-registry set-tracking-state "
+                "project-registry set-tracking-state "
                 f"-p {project_candidates[0]['project_key']} -S {tracking_state}"
             )
         can_execute = len(project_candidates) == 1 and tracking_state in TRACKING_STATES

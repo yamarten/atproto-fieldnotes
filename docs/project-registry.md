@@ -30,7 +30,10 @@
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+export PATH="$PWD/bin:$PATH"
 ```
+
+この文書では公開CLI入口を`project-registry`と表記します。実体は[bin/project-registry](../bin/project-registry)です。`scripts/project-registry`は既存のrepo内呼び出し向けに公開wrapperへ委譲するaliasです。PATHを変更しない場合は`bin/project-registry`と実行してください。
 
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 
@@ -39,7 +42,7 @@ PSL に載っていない hosted suffix を追加したい場合は、[config/do
 既存 DB を追加後の基準で確認しながら追記する場合:
 
 ```bash
-scripts/project-registry audit-source-config example.com
+project-registry audit-source-config example.com
 ```
 
 このコマンドは既定で interactive です。suffix が未登録なら `domain-overrides.json` への追記を確認し、追加後の family 基準で `split_suggestions` を表示します。各 suggestion には tenant ごとの service URL / NSID、曖昧な repo、仮分割後の merge candidate、既存 `split-project` の dry-run コマンドが含まれます。
@@ -47,13 +50,13 @@ scripts/project-registry audit-source-config example.com
 JSON dry-run のみ:
 
 ```bash
-scripts/project-registry audit-source-config example.com --no-interactive
+project-registry audit-source-config example.com --no-interactive
 ```
 
 確認なしで suffix 追記まで行う場合:
 
 ```bash
-scripts/project-registry audit-source-config example.com --execute --no-interactive
+project-registry audit-source-config example.com --execute --no-interactive
 ```
 
 interactive では tenant group の番号を選んだ場合だけ、その group の service URL / NSID を 1 つの新 project へまとめて切り出します。元 project に複数 tenant が残る場合は suggestion を再計算し、同じ project を続けて表示します。Enter で送った suggestion はその実行中だけ先送りします。元 project には block と `set-separate` 相当の相互分離を残します。`--execute --no-interactive` では split を自動適用しません。共有 repo、共有 lexicon、URL 移転などの例外があるため、分割は常に suggestion 確認後に行います。
@@ -66,7 +69,6 @@ CLI用のwrapperとzsh completionを使えます。Web wrapperはschema v2未接
 - [bin/project-registry-web](../bin/project-registry-web) / [completions/_project-registry-web](../completions/_project-registry-web)
 
 ```bash
-export PATH="$PWD/bin:$PATH"
 fpath=("$PWD/completions" $fpath)
 autoload -Uz compinit && compinit
 ```
@@ -76,11 +78,11 @@ autoload -Uz compinit && compinit
 ## seed登録
 
 ```bash
-scripts/project-registry add-seed sh.tangled.repo
-scripts/project-registry add-seed https://github.com/example/project
-scripts/project-registry add-seed https://github.com/example/project/blob/main/lexicons/app/example/post.json
-scripts/project-registry add-seed https://tangled.sh/@example/app/tree/main/lexdocs/example
-scripts/project-registry add-seed https://example.com
+project-registry add-seed sh.tangled.repo
+project-registry add-seed https://github.com/example/project
+project-registry add-seed https://github.com/example/project/blob/main/lexicons/app/example/post.json
+project-registry add-seed https://tangled.sh/@example/app/tree/main/lexdocs/example
+project-registry add-seed https://example.com
 ```
 
 GitHub の `blob/tree` URL や `tangled.sh` の tree URL は repo root に正規化します。
@@ -88,7 +90,7 @@ GitHub の `blob/tree` URL や `tangled.sh` の tree URL は repo root に正規
 既存projectへ追加する場合:
 
 ```bash
-scripts/project-registry add-seed https://example.com --project-key 2f2acb
+project-registry add-seed https://example.com --project-key 2f2acb
 ```
 
 `project_key` は `proj:xxxxxxxxxxxx` 形式ですが、CLIでは `proj:` を省略した prefix でも指定できます。
@@ -98,23 +100,23 @@ scripts/project-registry add-seed https://example.com --project-key 2f2acb
 1件だけ:
 
 ```bash
-scripts/project-registry enrich --seed sh.tangled.repo --type nsid
-scripts/project-registry enrich --project-key 2f2acb
+project-registry enrich --seed sh.tangled.repo --type nsid
+project-registry enrich --project-key 2f2acb
 ```
 
 全件:
 
 ```bash
-scripts/project-registry enrich --all
-scripts/project-registry enrich --all --new-only
+project-registry enrich --all
+project-registry enrich --all --new-only
 ```
 
 `enrich --all` は resumable checkpoint を自動作成します。保存先は既定で `data/enrich-runs/<run_id>.json` です。開始時の対象 project key、完了済み key、現在処理中の key、失敗情報、再開に使う実行 option を保存します。ただし LLM API key の値は保存しません。
 
 ```bash
-scripts/project-registry enrich --all --run-id weekly-20260606
-scripts/project-registry enrich --all --resume-run weekly-20260606
-scripts/project-registry enrich --all --no-checkpoint
+project-registry enrich --all --run-id weekly-20260606
+project-registry enrich --all --resume-run weekly-20260606
+project-registry enrich --all --no-checkpoint
 ```
 
 Ctrl+C で中断した場合、Python traceback は出さず、JSON lines に `interrupted: true`、`run_id`、`checkpoint_path`、`resume_command` を出して終了コード `130` で終わります。再開時は checkpoint に保存された最初の対象リストを使い、完了済み project を飛ばします。
@@ -122,53 +124,19 @@ Ctrl+C で中断した場合、Python traceback は出さず、JSON lines に `i
 `stable` / `stalled` / `out_of_scope` / `archived` / `ignore` も回したい場合:
 
 ```bash
-scripts/project-registry enrich --all --include-stable
-scripts/project-registry enrich --all --include-stalled
-scripts/project-registry enrich --all --include-out-of-scope
-scripts/project-registry enrich --all --include-archived
-scripts/project-registry enrich --all --include-ignore
+project-registry enrich --all --include-stable
+project-registry enrich --all --include-stalled
+project-registry enrich --all --include-out-of-scope
+project-registry enrich --all --include-archived
+project-registry enrich --all --include-ignore
 ```
-
-保存済み調査runをnetworkなしで再評価する場合:
-
-```bash
-scripts/project-registry replay-investigation --run-id inv:...
-scripts/project-registry replay-investigation --project-key proj:...
-scripts/project-registry benchmark-investigation
-scripts/project-registry export-investigation-fixture --run-id inv:... --output /tmp/case.json
-```
-
-serviceをレーン指定で確認する場合。`--execute`なしはDBを更新しません。
-
-```bash
-scripts/project-registry verify-service -p proj:... --lane static
-scripts/project-registry verify-service -p proj:... --lane deep --execute
-scripts/project-registry verify-service -p proj:... --lane browser --execute
-```
-
-browser laneは任意依存です。
-
-```bash
-python3 -m pip install -r requirements-browser.txt
-python3 -m playwright install chromium
-```
-
-TangledのUFOs rolling windowを確認・同期する場合。既定はdry-runかつunmatched作成offです。
-
-```bash
-scripts/project-registry sync-tangled-repos
-scripts/project-registry sync-tangled-repos --execute
-scripts/project-registry sync-tangled-repos --create-unmatched --execute
-```
-
-UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_possible`, `complete_history`を確認します。
 
 ## 表示
 
 ```bash
-scripts/project-registry show --project-key 2f2acb
-scripts/project-registry show --seed sh.tangled.repo --type nsid
-scripts/project-registry show --all --format json
+project-registry show --project-key 2f2acb
+project-registry show --seed sh.tangled.repo --type nsid
+project-registry show --all --format json
 ```
 
 ## Web UI
@@ -180,23 +148,23 @@ scripts/project-registry show --all --format json
 Bluesky 検索から紹介済み判定だけを同期する:
 
 ```bash
-scripts/project-registry sync-introduced
-scripts/project-registry sync-introduced --execute
-scripts/project-registry sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
+project-registry sync-introduced
+project-registry sync-introduced --execute
+project-registry sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
 ```
 
 このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。既定は増分同期で、初回は直近 7 日、以後は query ごとの前回成功地点から検索します。一致しなかった URL は `unmatched_entries` に出し、sync state に保留して次回も再照合します。
 
 ```bash
-scripts/project-registry sync-introduced --all-history
-scripts/project-registry sync-introduced --no-incremental --lookback-days 14
+project-registry sync-introduced --all-history
+project-registry sync-introduced --no-incremental --lookback-days 14
 ```
 
 見出しや注記が混ざったテキスト seed list を取り込む:
 
 ```bash
-scripts/project-registry import-seed-list tmpdata.txt
-scripts/project-registry import-seed-list tmpdata.txt --execute
+project-registry import-seed-list tmpdata.txt
+project-registry import-seed-list tmpdata.txt --execute
 ```
 
 このコマンドは GitHub/Tangled/service URL/`pdsls`/`lexicon.garden` を seed に正規化します。`pdsls` の record URL は collection NSID に落とし、`lexicon.garden` の identity URL や `bsky.app` のプロフィール/投稿 URL も、そこから service URL / repo URL / NSID を導ける場合だけ展開します。材料が無いものだけスキップします。`Echosky: ...` のように注記の直後に複数 seed が並ぶ場合は、ラベルと seed が十分近い時だけ同一 project へ束ねます。
@@ -206,9 +174,9 @@ scripts/project-registry import-seed-list tmpdata.txt --execute
 設定済みURL、または指定URLから直接取り込む:
 
 ```bash
-scripts/project-registry sync-collections
-scripts/project-registry sync-collections --execute
-scripts/project-registry sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
+project-registry sync-collections
+project-registry sync-collections --execute
+project-registry sync-collections --source-url https://collectiondata.usounds.work/collection_count_view
 ```
 
 このコマンドは API 全件を取得しますが、既定では既知collectionを再取り込みしません。未知 collection は最新活動の `max` を使い、初回は直近 `10` 日、以後は source URL ごとの前回成功地点より新しいものだけを対象にします。
@@ -222,14 +190,14 @@ conservative です。`exact_namespace` 以外の弱い一致は既存 project �
 週次運用向けに、必要ならlookbackを調整できます:
 
 ```bash
-scripts/project-registry sync-collections --execute --lookback-days 10
-scripts/project-registry sync-collections --execute --lookback-days 14
+project-registry sync-collections --execute --lookback-days 10
+project-registry sync-collections --execute --lookback-days 14
 ```
 
 必要なら取得したJSON payloadを保存できます:
 
 ```bash
-scripts/project-registry sync-collections --save-path data/collection_inventory.latest.json
+project-registry sync-collections --save-path data/collection_inventory.latest.json
 ```
 
 ## GitHub repository searchの同期
@@ -237,9 +205,9 @@ scripts/project-registry sync-collections --save-path data/collection_inventory.
 設定済み query、または指定 query から未知 repo を取り込む:
 
 ```bash
-scripts/project-registry sync-github-search
-scripts/project-registry sync-github-search --execute
-scripts/project-registry sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
+project-registry sync-github-search
+project-registry sync-github-search --execute
+project-registry sync-github-search --query 'atproto OR "AT protocol" OR atprotocol'
 ```
 
 このコマンドは既知 repo を再取り込みしません。query ごとに保存した前回成功地点まで `updated_at` 降順で走査します。state が無い初回だけ `--lookback-days` を使います。query には既定で `fork:false` と `archived:false` を足します。
@@ -247,14 +215,14 @@ scripts/project-registry sync-github-search --query 'atproto OR "AT protocol" OR
 GitHub sync でも `homepage_family` のような弱い一致では既存 project に自動で吸わず、suggestion 扱いにします。
 
 ```bash
-scripts/project-registry sync-github-search --execute --lookback-days 10
-scripts/project-registry sync-github-search --pages 3 --per-page 100
+project-registry sync-github-search --execute --lookback-days 10
+project-registry sync-github-search --pages 3 --per-page 100
 ```
 
 1回だけ広く取得したい場合は、lookback を外して dry-run し、未マッチ repo に対して repo metadata / README / tree / lexicon hint を見た保存前スクリーニングをかけます。
 
 ```bash
-scripts/project-registry sync-github-search \
+project-registry sync-github-search \
   --all-history \
   --screen-unmatched \
   --pages 10 \
@@ -280,7 +248,7 @@ Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認�
 recommendationを見るだけ:
 
 ```bash
-scripts/project-registry merge \
+project-registry merge \
   --project-key 2f2acb \
   --use-recommendation
 ```
@@ -288,7 +256,7 @@ scripts/project-registry merge \
 seed 同士を直接指定する場合:
 
 ```bash
-scripts/project-registry merge \
+project-registry merge \
   --seed ink.henry.saunter.walk --type nsid \
   --target-seed https://saunter.henry.ink --target-type service_url
 ```
@@ -296,7 +264,7 @@ scripts/project-registry merge \
 repo URL や service URL を target にしてもよいです:
 
 ```bash
-scripts/project-registry merge \
+project-registry merge \
   --seed https://github.com/example/app --type repo_url \
   --target-seed https://example.com --target-type service_url
 ```
@@ -304,7 +272,7 @@ scripts/project-registry merge \
 実行:
 
 ```bash
-scripts/project-registry merge \
+project-registry merge \
   --project-key 2f2acb \
   --use-recommendation \
   --execute
@@ -313,14 +281,14 @@ scripts/project-registry merge \
 一括候補の確認:
 
 ```bash
-scripts/project-registry merge-batch
-scripts/project-registry merge-batch -v
+project-registry merge-batch
+project-registry merge-batch -v
 ```
 
 特定 pair だけ根拠を確認する:
 
 ```bash
-scripts/project-registry inspect-merge-pair \
+project-registry inspect-merge-pair \
   --project-key proj:aaaa1111bbbb \
   --target-project-key proj:cccc2222dddd
 ```
@@ -328,7 +296,7 @@ scripts/project-registry inspect-merge-pair \
 seed 指定でも確認できます:
 
 ```bash
-scripts/project-registry inspect-merge-pair \
+project-registry inspect-merge-pair \
   --seed app.diffdown.comment --type nsid \
   --target-seed com.diffdown.document --target-type nsid
 ```
@@ -336,7 +304,7 @@ scripts/project-registry inspect-merge-pair \
 立ち上げ時の暫定措置として、`listReposByCollection` の先頭 DID と alias 一致を使う heuristic を有効にする場合:
 
 ```bash
-scripts/project-registry merge-batch \
+project-registry merge-batch \
   --mode moderate \
   --bootstrap-collection-creator-heuristic \
   -v
@@ -347,7 +315,7 @@ scripts/project-registry merge-batch \
 pair 単位でその heuristic だけを確認したい場合:
 
 ```bash
-scripts/project-registry inspect-merge-pair \
+project-registry inspect-merge-pair \
   --seed app.diffdown.comment --type nsid \
   --target-seed com.diffdown.document --target-type nsid \
   --bootstrap-collection-creator-heuristic
@@ -358,7 +326,7 @@ scripts/project-registry inspect-merge-pair \
 継続調査対象の切り替え:
 
 ```bash
-scripts/project-registry set-tracking-state \
+project-registry set-tracking-state \
   --project-key 2f2acb \
   --tracking-state stable \
   --note "安定運営"
@@ -369,11 +337,11 @@ scripts/project-registry set-tracking-state \
 候補の自動判定を見る:
 
 ```bash
-scripts/project-registry review-stalled
-scripts/project-registry review-stalled --inactivity-days 60 --max-enrich-age-days 45
-scripts/project-registry review-out-of-scope
-scripts/project-registry review-ignore
-scripts/project-registry review-ignore --execute
+project-registry review-stalled
+project-registry review-stalled --inactivity-days 60 --max-enrich-age-days 45
+project-registry review-out-of-scope
+project-registry review-ignore
+project-registry review-ignore --execute
 ```
 
 このコマンドは 3 種類の提案を返します。
@@ -407,10 +375,10 @@ repo 更新日時と collection activity のどちらか一方でも最近動い
 未紹介で、人が見る価値のありそうな project を一覧化します。
 
 ```bash
-scripts/project-registry promotion-queue
-scripts/project-registry promotion-queue --kinds service_ready_for_introduction
-scripts/project-registry promotion-queue --include-personal-tools
-scripts/project-registry promotion-queue --kinds lexicon_ready_for_introduction --interactive
+project-registry promotion-queue
+project-registry promotion-queue --kinds service_ready_for_introduction
+project-registry promotion-queue --include-personal-tools
+project-registry promotion-queue --kinds lexicon_ready_for_introduction --interactive
 ```
 
 signal は今のところ 3 種類です。
@@ -432,15 +400,15 @@ interactive では `h` で理由付きの一時保留にできます。既定で
 明示的に設定、再設定、解除する場合:
 
 ```bash
-scripts/project-registry defer-promotion \
+project-registry defer-promotion \
   --project-key proj:xxxxxxxxxxxx \
   --reason '中核機能であるXXがまだ実装されていない'
 
 # 直近理由を再利用して再保留
-scripts/project-registry defer-promotion --project-key proj:xxxxxxxxxxxx
+project-registry defer-promotion --project-key proj:xxxxxxxxxxxx
 
 # active な保留だけ解除。履歴は残す
-scripts/project-registry defer-promotion --project-key proj:xxxxxxxxxxxx --clear
+project-registry defer-promotion --project-key proj:xxxxxxxxxxxx --clear
 ```
 
 `promotion_deferrals`の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。解除しても履歴は残ります。
@@ -452,8 +420,8 @@ scripts/project-registry defer-promotion --project-key proj:xxxxxxxxxxxx --clear
 canonical URL fieldの利用数と保存済みinvariant違反を読み取り専用で確認できます。
 
 ```bash
-scripts/project-registry audit-url-fields
-scripts/project-registry audit-url-fields --example-limit 5
+project-registry audit-url-fields
+project-registry audit-url-fields --example-limit 5
 ```
 
 このコマンドはDBを更新しません。削除済みalias fieldはinventoryへ出力されません。
@@ -461,8 +429,8 @@ scripts/project-registry audit-url-fields --example-limit 5
 保存済み`profile_json.app.links`を正本から再構築する場合:
 
 ```bash
-scripts/project-registry cleanup-app-links
-scripts/project-registry cleanup-app-links --execute
+project-registry cleanup-app-links
+project-registry cleanup-app-links --execute
 ```
 
 既定は dry-run です。全削除ではなく、`website_url`、`source_code_url(s)`、`service_urls`、confirmed な `resource_url_records` から再構築します。
@@ -470,17 +438,17 @@ scripts/project-registry cleanup-app-links --execute
 適用する場合:
 
 ```bash
-scripts/project-registry review-stalled --execute
+project-registry review-stalled --execute
 ```
 
 同じ creator DID や NSID prefix にぶら下がる project をまとめて切り替える場合:
 
 ```bash
-scripts/project-registry set-tracking-state-batch \
+project-registry set-tracking-state-batch \
   --record-did did:plc:ie77niyfcztulkf2oa7p4adz \
   --tracking-state ignore
 
-scripts/project-registry set-tracking-state-batch \
+project-registry set-tracking-state-batch \
   --record-did did:plc:ie77niyfcztulkf2oa7p4adz \
   --current-tracking-states active stalled \
   --tracking-state ignore \
@@ -493,7 +461,7 @@ scripts/project-registry set-tracking-state-batch \
 この 2 件は別物として扱いたい、というときは相互に block できます:
 
 ```bash
-scripts/project-registry set-separate \
+project-registry set-separate \
   --project-key proj:aaaa1111bbbb \
   --other-project-key proj:cccc2222dddd
 ```
@@ -501,7 +469,7 @@ scripts/project-registry set-separate \
 解除する場合:
 
 ```bash
-scripts/project-registry set-separate \
+project-registry set-separate \
   --project-key proj:aaaa1111bbbb \
   --other-project-key proj:cccc2222dddd \
   --clear
@@ -514,7 +482,7 @@ scripts/project-registry set-separate \
 project 自体は合っているが、誤った `service_url` / `repo_url` / `nsid` が混ざった場合は、その identifier を project 単位で block できます:
 
 ```bash
-scripts/project-registry block-identifier \
+project-registry block-identifier \
   --project-key proj:aaaa1111bbbb \
   --identifier-type service_url \
   --value https://example.com
@@ -523,7 +491,7 @@ scripts/project-registry block-identifier \
 解除する場合:
 
 ```bash
-scripts/project-registry block-identifier \
+project-registry block-identifier \
   --project-key proj:aaaa1111bbbb \
   --identifier-type service_url \
   --value https://example.com \
@@ -535,7 +503,7 @@ scripts/project-registry block-identifier \
 恒久 block ではなく、一定期間だけ様子を見る場合は `defer-identifier` を使います:
 
 ```bash
-scripts/project-registry defer-identifier \
+project-registry defer-identifier \
   --project-key proj:aaaa1111bbbb \
   --identifier-type service_url \
   --value https://example.com \
@@ -549,7 +517,7 @@ URL は confirmed から candidate に降格し、NSID は `deferred_identifiers
 誤って合体した project から、1 本の `nsid` / `service_url` / `repo_url` を新 project に切り出す場合:
 
 ```bash
-scripts/project-registry split-project \
+project-registry split-project \
   --project-key proj:aaaa1111bbbb \
   --identifier-type nsid \
   --value com.example.app.post
@@ -571,9 +539,9 @@ scripts/project-registry split-project \
 短い自然文から、既存 CLI の具体コマンド案を出す:
 
 ```bash
-scripts/project-registry assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい'
-scripts/project-registry assist-db-edit 'proj:aaaa と proj:bbbb をマージしたい'
-scripts/project-registry assist-db-edit 'proj:xxxx から https://example.com をブロックしたい'
+project-registry assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい'
+project-registry assist-db-edit 'proj:aaaa と proj:bbbb をマージしたい'
+project-registry assist-db-edit 'proj:xxxx から https://example.com をブロックしたい'
 ```
 
 現状サポートする action は:
@@ -586,7 +554,7 @@ scripts/project-registry assist-db-edit 'proj:xxxx から https://example.com �
 一意に project 解決できた場合だけ、そのまま反映もできます:
 
 ```bash
-scripts/project-registry assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい' --execute
+project-registry assist-db-edit 'proj:dff3271870e4とproj:5e69784458a3を別物として扱いたい' --execute
 ```
 
 TTY 上で一意に解決できた場合は、`--execute` なしでもその場で確認プロンプトを出します。ローカル LLM が設定されていればそれで解釈します。未設定でも `proj:` / URL / NSID が明示されているケースは heuristic で解釈します。曖昧な場合は候補一覧と `suggested_command` だけ返し、実行しません。
@@ -596,9 +564,59 @@ TTY 上で一意に解決できた場合は、`--execute` なしでもその場�
 GUIやSQLで `projects` を直接編集した後は、正規化と派生データ再計算のためにこれを回します。
 
 ```bash
-scripts/project-registry repair-db
-scripts/project-registry repair-db --execute
+project-registry repair-db
+project-registry repair-db --execute
 ```
+
+## 高度な調査・開発用コマンド
+
+以下は通常のseed登録・enrich・review操作には不要です。collectorやevaluationの開発、個別projectの深掘り、実験的sourceの確認に使います。
+
+### 保存済み調査のreplay
+
+保存済みEvidenceBundleからintegration/evaluationだけをnetworkなしで再実行します。heuristic変更の回帰確認とfixture作成が目的です。
+
+```bash
+project-registry replay-investigation --run-id inv:...
+project-registry replay-investigation --project-key proj:...
+project-registry benchmark-investigation
+project-registry export-investigation-fixture --run-id inv:... --output /tmp/case.json
+```
+
+`benchmark-investigation`と`export-investigation-fixture`は開発・テストcorpus保守用で、通常のproject更新操作ではありません。
+
+### serviceの個別診断
+
+`verify-service`はservice確認の深さを`--lane`で指定します。ここでのlaneは実装上の検証方式を区別するoption名です。
+
+- `static`: top pageのHTTP status、metadata、text、link、redirectを確認する
+- `deep`: about/docs/app/login/signupなど同一site内の追加pageも確認する
+- `browser`: PlaywrightでJavaScript描画後の匿名画面とlogin/signup到達を確認する
+
+```bash
+project-registry verify-service -p proj:... --lane static
+project-registry verify-service -p proj:... --lane deep --execute
+project-registry verify-service -p proj:... --lane browser --execute
+```
+
+`--execute`なしはDBを更新しません。browser方式は任意依存で、認証入力、登録、投稿は行いません。
+
+```bash
+python3 -m pip install -r requirements-browser.txt
+python3 -m playwright install chromium
+```
+
+### Tangled UFOsの実験的sync
+
+`sync-tangled-repos`はUFOsのrolling windowからTangled repo recordを探す補助経路です。通常の全履歴syncではなく、既定はdry-runかつunmatched project作成offです。
+
+```bash
+project-registry sync-tangled-repos
+project-registry sync-tangled-repos --execute
+project-registry sync-tangled-repos --create-unmatched --execute
+```
+
+UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_possible`, `complete_history`を確認してください。
 
 ## storage layout
 
@@ -610,7 +628,7 @@ scripts/project-registry repair-db --execute
 - `project_decisions`: block/defer/separateなどのoperator判断
 - `investigation_runs` / `collector_runs`: replay可能な調査履歴
 
-旧DBは`scripts/project-registry migrate-db OLD_DB_PATH`で移行します。詳細は [project-record.md](project-record.md) を参照してください。
+旧DBは`project-registry migrate-db OLD_DB_PATH`で移行します。詳細は [project-record.md](project-record.md) を参照してください。
 
 ## 環境変数
 
@@ -654,6 +672,6 @@ export GITHUB_TOKEN='ghp_...'
 `thinking` / reasoning effort を切り替えたい場合は `ATPROTO_SURVEY_LLM_REASONING_EFFORT`、または CLI の `--llm-reasoning-effort` を使います。例えば:
 
 ```bash
-scripts/project-registry enrich --all --llm-reasoning-effort none
-scripts/project-registry enrich --all --new-only --llm-reasoning-effort high
+project-registry enrich --all --llm-reasoning-effort none
+project-registry enrich --all --new-only --llm-reasoning-effort high
 ```

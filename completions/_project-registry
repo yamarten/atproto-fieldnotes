@@ -20,7 +20,7 @@ subcommands=(
   'replay-investigation:Replay a saved investigation without network access'
   'benchmark-investigation:Benchmark an investigation fixture corpus'
   'export-investigation-fixture:Export a sanitized saved investigation fixture'
-  'verify-service:Verify a service with the static, deep, or browser lane'
+  'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'cleanup-app-links:Rebuild stored app links from canonical URL fields'
@@ -223,7 +223,7 @@ case "$cmd" in
   sync-tangled-repos)
     _arguments -S \
       '--execute[Apply imports]' \
-      '--create-unmatched[Create projects for unmatched ATProto-relevant repos]' \
+      '--create-unmatched[Create projects for unmatched atproto-relevant repos]' \
       '--no-create-unmatched[Do not create unmatched projects]' \
       '--incremental[Use the saved time_us watermark]' \
       '--no-incremental[Ignore and do not update the saved watermark]' \
@@ -249,7 +249,7 @@ case "$cmd" in
       '(-p --project-key --seed)--seed[Target by known seed value]:seed:' \
       '--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types' \
       '--url[Override the project service URL]:url:' \
-      '--lane[Verification lane]:lane:(static deep browser)' \
+      '--lane[Verification method]:method:(static deep browser)' \
       '--execute[Apply the result and save an investigation run]'
     ;;
   repair-db)

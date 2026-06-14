@@ -10,8 +10,8 @@ from . import registry
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="scripts/project-registry",
-        description="Register manual ATProto project seeds and enrich project records.",
+        prog="project-registry",
+        description="Register manual atproto project seeds and enrich project records.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -192,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync the recent UFOs Tangled repository rolling window.")
     sync_tangled_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched ATProto-relevant repos. Default: disabled.")
+    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched atproto-relevant repos. Default: disabled.")
     sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
     sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
     sync_tangled_parser.set_defaults(func=registry.cmd_sync_tangled_repos)
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_target.add_argument("--seed")
     verify_service_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"])
     verify_service_parser.add_argument("--url", help="Override the project service URL.")
-    verify_service_parser.add_argument("--lane", choices=["static", "deep", "browser"], default="static")
+    verify_service_parser.add_argument("--lane", choices=["static", "deep", "browser"], default="static", help="Verification method: static page, deep same-site pages, or anonymous browser rendering.")
     verify_service_parser.add_argument("--execute", action="store_true", help="Apply evaluation and save a replayable investigation run.")
     verify_service_parser.set_defaults(func=registry.cmd_verify_service)
 

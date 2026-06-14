@@ -23,6 +23,7 @@
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+export PATH="$PWD/bin:$PATH"
 ```
 
 `tldextract` を使って PSL 判定を行います。入力は repo 内の [vendor/public_suffix_list.dat](vendor/public_suffix_list.dat) に固定し、ライブラリの cache は [data/tldextract-cache](data/tldextract-cache) 配下に置きます。外部の絶対パスには依存しません。
@@ -32,7 +33,7 @@ PSL に無い hosted suffix を手動で足したい場合は、[config/domain-o
 登録済み project への影響も確認する場合は、監査コマンドから追加できます。
 
 ```bash
-scripts/project-registry audit-source-config example.com
+project-registry audit-source-config example.com
 ```
 
 既定は interactive です。追加確認後に `domain-overrides.json` を更新し、新しい family 基準で同一 project に複数 tenant が混在していないかを表示します。tenant group の番号を選んだ場合だけ、その group の identifier をまとめて新 project へ切り出します。split 後も元 project に複数 tenant が残る場合は、再計算した同 project の suggestion を続けて表示します。JSON dry-run だけを見る場合は `--no-interactive`、確認なしで suffix 追記まで行う場合は `--execute --no-interactive` を使います。non-interactive では split を適用しません。
@@ -55,7 +56,6 @@ CLI用のwrapperとzsh completionを追加しています。Web wrapperはschema
 wrapper で呼ぶ場合:
 
 ```bash
-export PATH="$PWD/bin:$PATH"
 fpath=("$PWD/completions" $fpath)
 autoload -Uz compinit && compinit
 ```
@@ -71,7 +71,7 @@ project-registry-web --host <TAB>
 
 のように subcommand と主要オプションを補完できます。
 
-`scripts/` をそのまま `PATH` に入れると Python ファイルまでコマンド候補に出るので、`PATH` には `bin/` だけを足す前提にしています。Python ファイルの直接実行は引き続き可能ですが、ここで説明する補完導線は `project-registry` / `project-registry-web` wrapper を対象にします。
+公開CLI入口は`bin/project-registry`です。`scripts/project-registry`は既存のrepo内呼び出しを公開wrapperへ委譲するaliasです。利用手順と生成commandは`project-registry`に統一し、PATHには`bin/`だけを足す前提です。
 
 ## Web UI
 
@@ -119,8 +119,8 @@ export GITHUB_TOKEN='ghp_...'
 `thinking` / reasoning effort を切り替えたい場合は `ATPROTO_SURVEY_LLM_REASONING_EFFORT`、または CLI の `--llm-reasoning-effort` を使います。例えば:
 
 ```bash
-scripts/project-registry enrich --all --llm-reasoning-effort none
-scripts/project-registry enrich --all --new-only --llm-reasoning-effort high
+project-registry enrich --all --llm-reasoning-effort none
+project-registry enrich --all --new-only --llm-reasoning-effort high
 ```
 
 ## 保存形式
@@ -130,7 +130,7 @@ scripts/project-registry enrich --all --new-only --llm-reasoning-effort high
 旧DBは次で移行します。
 
 ```bash
-scripts/project-registry migrate-db data/survey.db
+project-registry migrate-db data/survey.db
 ```
 
 ## 文書
@@ -149,5 +149,5 @@ scripts/project-registry migrate-db data/survey.db
 実装:
 
 - [scripts/project_registry_core/](scripts/project_registry_core)
-- [scripts/project-registry](scripts/project-registry)
+- [bin/project-registry](bin/project-registry)
 - [prompts/project-triage.md](prompts/project-triage.md)

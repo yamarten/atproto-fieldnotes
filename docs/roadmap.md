@@ -29,7 +29,7 @@
 次の優先候補だけを roadmap として残します。接続済み範囲と恒久的な契約は
 [investigation-model.md](investigation-model.md) を正本とします。
 
-- 本番ミラー上のdefer/block/manual correctionから、実際の誤判定fixture候補を抽出する
+- 既存DBのdefer/block/manual correctionから、実際の誤判定fixture候補を抽出する
 - OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
 - Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
 - UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める
@@ -104,12 +104,12 @@
 - `features`
 - `developer_accounts`
 
-`review-out-of-scope` の derivative 判定は、Bluesky従属utilityとATProto技術ツールを
+`review-out-of-scope` の derivative 判定は、Bluesky従属utilityとatproto技術ツールを
 十分に分離できていません。現状は候補提示だけに使い、自動実行しません。将来は
 `technical_interest_level`、owned surface、独自データモデルの有無を加味して、
 紹介スコープ外と技術調査対象を分離します。
 
-### ATProto 寄与度の独立評価
+### atproto寄与度の独立評価
 
 現行の level、score、evidence と rule-based v1 は [registry-internals.md](registry-internals.md) を正本とします。
 未接続の候補は次です。
@@ -163,7 +163,7 @@ Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次�
 - Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
 - `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
 - 調査強化
-  - service status signal の粒度改善、LLM evidence の service/lexicon prompt 分岐、browser確認レーンを検討する
+  - service status signal の粒度改善、LLM evidence の service/lexicon prompt 分岐、browser確認方式を検討する
   - 詳細は [service-verification.md](notes/service-verification.md)
 - 旧 field 互換の名残を整理する
   - runtime shapeにはまだ`primary_nsid`, `bluesky_handles`, `tangled_handles`などcanonical flat fieldが残る

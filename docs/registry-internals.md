@@ -14,13 +14,13 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。調査履歴は`investigation_runs` / `collector_runs`です。
 
-旧schemaは通常起動で自動変換せず、`scripts/project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
+旧schemaは通常起動で自動変換せず、`project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
 
 `repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 ## 旧 discovery フローの扱い
 
-旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `scripts/project-registry` だけを前提にします。
+旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `project-registry` だけを前提にします。
 
 ただし、次の発想は今後も流用価値があります。
 
@@ -141,11 +141,11 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
   - GitHub / Bluesky / service / Tangled / legacy evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
 - `project_registry_core/evaluation.py`
-  - ownership、ATProto寄与度、service status の純粋評価本体
+  - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/storage.py` / `replay.py`
   - investigation run保存、network-free replay、fixture benchmark
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
-  - service lane、Tangled PDS/UFOs、typed relation
+  - service検証、Tangled PDS/UFOs、typed relation
 - `project_registry_core/registry.py`
   - legacy orchestration と既存 CLI command handler
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
@@ -156,7 +156,7 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
 - GitHub relevance threshold、最大1 repo採用、最初の採用queryでの打ち切り
 - GitHub README URL、owned/reference lexicon hint の既存反映
 - Bluesky/GitHubのpartial failureとtimeout/rate-limit分類
-- fixture evidence から ownership / ATProto寄与度だけをnetworkなしで再評価できること
+- fixture evidence から ownership / atproto寄与度だけをnetworkなしで再評価できること
 - temp SQLiteでの `enrich_project -> save_project -> fetch_project`
 - 保存 run の replay、6 case benchmark、fake browser、Tangled pagination
 
@@ -455,7 +455,7 @@ domain、account、DID、NSID、repo、service 間の保証関係と検討中の
   - retry は初回を含め最大3 attempt
   - timeout、429、5xx、network errorだけを retry
   - `Retry-After`を優先し、GitHub/Blueskyはsource別request budgetを持ちます
-  - rate limit時はそのsource laneだけを止めます
+  - rate limit時はそのsource collectorだけを止めます
 
 ### 6. LLM が決めるもの / 決めないもの
 
@@ -484,7 +484,7 @@ domain、account、DID、NSID、repo、service 間の保証関係と検討中の
 
 `service_status` についても、LLM は補助更新に留めます。最終的な保存値は rule-based probe の evidence を優先し、特に `unverified` は安易に `live/private` へ確定させません。
 
-### 6.1 ATProto 寄与度
+### 6.1 atproto 寄与度
 
 `atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` は
 category と独立した derived field です。`ensure_project_shape()` と `save_project()` で
@@ -617,7 +617,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 - UFOs の `sh.tangled.repo` rolling window を `time_us` watermark で増分走査します
 - 完全履歴とは扱わず、前回watermarkへ届かなければ `gap_possible=true` を返します
-- ATProto relevanceを通過したrecordだけを対象にします
+- atproto relevanceを通過したrecordだけを対象にします
 - owner DIDまたはwebsiteで既存projectへ照合します
 - unmatched project作成は既定offで、`--create-unmatched`が必要です
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、

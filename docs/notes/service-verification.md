@@ -4,7 +4,9 @@
 > [../investigation-model.md](../investigation-model.md)、具体値は
 > [../registry-internals.md](../registry-internals.md) を参照してください。
 
-## 検証レーン
+## 検証方式
+
+CLI option名は`--lane`ですが、意味は確認範囲と実行コストが異なる3つの検証方式です。
 
 実装済み:
 
@@ -14,7 +16,7 @@
 - `verify-service -p KEY --lane static|deep|browser [--execute]`
 - review queue からの明示 browser 実行
 
-browser lane は同一 site の login/signup link を最大2件追い、app shell、runtime/network error、
+browser方式は同一 site の login/signup link を最大2件追い、app shell、runtime/network error、
 login surface 到達を記録します。認証情報入力、登録、投稿は行いません。
 
 ## 制約
@@ -41,5 +43,5 @@ login surface 到達を記録します。認証情報入力、登録、投稿は
 ## 将来目標
 
 - status、surface type、到達段階、利用可能性を別軸にする
-- 高コスト lane を review queue の明示操作に限定する
+- 高コストな検証方式をreview queueの明示操作に限定する
 - HTML/browser fixture で status heuristic を反復比較する

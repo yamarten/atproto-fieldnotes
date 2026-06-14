@@ -26,13 +26,13 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
    - evidence から既存 project field を変更できる唯一の層
    - project 文脈、manual guard、複数 source の corroboration を適用する
 4. evaluation
-   - ownership、ATProto寄与度、service status などを rule-based に計算する
+   - ownership、atproto寄与度、service status などを rule-based に計算する
    - network、DB、LLM に依存しない関数を優先する
 5. save
    - `projects` を現在状態の materialized record として保存する
    - 同じ SQLite に input/output snapshot、評価、bundle、source 状態も保存する
 
-CLI入口は`scripts/project-registry`、`main()`は`project_registry_core.cli`です。調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIは削除済みです。
+公開CLI入口は`bin/project-registry`で、`scripts/project-registry`はそこへ委譲するaliasです。`main()`は`project_registry_core.cli`、調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIは削除済みです。
 
 ## Evidence classification
 
