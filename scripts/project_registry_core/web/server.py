@@ -18,6 +18,7 @@ from typing import Any, Callable
 from .. import database
 from .. import registry as core
 from ..application import decisions, merge, projects, web as services
+from .jobs import JobConflictError, JobManager
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -63,9 +64,16 @@ class RegistryWebServer(ThreadingHTTPServer):
         super().__init__(address, RegistryWebHandler)
         self.token = token
         self.db_path = Path(db_path).expanduser().resolve()
+        self.jobs = JobManager(self.db_path)
 
     def open_db(self) -> sqlite3.Connection:
         return database.open_database(self.db_path)
+
+    def server_close(self) -> None:
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None:
+            jobs.close()
+        super().server_close()
 
 
 class RegistryWebHandler(BaseHTTPRequestHandler):
@@ -105,6 +113,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json("not_found", message, HTTPStatus.NOT_FOUND)
             else:
                 self.send_error_json("validation_error", message, HTTPStatus.BAD_REQUEST)
+        except JobConflictError as exc:
+            self.send_error_json("job_conflict", str(exc), HTTPStatus.CONFLICT)
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).lower() or "busy" in str(exc).lower():
                 self.send_error_json("database_busy", str(exc), HTTPStatus.SERVICE_UNAVAILABLE)
@@ -137,8 +147,23 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "db_path": str(self.server.db_path),
                 "token_required": True,
                 "tracking_states": sorted(core.TRACKING_STATES),
-                "operations_connected": False,
+                "operations_connected": True,
+                "operation_capabilities": {
+                    "enrich": True,
+                    "sync": False,
+                    "review_ops": False,
+                    "subprocess_worker": True,
+                },
             })
+            return
+        if path == "/api/jobs":
+            self.send_json(self.server.jobs.list_jobs(limit=_int(query.get("limit", [50])[0], 50)))
+            return
+        if path.startswith("/api/jobs/"):
+            job_id = urllib.parse.unquote(path.removeprefix("/api/jobs/")).strip("/")
+            if not job_id or "/" in job_id:
+                raise KeyError("job not found")
+            self.send_json(self.server.jobs.get_job(job_id))
             return
         if path == "/api/projects":
             with contextlib.closing(self.server.open_db()) as conn:
@@ -220,6 +245,23 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
 
     def handle_api_post(self, parsed: urllib.parse.ParseResult, payload: dict[str, Any]) -> None:
         path = parsed.path
+        if path == "/api/jobs/enrich":
+            result = self.server.jobs.start_enrich(self.enrich_job_parameters(payload))
+            self.send_json(result, status=HTTPStatus.ACCEPTED)
+            return
+        if path.startswith("/api/jobs/"):
+            parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/jobs/").split("/") if part]
+            if len(parts) != 2:
+                self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+                return
+            job_id, action = parts
+            if action == "cancel":
+                self.send_json(self.server.jobs.cancel(job_id), status=HTTPStatus.ACCEPTED)
+                return
+            if action == "resume":
+                self.send_json(self.server.jobs.resume(job_id), status=HTTPStatus.ACCEPTED)
+                return
+            raise ValueError(f"unknown job action: {action}")
         if path == "/api/seeds":
             seed = str(payload.get("seed") or "").strip()
             if not seed:
@@ -264,6 +306,33 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             detail_key = str(result.get("target_project_key") or result.get("project_key") or project_key)
             detail = services.project_detail(conn, project_key=detail_key)
         self.send_json({"result": result, "detail": detail})
+
+    def enrich_job_parameters(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_key = str(payload.get("project_key") or "").strip()
+        all_projects = bool(payload.get("all_projects"))
+        if bool(project_key) == all_projects:
+            raise ValueError("choose exactly one of project_key or all_projects")
+        tracking_values = payload.get("tracking_states") or []
+        if not isinstance(tracking_values, list):
+            raise ValueError("tracking_states must be an array")
+        tracking_states = tuple(str(item).strip() for item in tracking_values if str(item).strip())
+        invalid_states = set(tracking_states) - core.TRACKING_STATES
+        if invalid_states:
+            raise ValueError(f"invalid tracking_states: {', '.join(sorted(invalid_states))}")
+        return {
+            "project_key": project_key,
+            "all_projects": all_projects,
+            "all_tracking_states": bool(payload.get("all_tracking_states")),
+            "tracking_states": tracking_states,
+            "include_stable": bool(payload.get("include_stable")),
+            "include_stalled": bool(payload.get("include_stalled")),
+            "include_out_of_scope": bool(payload.get("include_out_of_scope")),
+            "include_archived": bool(payload.get("include_archived")),
+            "include_ignore": bool(payload.get("include_ignore")),
+            "new_only": bool(payload.get("new_only")),
+            "retry_failures": bool(payload.get("retry_failures")),
+            "deep_investigation": bool(payload.get("deep_investigation")),
+        }
 
     def run_project_action(
         self,
@@ -390,7 +459,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def start_reload_watcher(paths: list[Path], interval: float) -> None:
+def start_reload_watcher(server: RegistryWebServer, paths: list[Path], interval: float) -> None:
     watched = {path: path.stat().st_mtime_ns for path in paths if path.exists()}
 
     def watch() -> None:
@@ -402,6 +471,7 @@ def start_reload_watcher(paths: list[Path], interval: float) -> None:
                 except OSError:
                     continue
                 if current != previous:
+                    server.jobs.close()
                     os.execv(sys.executable, [sys.executable, *sys.argv])
 
     threading.Thread(target=watch, name="registry-web-reload", daemon=True).start()
@@ -418,6 +488,7 @@ def main() -> int:
     if args.reload:
         package_root = Path(__file__).resolve().parents[1]
         start_reload_watcher(
+            server,
             [path for path in package_root.rglob("*") if path.suffix in {".py", ".html", ".css", ".js"}],
             float(args.reload_interval or 1.0),
         )

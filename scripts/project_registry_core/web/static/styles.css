@@ -99,6 +99,14 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .operation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
 .operation-card { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
 .operation-card code { display: block; margin-top: 8px; padding: 8px; border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
+.operation-enrich { grid-column: 1 / -1; }
+.operation-enrich .controls { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+.checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 5px; margin-top: 8px; }
+.job-card { display: grid; gap: 8px; padding: 11px; margin-bottom: 9px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+.job-card.running, .job-card.queued { border-left-color: var(--accent); }
+.job-card.cancelling { border-left-color: var(--warning); }
+.job-card.failed { border-left-color: var(--danger); }
+.job-error { color: var(--danger); }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }

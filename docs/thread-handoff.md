@@ -29,6 +29,10 @@
   - `OperationRequest` / `OperationEvent` / `OperationResult` / `CancellationToken`
   - enrichのproject選択、保存、checkpoint、再開をapplication serviceへ移動
   - CLIはevent dataをJSON linesへ変換するadapter
+- 実装済み: Web enrich subprocess runner
+  - 同じWeb serverからの同時書き込みjobは1件。CLIなど別processとの排他は未実装
+  - 開始、一覧、詳細、処理中project後の停止、cancelled/failed bulk runの再開
+  - Operations画面で設定、進捗、event/resultを表示
 - 実装済み: schema v2 Web UI
   - `Review / Projects / Operations / Settings`
   - project検索、review/promotion/merge queue、seed preview・追加
@@ -47,7 +51,10 @@
 - Web API認証、static asset、v2 detail、normalized mutation、partial collector failure、SQLite busy error
 - in-app Browserでdesktop検索・mutation・merge確認とmobile detail遷移
 - temp SQLiteでenrichのproject境界中断、checkpoint再開、API key非保存
-- background job変更後の全通常テスト176件
+- fake subprocess workerで完了、競合拒否、SIGINT停止、再開
+- 実workerと空のtemp DBでnetwork-free protocol実行
+- in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
+- 全通常テスト180件
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -56,8 +63,8 @@
 
 ## 未接続
 
-- Web background job runner。enrich service境界は実装済みだが、subprocess実行、開始・一覧・停止・再開APIは未接続
 - sync、interactive review classification、`assist-db-edit`の共通job化
+- server再起動後のjob一覧復元とcheckpoint discovery
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
 - Webからのinvestigation run一覧、evidence全文、replay差分表示
@@ -72,7 +79,8 @@
 
 ## 次候補
 
-- enrich serviceをsubprocess workerへ接続し、Webから起動・監視・中断・再開する
+- syncとreview classificationを共通job contractへ移す
+- server再起動後も既存checkpointを発見・再開できる導線を追加する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす
 

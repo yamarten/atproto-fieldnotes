@@ -48,6 +48,25 @@ class OperationRequest:
             execute=bool(execute),
         )
 
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> OperationRequest:
+        if int(value.get("schema_version", 0) or 0) != 1:
+            raise ValueError("unsupported operation request schema_version")
+        parameters = value.get("parameters", {})
+        if not isinstance(parameters, dict):
+            raise ValueError("operation request parameters must be an object")
+        operation_id = str(value.get("operation_id") or "").strip()
+        operation = str(value.get("operation") or "").strip()
+        if not operation_id or not operation:
+            raise ValueError("operation_id and operation are required")
+        return cls(
+            operation_id=operation_id,
+            operation=operation,
+            parameters=dict(parameters),
+            execute=bool(value.get("execute")),
+            requested_at=str(value.get("requested_at") or utc_now()),
+        )
+
     def to_dict(self, *, include_sensitive: bool = False) -> dict[str, Any]:
         parameters = dict(self.parameters)
         if not include_sensitive:
@@ -140,4 +159,3 @@ class CancellationToken:
 
 
 EventSink = Callable[[OperationEvent], None]
-

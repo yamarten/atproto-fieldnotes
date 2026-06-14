@@ -14,7 +14,7 @@
 - collector request中の強制停止
 - job履歴をSQLiteへ永続化すること
 - 複数の書き込みjobを同時実行すること
-- Webから長時間処理を開始・監視すること
+- syncやreview classificationをWebから実行すること
 
 ## 共通契約
 
@@ -53,7 +53,7 @@
 - `cancelled`
 - `failed`
 
-現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出し、CLIの既存error handlingへ渡します。将来のworkerはこの例外をjob-level failureへ変換します。
+現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
 
 ## 中断
 
@@ -86,6 +86,11 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - `project_registry_core.application.enrichment`のproject選択、実行、保存、checkpoint、再開
 - `project_registry_core.commands.enrichment`のCLI adapter
 - `project-registry enrich`の既存command・主要option
+- `project_registry_core.worker`のJSON Lines worker protocol
+- `project_registry_core.web.jobs`のprocess内job registry
+- Web APIのenrich開始、一覧、詳細、停止、再開
+- Operations画面のenrich設定、進捗、直近event/result表示
+- 同じWeb serverから同時に実行する書き込みjobを1件へ制限
 
 動作確認済み:
 
@@ -93,18 +98,31 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - project境界での中断とcheckpoint再開
 - checkpointとrequest serializationにAPI key値を残さないこと
 - CLIがevent dataをJSON linesとして出力すること
+- fake workerによるsubprocess完了、競合拒否、SIGINT停止、再開
+- 実workerと空のtemp schema v2 DBによるnetwork-free protocol実行
+- temp DB Web UIから別process enrichを起動し、完了event/resultを表示すること
 
 未接続:
 
-- subprocess workerとjob registry
-- Web APIからの開始、一覧、停止、再開
 - sync、review classification、`assist-db-edit`の共通job化
-- server再起動後の実行中job復元
+- server再起動後のjob一覧復元と、checkpointだけが残ったrunの発見
 - job event履歴の永続化
 
 将来の設計目標:
 
-- Web serverとは別processでjobを実行する
-- 書き込みjobは原則1件に制限し、read-only jobとの競合方針を定義する
+- CLIなど別processとread-only jobの競合方針を定義する
 - syncとreview系にも同じevent・cancellation契約を適用する
 - Webはapplication serviceを直接再実装せず、同じ`OperationRequest`をworkerへ渡す
+
+## Web Runner
+
+Web serverはjobごとに`python -m project_registry_core.worker`を起動します。workerはstdinでDB pathと`OperationRequest`を受け、stdoutをprotocol専用JSON Linesとして使用します。domain codeがstdoutへ出した内容はstderrへ隔離します。
+
+- job一覧はserver process内に保持する
+- 完了jobは直近100件、eventはjobごとに直近200件、stderrは直近50行を保持する
+- Web server終了・reload時はactive workerへ協調停止を要求し、timeout後にprocessを終了する
+- custom DBのcheckpointはそのDBと同じdirectoryの`enrich-runs/`へ保存する
+- Web APIはLLM API keyを受け取らず、workerはserver processの環境変数を継承する
+- 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
+
+job一覧は永続化していません。server再起動後もcheckpoint fileは残りますが、それを一覧へ復元する導線は未接続です。

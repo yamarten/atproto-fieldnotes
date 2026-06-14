@@ -158,6 +158,9 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
 - `project_registry_core/web/`
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
+  - `jobs.py`は別process worker、直近event、停止・再開を管理する
+- `project_registry_core/worker.py`
+  - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
   - domain helperとcollector/evaluation orchestration
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
@@ -198,7 +201,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離し、削除済みcompatibility fieldを再構築しません。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
-未接続なのは長時間処理を別processで実行・監視するrunnerです。enrich serviceの共通契約は実装済みですが、Web APIからの開始・一覧・停止・再開、syncとreview classificationの同契約への移行は未接続です。旧Web helperは暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面も未接続です。
+enrichの別process runnerとWeb API/UIの開始・一覧・停止・再開は接続済みです。job stateはserver process内、checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時書き込みjobは1件に制限しますが、CLIなど別processとの排他は行いません。server再起動後のjob一覧復元、checkpoint発見、syncとreview classificationの同契約への移行は未接続です。旧Web helperは暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面も未接続です。
 
 ## enrich の判断材料
 

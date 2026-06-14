@@ -9,8 +9,9 @@
 - 主実装は `scripts/project_registry_core/`
   - `application/`: CLIとWebで共有するquery/mutation service
   - `commands/`: `argparse`と出力を担当するCLI adapter
-  - `web/`: schema v2 Web API adapterと静的UI
+  - `web/`: schema v2 Web API、subprocess job registry、静的UI
   - `jobs.py`: 長時間処理のrequest/event/result/cancellation契約
+  - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
   - `registry.py`: domain helperとcollector/evaluation orchestration
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする

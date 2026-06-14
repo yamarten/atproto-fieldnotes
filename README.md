@@ -82,7 +82,7 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
-project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。sync、enrich、review opsなどの長時間処理はまだCLIを使用します。
+project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。enrichは別processのbackground jobとしてWebから開始・監視・中断・checkpoint再開できます。syncとreview opsはまだCLIを使用します。
 
 ## 環境変数
 

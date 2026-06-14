@@ -12,6 +12,43 @@ from project_registry_core.evidence import CollectorFailure, CollectorResult, Ev
 from project_registry_core.web.server import RegistryWebHandler
 
 
+class FakeJobManager:
+    def __init__(self) -> None:
+        self.parameters: dict = {}
+        self.job = {
+            "job_id": "job:test",
+            "operation_id": "enrich-test",
+            "operation": "enrich",
+            "status": "running",
+            "request": {"parameters": {"all_projects": True}},
+            "events": [],
+            "can_cancel": True,
+            "can_resume": False,
+        }
+
+    def start_enrich(self, parameters: dict) -> dict:
+        self.parameters = parameters
+        return dict(self.job)
+
+    def list_jobs(self, *, limit: int = 50) -> dict:
+        return {"count": 1, "items": [dict(self.job)]}
+
+    def get_job(self, job_id: str) -> dict:
+        if job_id != self.job["job_id"]:
+            raise KeyError(f"job not found: {job_id}")
+        return dict(self.job)
+
+    def cancel(self, job_id: str) -> dict:
+        job = self.get_job(job_id)
+        job["status"] = "cancelling"
+        return job
+
+    def resume(self, job_id: str) -> dict:
+        job = self.get_job(job_id)
+        job["job_id"] = "job:resumed"
+        return job
+
+
 class ProjectRegistryWebTest(TempRegistryDbTestCase):
     token = "web-test-token"
 
@@ -22,6 +59,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             token=self.token,
             db_path=self.db_path,
             open_db=lambda: registry.open_db(),
+            jobs=FakeJobManager(),
         )
 
     def seed_fixture(self) -> None:
@@ -151,6 +189,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, script, content_type = self.request_text("/app.js")
         self.assertEqual(status, 200)
         self.assertIn("Latest Investigation", script)
+        self.assertIn("Start enrich job", script)
         self.assertIn("javascript", content_type)
 
         status, payload, _ = self.request("/api/projects", token="wrong")
@@ -160,6 +199,51 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, payload, _ = self.request("/missing")
         self.assertEqual(status, 404)
         self.assertEqual(payload["error"]["code"], "not_found")
+
+        status, settings, _ = self.request("/api/settings")
+        self.assertEqual(status, 200)
+        self.assertTrue(settings["operations_connected"])
+        self.assertTrue(settings["operation_capabilities"]["enrich"])
+
+    def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
+        status, payload, _ = self.request(
+            "/api/jobs/enrich",
+            method="POST",
+            payload={"all_projects": True, "deep_investigation": True, "include_stable": True},
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["job_id"], "job:test")
+        self.assertTrue(self.server.jobs.parameters["all_projects"])
+        self.assertTrue(self.server.jobs.parameters["deep_investigation"])
+        self.assertTrue(self.server.jobs.parameters["include_stable"])
+
+        status, jobs, _ = self.request("/api/jobs")
+        self.assertEqual(status, 200)
+        self.assertEqual(jobs["count"], 1)
+
+        status, detail, _ = self.request("/api/jobs/job%3Atest")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["operation"], "enrich")
+
+        status, stopping, _ = self.request("/api/jobs/job%3Atest/cancel", method="POST", payload={})
+        self.assertEqual(status, 202)
+        self.assertEqual(stopping["status"], "cancelling")
+
+        status, resumed, _ = self.request("/api/jobs/job%3Atest/resume", method="POST", payload={})
+        self.assertEqual(status, 202)
+        self.assertEqual(resumed["job_id"], "job:resumed")
+
+        status, error, _ = self.request("/api/jobs/enrich", method="POST", payload={"all_projects": False})
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+        status, error, _ = self.request(
+            "/api/jobs/enrich",
+            method="POST",
+            payload={"all_projects": True, "tracking_states": ["invalid"]},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
 
     def test_search_and_v2_project_detail(self) -> None:
         status, payload, _ = self.request("/api/projects?q=Example&has_candidates=yes")

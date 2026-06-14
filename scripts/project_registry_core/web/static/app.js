@@ -9,6 +9,7 @@ const state = {
   selected: "",
   listRequest: 0,
   detailRequest: 0,
+  operationTimer: null,
   settings: loadSettings(),
   server: null,
   projectSearch: {
@@ -52,6 +53,8 @@ async function api(path, options = {}) {
 }
 
 function setScreen(screen) {
+  if (state.operationTimer) clearTimeout(state.operationTimer);
+  state.operationTimer = null;
   state.listRequest += 1;
   state.detailRequest += 1;
   state.screen = screen;
@@ -325,12 +328,123 @@ function renderNewSeed() {
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Deferred Web job service</p><h2>Operations</h2><p class="notice">Long-running operations are intentionally not connected to the Web UI yet. Use the CLI while progress, cancellation, and checkpoint behavior are moved behind a background job service.</p><div class="operation-grid">
-    <article class="operation-card"><h3>Enrich</h3><p>Single-project and bulk investigation.</p><code>project-registry enrich -p proj:...</code><code>project-registry enrich --all</code></article>
+  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Enrich runs in a separate process. Cancellation finishes the current project before stopping; external requests remain bounded by their source timeout.</p><div class="operation-grid">
+    <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
+      <label>Target<select id="enrich-target"><option value="all">Active and watchlist projects</option><option value="project">One project</option></select></label>
+      <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
+      <label><span><input id="enrich-deep" type="checkbox"> Deep investigation</span></label>
+      <label><span><input id="enrich-new-only" type="checkbox"> Never enriched only</span></label>
+      <label><span><input id="enrich-retry" type="checkbox"> Previous failures only</span></label>
+      <details><summary>Additional tracking states</summary><div class="checkbox-grid">
+        <label><span><input id="enrich-stable" type="checkbox"> stable</span></label>
+        <label><span><input id="enrich-stalled" type="checkbox"> stalled</span></label>
+        <label><span><input id="enrich-out-of-scope" type="checkbox"> out_of_scope</span></label>
+        <label><span><input id="enrich-archived" type="checkbox"> archived</span></label>
+        <label><span><input id="enrich-ignore" type="checkbox"> ignore</span></label>
+      </div></details>
+      <button id="start-enrich" class="primary">Start enrich job</button>
+    </div><code>project-registry enrich --all</code></article>
     <article class="operation-card"><h3>Sync</h3><p>Introduced posts, collections, GitHub, Semble, and Tangled.</p><code>project-registry sync-github-search</code><code>project-registry sync-tangled-repos</code></article>
     <article class="operation-card"><h3>Review Ops</h3><p>Tracking-state classification dry-runs and explicit execution.</p><code>project-registry review-stalled</code><code>project-registry review-out-of-scope</code></article>
     <article class="operation-card"><h3>Investigation Replay</h3><p>Replay and benchmark saved evidence without network access.</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
-  </div>`;
+  </div>${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
+  $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
+  $("start-enrich").onclick = startEnrichJob;
+  loadJobs();
+}
+
+function confirmOperation(title, message, callback) {
+  const dialog = $("confirm-dialog");
+  $("confirm-title").textContent = title;
+  $("confirm-message").textContent = message;
+  $("confirm-note-label").hidden = true;
+  $("confirm-note").value = "";
+  dialog.showModal();
+  dialog.onclose = async () => {
+    if (dialog.returnValue !== "confirm") return;
+    try { await callback(); } catch (error) { status(error.message, true); }
+  };
+}
+
+function startEnrichJob() {
+  const oneProject = $("enrich-target").value === "project";
+  const projectKey = $("enrich-project-key").value.trim();
+  if (oneProject && !projectKey) { status("Project key is required.", true); return; }
+  const payload = {
+    project_key: oneProject ? projectKey : "",
+    all_projects: !oneProject,
+    deep_investigation: $("enrich-deep").checked,
+    new_only: !oneProject && $("enrich-new-only").checked,
+    retry_failures: !oneProject && $("enrich-retry").checked,
+    include_stable: !oneProject && $("enrich-stable").checked,
+    include_stalled: !oneProject && $("enrich-stalled").checked,
+    include_out_of_scope: !oneProject && $("enrich-out-of-scope").checked,
+    include_archived: !oneProject && $("enrich-archived").checked,
+    include_ignore: !oneProject && $("enrich-ignore").checked,
+  };
+  const target = oneProject ? projectKey : "the selected project set";
+  confirmOperation("Start enrich job", `Start enrich for ${target}? This writes investigation results to SQLite.`, async () => {
+    status("Starting enrich job...");
+    await api("/api/jobs/enrich", {method:"POST", body:JSON.stringify(payload)});
+    status("Enrich job started.");
+    await loadJobs();
+  });
+}
+
+function renderJobs(items) {
+  if (!items.length) return `<p class="muted">No jobs have run in this server process.</p>`;
+  return items.map((job) => {
+    const progress = job.progress || {};
+    const count = progress.total ? `${progress.current || 0} / ${progress.total}` : "";
+    const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : "unknown");
+    return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>
+      <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${esc(progress.elapsed || "")}</span></div>
+      ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
+      ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
+      <div class="actions">
+        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Stop after current project</button>` : ""}
+        ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
+        <button class="secondary small" data-job-detail="${esc(job.job_id)}">Details</button>
+      </div><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}"></div></article>`;
+  }).join("");
+}
+
+async function loadJobs() {
+  if (state.screen !== "operations") return;
+  if (state.operationTimer) clearTimeout(state.operationTimer);
+  state.operationTimer = null;
+  try {
+    const data = await api("/api/jobs?limit=50");
+    $("job-list").innerHTML = renderJobs(list(data.items));
+    bindJobActions();
+    if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling")) {
+      state.operationTimer = setTimeout(loadJobs, 2000);
+    }
+  } catch (error) { status(error.message, true); }
+}
+
+function bindJobActions() {
+  document.querySelectorAll("[data-job-cancel]").forEach((button) => button.onclick = () => {
+    const jobId = button.dataset.jobCancel;
+    confirmOperation("Stop enrich job", `Stop ${jobId} after its current project?`, async () => {
+      await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {method:"POST", body:"{}"});
+      status("Stop requested."); await loadJobs();
+    });
+  });
+  document.querySelectorAll("[data-job-resume]").forEach((button) => button.onclick = () => {
+    const jobId = button.dataset.jobResume;
+    confirmOperation("Resume enrich job", `Resume the checkpoint used by ${jobId}?`, async () => {
+      await api(`/api/jobs/${encodeURIComponent(jobId)}/resume`, {method:"POST", body:"{}"});
+      status("Resume job started."); await loadJobs();
+    });
+  });
+  document.querySelectorAll("[data-job-detail]").forEach((button) => button.onclick = async () => {
+    try {
+      const job = await api(`/api/jobs/${encodeURIComponent(button.dataset.jobDetail)}`);
+      const target = $(`job-detail-${job.job_id.replaceAll(":", "-")}`);
+      target.innerHTML = json({request:job.request, result:job.result, events:job.events, stderr:job.stderr});
+    } catch (error) { status(error.message, true); }
+  });
 }
 
 async function renderSettings() {
@@ -342,7 +456,7 @@ async function renderSettings() {
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
     <label><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
   </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button></div>
-  ${section("Server", `<dl class="kv"><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>Not connected</dd></dl>`)}
+  ${section("Server", `<dl class="kv"><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {
