@@ -163,7 +163,7 @@ case "$cmd" in
   review-stalled)
     _arguments -S \
       '--inactivity-days[Flag projects whose collection activity has been quiet this many days]:days:' \
-      '--enrich-age-days[Flag projects not enriched for at least this many days]:days:' \
+      '--max-enrich-age-days[Only consider stalled downgrades for projects enriched within this many days]:days:' \
       '--execute[Apply the suggested updates]' \
       '--interactive[Step through stalled-review candidates interactively]' \
       '--note[Optional tracking note]:note:'

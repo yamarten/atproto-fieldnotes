@@ -146,8 +146,14 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
   - investigation run保存、network-free replay、fixture benchmark
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
+- `project_registry_core/application/`
+  - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenanceのCLI/Web共通service
+  - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
+- `project_registry_core/commands/`
+  - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
 - `project_registry_core/registry.py`
-  - legacy orchestration と既存 CLI command handler
+  - domain helperとcollector/evaluation orchestration
+  - `enrich --all`、interactive review classification、`merge-batch`、`assist-db-edit`のoperator workflow
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
 
 動作確認済み:
@@ -183,6 +189,8 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。CLI は開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+C時は`status=interrupted`、処理中key、再開commandを保存・出力し、次回`--resume-run`は完了済みkeyを飛ばします。
 
 Web UI は schema v2 repository へ未接続です。旧Web background jobやcheckpoint操作は通常導線として利用できません。
+
+Web UIは`project_registry_core.application`を共有入口として使います。Web handlerがhydrated project dictを直接変更して`save_project()`する構造には戻しません。`enrich --all`など進捗・中断・再開を持つ処理は単発request/response serviceへ押し込まず、Web追従時にbackground job境界を定義します。
 
 ## enrich の判断材料
 

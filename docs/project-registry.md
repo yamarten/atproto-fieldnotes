@@ -355,7 +355,7 @@ project-registry review-ignore --execute
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
 
-`active/watchlist -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。旧名 `--enrich-age-days` は互換aliasとして受け付けます。
+`active/watchlist -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。
 
 `review-out-of-scope` は、atprotoとの関係を保持したまま現在の紹介・重点調査対象から外す候補を出します。
 

@@ -6,6 +6,13 @@ import urllib.error
 from pathlib import Path
 
 from . import registry
+from .commands import decisions as decision_commands
+from .commands import investigation as investigation_commands
+from .commands import maintenance as maintenance_commands
+from .commands import merge as merge_commands
+from .commands import projects as project_commands
+from .commands import review as review_commands
+from .commands import sync as sync_commands
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,13 +28,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     migrate_parser.add_argument("database", type=Path, help="Legacy SQLite database path.")
     migrate_parser.add_argument("--dry-run", action="store_true", help="Build and validate a temporary v2 DB without replacing the source.")
-    migrate_parser.set_defaults(func=registry.cmd_migrate_db)
+    migrate_parser.set_defaults(func=maintenance_commands.cmd_migrate_db)
 
     add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
     add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")
     add_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Override automatic seed type detection.")
     add_parser.add_argument("-p", "--project-key", help="Attach the seed to an existing project key.")
-    add_parser.set_defaults(func=registry.cmd_add_seed)
+    add_parser.set_defaults(func=project_commands.cmd_add_seed)
 
     enrich_parser = subparsers.add_parser("enrich", help="Enrich one or more projects.")
     enrich_group = enrich_parser.add_mutually_exclusive_group(required=True)
@@ -74,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
     show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
-    show_parser.set_defaults(func=registry.cmd_show)
+    show_parser.set_defaults(func=project_commands.cmd_show)
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
@@ -93,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     ], help="Restrict to specific review signal kinds.")
     review_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     review_queue_parser.add_argument("--interactive", action="store_true", help="Step through review items interactively in a TTY.")
-    review_queue_parser.set_defaults(func=registry.cmd_review_queue)
+    review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
     promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist.")
@@ -105,13 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
-    promotion_queue_parser.set_defaults(func=registry.cmd_promotion_queue)
+    promotion_queue_parser.set_defaults(func=review_commands.cmd_promotion_queue)
 
     review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
     review_stalled_parser.add_argument(
         "--max-enrich-age-days",
-        "--enrich-age-days",
         dest="max_enrich_age_days",
         type=int,
         default=30,
@@ -146,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
     seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")
     seed_list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    seed_list_parser.set_defaults(func=registry.cmd_import_seed_list)
+    seed_list_parser.set_defaults(func=sync_commands.cmd_import_seed_list)
 
     sync_introduced_parser = subparsers.add_parser("sync-introduced", help="Search Bluesky posts and mark matching projects as introduced.")
     sync_introduced_parser.add_argument("--query", default="from:yamarten.bsky.social #ATプロトーク", help="Bluesky post search query. Default: from:yamarten.bsky.social #ATプロトーク")
@@ -156,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_introduced_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the last successful sync. Default: enabled; use --no-incremental to ignore stored state.")
     sync_introduced_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for this run.")
     sync_introduced_parser.add_argument("--execute", action="store_true", help="Apply introduced flags. Without this flag, show a dry-run summary only.")
-    sync_introduced_parser.set_defaults(func=registry.cmd_sync_introduced)
+    sync_introduced_parser.set_defaults(func=sync_commands.cmd_sync_introduced)
 
     sync_github_parser = subparsers.add_parser("sync-github-search", help="Search GitHub repositories and import unknown repo seeds.")
     sync_github_parser.add_argument("--query", action="append", help="Override one GitHub repository search query. Can be passed multiple times.")
@@ -168,7 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_github_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_github_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown GitHub repos. Default: enabled; use --no-create-unmatched to list only.")
     sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
-    sync_github_parser.set_defaults(func=registry.cmd_sync_github_search)
+    sync_github_parser.set_defaults(func=sync_commands.cmd_sync_github_search)
 
     sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
     sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")
@@ -178,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_collections_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Use the last successful inventory watermark. Default: enabled.")
     sync_collections_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for unknown collections.")
     sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
-    sync_collections_parser.set_defaults(func=registry.cmd_sync_collections)
+    sync_collections_parser.set_defaults(func=sync_commands.cmd_sync_collections)
 
     sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
     sync_semble_parser.add_argument("--pages", type=int, default=100, help="Safety limit for Semble pages per tracked collection. Default: 100; incremental scans stop at the saved boundary.")
@@ -188,30 +194,30 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume each tracked collection from its last successful sync. Default: enabled.")
     sync_semble_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
-    sync_semble_parser.set_defaults(func=registry.cmd_sync_semble_collections)
+    sync_semble_parser.set_defaults(func=sync_commands.cmd_sync_semble_collections)
 
     sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync the recent UFOs Tangled repository rolling window.")
     sync_tangled_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
     sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched atproto-relevant repos. Default: disabled.")
     sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
     sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
-    sync_tangled_parser.set_defaults(func=registry.cmd_sync_tangled_repos)
+    sync_tangled_parser.set_defaults(func=sync_commands.cmd_sync_tangled_repos)
 
     replay_parser = subparsers.add_parser("replay-investigation", help="Replay a saved investigation without collectors or network access.")
     replay_target = replay_parser.add_mutually_exclusive_group(required=True)
     replay_target.add_argument("--run-id", help="Replay one saved investigation run.")
     replay_target.add_argument("-p", "--project-key", help="Replay the latest saved run for one project.")
-    replay_parser.set_defaults(func=registry.cmd_replay_investigation)
+    replay_parser.set_defaults(func=investigation_commands.cmd_replay_investigation)
 
     benchmark_parser = subparsers.add_parser("benchmark-investigation", help="Replay an investigation fixture corpus and report semantic regressions.")
     benchmark_parser.add_argument("--path", default=str(registry.ROOT / "tests" / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"))
-    benchmark_parser.set_defaults(func=registry.cmd_benchmark_investigation)
+    benchmark_parser.set_defaults(func=investigation_commands.cmd_benchmark_investigation)
 
     export_fixture_parser = subparsers.add_parser("export-investigation-fixture", help="Export a sanitized fixture from a saved investigation run.")
     export_fixture_parser.add_argument("--run-id", required=True)
     export_fixture_parser.add_argument("--case-id")
     export_fixture_parser.add_argument("--output")
-    export_fixture_parser.set_defaults(func=registry.cmd_export_investigation_fixture)
+    export_fixture_parser.set_defaults(func=investigation_commands.cmd_export_investigation_fixture)
 
     verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
     verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)
@@ -221,19 +227,19 @@ def build_parser() -> argparse.ArgumentParser:
     verify_service_parser.add_argument("--url", help="Override the project service URL.")
     verify_service_parser.add_argument("--lane", choices=["static", "deep", "browser"], default="static", help="Verification method: static page, deep same-site pages, or anonymous browser rendering.")
     verify_service_parser.add_argument("--execute", action="store_true", help="Apply evaluation and save a replayable investigation run.")
-    verify_service_parser.set_defaults(func=registry.cmd_verify_service)
+    verify_service_parser.set_defaults(func=investigation_commands.cmd_verify_service)
 
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
-    repair_parser.set_defaults(func=registry.cmd_repair_db)
+    repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)
 
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
-    audit_url_parser.set_defaults(func=registry.cmd_audit_url_fields)
+    audit_url_parser.set_defaults(func=maintenance_commands.cmd_audit_url_fields)
 
     cleanup_app_links_parser = subparsers.add_parser("cleanup-app-links", help="Rebuild stored app.links from canonical URL fields and confirmed resource records.")
     cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply profile_json app link updates. Without this flag, show a dry-run summary only.")
-    cleanup_app_links_parser.set_defaults(func=registry.cmd_cleanup_app_links)
+    cleanup_app_links_parser.set_defaults(func=maintenance_commands.cmd_cleanup_app_links)
 
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
@@ -242,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     tracking_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
     tracking_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(registry.TRACKING_STATES), help="Tracking state to assign.")
     tracking_parser.add_argument("--note", help="Optional tracking note.")
-    tracking_parser.set_defaults(func=registry.cmd_set_tracking_state)
+    tracking_parser.set_defaults(func=project_commands.cmd_set_tracking_state)
 
     tracking_batch_parser = subparsers.add_parser("set-tracking-state-batch", help="Set tracking state for all projects matching a coarse filter.")
     tracking_batch_filter = tracking_batch_parser.add_mutually_exclusive_group(required=True)
@@ -252,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     tracking_batch_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(registry.TRACKING_STATES), help="Tracking state to assign.")
     tracking_batch_parser.add_argument("--note", help="Optional tracking note.")
     tracking_batch_parser.add_argument("--execute", action="store_true", help="Apply the change. Without this flag, show a dry-run summary only.")
-    tracking_batch_parser.set_defaults(func=registry.cmd_set_tracking_state_batch)
+    tracking_batch_parser.set_defaults(func=project_commands.cmd_set_tracking_state_batch)
 
     separate_parser = subparsers.add_parser("set-separate", help="Mark two projects as distinct so merge recommendations do not pair them.")
     separate_source = separate_parser.add_mutually_exclusive_group(required=True)
@@ -264,7 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
     separate_target.add_argument("-O", "--other-seed", help="Second project by known seed value.")
     separate_parser.add_argument("--other-type", choices=["nsid", "repo_url", "service_url"], help="Required when --other-seed is ambiguous.")
     separate_parser.add_argument("--clear", action="store_true", help="Remove the separation block instead of adding it.")
-    separate_parser.set_defaults(func=registry.cmd_set_separate)
+    separate_parser.set_defaults(func=decision_commands.cmd_set_separate)
 
     block_parser = subparsers.add_parser("block-identifier", help="Block one identifier from being reattached to a project during normalize/enrich.")
     block_target = block_parser.add_mutually_exclusive_group(required=True)
@@ -275,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
     block_parser.add_argument("-v", "--value", required=True, help="Identifier value to block on this project.")
     block_parser.add_argument("--note", help="Optional operator note recorded with the block.")
     block_parser.add_argument("--clear", action="store_true", help="Remove the block instead of adding it.")
-    block_parser.set_defaults(func=registry.cmd_block_identifier)
+    block_parser.set_defaults(func=decision_commands.cmd_block_identifier)
 
     defer_parser = subparsers.add_parser("defer-identifier", help="Temporarily downgrade one identifier while preventing automatic confirmation.")
     defer_target = defer_parser.add_mutually_exclusive_group(required=True)
@@ -287,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     defer_parser.add_argument("--days", type=int, default=registry.DEFAULT_DEFER_IDENTIFIER_DAYS, help="How many days to keep the temporary guard. Default: 30.")
     defer_parser.add_argument("--note", help="Optional operator note recorded with the defer guard.")
     defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
-    defer_parser.set_defaults(func=registry.cmd_defer_identifier)
+    defer_parser.set_defaults(func=decision_commands.cmd_defer_identifier)
 
     defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue while recording the reason.")
     defer_promotion_target = defer_promotion_parser.add_mutually_exclusive_group(required=True)
@@ -297,13 +303,13 @@ def build_parser() -> argparse.ArgumentParser:
     defer_promotion_parser.add_argument("--days", type=int, default=registry.DEFAULT_PROMOTION_DEFER_DAYS, help="How many days to hide the project from promotion-queue. Default: 7.")
     defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
     defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
-    defer_promotion_parser.set_defaults(func=registry.cmd_defer_promotion)
+    defer_promotion_parser.set_defaults(func=decision_commands.cmd_defer_promotion)
 
     audit_source_parser = subparsers.add_parser("audit-source-config", help="Audit registered projects after custom multi-tenant suffix changes.")
     audit_source_parser.add_argument("domain", nargs="?", help="Optional suffix to add to config/domain-overrides.json before auditing it.")
     audit_source_parser.add_argument("--interactive", action=argparse.BooleanOptionalAction, default=True, help="Review split suggestions interactively. Default: enabled; use --no-interactive for JSON dry-run output.")
     audit_source_parser.add_argument("--execute", action="store_true", help="Add the requested suffix without an interactive confirmation. Split suggestions are never auto-applied.")
-    audit_source_parser.set_defaults(func=registry.cmd_audit_source_config)
+    audit_source_parser.set_defaults(func=maintenance_commands.cmd_audit_source_config)
 
     split_parser = subparsers.add_parser("split-project", help="Split one identifier out of a merged project into a new project.")
     split_target = split_parser.add_mutually_exclusive_group(required=True)
@@ -315,7 +321,7 @@ def build_parser() -> argparse.ArgumentParser:
     split_parser.add_argument("-n", "--new-project-key", help="Optional explicit key for the new project.")
     split_parser.add_argument("--note", help="Optional operator note.")
     split_parser.add_argument("--execute", action="store_true", help="Apply the split. Without this flag, only show a dry-run summary.")
-    split_parser.set_defaults(func=registry.cmd_split_project)
+    split_parser.set_defaults(func=merge_commands.cmd_split_project)
 
     inspect_merge_parser = subparsers.add_parser("inspect-merge-pair", help="Inspect merge evidence for one specific project pair without running batch merge.")
     inspect_merge_source = inspect_merge_parser.add_mutually_exclusive_group(required=True)
@@ -327,7 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_merge_target.add_argument("-T", "--target-seed", help="Target project by known seed value.")
     inspect_merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
     inspect_merge_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Include the temporary listReposByCollection first-DID heuristic in the inspection output.")
-    inspect_merge_parser.set_defaults(func=registry.cmd_inspect_merge_pair)
+    inspect_merge_parser.set_defaults(func=merge_commands.cmd_inspect_merge_pair)
 
     merge_parser = subparsers.add_parser("merge", help="Merge one project into another.")
     merge_source = merge_parser.add_mutually_exclusive_group(required=True)
@@ -341,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
     merge_parser.add_argument("--execute", action="store_true", help="Apply the merge. Without this flag, only show a dry-run summary.")
     merge_parser.add_argument("--force", action="store_true", help="Allow executing a non-auto-ready recommendation merge.")
-    merge_parser.set_defaults(func=registry.cmd_merge)
+    merge_parser.set_defaults(func=merge_commands.cmd_merge)
 
     merge_batch_parser = subparsers.add_parser("merge-batch", help="Batch-merge only high-safety duplicate pairs.")
     merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")

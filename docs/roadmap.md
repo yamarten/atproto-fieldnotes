@@ -154,7 +154,10 @@ Web UIはschema v2へ未接続です。再接続後の検索拡張候補は次�
 
 ## TODO
 
-- `project_registry_core.registry`に残るcommand handlerを用途別moduleへ切り出す
+- CLI command体系の階層化を、現行flat commandに実際の操作上の支障が出た時点で再評価する
+  - 例: `project show`, `review queue`, `sync github`, `decision block`, `db migrate`
+  - application serviceはcommand名から独立しているため、階層化時に業務処理は変更しない
+- `enrich --all`、interactive review、`merge-batch`、`assist-db-edit`をWebから扱う場合は、progress event、中断、再開、確認入力を持つbackground job serviceを設計する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
 - `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する

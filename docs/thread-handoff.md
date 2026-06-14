@@ -21,6 +21,11 @@
   - `resource_urls`
   - `introduced`
 - 実装済み: EvidenceBundleはschema v2のみを通常readerで受理
+- 実装済み: `project_registry_core.application`
+  - project query/tracking、decision、merge/split、review queue
+  - sync、investigation replay/verify/export、maintenance
+- 実装済み: 通常CLI adapterを`project_registry_core.commands`へ用途別分割
+- 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
 
@@ -31,7 +36,7 @@
 - investigation replay / benchmark
 - CLI helpと既存command parser
 - Web entrypointがschema v2未接続を明示して終了すること
-- 全通常テスト166件
+- 全通常テスト171件
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -41,7 +46,7 @@
 ## 未接続
 
 - Web UI全体。旧Web実装はschema v2 repositoryへ未接続で、entrypointは意図的に停止する
-- command handlerの用途別分割。launcher、parser、`main()`は`project_registry_core.cli`へ分離済みだが、handler本体の多くは`project_registry_core.registry`に残る
+- Web background job service。`enrich --all`、interactive review classification、`merge-batch`、`assist-db-edit`はoperator workflowとして`registry.py`に残る
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
 - Webからのinvestigation run/evidence表示
@@ -57,7 +62,7 @@
 ## 次候補
 
 - Web UIをschema v2 repositoryへ接続する
-- `project_registry_core.registry`からCLI command handlerを用途別moduleへ切り出す
+- Web background jobから長時間operator workflowを起動・監視・中断・再開するservice境界を作る
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす
 

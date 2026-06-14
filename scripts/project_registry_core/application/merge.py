@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import sqlite3
+from typing import Any
+
+from .. import registry as core
+
+
+def inspect_pair(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str | None = None,
+    seed: str | None = None,
+    seed_type: str | None = None,
+    target_project_key: str | None = None,
+    target_seed: str | None = None,
+    target_seed_type: str | None = None,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> dict[str, Any]:
+    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    target = core.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
+    if source["project_key"] == target["project_key"]:
+        raise ValueError("source and target resolve to the same project")
+    return core.inspect_merge_pair_payload(
+        conn,
+        source,
+        target,
+        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+    )
+
+
+def merge_projects(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str | None = None,
+    seed: str | None = None,
+    seed_type: str | None = None,
+    target_project_key: str | None = None,
+    target_seed: str | None = None,
+    target_seed_type: str | None = None,
+    use_recommendation: bool = False,
+    execute: bool = False,
+    force: bool = False,
+) -> dict[str, Any]:
+    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    source["duplicate_candidates"] = core.compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = core.compute_merge_recommendation(source)
+    resolve_recommendation = use_recommendation or not any([target_project_key, target_seed])
+    if resolve_recommendation:
+        recommendation = source.get("merge_recommendation") or {}
+        resolved_target_key = str(recommendation.get("target_project_key") or "")
+        if not resolved_target_key:
+            raise ValueError("no merge recommendation available for source project")
+        if execute and not recommendation.get("auto_merge_ready") and not force:
+            raise ValueError("merge recommendation is not auto-merge-ready; rerun without --execute or pass --force")
+        target = core.resolve_single_project(conn, project_key=resolved_target_key)
+    else:
+        target = core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type)
+    target = core.ensure_project_shape(target)
+    if source["project_key"] == target["project_key"]:
+        raise ValueError("source and target resolve to the same project")
+    if core.merge_is_blocked(source, target) and not force:
+        raise ValueError("merge is manually blocked for this project pair; pass force only to override that guard")
+    merged = core.merge_project_records(target, source)
+    merged["duplicate_candidates"] = core.compute_duplicate_candidates(conn, merged)
+    merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
+    merged = core.apply_promotion_state(merged)
+    summary = {
+        "mode": "execute" if execute else "dry_run",
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "used_recommendation": resolve_recommendation,
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "merged_name": merged.get("name", ""),
+        "merged_website_url": merged.get("website_url", ""),
+        "merged_service_urls": merged.get("service_urls", []),
+        "merged_tagline": merged.get("tagline", ""),
+        "merged_tagline_is_provisional": merged.get("tagline_is_provisional", False),
+        "merged_service_status": merged.get("service_status", ""),
+        "merged_source_code_urls": merged.get("source_code_urls", []),
+        "introduced": bool(merged.get("introduced_url")),
+        "introduced_url": merged.get("introduced_url", ""),
+        "merge_recommendation": source.get("merge_recommendation", {}),
+    }
+    if execute:
+        core.save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
+        core.delete_project(conn, source["project_key"])
+        conn.commit()
+    return summary
+
+
+def split_identifier(
+    conn: sqlite3.Connection,
+    *,
+    identifier_type: str,
+    value: str,
+    project_key: str | None = None,
+    seed: str | None = None,
+    seed_type: str | None = None,
+    new_project_key: str | None = None,
+    note: str = "",
+    execute: bool = False,
+) -> dict[str, Any]:
+    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    identifier_value = core.canonical_seed_value(identifier_type, value)
+    if not identifier_value:
+        raise ValueError("identifier value is required")
+    if core.find_project_key_by_identifier(conn, identifier_type, identifier_value) != source["project_key"]:
+        raise ValueError("identifier does not currently belong to the selected source project")
+    target_key = (
+        core.resolve_project_key_input(conn, new_project_key)
+        if new_project_key
+        else core.generate_project_key({project["project_key"] for project in core.all_projects(conn)})
+    )
+    if target_key == source["project_key"]:
+        raise ValueError("new project key resolves to the same source project")
+    if core.fetch_project(conn, target_key) is not None:
+        raise ValueError(f"target project already exists: {target_key}")
+    target = core.default_project_record(target_key, identifier_type, identifier_value)
+    target["tracking_state"] = source.get("tracking_state", "active")
+    target["status"] = source.get("status", "draft")
+    target["discovery_sources"] = core.unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
+    target["tracking_note"] = f"split from {source['project_key']}"
+    core.add_manual_seed(target, identifier_type, identifier_value, source="split")
+    target = core.finalize_project_shape(target)
+    blocked = core.normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    block_key = (identifier_type, identifier_value)
+    if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
+        blocked.append({
+            "type": identifier_type,
+            "value": identifier_value,
+            "note": note.strip() or "split out to another project",
+            "added_at": core.iso_now(),
+        })
+    source["blocked_identifiers"] = blocked
+    core.remove_identifier_from_project(source, identifier_type, identifier_value)
+    source["separate_project_keys"] = core.unique_list(list(source.get("separate_project_keys", [])) + [target["project_key"]])
+    target["separate_project_keys"] = core.unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+    note_line = f"split out {identifier_type}:{identifier_value} -> {target['project_key']}"
+    if note:
+        note_line = f"{note_line} ({note.strip()})"
+    existing_notes = str(source.get("notes") or "").strip()
+    if note_line not in existing_notes.splitlines():
+        source["notes"] = (existing_notes + ("\n" if existing_notes else "") + note_line).strip()
+    source = core.finalize_project_shape(source)
+    for item in (source, target):
+        item["duplicate_candidates"] = core.compute_duplicate_candidates(conn, item)
+        item["merge_recommendation"] = core.compute_merge_recommendation(item)
+    summary = {
+        "mode": "execute" if execute else "dry_run",
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "identifier_type": identifier_type,
+        "identifier_value": identifier_value,
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "source_blocked_identifiers": source.get("blocked_identifiers", []),
+        "source_input_nsids": source.get("input_nsids", []),
+        "source_service_urls": source.get("service_urls", []),
+        "source_source_code_urls": source.get("source_code_urls", []),
+        "target_input_nsids": target.get("input_nsids", []),
+        "target_service_urls": target.get("service_urls", []),
+        "target_source_code_urls": target.get("source_code_urls", []),
+    }
+    if execute:
+        core.save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
+        core.save_project(conn, target, enriched=False)
+        conn.commit()
+    return summary

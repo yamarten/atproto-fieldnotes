@@ -10,6 +10,7 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import cli
+from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
@@ -208,7 +209,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ]
         )
 
-        self.assertIs(args.func, registry.cmd_defer_identifier)
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
         self.assertEqual(args.days, 14)
 
     def test_parser_accepts_defer_promotion_command(self) -> None:
@@ -222,13 +223,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ]
         )
 
-        self.assertIs(args.func, registry.cmd_defer_promotion)
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
         self.assertEqual(args.days, 7)
 
     def test_parser_accepts_audit_url_fields_command(self) -> None:
         args = cli.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
 
-        self.assertIs(args.func, registry.cmd_audit_url_fields)
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertEqual(args.example_limit, 3)
 
     def test_parser_accepts_cleanup_app_links_command(self) -> None:
@@ -236,12 +237,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         cleanup_args = parser.parse_args(["cleanup-app-links", "--execute"])
 
-        self.assertIs(cleanup_args.func, registry.cmd_cleanup_app_links)
+        self.assertEqual(cleanup_args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertTrue(cleanup_args.execute)
 
         repair_args = parser.parse_args(["repair-db", "--execute"])
 
-        self.assertIs(repair_args.func, registry.cmd_repair_db)
+        self.assertEqual(repair_args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertTrue(repair_args.execute)
 
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
@@ -250,7 +251,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         args = parser.parse_args(["audit-source-config", "example.com"])
         dry_run_args = parser.parse_args(["audit-source-config", "example.com", "--no-interactive"])
 
-        self.assertIs(args.func, registry.cmd_audit_source_config)
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertTrue(args.interactive)
         self.assertFalse(dry_run_args.interactive)
 
@@ -267,14 +268,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIs(review_args.func, registry.cmd_review_out_of_scope)
         self.assertTrue(enrich_args.include_out_of_scope)
 
-    def test_review_stalled_parser_accepts_freshness_option_and_legacy_alias(self) -> None:
+    def test_review_stalled_parser_accepts_freshness_option(self) -> None:
         parser = cli.build_parser()
 
         args = parser.parse_args(["review-stalled", "--max-enrich-age-days", "21"])
-        legacy_args = parser.parse_args(["review-stalled", "--enrich-age-days", "14"])
 
         self.assertEqual(args.max_enrich_age_days, 21)
-        self.assertEqual(legacy_args.max_enrich_age_days, 14)
 
     def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
         args = cli.build_parser().parse_args(
@@ -847,7 +846,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 mock.patch.object(registry, "open_db", return_value=conn),
                 mock.patch.object(registry, "output_project_queue", return_value=0) as output,
             ):
-                registry.cmd_promotion_queue(args)
+                review_commands.cmd_promotion_queue(args)
 
             queue = output.call_args.kwargs["queue"]
             self.assertEqual([item["project_key"] for item in queue], ["proj:zzzzzzzzzzzz"])
