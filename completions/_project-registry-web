@@ -1,4 +1,4 @@
-#compdef project-registry-web project_registry_web.py
+#compdef project-registry-web
 
 _arguments -S \
   '(-h --help)'{-h,--help}'[Show command help]' \

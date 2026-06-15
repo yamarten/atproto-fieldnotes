@@ -11,8 +11,9 @@
   - 既定で移行・検証・backup・元path置換まで実行
   - `--dry-run`は一時DBを検証後に削除
   - v2 DBへの再実行はno-op
-- 実装済み: 公開CLIは`bin/project-registry`へ一本化
+- 実装済み: 公開command入口は`bin/project-registry` / `bin/project-registry-web`へ一本化
 - 削除済み: `scripts/project-registry`互換wrapper
+- 削除済み: `scripts/project-registry-web`互換wrapper
 - 削除済み: `scripts/project_registry.py` top-level Python API
 - 削除済み: runtime compatibility field
   - `website_url_candidates`

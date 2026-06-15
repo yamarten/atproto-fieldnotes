@@ -5,7 +5,8 @@
 ## 目的
 
 - `atproto` 関連の project / service / library / lexicon を収集・整理する
-- 公開CLI入口は `bin/project-registry`（command名は`project-registry`）
+- 公開command入口は `bin/project-registry` と `bin/project-registry-web`
+  - command名はそれぞれ`project-registry` / `project-registry-web`
 - 主実装は `scripts/project_registry_core/`
   - `application/`: CLIとWebで共有するquery/mutation service
   - `commands/`: `argparse`と出力を担当するCLI adapter

@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
 set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-exec "$ROOT_DIR/scripts/project-registry-web" "$@"
+PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec python3 -m project_registry_web "$@"

@@ -71,7 +71,7 @@ project-registry-web --host <TAB>
 
 のように subcommand と主要オプションを補完できます。
 
-公開CLI入口は`bin/project-registry`だけです。利用手順と生成commandは`project-registry`に統一し、PATHには`bin/`だけを足す前提です。
+公開command入口は`bin/project-registry`と`bin/project-registry-web`です。利用手順と生成commandは`project-registry` / `project-registry-web`に統一し、PATHには`bin/`だけを足す前提です。
 
 ## Web UI
 
