@@ -69,7 +69,8 @@ class JobRecord:
             "event_count": len(self.events),
             "can_cancel": self.status in {"queued", "running"},
             "can_resume": (
-                self.status in {"cancelled", "failed"}
+                self.request.operation == "enrich"
+                and self.status in {"cancelled", "failed"}
                 and bool(parameters.get("all_projects"))
                 and bool(str(parameters.get("checkpoint_path") or ""))
                 and checkpoint.exists()
@@ -113,11 +114,27 @@ class JobManager:
         )
         return self.start(request)
 
+    def start_sync(self, parameters: dict[str, Any], *, execute: bool = False) -> dict[str, Any]:
+        request = OperationRequest.create(
+            "sync",
+            parameters=dict(parameters),
+            execute=execute,
+        )
+        return self.start(request)
+
+    def start_review(self, parameters: dict[str, Any], *, execute: bool = False) -> dict[str, Any]:
+        request = OperationRequest.create(
+            "review",
+            parameters=dict(parameters),
+            execute=execute,
+        )
+        return self.start(request)
+
     def start(self, request: OperationRequest) -> dict[str, Any]:
         with self._lock:
             active = next((job for job in self._jobs.values() if job.status in ACTIVE_STATUSES), None)
             if active is not None:
-                raise JobConflictError(f"write job already active: {active.job_id}")
+                raise JobConflictError(f"background job already active: {active.job_id}")
             job = JobRecord(job_id=f"job:{uuid.uuid4().hex[:12]}", request=request)
             self._jobs[job.job_id] = job
             self._trim_locked()

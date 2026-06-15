@@ -15,6 +15,7 @@ from project_registry_core.web.server import RegistryWebHandler
 class FakeJobManager:
     def __init__(self) -> None:
         self.parameters: dict = {}
+        self.execute = False
         self.job = {
             "job_id": "job:test",
             "operation_id": "enrich-test",
@@ -29,6 +30,16 @@ class FakeJobManager:
     def start_enrich(self, parameters: dict) -> dict:
         self.parameters = parameters
         return dict(self.job)
+
+    def start_sync(self, parameters: dict, *, execute: bool = False) -> dict:
+        self.parameters = parameters
+        self.execute = execute
+        return {**self.job, "operation": "sync", "request": {"parameters": parameters}}
+
+    def start_review(self, parameters: dict, *, execute: bool = False) -> dict:
+        self.parameters = parameters
+        self.execute = execute
+        return {**self.job, "operation": "review", "request": {"parameters": parameters}}
 
     def list_jobs(self, *, limit: int = 50) -> dict:
         return {"count": 1, "items": [dict(self.job)]}
@@ -190,6 +201,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertIn("Latest Investigation", script)
         self.assertIn("Start enrich job", script)
+        self.assertIn("Start sync job", script)
+        self.assertIn("Start review job", script)
         self.assertIn("javascript", content_type)
 
         status, payload, _ = self.request("/api/projects", token="wrong")
@@ -204,6 +217,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertTrue(settings["operations_connected"])
         self.assertTrue(settings["operation_capabilities"]["enrich"])
+        self.assertTrue(settings["operation_capabilities"]["sync"])
+        self.assertTrue(settings["operation_capabilities"]["review_ops"])
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
         status, payload, _ = self.request(
@@ -234,6 +249,61 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(resumed["job_id"], "job:resumed")
 
         status, error, _ = self.request("/api/jobs/enrich", method="POST", payload={"all_projects": False})
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+    def test_sync_and_review_job_endpoints_validate_allowlists(self) -> None:
+        status, sync_job, _ = self.request(
+            "/api/jobs/sync",
+            method="POST",
+            payload={
+                "source": "github",
+                "execute": True,
+                "create_unmatched": True,
+                "screen_unmatched": True,
+                "all_history": True,
+                "lookback_days": 20,
+            },
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(sync_job["operation"], "sync")
+        self.assertEqual(self.server.jobs.parameters["source"], "github")
+        self.assertTrue(self.server.jobs.parameters["all_history"])
+        self.assertTrue(self.server.jobs.execute)
+
+        status, review_job, _ = self.request(
+            "/api/jobs/review",
+            method="POST",
+            payload={
+                "kind": "stalled",
+                "execute": False,
+                "inactivity_days": 60,
+                "max_enrich_age_days": 45,
+            },
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(review_job["operation"], "review")
+        self.assertEqual(self.server.jobs.parameters["kind"], "stalled")
+        self.assertEqual(self.server.jobs.parameters["inactivity_days"], 60)
+        self.assertFalse(self.server.jobs.execute)
+
+        status, error, _ = self.request(
+            "/api/jobs/sync", method="POST", payload={"source": "arbitrary_url"}
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+        status, error, _ = self.request(
+            "/api/jobs/review", method="POST", payload={"kind": "delete_everything"}
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+        status, error, _ = self.request(
+            "/api/jobs/review",
+            method="POST",
+            payload={"kind": "stalled", "execute": "false"},
+        )
         self.assertEqual(status, 400)
         self.assertEqual(error["error"]["code"], "validation_error")
 

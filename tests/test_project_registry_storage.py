@@ -265,7 +265,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         enrich_args = parser.parse_args(["enrich", "--all", "--include-out-of-scope"])
 
         self.assertEqual(state_args.tracking_state, "out_of_scope")
-        self.assertIs(review_args.func, registry.cmd_review_out_of_scope)
+        self.assertIs(review_args.func, review_commands.cmd_review_out_of_scope)
         self.assertTrue(enrich_args.include_out_of_scope)
 
     def test_review_stalled_parser_accepts_freshness_option(self) -> None:

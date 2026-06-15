@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Callable
 from typing import Any
 
 from .. import registry as core
 from ..application import review as services
+
+
+def _print(payload: dict[str, Any]) -> int:
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 def cmd_review_queue(args: argparse.Namespace) -> int:
@@ -86,5 +92,61 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
             load_more=None,
             include_personal_tools=include_personal_tools,
         )
+    finally:
+        conn.close()
+
+
+def cmd_review_stalled(args: argparse.Namespace) -> int:
+    if bool(getattr(args, "interactive", False)):
+        return core.cmd_review_stalled(args)
+    conn = core.open_db()
+    try:
+        return _print(services.stalled(
+            conn,
+            execute=bool(args.execute),
+            inactivity_days=int(args.inactivity_days or 45),
+            max_enrich_age_days=int(args.max_enrich_age_days or 30),
+            note=str(args.note or ""),
+        ))
+    finally:
+        conn.close()
+
+
+def cmd_review_ignore(args: argparse.Namespace) -> int:
+    if bool(getattr(args, "interactive", False)):
+        return core.cmd_review_ignore(args)
+    conn = core.open_db()
+    try:
+        tracking_states = {
+            str(item).strip() for item in (args.tracking_states or []) if str(item).strip()
+        } or None
+        return _print(services.ignore(
+            conn,
+            execute=bool(args.execute),
+            tracking_states=tracking_states,
+            limit=max(1, int(args.limit)) if args.limit is not None else 100,
+            note=str(args.note or ""),
+            note_reason=str(args.note_reason or ""),
+        ))
+    finally:
+        conn.close()
+
+
+def cmd_review_out_of_scope(args: argparse.Namespace) -> int:
+    if bool(getattr(args, "interactive", False)):
+        return core.cmd_review_out_of_scope(args)
+    conn = core.open_db()
+    try:
+        tracking_states = {
+            str(item).strip() for item in (args.tracking_states or []) if str(item).strip()
+        } or None
+        return _print(services.out_of_scope(
+            conn,
+            execute=bool(args.execute),
+            tracking_states=tracking_states,
+            limit=max(1, int(args.limit)) if args.limit is not None else 100,
+            note=str(args.note or ""),
+            note_reason=str(args.note_reason or ""),
+        ))
     finally:
         conn.close()

@@ -30,7 +30,7 @@
   - enrichのproject選択、保存、checkpoint、再開をapplication serviceへ移動
   - CLIはevent dataをJSON linesへ変換するadapter
 - 実装済み: Web enrich subprocess runner
-  - 同じWeb serverからの同時書き込みjobは1件。CLIなど別processとの排他は未実装
+  - 同じWeb serverからの同時background jobは1件。CLIなど別processとの排他は未実装
   - 開始、一覧、詳細、処理中project後の停止、cancelled/failed bulk runの再開
   - Operations画面で設定、進捗、event/resultを表示
 - 実装済み: schema v2 Web UI
@@ -54,7 +54,11 @@
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト180件
+- 全通常テスト184件
+- in-app Browserでschema v2 DBのreview-stalled dry-runを実行
+  - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
+  - GitHub sync選択時だけscreening optionが有効になることを確認
+  - 実外部sync sourceのWeb worker経由実行は未検証
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -63,7 +67,8 @@
 
 ## 未接続
 
-- sync、interactive review classification、`assist-db-edit`の共通job化
+- sync/reviewのbackground job接続は完了。source page/candidate単位progress、途中停止、checkpoint再開は未接続
+- interactive reviewの候補選択式plan実行と`assist-db-edit`の共通job化
 - server再起動後のjob一覧復元とcheckpoint discovery
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
@@ -79,7 +84,7 @@
 
 ## 次候補
 
-- syncとreview classificationを共通job contractへ移す
+- syncのsource内部progress/cancellationとreviewの候補選択式planを追加する
 - server再起動後も既存checkpointを発見・再開できる導線を追加する
 - identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす

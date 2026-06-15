@@ -160,16 +160,18 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 - `Review`: review queue、promotion queue、merge plan
 - `Projects`: project検索、schema v2 detail、seed preview・追加
-- `Operations`: enrich background jobと、未接続処理のCLI案内
+- `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
 - `Settings`: queue limit、merge mode、token、接続DBの確認
 
 project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、auto-ready mergeは明示確認後にSQLiteへ保存します。
 
-OperationsのenrichはWeb serverとは別processで動きます。単体projectまたはbulkを選び、deep investigation、未enrichのみ、前回失敗のみ、追加tracking stateを指定できます。同じWeb serverから同時に実行できる書き込みjobは1件です。CLIなど別processとの排他は行いません。Stopは処理中projectの保存後に停止し、cancelled/failedのbulk runは同じcheckpointからResumeできます。job一覧とeventはserver process内保持で、server再起動後は復元されません。
+Operationsのenrich、sync、review classificationはWeb serverとは別processで動きます。enrichは単体projectまたはbulkを選び、deep investigation、未enrichのみ、前回失敗のみ、追加tracking stateを指定できます。syncは設定済みのintroduced/GitHub/collection inventory/Semble/Tangled sourceだけを選択でき、任意URLやqueryはCLIで扱います。syncのdry-runも外部通信しますがSQLiteは更新しません。reviewのdry-runはnetwork-freeで、executeは表示対象になった候補を一括適用します。
+
+同じWeb serverから同時に実行できるbackground jobは1件です。CLIなど別processとの排他は行いません。enrichのStopは処理中projectの保存後に停止し、cancelled/failedのbulk runは同じcheckpointからResumeできます。sync/reviewの停止要求は現在のoperation完了後に反映され、checkpoint再開はありません。job一覧とeventはserver process内保持で、server再起動後は復元されません。
 
 未接続:
 
-- sync、review ops、`assist-db-edit`
+- `assist-db-edit`
 - server再起動後のjob履歴復元とcheckpoint発見
 - investigation run一覧とreplay差分の専用画面
 - LLM設定、server reload/shutdownの画面操作

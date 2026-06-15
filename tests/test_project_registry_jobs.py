@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import datetime as dt
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core.jobs import OperationRequest
+from project_registry_core.application import review as review_services
 from project_registry_core.web.jobs import JobConflictError, JobManager
 
 
@@ -89,6 +92,19 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertFalse(completed["can_resume"])
         self.assertTrue(completed["request"]["parameters"]["checkpoint_path"].endswith(".json"))
 
+    def test_generic_sync_and_review_jobs_use_same_process_boundary(self) -> None:
+        sync_job = self.manager.start_sync({"source": "github"}, execute=False)
+        sync_completed = self.wait_for(sync_job["job_id"], {"completed"})
+        self.assertEqual(sync_completed["operation"], "sync")
+        self.assertFalse(sync_completed["request"]["execute"])
+        self.assertFalse(sync_completed["can_resume"])
+
+        review_job = self.manager.start_review({"kind": "stalled"}, execute=True)
+        review_completed = self.wait_for(review_job["job_id"], {"completed"})
+        self.assertEqual(review_completed["operation"], "review")
+        self.assertTrue(review_completed["request"]["execute"])
+        self.assertFalse(review_completed["can_resume"])
+
     def test_cancel_conflict_and_resume_use_same_operation_checkpoint(self) -> None:
         first = self.manager.start_enrich({"all_projects": True, "wait_on_first": True})
         self.wait_for(first["job_id"], {"running"})
@@ -136,6 +152,60 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(messages[-1]["type"], "result")
         self.assertEqual(messages[-1]["payload"]["status"], "completed")
         self.assertTrue(checkpoint.exists())
+
+    def test_real_worker_completes_review_dry_run_without_network(self) -> None:
+        request = OperationRequest.create(
+            "review",
+            operation_id="empty-review-test",
+            parameters={"kind": "stalled"},
+            execute=False,
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(SCRIPTS) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        result = subprocess.run(
+            [sys.executable, "-m", "project_registry_core.worker"],
+            input=json.dumps({"db_path": str(self.db_path), "request": request.to_dict(include_sensitive=True)}),
+            text=True,
+            capture_output=True,
+            env=env,
+            cwd=str(SCRIPTS.parent),
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        messages = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual([message["type"] for message in messages], ["event", "event", "result"])
+        payload = messages[-1]["payload"]
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["data"]["summary"]["mode"], "dry_run")
+        self.assertEqual(payload["data"]["summary"]["candidate_count"], 0)
+
+    def test_stalled_review_limit_bounds_returned_candidates(self) -> None:
+        projects = [{"project_key": f"proj:{index}"} for index in range(3)]
+
+        def entry(project: dict, **_kwargs: object) -> dict:
+            return {
+                "project_key": project["project_key"],
+                "suggested_tracking_state": "stalled",
+            }
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(review_services.core, "list_projects", return_value=projects), mock.patch.object(
+                review_services.core, "ensure_project_shape", side_effect=lambda project: project
+            ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
+                payload = review_services.stalled(
+                    conn,
+                    limit=2,
+                    now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
+                )
+        finally:
+            conn.close()
+
+        self.assertEqual(payload["candidate_count"], 2)
+        self.assertEqual(payload["total_candidate_count"], 3)
+        self.assertEqual(len(payload["candidates"]), 2)
 
 
 if __name__ == "__main__":

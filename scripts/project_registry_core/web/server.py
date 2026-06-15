@@ -34,6 +34,14 @@ def _int(value: Any, default: int, *, minimum: int = 1, maximum: int = 500) -> i
     return max(minimum, min(maximum, parsed))
 
 
+def _boolean(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ValueError("boolean value required")
+    return value
+
+
 def _set(values: list[str]) -> set[str]:
     output: set[str] = set()
     for value in values:
@@ -150,8 +158,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "operations_connected": True,
                 "operation_capabilities": {
                     "enrich": True,
-                    "sync": False,
-                    "review_ops": False,
+                    "sync": True,
+                    "review_ops": True,
                     "subprocess_worker": True,
                 },
             })
@@ -249,6 +257,16 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             result = self.server.jobs.start_enrich(self.enrich_job_parameters(payload))
             self.send_json(result, status=HTTPStatus.ACCEPTED)
             return
+        if path == "/api/jobs/sync":
+            parameters = self.sync_job_parameters(payload)
+            result = self.server.jobs.start_sync(parameters, execute=_boolean(payload.get("execute")))
+            self.send_json(result, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/jobs/review":
+            parameters = self.review_job_parameters(payload)
+            result = self.server.jobs.start_review(parameters, execute=_boolean(payload.get("execute")))
+            self.send_json(result, status=HTTPStatus.ACCEPTED)
+            return
         if path.startswith("/api/jobs/"):
             parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/jobs/").split("/") if part]
             if len(parts) != 2:
@@ -332,6 +350,55 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             "new_only": bool(payload.get("new_only")),
             "retry_failures": bool(payload.get("retry_failures")),
             "deep_investigation": bool(payload.get("deep_investigation")),
+        }
+
+    def sync_job_parameters(self, payload: dict[str, Any]) -> dict[str, Any]:
+        source = _choice(
+            str(payload.get("source") or ""),
+            {"introduced", "github", "collections", "semble", "tangled"},
+            default="",
+        )
+        all_history = _boolean(payload.get("all_history"))
+        return {
+            "source": source,
+            "create_unmatched": _boolean(payload.get("create_unmatched")),
+            "incremental": not all_history,
+            "all_history": all_history,
+            "screen_unmatched": _boolean(payload.get("screen_unmatched")),
+            "lookback_days": _int(payload.get("lookback_days"), 10, maximum=3650),
+        }
+
+    def review_job_parameters(self, payload: dict[str, Any]) -> dict[str, Any]:
+        kind = _choice(
+            str(payload.get("kind") or ""),
+            {"stalled", "ignore", "out_of_scope"},
+            default="",
+        )
+        tracking_values = payload.get("tracking_states") or []
+        if not isinstance(tracking_values, list):
+            raise ValueError("tracking_states must be an array")
+        tracking_states = tuple(str(item).strip() for item in tracking_values if str(item).strip())
+        invalid_states = set(tracking_states) - core.TRACKING_STATES
+        if invalid_states:
+            raise ValueError(f"invalid tracking_states: {', '.join(sorted(invalid_states))}")
+        note_reason = str(payload.get("note_reason") or "").strip()
+        allowed_reasons = (
+            set(core.IGNORE_REVIEW_NOTE_REASONS)
+            if kind == "ignore"
+            else set(core.OUT_OF_SCOPE_REVIEW_NOTE_REASONS)
+            if kind == "out_of_scope"
+            else set()
+        )
+        if note_reason and note_reason not in allowed_reasons:
+            raise ValueError(f"invalid note_reason: {note_reason}")
+        return {
+            "kind": kind,
+            "tracking_states": tracking_states,
+            "limit": _int(payload.get("limit"), 100),
+            "inactivity_days": _int(payload.get("inactivity_days"), 45, maximum=3650),
+            "max_enrich_age_days": _int(payload.get("max_enrich_age_days"), 30, maximum=3650),
+            "note": str(payload.get("note") or "").strip(),
+            "note_reason": note_reason,
         }
 
     def run_project_action(

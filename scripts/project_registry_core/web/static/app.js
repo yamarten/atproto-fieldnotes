@@ -328,7 +328,7 @@ function renderNewSeed() {
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Enrich runs in a separate process. Cancellation finishes the current project before stopping; external requests remain bounded by their source timeout.</p><div class="operation-grid">
+  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Operations run in a separate process. Only one job runs at a time. Enrich stops between projects; sync and review finish their current operation before a cancellation request takes effect.</p><div class="operation-grid">
     <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
       <label>Target<select id="enrich-target"><option value="all">Active and watchlist projects</option><option value="project">One project</option></select></label>
       <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
@@ -344,17 +344,42 @@ function renderOperations() {
       </div></details>
       <button id="start-enrich" class="primary">Start enrich job</button>
     </div><code>project-registry enrich --all</code></article>
-    <article class="operation-card"><h3>Sync</h3><p>Introduced posts, collections, GitHub, Semble, and Tangled.</p><code>project-registry sync-github-search</code><code>project-registry sync-tangled-repos</code></article>
-    <article class="operation-card"><h3>Review Ops</h3><p>Tracking-state classification dry-runs and explicit execution.</p><code>project-registry review-stalled</code><code>project-registry review-out-of-scope</code></article>
+    <article class="operation-card"><h3>Sync</h3><p>Fetch configured external sources. Dry-run still uses the network but does not update SQLite.</p><div class="controls">
+      <label>Source<select id="sync-source"><option value="introduced">Introduced posts</option><option value="github">GitHub repository search</option><option value="collections">Collection inventory</option><option value="semble">Semble collections</option><option value="tangled">Tangled repositories</option></select></label>
+      <label>Initial lookback days<input id="sync-lookback" type="number" min="1" max="3650" value="10"></label>
+      <label><span><input id="sync-create" type="checkbox"> Create unmatched projects</span></label>
+      <label><span><input id="sync-screen" type="checkbox"> Screen unmatched GitHub repos</span></label>
+      <label><span><input id="sync-all-history" type="checkbox"> Ignore saved watermark</span></label>
+      <label><span><input id="sync-execute" type="checkbox"> Apply changes to SQLite</span></label>
+      <button id="start-sync" class="primary">Start sync job</button>
+    </div><code>project-registry sync-&lt;source&gt; [--execute]</code></article>
+    <article class="operation-card"><h3>Review Ops</h3><p>Recalculate tracking-state candidates from saved project data. Dry-run is network-free.</p><div class="controls">
+      <label>Review<select id="review-kind"><option value="stalled">Stalled / stable activity</option><option value="out_of_scope">Out of survey scope</option><option value="ignore">Unrelated or identity-less noise</option></select></label>
+      <label>Candidate limit<input id="review-limit" type="number" min="1" max="500" value="50"></label>
+      <label id="review-inactivity-label">Inactivity days<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
+      <label id="review-freshness-label">Max enrich age days<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>
+      <label>Tracking note<input id="review-note" placeholder="Optional note for applied updates"></label>
+      <label><span><input id="review-execute" type="checkbox"> Apply tracking-state changes</span></label>
+      <button id="start-review" class="primary">Start review job</button>
+    </div><code>project-registry review-&lt;kind&gt; [--execute]</code></article>
     <article class="operation-card"><h3>Investigation Replay</h3><p>Replay and benchmark saved evidence without network access.</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
   </div>${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
   $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
+  $("sync-source").onchange = updateSyncControls;
+  $("review-kind").onchange = updateReviewControls;
   $("start-enrich").onclick = startEnrichJob;
+  $("start-sync").onclick = startSyncJob;
+  $("start-review").onclick = startReviewJob;
+  updateSyncControls();
+  updateReviewControls();
   loadJobs();
 }
 
-function confirmOperation(title, message, callback) {
+function confirmOperation(title, message, callback, {write = true} = {}) {
   const dialog = $("confirm-dialog");
+  $("confirm-context").textContent = write ? "Confirm database change" : "Confirm operation";
+  $("confirm-submit").textContent = write ? "Apply change" : "Start job";
+  $("confirm-submit").className = write ? "danger" : "primary";
   $("confirm-title").textContent = title;
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = true;
@@ -391,18 +416,73 @@ function startEnrichJob() {
   });
 }
 
+function updateSyncControls() {
+  const source = $("sync-source").value;
+  $("sync-screen").disabled = source !== "github";
+  if (source !== "github") $("sync-screen").checked = false;
+  if (source === "introduced") $("sync-lookback").value = "7";
+  else if (source === "semble") $("sync-lookback").value = "14";
+  else $("sync-lookback").value = "10";
+}
+
+function startSyncJob() {
+  const source = $("sync-source").value;
+  const execute = $("sync-execute").checked;
+  const payload = {
+    source,
+    execute,
+    create_unmatched: $("sync-create").checked,
+    screen_unmatched: $("sync-screen").checked,
+    all_history: $("sync-all-history").checked,
+    lookback_days: Number($("sync-lookback").value || 10),
+  };
+  const effect = execute ? "This fetches external data and writes accepted changes to SQLite." : "This fetches external data and reports a dry-run without updating SQLite.";
+  confirmOperation("Start sync job", `Start ${source} sync? ${effect}`, async () => {
+    status("Starting sync job...");
+    await api("/api/jobs/sync", {method:"POST", body:JSON.stringify(payload)});
+    status("Sync job started.");
+    await loadJobs();
+  }, {write: execute});
+}
+
+function updateReviewControls() {
+  const stalled = $("review-kind").value === "stalled";
+  $("review-inactivity-label").hidden = !stalled;
+  $("review-freshness-label").hidden = !stalled;
+}
+
+function startReviewJob() {
+  const kind = $("review-kind").value;
+  const execute = $("review-execute").checked;
+  const payload = {
+    kind,
+    execute,
+    limit: Number($("review-limit").value || 100),
+    inactivity_days: Number($("review-inactivity").value || 45),
+    max_enrich_age_days: Number($("review-freshness").value || 30),
+    note: $("review-note").value.trim(),
+  };
+  const effect = execute ? "This applies every listed candidate from this run to SQLite." : "This only reports candidates and does not update SQLite.";
+  confirmOperation("Start review job", `Start ${kind} review? ${effect}`, async () => {
+    status("Starting review job...");
+    await api("/api/jobs/review", {method:"POST", body:JSON.stringify(payload)});
+    status("Review job started.");
+    await loadJobs();
+  }, {write: execute});
+}
+
 function renderJobs(items) {
   if (!items.length) return `<p class="muted">No jobs have run in this server process.</p>`;
   return items.map((job) => {
     const progress = job.progress || {};
     const count = progress.total ? `${progress.current || 0} / ${progress.total}` : "";
-    const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : "unknown");
+    const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>
       <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${esc(progress.elapsed || "")}</span></div>
       ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
       <div class="actions">
-        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Stop after current project</button>` : ""}
+        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
         ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
         <button class="secondary small" data-job-detail="${esc(job.job_id)}">Details</button>
       </div><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}"></div></article>`;
@@ -426,7 +506,7 @@ async function loadJobs() {
 function bindJobActions() {
   document.querySelectorAll("[data-job-cancel]").forEach((button) => button.onclick = () => {
     const jobId = button.dataset.jobCancel;
-    confirmOperation("Stop enrich job", `Stop ${jobId} after its current project?`, async () => {
+    confirmOperation("Stop background job", `Request cancellation for ${jobId}? The current operation may finish first.`, async () => {
       await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {method:"POST", body:"{}"});
       status("Stop requested."); await loadJobs();
     });
@@ -456,7 +536,7 @@ async function renderSettings() {
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
     <label><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
   </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button></div>
-  ${section("Server", `<dl class="kv"><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich subprocess worker" : "Not connected"}</dd></dl>`)}
+  ${section("Server", `<dl class="kv"><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {

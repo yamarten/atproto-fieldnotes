@@ -14,7 +14,7 @@
 - collector request中の強制停止
 - job履歴をSQLiteへ永続化すること
 - 複数の書き込みjobを同時実行すること
-- syncやreview classificationをWebから実行すること
+- 任意commandや任意外部URLをWebから実行すること
 
 ## 共通契約
 
@@ -53,7 +53,7 @@
 - `cancelled`
 - `failed`
 
-現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
+現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。sync/review serviceは現時点では1 operationを1単位として`started`と終了eventを返し、source内部のpage/item単位progressは未接続です。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
 
 ## 中断
 
@@ -63,6 +63,8 @@
 - project処理中に要求された場合は、そのprojectの保存とcheckpoint更新後に停止する
 - collectorや外部requestを途中で破棄しない。停止までの上限は各sourceのtimeoutに依存する
 - 完了済みprojectは再開時に再実行しない
+
+sync/reviewの停止粒度はenrichより粗く、実行中のsource scanまたはclassification全体が戻るまで待ちます。停止要求中にoperationが正常完了した場合は、DB更新を取り消さず`completed`として扱います。sync/reviewのcheckpoint再開は未接続です。
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
 
@@ -89,8 +91,10 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - `project_registry_core.worker`のJSON Lines worker protocol
 - `project_registry_core.web.jobs`のprocess内job registry
 - Web APIのenrich開始、一覧、詳細、停止、再開
-- Operations画面のenrich設定、進捗、直近event/result表示
-- 同じWeb serverから同時に実行する書き込みjobを1件へ制限
+- Web APIのsync/review開始、dry-run/execute指定、一覧、詳細、停止要求
+- Operations画面のenrich、sync、review設定と直近event/result表示
+- 同じWeb serverから同時に実行するbackground jobを1件へ制限
+- `project_registry_core.application.review`の非対話classification service
 
 動作確認済み:
 
@@ -100,19 +104,27 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - CLIがevent dataをJSON linesとして出力すること
 - fake workerによるsubprocess完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp schema v2 DBによるnetwork-free protocol実行
+- 実workerと空のtemp schema v2 DBによるreview dry-run
 - temp DB Web UIから別process enrichを起動し、完了event/resultを表示すること
+- Web APIのsync/review allowlist、dry-run/execute request変換
+- in-app Browserからschema v2 DBのreview dry-runを起動し、candidate limitと完了resultを確認したこと
 
 未接続:
 
-- sync、review classification、`assist-db-edit`の共通job化
+- sync source内部とreview candidate単位のprogress/cancellation
+- sync/reviewのcheckpoint再開
+- `assist-db-edit`の共通job化
 - server再起動後のjob一覧復元と、checkpointだけが残ったrunの発見
 - job event履歴の永続化
+
+未検証:
+
+- Web workerから実際の外部sync sourceへ接続するend-to-end実行
 
 将来の設計目標:
 
 - CLIなど別processとread-only jobの競合方針を定義する
-- syncとreview系にも同じevent・cancellation契約を適用する
-- Webはapplication serviceを直接再実装せず、同じ`OperationRequest`をworkerへ渡す
+- Web以外のprocessを含む排他とsource別実行budgetを統一する
 
 ## Web Runner
 
@@ -123,6 +135,9 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - Web server終了・reload時はactive workerへ協調停止を要求し、timeout後にprocessを終了する
 - custom DBのcheckpointはそのDBと同じdirectoryの`enrich-runs/`へ保存する
 - Web APIはLLM API keyを受け取らず、workerはserver processの環境変数を継承する
+- syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
+
+syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
 job一覧は永続化していません。server再起動後もcheckpoint fileは残りますが、それを一覧へ復元する導線は未接続です。
