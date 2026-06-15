@@ -1,0 +1,589 @@
+# Web UI Overhaul Backlog
+
+この文書は作業用・仕分け用のメモです。現行仕様の正本ではありません。
+
+schema v2移行後のWeb UIを、今のうちに壊して直せる前提で広めに棚卸しした候補です。実装済み範囲は[project-registry.md](../project-registry.md)と[background-jobs.md](../background-jobs.md)を正本とし、ここでは未接続・未検証・将来候補を多めに列挙します。
+
+## 優先度の目安
+
+- P0: 今やると後続実装がかなり楽になる基盤整理
+- P1: 日常運用や調査強化に直接効く
+- P2: あると強いが、後回しでも大きくは詰まらない
+- P3: 実験・将来拡張。必要性を見てからでよい
+
+## P0: 今のうちに決めたい基盤
+
+- Web API payloadのversionを明示する
+  - `/api/server`または各detail payloadへ`web_payload_version`を入れる
+  - 旧payload互換を維持しない前提をコード上も明確にする
+- Web presenterの責務を固定する
+  - DB rowをそのまま返さず、画面単位のview modelだけを返す
+  - `application`は業務操作、`web`はHTTPとUI整形、static JSは表示だけ、の境界を守る
+- mutation APIを用途別に整理する
+  - 現状の`/api/projects/{key}/{action}`は便利だが、action文字列が増えやすい
+  - 例: `/identifiers/confirm`, `/identifiers/block`, `/decisions/clear`, `/merge/apply`
+  - URL互換が不要なら今のうちに分けてもよい
+- Web用identifier view modelをserver側で生成する
+  - 現在はJS側で`kind + value`集約、role短縮、family分類を行っている
+  - 操作可否、代表classification、表示roleをserver側に寄せるとテストしやすい
+- relation view modelをserver側で生成する
+  - subject/object表示名、根拠locator、method、source状態を画面用に正規化する
+  - relationからreview actionへ移る導線を作る前に必要
+- error modelをより細かくする
+  - `validation_error`, `not_found`, `db_busy`だけでなく、`job_conflict`, `stale_project`, `unsafe_operation`, `unsupported_schema`などを固定する
+  - UI側はcodeで分岐し、messageは表示用にする
+- optimistic UIを入れるか、全mutation後にdetail再取得へ統一するかを決める
+  - 現状は安全寄りに再取得でよい
+  - 将来高速化する場合も、DB正本を取り直す導線を残す
+- confirmationの共通部品を整理する
+  - destructive / write / network / execute / merge / splitで文言と確認強度を変える
+  - execute系は対象件数、dry-run差分、DB pathを必ず表示する
+- DB pathとschema状態を常時見える場所に置く
+  - ユーザーは現状困っていないので、画面を圧迫しない場所に限定する
+  - 入れるならtitle、page footer、Settingsの補助情報など目立たない場所
+  - ミラーDB、dev DB、実DBの誤操作を避ける
+- Webからのwrite guardを導入する
+  - `--read-only`起動option
+  - UIはmutation buttonをdisabledにし、APIも403にする
+  - 実DB確認や外部API dry-runに便利
+- stale detail guardを入れる
+  - detail取得時の`updated_at`相当、またはrow hashをmutationへ渡す
+  - 別processで同じprojectが変わった場合に警告する
+- job/process排他の方針を決める
+  - 現状は同じWeb server内だけ1 job制限
+  - CLI、別Web server、SQLite GUIとの競合は未実装
+  - file lockまたはDB advisory table相当を入れるか判断する
+- frontend stateをURLに載せる
+  - screen、subview、query、filters、selected project、sort
+  - reloadや共有時に同じ画面へ戻れる
+- localStorage schemaをversionedにする
+  - Settingsやtoken以外のUI状態を増やす前にmigration方針を決める
+- static JSの分割単位を決める
+  - build stepなしのES modulesは維持しつつ、`api.js`, `state.js`, `views/*.js`, `components/*.js`へ分ける
+  - 今の単一`app.js`はそろそろ編集衝突しやすい
+- CSSの設計単位を決める
+  - `layout`, `controls`, `cards`, `detail`, `operations`, `dialog`くらいに分割するか
+  - buildなしなら複数`<link>`でもよい
+- fixture-backed UI smokeを増やす
+  - relation多数、identifier重複、long URL、partial failure、dead service、merge recommendationなどを固定する
+  - Browser確認だけでなくunittestでHTML生成またはview modelを検証できるようにする
+
+## P1: 日常運用に効く画面
+
+- Project detailをタブ化する
+  - `Overview`, `Identifiers`, `Relations`, `Investigation`, `Decisions`, `Raw`
+  - 現在の縦長detailは調査結果が増えるほど重くなる
+- Overviewを「判断に必要な最小情報」に絞る
+  - profile、代表website/repo/account、少なくとも1つのseed、service status、contribution、active guards
+  - seed以外の情報が大きく誤っているprojectがあるため、seedはOverviewから落とさない
+  - 長いrelation/evidenceは別タブへ
+- Identifier一覧をさらに実務向けにする
+  - confirmed/candidate/blocked/deferredを切り替え
+  - familyごとのcollapse状態を保存
+  - valueは通常のテキスト選択を優先し、copy buttonで画面を圧迫しない
+  - copy/open専用UIは、選択しづらい長い値や曖昧検索付きcommand paletteが必要になった場合だけ検討する
+- candidate developer accountの確認・昇格UI
+  - candidate accountをofficial/project/developerへ昇格
+  - 誤候補はblock/defer
+  - relation evidenceと一緒に確認する
+- Relation viewer
+  - predicate別grouping
+  - source別grouping
+  - confirmed/candidate/heuristic filter
+  - `defines_schema`, `uses_collection`, `source_repository`, `official_account`, `redirects_to`を強調
+- Relationから操作へつなぐ
+  - `source_repository` candidateからrepo identifier confirm
+  - `official_account` candidateからaccount confirm
+  - `redirects_to`からURL alias confirm
+  - `defines_schema`からNSID ownership確認
+- Collector failure panel
+  - source、operation、target、category、retryableを一覧
+  - timeout/rate limit/partial/no evidenceを区別
+  - retry対象sourceだけを次回enrichへ渡す導線
+- Latest investigationを厚くする
+  - collector statusのtimeline表示
+  - request/result count、stop reason、cache hit、retry-after
+  - failureだけでなくskipped/no evidenceも見えるようにする
+- Investigation run一覧
+  - project単位のrun history
+  - run比較
+  - collector別差分
+  - input/output snapshot差分
+- Evidence全文/抜粋 viewer
+  - raw HTMLやREADME全文は保存しない前提のまま、bounded extractとlocatorを表示
+  - evidence recordのJSONは折り畳み
+  - source URL、repo path、query、scoreへ直接飛べる
+- replay差分 viewer
+  - 保存runを現行heuristicで再評価
+  - relation単位でimproved/regressed/unknown changedを表示
+  - benchmark結果から該当project detailへ移動
+- Review queueの理由表示を改善する
+  - signal kindだけでなく、何を見れば判断できるかを出す
+  - candidate URL、failure、stale metadataなどを原因別にgroup
+- Reviewからdecisionを直接作る
+  - dismiss review
+  - defer promotion
+  - block identifier
+  - confirm candidate
+  - tracking state変更
+  - いずれもdetailへ移動せず一括でできるmini actionを検討
+- Promotion queueを編集ワークフローにする
+  - missing summary/tagline/website/repoの不足表示
+  - 紹介候補として足りないfieldだけを編集
+  - introduced_url設定
+- Merge viewを強化する
+  - source/targetのidentifier/relation差分
+  - guard/defer/block履歴
+  - 「mergeしない」理由テンプレート
+  - merged後のresult summary
+- Split workflow専用画面
+  - identifierを複数選択して新projectへ切り出す
+  - source側に残るidentifierと新project側をpreview
+  - tenant splitは通常detailからは隠し、専用画面で慎重に扱う
+- URL alias review
+  - root/www redirect/canonical relation
+  - confirmed aliasだけ畳む
+  - graphなど別subdomainは独立扱いと明示
+- service status review
+  - static/deep/browser結果を同じ画面で比較
+  - login/signup/app shell/runtime errorの到達段階
+  - status値そのものと根拠surfaceを分けて表示
+- NSID ownership review
+  - manual seed、official account、PDS schema record、confirmed repo defines_schema、authority pathを並べる
+  - `uses_collection`だけではownershipにしない理由を見える化
+- OAuth permission viewer
+  - client metadataから`requests_permission`を表示
+  - `repo:` permission、include未解決、scope解決失敗を分ける
+- Tangled repository review
+  - DID一致、website/source/name/content relevanceを別々に表示
+  - UFOs rolling window由来は完全履歴でないことを表示
+  - unmatched作成は明示opt-in
+- Raw Dataを分割する
+  - project payload
+  - identifiers
+  - relations
+  - decisions
+  - latest run
+  - JSON path copy
+
+## P1: Operations / background job
+
+- server再起動後のcheckpoint discovery
+  - `data/enrich-runs/*.json`またはcustom DB隣接`enrich-runs/`をscan
+  - Operationsに「orphaned checkpoint」として表示
+  - Resume可能か、DB path一致、run option、API key未保存を明示
+- job event履歴の永続化を検討する
+  - 現状はprocess内保持。ログ閲覧だけが目的なら需要は高くない
+  - SQLiteに入れるならretention policyが必要
+  - ストレージを食わない形でできるなら候補。入れないならcheckpoint discoveryを明確に正本扱いする
+- sync source内部progress
+  - pages scanned、items seen、created/matched/skipped、watermark before/after
+  - GitHub rate limit、Tangled gap、collection source stop reason
+- sync checkpoint再開
+  - sourceごとに実現性が違う
+  - introduced/GitHub/collections/Semble/Tangledで分けて判断
+- review candidate単位progress
+  - candidate listを生成し、1件ずつapply/skip
+  - 現状の一括executeは強いので、UIではplan確認を挟む
+- review plan persistence
+  - dry-run結果を一時保存し、後でexecuteできるか
+  - DBが変わった場合はstale扱い
+- job queue
+  - 現状1件のみ
+  - queueを持つなら順番、cancel、parameter編集、DB lockを決める
+  - 連続deferなど短時間に複数mutationした時の取りこぼし対策として、UI/APIのwrite直列化は優先度高め
+  - background job queueそのものは個人運用なら1件制限のままでもよい
+- job categories
+  - write job、network dry-run、network write、read-only replayを分ける
+  - read-only jobの並列実行を許すか検討
+- job detail view
+  - events、stderr、result、request、checkpoint、worker PID
+  - long stderrはbounded表示
+- job resultから次actionへ
+  - enrichでcandidateが増えたらdetailへ
+  - syncでunmatchedが出たらreviewへ
+  - review dry-runからcandidate適用planへ
+- Stop/Cancelの語彙整理
+  - enrich: stop after current project
+  - sync/review: cancellation requested but current operation may complete
+  - destructive rollbackではないことを明示
+- LLM env状態表示
+  - API key値は表示しない
+  - endpoint/model/style/reasoning effort/prompt versionが設定済みか
+  - Web UIに入力欄を持つかは別判断
+- LLM設定画面
+  - 実装するならlocalStorage保存の危険を再評価
+  - 個人ローカル運用でもAPI key保存は避ける候補
+  - endpoint/modelだけUIで選ぶのはあり
+- server reload/shutdown UI
+  - `--reload`中だけ表示
+  - active jobがある場合の扱いを明示
+- Operations command previewの精度改善
+  - UIで選んだoptionからCLI相当commandを常時生成
+  - copy button
+  - Web未対応optionはCLI案内へ
+- external API execute guard
+  - sync dry-runでもnetworkを使うことを開始前に明示
+  - 実API credentialsがある場合の注意
+- DB backup / snapshot action
+  - 不要寄り。DB backupはCLIやOS操作で十分ならWebへ入れない
+
+## P1: Search / browse
+
+- identifier tableを直接queryする検索
+  - 現状の全project hydrateを減らす
+  - NSID、service URL、repo URL、account、DID、domainをindexで引く
+- relation table検索
+  - predicate、subject/object type/value、source、locator
+  - `defines_schema`や`source_repository`から逆引き
+- decision検索
+  - active block/defer/promotion hold
+  - expired defer
+  - dismissed review
+  - separate project
+- investigation run検索
+  - source failureあり
+  - rate limited
+  - no evidence
+  - old evaluation version
+- saved search
+  - たぶん使わない。通常候補からは下げる
+  - filter presetが明確に欲しくなった場合だけlocalStorageで検討する
+- URL queryへのfilter保存
+  - screen、search、filters、selected、sort、limit
+  - back/forward操作に対応
+- pagination
+  - cursorまたはoffset
+  - listが多い時のDOM負荷を下げる
+- sort拡張
+  - last seen、last enriched、name、candidate count、failure count、promotion score
+- typo tolerance
+  - OS機能や通常検索で足りるならコスパは低い
+  - やるなら単なるtypo toleranceではなく、曖昧検索として有用な水準まで持っていける場合に限る
+- raw JSON path検索
+  - 開発用に限定
+  - state/profileの任意pathを探す
+- collision audit UI
+  - 同じidentifierが複数projectにある
+  - canonical URL alias候補
+  - blocked/deferredとcandidateの競合
+- duplicate candidate explorer
+  - merge scoreの理由
+  - identity overlap、URL family、repo/account overlap
+
+## P2: Editing / data hygiene
+
+- profile編集画面
+  - nameとnotesは優先度高め
+  - tagline、summary、website_urlは必要になったら追加
+  - 保存前diff表示
+  - LLM生成内容とは区別
+- app metadata編集
+  - tags、platforms、links
+  - `app.links[]` roleを増やす場合は採用基準が先
+- introduced_url編集
+  - 紹介済みURL設定、解除、候補照合
+  - introduced stateはservice identityではないことを表示
+- manual seed追加UI
+  - 既存New Seedはproject作成寄り
+  - 既存projectへmanual seedを追加する導線
+  - P1へ昇格。seedは誤情報から復旧する基準点になり得る
+- identifier role編集
+  - confirmed/candidate変更だけでなく、role変更が必要か
+  - 自動収集roleとoperator roleを混同しない
+- decision history viewer
+  - activeだけでなく過去のblock/defer/promotion hold
+  - cleared_at、expires_at、note、created_by相当
+- defer expiry management
+  - deferは期限切れ後に痕跡も残らないくらいでよい
+  - 期限切れ一覧や再defer導線は通常候補から外す
+- dismiss review理由の整理
+  - reason template
+  - signal kindごとのdismiss
+  - 再発条件
+- promotion hold理由の整理
+  - editorial待ち、service未確認、identity未確認、紹介文不足
+  - 自動解除しないものと期限付きの区別
+- merge undo補助
+  - 完全undoは難しい
+  - merge前snapshotと移動identifier/relation/decisionの記録確認
+  - 直後だけ手動復旧commandを出す
+- repair-db preview UI
+  - 原則CLIでもよいが、diff previewだけWebで見たい可能性
+  - executeは慎重に
+- audit-url-fields UI
+  - read-only reportとしてはWeb向き
+  - repairはCLIまたは強い確認
+- cleanup-app-links UI
+  - Webには出さない方針でもよい
+  - 出すならdry-run onlyから
+- migration status UI
+  - schema version、table counts、integrity check結果
+  - 通常運用では不要だが大改造期に便利
+
+## P2: Investigation / evidence workflow
+
+- evidence corpus browser
+  - fixture一覧
+  - project key、case label、expected relations
+  - benchmark結果へのリンク
+- benchmark dashboard
+  - improved/regressed/unknown counts
+  - relation predicate別
+  - project別
+- heuristic version diff
+  - evaluation versionを変えた時の差分
+  - saved evaluationとの比較
+- source reliability dashboard
+  - timeout/rate limit/failed/partial counts
+  - source別平均request/result
+  - retryable failure比率
+- collector cache visibility
+  - cache hit/miss
+  - TTL
+  - stale cache使用の有無
+- source budget controls
+  - Webから直接変えるかは別
+  - 表示だけでも調査時に便利
+- manual evidence annotation
+  - evidence recordへoperator noteを付けるか
+  - DB schema追加が必要なので慎重
+- relation explanation
+  - why confirmed/candidate/heuristic
+  - corroboration source数
+  - same README由来の自己強化を除外した理由
+- ownership graph
+  - domain/account/DID/NSID/repo/serviceの保証関係をgraph表示
+  - 大量relationでは有用
+  - 直近優先ではないが興味はある。未来候補として残す
+- service verification result compare
+  - static/deep/browserを横並び
+  - surface種類と到達段階
+- OAuth metadata inspector
+  - client_id URL
+  - scopes
+  - permission sets
+  - unresolved include
+- Tangled source inspector
+  - PDS listRecords
+  - UFOs rolling window
+  - timeline/search/bot adapterは既定無効のまま表示だけ検討
+
+## P2: UI structure / usability
+
+- desktop layoutの再設計
+  - list + detailの2 paneは維持
+  - detail内tab
+  - right pane sticky header
+- mobile detail操作の見直し
+  - destructive操作が押しにくい/押し間違えにくい配置
+  - bottom action barは検討
+- keyboard shortcuts
+  - `/` search
+  - 操作系shortcutは入れない
+  - 詳細を直接切り替える前/次と、detail tab jump程度に留める
+  - `b/d/s` block/defer/splitのようなwrite操作はshortcutにしない
+- command palette
+  - local-only
+  - project search、screen移動、copy command
+  - execute系は確認必須
+- toast/history
+  - mutation成功後に何を変えたか表示
+  - undoではなく、result summaryとdetail reload
+- bulk selection
+  - review queueで複数dismiss/defer
+  - 誤操作リスクが高いのでP2
+- copy affordances
+  - project key
+  - NSID
+  - DID
+  - repo URL
+  - CLI command
+- external link handling
+  - link icon
+  - raw value copyとopenを分ける
+  - unsafe schemesは表示だけ
+- long text folding
+  - summary、notes、relation context、stderr
+  - default collapsed/expandedの基準
+- visual density modes
+  - comfortable / compact
+  - identifierやrelationが多いproject向け
+- color semanticsの整理
+  - confirmed/candidate/derived/heuristic
+  - failed/rate limited/skipped
+  - danger action
+- accessibility
+  - details/action menuのkeyboard操作
+  - focus ring
+  - contrast
+  - aria label
+- empty stateの改善
+  - next actionを出す
+  - filterが強すぎる場合のclear
+- loading stateの改善
+  - request idで古いレスポンス破棄は維持
+  - skeletonは不要かもしれない
+- status bar
+  - DB path、schema、active job、last API error
+  - 小さく常時表示
+
+## P2: Architecture / code quality
+
+この節は実装者判断で採否を決める。必要な意思決定が出た時だけユーザーへ確認する。
+
+- static JSを分割する
+  - `api.js`
+  - `state.js`
+  - `components/pill.js`
+  - `views/review.js`
+  - `views/projects.js`
+  - `views/detail.js`
+  - `views/operations.js`
+  - `views/settings.js`
+- view model testsをPython側に寄せる
+  - JS DOM test環境を入れないなら、複雑な整形はserver presenterへ
+  - frontendは薄く保つ
+- CSS分割
+  - buildなしを維持するなら複数CSSをlink
+  - または1ファイルのままsection commentで整理
+- component naming
+  - `.card`, `.identifier`, `.relation`, `.job-card`などの責務を明確にする
+- API route tableを分割する
+  - current server handlerが太り始めている
+  - stdlib HTTP serverを維持しつつ、route関数をmodule化
+- request validation helper
+  - body schemaは軽量でよい
+  - actionごとのrequired/optionalを共通化
+- response helper
+  - success envelopeを統一するか判断
+  - 現状はpayload直返し
+- auth middleware相当
+  - `/api/*`だけtoken必須のまま
+  - staticは認証なし
+- cache headers
+  - static assetは開発中no-cache寄り
+  - reloadなしでも変更反映されるようにする
+- browser smoke script
+  - in-app Browser依存ではなく、任意のPlaywright smokeを追加するか
+  - 通常suiteには入れない方針を維持
+- fixture DB builder
+  - Web用に状態が濃いtemp v2 DBを作るhelper
+  - relation/failure/duplicate/decision/long textを網羅
+- screenshot fixture運用
+  - 画像比較までは不要
+  - 代表viewportでmanual check listを置く
+
+## P2: Security / safety
+
+利用範囲はLAN、かつ他利用者なし、必要に応じてTailscale越しという前提は当面変えない。その範囲で必要十分な安全策に留める。
+
+- token handlingを見直す
+  - query tokenはlocalStorageへ保存してURLから除去済み
+  - Settingsでtoken消去済み
+  - tokenをsessionStorageにする選択肢
+- CSRFの扱い
+  - token header必須なら外部siteからは基本送れない
+  - query token運用時のリスクは残る
+  - localhost個人運用として許容するか明記
+- local network bind warning
+  - `--host 0.0.0.0`時は強い警告
+  - token未設定なら起動拒否済みか確認
+- external link safety
+  - `rel=noreferrer`維持
+  - project data由来URLを自動fetchしない
+- arbitrary command実行禁止を維持
+  - Operationsはallowlist jobのみ
+  - 任意checkpoint pathやworker moduleを受けない
+- DB write confirmation
+  - execute、merge、split、blockは必ず明示確認
+  - queue bulk actionは件数表示
+- credentials visibility
+  - LLM/API key値は表示・保存しない
+  - 設定済み/未設定だけ
+- network operation labeling
+  - dry-runでもnetworkするsyncは明示
+  - review dry-runはnetwork-free
+- browser verification lane
+  - Playwright optional dependencyをWebから起動する場合、アクセス範囲と入力禁止を明示
+  - 認証入力、登録、投稿はしない
+
+## P3: Larger bets
+
+- Full evidence graph view
+  - nodes: project, NSID, repo, account, DID, domain, service URL
+  - edges: relation predicates
+  - review actionをedgeから起動
+  - 夢はあるが直近はやらない
+- Investigation notebook mode
+  - project detailにoperator note、hypothesis、next check
+  - DB schema追加が必要
+- Assisted review
+  - `assist-db-edit`をWebから使い、候補commandだけ出す
+  - executeは人間確認
+  - 夢はあるが直近はやらない
+- LLM triage side panel
+  - prompt/resultを保存済みevidenceに限定
+  - API key管理が課題
+  - 夢はあるが直近はやらない
+- Multi-project compare
+  - duplicate/merge/splitで2-3 projectを横並び
+  - identifiers/relations/decisions/profile差分
+- Review session mode
+  - queueを固定し、next/previous、skip、done count
+  - mobile review向け
+- Bulk maintenance dashboard
+  - expired defer
+  - stale enrich
+  - frequent failures
+  - missing profile
+  - candidate-heavy projects
+- Source health dashboard
+  - GitHub/Bluesky/Tangled/collections/OAuth/service probe
+  - rate limitやfailure傾向
+- Plugin-like collector configuration UI
+  - source configをWebで編集
+  - 誤設定リスクが高いので当面CLI/JSONでよい
+- Web UI for migration
+  - v1 DBを選んでdry-run migration report
+  - 個人運用ではCLIで十分かもしれない
+- Offline static report export
+  - review queueやbenchmark結果をHTMLとして書き出す
+  - Web serverなしで閲覧
+- PWA/local app化
+  - 現状不要
+  - build stepなし方針と相性が悪い
+
+## 先にやらない方がよさそうなもの
+
+- Webから任意CLI commandを実行する
+  - 便利だが安全境界が崩れる
+- Webから任意URL/sourceをsyncする
+  - SSRFや誤操作の面倒が増える
+- 旧Web payload互換
+  - 外部利用者なし前提なので戻さない
+- SQLite job tableを急いで追加する
+  - checkpoint discoveryで足りるか先に確認する
+- LLM API keyをブラウザlocalStorageへ保存する
+  - endpoint/model程度ならまだよいが、key保存は避けたい
+- 画像差分ベースのUI testを通常suiteへ入れる
+  - 重く壊れやすい
+- Web UIをいきなりframework化する
+  - build stepなし方針を変えるなら、必要性が明確になってから
+
+## 最初に切るなら
+
+1. P0 view model整理
+   - identifier/relation/investigation summaryをserver presenterへ寄せる
+   - Web payload versionを入れる
+2. P0/P1 URL state + detail tab
+   - screen/query/selectedをURLに載せる
+   - detailをtab化して縦長問題を抑える
+3. P1 checkpoint discovery
+   - server再起動後のenrich run発見とresume
+4. P1 evidence/run viewer
+   - latestだけでなくrun一覧、collector status、failure、bounded evidenceを表示
+5. P1 review action flow
+   - relation/failure/candidateからconfirm/block/defer/dismissへつなぐ
+
+この順なら、後続のsync/review進捗、evidence diff、ownership reviewを追加しても画面とAPIの形が崩れにくい。

@@ -22,6 +22,130 @@
 
 紹介フローを主導に置き、その延長で app export 可能性を確保する、という順序を維持します。
 
+## 直近の実装順
+
+ここでは、通常運用へ移るまでに順番を決めて進める作業を扱います。周辺機能を含む広い候補一覧は、次の作業用notesに分けています。
+
+- [web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)
+- [core-overhaul-backlog.md](notes/core-overhaul-backlog.md)
+
+### v2 DBを通常運用に移す前
+
+日常的に使うDBをv2へ移す前に、後から変更しにくい保存形式とruntime境界を固めます。
+
+1. Runtime viewをv2へ寄せ切る
+   - `project_identifiers` / `project_relations` / `project_decisions`からcollector/evaluation向けviewを作るbuilderを一本化する
+   - `primary_nsid`, `bluesky_handles`, `tangled_handles`などのflat fieldが保存正本ではなくruntime viewであることをコード上も明確にする
+   - removed compatibility fieldが復活しないinvariantを増やす
+2. Web/API view modelをserver側へ寄せる
+   - identifierのfamily分類、role短縮、操作可否をserver presenterへ移す
+   - relation、investigation summaryも画面単位のview modelにする
+   - payload versionを明示し、旧Web payload互換を戻さない
+3. Project detailをタブ化する
+   - `Overview`, `Identifiers`, `Relations`, `Investigation`, `Decisions`, `Raw`
+   - Overviewにはprofile、代表website/repo/account、少なくとも1つのseed、service status、contribution、active guardsを出す
+   - 長いevidenceやrelationは別タブへ逃がす
+4. URL stateと軽いUI状態を固定する
+   - screen、subview、query、filters、selected project、sortをURLへ載せる
+   - reload/back/forwardで同じ作業へ戻れるようにする
+   - DB path/schemaは画面を圧迫しない範囲でtitle/footer/Settingsへ出す
+5. Write安全策を入れる
+   - `--read-only`起動option
+   - stale detail guard
+   - mutation後はDBからdetailを再取得する方針を維持
+   - 連続deferなどを取りこぼさないよう、UI/APIのwrite直列化を入れる
+6. Evidence/relation helperを固める
+   - relation record生成、predicate、classification、dedupe keyをhelper化する
+   - CollectorResultとfailure categoryを全collectorで扱える形にする
+   - lexicon JSONの存在だけで`defines_schema`を強く扱わず、ownership/context/corroborationと合わせて評価する
+7. DB移行のdry-runを再確認する
+   - migration、backup、integrity、件数、canonical snapshot
+   - 既存DBのmanual correction / block / deferからfixture候補を抽出する
+
+### 日常運用を安定させるまで
+
+移行後のDBをWeb UIとCLIから継続的にreviewできる状態にするための作業です。
+
+1. Search/queryをDB table直接利用へ寄せる
+   - identifier table直接検索
+   - relation table検索
+   - decision table検索
+   - 全project hydrate依存を減らす
+2. Review action flowを作る
+   - relation / collector failure / candidateからconfirm、block、defer、dismissへ進める
+   - candidate developer accountの確認・昇格を追加する
+   - 既存projectへmanual seedを追加する導線を追加する
+3. Profile最小編集を入れる
+   - nameとnotesを優先
+   - 保存前diffを出す
+   - tagline、summary、website_urlは必要になったら追加
+4. Background jobの運用穴を埋める
+   - checkpoint discovery
+   - server再起動後のbulk enrich resume
+   - sync source内部progress
+   - review candidate単位progress
+   - review executeは候補一括ではなくplan確認を挟む
+5. Operationsの安全表示を整える
+   - dry-runでもnetworkするsyncは明示
+   - Stop/Cancelの意味をoperation種別ごとに表示
+   - job event永続化はログ閲覧だけなら低優先。checkpoint discoveryを先に正本扱いする
+6. Investigation viewerを追加する
+   - run一覧
+   - collector status
+   - failures
+   - bounded evidence
+   - replay差分
+7. Service / ownership reviewを厚くする
+   - service verification結果の比較
+   - NSID ownershipの根拠表示
+   - OAuth permission inspector
+   - URL alias review
+8. Explain系の土台を作る
+   - why service_status
+   - why ownership
+   - why contribution level
+   - why merge candidate
+   - CLI commandでもWeb表示の裏側でも使えるようにする
+
+### 必要が生じた時に検討するもの
+
+現状の運用を妨げてはいませんが、具体的な不便や保守上の問題が出た場合に検討します。
+
+- relation / ownership graph
+  - 興味はあるが直近優先ではない
+  - まずはviewだけ。write actionは付けない
+- fuzzy search
+  - 通常検索で不足が明確になった場合に追加する
+  - 単なるtypo toleranceではなく、実際のproject探索に役立つ検索条件を先に定める
+- cache / source budget visibility
+  - 表示だけなら調査時に便利
+  - Webからbudgetを直接編集するのは別判断
+- keyboard shortcut
+  - 操作系は入れない
+  - 詳細の前/次切り替え、detail tab jump程度に留める
+- static JS / CSS / route table分割
+  - 編集衝突が増えた時、または責務を追いにくくなった時点で分割する
+- security / safety整理
+  - LAN、他利用者なし、必要に応じてTailscale越しという公開範囲は維持する
+  - その前提で必要十分な対策に留める
+- job event履歴永続化
+  - checkpoint discoveryだけでは実行履歴を追えない場合に追加する
+  - 保存量とretention policyを先に決める
+
+### 長期候補
+
+直近の運用安定化には含めません。必要性や具体的な利用場面が見えたものから再検討します。
+
+- evidence / ownership graphの本格表示
+- Investigation notebook mode
+- Assisted review
+- LLM triage side panel
+- multi-project compare
+- review session mode
+- bulk maintenance dashboard
+- source health dashboard
+- plugin-style collector configuration
+
 ## 将来の論点
 
 ### 調査 pipeline の残件
@@ -154,25 +278,6 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - dry-run を先に表示し、execute は明示確認を必須にする
   - Web UI には出さず CLI で扱う
 
-## TODO
+## 周辺候補の参照先
 
-- CLI command体系の階層化を、現行flat commandに実際の操作上の支障が出た時点で再評価する
-  - 例: `project show`, `review queue`, `sync github`, `decision block`, `db migrate`
-  - application serviceはcommand名から独立しているため、階層化時に業務処理は変更しない
-- syncのsource page/item単位progressとcheckpoint、reviewのcandidate選択式plan実行を追加する。現行Web review executeは候補一括適用
-- `assist-db-edit`を共通job契約へ移す
-- process内job一覧をcheckpoint discoveryと統合し、server再起動後もbulk enrichを再開できるようにする
-- identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
-- `app.status` を separate field として導入する必要が出たら、`service_status` からの写像を定義する
-- `app.links[]` の role を増やすなら、`appStore` / `playStore` / `fdroid` / `webManifest` / `demo` / `api` / `package` / `lexicon` / `collection` / `directory` の採用基準を定義する
-- providerごとのaccount/resource scope extractorと`owned_service / likely_owned_service / upstream_dependency / unknown` relation classifierを追加する
-- `inspired_by` を app metadata として昇格させるか再判断する
-- Web UI 詳細検索が遅くなった場合は scalar filter を SQLite `WHERE` に寄せ、必要なら FTS を検討する
-- `atproto_contribution_level` の docs / README evidence と LLM 補助分類を追加する
-- 調査強化
-  - service status signal の粒度改善、LLM evidence の service/lexicon prompt 分岐、browser確認方式を検討する
-  - 詳細は [service-verification.md](notes/service-verification.md)
-- 旧 field 互換の名残を整理する
-  - runtime shapeにはまだ`primary_nsid`, `bluesky_handles`, `tangled_handles`などcanonical flat fieldが残る
-  - `confirmed_nsids`, `resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `lexicons`のidentifier roleとruntime viewの境界をさらに明確にする
-- Web UI で `candidate_developer_accounts` を確認・昇格する操作を設計する
+Web UIとcoreの広い棚卸しは、[web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)と[core-overhaul-backlog.md](notes/core-overhaul-backlog.md)に置いています。具体的な着手条件と実装順が決まった項目は、このroadmapの該当箇所へ反映します。
