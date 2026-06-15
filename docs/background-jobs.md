@@ -89,7 +89,7 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - `project_registry_core.commands.enrichment`のCLI adapter
 - `project-registry enrich`の既存command・主要option
 - `project_registry_core.worker`のJSON Lines worker protocol
-- `project_registry_core.web.jobs`のprocess内job registry
+- `project_registry_web.jobs`のprocess内job registry
 - Web APIのenrich開始、一覧、詳細、停止、再開
 - Web APIのsync/review開始、dry-run/execute指定、一覧、詳細、停止要求
 - Operations画面のenrich、sync、review設定と直近event/result表示

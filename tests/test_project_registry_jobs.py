@@ -12,7 +12,7 @@ from unittest import mock
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
-from project_registry_core.web.jobs import JobConflictError, JobManager
+from project_registry_web.jobs import JobConflictError, JobManager
 
 
 FAKE_WORKER = r'''

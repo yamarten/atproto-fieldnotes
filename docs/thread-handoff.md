@@ -34,6 +34,7 @@
   - 開始、一覧、詳細、処理中project後の停止、cancelled/failed bulk runの再開
   - Operations画面で設定、進捗、event/resultを表示
 - 実装済み: schema v2 Web UI
+  - `project_registry_web`を`project_registry_core`と並ぶ独立adapter packageとして配置
   - `Review / Projects / Operations / Settings`
   - project検索、review/promotion/merge queue、seed preview・追加
   - normalized identifier/relation/decision、評価、最新investigation概要の表示

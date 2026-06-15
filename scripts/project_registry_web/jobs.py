@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..jobs import OperationRequest, generate_operation_id, utc_now
+from project_registry_core.jobs import OperationRequest, generate_operation_id, utc_now
 
 
 ACTIVE_STATUSES = {"queued", "running", "cancelling"}

@@ -15,9 +15,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import database
-from .. import registry as core
-from ..application import decisions, merge, projects, web as services
+from project_registry_core import database
+from project_registry_core import registry as core
+from project_registry_core.application import decisions, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
 
 
@@ -516,7 +516,10 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Serve the schema v2 project registry Web UI.")
+    parser = argparse.ArgumentParser(
+        prog="project-registry-web",
+        description="Serve the schema v2 project registry Web UI.",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 0.0.0.0 for LAN access.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765.")
     parser.add_argument("--db-path", help="SQLite DB path. Defaults to data/survey.db.")
@@ -553,10 +556,16 @@ def main() -> int:
     db_path = Path(args.db_path).expanduser() if args.db_path else core.DB_PATH
     server = RegistryWebServer((str(args.host), int(args.port)), token=token, db_path=db_path)
     if args.reload:
-        package_root = Path(__file__).resolve().parents[1]
+        scripts_root = Path(__file__).resolve().parents[1]
+        watch_roots = [scripts_root / "project_registry_web", scripts_root / "project_registry_core"]
         start_reload_watcher(
             server,
-            [path for path in package_root.rglob("*") if path.suffix in {".py", ".html", ".css", ".js"}],
+            [
+                path
+                for root in watch_roots
+                for path in root.rglob("*")
+                if path.suffix in {".py", ".html", ".css", ".js"}
+            ],
             float(args.reload_interval or 1.0),
         )
     url = f"http://{args.host}:{args.port}/?token={urllib.parse.quote(token)}"

@@ -151,11 +151,12 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
 - `project_registry_core/application/`
   - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
+  - `presentation.py`はschema v2のproject detail、queue、search payloadを組み立てるtransport非依存service
 - `project_registry_core/jobs.py`
   - 長時間処理のrequest/event/resultと協調的cancellation契約
 - `project_registry_core/commands/`
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
-- `project_registry_core/web/`
+- `project_registry_web/`
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
   - `jobs.py`は別process worker、直近event、停止・再開を管理する
