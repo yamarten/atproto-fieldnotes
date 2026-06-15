@@ -218,7 +218,7 @@ function renderDetail(data) {
       <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>
     </div>
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>`)}
-    ${section("Identifiers", identifiers.length ? identifiers.map(renderIdentifier).join("") : `<p class="muted">No identifiers.</p>`)}
+    ${section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`)}
     ${section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.subject.type)}:${esc(item.subject.value)} <strong>${esc(item.predicate)}</strong> ${esc(item.object.type)}:${esc(item.object.value)}</div><div class="muted">${esc(item.source)} ${item.locator ? `· ${esc(item.locator)}` : ""} ${item.method ? `· ${esc(item.method)}` : ""}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`)}
     ${section("Decisions / Guards", renderDecisions(decisions))}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
@@ -230,16 +230,79 @@ function renderDetail(data) {
   bindDetailActions(project.project_key);
 }
 
+const identifierFamilies = [
+  {key: "service", label: "Services", kinds: ["service_url"]},
+  {key: "repository", label: "Repositories", kinds: ["repo_url"]},
+  {key: "schema", label: "NSIDs", kinds: ["nsid"]},
+  {key: "identity", label: "Identities", kinds: ["account", "did", "domain"]},
+];
+
+function uniqueValues(values) { return [...new Set(values.filter(Boolean))]; }
+function identifierFamily(kind) { return identifierFamilies.find((family) => family.kinds.includes(kind)) || {key: `other:${kind}`, label: kind, kinds: [kind]}; }
+function identifierRoleLabel(role) {
+  return ({
+    primary_nsid: "primary",
+    input_nsid: "input",
+    owned_nsid: "owned",
+    observed_lexicon: "observed",
+    recorded_namespace: "namespace",
+    manual_seed: "manual seed",
+    source_repository: "source",
+    source_repository_record: "source record",
+    developer_account: "developer",
+    project_account: "project",
+    authority_domain: "authority",
+  })[role] || String(role || "").replaceAll("_", " ");
+}
+
+function groupedIdentifiers(items) {
+  const groups = new Map();
+  list(items).forEach((item) => {
+    const family = identifierFamily(item.kind);
+    const key = `${family.key}\u0000${item.value}`;
+    const group = groups.get(key) || {...item, family: family.key, familyLabel: family.label, kinds: [], roles: [], classifications: [], providers: [], rowCount: 0};
+    group.kinds.push(item.kind);
+    group.roles.push(item.role);
+    group.classifications.push(item.classification);
+    group.providers.push(item.provider);
+    group.is_primary ||= Boolean(item.is_primary);
+    group.rowCount += 1;
+    groups.set(key, group);
+  });
+  return [...groups.values()].map((item) => ({
+    ...item,
+    kinds: uniqueValues(item.kinds),
+    roles: uniqueValues(item.roles),
+    classifications: uniqueValues(item.classifications),
+    providers: uniqueValues(item.providers),
+  }));
+}
+
+function renderIdentifiers(items) {
+  const grouped = groupedIdentifiers(items);
+  const knownFamilies = new Set(identifierFamilies.map((family) => family.key));
+  const families = [...identifierFamilies, ...uniqueValues(grouped.map((item) => item.family).filter((family) => !knownFamilies.has(family))).map((key) => ({key, label: grouped.find((item) => item.family === key)?.familyLabel || key}))];
+  return `<div class="identifier-groups">${families.map(({key, label}) => {
+    const values = grouped.filter((item) => item.family === key);
+    if (!values.length) return "";
+    return `<div class="identifier-kind"><div class="identifier-kind-header"><h4>${esc(label)}</h4><span>${values.length}</span></div>${values.map(renderIdentifier).join("")}</div>`;
+  }).join("")}</div>`;
+}
+
 function renderIdentifier(item) {
-  const canCandidate = item.classification === "candidate" && ["service_url", "repo_url"].includes(item.kind);
-  const canOperate = ["service_url", "repo_url", "nsid"].includes(item.kind);
-  return `<div class="identifier ${esc(item.classification)}">
-    <div class="identifier-value">${["service_url", "repo_url"].includes(item.kind) ? link(item.value) : esc(item.value)}</div>
-    <div class="meta-row">${pill(item.classification, item.classification)}${pill(item.kind)}${pill(item.role)}${item.is_primary ? pill("primary", "confirmed") : ""}${pill(item.provider)}</div>
-    <div class="actions">
-      ${canCandidate ? actionButton("Confirm", "confirm-candidate", {type:item.kind, value:item.value}, "small primary") + actionButton("Reject", "reject-candidate", {type:item.kind, value:item.value}, "small danger") : ""}
-      ${canOperate ? actionButton("Block", "block-identifier", {type:item.kind, value:item.value}, "small danger") + actionButton("Defer 30d", "defer-identifier", {type:item.kind, value:item.value}) + actionButton("Split", "split-project", {type:item.kind, value:item.value}) : ""}
+  const classifications = item.classifications || [item.classification];
+  const effectiveClassification = ["confirmed", "candidate", "derived", "heuristic"].find((value) => classifications.includes(value)) || classifications[0] || "";
+  const actionKind = item.kinds.find((kind) => ["service_url", "repo_url", "nsid"].includes(kind));
+  const canCandidate = classifications.includes("candidate") && !classifications.includes("confirmed") && ["service_url", "repo_url"].includes(actionKind);
+  const actions = `${canCandidate ? actionButton("Confirm", "confirm-candidate", {type:actionKind, value:item.value}, "small primary") + actionButton("Reject", "reject-candidate", {type:actionKind, value:item.value}, "small danger") : ""}${actionKind ? actionButton("Block", "block-identifier", {type:actionKind, value:item.value}, "small danger") + actionButton("Defer 30d", "defer-identifier", {type:actionKind, value:item.value}) + actionButton("Split", "split-project", {type:actionKind, value:item.value}) : ""}`;
+  const showKinds = item.family === "identity" || item.family.startsWith("other:");
+  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.roles.map(identifierRoleLabel), ...item.providers]).join(" · ");
+  return `<div class="identifier ${esc(effectiveClassification)}">
+    <div class="identifier-main">
+      <div class="identifier-value">${item.kinds.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>
+      <div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(detail)}</span></div>
     </div>
+    ${actions ? `<details class="identifier-actions"><summary>Actions</summary><div class="actions">${actions}</div></details>` : ""}
   </div>`;
 }
 
