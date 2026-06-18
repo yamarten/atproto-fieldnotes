@@ -29,39 +29,6 @@
 - [web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)
 - [core-overhaul-backlog.md](notes/core-overhaul-backlog.md)
 
-### v2 DBを通常運用に移す前
-
-日常的に使うDBをv2へ移す前に、後から変更しにくい保存形式とruntime境界を固めます。
-
-1. Runtime viewをv2へ寄せ切る
-   - `project_identifiers` / `project_relations` / `project_decisions`からcollector/evaluation向けviewを作るbuilderを一本化する
-   - `primary_nsid`, `bluesky_handles`, `tangled_handles`などのflat fieldが保存正本ではなくruntime viewであることをコード上も明確にする
-   - removed compatibility fieldが復活しないinvariantを増やす
-2. Web/API view modelをserver側へ寄せる
-   - identifierのfamily分類、role短縮、操作可否をserver presenterへ移す
-   - relation、investigation summaryも画面単位のview modelにする
-   - payload versionを明示し、旧Web payload互換を戻さない
-3. Project detailをタブ化する
-   - `Overview`, `Identifiers`, `Relations`, `Investigation`, `Decisions`, `Raw`
-   - Overviewにはprofile、代表website/repo/account、少なくとも1つのseed、service status、contribution、active guardsを出す
-   - 長いevidenceやrelationは別タブへ逃がす
-4. URL stateと軽いUI状態を固定する
-   - screen、subview、query、filters、selected project、sortをURLへ載せる
-   - reload/back/forwardで同じ作業へ戻れるようにする
-   - DB path/schemaは画面を圧迫しない範囲でtitle/footer/Settingsへ出す
-5. Write安全策を入れる
-   - `--read-only`起動option
-   - stale detail guard
-   - mutation後はDBからdetailを再取得する方針を維持
-   - 連続deferなどを取りこぼさないよう、UI/APIのwrite直列化を入れる
-6. Evidence/relation helperを固める
-   - relation record生成、predicate、classification、dedupe keyをhelper化する
-   - CollectorResultとfailure categoryを全collectorで扱える形にする
-   - lexicon JSONの存在だけで`defines_schema`を強く扱わず、ownership/context/corroborationと合わせて評価する
-7. DB移行のdry-runを再確認する
-   - migration、backup、integrity、件数、canonical snapshot
-   - 既存DBのmanual correction / block / deferからfixture候補を抽出する
-
 ### 日常運用を安定させるまで
 
 移行後のDBをWeb UIとCLIから継続的にreviewできる状態にするための作業です。

@@ -48,6 +48,7 @@ button, select, input {
   padding: 7px 10px;
 }
 button { cursor: pointer; }
+button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: .55; }
 button:hover { border-color: var(--accent); }
 button.active, button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.secondary { background: transparent; }
@@ -89,6 +90,11 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .pill.candidate { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
 .pill.failed, .pill.rate_limited { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .detail-header { display: grid; gap: 8px; }
+.detail-tabs { position: sticky; top: 0; z-index: 3; display: flex; gap: 14px; margin: 12px -2px 0; padding: 6px 2px 0; overflow-x: auto; background: var(--panel); border-bottom: 1px solid var(--line); }
+.detail-tabs button.secondary { flex: 0 0 auto; min-height: 34px; padding: 5px 2px 7px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); }
+.detail-tabs button.secondary:hover { color: var(--text); border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.detail-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); background: transparent; font-weight: 700; }
+.detail-tab-panel { min-width: 0; }
 .detail-section { display: grid; gap: 8px; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
 .identifier, .relation, .decision, .collector { display: grid; gap: 6px; padding: 9px; border-left: 3px solid var(--line); border-radius: 7px; background: var(--panel-soft); }
 .identifier.confirmed, .relation.confirmed { border-left-color: var(--accent); }
@@ -125,12 +131,19 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .operation-card .controls > button { min-width: 0; align-self: end; }
 .operation-enrich { grid-column: 1 / -1; }
 .operation-enrich .controls { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); align-items: end; }
-.checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 5px; margin-top: 8px; }
+.tracking-state-options { grid-column: 1 / -1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.tracking-state-options > summary { cursor: pointer; color: var(--muted); }
+.checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px 12px; margin-top: 8px; }
+.checkbox-grid label > span { min-height: 30px; display: flex; align-items: center; gap: 7px; color: var(--text); }
+.checkbox-grid input[type="checkbox"], .settings-toggle input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; padding: 0; flex: 0 0 16px; }
+.settings-toggle > span:last-child { min-height: 38px; display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 14px; }
 .job-card { display: grid; gap: 8px; padding: 11px; margin-bottom: 9px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
 .job-card.running, .job-card.queued { border-left-color: var(--accent); }
 .job-card.cancelling { border-left-color: var(--warning); }
 .job-card.failed { border-left-color: var(--danger); }
 .job-error { color: var(--danger); }
+.job-details > summary { width: fit-content; cursor: pointer; color: var(--accent); }
+.job-details > div { margin-top: 8px; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }

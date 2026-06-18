@@ -4,7 +4,7 @@ import re
 import urllib.parse
 from typing import Any
 
-from .evidence import EvidenceEntity, EvidenceRecord, RelationEvidence
+from .evidence import EVIDENCE_CLASSIFICATIONS, EvidenceEntity, EvidenceRecord, RelationEvidence
 
 
 RELATION_PREDICATES = {
@@ -17,6 +17,21 @@ RELATION_PREDICATES = {
     "requests_permission",
     "redirects_to",
 }
+CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
+
+
+def relation_dedupe_key(value: dict[str, Any]) -> tuple[str, ...]:
+    relation = RelationEvidence.from_dict(dict(value.get("relation") or value.get("value") or value))
+    return (
+        relation.subject.type,
+        relation.subject.value,
+        relation.predicate,
+        relation.object.type,
+        relation.object.value,
+        str(value.get("source") or ""),
+        relation.locator,
+        relation.method,
+    )
 
 
 def relation_record(
@@ -54,7 +69,7 @@ def relation_record(
 
 def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    indexes: dict[tuple[str, ...], int] = {}
     for item in values if isinstance(values, list) else []:
         if not isinstance(item, dict):
             continue
@@ -62,17 +77,29 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             relation = RelationEvidence.from_dict(dict(item.get("relation") or item.get("value") or item))
         except ValueError:
             continue
+        if relation.predicate not in RELATION_PREDICATES:
+            continue
+        classification = str(item.get("classification") or "candidate")
+        if classification not in EVIDENCE_CLASSIFICATIONS:
+            classification = "candidate"
         normalized = {
             "relation": relation.to_dict(),
             "source": str(item.get("source") or ""),
-            "classification": str(item.get("classification") or "candidate"),
+            "classification": classification,
             "observed_at": str(item.get("observed_at") or ""),
             "context": dict(item.get("context") or {}),
         }
-        key = repr(normalized)
-        if key not in seen:
-            seen.add(key)
+        key = relation_dedupe_key(normalized)
+        if key not in indexes:
+            indexes[key] = len(output)
             output.append(normalized)
+            continue
+        existing = output[indexes[key]]
+        if CLASSIFICATION_RANK[classification] > CLASSIFICATION_RANK[existing["classification"]]:
+            existing["classification"] = classification
+        if normalized["observed_at"] > existing["observed_at"]:
+            existing["observed_at"] = normalized["observed_at"]
+        existing["context"] = {**existing["context"], **normalized["context"]}
     return output
 
 
@@ -85,7 +112,7 @@ def classify_lexicon_path(path: str, schema: dict[str, Any]) -> tuple[str, str]:
     if any(segment in padded for segment in ("/example/", "/examples/", "/docs/", "/documentation/")):
         return "mentions_collection", "candidate"
     if int(schema.get("lexicon") or 0) == 1 and isinstance(schema.get("defs"), dict):
-        return "defines_schema", "confirmed"
+        return "defines_schema", "candidate"
     return "mentions_collection", "candidate"
 
 

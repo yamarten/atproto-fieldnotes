@@ -40,6 +40,18 @@
   - project検索、review/promotion/merge queue、seed preview・追加
   - normalized identifier/relation/decision、評価、最新investigation概要の表示
   - tracking、candidate confirm/reject、block/defer、split、separate解除、merge
+- 実装済み: v2 runtime/save境界
+  - normalized child tableからflat runtime viewを作るcodecを一本化
+  - 既存projectのpartial dict保存を拒否
+  - runtime markerと削除済みcompatibility fieldの保存・snapshot・Web payload漏出を抑止
+- 実装済み: relation/collector状態契約
+  - DB unique制約と同じdedupe key、classification昇格、最新時刻、context統合
+  - 通常collectorは明示的な`CollectorResult`を返す
+  - lexicon JSON単独の`defines_schema`はcandidate
+- 実装済み: Web write安全策と状態復元
+  - `api_version: 2`、server presenter、project revision、stale guard
+  - server内mutation直列化、frontend mutation queue、`--read-only`
+  - detail tabとURL stateのreload/back/forward復元
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -56,7 +68,7 @@
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト184件
+- 全通常テスト191件
 - in-app Browserでschema v2 DBのreview-stalled dry-runを実行
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認
@@ -66,6 +78,21 @@
   - SQLite integrity / foreign key / canonical snapshot検証済み
   - 旧DBは`data/survey.db.v1-backup-20260614-120431`
   - 移行後の再実行は`already_current`
+- 2026-06-16にv1 backupからのmigration dry-runを再監査
+  - project 2540件、identifier 18388件、decision 113件、relation 0件
+  - canonical snapshot、SQLite integrity、foreign keyを検証
+  - manual seed欠落0件、invalid decision 0件、normalized field漏出0件
+  - source DBと現在のv2ミラーは変更していない
+- 2026-06-16に現在のv2ミラーをread-only監査
+  - project/identifier/decision件数とintegrityは正常、manual seed欠落0件
+  - 旧移行時の`llm_source` snapshot内に削除済みcompatibility aliasが2537 projects分残る
+  - 通常運用へ切り替える時はこのv2ミラーを採用せず、v1 backupから現行migrationで再作成する
+
+## 未検証
+
+- 今回追加したdetail tab、URL state、frontend mutation queue、read-only表示の実ブラウザ確認
+  - API/component testとJavaScript syntax checkは通過
+  - この作業環境ではlocalhost listenがsandboxに拒否され、in-app Browserは接続できなかった
 
 ## 未接続
 

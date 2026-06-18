@@ -8,10 +8,11 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
+from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import investigation as investigation_core
 from project_registry_core import relations as relation_core
+from project_registry_core import runtime_view
 from project_registry_core import service as service_core
 from project_registry_core import storage as storage_core
 from project_registry_core import tangled as tangled_core
@@ -309,11 +310,18 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_investigation_storage_and_replay_are_network_free(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:storedrun")
+        project["service_urls"] = ["https://example.com"]
+        project["website_url_candidates"] = ["https://legacy.example"]
+        project[runtime_view.RUNTIME_VIEW_MARKER] = True
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
         bundle.add_record(relation_core.relation_record(
             source="fixture", classification="derived", observed_at=bundle.collected_at,
             subject_type="repo", subject_value="https://github.com/example/app",
             predicate="uses_collection", object_type="nsid", object_value="app.example.post",
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="fixture", operation="load", status="success", observed_at=bundle.collected_at,
+            request_count=0, result_count=1,
         ))
         try:
             run_id = storage_core.save_investigation_run(
@@ -325,6 +333,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         finally:
             conn.close()
         assert run is not None
+        self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, run["input_project"])
+        self.assertNotIn("website_url_candidates", run["input_project"])
+        self.assertEqual(run["input_project"]["service_urls"], ["https://example.com"])
         replayed = registry.replay_core.replay_and_diff(
             run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
         )
@@ -400,8 +411,35 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_github_semantics_distinguish_schema_and_fixture(self) -> None:
         schema = {"lexicon": 1, "defs": {"main": {"type": "record"}}}
-        self.assertEqual(relation_core.classify_lexicon_path("lexicons/app.example.post.json", schema), ("defines_schema", "confirmed"))
+        self.assertEqual(relation_core.classify_lexicon_path("lexicons/app.example.post.json", schema), ("defines_schema", "candidate"))
         self.assertEqual(relation_core.classify_lexicon_path("tests/fixtures/app.example.post.json", schema), ("mentions_collection", "candidate"))
+
+    def test_relation_dedupe_keeps_strongest_latest_record(self) -> None:
+        base = {
+            "relation": {
+                "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                "predicate": "defines_schema",
+                "object": {"type": "nsid", "value": "app.example.post"},
+                "locator": "lexicons/app.example.post.json",
+                "method": "lexicon_json",
+            },
+            "source": "github_repo:https://github.com/example/app",
+        }
+        normalized = relation_core.normalize_relation_records([
+            {**base, "classification": "candidate", "observed_at": "2026-06-01T00:00:00+00:00", "context": {"path": "old"}},
+            {**base, "classification": "confirmed", "observed_at": "2026-06-02T00:00:00+00:00", "context": {"owner": "confirmed"}},
+        ])
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["classification"], "confirmed")
+        self.assertEqual(normalized[0]["observed_at"], "2026-06-02T00:00:00+00:00")
+        self.assertEqual(normalized[0]["context"], {"path": "old", "owner": "confirmed"})
+
+    def test_collector_failure_rejects_unknown_category(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid collector failure category"):
+            CollectorFailure(
+                source="fixture", operation="fetch", target="fixture", category="mystery",
+                message="unknown failure", retryable=False,
+            )
 
     def test_browser_collector_follows_only_anonymous_login_surface(self) -> None:
         project = self.make_project("proj:browser", "service_url", "https://example.com")

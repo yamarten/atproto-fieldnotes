@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import sqlite3
 from typing import Any
@@ -17,6 +18,12 @@ REMOVED_COMPATIBILITY_FIELDS = {
     "resource_urls",
     "introduced",
 }
+WEB_API_VERSION = 2
+CLASSIFICATION_ORDER = ("confirmed", "candidate", "derived", "heuristic")
+
+
+class StaleProjectError(RuntimeError):
+    pass
 
 
 def _json(value: str, default: Any) -> Any:
@@ -123,7 +130,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     rows = conn.execute(
         "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
-    return [
+    raw = [
         {
             "kind": str(row["kind"]),
             "value": str(row["value"]),
@@ -136,6 +143,69 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         }
         for row in rows
     ]
+    family_specs = {
+        "service_url": ("service", "Services"),
+        "repo_url": ("repository", "Repositories"),
+        "nsid": ("schema", "NSIDs"),
+        "account": ("identity", "Identities"),
+        "did": ("identity", "Identities"),
+        "domain": ("identity", "Identities"),
+    }
+    role_labels = {
+        "primary_nsid": "primary", "input_nsid": "input", "owned_nsid": "owned",
+        "observed_lexicon": "observed", "recorded_namespace": "namespace",
+        "manual_seed": "manual seed", "source_repository": "source",
+        "source_repository_record": "source record", "developer_account": "developer",
+        "project_account": "project", "authority_domain": "authority",
+    }
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in raw:
+        family, family_label = family_specs.get(item["kind"], (f"other:{item['kind']}", item["kind"]))
+        key = (family, item["value"])
+        group = grouped.setdefault(key, {
+            "family": family,
+            "family_label": family_label,
+            "value": item["value"],
+            "kinds": [],
+            "roles": [],
+            "role_labels": [],
+            "classifications": [],
+            "providers": [],
+            "is_primary": False,
+            "metadata": [],
+            "observed_at": "",
+        })
+        for field, value in (
+            ("kinds", item["kind"]),
+            ("roles", item["role"]),
+            ("role_labels", role_labels.get(item["role"], item["role"].replace("_", " "))),
+            ("classifications", item["classification"]),
+            ("providers", item["provider"]),
+        ):
+            if value and value not in group[field]:
+                group[field].append(value)
+        if item["metadata"] and item["metadata"] not in group["metadata"]:
+            group["metadata"].append(item["metadata"])
+        group["is_primary"] = group["is_primary"] or item["is_primary"]
+        group["observed_at"] = max(group["observed_at"], item["observed_at"])
+    output = []
+    for group in grouped.values():
+        group["classification"] = next(
+            (value for value in CLASSIFICATION_ORDER if value in group["classifications"]),
+            group["classifications"][0] if group["classifications"] else "candidate",
+        )
+        action_kind = next((kind for kind in group["kinds"] if kind in {"service_url", "repo_url", "nsid"}), "")
+        candidate_only = "candidate" in group["classifications"] and "confirmed" not in group["classifications"]
+        group["actions"] = {
+            "identifier_type": action_kind,
+            "confirm": candidate_only and action_kind in {"service_url", "repo_url"},
+            "reject": candidate_only and action_kind in {"service_url", "repo_url"},
+            "block": bool(action_kind),
+            "defer": bool(action_kind),
+            "split": bool(action_kind),
+        }
+        output.append(group)
+    return output
 
 
 def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str, Any]]:
@@ -153,6 +223,13 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
             "method": str(row["method"]),
             "context": _json(str(row["context_json"]), {}),
             "observed_at": str(row["observed_at"]),
+            "summary": (
+                f"{row['subject_type']}:{row['subject_value']} {row['predicate']} "
+                f"{row['object_type']}:{row['object_value']}"
+            ),
+            "evidence_label": " · ".join(
+                value for value in (str(row["source"]), str(row["locator"]), str(row["method"])) if value
+            ),
         }
         for row in rows
     ]
@@ -196,9 +273,44 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
         "evaluation": run["evaluation"],
         "record_count": len(bundle.records),
         "failure_count": len(bundle.failures),
-        "collectors": [result.to_dict() for result in bundle.collector_results],
+        "collectors": [
+            {
+                **result.to_dict(),
+                "label": result.source.replace("_", " "),
+                "counts_label": f"{result.request_count} requests · {result.result_count} results",
+            }
+            for result in bundle.collector_results
+        ],
         "failures": [failure.to_dict() for failure in bundle.failures],
     }
+
+
+def project_revision(conn: sqlite3.Connection, project_key: str) -> str:
+    row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (project_key,)).fetchone()
+    if row is None:
+        raise KeyError(project_key)
+    payload = {
+        "project": tuple(row),
+        "identifiers": [tuple(item) for item in conn.execute(
+            "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
+        )],
+        "relations": [tuple(item) for item in conn.execute(
+            "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
+        )],
+        "decisions": [tuple(item) for item in conn.execute(
+            "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
+        )],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def require_project_revision(conn: sqlite3.Connection, project_key: str, expected: str) -> None:
+    if not expected:
+        raise ValueError("expected_revision is required")
+    actual = project_revision(conn, project_key)
+    if actual != expected:
+        raise StaleProjectError(f"project changed since it was loaded: {project_key}")
 
 
 def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
@@ -240,6 +352,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "promotion_blockers": list(prepared.get("promotion_blockers") or []),
     }
     payload = {
+        "revision": project_revision(conn, resolved),
         "project": raw_project,
         "identifiers": _identifier_rows(conn, resolved),
         "relations": _relation_rows(conn, resolved),
@@ -249,6 +362,25 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "review": core.build_review_queue_item(conn, resolved),
         "duplicates": prepared.get("duplicate_candidates", []),
         "merge_recommendation": prepared.get("merge_recommendation", {}),
+    }
+    merge_target_key = str(payload["merge_recommendation"].get("target_project_key") or "")
+    payload["merge_target_revision"] = (
+        project_revision(conn, merge_target_key)
+        if merge_target_key and conn.execute(
+            "SELECT 1 FROM projects WHERE project_key = ?", (merge_target_key,)
+        ).fetchone()
+        else ""
+    )
+    identifiers = payload["identifiers"]
+    manual_seed = next((item for item in identifiers if "manual_seed" in item["roles"]), None)
+    primary_repo = next((item for item in identifiers if item["family"] == "repository" and item["is_primary"]), None)
+    primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
+    payload["overview"] = {
+        "website": raw_project["website_url"],
+        "repository": primary_repo["value"] if primary_repo else "",
+        "account": primary_account["value"] if primary_account else "",
+        "manual_seed": manual_seed,
+        "active_guards": payload["decisions"]["active"],
     }
     if REMOVED_COMPATIBILITY_FIELDS.intersection(payload["project"]):
         raise AssertionError("removed compatibility fields leaked into Web payload")
@@ -348,8 +480,13 @@ def merge_batch_plan(
 
 
 def merge_pair(conn: sqlite3.Connection, *, source_project_key: str, target_project_key: str) -> dict[str, Any]:
-    return merge.inspect_pair(
+    result = merge.inspect_pair(
         conn,
         project_key=source_project_key,
         target_project_key=target_project_key,
     )
+    return {
+        **result,
+        "source_revision": project_revision(conn, core.resolve_project_key_input(conn, source_project_key)),
+        "target_revision": project_revision(conn, core.resolve_project_key_input(conn, target_project_key)),
+    }

@@ -258,10 +258,27 @@ def apply_github_repo_evidence(
 
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
+            classification = record.classification
+            subject = dict(record.value.get("subject") or {})
+            registered_repos = {
+                str(item).rstrip("/") for item in project.get("source_code_urls", []) if str(item)
+            }
+            registered_repos.update(
+                str(item.get("value") or "").rstrip("/")
+                for item in project.get("manual_seeds", [])
+                if isinstance(item, dict) and item.get("type") == "repo_url"
+            )
+            if (
+                classification == "candidate"
+                and record.value.get("predicate") == "defines_schema"
+                and subject.get("type") == "repo"
+                and str(subject.get("value") or "").rstrip("/") in registered_repos
+            ):
+                classification = "confirmed"
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
                 + [{"relation": dict(record.value), "source": record.source,
-                    "classification": record.classification, "observed_at": record.observed_at,
+                    "classification": classification, "observed_at": record.observed_at,
                     "context": dict(record.context)}]
             )
     for record in bundle.records:

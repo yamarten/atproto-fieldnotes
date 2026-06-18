@@ -68,10 +68,12 @@ def _date(value: str) -> str:
 class RegistryWebServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, address: tuple[str, int], *, token: str, db_path: Path):
+    def __init__(self, address: tuple[str, int], *, token: str, db_path: Path, read_only: bool = False):
         super().__init__(address, RegistryWebHandler)
         self.token = token
         self.db_path = Path(db_path).expanduser().resolve()
+        self.read_only = bool(read_only)
+        self.mutation_lock = threading.Lock()
         self.jobs = JobManager(self.db_path)
 
     def open_db(self) -> sqlite3.Connection:
@@ -108,7 +110,15 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
             return
-        self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
+        if bool(getattr(self.server, "read_only", False)):
+            self.send_error_json("read_only", "Web server is running in read-only mode", HTTPStatus.FORBIDDEN)
+            return
+        lock = getattr(self.server, "mutation_lock", None)
+        if lock is None:
+            self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
+        else:
+            with lock:
+                self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
 
     def dispatch(self, callback: Callable[[], None]) -> None:
         try:
@@ -123,6 +133,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json("validation_error", message, HTTPStatus.BAD_REQUEST)
         except JobConflictError as exc:
             self.send_error_json("job_conflict", str(exc), HTTPStatus.CONFLICT)
+        except services.StaleProjectError as exc:
+            self.send_error_json("stale_project", str(exc), HTTPStatus.CONFLICT)
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).lower() or "busy" in str(exc).lower():
                 self.send_error_json("database_busy", str(exc), HTTPStatus.SERVICE_UNAVAILABLE)
@@ -154,6 +166,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "schema_version": database.SCHEMA_VERSION,
                 "db_path": str(self.server.db_path),
                 "token_required": True,
+                "read_only": bool(getattr(self.server, "read_only", False)),
                 "tracking_states": sorted(core.TRACKING_STATES),
                 "operations_connected": True,
                 "operation_capabilities": {
@@ -298,6 +311,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             source = str(payload.get("source_project_key") or "").strip()
             target = str(payload.get("target_project_key") or "").strip()
             with contextlib.closing(self.server.open_db()) as conn:
+                services.require_project_revision(conn, source, str(payload.get("expected_source_revision") or ""))
+                services.require_project_revision(conn, target, str(payload.get("expected_target_revision") or ""))
                 if action == "merge":
                     result = merge.merge_projects(
                         conn,
@@ -320,6 +335,15 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             return
         project_key, action = parts
         with contextlib.closing(self.server.open_db()) as conn:
+            services.require_project_revision(conn, project_key, str(payload.get("expected_revision") or ""))
+            if action == "merge-recommendation":
+                project = core.resolve_single_project(conn, project_key=project_key)
+                target_key = str((project.get("merge_recommendation") or {}).get("target_project_key") or "")
+                if not target_key:
+                    raise ValueError("no merge recommendation available for source project")
+                services.require_project_revision(
+                    conn, target_key, str(payload.get("expected_target_revision") or "")
+                )
             result = self.run_project_action(conn, project_key, action, payload)
             detail_key = str(result.get("target_project_key") or result.get("project_key") or project_key)
             detail = services.project_detail(conn, project_key=detail_key)
@@ -497,7 +521,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         self.send_json({"error": {"code": code, "message": message}}, status=status)
 
     def send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        body = json.dumps({"api_version": services.WEB_API_VERSION, **payload}, ensure_ascii=False, sort_keys=True).encode("utf-8")
         self.send_bytes(body, content_type="application/json; charset=utf-8", status=status)
 
     def send_bytes(
@@ -526,6 +550,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", help="Shared API token. ATPROTO_SURVEY_WEB_TOKEN is also supported.")
     parser.add_argument("--reload", action="store_true", help="Restart when Web implementation files change.")
     parser.add_argument("--reload-interval", type=float, default=1.0, help="Reload polling interval in seconds.")
+    parser.add_argument("--read-only", action="store_true", help="Disable all Web API POST operations.")
     return parser
 
 
@@ -554,7 +579,9 @@ def main() -> int:
         print("error: --token or ATPROTO_SURVEY_WEB_TOKEN is required", file=sys.stderr)
         return 2
     db_path = Path(args.db_path).expanduser() if args.db_path else core.DB_PATH
-    server = RegistryWebServer((str(args.host), int(args.port)), token=token, db_path=db_path)
+    server = RegistryWebServer(
+        (str(args.host), int(args.port)), token=token, db_path=db_path, read_only=bool(args.read_only)
+    )
     if args.reload:
         scripts_root = Path(__file__).resolve().parents[1]
         watch_roots = [scripts_root / "project_registry_web", scripts_root / "project_registry_core"]

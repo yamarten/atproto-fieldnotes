@@ -6,9 +6,10 @@ import os
 import sqlite3
 import stat
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from . import runtime_view
 
 
 SCHEMA_VERSION = 2
@@ -19,64 +20,11 @@ class SchemaMismatchError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class ProjectIdentifier:
-    kind: str
-    value: str
-    role: str
-    classification: str
-    is_primary: bool = False
-    provider: str = ""
-    metadata: dict[str, Any] | None = None
-    observed_at: str = ""
-
-
-@dataclass(frozen=True)
-class ProjectDecision:
-    kind: str
-    target_type: str = ""
-    target_value: str = ""
-    note: str = ""
-    created_at: str = ""
-    expires_at: str = ""
-    cleared_at: str = ""
-    metadata: dict[str, Any] | None = None
-
-
-IDENTIFIER_FIELDS = {
-    "primary_nsid",
-    "input_nsids",
-    "resolved_nsids",
-    "lexicons",
-    "external_lexicons",
-    "recorded_lexicon_namespaces",
-    "authority_domains",
-    "website_url_candidates",
-    "service_urls",
-    "service_url_candidates",
-    "source_code_url",
-    "source_code_urls",
-    "candidate_source_code_urls",
-    "github_repo_urls",
-    "tangled_repo_urls",
-    "source_repo_records",
-    "developer_accounts",
-    "candidate_developer_accounts",
-    "bluesky_handles",
-    "tangled_handles",
-    "manual_seeds",
-    "brand_did",
-}
-
-DECISION_FIELDS = {
-    "blocked_identifiers",
-    "deferred_identifiers",
-    "promotion_deferrals",
-    "dismissed_review_kinds",
-    "separate_project_keys",
-}
-
-NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence", "resource_urls", "introduced"}
+ProjectIdentifier = runtime_view.ProjectIdentifier
+ProjectDecision = runtime_view.ProjectDecision
+IDENTIFIER_FIELDS = runtime_view.IDENTIFIER_FIELDS
+DECISION_FIELDS = runtime_view.DECISION_FIELDS
+NORMALIZED_FIELDS = runtime_view.NORMALIZED_FIELDS
 
 
 def _json(value: Any) -> str:
@@ -211,131 +159,16 @@ def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
     return conn
 
 
-def _provider(value: str) -> str:
-    lowered = value.lower()
-    if "github.com/" in lowered:
-        return "github"
-    if "tangled.org/" in lowered or "tangled.sh/" in lowered:
-        return "tangled"
-    if lowered.startswith("did:"):
-        return "atproto"
-    return ""
-
-
 def project_identifiers(project: dict[str, Any]) -> list[ProjectIdentifier]:
-    output: list[ProjectIdentifier] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    def add(kind: str, value: Any, role: str, classification: str, *, primary: bool = False,
-            provider: str = "", metadata: dict[str, Any] | None = None, observed_at: str = "") -> None:
-        text = str(value or "").strip()
-        if not text or classification not in CLASSIFICATIONS:
-            return
-        key = (kind, text, role)
-        if key in seen:
-            return
-        seen.add(key)
-        output.append(ProjectIdentifier(
-            kind=kind,
-            value=text,
-            role=role,
-            classification=classification,
-            is_primary=primary,
-            provider=provider or _provider(text),
-            metadata=metadata or {},
-            observed_at=observed_at,
-        ))
-
-    primary_nsid = str(project.get("primary_nsid") or "")
-    add("nsid", primary_nsid, "primary_nsid", "confirmed", primary=True)
-    for value in project.get("input_nsids", []):
-        add("nsid", value, "input_nsid", "candidate")
-    for value in project.get("resolved_nsids", []):
-        add("nsid", value, "owned_nsid", "confirmed")
-    for value in project.get("lexicons", []):
-        add("nsid", value, "observed_lexicon", "candidate")
-    for value in project.get("external_lexicons", []):
-        add("nsid", value, "referenced_nsid", "candidate")
-    for value in project.get("recorded_lexicon_namespaces", []):
-        add("nsid", value, "recorded_namespace", "derived")
-    for value in project.get("authority_domains", []):
-        add("domain", value, "authority_domain", "derived")
-
-    website = str(project.get("website_url") or "")
-    add("service_url", website, "website", "confirmed", primary=True)
-    for value in project.get("service_urls", []):
-        add("service_url", value, "service", "confirmed")
-    for value in project.get("service_url_candidates", []):
-        add("service_url", value, "service", "candidate")
-
-    source = str(project.get("source_code_url") or "")
-    add("repo_url", source, "source_repository", "confirmed", primary=True)
-    for value in project.get("source_code_urls", []):
-        add("repo_url", value, "source_repository", "confirmed")
-    for value in project.get("candidate_source_code_urls", []):
-        add("repo_url", value, "source_repository", "candidate")
-    for item in project.get("source_repo_records", []):
-        if not isinstance(item, dict):
-            continue
-        classification = str(item.get("confidence") or item.get("classification") or "candidate")
-        if classification not in CLASSIFICATIONS:
-            classification = "confirmed" if classification == "owned" else "candidate"
-        add(
-            "repo_url",
-            item.get("url"),
-            "source_repository_record",
-            classification,
-            metadata=dict(item),
-            observed_at=str(item.get("observed_at") or ""),
-        )
-
-    for field, classification in (("developer_accounts", "confirmed"), ("candidate_developer_accounts", "candidate")):
-        for item in project.get(field, []):
-            if not isinstance(item, dict):
-                continue
-            value = str(item.get("did") or item.get("handle") or item.get("url") or "")
-            add("account", value, "developer_account", classification, metadata=dict(item))
-            add("did", item.get("did"), "developer_did", classification, metadata={"account": value})
-    add("did", project.get("brand_did"), "brand_did", "confirmed", primary=True)
-    for field, provider in (("bluesky_handles", "bluesky"), ("tangled_handles", "tangled")):
-        for value in project.get(field, []):
-            add("account", value, "project_account", "candidate", provider=provider)
-
-    seed_kind = {"service_url": "service_url", "repo_url": "repo_url", "nsid": "nsid"}
-    for item in project.get("manual_seeds", []):
-        if not isinstance(item, dict):
-            continue
-        kind = seed_kind.get(str(item.get("type") or ""))
-        if kind:
-            add(kind, item.get("value"), "manual_seed", "confirmed", metadata=dict(item), observed_at=str(item.get("added_at") or ""))
-    return output
+    return runtime_view.project_identifiers(project)
 
 
 def project_decisions(project: dict[str, Any]) -> list[ProjectDecision]:
-    output: list[ProjectDecision] = []
-    for item in project.get("blocked_identifiers", []):
-        if isinstance(item, dict):
-            output.append(ProjectDecision("block_identifier", str(item.get("type") or ""), str(item.get("value") or ""),
-                                          str(item.get("note") or ""), str(item.get("added_at") or ""), metadata=dict(item)))
-    for item in project.get("deferred_identifiers", []):
-        if isinstance(item, dict):
-            output.append(ProjectDecision("defer_identifier", str(item.get("type") or ""), str(item.get("value") or ""),
-                                          str(item.get("note") or ""), str(item.get("added_at") or ""),
-                                          str(item.get("expires_at") or ""), metadata=dict(item)))
-    for item in project.get("promotion_deferrals", []):
-        if isinstance(item, dict):
-            output.append(ProjectDecision("defer_promotion", note=str(item.get("reason") or ""),
-                                          created_at=str(item.get("added_at") or ""), expires_at=str(item.get("expires_at") or ""),
-                                          cleared_at=str(item.get("cleared_at") or ""), metadata=dict(item)))
-    for value in project.get("dismissed_review_kinds", []):
-        output.append(ProjectDecision("dismiss_review", "review_kind", str(value)))
-    for value in project.get("separate_project_keys", []):
-        output.append(ProjectDecision("separate_project", "project_key", str(value)))
-    return output
+    return runtime_view.project_decisions(project)
 
 
 def strip_normalized_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key not in NORMALIZED_FIELDS}
+    return runtime_view.strip_runtime_fields(payload)
 
 
 def replace_project_children(conn: sqlite3.Connection, project: dict[str, Any]) -> None:
@@ -349,33 +182,15 @@ def replace_project_children(conn: sqlite3.Connection, project: dict[str, Any]) 
         )
 
     conn.execute("DELETE FROM project_relations WHERE project_key = ?", (project_key,))
-    seen_relations: set[tuple[str, ...]] = set()
-    ordinal = 0
-    for item in project.get("relation_evidence", []):
-        if not isinstance(item, dict):
-            continue
-        relation = item.get("relation") or item.get("value") or item
-        if not isinstance(relation, dict):
-            continue
-        subject = relation.get("subject") or {}
-        obj = relation.get("object") or {}
-        values = (
-            str(subject.get("type") or ""), str(subject.get("value") or ""), str(relation.get("predicate") or ""),
-            str(obj.get("type") or ""), str(obj.get("value") or ""), str(item.get("source") or ""),
-            str(relation.get("locator") or ""), str(relation.get("method") or ""),
-        )
-        if not all(values[:5]) or values in seen_relations:
-            continue
-        seen_relations.add(values)
-        classification = str(item.get("classification") or "candidate")
-        if classification not in CLASSIFICATIONS:
-            classification = "candidate"
+    for ordinal, item in enumerate(runtime_view.relation_rows(project)):
         conn.execute(
             "INSERT INTO project_relations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (project_key, ordinal, *values[:5], classification, values[5], values[6], values[7],
-             _json(item.get("context") or {}), str(item.get("observed_at") or "")),
+            (
+                project_key, ordinal, item["subject_type"], item["subject_value"], item["predicate"],
+                item["object_type"], item["object_value"], item["classification"], item["source"],
+                item["locator"], item["method"], _json(item["context"]), item["observed_at"],
+            ),
         )
-        ordinal += 1
 
     conn.execute("DELETE FROM project_decisions WHERE project_key = ?", (project_key,))
     for ordinal, item in enumerate(project_decisions(project)):
@@ -391,77 +206,19 @@ def hydrate_project_children(conn: sqlite3.Connection, project: dict[str, Any]) 
     identifiers = conn.execute(
         "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
-    project.update({
-        "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
-        "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],
-        "service_url_candidates": [], "source_code_urls": [], "candidate_source_code_urls": [],
-        "source_repo_records": [], "developer_accounts": [], "candidate_developer_accounts": [],
-        "bluesky_handles": [], "tangled_handles": [], "manual_seeds": [],
-    })
-    for row in identifiers:
-        kind, value, role = str(row["kind"]), str(row["value"]), str(row["role"])
-        classification = str(row["classification"])
-        metadata = _load_json(str(row["metadata_json"]), {})
-        if role == "manual_seed":
-            project["manual_seeds"].append(metadata or {"type": kind, "value": value})
-            continue
-        if kind == "nsid":
-            if role == "primary_nsid": project["primary_nsid"] = value
-            elif role == "input_nsid": project["input_nsids"].append(value)
-            elif role == "owned_nsid": project["resolved_nsids"].append(value)
-            elif role == "observed_lexicon": project["lexicons"].append(value)
-            elif role == "referenced_nsid": project["external_lexicons"].append(value)
-            elif role == "recorded_namespace": project["recorded_lexicon_namespaces"].append(value)
-        elif kind == "domain" and role == "authority_domain": project["authority_domains"].append(value)
-        elif kind == "service_url":
-            if classification == "confirmed": project["service_urls"].append(value)
-            else: project["service_url_candidates"].append(value)
-        elif kind == "repo_url":
-            if bool(row["is_primary"]): project["source_code_url"] = value
-            if classification == "confirmed": project["source_code_urls"].append(value)
-            else: project["candidate_source_code_urls"].append(value)
-            if metadata and role == "source_repository_record": project["source_repo_records"].append(metadata)
-        elif kind == "account":
-            if role == "developer_account":
-                target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
-                project[target].append(metadata or {"handle": value})
-            elif str(row["provider"]) == "bluesky": project["bluesky_handles"].append(value)
-            elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
-        elif kind == "did" and role == "brand_did": project["brand_did"] = value
-
-    relations = []
-    for row in conn.execute("SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)):
-        relations.append({
-            "relation": {
-                "subject": {"type": str(row["subject_type"]), "value": str(row["subject_value"])},
-                "predicate": str(row["predicate"]),
-                "object": {"type": str(row["object_type"]), "value": str(row["object_value"])},
-                "locator": str(row["locator"]), "method": str(row["method"]),
-            },
-            "source": str(row["source"]), "classification": str(row["classification"]),
-            "observed_at": str(row["observed_at"]), "context": _load_json(str(row["context_json"]), {}),
-        })
-    project["relation_evidence"] = relations
-
-    project.update({"blocked_identifiers": [], "deferred_identifiers": [], "promotion_deferrals": [],
-                    "dismissed_review_kinds": [], "separate_project_keys": []})
-    for row in conn.execute("SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)):
-        kind = str(row["kind"])
-        metadata = _load_json(str(row["metadata_json"]), {})
-        if kind == "block_identifier": project["blocked_identifiers"].append(metadata or {
-            "type": str(row["target_type"]), "value": str(row["target_value"]), "note": str(row["note"]), "added_at": str(row["created_at"])
-        })
-        elif kind == "defer_identifier": project["deferred_identifiers"].append(metadata or {
-            "type": str(row["target_type"]), "value": str(row["target_value"]), "note": str(row["note"]),
-            "added_at": str(row["created_at"]), "expires_at": str(row["expires_at"])
-        })
-        elif kind == "defer_promotion": project["promotion_deferrals"].append(metadata or {
-            "reason": str(row["note"]), "added_at": str(row["created_at"]),
-            "expires_at": str(row["expires_at"]), "cleared_at": str(row["cleared_at"])
-        })
-        elif kind == "dismiss_review": project["dismissed_review_kinds"].append(str(row["target_value"]))
-        elif kind == "separate_project": project["separate_project_keys"].append(str(row["target_value"]))
-    return project
+    relations = conn.execute(
+        "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
+    ).fetchall()
+    decisions = conn.execute(
+        "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
+    ).fetchall()
+    return runtime_view.hydrate(
+        project,
+        identifier_rows=identifiers,
+        relation_rows=relations,
+        decision_rows=decisions,
+        load_json=_load_json,
+    )
 
 
 def copy_table_rows(source: sqlite3.Connection, target: sqlite3.Connection, table: str) -> None:
@@ -594,7 +351,12 @@ def validate_migrated_projects(
                 raise RuntimeError(f"canonical identifier mismatch: {project_key} {field}")
 
 
-def validate_database(conn: sqlite3.Connection, *, expected_projects: int | None = None) -> dict[str, Any]:
+def validate_database(
+    conn: sqlite3.Connection,
+    *,
+    expected_projects: int | None = None,
+    require_clean_normalized_state: bool = False,
+) -> dict[str, Any]:
     integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
     foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchall()
     project_count = int(conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0])
@@ -602,6 +364,50 @@ def validate_database(conn: sqlite3.Connection, *, expected_projects: int | None
         raise RuntimeError(f"database validation failed: integrity={integrity} foreign_keys={len(foreign_keys)}")
     if expected_projects is not None and project_count != expected_projects:
         raise RuntimeError(f"project count mismatch: expected={expected_projects} actual={project_count}")
+    nested_forbidden_names = runtime_view.REMOVED_COMPATIBILITY_FIELDS | {runtime_view.RUNTIME_VIEW_MARKER}
+
+    def nested_forbidden_keys(value: Any) -> set[str]:
+        if isinstance(value, dict):
+            return ({str(key) for key in value if key in nested_forbidden_names}
+                    | set().union(*(nested_forbidden_keys(item) for item in value.values()), set()))
+        if isinstance(value, list):
+            return set().union(*(nested_forbidden_keys(item) for item in value), set())
+        return set()
+
+    leakage: dict[str, list[str]] = {}
+    for row in conn.execute("SELECT project_key, profile_json, state_json FROM projects"):
+        profile = _load_json(str(row["profile_json"]), {})
+        state = _load_json(str(row["state_json"]), {})
+        top_level = {
+            str(key)
+            for payload in (profile, state)
+            if isinstance(payload, dict)
+            for key in payload
+            if key in runtime_view.NORMALIZED_FIELDS or key == runtime_view.RUNTIME_VIEW_MARKER
+        }
+        fields = top_level | nested_forbidden_keys(profile) | nested_forbidden_keys(state)
+        if fields:
+            leakage[str(row["project_key"])] = sorted(fields)
+    projects_without_manual_seed = int(conn.execute(
+        """
+        SELECT COUNT(*) FROM projects p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM project_identifiers i
+            WHERE i.project_key = p.project_key AND i.role = 'manual_seed'
+        )
+        """
+    ).fetchone()[0])
+    invalid_decisions = int(conn.execute(
+        """
+        SELECT COUNT(*) FROM project_decisions
+        WHERE kind IN ('block_identifier', 'defer_identifier', 'separate_project')
+          AND (target_type = '' OR target_value = '')
+        """
+    ).fetchone()[0])
+    if invalid_decisions or (require_clean_normalized_state and leakage):
+        raise RuntimeError(
+            f"database normalized-state validation failed: leakage={len(leakage)} invalid_decisions={invalid_decisions}"
+        )
     return {
         "schema_version": database_schema_version(conn),
         "project_count": project_count,
@@ -609,6 +415,9 @@ def validate_database(conn: sqlite3.Connection, *, expected_projects: int | None
         "relation_count": int(conn.execute("SELECT COUNT(*) FROM project_relations").fetchone()[0]),
         "decision_count": int(conn.execute("SELECT COUNT(*) FROM project_decisions").fetchone()[0]),
         "integrity": integrity,
+        "normalized_field_leak_count": len(leakage),
+        "projects_without_manual_seed": projects_without_manual_seed,
+        "invalid_decision_count": invalid_decisions,
     }
 
 
@@ -660,7 +469,11 @@ def migrate_database(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
         migrate_investigation_rows(source, target)
         copy_table_rows(source, target, "collector_runs")
         target.commit()
-        report = validate_database(target, expected_projects=len(rows))
+        report = validate_database(
+            target,
+            expected_projects=len(rows),
+            require_clean_normalized_state=True,
+        )
         validate_migrated_projects(source_projects, target)
         report["canonical_snapshot_verified"] = True
     except Exception as exc:

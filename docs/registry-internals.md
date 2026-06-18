@@ -109,6 +109,8 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 
 provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
+`project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
+
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`cleanup-app-links`は`profile_json.app.links`をcanonical identifierとconfirmed resource recordから再構築します。
 
 ## enrich の流れ
@@ -160,6 +162,10 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
   - `jobs.py`は別process worker、直近event、停止・再開を管理する
+  - JSON responseはDB schema versionと独立した`api_version: 2`を持つ
+  - presenterがidentifier family、relation summary、investigation summary、project revisionを生成する
+  - mutationは`expected_revision`を必須とし、stale detailを`409 stale_project`で拒否する
+  - server内のmutationはlockで直列化し、`--read-only`では全POSTを拒否する
 - `project_registry_core/worker.py`
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
@@ -717,11 +723,8 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 ### 6. 内部 shape の最終整理
 
 - schema v2ではidentifier、relation、decisionを専用tableへ移行済み
-- ただしcollector/evaluation間のruntimeではcanonicalなflat project dictをまだ多く使う
-- 長期的には:
-  - typed aggregateまたは用途別viewへ寄せ、全project hydrateを減らす
-  - normalized tableを直接queryする検索・collision監査を増やす
-  - `primary_nsid`, `bluesky_handles`, `tangled_handles`などruntime canonical fieldの責務を狭める
+- collector/evaluation間のflat project dictは`runtime_view.py`で組み立てる明示的な非永続viewになった
+- 長期的にはtyped aggregateまたは用途別viewへ寄せ、全project hydrateを減らし、normalized tableを直接queryする検索・collision監査を増やす
 - 3 は suggestion に落とします
 - unmatched を `--screen-unmatched` する場合:
   - repo metadata / README / tree / lexicon candidate JSON を追加で見ます

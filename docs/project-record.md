@@ -117,7 +117,11 @@ projectに結び付くNSID、service URL、repo URL、account、DID、authority 
   - `authority_domain`: NSIDやidentity pathから導出したdomain
 - `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
 
-load時はcollector/evaluationが使うcanonical project dictへhydrateします。ただし削除済みalias fieldは生成しません。
+load時は専用runtime codecがnormalized child tableを読み、collector/evaluationが使うcanonical project dictへhydrateします。このdictは保存正本ではなく、既存の調査ロジックへ渡す完全なruntime viewです。
+
+既存projectを保存する時は、identifier、relation、decisionを読み込んだ完全なruntime viewであることを要求します。検索結果や部分的なdictをそのまま保存するとchild tableを全消去し得るため、partial dictからの更新は拒否します。runtime viewを識別する内部markerは`profile_json`、`state_json`、Web payload、investigation snapshotへ保存しません。
+
+削除済みalias fieldも生成・保存しません。
 
 ## `project_relations`
 
@@ -147,6 +151,8 @@ load時はcollector/evaluationが使うcanonical project dictへhydrateします
 - `redirects_to`: URL間の実観測redirect/canonical関係
 
 同じproject内でsubject、predicate、object、source、locator、methodが同じrelationは重複保存しません。relationの意味とownershipへの使い方は[investigation-model.md](investigation-model.md)を参照してください。
+
+重複relationを統合する場合は、より強いclassification、より新しい`observed_at`、両方のcontextを残します。DBのunique制約とruntime dedupeは同じkeyを使います。
 
 ## `project_decisions`
 

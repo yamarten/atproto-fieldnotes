@@ -1,0 +1,62 @@
+{
+  "schema_version": 2,
+  "source": "sanitized registry mirror snapshot",
+  "recorded_at": "2026-06-16",
+  "cases": [
+    {
+      "case": "erroneous_service_merge_residue",
+      "project_key": "proj:0badd7f7d0f7",
+      "name": "ShelfCheck",
+      "manual_seeds": [
+        {"type": "service_url", "value": "https://www.shelfcheck.org"},
+        {"type": "nsid", "value": "org.shelfcheck.shelf.entry"},
+        {"type": "repo_url", "value": "https://github.com/nowells/libby-reading-list"}
+      ],
+      "decisions": [
+        {
+          "kind": "block_identifier",
+          "target_type": "service_url",
+          "target_value": "https://bookhive.buzz",
+          "note": "remove erroneous merge residue from BookHive"
+        }
+      ]
+    },
+    {
+      "case": "tenant_services_split_from_platform",
+      "project_key": "proj:297493b6351d",
+      "name": "microcosm",
+      "manual_seeds": [
+        {"type": "repo_url", "value": "https://github.com/at-microcosm/microcosm-rs"}
+      ],
+      "decisions": [
+        {"kind": "block_identifier", "target_type": "service_url", "target_value": "https://slingshot.microcosm.blue"},
+        {"kind": "block_identifier", "target_type": "service_url", "target_value": "https://spacedust.microcosm.blue"},
+        {"kind": "block_identifier", "target_type": "service_url", "target_value": "https://ufos-api.microcosm.blue"},
+        {"kind": "separate_project", "target_type": "project_key", "target_value": "proj:57c7628c4c7e"},
+        {"kind": "separate_project", "target_type": "project_key", "target_value": "proj:1e6616ae6aec"},
+        {"kind": "separate_project", "target_type": "project_key", "target_value": "proj:e3d5d405aa8f"}
+      ]
+    },
+    {
+      "case": "multiple_repository_candidates_deferred",
+      "project_key": "proj:31e73fb1f3eb",
+      "name": "Bluesky",
+      "manual_seeds": [
+        {"type": "nsid", "value": "app.bsky"},
+        {"type": "nsid", "value": "chat.bsky"}
+      ],
+      "decisions": [
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/random-mdn/random-mdn-bot"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/hulln/bsky-unfollow"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/mattn/bsky"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/alnkesq/AppViewLite"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/micahgallen/bsky_neurobrain"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/andreruffert/echojs-bsky-bot"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/indicaindependent/vibesmom"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/indicaindependent/bsky-campaign-engine"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/dollspace-gay/Aurora-Prism"},
+        {"kind": "defer_identifier", "target_type": "repo_url", "target_value": "https://github.com/ImLunaHey/lunafications-website"}
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import types
 from http import HTTPStatus
 from io import BytesIO
@@ -10,6 +11,7 @@ from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import RegistryWebHandler
+from project_registry_core.application import presentation
 
 
 class FakeJobManager:
@@ -60,6 +62,17 @@ class FakeJobManager:
         return job
 
 
+class TrackingLock:
+    def __init__(self) -> None:
+        self.entries = 0
+
+    def __enter__(self) -> None:
+        self.entries += 1
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+
 class ProjectRegistryWebTest(TempRegistryDbTestCase):
     token = "web-test-token"
 
@@ -71,6 +84,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             db_path=self.db_path,
             open_db=lambda: registry.open_db(),
             jobs=FakeJobManager(),
+            read_only=False,
+            mutation_lock=threading.Lock(),
         )
 
     def seed_fixture(self) -> None:
@@ -81,6 +96,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         project["tagline"] = "Example tagline"
         project["tracking_state"] = "active"
         project["service_status"] = "live"
+        registry.add_manual_seed(project, "nsid", "app.example.post", source="fixture")
         project["service_url_candidates"] = ["https://app.example.com"]
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
@@ -142,7 +158,20 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         method: str = "GET",
         payload: dict | None = None,
         token: str | None = None,
+        include_revision: bool = True,
     ) -> tuple[int, dict, str]:
+        payload = dict(payload or {}) if payload is not None else None
+        if method == "POST" and include_revision and payload is not None:
+            if path.startswith("/api/projects/"):
+                project_key = path.removeprefix("/api/projects/").split("/", 1)[0]
+                conn = registry.open_db()
+                payload.setdefault("expected_revision", presentation.project_revision(conn, project_key))
+                conn.close()
+            elif path == "/api/merge-batch/action":
+                conn = registry.open_db()
+                payload.setdefault("expected_source_revision", presentation.project_revision(conn, payload["source_project_key"]))
+                payload.setdefault("expected_target_revision", presentation.project_revision(conn, payload["target_project_key"]))
+                conn.close()
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {}
         if path.startswith("/api/"):
@@ -158,7 +187,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         handler.rfile = BytesIO(data or b"")
 
         def capture_json(_self, body: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
-            captured.update(status=int(status), payload=body, content_type="application/json; charset=utf-8")
+            captured.update(status=int(status), payload={"api_version": 2, **body}, content_type="application/json; charset=utf-8")
 
         def capture_bytes(_self, body: bytes, *, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
             captured.update(status=int(status), payload=json.loads(body.decode("utf-8")), content_type=content_type)
@@ -201,6 +230,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertIn("Latest Investigation", script)
         self.assertIn("Start enrich job", script)
+        self.assertIn("startProjectEnrich", script)
+        self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
         self.assertIn("Start review job", script)
         self.assertIn("javascript", content_type)
@@ -208,6 +239,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, payload, _ = self.request("/api/projects", token="wrong")
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"]["code"], "unauthorized")
+        self.assertEqual(payload["api_version"], 2)
 
         status, payload, _ = self.request("/missing")
         self.assertEqual(status, 404)
@@ -219,6 +251,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["enrich"])
         self.assertTrue(settings["operation_capabilities"]["sync"])
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
+        self.assertFalse(settings["read_only"])
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
         status, payload, _ = self.request(
@@ -231,6 +264,15 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(self.server.jobs.parameters["all_projects"])
         self.assertTrue(self.server.jobs.parameters["deep_investigation"])
         self.assertTrue(self.server.jobs.parameters["include_stable"])
+
+        status, payload, _ = self.request(
+            "/api/jobs/enrich",
+            method="POST",
+            payload={"project_key": "proj:111111111111", "all_projects": False},
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(self.server.jobs.parameters["project_key"], "proj:111111111111")
+        self.assertFalse(self.server.jobs.parameters["all_projects"])
 
         status, jobs, _ = self.request("/api/jobs")
         self.assertEqual(status, 200)
@@ -327,12 +369,54 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(detail["relations"][0]["predicate"], "defines_schema")
         self.assertEqual(detail["investigation"]["collectors"][0]["status"], "partial")
         self.assertEqual(detail["investigation"]["failures"][0]["category"], "timeout")
+        self.assertTrue(detail["revision"])
+        self.assertEqual(detail["overview"]["manual_seed"]["value"], "app.example.post")
         self.assertNotIn("website_url_candidates", detail["project"])
         self.assertNotIn("github_repo_urls", detail["project"])
         candidate_values = {
             item["value"] for item in detail["identifiers"] if item["classification"] == "candidate"
         }
         self.assertIn("https://app.example.com", candidate_values)
+
+    def test_stale_revision_and_read_only_reject_writes(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        stale_revision = detail["revision"]
+
+        conn = registry.open_db()
+        project = registry.fetch_project(conn, "proj:111111111111")
+        assert project is not None
+        project["name"] = "Changed elsewhere"
+        registry.save_project(conn, project, preserve_timestamps=True)
+        conn.close()
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/tracking-state",
+            method="POST",
+            payload={"tracking_state": "watchlist", "expected_revision": stale_revision},
+            include_revision=False,
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"]["code"], "stale_project")
+
+        self.server.read_only = True
+        status, payload, _ = self.request(
+            "/api/jobs/enrich", method="POST", payload={"all_projects": True}
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"]["code"], "read_only")
+
+    def test_project_mutations_pass_through_server_lock(self) -> None:
+        lock = TrackingLock()
+        self.server.mutation_lock = lock
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/tracking-state",
+            method="POST",
+            payload={"tracking_state": "watchlist"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["detail"]["project"]["tracking_state"], "watchlist")
+        self.assertEqual(lock.entries, 1)
 
     def test_tracking_confirm_reject_and_decision_roundtrip(self) -> None:
         status, payload, _ = self.request(

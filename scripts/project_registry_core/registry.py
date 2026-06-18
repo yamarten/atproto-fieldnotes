@@ -30,7 +30,7 @@ from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import replay as replay_core
 from project_registry_core import storage as investigation_storage
-from project_registry_core.evidence import populate_collector_results
+from project_registry_core.evidence import add_collector_result_summary
 from project_registry_core import relations as relation_core
 from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
@@ -38,6 +38,7 @@ from project_registry_core import url_alias as url_alias_core
 from project_registry_core import legacy_collectors as legacy_collector_core
 from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
+from project_registry_core import runtime_view
 
 try:
     import tldextract  # type: ignore
@@ -1945,7 +1946,7 @@ def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
 
 def project_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     payload = project_from_row_payload(row)
-    registry_database.hydrate_project_children(conn, payload)
+    payload = registry_database.hydrate_project_children(conn, payload)
     return ensure_project_shape(payload)
 
 
@@ -2112,9 +2113,9 @@ def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
 def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
     ops_payload = compact_grouped_payload(OPS_JSON_GROUP_FIELDS, project)
     return {
-        group: registry_database.strip_normalized_fields(dict(values))
+        group: runtime_view.strip_runtime_fields(dict(values))
         for group, values in ops_payload.items()
-        if registry_database.strip_normalized_fields(dict(values))
+        if runtime_view.strip_runtime_fields(dict(values))
     }
 
 
@@ -2159,7 +2160,7 @@ def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] 
     if row is None:
         return None
     payload = project_from_row_payload(row)
-    registry_database.hydrate_project_children(conn, payload)
+    payload = registry_database.hydrate_project_children(conn, payload)
     return ensure_project_shape(payload)
 
 
@@ -2731,6 +2732,7 @@ def save_project(
         """,
         (project["project_key"],),
     ).fetchone()
+    runtime_view.require_complete_for_update(project, exists=existing is not None)
     first_seen_at = (
         str(project.get("first_seen_at") or now)
         if preserve_timestamps
@@ -9325,7 +9327,14 @@ def failed_collector_bundle(
         source=source, operation=operation, target=target,
         message=f"{source} {operation} failed for {target}: {exc}", error=exc,
     ))
-    return populate_collector_results(bundle)
+    add_collector_result_summary(
+        bundle,
+        source=source.split(":", 1)[0],
+        operation=operation,
+        observed_at=bundle.collected_at,
+        request_count=1,
+    )
+    return bundle
 
 
 def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) -> EvidenceBundle:
@@ -9346,7 +9355,13 @@ def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) 
             source="oauth_client_metadata", operation="fetch", target=metadata_url,
             message=f"OAuth client metadata fetch failed for {metadata_url}: {exc}", error=exc,
         ))
-        populate_collector_results(bundle)
+        add_collector_result_summary(
+            bundle,
+            source="oauth_client_metadata",
+            operation="fetch",
+            observed_at=observed_at,
+            request_count=1,
+        )
     return bundle
 
 
@@ -11574,7 +11589,7 @@ def enrich_project(
         try:
             repo_evidence = collect_github_repo_evidence(project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
-            run_evidence.extend(populate_collector_results(repo_evidence))
+            run_evidence.extend(repo_evidence)
         except Exception as exc:
             note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
@@ -11653,7 +11668,7 @@ def enrich_project(
         try:
             repo_evidence = collect_github_repo_evidence(project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
-            run_evidence.extend(populate_collector_results(repo_evidence))
+            run_evidence.extend(repo_evidence)
         except Exception as exc:
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
@@ -11700,7 +11715,7 @@ def enrich_project(
     )
     investigation_evidence = collect_investigation_evidence(project, investigation_plan)
     apply_investigation_evidence(project, investigation_evidence)
-    run_evidence.extend(populate_collector_results(investigation_evidence))
+    run_evidence.extend(investigation_evidence)
 
     tangled_config = dict(load_config().get("tangled_repo_discovery") or {})
     if tangled_config.get("enabled", True):
@@ -11734,7 +11749,6 @@ def enrich_project(
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
     project = apply_promotion_state(project)
     project = record_promotion_transition(project, previous_status)
-    populate_collector_results(run_evidence)
     investigation_storage.save_investigation_run(
         conn,
         project_key=str(project.get("project_key") or ""),
@@ -11862,7 +11876,7 @@ def output_project_queue(
                 if lowered == "j":
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     if project is not None:
-                        print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                        print(json.dumps(runtime_view.sanitize_runtime_snapshot(project), ensure_ascii=False, indent=2, sort_keys=True))
                     continue
                 if queue_name == "review" and lowered == "k":
                     print("[a]ctive/[w]atchlist/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
@@ -12487,7 +12501,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
                     if answer == "j":
                         project = fetch_project(conn, str(item.get("project_key") or ""))
                         if project is not None:
-                            print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                            print(json.dumps(runtime_view.sanitize_runtime_snapshot(project), ensure_ascii=False, indent=2, sort_keys=True))
                         continue
                     if answer in {"q", "quit"}:
                         candidates = []
@@ -12598,7 +12612,7 @@ def cmd_review_classification(
                     if answer == "j":
                         project = fetch_project(conn, str(item.get("project_key") or ""))
                         if project is not None:
-                            print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                            print(json.dumps(runtime_view.sanitize_runtime_snapshot(project), ensure_ascii=False, indent=2, sort_keys=True))
                         continue
                     if answer in {"q", "quit"}:
                         candidates = []
@@ -12750,7 +12764,13 @@ def collect_service_verification(project: dict[str, Any], service_url: str, lane
                 source=f"service_{lane}", operation="probe", target=url,
                 message=f"service {lane} verification failed for {url}: {exc}", error=exc,
             ))
-            populate_collector_results(evidence)
+            add_collector_result_summary(
+                evidence,
+                source=f"service_{lane}",
+                operation="probe",
+                observed_at=evidence.collected_at,
+                request_count=1,
+            )
         bundle.extend(evidence)
     return bundle
 

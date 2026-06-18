@@ -8,6 +8,7 @@ from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import database
+from project_registry_core import runtime_view
 
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
@@ -45,6 +46,52 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         self.assertEqual(fetched["blocked_identifiers"][0]["value"], "app.example.noise")
         self.assertEqual(len(fetched["relation_evidence"]), 1)
         self.assertEqual(database.validate_database(conn)["relation_count"], 1)
+        row = conn.execute(
+            "SELECT profile_json, state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()
+        self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, str(row["profile_json"]))
+        self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, str(row["state_json"]))
+        conn.close()
+
+    def test_persisted_json_recursively_drops_removed_compatibility_fields(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:v2nested")
+        project["llm_source"] = {
+            "evidence": {
+                "website_url_candidates": ["https://legacy.example"],
+                "github_repo_urls": ["https://github.com/example/legacy"],
+                "service_urls": ["https://evidence.example"],
+            }
+        }
+        registry.save_project(conn, project)
+        row = conn.execute(
+            "SELECT state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()
+        state = json.loads(row["state_json"])
+        evidence = state["evidence"]["llm_source"]["evidence"]
+        self.assertNotIn("website_url_candidates", evidence)
+        self.assertNotIn("github_repo_urls", evidence)
+        self.assertEqual(evidence["service_urls"], ["https://evidence.example"])
+        conn.close()
+
+    def test_existing_project_update_rejects_partial_runtime_view(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:v2partial")
+        project["service_url_candidates"] = ["https://candidate.example"]
+        registry.save_project(conn, project)
+
+        with self.assertRaisesRegex(ValueError, "complete runtime view"):
+            registry.save_project(conn, {
+                "project_key": project["project_key"],
+                "name": "Partial update",
+            })
+
+        fetched = registry.fetch_project(conn, project["project_key"])
+        assert fetched is not None
+        self.assertTrue(runtime_view.is_complete(fetched))
+        self.assertEqual(fetched["service_url_candidates"], ["https://candidate.example"])
         conn.close()
 
     def test_merge_preserves_operator_decisions_in_normalized_tables(self) -> None:
@@ -196,6 +243,22 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             conn.close()
             self.assertIn("record_json", columns)
             self.assertTrue(list(Path(directory).glob(".survey.db.v2-*.tmp")))
+
+
+class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
+    def test_operator_correction_fixture_keeps_distinct_guard_cases(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-corrections-v2.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = {item["case"]: item for item in payload["cases"]}
+        self.assertEqual(payload["schema_version"], 2)
+        self.assertEqual(
+            cases["erroneous_service_merge_residue"]["decisions"][0]["target_value"],
+            "https://bookhive.buzz",
+        )
+        split = cases["tenant_services_split_from_platform"]["decisions"]
+        self.assertGreaterEqual(len([item for item in split if item["kind"] == "separate_project"]), 3)
+        deferred = cases["multiple_repository_candidates_deferred"]["decisions"]
+        self.assertEqual(len({item["target_value"] for item in deferred}), 10)
 
 
 if __name__ == "__main__":

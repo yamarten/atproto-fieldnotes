@@ -5,7 +5,8 @@ import sqlite3
 import uuid
 from typing import Any
 
-from .evidence import EvidenceBundle, populate_collector_results
+from .evidence import EvidenceBundle
+from .runtime_view import sanitize_runtime_snapshot
 
 
 EVALUATION_VERSION = "investigation-evaluation-v2"
@@ -92,7 +93,9 @@ def save_investigation_run(
     run_id: str | None = None,
 ) -> str:
     ensure_investigation_tables(conn)
-    populate_collector_results(bundle)
+    if bundle.records or bundle.failures:
+        if not bundle.collector_results:
+            raise ValueError("investigation bundles with collector output require explicit collector_results")
     resolved_run_id = run_id or f"inv:{uuid.uuid4().hex}"
     evaluation_payload = evaluation or evaluation_snapshot(output_project)
     conn.execute(
@@ -109,8 +112,8 @@ def save_investigation_run(
             completed_at,
             bundle.schema_version,
             evaluation_version,
-            json.dumps(input_project, ensure_ascii=False, sort_keys=True),
-            json.dumps(output_project, ensure_ascii=False, sort_keys=True),
+            json.dumps(sanitize_runtime_snapshot(input_project), ensure_ascii=False, sort_keys=True),
+            json.dumps(sanitize_runtime_snapshot(output_project), ensure_ascii=False, sort_keys=True),
             json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True),
             json.dumps(bundle.to_dict(), ensure_ascii=False, sort_keys=True),
         ),

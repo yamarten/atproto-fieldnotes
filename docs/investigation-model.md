@@ -60,6 +60,8 @@ classification は project field の confidence と同義ではありません�
   - `success | partial | skipped | rate_limited | failed`
   - request/result 数、cursor、stop reason、retry 時刻、cache hit
 
+通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する処理はv1 migrationと旧fixture変換だけに限定します。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。
+
 主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
 `official_account`, `operates_service`, `source_repository`, `requests_permission`, `redirects_to` です。
 同じ README から複数抽出した claim は独立 source と数えません。
@@ -94,6 +96,7 @@ record を対応づける履歴です。
 ## Relation と ownership
 
 - `defines_schema` は ownership の強い候補になる
+- repositoryにlexicon JSONらしいファイルが存在するだけでは`candidate`とし、first-party repo、ownership、独立sourceのcorroborationをintegration/evaluationで加味する
 - `uses_collection` と OAuth の `repo:` permission は利用関係であり ownership を確定しない
 - `mentions_collection` は docs、example、test、fixture、vendor、generated などの弱い言及
 - confirmed repo と first-party app が独立 source から相互リンクした場合、`source_repository` を昇格できる

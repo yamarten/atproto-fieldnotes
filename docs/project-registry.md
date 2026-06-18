@@ -154,6 +154,14 @@ project-registry-web --host 127.0.0.1 --port 8765
 project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
 ```
 
+DBを閲覧専用で開く場合:
+
+```bash
+project-registry-web --db-path data/survey.db --token "$ATPROTO_SURVEY_WEB_TOKEN" --read-only
+```
+
+read-only modeでは全てのWeb POST APIを拒否し、画面上のmutationとjob controlも無効になります。project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。tokenとUI設定はURLへ保存しません。
+
 `--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
 
 画面構成:
@@ -163,7 +171,7 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 - `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
 - `Settings`: queue limit、merge mode、token、接続DBの確認
 
-project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、auto-ready mergeは明示確認後にSQLiteへ保存します。
+project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、auto-ready mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
 
 Operationsのenrich、sync、review classificationはWeb serverとは別processで動きます。enrichは単体projectまたはbulkを選び、deep investigation、未enrichのみ、前回失敗のみ、追加tracking stateを指定できます。syncは設定済みのintroduced/GitHub/collection inventory/Semble/Tangled sourceだけを選択でき、任意URLやqueryはCLIで扱います。syncのdry-runも外部通信しますがSQLiteは更新しません。reviewのdry-runはnetwork-freeで、executeは表示対象になった候補を一括適用します。
 

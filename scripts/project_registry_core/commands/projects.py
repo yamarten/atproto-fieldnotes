@@ -4,6 +4,7 @@ import argparse
 import json
 
 from .. import registry as core
+from .. import runtime_view
 from ..application import projects as services
 
 
@@ -42,7 +43,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         projects = services.prepare_project_views(conn, projects)
         if args.format == "json":
             for project in projects:
-                print(json.dumps(project, ensure_ascii=False, indent=2, sort_keys=True))
+                print(json.dumps(runtime_view.sanitize_runtime_snapshot(project), ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         for project in projects:
             _print_project(project)

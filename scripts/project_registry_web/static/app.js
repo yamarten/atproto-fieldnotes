@@ -7,6 +7,12 @@ const state = {
   screen: "review",
   reviewView: "queue",
   selected: "",
+  detailTab: "overview",
+  detailRevision: "",
+  mergeSourceRevision: "",
+  mergeTargetRevision: "",
+  openJobDetails: new Set(),
+  jobDetailCache: new Map(),
   listRequest: 0,
   detailRequest: 0,
   operationTimer: null,
@@ -22,6 +28,7 @@ const state = {
     sort: "last_seen_desc",
   },
 };
+let mutationQueue = Promise.resolve();
 
 const params = new URLSearchParams(location.search);
 if (params.get("token")) {
@@ -29,6 +36,7 @@ if (params.get("token")) {
   params.delete("token");
   history.replaceState(null, "", location.pathname + (params.toString() ? `?${params}` : ""));
 }
+restoreStateFromUrl(params);
 let token = localStorage.getItem("projectRegistryToken") || prompt("Project Registry token") || "";
 if (token) localStorage.setItem("projectRegistryToken", token);
 
@@ -48,28 +56,76 @@ async function api(path, options = {}) {
   if (options.body) headers["Content-Type"] = "application/json";
   const response = await fetch(path, {...options, headers});
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || response.statusText);
+  if (!response.ok) {
+    const error = new Error(payload.error?.message || response.statusText);
+    error.code = payload.error?.code || "request_failed";
+    throw error;
+  }
   return payload;
 }
 
-function setScreen(screen) {
+function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
+  const screen = query.get("screen");
+  if (["review", "projects", "operations", "settings"].includes(screen)) state.screen = screen;
+  const view = query.get("view");
+  if (["queue", "promotion", "merge"].includes(view)) state.reviewView = view;
+  state.selected = query.get("project") || "";
+  const tab = query.get("tab");
+  if (["overview", "identifiers", "relations", "investigation", "decisions", "raw"].includes(tab)) state.detailTab = tab;
+  state.projectSearch = {
+    query: query.get("q") || "",
+    tracking: query.get("tracking") || "",
+    service: query.get("service") || "",
+    contribution: query.get("contribution") || "",
+    candidates: query.get("candidates") || "any",
+    errors: query.get("errors") || "any",
+    sort: query.get("sort") || "last_seen_desc",
+  };
+}
+
+function syncUrl({replace = false} = {}) {
+  const query = new URLSearchParams();
+  if (state.screen !== "review") query.set("screen", state.screen);
+  if (state.screen === "review" && state.reviewView !== "queue") query.set("view", state.reviewView);
+  if (state.screen === "projects") {
+    const values = {
+      q: state.projectSearch.query,
+      tracking: state.projectSearch.tracking,
+      service: state.projectSearch.service,
+      contribution: state.projectSearch.contribution,
+      candidates: state.projectSearch.candidates !== "any" ? state.projectSearch.candidates : "",
+      errors: state.projectSearch.errors !== "any" ? state.projectSearch.errors : "",
+      sort: state.projectSearch.sort !== "last_seen_desc" ? state.projectSearch.sort : "",
+    };
+    Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
+  }
+  if (state.selected) query.set("project", state.selected);
+  if (state.selected && state.detailTab !== "overview") query.set("tab", state.detailTab);
+  const url = location.pathname + (query.toString() ? `?${query}` : "");
+  (replace ? history.replaceState : history.pushState).call(history, null, "", url);
+}
+
+function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
   if (state.operationTimer) clearTimeout(state.operationTimer);
   state.operationTimer = null;
   state.listRequest += 1;
   state.detailRequest += 1;
   state.screen = screen;
-  state.selected = "";
+  if (!preserveSelection) state.selected = "";
   document.body.dataset.screen = screen;
   document.body.classList.remove("detail-open");
   document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.classList.toggle("active", button.dataset.screen === screen));
   const workspace = $("workspace");
   const single = $("single-pane");
   if (["review", "projects"].includes(screen)) {
-    workspace.hidden = false; single.hidden = true; loadList();
+    workspace.hidden = false; single.hidden = true; loadList().then(() => {
+      if (state.selected) loadDetail(state.selected, {updateUrl: false});
+    });
   } else {
     workspace.hidden = true; single.hidden = false;
     screen === "operations" ? renderOperations() : renderSettings();
   }
+  if (updateUrl) syncUrl();
 }
 
 function listControls() {
@@ -145,9 +201,9 @@ function captureProjectSearch() {
 }
 
 function bindControls() {
-  document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; loadList(); });
-  $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); loadList(); });
-  $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); loadList(); } });
+  document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
+  $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
+  $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
   $("new-seed")?.addEventListener("click", renderNewSeed);
 }
 
@@ -178,9 +234,10 @@ function renderList(data) {
   });
 }
 
-async function loadDetail(key) {
+async function loadDetail(key, {updateUrl = true} = {}) {
   const request = ++state.detailRequest;
   state.selected = key; document.body.classList.add("detail-open");
+  if (updateUrl) syncUrl();
   $("detail").innerHTML = `<p class="muted">Loading ${esc(key)}...</p>`;
   try {
     const data = await api(`/api/projects/${encodeURIComponent(key)}`);
@@ -195,12 +252,15 @@ async function loadDetail(key) {
 function profileValue(profile, key) { return profile?.core?.[key] ?? profile?.[key] ?? ""; }
 function section(title, body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 function actionButton(label, action, data = {}, style = "small") {
+  if (state.server?.read_only) return "";
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
   return `<button class="${style}" data-action="${action}" ${attrs}>${esc(label)}</button>`;
 }
 
 function renderDetail(data) {
   const project = data.project;
+  state.selected = project.project_key;
+  syncUrl({replace: true});
   const profile = project.profile || {};
   const identifiers = list(data.identifiers);
   const relations = list(data.relations);
@@ -208,80 +268,60 @@ function renderDetail(data) {
   const evaluation = data.evaluation || {};
   const investigation = data.investigation;
   const recommendation = data.merge_recommendation || {};
+  const overview = data.overview || {};
+  state.detailRevision = data.revision || "";
+  state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
+  const manualSeed = overview.manual_seed;
+  const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
+  const overviewBody = `
+    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>`)}
+    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
+    ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
+  `;
   $("detail").innerHTML = `
     <div class="detail-header">
       <button class="mobile-back secondary" id="detail-back">Back to list</button>
       <p class="eyebrow">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>
+      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>`}
     </div>
-    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>`)}
-    ${section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`)}
-    ${section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.subject.type)}:${esc(item.subject.value)} <strong>${esc(item.predicate)}</strong> ${esc(item.object.type)}:${esc(item.object.value)}</div><div class="muted">${esc(item.source)} ${item.locator ? `· ${esc(item.locator)}` : ""} ${item.method ? `· ${esc(item.method)}` : ""}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`)}
-    ${section("Decisions / Guards", renderDecisions(decisions))}
-    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
-    ${section("Latest Investigation", renderInvestigation(investigation))}
-    ${section("Raw Data", `<details><summary>Project payload</summary>${json(data)}</details>`)}
+    <nav class="detail-tabs" aria-label="Project detail">
+      ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
+    </nav>
+    ${tab("overview", "Overview", overviewBody)}
+    ${tab("identifiers", "Identifiers", section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`))}
+    ${tab("relations", "Relations", section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.summary)}</div><div class="muted">${esc(item.evidence_label)}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`))}
+    ${tab("investigation", "Investigation", section("Latest Investigation", renderInvestigation(investigation)))}
+    ${tab("decisions", "Decisions", section("Decisions / Guards", renderDecisions(decisions)))}
+    ${tab("raw", "Raw", section("Raw Data", `<details open><summary>Project payload</summary>${json(data)}</details>`))}
   `;
-  $("detail-back").onclick = () => document.body.classList.remove("detail-open");
-  $("save-tracking").onclick = () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false);
+  $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
+  $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
+  $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
+  document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
+    state.detailTab = button.dataset.detailTab;
+    syncUrl();
+    document.querySelectorAll("[data-detail-tab]").forEach((item) => item.classList.toggle("active", item.dataset.detailTab === state.detailTab));
+    document.querySelectorAll("[data-detail-panel]").forEach((item) => item.hidden = item.dataset.detailPanel !== state.detailTab);
+  });
   bindDetailActions(project.project_key);
 }
 
 const identifierFamilies = [
-  {key: "service", label: "Services", kinds: ["service_url"]},
-  {key: "repository", label: "Repositories", kinds: ["repo_url"]},
-  {key: "schema", label: "NSIDs", kinds: ["nsid"]},
-  {key: "identity", label: "Identities", kinds: ["account", "did", "domain"]},
+  {key: "service", label: "Services"},
+  {key: "repository", label: "Repositories"},
+  {key: "schema", label: "NSIDs"},
+  {key: "identity", label: "Identities"},
 ];
 
 function uniqueValues(values) { return [...new Set(values.filter(Boolean))]; }
-function identifierFamily(kind) { return identifierFamilies.find((family) => family.kinds.includes(kind)) || {key: `other:${kind}`, label: kind, kinds: [kind]}; }
-function identifierRoleLabel(role) {
-  return ({
-    primary_nsid: "primary",
-    input_nsid: "input",
-    owned_nsid: "owned",
-    observed_lexicon: "observed",
-    recorded_namespace: "namespace",
-    manual_seed: "manual seed",
-    source_repository: "source",
-    source_repository_record: "source record",
-    developer_account: "developer",
-    project_account: "project",
-    authority_domain: "authority",
-  })[role] || String(role || "").replaceAll("_", " ");
-}
-
-function groupedIdentifiers(items) {
-  const groups = new Map();
-  list(items).forEach((item) => {
-    const family = identifierFamily(item.kind);
-    const key = `${family.key}\u0000${item.value}`;
-    const group = groups.get(key) || {...item, family: family.key, familyLabel: family.label, kinds: [], roles: [], classifications: [], providers: [], rowCount: 0};
-    group.kinds.push(item.kind);
-    group.roles.push(item.role);
-    group.classifications.push(item.classification);
-    group.providers.push(item.provider);
-    group.is_primary ||= Boolean(item.is_primary);
-    group.rowCount += 1;
-    groups.set(key, group);
-  });
-  return [...groups.values()].map((item) => ({
-    ...item,
-    kinds: uniqueValues(item.kinds),
-    roles: uniqueValues(item.roles),
-    classifications: uniqueValues(item.classifications),
-    providers: uniqueValues(item.providers),
-  }));
-}
 
 function renderIdentifiers(items) {
-  const grouped = groupedIdentifiers(items);
+  const grouped = list(items);
   const knownFamilies = new Set(identifierFamilies.map((family) => family.key));
-  const families = [...identifierFamilies, ...uniqueValues(grouped.map((item) => item.family).filter((family) => !knownFamilies.has(family))).map((key) => ({key, label: grouped.find((item) => item.family === key)?.familyLabel || key}))];
+  const families = [...identifierFamilies, ...uniqueValues(grouped.map((item) => item.family).filter((family) => !knownFamilies.has(family))).map((key) => ({key, label: grouped.find((item) => item.family === key)?.family_label || key}))];
   return `<div class="identifier-groups">${families.map(({key, label}) => {
     const values = grouped.filter((item) => item.family === key);
     if (!values.length) return "";
@@ -291,12 +331,11 @@ function renderIdentifiers(items) {
 
 function renderIdentifier(item) {
   const classifications = item.classifications || [item.classification];
-  const effectiveClassification = ["confirmed", "candidate", "derived", "heuristic"].find((value) => classifications.includes(value)) || classifications[0] || "";
-  const actionKind = item.kinds.find((kind) => ["service_url", "repo_url", "nsid"].includes(kind));
-  const canCandidate = classifications.includes("candidate") && !classifications.includes("confirmed") && ["service_url", "repo_url"].includes(actionKind);
-  const actions = `${canCandidate ? actionButton("Confirm", "confirm-candidate", {type:actionKind, value:item.value}, "small primary") + actionButton("Reject", "reject-candidate", {type:actionKind, value:item.value}, "small danger") : ""}${actionKind ? actionButton("Block", "block-identifier", {type:actionKind, value:item.value}, "small danger") + actionButton("Defer 30d", "defer-identifier", {type:actionKind, value:item.value}) + actionButton("Split", "split-project", {type:actionKind, value:item.value}) : ""}`;
+  const effectiveClassification = item.classification || classifications[0] || "";
+  const actionKind = item.actions?.identifier_type || "";
+  const actions = `${item.actions?.confirm ? actionButton("Confirm", "confirm-candidate", {type:actionKind, value:item.value}, "small primary") : ""}${item.actions?.reject ? actionButton("Reject", "reject-candidate", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.block ? actionButton("Block", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split", "split-project", {type:actionKind, value:item.value}) : ""}`;
   const showKinds = item.family === "identity" || item.family.startsWith("other:");
-  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.roles.map(identifierRoleLabel), ...item.providers]).join(" · ");
+  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.role_labels, ...item.providers]).join(" · ");
   return `<div class="identifier ${esc(effectiveClassification)}">
     <div class="identifier-main">
       <div class="identifier-value">${item.kinds.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>
@@ -339,39 +378,59 @@ function confirmMutation(title, message, path, payload, note) {
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;
     if (note) payload.note = $("confirm-note").value.trim();
-    try {
-      status("Saving...");
-      const response = await api(path, {method:"POST", body:JSON.stringify(payload)});
-      status("Saved.");
-      if (response.detail) {
-        renderDetail(response.detail);
-      } else if (response.project_key || response.target_project_key) {
-        await loadDetail(response.target_project_key || response.project_key);
-      } else {
-        document.body.classList.remove("detail-open");
+    mutationQueue = mutationQueue.then(async () => {
+      try {
+        if (path.startsWith("/api/projects/")) payload.expected_revision = state.detailRevision;
+        if (path.endsWith("/merge-recommendation")) payload.expected_target_revision = state.mergeTargetRevision;
+        status("Saving...");
+        const response = await api(path, {method:"POST", body:JSON.stringify(payload)});
+        status("Saved.");
+        if (response.detail) {
+          renderDetail(response.detail);
+        } else if (response.project_key || response.target_project_key) {
+          await loadDetail(response.target_project_key || response.project_key);
+        } else {
+          document.body.classList.remove("detail-open");
+        }
+        await loadList();
+      } catch (error) {
+        if (error.code === "stale_project" && state.selected) {
+          await loadDetail(state.selected, {updateUrl: false});
+          status("Project changed in another operation. Detail was reloaded; review the change before retrying.", true);
+        } else {
+          status(error.message, true);
+        }
       }
-      await loadList();
-    } catch (error) { status(error.message, true); }
+    }, async () => {}).catch(() => {});
   };
 }
 
 async function loadMergeDetail(source, target) {
   const request = ++state.detailRequest;
   state.selected = source; document.body.classList.add("detail-open");
+  syncUrl();
   try {
     const data = await api(`/api/merge-pair?source_project_key=${encodeURIComponent(source)}&target_project_key=${encodeURIComponent(target)}`);
     if (request !== state.detailRequest || state.selected !== source) return;
-    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(source)} → ${esc(target)}</h2>${section("Comparison", json(data.comparison || data))}${section("Preview", json(data.merged_preview || {}))}<div class="actions"><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
-    $("detail-back").onclick = () => document.body.classList.remove("detail-open");
-    $("mark-separate").onclick = () => confirmMerge("Keep projects separate", "separate", source, target);
-    $("execute-merge").onclick = () => confirmMerge("Merge projects", "merge", source, target);
+    state.mergeSourceRevision = data.source_revision || "";
+    state.mergeTargetRevision = data.target_revision || "";
+    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(source)} → ${esc(target)}</h2>${section("Comparison", json(data.comparison || data))}${section("Preview", json(data.merged_preview || {}))}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : `<div class="actions"><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`}`;
+    $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
+    $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
+    $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
   } catch (error) {
     if (request === state.detailRequest && state.selected === source) status(error.message, true);
   }
 }
 
 function confirmMerge(title, action, source, target) {
-  confirmMutation(title, `${title}: ${source} → ${target}?`, "/api/merge-batch/action", {action, source_project_key:source, target_project_key:target}, false);
+  confirmMutation(title, `${title}: ${source} → ${target}?`, "/api/merge-batch/action", {
+    action,
+    source_project_key: source,
+    target_project_key: target,
+    expected_source_revision: state.mergeSourceRevision,
+    expected_target_revision: state.mergeTargetRevision,
+  }, false);
 }
 
 function renderNewSeed() {
@@ -379,26 +438,26 @@ function renderNewSeed() {
   state.selected = "";
   $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Projects</p><h2>New Seed</h2><div class="controls"><label>NSID, repository URL, or service URL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">Preview</button></div></div><div id="seed-preview"></div>`;
   document.body.classList.add("detail-open");
-  $("detail-back").onclick = () => document.body.classList.remove("detail-open");
+  $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
   $("preview-seed").onclick = async () => {
     const value = $("seed-value").value.trim();
     try {
       const data = await api(`/api/seeds/preview?seed=${encodeURIComponent(value)}`);
-      $("seed-preview").innerHTML = section("Preview", json(data)) + (data.can_create ? `<button id="create-seed" class="primary">Create project</button>` : `<p class="notice">This seed already belongs to ${esc(data.exact_project_key)}.</p>`);
+      $("seed-preview").innerHTML = section("Preview", json(data)) + (data.can_create && !state.server?.read_only ? `<button id="create-seed" class="primary">Create project</button>` : data.can_create ? `<p class="notice">Read-only mode. Preview only.</p>` : `<p class="notice">This seed already belongs to ${esc(data.exact_project_key)}.</p>`);
       $("create-seed")?.addEventListener("click", () => confirmMutation("Create project", `Create a project for ${value}?`, "/api/seeds", {seed:value}, false));
     } catch (error) { status(error.message, true); }
   };
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Operations run in a separate process. Only one job runs at a time. Enrich stops between projects; sync and review finish their current operation before a cancellation request takes effect.</p><div class="operation-grid">
+  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">${state.server?.read_only ? "Read-only mode. Job controls are disabled." : "Operations run in a separate process. Only one job runs at a time. Enrich stops between projects; sync and review finish their current operation before a cancellation request takes effect."}</p><div class="operation-grid">
     <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
       <label>Target<select id="enrich-target"><option value="all">Active and watchlist projects</option><option value="project">One project</option></select></label>
       <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
       <label><span><input id="enrich-deep" type="checkbox"> Deep investigation</span></label>
       <label><span><input id="enrich-new-only" type="checkbox"> Never enriched only</span></label>
       <label><span><input id="enrich-retry" type="checkbox"> Previous failures only</span></label>
-      <details><summary>Additional tracking states</summary><div class="checkbox-grid">
+      <details class="tracking-state-options"><summary>Additional tracking states</summary><div class="checkbox-grid">
         <label><span><input id="enrich-stable" type="checkbox"> stable</span></label>
         <label><span><input id="enrich-stalled" type="checkbox"> stalled</span></label>
         <label><span><input id="enrich-out-of-scope" type="checkbox"> out_of_scope</span></label>
@@ -435,6 +494,9 @@ function renderOperations() {
   $("start-review").onclick = startReviewJob;
   updateSyncControls();
   updateReviewControls();
+  if (state.server?.read_only) {
+    ["start-enrich", "start-sync", "start-review"].forEach((id) => { if ($(id)) $(id).disabled = true; });
+  }
   loadJobs();
 }
 
@@ -458,7 +520,7 @@ function startEnrichJob() {
   const oneProject = $("enrich-target").value === "project";
   const projectKey = $("enrich-project-key").value.trim();
   if (oneProject && !projectKey) { status("Project key is required.", true); return; }
-  const payload = {
+  startEnrich({
     project_key: oneProject ? projectKey : "",
     all_projects: !oneProject,
     deep_investigation: $("enrich-deep").checked,
@@ -469,13 +531,19 @@ function startEnrichJob() {
     include_out_of_scope: !oneProject && $("enrich-out-of-scope").checked,
     include_archived: !oneProject && $("enrich-archived").checked,
     include_ignore: !oneProject && $("enrich-ignore").checked,
-  };
-  const target = oneProject ? projectKey : "the selected project set";
+  }, oneProject ? projectKey : "the selected project set");
+}
+
+function startProjectEnrich(projectKey) {
+  startEnrich({project_key: projectKey, all_projects: false}, projectKey);
+}
+
+function startEnrich(payload, target) {
   confirmOperation("Start enrich job", `Start enrich for ${target}? This writes investigation results to SQLite.`, async () => {
     status("Starting enrich job...");
     await api("/api/jobs/enrich", {method:"POST", body:JSON.stringify(payload)});
     status("Enrich job started.");
-    await loadJobs();
+    if (state.screen === "operations") await loadJobs();
   });
 }
 
@@ -545,10 +613,11 @@ function renderJobs(items) {
       ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
       <div class="actions">
-        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
-        ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
-        <button class="secondary small" data-job-detail="${esc(job.job_id)}">Details</button>
-      </div><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}"></div></article>`;
+        ${job.can_cancel && !state.server?.read_only ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
+        ${job.can_resume && !state.server?.read_only ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
+      </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
+        <summary>Details</summary><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
+      </details></article>`;
   }).join("");
 }
 
@@ -560,10 +629,24 @@ async function loadJobs() {
     const data = await api("/api/jobs?limit=50");
     $("job-list").innerHTML = renderJobs(list(data.items));
     bindJobActions();
+    await Promise.all([...state.openJobDetails].map((jobId) => refreshJobDetail(jobId)));
     if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling")) {
       state.operationTimer = setTimeout(loadJobs, 2000);
     }
   } catch (error) { status(error.message, true); }
+}
+
+async function refreshJobDetail(jobId) {
+  try {
+    const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const detail = {request:job.request, result:job.result, events:job.events, stderr:job.stderr};
+    state.jobDetailCache.set(jobId, detail);
+    const target = $(`job-detail-${jobId.replaceAll(":", "-")}`);
+    if (target && state.openJobDetails.has(jobId)) target.innerHTML = json(detail);
+  } catch (error) {
+    state.openJobDetails.delete(jobId);
+    status(error.message, true);
+  }
 }
 
 function bindJobActions() {
@@ -581,12 +664,16 @@ function bindJobActions() {
       status("Resume job started."); await loadJobs();
     });
   });
-  document.querySelectorAll("[data-job-detail]").forEach((button) => button.onclick = async () => {
-    try {
-      const job = await api(`/api/jobs/${encodeURIComponent(button.dataset.jobDetail)}`);
-      const target = $(`job-detail-${job.job_id.replaceAll(":", "-")}`);
-      target.innerHTML = json({request:job.request, result:job.result, events:job.events, stderr:job.stderr});
-    } catch (error) { status(error.message, true); }
+  document.querySelectorAll("[data-job-details]").forEach((details) => details.ontoggle = async () => {
+    const jobId = details.dataset.jobDetails;
+    if (!details.open) {
+      state.openJobDetails.delete(jobId);
+      return;
+    }
+    state.openJobDetails.add(jobId);
+    const target = $(`job-detail-${jobId.replaceAll(":", "-")}`);
+    if (state.jobDetailCache.has(jobId)) target.innerHTML = json(state.jobDetailCache.get(jobId));
+    await refreshJobDetail(jobId);
   });
 }
 
@@ -597,9 +684,9 @@ async function renderSettings() {
     <label>Project limit<input id="setting-project" type="number" min="1" max="500" value="${esc(state.settings.projectLimit)}"></label>
     <label>Merge limit<input id="setting-merge-limit" type="number" min="1" max="500" value="${esc(state.settings.mergeLimit)}"></label>
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
-    <label><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
+    <label class="settings-toggle"><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
   </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button></div>
-  ${section("Server", `<dl class="kv"><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
+  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Mode</dt><dd>${state.server?.read_only ? "Read-only" : "Read/write"}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {
@@ -610,5 +697,12 @@ async function renderSettings() {
 }
 
 document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.addEventListener("click", () => setScreen(button.dataset.screen)));
-$("refresh").addEventListener("click", () => setScreen(state.screen));
-api("/api/settings").then((server) => { state.server = server; loadList(); }).catch((error) => status(error.message, true));
+$("refresh").addEventListener("click", () => setScreen(state.screen, {updateUrl: false, preserveSelection: true}));
+window.addEventListener("popstate", () => {
+  restoreStateFromUrl();
+  setScreen(state.screen, {updateUrl: false, preserveSelection: true});
+});
+api("/api/settings").then((server) => {
+  state.server = server;
+  setScreen(state.screen, {updateUrl: false, preserveSelection: true});
+}).catch((error) => status(error.message, true));

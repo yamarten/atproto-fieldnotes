@@ -5,7 +5,12 @@ import urllib.error
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .evidence import CollectorFailure, EvidenceBundle, EvidenceRecord, populate_collector_results
+from .evidence import (
+    CollectorFailure,
+    EvidenceBundle,
+    EvidenceRecord,
+    add_collector_result_summary,
+)
 from .relations import classify_lexicon_path, relation_record
 from .reliability import RequestBudget, RetryPolicy, run_with_retry
 
@@ -240,6 +245,8 @@ def collector_failure(
         category, retryable = "remote_server_error", True
     elif isinstance(error, urllib.error.URLError):
         category, retryable = "network_error", True
+    elif isinstance(error, ValueError):
+        category, retryable = "invalid_response", False
     else:
         category, retryable = "collector_error", False
     return CollectorFailure(
@@ -519,7 +526,35 @@ def collect_investigation_evidence(
                 error=exc,
             ))
 
-    return populate_collector_results(bundle)
+    planned = {
+        "github_search": build_github_repo_search_queries(plan),
+        "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries", max_queries=2),
+        "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries", max_queries=2),
+        "bsky_author_feed": unique_strings(actor_handles_to_probe)[:2],
+    }
+    for source, operation in (
+        ("github_search", "repo_search"),
+        ("bsky_actor_search", "actor_search"),
+        ("bsky_post_search", "post_search"),
+        ("bsky_author_feed", "author_feed"),
+    ):
+        request_count = len([
+            record for record in bundle.records
+            if record.source.split(":", 1)[0] == source and record.kind in {"investigation_query", "investigation_log"}
+        ])
+        request_count = max(request_count, len([
+            failure for failure in bundle.failures if failure.source.split(":", 1)[0] == source
+        ]))
+        add_collector_result_summary(
+            bundle,
+            source=source,
+            operation=operation,
+            observed_at=bundle.collected_at,
+            request_count=request_count,
+            attempted=bool(planned[source]) and not (source in {"bsky_post_search", "bsky_author_feed"} and bluesky_rate_limited),
+            stop_reason="upstream_rate_limit" if source in {"bsky_post_search", "bsky_author_feed"} and bluesky_rate_limited else "",
+        )
+    return bundle
 
 
 def collect_github_repo_evidence(
@@ -600,4 +635,11 @@ def collect_github_repo_evidence(
             predicate="source_repository" if object_type == "website" else "mentions_collection",
             object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
         ))
-    return populate_collector_results(bundle)
+    add_collector_result_summary(
+        bundle,
+        source="github_repo",
+        operation="inspect",
+        observed_at=observed_at,
+        request_count=1,
+    )
+    return bundle

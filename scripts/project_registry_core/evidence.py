@@ -12,6 +12,17 @@ EvidenceClassification = Literal["confirmed", "candidate", "derived", "heuristic
 CollectorStatus = Literal["success", "partial", "skipped", "rate_limited", "failed"]
 EVIDENCE_CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 COLLECTOR_STATUSES = {"success", "partial", "skipped", "rate_limited", "failed"}
+COLLECTOR_FAILURE_CATEGORIES = {
+    "timeout",
+    "rate_limit",
+    "request_budget",
+    "network_error",
+    "remote_server_error",
+    "forbidden",
+    "invalid_response",
+    "browser_error",
+    "collector_error",
+}
 JSONValue = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
 
 
@@ -87,6 +98,8 @@ class CollectorFailure:
         for field_name in ("source", "operation", "category", "message"):
             if not str(getattr(self, field_name)).strip():
                 raise ValueError(f"collector failure {field_name} is required")
+        if self.category not in COLLECTOR_FAILURE_CATEGORIES:
+            raise ValueError(f"invalid collector failure category: {self.category}")
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -286,7 +299,7 @@ class EvidenceBundle:
 
 
 def populate_collector_results(bundle: EvidenceBundle) -> EvidenceBundle:
-    """Add conservative source summaries when a collector did not emit explicit results."""
+    """Upgrade legacy evidence that predates explicit per-source collector results."""
     if bundle.schema_version < 2 or bundle.collector_results:
         return bundle
     roots: list[str] = []
@@ -321,3 +334,48 @@ def populate_collector_results(bundle: EvidenceBundle) -> EvidenceBundle:
             stop_reason=(failures[0].category if failures else ""),
         ))
     return bundle
+
+
+def add_collector_result_summary(
+    bundle: EvidenceBundle,
+    *,
+    source: str,
+    operation: str,
+    observed_at: str,
+    request_count: int,
+    attempted: bool = True,
+    stop_reason: str = "",
+) -> CollectorResult:
+    roots = {source}
+    records = [record for record in bundle.records if record.source.split(":", 1)[0] in roots]
+    substantive = [record for record in records if record.kind not in {"investigation_query", "investigation_log"}]
+    failures = [failure for failure in bundle.failures if failure.source.split(":", 1)[0] in roots]
+    if not attempted:
+        status: CollectorStatus = "skipped"
+        resolved_stop_reason = stop_reason or "not_planned"
+    elif failures and substantive:
+        status = "partial"
+        resolved_stop_reason = stop_reason or failures[0].category
+    elif failures and all(failure.category == "rate_limit" for failure in failures):
+        status = "rate_limited"
+        resolved_stop_reason = stop_reason or "rate_limit"
+    elif failures and all(failure.category == "request_budget" for failure in failures):
+        status = "skipped"
+        resolved_stop_reason = stop_reason or "request_budget"
+    elif failures:
+        status = "failed"
+        resolved_stop_reason = stop_reason or failures[0].category
+    else:
+        status = "success"
+        resolved_stop_reason = stop_reason
+    result = CollectorResult(
+        source=source,
+        operation=operation,
+        status=status,
+        observed_at=observed_at,
+        request_count=max(0, request_count),
+        result_count=len(substantive),
+        stop_reason=resolved_stop_reason,
+    )
+    bundle.add_collector_result(result)
+    return result
