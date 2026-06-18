@@ -418,6 +418,13 @@ def confirm_candidate(
         raise ValueError("identifier_type must be service_url or repo_url")
     if not confirmed:
         raise ValueError("candidate value is required")
+    core.add_confirmed_identifier_decision(
+        project,
+        identifier_type,
+        confirmed,
+        source="web_ui",
+        note="candidate confirmed by operator",
+    )
     core.save_project(
         conn,
         project,

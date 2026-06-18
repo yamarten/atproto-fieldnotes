@@ -26,6 +26,10 @@ project-registry migrate-db data/survey.db
 
 移行成功時は旧DBを同じdirectoryのtimestamp付きbackupへ移し、新DBを元pathへ置きます。失敗時は旧DBを変更しません。
 
+v1からの移行では`v1-quarantine-1` trust policyを適用します。旧DBでconfirmed相当だったidentifierでも、現在の根拠で再現できないものは`project_identifiers`のcandidate rowへ降格し、`metadata_json`へ旧field、旧classification、policy、降格理由を残します。`manual_seed`はoperator入力としてconfirmed rowにできますが、同じ値であることだけをownershipやsource repositoryのconfirmed根拠にはしません。`confirm_identifier` decisionが残るoperator確認済みidentifier、または現行ruleで再構成できる根拠だけをconfirmedとして維持します。
+
+移行reportは旧confirmed件数、維持/降格/除外件数、primary scalarを空にしてcandidate rowへ移した件数、active block衝突、根拠不明legacy confirmed、normalized rowの無変更roundtrip diffを含みます。active block衝突、根拠不明legacy confirmed、roundtrip diffがある場合は移行失敗として扱います。
+
 ## 保存責務
 
 ### `projects`
@@ -121,6 +125,8 @@ load時は専用runtime codecがnormalized child tableを読み、collector/eval
 
 既存projectを保存する時は、identifier、relation、decisionを読み込んだ完全なruntime viewであることを要求します。検索結果や部分的なdictをそのまま保存するとchild tableを全消去し得るため、partial dictからの更新は拒否します。runtime viewを識別する内部markerは`profile_json`、`state_json`、Web payload、investigation snapshotへ保存しません。
 
+runtime codecは、loadして無変更saveした場合にidentifier、relation、decision rowのclassification、role、primary、provider、metadata、observed_atを維持します。candidateのprimary NSID、candidateのowned NSID、candidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。candidate primaryを`projects.website_url`、`primary_nsid`、`source_code_url`などのconfirmed用flat fieldへhydrateしません。
+
 削除済みalias fieldも生成・保存しません。
 
 ## `project_relations`
@@ -170,11 +176,12 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 
 - `block_identifier`: 誤ったidentifierの再付着を恒久的に抑止する
 - `defer_identifier`: identifierの確定を期限付きで保留する
+- `confirm_identifier`: operatorがcandidate identifierを明示確認した履歴
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
 - `dismiss_review`: 特定review signalをdismissする
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
-各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。
+各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先するoperator assertionとして扱います。
 
 ## Canonical View
 

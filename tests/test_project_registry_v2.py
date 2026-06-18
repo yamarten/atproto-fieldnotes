@@ -12,6 +12,50 @@ from project_registry_core import runtime_view
 
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
+    def test_loaded_normalized_rows_roundtrip_losslessly(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:v2lossless")
+        registry.save_project(conn, project)
+        database.replace_identifier_rows(
+            conn,
+            project["project_key"],
+            [
+                runtime_view.ProjectIdentifier(
+                    "nsid",
+                    "app.example.post",
+                    "primary_nsid",
+                    "candidate",
+                    metadata={"migration_source": "schema_v1"},
+                ),
+                runtime_view.ProjectIdentifier(
+                    "account",
+                    "did:plc:example",
+                    "developer_account",
+                    "candidate",
+                    metadata={"did": "did:plc:example", "source": "legacy"},
+                ),
+                runtime_view.ProjectIdentifier(
+                    "did",
+                    "did:plc:example",
+                    "developer_did",
+                    "candidate",
+                    metadata={"account": "did:plc:example"},
+                ),
+            ],
+        )
+        conn.commit()
+        before = database.normalized_rows_snapshot(conn)
+
+        fetched = registry.fetch_project(conn, project["project_key"])
+        assert fetched is not None
+        self.assertEqual(fetched["primary_nsid"], "")
+        self.assertEqual(fetched["input_nsids"], ["app.example.post"])
+        registry.save_project(conn, fetched, preserve_timestamps=True)
+        after = database.normalized_rows_snapshot(conn)
+
+        self.assertEqual(before, after)
+        conn.close()
+
     def test_normalized_children_roundtrip_without_compatibility_fields(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:v2roundtrip")
@@ -196,9 +240,25 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             project = registry.fetch_project(conn, "proj:legacy")
             assert project is not None
             self.assertEqual(project["service_url_candidates"], ["https://app.example", "https://legacy.example"])
-            self.assertEqual(project["source_code_urls"], ["https://github.com/example/app"])
+            self.assertEqual(project["source_code_urls"], [])
+            self.assertEqual(project["candidate_source_code_urls"], ["https://github.com/example/app"])
             self.assertEqual(project["resource_url_records"][0]["url"], "https://example.com/docs")
             self.assertEqual(project["blocked_identifiers"][0]["value"], "app.example.noise")
+            repo_row = conn.execute(
+                """
+                SELECT classification, metadata_json
+                FROM project_identifiers
+                WHERE project_key = 'proj:legacy'
+                  AND kind = 'repo_url'
+                  AND value = 'https://github.com/example/app'
+                """
+            ).fetchone()
+            self.assertEqual(repo_row["classification"], "candidate")
+            repo_metadata = json.loads(repo_row["metadata_json"])
+            self.assertEqual(repo_metadata["legacy_classification"], "confirmed")
+            self.assertEqual(repo_metadata["legacy_field"], "github_repo_urls")
+            self.assertEqual(repo_metadata["trust_policy"], "v1-quarantine-1")
+            self.assertEqual(repo_metadata["downgrade_reason"], "no current corroboration")
             run = conn.execute(
                 "SELECT evidence_schema_version, input_project_json, bundle_json FROM investigation_runs WHERE run_id='inv:legacy'"
             ).fetchone()
@@ -208,9 +268,54 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             self.assertTrue(json.loads(run["bundle_json"])["collector_results"])
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM sync_state").fetchone()[0], 1)
             conn.close()
+            self.assertEqual(report["uncorroborated_legacy_confirmed_count"], 0)
+            self.assertEqual(report["active_block_identifier_collision_count"], 0)
+            self.assertEqual(report["normalized_roundtrip_diff_count"], 0)
+            self.assertEqual(
+                report["downgraded_to_candidate_counts"]["repo_url:source_repository"],
+                1,
+            )
 
             second = database.migrate_database(path)
             self.assertEqual(second["status"], "already_current")
+
+    def test_migration_keeps_operator_confirmed_identifier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "survey.db"
+            self.make_legacy_database(path)
+            conn = sqlite3.connect(path)
+            row = conn.execute("SELECT ops_json FROM projects WHERE project_key='proj:legacy'").fetchone()
+            ops = json.loads(row[0])
+            ops["ops"]["confirmed_identifiers"] = [{
+                "type": "repo_url",
+                "value": "https://github.com/example/app",
+                "note": "operator checked",
+                "source": "manual",
+                "added_at": "2026-06-18T00:00:00+00:00",
+            }]
+            conn.execute("UPDATE projects SET ops_json = ? WHERE project_key='proj:legacy'", (json.dumps(ops),))
+            conn.commit()
+            conn.close()
+
+            report = database.migrate_database(path)
+            conn = database.open_database(path, create=False)
+            project = registry.fetch_project(conn, "proj:legacy")
+            assert project is not None
+            self.assertEqual(project["source_code_urls"], ["https://github.com/example/app"])
+            decision = conn.execute(
+                """
+                SELECT kind, target_type, target_value
+                FROM project_decisions
+                WHERE project_key = 'proj:legacy' AND kind = 'confirm_identifier'
+                """
+            ).fetchone()
+            conn.close()
+            self.assertEqual((decision["kind"], decision["target_type"], decision["target_value"]), (
+                "confirm_identifier",
+                "repo_url",
+                "https://github.com/example/app",
+            ))
+            self.assertEqual(report["maintained_confirmed_counts"]["repo_url:source_repository"], 1)
 
     def test_dry_run_leaves_legacy_database_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

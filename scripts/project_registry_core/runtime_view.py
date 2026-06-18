@@ -1,10 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import copy
 from typing import Any, Iterable, Mapping
 
 
 RUNTIME_VIEW_MARKER = "_registry_runtime_view_v2"
+RUNTIME_IDENTIFIER_ROWS = "_registry_identifier_rows_v2"
+RUNTIME_IDENTIFIER_BASELINE = "_registry_identifier_baseline_v2"
+RUNTIME_RELATION_ROWS = "_registry_relation_rows_v2"
+RUNTIME_RELATION_BASELINE = "_registry_relation_baseline_v2"
+RUNTIME_DECISION_ROWS = "_registry_decision_rows_v2"
+RUNTIME_DECISION_BASELINE = "_registry_decision_baseline_v2"
+RUNTIME_INTERNAL_FIELDS = {
+    RUNTIME_VIEW_MARKER,
+    RUNTIME_IDENTIFIER_ROWS,
+    RUNTIME_IDENTIFIER_BASELINE,
+    RUNTIME_RELATION_ROWS,
+    RUNTIME_RELATION_BASELINE,
+    RUNTIME_DECISION_ROWS,
+    RUNTIME_DECISION_BASELINE,
+}
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 
 IDENTIFIER_FIELDS = {
@@ -38,6 +54,7 @@ DECISION_FIELDS = {
     "promotion_deferrals",
     "dismissed_review_kinds",
     "separate_project_keys",
+    "confirmed_identifiers",
 }
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -107,7 +124,7 @@ def sanitize_runtime_snapshot(value: Any) -> Any:
         return {
             key: sanitize_runtime_snapshot(item)
             for key, item in value.items()
-            if key not in REMOVED_COMPATIBILITY_FIELDS and key != RUNTIME_VIEW_MARKER
+            if key not in REMOVED_COMPATIBILITY_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
         }
     if isinstance(value, list):
         return [sanitize_runtime_snapshot(item) for item in value]
@@ -120,7 +137,7 @@ def strip_runtime_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
             return {
                 key: strip_nested(item)
                 for key, item in value.items()
-                if key not in REMOVED_COMPATIBILITY_FIELDS and key != RUNTIME_VIEW_MARKER
+                if key not in REMOVED_COMPATIBILITY_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
             }
         if isinstance(value, list):
             return [strip_nested(item) for item in value]
@@ -129,11 +146,28 @@ def strip_runtime_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: strip_nested(value)
         for key, value in payload.items()
-        if key not in NORMALIZED_FIELDS and key != RUNTIME_VIEW_MARKER
+        if key not in NORMALIZED_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
     }
 
 
-def project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
+def _identifier_key(item: ProjectIdentifier) -> tuple[str, str, str]:
+    return (item.kind, item.value, item.role)
+
+
+def _identifier_from_dict(item: Mapping[str, Any]) -> ProjectIdentifier:
+    return ProjectIdentifier(
+        kind=str(item.get("kind") or ""),
+        value=str(item.get("value") or ""),
+        role=str(item.get("role") or ""),
+        classification=str(item.get("classification") or "candidate"),
+        is_primary=bool(item.get("is_primary")),
+        provider=str(item.get("provider") or ""),
+        metadata=copy.deepcopy(dict(item.get("metadata") or {})),
+        observed_at=str(item.get("observed_at") or ""),
+    )
+
+
+def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
     output: list[ProjectIdentifier] = []
     seen: set[tuple[str, str, str]] = set()
 
@@ -238,7 +272,58 @@ def project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
     return output
 
 
-def project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
+def project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
+    current = _derive_project_identifiers(project)
+    original_payload = project.get(RUNTIME_IDENTIFIER_ROWS)
+    baseline_payload = project.get(RUNTIME_IDENTIFIER_BASELINE)
+    if not isinstance(original_payload, list) or not isinstance(baseline_payload, list):
+        return current
+    original = [_identifier_from_dict(item) for item in original_payload if isinstance(item, Mapping)]
+    baseline = [_identifier_from_dict(item) for item in baseline_payload if isinstance(item, Mapping)]
+    if current == baseline:
+        return original
+
+    baseline_by_key = {_identifier_key(item): item for item in baseline}
+    current_by_key = {_identifier_key(item): item for item in current}
+    original_keys = {_identifier_key(item) for item in original}
+    removed_accounts = {
+        item.value
+        for item in baseline
+        if item.kind == "account"
+        and item.role == "developer_account"
+        and _identifier_key(item) not in current_by_key
+    }
+    output: list[ProjectIdentifier] = []
+    emitted: set[tuple[str, str, str]] = set()
+    for item in original:
+        key = _identifier_key(item)
+        if (
+            item.kind == "did"
+            and item.role == "developer_did"
+            and str((item.metadata or {}).get("account") or "") in removed_accounts
+        ):
+            continue
+        if key in baseline_by_key:
+            replacement = current_by_key.get(key)
+            if replacement is None:
+                continue
+            output.append(item if replacement == baseline_by_key[key] else replacement)
+            emitted.add(key)
+            continue
+        output.append(item)
+        emitted.add(key)
+    for item in current:
+        key = _identifier_key(item)
+        if key in emitted:
+            continue
+        if key in baseline_by_key and item == baseline_by_key[key] and key not in original_keys:
+            continue
+        output.append(item)
+        emitted.add(key)
+    return output
+
+
+def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
     output: list[ProjectDecision] = []
     for item in project.get("blocked_identifiers", []):
         if isinstance(item, dict):
@@ -275,14 +360,41 @@ def project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
         output.append(ProjectDecision("dismiss_review", "review_kind", str(value)))
     for value in project.get("separate_project_keys", []):
         output.append(ProjectDecision("separate_project", "project_key", str(value)))
+    for item in project.get("confirmed_identifiers", []):
+        if isinstance(item, dict):
+            output.append(ProjectDecision(
+                "confirm_identifier",
+                str(item.get("type") or ""),
+                str(item.get("value") or ""),
+                str(item.get("note") or item.get("source") or ""),
+                str(item.get("added_at") or ""),
+                cleared_at=str(item.get("cleared_at") or ""),
+                metadata=dict(item),
+            ))
     return output
+
+
+def project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
+    current = _derive_project_decisions(project)
+    original_payload = project.get(RUNTIME_DECISION_ROWS)
+    baseline_payload = project.get(RUNTIME_DECISION_BASELINE)
+    if isinstance(original_payload, list) and isinstance(baseline_payload, list):
+        baseline = [ProjectDecision(**dict(item)) for item in baseline_payload if isinstance(item, Mapping)]
+        if current == baseline:
+            return [ProjectDecision(**dict(item)) for item in original_payload if isinstance(item, Mapping)]
+    return current
 
 
 def relation_rows(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     from .relations import normalize_relation_records
 
+    original = project.get(RUNTIME_RELATION_ROWS)
+    baseline = project.get(RUNTIME_RELATION_BASELINE)
+    current_relations = normalize_relation_records(project.get("relation_evidence", []))
+    if isinstance(original, list) and isinstance(baseline, list) and current_relations == baseline:
+        return copy.deepcopy([dict(item) for item in original if isinstance(item, Mapping)])
     rows: list[dict[str, Any]] = []
-    for item in normalize_relation_records(project.get("relation_evidence", [])):
+    for item in current_relations:
         relation = item["relation"]
         rows.append({
             "subject_type": relation["subject"]["type"],
@@ -308,6 +420,48 @@ def hydrate(
     decision_rows: Iterable[Mapping[str, Any]],
     load_json: Any,
 ) -> dict[str, Any]:
+    identifier_payload = [
+        {
+            "kind": str(row["kind"]),
+            "value": str(row["value"]),
+            "role": str(row["role"]),
+            "classification": str(row["classification"]),
+            "is_primary": bool(row["is_primary"]),
+            "provider": str(row["provider"]),
+            "metadata": load_json(str(row["metadata_json"]), {}),
+            "observed_at": str(row["observed_at"]),
+        }
+        for row in identifier_rows
+    ]
+    relation_payload = [
+        {
+            "subject_type": str(row["subject_type"]),
+            "subject_value": str(row["subject_value"]),
+            "predicate": str(row["predicate"]),
+            "object_type": str(row["object_type"]),
+            "object_value": str(row["object_value"]),
+            "classification": str(row["classification"]),
+            "source": str(row["source"]),
+            "locator": str(row["locator"]),
+            "method": str(row["method"]),
+            "context": load_json(str(row["context_json"]), {}),
+            "observed_at": str(row["observed_at"]),
+        }
+        for row in relation_rows
+    ]
+    decision_payload = [
+        {
+            "kind": str(row["kind"]),
+            "target_type": str(row["target_type"]),
+            "target_value": str(row["target_value"]),
+            "note": str(row["note"]),
+            "created_at": str(row["created_at"]),
+            "expires_at": str(row["expires_at"]),
+            "cleared_at": str(row["cleared_at"]),
+            "metadata": load_json(str(row["metadata_json"]), {}),
+        }
+        for row in decision_rows
+    ]
     project.update({
         "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
         "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],
@@ -315,15 +469,16 @@ def hydrate(
         "source_repo_records": [], "developer_accounts": [], "candidate_developer_accounts": [],
         "bluesky_handles": [], "tangled_handles": [], "manual_seeds": [],
     })
-    for row in identifier_rows:
-        kind, value, role = str(row["kind"]), str(row["value"]), str(row["role"])
-        classification = str(row["classification"])
-        metadata = load_json(str(row["metadata_json"]), {})
+    for row in identifier_payload:
+        kind, value, role = row["kind"], row["value"], row["role"]
+        classification = row["classification"]
+        metadata = row["metadata"]
         if role == "manual_seed":
             project["manual_seeds"].append(metadata or {"type": kind, "value": value})
             continue
         if kind == "nsid":
-            if role == "primary_nsid": project["primary_nsid"] = value
+            if role == "primary_nsid" and classification == "confirmed": project["primary_nsid"] = value
+            elif role == "primary_nsid": project["input_nsids"].append(value)
             elif role == "input_nsid": project["input_nsids"].append(value)
             elif role == "owned_nsid": project["resolved_nsids"].append(value)
             elif role == "observed_lexicon": project["lexicons"].append(value)
@@ -334,7 +489,7 @@ def hydrate(
             target = "service_urls" if classification == "confirmed" else "service_url_candidates"
             project[target].append(value)
         elif kind == "repo_url":
-            if bool(row["is_primary"]): project["source_code_url"] = value
+            if bool(row["is_primary"]) and classification == "confirmed": project["source_code_url"] = value
             target = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
             project[target].append(value)
             if metadata and role == "source_repository_record": project["source_repo_records"].append(metadata)
@@ -344,7 +499,8 @@ def hydrate(
                 project[target].append(metadata or {"handle": value})
             elif str(row["provider"]) == "bluesky": project["bluesky_handles"].append(value)
             elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
-        elif kind == "did" and role == "brand_did": project["brand_did"] = value
+        elif kind == "did" and role == "brand_did" and classification == "confirmed":
+            project["brand_did"] = value
 
     project["relation_evidence"] = [{
         "relation": {
@@ -357,16 +513,16 @@ def hydrate(
         "source": str(row["source"]),
         "classification": str(row["classification"]),
         "observed_at": str(row["observed_at"]),
-        "context": load_json(str(row["context_json"]), {}),
-    } for row in relation_rows]
+        "context": copy.deepcopy(row["context"]),
+    } for row in relation_payload]
 
     project.update({
         "blocked_identifiers": [], "deferred_identifiers": [], "promotion_deferrals": [],
-        "dismissed_review_kinds": [], "separate_project_keys": [],
+        "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
     })
-    for row in decision_rows:
-        kind = str(row["kind"])
-        metadata = load_json(str(row["metadata_json"]), {})
+    for row in decision_payload:
+        kind = row["kind"]
+        metadata = row["metadata"]
         if kind == "block_identifier":
             project["blocked_identifiers"].append(metadata or {
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
@@ -387,4 +543,17 @@ def hydrate(
             project["dismissed_review_kinds"].append(str(row["target_value"]))
         elif kind == "separate_project":
             project["separate_project_keys"].append(str(row["target_value"]))
-    return mark_complete(project)
+        elif kind == "confirm_identifier":
+            project["confirmed_identifiers"].append(metadata or {
+                "type": str(row["target_type"]), "value": str(row["target_value"]),
+                "note": str(row["note"]), "added_at": str(row["created_at"]),
+                "cleared_at": str(row["cleared_at"]),
+            })
+    mark_complete(project)
+    project[RUNTIME_IDENTIFIER_ROWS] = copy.deepcopy(identifier_payload)
+    project[RUNTIME_IDENTIFIER_BASELINE] = [asdict(item) for item in _derive_project_identifiers(project)]
+    project[RUNTIME_RELATION_ROWS] = copy.deepcopy(relation_payload)
+    project[RUNTIME_RELATION_BASELINE] = copy.deepcopy(project["relation_evidence"])
+    project[RUNTIME_DECISION_ROWS] = [asdict(ProjectDecision(**item)) for item in decision_payload]
+    project[RUNTIME_DECISION_BASELINE] = [asdict(item) for item in _derive_project_decisions(project)]
+    return project

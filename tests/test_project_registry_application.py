@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core.application import decisions, merge, projects, review
+from project_registry_core.application import decisions, merge, presentation, projects, review
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
@@ -55,6 +55,33 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
                 ("block_identifier", "service_url", "https://wrong.example"),
                 ("dismiss_review", "review_kind", "candidate_repo_needs_confirmation"),
             ],
+        )
+
+    def test_confirm_candidate_records_operator_decision(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")
+            project = registry.fetch_project(conn, created["project_key"])
+            assert project is not None
+            project["service_url_candidates"] = ["https://app.example.com"]
+            registry.save_project(conn, project, preserve_timestamps=True)
+            result = presentation.confirm_candidate(
+                conn,
+                project_key=created["project_key"],
+                identifier_type="service_url",
+                value="https://app.example.com",
+            )
+            rows = conn.execute(
+                "SELECT kind, target_type, target_value FROM project_decisions WHERE project_key = ? ORDER BY ordinal",
+                (created["project_key"],),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual(result["value"], "https://app.example.com")
+        self.assertIn(
+            ("confirm_identifier", "service_url", "https://app.example.com"),
+            [(row["kind"], row["target_type"], row["target_value"]) for row in rows],
         )
 
     def test_merge_service_supports_dry_run_and_execute(self) -> None:

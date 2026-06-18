@@ -671,7 +671,16 @@ UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_pos
 - `project_decisions`: block/defer/separateなどのoperator判断
 - `investigation_runs` / `collector_runs`: replay可能な調査履歴
 
-旧DBは`project-registry migrate-db OLD_DB_PATH`で移行します。詳細は [project-record.md](project-record.md) を参照してください。
+旧DBは`project-registry migrate-db OLD_DB_PATH`で移行します。`--dry-run`は一時DBを作って検証し、元DBを変更しません。
+
+v1移行は旧confirmedをそのまま信用せず、根拠を再構成できないidentifierをmetadata付きcandidateへ降格します。`manual_seed`または`confirm_identifier` decisionがあるidentifierだけをoperator根拠としてconfirmed維持します。reportでは少なくとも次を確認します。
+
+- `uncorroborated_legacy_confirmed_count`: 0であること
+- `active_block_identifier_collision_count`: 0であること
+- `normalized_roundtrip_diff_count`: 0であること
+- `downgraded_to_candidate_counts`: 旧confirmedからcandidateへ隔離した内訳
+
+詳細は [project-record.md](project-record.md) を参照してください。
 
 ## 環境変数
 

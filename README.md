@@ -142,6 +142,8 @@ project-registry enrich --all --new-only --llm-reasoning-effort high
 project-registry migrate-db data/survey.db
 ```
 
+v1からの移行では、旧confirmedを無条件には信頼しません。根拠を再構成できないidentifierはmetadata付きcandidateへ降格し、`manual_seed`または`confirm_identifier` decisionがあるものだけoperator根拠としてconfirmedを維持します。出力reportの`uncorroborated_legacy_confirmed_count`、`active_block_identifier_collision_count`、`normalized_roundtrip_diff_count`が0であることが移行成功条件です。置換前に確認したい場合は`--dry-run`を使います。
+
 ## 文書
 
 利用者向け:

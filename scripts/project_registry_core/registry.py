@@ -1234,6 +1234,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "separate_project_keys": [],
         "blocked_identifiers": [],
         "deferred_identifiers": [],
+        "confirmed_identifiers": [],
         "promotion_deferrals": [],
         "collection_observations": [],
         "notes": "",
@@ -1362,6 +1363,72 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
     return output
 
 
+def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        identifier_type = str(item.get("type") or "").strip()
+        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+            continue
+        normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
+        if not normalized_value:
+            continue
+        cleared_at = str(item.get("cleared_at") or "").strip()
+        key = (identifier_type, normalized_value, cleared_at)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "type": identifier_type,
+                "value": normalized_value,
+                "note": str(item.get("note") or "").strip(),
+                "source": str(item.get("source") or "").strip(),
+                "added_at": str(item.get("added_at") or ""),
+                "cleared_at": cleared_at,
+            }
+        )
+    return output
+
+
+def add_confirmed_identifier_decision(
+    project: dict[str, Any],
+    identifier_type: str,
+    value: str,
+    *,
+    source: str,
+    note: str = "",
+) -> str:
+    if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        raise ValueError("identifier value could not be normalized")
+    confirmations = [
+        item
+        for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", [])))
+        if not (
+            str(item.get("type") or "") == identifier_type
+            and str(item.get("value") or "") == normalized
+            and not str(item.get("cleared_at") or "")
+        )
+    ]
+    confirmations.append(
+        {
+            "type": identifier_type,
+            "value": normalized,
+            "note": note.strip(),
+            "source": source.strip(),
+            "added_at": iso_now(),
+            "cleared_at": "",
+        }
+    )
+    project["confirmed_identifiers"] = confirmations
+    return normalized
+
+
 def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     for item in entries:
@@ -1435,7 +1502,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults.update(project)
     defaults["primary_nsid"] = normalize_nsid(str(defaults.get("primary_nsid") or ""))
     defaults["input_nsids"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("input_nsids", []) if item])
-    if not defaults["primary_nsid"] and defaults["input_nsids"]:
+    if not defaults["primary_nsid"] and defaults["input_nsids"] and not runtime_view.is_complete(defaults):
         defaults["primary_nsid"] = defaults["input_nsids"][0]
     if defaults["primary_nsid"] and defaults["primary_nsid"] not in defaults["input_nsids"]:
         defaults["input_nsids"] = [defaults["primary_nsid"], *defaults["input_nsids"]]
@@ -1489,6 +1556,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     defaults["blocked_identifiers"] = normalize_blocked_identifiers(list(defaults.get("blocked_identifiers") or []))
     defaults["deferred_identifiers"] = normalize_deferred_identifiers(list(defaults.get("deferred_identifiers") or []))
+    defaults["confirmed_identifiers"] = normalize_confirmed_identifiers(list(defaults.get("confirmed_identifiers") or []))
     defaults["promotion_deferrals"] = normalize_promotion_deferrals(list(defaults.get("promotion_deferrals") or []))
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
@@ -1515,7 +1583,12 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     if defaults["status"] == "candidate":
         defaults["status"] = "draft"
     defaults["lexicon_namespaces"] = unique_list([normalize_nsid(str(item)) for item in defaults.get("lexicon_namespaces", []) if str(item).strip()])
-    defaults["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(defaults)
+    if runtime_view.is_complete(defaults):
+        defaults["recorded_lexicon_namespaces"] = unique_list(
+            [normalize_nsid(str(item)) for item in defaults.get("recorded_lexicon_namespaces", []) if str(item).strip()]
+        )
+    else:
+        defaults["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(defaults)
     defaults["lexicon_count"] = len(defaults.get("lexicons", []))
     defaults["external_lexicons"] = unique_list(
         [normalize_nsid(str(item)) for item in defaults.get("external_lexicons", []) if item]
@@ -2680,7 +2753,12 @@ def save_project(
     project["input_nsids"] = unique_list([normalize_nsid(item) for item in project.get("input_nsids", []) if item])
     project["resolved_nsids"] = unique_list([normalize_nsid(item) for item in project.get("resolved_nsids", []) if item])
     project["lexicon_resolution_entries"] = normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
-    project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
+    if runtime_view.is_complete(project):
+        project["recorded_lexicon_namespaces"] = unique_list(
+            [normalize_nsid(str(item)) for item in project.get("recorded_lexicon_namespaces", []) if str(item).strip()]
+        )
+    else:
+        project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("lexicons", []))
     project["authority_domains"] = unique_list(project.get("authority_domains", []))
     project["external_lexicons"] = unique_list(project.get("external_lexicons", []) + compute_external_lexicons(project))
@@ -2714,6 +2792,7 @@ def save_project(
     project["features"] = unique_list(project.get("features", []))
     project["inspired_by"] = unique_list(project.get("inspired_by", []))
     project["manual_seeds"] = unique_manual_seeds(project.get("manual_seeds", []))
+    project["confirmed_identifiers"] = normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", [])))
     refresh_project_seed_identity(project)
     project["summary_candidates"] = project.get("summary_candidates", [])
     project["tagline_candidates"] = project.get("tagline_candidates", [])
@@ -11484,7 +11563,12 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     sync_primary_service_urls(project)
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
-    project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
+    if runtime_view.is_complete(project):
+        project["recorded_lexicon_namespaces"] = unique_list(
+            [normalize_nsid(str(item)) for item in project.get("recorded_lexicon_namespaces", []) if str(item).strip()]
+        )
+    else:
+        project["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(project)
     project["lexicons"] = unique_list(project.get("resolved_nsids", []))
     project["lexicon_count"] = len(project.get("lexicons", []))
     project["external_lexicons"] = unique_list(
@@ -12139,6 +12223,14 @@ def output_project_queue(
                         service_candidates = project_service_hint_urls(project)
                         if service_candidates:
                             confirmed_service = confirm_service_seed(project, service_candidates[0], source="review_queue")
+                            if confirmed_service:
+                                add_confirmed_identifier_decision(
+                                    project,
+                                    "service_url",
+                                    confirmed_service,
+                                    source="review_queue",
+                                    note="candidate confirmed by operator",
+                                )
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
                             project = apply_promotion_state(project)
@@ -12193,6 +12285,14 @@ def output_project_queue(
                         repo_candidates = project_repo_hint_urls(project)
                         if repo_candidates:
                             confirmed_repo = confirm_repo_seed(project, repo_candidates[0], source="review_queue")
+                            if confirmed_repo:
+                                add_confirmed_identifier_decision(
+                                    project,
+                                    "repo_url",
+                                    confirmed_repo,
+                                    source="review_queue",
+                                    note="candidate confirmed by operator",
+                                )
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
                             project = apply_promotion_state(project)

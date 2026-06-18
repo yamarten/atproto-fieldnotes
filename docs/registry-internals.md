@@ -16,6 +16,10 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 旧schemaは通常起動で自動変換せず、`project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
 
+v1 migrationは`v1-quarantine-1` trust policyを適用します。旧confirmed fieldはそのままv2 confirmedへ写さず、operator confirmationまたは現行ruleで再現できる根拠がないclaimをcandidate rowへ降格します。降格したrowは`metadata_json`に`migration_source=schema_v1`、`legacy_field`、`legacy_classification`、`trust_policy`、`downgrade_reason`を持ちます。active block対象は移行せず、active defer対象はcandidateとして残します。untrustedなprimary website/repo/NSIDは`projects.website_url`、`source_code_url`、`primary_nsid`へhydrateしません。
+
+移行reportは旧confirmed、維持confirmed、candidate降格、block除外、defer維持、primary scalar clear、active block衝突、根拠不明legacy confirmed、normalized row roundtrip diffを出します。active block衝突、根拠不明legacy confirmed、roundtrip diffはhard acceptance conditionで、非0なら移行は失敗してsource DBを変更しません。
+
 `repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 ## 旧 discovery フローの扱い
@@ -110,6 +114,8 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
 `project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
+
+runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。
 
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`cleanup-app-links`は`profile_json.app.links`をcanonical identifierとconfirmed resource recordから再構築します。
 

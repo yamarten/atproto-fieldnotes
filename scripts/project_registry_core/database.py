@@ -14,6 +14,7 @@ from . import runtime_view
 
 SCHEMA_VERSION = 2
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
+V1_TRUST_POLICY = "v1-quarantine-1"
 
 
 class SchemaMismatchError(RuntimeError):
@@ -246,13 +247,18 @@ def legacy_flatten(payload: Any) -> dict[str, Any]:
     return flattened
 
 
-def legacy_project_payload(row: sqlite3.Row) -> dict[str, Any]:
+def legacy_raw_project_payload(row: sqlite3.Row) -> dict[str, Any]:
     payload = legacy_flatten(_load_json(str(row["record_json"] or "{}"), {}))
     payload.update(legacy_flatten(_load_json(str(row["ops_json"] or "{}"), {})))
     for field in ("project_key", "name", "website_url", "service_status", "tracking_state", "introduced_url",
                   "first_seen_at", "last_seen_at", "last_enriched_at"):
         if field in row.keys():
             payload[field] = row[field]
+    return payload
+
+
+def legacy_project_payload(row: sqlite3.Row) -> dict[str, Any]:
+    payload = legacy_raw_project_payload(row)
     payload["service_url_candidates"] = list(dict.fromkeys(
         list(payload.get("service_url_candidates") or []) + list(payload.get("website_url_candidates") or [])
     ))
@@ -265,6 +271,274 @@ def legacy_project_payload(row: sqlite3.Row) -> dict[str, Any]:
             for value in payload["resource_urls"]
         ]
     return payload
+
+
+def _counter_add(counters: dict[str, int], key: str, amount: int = 1) -> None:
+    counters[key] = int(counters.get(key, 0)) + amount
+
+
+def _canonical_identifier_value(kind: str, value: Any) -> str:
+    from . import registry
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if kind == "nsid":
+        return registry.normalize_nsid(text)
+    if kind == "service_url":
+        return registry.normalize_url(text)
+    if kind == "repo_url":
+        return registry.canonical_repo_url(text)
+    return text
+
+
+def _decision_values(project: dict[str, Any], field: str) -> set[tuple[str, str]]:
+    from . import registry
+
+    if field == "blocked_identifiers":
+        entries = registry.normalize_blocked_identifiers(list(project.get(field) or []))
+    elif field == "deferred_identifiers":
+        entries = registry.normalize_deferred_identifiers(list(project.get(field) or []))
+    else:
+        entries = registry.normalize_confirmed_identifiers(list(project.get(field) or []))
+    return {
+        (str(item.get("type") or ""), str(item.get("value") or ""))
+        for item in entries
+        if str(item.get("type") or "") and str(item.get("value") or "") and not str(item.get("cleared_at") or "")
+    }
+
+
+def _identifier_type_for_kind(kind: str) -> str:
+    return {
+        "service_url": "service_url",
+        "repo_url": "repo_url",
+        "nsid": "nsid",
+    }.get(kind, kind)
+
+
+def _legacy_metadata(
+    *,
+    legacy_field: str,
+    legacy_classification: str,
+    classification: str,
+    extra: Mapping[str, Any] | None = None,
+    reason: str = "",
+    trust_basis: str = "",
+) -> dict[str, Any]:
+    metadata = {
+        "migration_source": "schema_v1",
+        "legacy_field": legacy_field,
+        "legacy_classification": legacy_classification,
+        "trust_policy": V1_TRUST_POLICY,
+    }
+    if classification != legacy_classification:
+        metadata["downgrade_reason"] = reason or "no current corroboration"
+    if trust_basis:
+        metadata["trust_basis"] = trust_basis
+    if extra:
+        metadata["legacy_record"] = dict(extra)
+    return metadata
+
+
+def decode_legacy_project(row: sqlite3.Row) -> dict[str, Any]:
+    from . import registry
+
+    raw = legacy_project_payload(row)
+    original = legacy_raw_project_payload(row)
+    project = dict(raw)
+    report = {
+        "legacy_confirmed": {},
+        "maintained_confirmed": {},
+        "downgraded": {},
+        "blocked_excluded": {},
+        "deferred_candidates": {},
+        "scalar_primary_cleared": {},
+    }
+    confirmed = _decision_values(raw, "confirmed_identifiers")
+    blocked = _decision_values(raw, "blocked_identifiers")
+    deferred = _decision_values(raw, "deferred_identifiers")
+    rows: list[ProjectIdentifier] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add_identifier(
+        kind: str,
+        value: Any,
+        role: str,
+        legacy_field: str,
+        legacy_classification: str,
+        *,
+        primary: bool = False,
+        provider: str = "",
+        extra: Mapping[str, Any] | None = None,
+        observed_at: str = "",
+    ) -> None:
+        normalized = _canonical_identifier_value(kind, value)
+        if not normalized:
+            return
+        identifier_type = _identifier_type_for_kind(kind)
+        decision_key = (identifier_type, normalized)
+        counter_key = f"{kind}:{role}"
+        classification = legacy_classification if legacy_classification in CLASSIFICATIONS else "candidate"
+        if classification == "confirmed":
+            _counter_add(report["legacy_confirmed"], counter_key)
+        if decision_key in blocked:
+            _counter_add(report["blocked_excluded"], counter_key)
+            return
+        trust_basis = ""
+        reason = ""
+        if role == "manual_seed":
+            classification = "confirmed"
+            trust_basis = "operator_input"
+            _counter_add(report["maintained_confirmed"], counter_key)
+        elif decision_key in confirmed:
+            classification = "confirmed"
+            trust_basis = "operator_confirmation"
+            _counter_add(report["maintained_confirmed"], counter_key)
+        elif decision_key in deferred:
+            if classification == "confirmed":
+                _counter_add(report["downgraded"], counter_key)
+            classification = "candidate"
+            reason = "active defer"
+            _counter_add(report["deferred_candidates"], counter_key)
+        elif legacy_classification == "confirmed":
+            classification = "candidate"
+            reason = "no current corroboration"
+            _counter_add(report["downgraded"], counter_key)
+        key = (kind, normalized, role)
+        if key in seen or classification not in CLASSIFICATIONS:
+            return
+        seen.add(key)
+        rows.append(ProjectIdentifier(
+            kind=kind,
+            value=normalized,
+            role=role,
+            classification=classification,
+            is_primary=primary and classification == "confirmed",
+            provider=provider,
+            metadata=_legacy_metadata(
+                legacy_field=legacy_field,
+                legacy_classification=legacy_classification,
+                classification=classification,
+                extra=extra,
+                reason=reason,
+                trust_basis=trust_basis,
+            ),
+            observed_at=observed_at,
+        ))
+
+    for item in registry.unique_manual_seeds(list(raw.get("manual_seeds") or [])):
+        if not isinstance(item, dict):
+            continue
+        seed_type = str(item.get("type") or "")
+        kind = {"service_url": "service_url", "repo_url": "repo_url", "nsid": "nsid"}.get(seed_type, "")
+        if kind:
+            add_identifier(kind, item.get("value"), "manual_seed", "manual_seeds", "confirmed", extra=item, observed_at=str(item.get("added_at") or ""))
+
+    for value in [raw.get("primary_nsid")]:
+        add_identifier("nsid", value, "primary_nsid", "primary_nsid", "confirmed", primary=True)
+    for value in raw.get("input_nsids", []) or []:
+        add_identifier("nsid", value, "input_nsid", "input_nsids", "candidate")
+    for value in raw.get("resolved_nsids", []) or []:
+        add_identifier("nsid", value, "owned_nsid", "resolved_nsids", "confirmed")
+    for value in raw.get("lexicons", []) or []:
+        add_identifier("nsid", value, "observed_lexicon", "lexicons", "candidate")
+    for value in raw.get("recorded_lexicon_namespaces", []) or []:
+        add_identifier("nsid", value, "recorded_namespace", "recorded_lexicon_namespaces", "derived")
+    for value in raw.get("authority_domains", []) or []:
+        add_identifier("domain", value, "authority_domain", "authority_domains", "derived")
+    add_identifier("service_url", raw.get("website_url"), "website", "website_url", "confirmed", primary=True)
+    for value in raw.get("service_urls", []) or []:
+        add_identifier("service_url", value, "service", "service_urls", "confirmed")
+    for value in original.get("service_url_candidates", []) or []:
+        add_identifier("service_url", value, "service", "service_url_candidates", "candidate")
+    for value in original.get("website_url_candidates", []) or []:
+        add_identifier("service_url", value, "service", "website_url_candidates", "candidate")
+    add_identifier("repo_url", raw.get("source_code_url"), "source_repository", "source_code_url", "confirmed", primary=True)
+    for value in original.get("source_code_urls", []) or []:
+        add_identifier("repo_url", value, "source_repository", "source_code_urls", "confirmed")
+    for value in original.get("github_repo_urls", []) or []:
+        add_identifier("repo_url", value, "source_repository", "github_repo_urls", "confirmed")
+    for value in original.get("tangled_repo_urls", []) or []:
+        add_identifier("repo_url", value, "source_repository", "tangled_repo_urls", "confirmed")
+    for value in raw.get("candidate_source_code_urls", []) or []:
+        add_identifier("repo_url", value, "source_repository", "candidate_source_code_urls", "candidate")
+    for item in raw.get("source_repo_records", []) or []:
+        if isinstance(item, dict):
+            legacy_classification = str(item.get("confidence") or item.get("classification") or "candidate")
+            if legacy_classification == "owned":
+                legacy_classification = "confirmed"
+            if legacy_classification not in CLASSIFICATIONS:
+                legacy_classification = "candidate"
+            add_identifier(
+                "repo_url",
+                item.get("url"),
+                "source_repository_record",
+                "source_repo_records",
+                legacy_classification,
+                provider=str(item.get("provider") or ""),
+                extra=item,
+                observed_at=str(item.get("observed_at") or item.get("recorded_at") or ""),
+            )
+    for field, legacy_classification in (("developer_accounts", "confirmed"), ("candidate_developer_accounts", "candidate")):
+        for item in raw.get(field, []) or []:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("did") or item.get("handle") or item.get("url") or "")
+            add_identifier("account", value, "developer_account", field, legacy_classification, extra=item)
+            add_identifier("did", item.get("did"), "developer_did", field, legacy_classification, extra={"account": value, **item})
+    add_identifier("did", raw.get("brand_did"), "brand_did", "brand_did", "confirmed", primary=True)
+    for field, provider in (("bluesky_handles", "bluesky"), ("tangled_handles", "tangled")):
+        for value in raw.get(field, []) or []:
+            add_identifier("account", value, "project_account", field, "candidate", provider=provider)
+
+    for field in ("website_url", "source_code_url", "primary_nsid"):
+        if str(raw.get(field) or "").strip():
+            _counter_add(report["scalar_primary_cleared"], field)
+
+    for field in (
+        "website_url", "service_urls", "source_code_url", "source_code_urls", "primary_nsid",
+        "input_nsids", "resolved_nsids", "lexicons", "authority_domains", "developer_accounts",
+        "bluesky_handles", "tangled_handles", "brand_did",
+    ):
+        project[field] = [] if isinstance(project.get(field), list) else ""
+    project["service_url_candidates"] = sorted({
+        item.value for item in rows
+        if item.kind == "service_url" and item.classification != "confirmed"
+    })
+    project["candidate_source_code_urls"] = sorted({
+        item.value for item in rows
+        if item.kind == "repo_url" and item.classification != "confirmed"
+    })
+    project["candidate_developer_accounts"] = [
+        dict(item.metadata.get("legacy_record") or {"handle": item.value})
+        for item in rows
+        if item.kind == "account" and item.role == "developer_account" and item.classification != "confirmed"
+    ]
+    project["source_repo_records"] = [
+        {
+            **dict(item.metadata.get("legacy_record") or {"url": item.value}),
+            "url": item.value,
+            "confidence": item.classification,
+        }
+        for item in rows
+        if item.kind == "repo_url" and item.role == "source_repository_record"
+    ]
+    project["confirmed_identifiers"] = registry.normalize_confirmed_identifiers(list(raw.get("confirmed_identifiers") or []))
+    return {"project": project, "identifiers": rows, "report": report}
+
+
+def replace_identifier_rows(
+    conn: sqlite3.Connection,
+    project_key: str,
+    identifiers: list[ProjectIdentifier],
+) -> None:
+    conn.execute("DELETE FROM project_identifiers WHERE project_key = ?", (project_key,))
+    for ordinal, item in enumerate(identifiers):
+        conn.execute(
+            "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (project_key, ordinal, item.kind, item.value, item.role, item.classification, int(item.is_primary),
+             item.provider, _json(item.metadata or {}), item.observed_at),
+        )
 
 
 def migrate_legacy_project_snapshot(payload: Any) -> dict[str, Any]:
@@ -344,11 +618,173 @@ def validate_migrated_projects(
         for field in ("name", "website_url", "service_status", "tracking_state", "introduced_url"):
             if str(migrated.get(field) or "") != str(source_project.get(field) or ""):
                 raise RuntimeError(f"canonical field mismatch: {project_key} {field}")
-        for field in ("service_url_candidates", "source_code_urls"):
+        for field in ("service_url_candidates", "candidate_source_code_urls"):
             expected_values = {str(value) for value in source_project.get(field, []) if str(value)}
             actual_values = {str(value) for value in migrated.get(field, []) if str(value)}
             if not expected_values.issubset(actual_values):
                 raise RuntimeError(f"canonical identifier mismatch: {project_key} {field}")
+
+
+def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
+    snapshot: dict[str, list[dict[str, Any]]] = {"identifiers": [], "relations": [], "decisions": []}
+    for row in conn.execute(
+        """
+        SELECT project_key, ordinal, kind, value, role, classification, is_primary,
+               provider, metadata_json, observed_at
+        FROM project_identifiers
+        ORDER BY project_key, ordinal
+        """
+    ):
+        snapshot["identifiers"].append({
+            "project_key": str(row["project_key"]),
+            "ordinal": int(row["ordinal"]),
+            "kind": str(row["kind"]),
+            "value": str(row["value"]),
+            "role": str(row["role"]),
+            "classification": str(row["classification"]),
+            "is_primary": int(row["is_primary"]),
+            "provider": str(row["provider"]),
+            "metadata": _load_json(str(row["metadata_json"]), {}),
+            "observed_at": str(row["observed_at"]),
+        })
+    for row in conn.execute(
+        """
+        SELECT project_key, ordinal, subject_type, subject_value, predicate,
+               object_type, object_value, classification, source, locator,
+               method, context_json, observed_at
+        FROM project_relations
+        ORDER BY project_key, ordinal
+        """
+    ):
+        snapshot["relations"].append({
+            "project_key": str(row["project_key"]),
+            "ordinal": int(row["ordinal"]),
+            "subject_type": str(row["subject_type"]),
+            "subject_value": str(row["subject_value"]),
+            "predicate": str(row["predicate"]),
+            "object_type": str(row["object_type"]),
+            "object_value": str(row["object_value"]),
+            "classification": str(row["classification"]),
+            "source": str(row["source"]),
+            "locator": str(row["locator"]),
+            "method": str(row["method"]),
+            "context": _load_json(str(row["context_json"]), {}),
+            "observed_at": str(row["observed_at"]),
+        })
+    for row in conn.execute(
+        """
+        SELECT project_key, ordinal, kind, target_type, target_value, note,
+               created_at, expires_at, cleared_at, metadata_json
+        FROM project_decisions
+        ORDER BY project_key, ordinal
+        """
+    ):
+        snapshot["decisions"].append({
+            "project_key": str(row["project_key"]),
+            "ordinal": int(row["ordinal"]),
+            "kind": str(row["kind"]),
+            "target_type": str(row["target_type"]),
+            "target_value": str(row["target_value"]),
+            "note": str(row["note"]),
+            "created_at": str(row["created_at"]),
+            "expires_at": str(row["expires_at"]),
+            "cleared_at": str(row["cleared_at"]),
+            "metadata": _load_json(str(row["metadata_json"]), {}),
+        })
+    return snapshot
+
+
+def verify_normalized_roundtrip(conn: sqlite3.Connection) -> dict[str, Any]:
+    from . import registry
+
+    before = normalized_rows_snapshot(conn)
+    project_keys = [str(row["project_key"]) for row in conn.execute("SELECT project_key FROM projects ORDER BY project_key")]
+    for project_key in project_keys:
+        project = registry.fetch_project(conn, project_key)
+        if project is None:
+            raise RuntimeError(f"roundtrip project missing: {project_key}")
+        registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    after = normalized_rows_snapshot(conn)
+    examples: list[dict[str, Any]] = []
+    diff_count = 0
+    for table in ("identifiers", "relations", "decisions"):
+        if before[table] != after[table]:
+            diff_count += 1
+            examples.append({
+                "table": table,
+                "before_count": len(before[table]),
+                "after_count": len(after[table]),
+                "before_first": before[table][:3],
+                "after_first": after[table][:3],
+            })
+    return {"normalized_roundtrip_diff_count": diff_count, "normalized_roundtrip_examples": examples[:3]}
+
+
+def migration_acceptance_report(conn: sqlite3.Connection) -> dict[str, Any]:
+    active_blocks = {
+        (str(row["project_key"]), str(row["target_type"]), str(row["target_value"]))
+        for row in conn.execute(
+            """
+            SELECT project_key, target_type, target_value
+            FROM project_decisions
+            WHERE kind = 'block_identifier' AND cleared_at = ''
+            """
+        )
+    }
+    block_collisions = 0
+    uncorroborated_legacy_confirmed = 0
+    for row in conn.execute(
+        """
+        SELECT project_key, kind, value, role, classification, metadata_json
+        FROM project_identifiers
+        """
+    ):
+        kind = str(row["kind"])
+        identifier_type = _identifier_type_for_kind(kind)
+        key = (str(row["project_key"]), identifier_type, str(row["value"]))
+        if key in active_blocks:
+            block_collisions += 1
+        metadata = _load_json(str(row["metadata_json"]), {})
+        if (
+            str(row["classification"]) == "confirmed"
+            and isinstance(metadata, dict)
+            and metadata.get("migration_source") == "schema_v1"
+            and metadata.get("legacy_classification") == "confirmed"
+            and metadata.get("trust_basis") not in {"operator_input", "operator_confirmation"}
+        ):
+            uncorroborated_legacy_confirmed += 1
+    return {
+        "active_block_identifier_collision_count": block_collisions,
+        "uncorroborated_legacy_confirmed_count": uncorroborated_legacy_confirmed,
+    }
+
+
+def merge_migration_reports(items: list[dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[str, Any] = {
+        "trust_policy": V1_TRUST_POLICY,
+        "legacy_confirmed_counts": {},
+        "maintained_confirmed_counts": {},
+        "downgraded_to_candidate_counts": {},
+        "blocked_excluded_counts": {},
+        "deferred_candidate_counts": {},
+        "scalar_primary_cleared_counts": {},
+    }
+    mapping = {
+        "legacy_confirmed": "legacy_confirmed_counts",
+        "maintained_confirmed": "maintained_confirmed_counts",
+        "downgraded": "downgraded_to_candidate_counts",
+        "blocked_excluded": "blocked_excluded_counts",
+        "deferred_candidates": "deferred_candidate_counts",
+        "scalar_primary_cleared": "scalar_primary_cleared_counts",
+    }
+    for item in items:
+        for source_key, target_key in mapping.items():
+            for key, value in dict(item.get(source_key) or {}).items():
+                _counter_add(merged[target_key], str(key), int(value))
+    for key in list(merged):
+        if key.endswith("_counts"):
+            merged[key] = dict(sorted(merged[key].items()))
+    return merged
 
 
 def validate_database(
@@ -364,7 +800,7 @@ def validate_database(
         raise RuntimeError(f"database validation failed: integrity={integrity} foreign_keys={len(foreign_keys)}")
     if expected_projects is not None and project_count != expected_projects:
         raise RuntimeError(f"project count mismatch: expected={expected_projects} actual={project_count}")
-    nested_forbidden_names = runtime_view.REMOVED_COMPATIBILITY_FIELDS | {runtime_view.RUNTIME_VIEW_MARKER}
+    nested_forbidden_names = runtime_view.REMOVED_COMPATIBILITY_FIELDS | runtime_view.RUNTIME_INTERNAL_FIELDS
 
     def nested_forbidden_keys(value: Any) -> set[str]:
         if isinstance(value, dict):
@@ -383,7 +819,7 @@ def validate_database(
             for payload in (profile, state)
             if isinstance(payload, dict)
             for key in payload
-            if key in runtime_view.NORMALIZED_FIELDS or key == runtime_view.RUNTIME_VIEW_MARKER
+            if key in runtime_view.NORMALIZED_FIELDS or key in runtime_view.RUNTIME_INTERNAL_FIELDS
         }
         fields = top_level | nested_forbidden_keys(profile) | nested_forbidden_keys(state)
         if fields:
@@ -461,10 +897,14 @@ def migrate_database(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
         investigation_storage.ensure_investigation_tables(target)
 
         rows = source.execute("SELECT * FROM projects ORDER BY project_key").fetchall()
-        source_projects = [legacy_project_payload(row) for row in rows]
-        for project_payload in source_projects:
+        decoded_projects = [decode_legacy_project(row) for row in rows]
+        source_projects = [dict(item["project"]) for item in decoded_projects]
+        trust_report = merge_migration_reports([dict(item["report"]) for item in decoded_projects])
+        for decoded in decoded_projects:
+            project_payload = dict(decoded["project"])
             project = registry.ensure_project_shape(project_payload)
             registry.save_project(target, project, enriched=False, preserve_timestamps=True)
+            replace_identifier_rows(target, str(project["project_key"]), list(decoded["identifiers"]))
         copy_table_rows(source, target, "sync_state")
         migrate_investigation_rows(source, target)
         copy_table_rows(source, target, "collector_runs")
@@ -476,6 +916,20 @@ def migrate_database(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
         )
         validate_migrated_projects(source_projects, target)
         report["canonical_snapshot_verified"] = True
+        report.update(trust_report)
+        report.update(migration_acceptance_report(target))
+        report.update(verify_normalized_roundtrip(target))
+        if (
+            report["active_block_identifier_collision_count"]
+            or report["uncorroborated_legacy_confirmed_count"]
+            or report["normalized_roundtrip_diff_count"]
+        ):
+            raise RuntimeError(
+                "migration trust acceptance failed: "
+                f"block_collisions={report['active_block_identifier_collision_count']} "
+                f"uncorroborated_legacy_confirmed={report['uncorroborated_legacy_confirmed_count']} "
+                f"roundtrip_diff={report['normalized_roundtrip_diff_count']}"
+            )
     except Exception as exc:
         target.close()
         source.close()

@@ -44,6 +44,13 @@
   - normalized child tableからflat runtime viewを作るcodecを一本化
   - 既存projectのpartial dict保存を拒否
   - runtime markerと削除済みcompatibility fieldの保存・snapshot・Web payload漏出を抑止
+  - normalized identifier/relation/decision rowの無変更load/saveをlosslessに維持
+- 実装済み: v1 classificationのconservative migration
+  - `v1-quarantine-1` trust policyで旧confirmedを由来付きcandidateへ降格
+  - `manual_seed`と`confirm_identifier` decisionだけをoperator根拠としてconfirmed維持
+  - active block対象を除外し、active defer対象をcandidateとして維持
+  - untrusted primary website/repo/NSIDをconfirmed用flat fieldへhydrateしない
+  - migration reportに旧confirmed、維持、降格、除外、roundtrip diff、hard acceptance conditionを出す
 - 実装済み: relation/collector状態契約
   - DB unique制約と同じdedupe key、classification昇格、最新時刻、context統合
   - 通常collectorは明示的な`CollectorResult`を返す
@@ -63,12 +70,14 @@
 - investigation replay / benchmark
 - CLI helpと既存command parser
 - Web API認証、static asset、v2 detail、normalized mutation、partial collector failure、SQLite busy error
+- temp SQLiteでv1 migration trust policy、operator confirmation維持、normalized row roundtrip diff 0
+- temp SQLiteでcandidate primary NSID / developer DIDの無変更load/save保持
 - in-app Browserでdesktop検索・mutation・merge確認とmobile detail遷移
 - temp SQLiteでenrichのproject境界中断、checkpoint再開、API key非保存
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト191件
+- 全通常テスト194件
 - in-app Browserでschema v2 DBのreview-stalled dry-runを実行
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認
