@@ -315,6 +315,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             if not seed:
                 raise ValueError("seed is required")
             with contextlib.closing(self.server.open_db()) as conn:
+                requested_project = str(payload.get("project_key") or "").strip()
+                if requested_project:
+                    services.require_project_revision(conn, requested_project, str(payload.get("expected_revision") or ""))
                 result = projects.add_seed(
                     conn,
                     seed=seed,
@@ -499,6 +502,17 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 conn,
                 project_key=project_key,
                 kind=str(payload.get("kind") or "").strip(),
+            )
+        if action in {"dismiss-review-target", "defer-review-target", "clear-review-target"}:
+            return decisions.set_review_target(
+                conn,
+                project_key=project_key,
+                target_type=str(payload.get("target_type") or "").strip(),
+                target_value=str(payload.get("target_value") or "").strip(),
+                action=str(payload.get("review_action") or ("defer" if action == "defer-review-target" else "dismiss")),
+                note=note,
+                days=_int(payload.get("days"), 30, maximum=365),
+                clear=action == "clear-review-target",
             )
         if action == "split-project":
             return merge.split_identifier(

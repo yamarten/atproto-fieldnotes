@@ -55,6 +55,7 @@ DECISION_FIELDS = {
     "dismissed_review_kinds",
     "separate_project_keys",
     "confirmed_identifiers",
+    "review_target_decisions",
 }
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -392,6 +393,18 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 cleared_at=str(item.get("cleared_at") or ""),
                 metadata=dict(item),
             ))
+    for item in project.get("review_target_decisions", []):
+        if isinstance(item, Mapping) and str(item.get("kind") or "") in {"dismiss_review_target", "defer_review_target"}:
+            output.append(ProjectDecision(
+                str(item.get("kind")),
+                str(item.get("target_type") or ""),
+                str(item.get("target_value") or ""),
+                str(item.get("note") or ""),
+                str(item.get("created_at") or ""),
+                str(item.get("expires_at") or ""),
+                str(item.get("cleared_at") or ""),
+                metadata=copy.deepcopy(dict(item.get("metadata") or {})),
+            ))
     return output
 
 
@@ -547,6 +560,7 @@ def hydrate(
     project.update({
         "blocked_identifiers": [], "deferred_identifiers": [], "promotion_deferrals": [],
         "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
+        "review_target_decisions": [],
     })
     for row in decision_payload:
         kind = row["kind"]
@@ -576,6 +590,17 @@ def hydrate(
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "cleared_at": str(row["cleared_at"]),
+            })
+        elif kind in {"dismiss_review_target", "defer_review_target"}:
+            project["review_target_decisions"].append({
+                "kind": kind,
+                "target_type": str(row["target_type"]),
+                "target_value": str(row["target_value"]),
+                "note": str(row["note"]),
+                "created_at": str(row["created_at"]),
+                "expires_at": str(row["expires_at"]),
+                "cleared_at": str(row["cleared_at"]),
+                "metadata": copy.deepcopy(metadata or {}),
             })
     project[RUNTIME_IDENTIFIER_ROWS] = copy.deepcopy(identifier_payload)
     project[RUNTIME_RELATION_ROWS] = copy.deepcopy(relation_payload)

@@ -100,6 +100,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         project["service_url_candidates"] = ["https://app.example.com"]
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+        project["candidate_developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:developer", "source": "fixture"}]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
@@ -521,6 +522,75 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(status, 200)
         self.assertFalse(any(item["kind"] == "defer_identifier" for item in payload["detail"]["decisions"]["active"]))
+
+    def test_targeted_review_decisions_and_developer_confirmation(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        relation_target = detail["relations"][0]["review_target"]
+        failure_target = detail["investigation"]["failures"][0]["review_target"]
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/dismiss-review-target",
+            method="POST",
+            payload={
+                "expected_revision": detail["revision"],
+                "target_type": relation_target["target_type"],
+                "target_value": relation_target["target_value"],
+                "note": "reviewed relation",
+            },
+        )
+        self.assertEqual(status, 200)
+        active = payload["detail"]["decisions"]["active"]
+        self.assertTrue(any(item["kind"] == "dismiss_review_target" for item in active))
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/defer-review-target",
+            method="POST",
+            payload={
+                "expected_revision": payload["detail"]["revision"],
+                "target_type": failure_target["target_type"],
+                "target_value": failure_target["target_value"],
+                "note": "retry later",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(any(item["kind"] == "defer_review_target" for item in payload["detail"]["decisions"]["active"]))
+
+        account = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
+        self.assertTrue(account["actions"]["confirm"])
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/confirm-candidate",
+            method="POST",
+            payload={
+                "expected_revision": payload["detail"]["revision"],
+                "identifier_type": "account",
+                "value": "did:plc:developer",
+            },
+        )
+        self.assertEqual(status, 200)
+        confirmed = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
+        self.assertEqual(confirmed["classification"], "confirmed")
+
+    def test_add_manual_seed_to_existing_project(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        status, payload, _ = self.request(
+            "/api/seeds",
+            method="POST",
+            payload={
+                "seed": "https://github.com/example/second",
+                "project_key": "proj:111111111111",
+                "expected_revision": detail["revision"],
+            },
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(payload["project_key"], "proj:111111111111")
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        self.assertIn("https://github.com/example/second", [item["value"] for item in project["manual_seeds"]])
 
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/split-project",

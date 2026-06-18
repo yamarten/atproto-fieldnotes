@@ -180,6 +180,8 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `confirm_identifier`: operatorがcandidate identifierを明示確認した履歴
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
 - `dismiss_review`: 特定review signalをdismissする
+- `dismiss_review_target`: fingerprintで特定したrelationまたはcollector failureをdismissする
+- `defer_review_target`: fingerprintで特定したrelationまたはcollector failureを期限付きで保留する
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先するoperator assertionとして扱います。

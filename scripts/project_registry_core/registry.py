@@ -1308,7 +1308,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         if not normalized_value:
@@ -1340,7 +1340,7 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         expires_at = str(item.get("expires_at") or "").strip()
@@ -1370,7 +1370,7 @@ def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid"}:
+        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         if not normalized_value:
@@ -1401,8 +1401,8 @@ def add_confirmed_identifier_decision(
     source: str,
     note: str = "",
 ) -> str:
-    if identifier_type not in {"service_url", "repo_url", "nsid"}:
-        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
+        raise ValueError("identifier_type must be service_url, repo_url, nsid, or account")
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         raise ValueError("identifier value could not be normalized")
@@ -3137,7 +3137,7 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
 
 
 def remove_identifier_from_project(project: dict[str, Any], identifier_type: str, value: str) -> None:
-    normalized = canonical_seed_value(identifier_type, value)
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return
     if identifier_type == "service_url":
@@ -3181,6 +3181,14 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
             for item in project.get("recent_record_samples", [])
             if isinstance(item, dict) and normalize_nsid(str(item.get("collection") or "")) != normalized
         ]
+    elif identifier_type == "account":
+        lowered = normalized.lower()
+        for field in ("developer_accounts", "candidate_developer_accounts"):
+            project[field] = [
+                dict(item)
+                for item in normalize_developer_accounts(list(project.get(field, [])))
+                if lowered not in {str(item.get("handle") or "").lower(), str(item.get("did") or "").lower()}
+            ]
     project["manual_seeds"] = [
         dict(item)
         for item in project.get("manual_seeds", [])
@@ -11354,6 +11362,11 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["dismissed_review_kinds"] = unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
     )
+    merged["review_target_decisions"] = [
+        dict(item)
+        for item in list(merged.get("review_target_decisions", [])) + list(source.get("review_target_decisions", []))
+        if isinstance(item, dict)
+    ]
 
     merged["manual_seeds"] = unique_manual_seeds(list(merged.get("manual_seeds", [])) + list(source.get("manual_seeds", [])))
     merged["discovery_sources"] = unique_list(list(merged.get("discovery_sources", [])) + list(source.get("discovery_sources", [])))

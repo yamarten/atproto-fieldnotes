@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+import datetime as dt
 from typing import Any
 
 from .. import registry as core
+from . import review_targets
 
 
 def _refresh_merge_state(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
@@ -203,3 +205,47 @@ def dismiss_review_kind(
     )
     conn.commit()
     return {"project_key": project["project_key"], "kind": kind, "cleared": clear, "dismissed_review_kinds": kinds}
+
+
+def set_review_target(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    target_type: str,
+    target_value: str,
+    action: str,
+    note: str = "",
+    days: int = 30,
+    clear: bool = False,
+) -> dict[str, Any]:
+    project = core.resolve_single_project(conn, project_key=project_key)
+    available = review_targets.available_targets(conn, str(project["project_key"]))
+    target = available.get(str(target_value))
+    if target is None or target["target_type"] != target_type:
+        raise ValueError("review target is stale or does not belong to this project")
+    kind = "dismiss_review_target" if action == "dismiss" else "defer_review_target" if action == "defer" else ""
+    if not kind:
+        raise ValueError("review target action must be dismiss or defer")
+    now = core.iso_now()
+    entries = [dict(item) for item in project.get("review_target_decisions", []) if isinstance(item, dict)]
+    for item in entries:
+        if item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value and not item.get("cleared_at"):
+            item["cleared_at"] = now
+    if not clear:
+        expires_at = ""
+        if kind == "defer_review_target":
+            expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=max(1, min(365, int(days))))).isoformat()
+        entries.append({
+            "kind": kind,
+            "target_type": target_type,
+            "target_value": target_value,
+            "note": note.strip(),
+            "created_at": now,
+            "expires_at": expires_at,
+            "cleared_at": "",
+            "metadata": dict(target["metadata"]),
+        })
+    project["review_target_decisions"] = entries
+    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    conn.commit()
+    return {"project_key": project["project_key"], "kind": kind, "target_type": target_type, "target_value": target_value, "cleared": clear}

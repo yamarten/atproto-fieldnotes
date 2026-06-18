@@ -330,14 +330,14 @@ function renderDetail(data) {
       <p class="eyebrow">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>`}
+      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>`}
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
     </nav>
     ${tab("overview", "Overview", overviewBody)}
     ${tab("identifiers", "Identifiers", section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`))}
-    ${tab("relations", "Relations", section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.summary)}</div><div class="muted">${esc(item.evidence_label)}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`))}
+    ${tab("relations", "Relations", section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.summary)}</div><div class="muted">${esc(item.evidence_label)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`))}
     ${tab("investigation", "Investigation", section("Latest Investigation", renderInvestigation(investigation)))}
     ${tab("decisions", "Decisions", section("Decisions / Guards", renderDecisions(decisions)))}
     ${tab("raw", "Raw", section("Raw Data", `<details open><summary>Project payload</summary>${json(data)}</details>`))}
@@ -345,6 +345,7 @@ function renderDetail(data) {
   $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
   $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
+  $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
     state.detailTab = button.dataset.detailTab;
     syncUrl();
@@ -393,7 +394,7 @@ function renderIdentifier(item) {
 function renderDecisions(decisions) {
   const active = list(decisions.active);
   const history = list(decisions.history);
-  const current = active.length ? active.map((item) => `<div class="decision"><div>${pill(item.kind, "candidate")} ${esc(item.target_type)} ${esc(item.target_value)}</div><div class="muted">${esc(item.note || "No note")} ${item.expires_at ? `· expires ${esc(item.expires_at)}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("Clear block", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("Clear defer", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("Clear hold", "clear-promotion-deferral") : ""}${item.kind === "separate_project" ? actionButton("Clear separate", "clear-separate", {other:item.target_value}) : ""}</div></div>`).join("") : `<p class="muted">No active decisions.</p>`;
+  const current = active.length ? active.map((item) => `<div class="decision"><div>${pill(item.kind, "candidate")} ${esc(item.target_type)} ${esc(item.target_value)}</div><div class="muted">${esc(item.note || "No note")} ${item.expires_at ? `· expires ${esc(item.expires_at)}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("Clear block", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("Clear defer", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("Clear hold", "clear-promotion-deferral") : ""}${item.kind === "separate_project" ? actionButton("Clear separate", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("Clear", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`).join("") : `<p class="muted">No active decisions.</p>`;
   return current + (history.length ? `<details><summary>Decision history (${history.length})</summary>${json(history)}</details>` : "");
 }
 
@@ -401,14 +402,31 @@ function renderInvestigation(run) {
   if (!run) return `<p class="muted">No saved investigation run.</p>`;
   return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(run.completed_at)}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
     <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.source)}</strong></div><div class="muted">${esc(item.operation)} · ${esc(item.request_count || 0)} requests · ${esc(item.result_count || 0)} results${item.stop_reason ? ` · ${esc(item.stop_reason)}` : ""}</div></div>`).join("") || `<p class="muted">No collector summaries.</p>`}</div>
-    ${run.failures?.length ? `<details><summary>Failures</summary>${json(run.failures)}</details>` : ""}`;
+    ${run.failures?.length ? `<details><summary>Failures</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(item.source)} ${esc(item.operation)}</div><div class="muted">${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
+}
+
+function reviewTargetActions(target) {
+  if (!target) return "";
+  const data = {"target-type":target.target_type, "target-value":target.target_value};
+  return `${actionButton("Dismiss", "dismiss-review-target", data)}${actionButton("Defer 30d", "defer-review-target", data)}`;
+}
+
+async function addProjectSeed(projectKey) {
+  const seed = prompt("NSID, repository URL, or service URL");
+  if (!seed) return;
+  try {
+    const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(seed)}`);
+    if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`Seed belongs to ${preview.exact_project_key}`);
+    if (preview.exact_project_key === projectKey) { status("Seed is already attached to this project."); return; }
+    confirmMutation("Add manual seed", `Add ${seed} to ${projectKey}?`, "/api/seeds", {seed, project_key:projectKey, expected_revision:state.detailRevision}, false);
+  } catch (error) { status(error.message, true); }
 }
 
 function bindDetailActions(projectKey) {
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
-    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || ""};
-    const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion"].includes(action);
+    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || ""};
+    const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target"].includes(action);
     confirmMutation(action.replaceAll("-", " "), `${action.replaceAll("-", " ")} ${payload.value || payload.other_project_key || projectKey}?`, `/api/projects/${encodeURIComponent(projectKey)}/${action}`, payload, needsNote);
   });
 }

@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import registry as core
 from .. import storage
-from . import decisions, merge, projects, query as query_service, review
+from . import decisions, merge, projects, query as query_service, review, review_targets
 
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -221,12 +221,13 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             (value for value in CLASSIFICATION_ORDER if value in group["classifications"]),
             group["classifications"][0] if group["classifications"] else "candidate",
         )
-        action_kind = next((kind for kind in group["kinds"] if kind in {"service_url", "repo_url", "nsid"}), "")
+        developer_candidate = "developer_account" in group["roles"]
+        action_kind = next((kind for kind in group["kinds"] if kind in {"service_url", "repo_url", "nsid", "account"}), "")
         candidate_only = "candidate" in group["classifications"] and "confirmed" not in group["classifications"]
         group["actions"] = {
             "identifier_type": action_kind,
-            "confirm": candidate_only and action_kind in {"service_url", "repo_url"},
-            "reject": candidate_only and action_kind in {"service_url", "repo_url"},
+            "confirm": candidate_only and (action_kind in {"service_url", "repo_url"} or developer_candidate),
+            "reject": candidate_only and action_kind in {"service_url", "repo_url", "account"},
             "block": bool(action_kind),
             "defer": bool(action_kind),
             "split": bool(action_kind),
@@ -239,8 +240,10 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
     rows = conn.execute(
         "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
-    return [
-        {
+    output = []
+    for row in rows:
+        target = review_targets.relation_target(row)
+        output.append({
             "subject": {"type": str(row["subject_type"]), "value": str(row["subject_value"])},
             "predicate": str(row["predicate"]),
             "object": {"type": str(row["object_type"]), "value": str(row["object_value"])},
@@ -257,9 +260,9 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
             "evidence_label": " · ".join(
                 value for value in (str(row["source"]), str(row["locator"]), str(row["method"])) if value
             ),
-        }
-        for row in rows
-    ]
+            "review_target": target,
+        })
+    return output
 
 
 def _decision_rows(conn: sqlite3.Connection, project_key: str) -> dict[str, list[dict[str, Any]]]:
@@ -308,7 +311,10 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
             }
             for result in bundle.collector_results
         ],
-        "failures": [failure.to_dict() for failure in bundle.failures],
+        "failures": [
+            {**failure.to_dict(), "review_target": review_targets.failure_target(run["run_id"], failure.to_dict())}
+            for failure in bundle.failures
+        ],
     }
 
 
@@ -441,8 +447,28 @@ def confirm_candidate(
         confirmed = core.confirm_service_seed(project, value, source="web_ui")
     elif identifier_type == "repo_url":
         confirmed = core.confirm_repo_seed(project, value, source="web_ui")
+    elif identifier_type == "account":
+        normalized = str(value or "").strip().lower()
+        candidate = next((
+            item for item in core.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
+            if normalized in {str(item.get("handle") or "").lower(), str(item.get("did") or "").lower()}
+        ), None)
+        if candidate is None:
+            confirmed = ""
+        else:
+            core.add_developer_account(
+                project,
+                str(candidate.get("handle") or ""),
+                str(candidate.get("source") or "web_ui"),
+                did=str(candidate.get("did") or ""),
+            )
+            project["candidate_developer_accounts"] = [
+                item for item in core.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
+                if item != candidate
+            ]
+            confirmed = str(candidate.get("handle") or candidate.get("did") or "")
     else:
-        raise ValueError("identifier_type must be service_url or repo_url")
+        raise ValueError("identifier_type must be service_url, repo_url, or account")
     if not confirmed:
         raise ValueError("candidate value is required")
     core.add_confirmed_identifier_decision(
