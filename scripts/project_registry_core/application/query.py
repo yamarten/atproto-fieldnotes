@@ -75,7 +75,7 @@ def search_project_rows(
     if text:
         pattern = _like(text)
         conditions.append(
-            "(" 
+            "("
             "LOWER(p.project_key) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(p.website_url) LIKE ? "
             "OR EXISTS (SELECT 1 FROM project_identifiers i WHERE i.project_key = p.project_key AND LOWER(i.value) LIKE ?) "
             "OR EXISTS (SELECT 1 FROM project_relations r WHERE r.project_key = p.project_key AND "
