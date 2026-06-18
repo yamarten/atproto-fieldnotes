@@ -523,6 +523,30 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertFalse(any(item["kind"] == "defer_identifier" for item in payload["detail"]["decisions"]["active"]))
 
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/split-project",
+            method="POST",
+            payload={"identifier_type": "repo_url", "value": "https://github.com/example/app", "note": "separate package"},
+        )
+        self.assertEqual(status, 200)
+        split_key = payload["result"]["target_project_key"]
+        self.assertEqual(payload["detail"]["project"]["project_key"], split_key)
+
+        status, merged, _ = self.request(
+            "/api/merge-batch/action",
+            method="POST",
+            payload={
+                "action": "merge",
+                "source_project_key": split_key,
+                "target_project_key": "proj:222222222222",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(merged["mode"], "execute")
+        conn = registry.open_db()
+        self.assertIsNone(registry.fetch_project(conn, split_key))
+        conn.close()
+
     def test_targeted_review_decisions_and_developer_confirmation(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
@@ -592,29 +616,45 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             conn.close()
         self.assertIn("https://github.com/example/second", [item["value"] for item in project["manual_seeds"]])
 
-        status, payload, _ = self.request(
-            "/api/projects/proj:111111111111/split-project",
+    def test_profile_preview_apply_and_stale_guard(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        revision = detail["revision"]
+        status, preview, _ = self.request(
+            "/api/projects/proj:111111111111/profile-preview",
             method="POST",
-            payload={"identifier_type": "repo_url", "value": "https://github.com/example/app", "note": "separate package"},
+            payload={"expected_revision": revision, "name": "Edited App", "notes": "operator note"},
         )
         self.assertEqual(status, 200)
-        split_key = payload["result"]["target_project_key"]
-        self.assertEqual(payload["detail"]["project"]["project_key"], split_key)
+        self.assertEqual([item["field"] for item in preview["result"]["changes"]], ["name", "notes"])
 
-        status, merged, _ = self.request(
-            "/api/merge-batch/action",
+        status, applied, _ = self.request(
+            "/api/projects/proj:111111111111/profile",
             method="POST",
-            payload={
-                "action": "merge",
-                "source_project_key": split_key,
-                "target_project_key": "proj:222222222222",
-            },
+            payload={"expected_revision": revision, "name": "Edited App", "notes": "operator note"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(merged["mode"], "execute")
-        conn = registry.open_db()
-        self.assertIsNone(registry.fetch_project(conn, split_key))
-        conn.close()
+        self.assertEqual(applied["detail"]["project"]["name"], "Edited App")
+        self.assertEqual(applied["detail"]["project"]["profile"]["core"]["notes"], "operator note")
+
+        status, stale, _ = self.request(
+            "/api/projects/proj:111111111111/profile",
+            method="POST",
+            payload={"expected_revision": revision, "name": "Stale", "notes": ""},
+            include_revision=False,
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(stale["error"]["code"], "stale_project")
+
+        self.server.read_only = True
+        status, error, _ = self.request(
+            "/api/projects/proj:111111111111/profile",
+            method="POST",
+            payload={"expected_revision": applied["detail"]["revision"], "name": "Blocked", "notes": ""},
+            include_revision=False,
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(error["error"]["code"], "read_only")
 
     def test_seed_preview_create_and_queue_endpoints(self) -> None:
         status, preview, _ = self.request("/api/seeds/preview?seed=https%3A%2F%2Fnew.example")

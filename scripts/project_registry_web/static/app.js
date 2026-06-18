@@ -320,7 +320,7 @@ function renderDetail(data) {
   const manualSeed = overview.manual_seed;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>`)}
+    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>${state.server?.read_only ? "" : `<div class="actions"><button id="edit-profile">Edit</button></div>`}`)}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
   `;
@@ -346,6 +346,7 @@ function renderDetail(data) {
   $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
   $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
+  $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
     state.detailTab = button.dataset.detailTab;
     syncUrl();
@@ -409,6 +410,38 @@ function reviewTargetActions(target) {
   if (!target) return "";
   const data = {"target-type":target.target_type, "target-value":target.target_value};
   return `${actionButton("Dismiss", "dismiss-review-target", data)}${actionButton("Defer 30d", "defer-review-target", data)}`;
+}
+
+function editProfile(project, profile) {
+  const dialog = $("profile-dialog");
+  $("profile-name").value = project.name || "";
+  $("profile-notes").value = profileValue(profile, "notes");
+  $("profile-diff").innerHTML = "";
+  $("profile-apply").disabled = true;
+  let preview = null;
+  const values = () => ({name:$("profile-name").value, notes:$("profile-notes").value, expected_revision:state.detailRevision});
+  $("profile-preview").onclick = async () => {
+    try {
+      const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/profile-preview`, {method:"POST", body:JSON.stringify(values())});
+      preview = response.result;
+      $("profile-diff").innerHTML = preview.changed ? section("Changes", json(preview.changes)) : `<p class="muted">No changes.</p>`;
+      $("profile-apply").disabled = !preview.changed;
+    } catch (error) { status(error.message, true); }
+  };
+  $("profile-apply").onclick = async () => {
+    if (!preview?.changed) return;
+    try {
+      const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/profile`, {method:"POST", body:JSON.stringify(values())});
+      dialog.close();
+      renderDetail(response.detail);
+      await loadList();
+      status("Profile saved.");
+    } catch (error) {
+      if (error.code === "stale_project") await loadDetail(project.project_key, {updateUrl:false});
+      status(error.message, true);
+    }
+  };
+  dialog.showModal();
 }
 
 async function addProjectSeed(projectKey) {

@@ -52,6 +52,21 @@
     </form>
   </dialog>
 
+  <dialog id="profile-dialog">
+    <form method="dialog">
+      <p class="eyebrow">Edit profile</p>
+      <h2>Name and notes</h2>
+      <label>Name<input id="profile-name" type="text"></label>
+      <label>Notes<textarea id="profile-notes" rows="6"></textarea></label>
+      <div id="profile-diff"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button id="profile-preview" type="button">Preview</button>
+        <button id="profile-apply" type="button" class="primary" disabled>Apply</button>
+      </div>
+    </form>
+  </dialog>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -462,6 +462,20 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 tracking_state=str(payload.get("tracking_state") or ""),
                 note=note,
             )
+        if action == "profile-preview":
+            return projects.preview_profile_edit(
+                conn,
+                project_key=project_key,
+                name=str(payload.get("name") or ""),
+                notes=str(payload.get("notes") or ""),
+            )
+        if action == "profile":
+            return projects.apply_profile_edit(
+                conn,
+                project_key=project_key,
+                name=str(payload.get("name") or ""),
+                notes=str(payload.get("notes") or ""),
+            )
         if action == "confirm-candidate":
             return services.confirm_candidate(
                 conn, project_key=project_key, identifier_type=identifier_type, value=value

@@ -97,6 +97,48 @@ def set_tracking_state(
     }
 
 
+def preview_profile_edit(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    name: str,
+    notes: str,
+) -> dict[str, Any]:
+    project = core.resolve_single_project(conn, project_key=project_key)
+    before = {"name": str(project.get("name") or ""), "notes": str(project.get("notes") or "")}
+    after = {"name": str(name or "").strip(), "notes": str(notes or "").strip()}
+    changes = [
+        {"field": field, "before": before[field], "after": after[field]}
+        for field in ("name", "notes")
+        if before[field] != after[field]
+    ]
+    return {
+        "project_key": str(project["project_key"]),
+        "before": before,
+        "after": after,
+        "changes": changes,
+        "changed": bool(changes),
+    }
+
+
+def apply_profile_edit(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    name: str,
+    notes: str,
+) -> dict[str, Any]:
+    preview = preview_profile_edit(conn, project_key=project_key, name=name, notes=notes)
+    if not preview["changed"]:
+        return {**preview, "mode": "no_change"}
+    project = core.resolve_single_project(conn, project_key=project_key)
+    project["name"] = preview["after"]["name"]
+    project["notes"] = preview["after"]["notes"]
+    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    conn.commit()
+    return {**preview, "mode": "updated"}
+
+
 def set_tracking_state_batch(
     conn: sqlite3.Connection,
     *,

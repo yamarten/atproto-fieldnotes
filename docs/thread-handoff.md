@@ -76,6 +76,9 @@
   - relation / latest collector failureのfingerprintを検証してdismiss/defer decisionを保存
   - candidate developer accountのconfirm/block/defer
   - Web detailから既存projectへmanual seedを追加
+- 実装済み: profile最小編集
+  - nameと`profile.core.notes`のpreview diff / apply
+  - project revision必須、stale update拒否、read-only拒否
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -99,6 +102,7 @@
 - 全通常テスト197件
 - normalized table検索のWeb/API test 3件
 - 対象別review decision、developer account昇格、既存projectへのmanual seed追加
+- profile edit preview/apply、stale guard、read-only拒否
 - in-app Browserでschema v2 DBのreview-stalled dry-runを実行
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認

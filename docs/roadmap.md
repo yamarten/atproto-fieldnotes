@@ -59,9 +59,9 @@
    - relation / collector failureは対象fingerprint付きdismiss/defer decisionへ進める
    - candidate identifierとdeveloper accountはconfirm/block/defer可能
    - 選択中の既存projectへmanual seedをpreview後に追加可能
-3. Profile最小編集を入れる
-   - nameとnotesを優先
-   - 保存前diffを出す
+3. Profile最小編集を入れる（実装済み）
+   - nameとnotesをWebから編集可能
+   - 保存前diffとproject revisionによるstale guardを実装済み
    - tagline、summary、website_urlは必要になったら追加
 4. Background jobの運用穴を埋める
    - checkpoint discovery
