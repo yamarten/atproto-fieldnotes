@@ -222,7 +222,7 @@ Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`p
 
 enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
 
-Explain serviceは`project_registry_core.application.explain`をCLIとWebで共有します。`service_status`、ownership、atproto contribution、merge candidateについて、保存済みcurrent stateとrelation sourceだけから結論、適用rule、支持/反証signalを返します。Explain実行中はnetwork collectorやLLMを呼ばず、replay結果もDBへ保存しません。
+Explain serviceは`project_registry_core.application.explain`をCLIとWebで共有します。`service_status`、ownership、atproto contribution、merge candidateについて、保存済みcurrent stateとrelation sourceだけから結論、適用rule、支持/反証signalを返します。Explain実行中はnetwork collectorやLLMを呼ばず、replay結果もDBへ保存しません。Webの初期detailは全project hydrateを行わず、merge candidateだけを`/api/projects/{key}/merge-analysis`で非同期計算します。同service内ではduplicate candidate計算を1回だけ行い、その結果をmerge recommendationとExplainの両方へ渡します。source revisionが計算中に変化した場合は結果を破棄し、計算済みviewはDBへ追加しません。
 
 ## enrich の判断材料
 

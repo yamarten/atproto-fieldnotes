@@ -302,6 +302,13 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     limit=_int(query.get("limit", [50])[0], 50),
                 ))
             return
+        if path.startswith("/api/projects/") and path.endswith("/merge-analysis"):
+            key = urllib.parse.unquote(path.removeprefix("/api/projects/").removesuffix("/merge-analysis")).strip("/")
+            if not key or "/" in key:
+                raise KeyError("project not found")
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.project_merge_analysis(conn, project_key=key))
+            return
         if path.startswith("/api/projects/"):
             key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")
             if not key or "/" in key:
@@ -393,10 +400,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         with contextlib.closing(self.server.open_db()) as conn:
             services.require_project_revision(conn, project_key, str(payload.get("expected_revision") or ""))
             if action == "merge-recommendation":
-                project = core.resolve_single_project(conn, project_key=project_key)
-                target_key = str((project.get("merge_recommendation") or {}).get("target_project_key") or "")
+                target_key = str(payload.get("other_project_key") or "").strip()
                 if not target_key:
-                    raise ValueError("no merge recommendation available for source project")
+                    raise ValueError("merge recommendation target is required")
                 services.require_project_revision(
                     conn, target_key, str(payload.get("expected_target_revision") or "")
                 )
@@ -590,6 +596,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 conn,
                 project_key=project_key,
                 use_recommendation=True,
+                expected_recommendation_target=str(payload.get("other_project_key") or "").strip(),
                 execute=True,
             )
         raise ValueError(f"unknown project action: {action}")

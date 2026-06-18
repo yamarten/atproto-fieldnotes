@@ -414,6 +414,26 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(replay["run_id"], run_id)
         self.assertIn("diff", replay)
 
+    def test_merge_analysis_is_loaded_separately_from_project_detail(self) -> None:
+        original = registry.compute_duplicate_candidates
+        registry.compute_duplicate_candidates = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("detail computed duplicate candidates")
+        )
+        try:
+            status, detail, _ = self.request("/api/projects/proj:111111111111")
+        finally:
+            registry.compute_duplicate_candidates = original
+        self.assertEqual(status, 200)
+        self.assertTrue(detail["merge_analysis_pending"])
+        self.assertEqual(detail["explanations"]["topics"]["merge_candidate"]["conclusion"], "pending")
+
+        status, analysis, _ = self.request("/api/projects/proj:111111111111/merge-analysis")
+        self.assertEqual(status, 200)
+        self.assertEqual(analysis["project_key"], "proj:111111111111")
+        self.assertTrue(analysis["revision"])
+        self.assertIn("merge_recommendation", analysis)
+        self.assertNotEqual(analysis["explanation"]["conclusion"], "pending")
+
     def test_service_and_ownership_review_uses_saved_evidence(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)

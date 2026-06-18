@@ -39,6 +39,7 @@ def merge_projects(
     target_seed: str | None = None,
     target_seed_type: str | None = None,
     use_recommendation: bool = False,
+    expected_recommendation_target: str | None = None,
     execute: bool = False,
     force: bool = False,
 ) -> dict[str, Any]:
@@ -51,6 +52,8 @@ def merge_projects(
         resolved_target_key = str(recommendation.get("target_project_key") or "")
         if not resolved_target_key:
             raise ValueError("no merge recommendation available for source project")
+        if expected_recommendation_target and resolved_target_key != expected_recommendation_target:
+            raise ValueError("merge recommendation changed; reload the project before applying it")
         if execute and not recommendation.get("auto_merge_ready") and not force:
             raise ValueError("merge recommendation is not auto-merge-ready; rerun without --execute or pass --force")
         target = core.resolve_single_project(conn, project_key=resolved_target_key)

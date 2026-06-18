@@ -16,6 +16,7 @@ const state = {
   jobsById: new Map(),
   listRequest: 0,
   detailRequest: 0,
+  mergeAnalysisRequest: 0,
   operationTimer: null,
   settings: loadSettings(),
   server: null,
@@ -313,7 +314,6 @@ function renderDetail(data) {
   const decisions = data.decisions || {active: [], history: []};
   const evaluation = data.evaluation || {};
   const investigation = data.investigation;
-  const recommendation = data.merge_recommendation || {};
   const overview = data.overview || {};
   const serviceOwnership = data.service_ownership_review || {};
   const explanations = data.explanations?.topics || {};
@@ -327,7 +327,8 @@ function renderDetail(data) {
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
-    ${section("Explain", renderExplanations(explanations))}
+    ${section("Merge Candidate", `<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
+    ${section("Explain", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
   `;
   $("detail").innerHTML = `
     <div class="detail-header">
@@ -335,7 +336,7 @@ function renderDetail(data) {
       <p class="eyebrow">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}${recommendation.auto_merge_ready ? actionButton("Apply merge recommendation", "merge-recommendation", {}, "danger") : ""}</div>`}
+      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}<span id="merge-analysis-action"></span></div>`}
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -360,6 +361,7 @@ function renderDetail(data) {
     document.querySelectorAll("[data-detail-panel]").forEach((item) => item.hidden = item.dataset.detailPanel !== state.detailTab);
   });
   bindDetailActions(project.project_key);
+  loadMergeAnalysis(project.project_key, data.revision, explanations);
 }
 
 const identifierFamilies = [
@@ -424,10 +426,46 @@ function renderServiceOwnership(data) {
     ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
 }
 
+function renderExplanation(topic, item) {
+  return `<div data-explain-topic="${esc(topic)}"><details><summary>${esc(topic)}: ${esc(item.conclusion)}</summary><dl class="kv"><dt>Rule</dt><dd>${esc(item.rule)}</dd><dt>Supports</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "None observed"}</dd><dt>Counters</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "None observed"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details></div>`;
+}
+
 function renderExplanations(topics) {
   const entries = Object.entries(topics || {});
   if (!entries.length) return `<p class="muted">No explanation available.</p>`;
-  return entries.map(([topic, item]) => `<details><summary>${esc(topic)}: ${esc(item.conclusion)}</summary><dl class="kv"><dt>Rule</dt><dd>${esc(item.rule)}</dd><dt>Supports</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "None observed"}</dd><dt>Counters</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "None observed"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details>`).join("");
+  return entries.map(([topic, item]) => renderExplanation(topic, item)).join("");
+}
+
+async function loadMergeAnalysis(projectKey, revision, explanations) {
+  const request = ++state.mergeAnalysisRequest;
+  try {
+    const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/merge-analysis`);
+    if (request !== state.mergeAnalysisRequest || state.selected !== projectKey || state.detailRevision !== revision) return;
+    if (data.revision !== revision) {
+      $("merge-analysis-content").innerHTML = `<p class="muted">Project changed. Reload detail to recalculate merge candidates.</p>`;
+      return;
+    }
+    const recommendation = data.merge_recommendation || {};
+    const candidates = list(data.duplicates);
+    const target = candidates.find((item) => item.project_key === recommendation.target_project_key);
+    const otherCandidates = candidates.filter((item) => item.project_key !== recommendation.target_project_key).slice(0, 5);
+    state.mergeTargetRevision = data.merge_target_revision || "";
+    $("merge-analysis-content").innerHTML = recommendation.target_project_key
+      ? `<dl class="kv"><dt>Candidate</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>Confidence</dt><dd>${pill(recommendation.merge_confidence || "unknown")} score ${esc(recommendation.score || 0)}</dd><dt>Auto merge</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "Manual review required"}</dd></dl>${otherCandidates.length ? `<details><summary>Other candidates (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} score ${esc(item.score || 0)}</div></div>`).join("")}</details>` : ""}`
+      : `<p class="muted">No merge candidate found.</p>`;
+    if (recommendation.auto_merge_ready && !state.server?.read_only) {
+      $("merge-analysis-action").innerHTML = actionButton("Apply merge recommendation", "merge-recommendation", {other:recommendation.target_project_key}, "danger");
+      bindDetailActions(projectKey);
+    }
+    const mergeExplanation = data.explanation || {};
+    explanations.merge_candidate = mergeExplanation;
+    const current = document.querySelector('[data-explain-topic="merge_candidate"]');
+    if (current) current.outerHTML = renderExplanation("merge_candidate", mergeExplanation);
+  } catch (error) {
+    if (request !== state.mergeAnalysisRequest || state.selected !== projectKey) return;
+    const target = $("merge-analysis-content");
+    if (target) target.innerHTML = `<p class="notice">${esc(error.message)}</p>`;
+  }
 }
 
 async function loadInvestigationHistory(projectKey) {

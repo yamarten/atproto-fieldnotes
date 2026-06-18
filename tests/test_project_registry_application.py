@@ -9,6 +9,45 @@ from project_registry_core.application import decisions, explain, maintenance, m
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_project_detail_defers_duplicate_analysis_and_analysis_runs_once(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = self.make_project("proj:aaaaaaaaaaaa", "service_url", "https://source.example.com")
+            source["website_url"] = "https://shared.example.com"
+            target = self.make_project("proj:bbbbbbbbbbbb", "service_url", "https://target.example.com")
+            target["website_url"] = "https://shared.example.com"
+            registry.save_project(conn, source)
+            registry.save_project(conn, target)
+            original = registry.compute_duplicate_candidates
+            calls = 0
+
+            def counted(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                return original(*args, **kwargs)
+
+            registry.compute_duplicate_candidates = counted
+            try:
+                detail = presentation.project_detail(conn, project_key=source["project_key"])
+                self.assertEqual(calls, 0)
+                analysis = presentation.project_merge_analysis(conn, project_key=source["project_key"])
+            finally:
+                registry.compute_duplicate_candidates = original
+            with self.assertRaisesRegex(ValueError, "recommendation changed"):
+                merge.merge_projects(
+                    conn,
+                    project_key=source["project_key"],
+                    use_recommendation=True,
+                    expected_recommendation_target="proj:cccccccccccc",
+                )
+        finally:
+            conn.close()
+        self.assertTrue(detail["merge_analysis_pending"])
+        self.assertEqual(detail["explanations"]["topics"]["merge_candidate"]["conclusion"], "pending")
+        self.assertEqual(calls, 1)
+        self.assertEqual(analysis["merge_recommendation"]["target_project_key"], target["project_key"])
+        self.assertEqual(analysis["explanation"]["conclusion"], "recommended")
+
     def test_explain_uses_saved_state_without_network_or_llm(self) -> None:
         conn = registry.open_db()
         try:

@@ -96,6 +96,10 @@
   - service status、ownership、atproto contribution、merge candidateの共通application service
   - Web Overviewと`project-registry explain --format text|json`へ接続
   - 保存済みcurrent stateのみを使い、networkやLLMを呼ばない
+- 実装済み: project detailとmerge解析の分離
+  - 初期detailは全project hydrateを行わず、merge candidateを別GETで即時開始
+  - 完了後にtop recommendation、他候補、Explain、auto-ready actionを追記
+  - duplicate計算は解析内で1回だけ実行し、DBへ計算結果を保存しない
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -116,7 +120,12 @@
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト208件
+- 全通常テスト210件
+- 2540 projectの通常DBで`proj:9c167a807ae9`を計測
+  - 変更前detail 6.13秒、変更後detail 0.002秒
+  - merge candidateは後続リクエストで1.21秒、初期表示を妨げない
+  - in-app Browserでdetail表示後にMerge CandidateとExplainが更新されることを確認
+  - browser console error / warning 0件
 - normalized table検索のWeb/API test 3件
 - 対象別review decision、developer account昇格、既存projectへのmanual seed追加
 - profile edit preview/apply、stale guard、read-only拒否

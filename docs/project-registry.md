@@ -179,7 +179,7 @@ project detailのInvestigation tabでは保存run一覧、collector結果、fail
 
 OverviewのService / Ownershipでは保存済みservice verificationの履歴、NSID ownership relation、OAuth permission、URL aliasを確認できます。OAuth `include:`は未解決であることを明示します。データが保存されていない場合は`not_observed`と表示し、否定結果とは扱いません。URL aliasは同じidentifier decision経路でblock/deferできます。
 
-OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのservice status、ownership、atproto contribution、merge candidateの根拠を表示します。画面表示のためのnetwork取得やLLM評価は行いません。
+OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのservice status、ownership、atproto contribution、merge candidateの根拠を表示します。画面表示のためのnetwork取得やLLM評価は行いません。project detail本体を先に表示し、全projectとの比較が必要なmerge candidateだけを直後に別リクエストで計算して、完了次第OverviewとExplainへ追記します。計算結果はDBへ保存しません。
 
 画面構成:
 

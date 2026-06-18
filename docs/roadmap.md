@@ -83,6 +83,7 @@
    - service status、ownership、contribution level、merge candidateを共通serviceで説明
    - Web Overviewと`project-registry explain`から同じ保存済みstateを参照
    - networkやLLMは呼ばず、結論、rule、支持/反証signal、保存source参照を返す
+   - Web detailではmerge candidateだけを非同期計算し、完了次第表示する。計算結果はDBへ保存しない
 
 ### 必要が生じた時に検討するもの
 

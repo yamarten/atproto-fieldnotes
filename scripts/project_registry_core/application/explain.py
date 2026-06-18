@@ -27,14 +27,15 @@ def _sources(project: dict[str, Any], predicates: set[str] | None = None) -> lis
     return output[:50]
 
 
-def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = "all") -> dict[str, Any]:
-    resolved = core.resolve_project_key_input(conn, project_key)
-    project = core.fetch_project(conn, resolved)
-    if project is None:
-        raise ValueError(f"project not found: {project_key}")
+def explain_project_state(
+    project: dict[str, Any],
+    *,
+    recommendation: dict[str, Any] | None = None,
+    merge_pending: bool = False,
+    topic: str = "all",
+) -> dict[str, Any]:
     project = core.ensure_project_shape(project)
-    duplicate_candidates = core.compute_duplicate_candidates(conn, project)
-    recommendation = core.compute_merge_recommendation(dict(project, duplicate_candidates=duplicate_candidates))
+    recommendation = dict(recommendation or {})
 
     service_evidence = [str(item) for item in project.get("service_status_evidence", []) if str(item)]
     service = {
@@ -66,7 +67,7 @@ def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = 
     }
     merge = {
         "topic": "merge_candidate",
-        "conclusion": "recommended" if recommendation else "none",
+        "conclusion": "pending" if merge_pending else ("recommended" if recommendation else "none"),
         "rule": "current duplicate candidate and merge recommendation evaluation",
         "supporting_signals": list(recommendation.get("reasons", []) or recommendation.get("evidence", []) or []),
         "counter_signals": list(recommendation.get("blockers", []) or []),
@@ -84,8 +85,18 @@ def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = 
     if topic != "all" and topic not in explanations:
         raise ValueError(f"unknown explain topic: {topic}")
     return {
-        "project_key": resolved,
+        "project_key": str(project.get("project_key") or ""),
         "topics": explanations if topic == "all" else {topic: explanations[topic]},
         "network_used": False,
         "llm_used": False,
     }
+
+
+def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = "all") -> dict[str, Any]:
+    resolved = core.resolve_project_key_input(conn, project_key)
+    project = core.fetch_project(conn, resolved)
+    if project is None:
+        raise ValueError(f"project not found: {project_key}")
+    duplicate_candidates = core.compute_duplicate_candidates(conn, project)
+    recommendation = core.compute_merge_recommendation(dict(project, duplicate_candidates=duplicate_candidates))
+    return explain_project_state(project, recommendation=recommendation, topic=topic)

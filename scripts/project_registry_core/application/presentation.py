@@ -488,7 +488,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (resolved,)).fetchone()
     if row is None:
         raise KeyError(project_key)
-    prepared = projects.prepare_project_view(conn, project)
+    prepared = core.apply_promotion_state(project)
     profile = _json(str(row["profile_json"]), {})
     state = _json(str(row["state_json"]), {})
     raw_project = {
@@ -527,19 +527,13 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "evaluation": evaluation,
         "investigation": _investigation_summary(conn, resolved),
         "review": core.build_review_queue_item(conn, resolved),
-        "duplicates": prepared.get("duplicate_candidates", []),
-        "merge_recommendation": prepared.get("merge_recommendation", {}),
+        "duplicates": [],
+        "merge_recommendation": {},
+        "merge_analysis_pending": True,
         "service_ownership_review": _service_ownership_review(conn, resolved, prepared),
-        "explanations": explain.explain_project(conn, project_key=resolved),
+        "explanations": explain.explain_project_state(prepared, merge_pending=True),
     }
-    merge_target_key = str(payload["merge_recommendation"].get("target_project_key") or "")
-    payload["merge_target_revision"] = (
-        project_revision(conn, merge_target_key)
-        if merge_target_key and conn.execute(
-            "SELECT 1 FROM projects WHERE project_key = ?", (merge_target_key,)
-        ).fetchone()
-        else ""
-    )
+    payload["merge_target_revision"] = ""
     identifiers = payload["identifiers"]
     manual_seed = next((item for item in identifiers if "manual_seed" in item["roles"]), None)
     primary_repo = next((item for item in identifiers if item["family"] == "repository" and item["is_primary"]), None)
@@ -554,6 +548,34 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     if REMOVED_COMPATIBILITY_FIELDS.intersection(payload["project"]):
         raise AssertionError("removed compatibility fields leaked into Web payload")
     return payload
+
+
+def project_merge_analysis(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
+    resolved = core.resolve_project_key_input(conn, project_key)
+    revision_before = project_revision(conn, resolved)
+    project = core.fetch_project(conn, resolved)
+    if project is None:
+        raise KeyError(project_key)
+    prepared = projects.prepare_project_view(conn, project)
+    revision_after = project_revision(conn, resolved)
+    if revision_before != revision_after:
+        raise StaleProjectError(f"project changed during merge analysis: {resolved}")
+    recommendation = dict(prepared.get("merge_recommendation") or {})
+    target_key = str(recommendation.get("target_project_key") or "")
+    target_revision = (
+        project_revision(conn, target_key)
+        if target_key and conn.execute("SELECT 1 FROM projects WHERE project_key = ?", (target_key,)).fetchone()
+        else ""
+    )
+    explanation = explain.explain_project_state(prepared, recommendation=recommendation, topic="merge_candidate")
+    return {
+        "project_key": resolved,
+        "revision": revision_after,
+        "duplicates": list(prepared.get("duplicate_candidates") or []),
+        "merge_recommendation": recommendation,
+        "merge_target_revision": target_revision,
+        "explanation": explanation["topics"]["merge_candidate"],
+    }
 
 
 def seed_preview(conn: sqlite3.Connection, *, seed: str, seed_type: str | None = None) -> dict[str, Any]:
