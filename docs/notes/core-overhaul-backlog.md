@@ -1,6 +1,8 @@
 # Core Overhaul Backlog
 
-この文書は作業用・仕分け用のメモです。現行仕様の正本ではありません。
+この文書はschema v2移行期に作成した作業用・仕分け用の履歴メモです。
+現行仕様でも現行backlogでもありません。項目の一部は既に実装済みで、状態更新は行いません。
+現在の実装状況は[status.md](../status.md)、未完了候補は[roadmap.md](../roadmap.md)を参照してください。
 
 schema v2、調査pipeline境界、application service分割が入った後のcore側について、今のうちに壊して直せる前提で広めに棚卸しした候補です。恒久仕様は[project-record.md](../project-record.md)、[investigation-model.md](../investigation-model.md)、[background-jobs.md](../background-jobs.md)、具体的な現行heuristicは[registry-internals.md](../registry-internals.md)を正本とします。
 

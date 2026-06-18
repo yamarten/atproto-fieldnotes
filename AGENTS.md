@@ -61,6 +61,7 @@
   - [README.md](README.md)
   - [docs/project-registry.md](docs/project-registry.md)
 - 内部仕様:
+  - [docs/status.md](docs/status.md)
   - [docs/registry-internals.md](docs/registry-internals.md)
   - [docs/investigation-model.md](docs/investigation-model.md)
   - [docs/background-jobs.md](docs/background-jobs.md)
@@ -82,7 +83,8 @@
 
 1. この `AGENTS.md`
 2. `docs/thread-handoff.md`
-3. `docs/registry-internals.md`
-4. `docs/investigation-model.md`
-5. `docs/background-jobs.md`
-6. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`
+3. `docs/status.md`
+4. `docs/registry-internals.md`
+5. `docs/investigation-model.md`
+6. `docs/background-jobs.md`
+7. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`

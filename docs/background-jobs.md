@@ -145,4 +145,5 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
-job一覧は永続化していません。server再起動後もcheckpoint fileは残りますが、それを一覧へ復元する導線は未接続です。
+job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しませんが、
+未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。

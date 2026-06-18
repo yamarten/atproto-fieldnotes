@@ -1,6 +1,8 @@
 # Web UI Overhaul Backlog
 
-この文書は作業用・仕分け用のメモです。現行仕様の正本ではありません。
+この文書は2026-06の日常運用安定化前に作成した作業用・仕分け用の履歴メモです。
+現行仕様でも現行backlogでもありません。項目の一部は既に実装済みで、状態更新は行いません。
+現在の実装状況は[status.md](../status.md)、未完了候補は[roadmap.md](../roadmap.md)を参照してください。
 
 schema v2移行後のWeb UIを、今のうちに壊して直せる前提で広めに棚卸しした候補です。実装済み範囲は[project-registry.md](../project-registry.md)と[background-jobs.md](../background-jobs.md)を正本とし、ここでは未接続・未検証・将来候補を多めに列挙します。
 

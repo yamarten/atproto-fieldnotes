@@ -149,7 +149,10 @@ fixture は raw response archive ではありません。誤判定を再現す�
 - Tangled timeline、community search、bot adapter の通常実行。parser はあるが config 既定無効
 - OAuth `include:` permission set の再帰解決
 - browser 認証後操作。登録、認証入力、投稿は設計上の非目標
-- Web UI からの run/evidence inspection
+- raw HTMLやREADME全文を含む無制限のevidence inspection
+
+Web UIのrun summary、bounded evidence、input/output/evaluation、要求時のread-only replay差分は
+接続済みです。
 
 未検証:
 

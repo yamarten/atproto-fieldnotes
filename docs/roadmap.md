@@ -1,7 +1,8 @@
 # Project Registry Roadmap
 
-確定済みの保存形や責務分担は [project-record.md](project-record.md)、
-[registry-internals.md](registry-internals.md)、[investigation-model.md](investigation-model.md) に移しました。
+現在の実装状況は[status.md](status.md)、確定済みの保存形や責務分担は
+[project-record.md](project-record.md)、[registry-internals.md](registry-internals.md)、
+[investigation-model.md](investigation-model.md)に移しました。
 
 この文書は、まだ本体仕様に取り込んでいない展望と TODO を置くためのメモです。
 
@@ -24,10 +25,11 @@
 
 ## 直近の実装順
 
-ここでは、通常運用へ移るまでに順番を決めて進める作業を扱います。周辺機能を含む広い候補一覧は、次の作業用notesに分けています。
-
-- [web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)
-- [core-overhaul-backlog.md](notes/core-overhaul-backlog.md)
+ここでは、通常運用へ移るまでに順番を決めて進める未完了作業だけを扱います。
+完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
+過去の広域棚卸しは履歴資料として
+[web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)と
+[core-overhaul-backlog.md](notes/core-overhaul-backlog.md)に残しています。
 
 ### 通常DB置換前
 
@@ -46,44 +48,6 @@
 4. 必要ならprocess間lockまたはpreflightを追加する
    - 現状の`migrate-db`は別processを自動停止・拒否しない
    - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
-
-### 日常運用を安定させるまで
-
-移行後のDBをWeb UIとCLIから継続的にreviewできる状態にするための作業です。
-
-1. Search/queryをDB table直接利用へ寄せる（実装済み）
-   - identifier / relation / decision tableの構造化filterを接続済み
-   - project一覧検索は全project hydrateを行わず、project rowと`EXISTS` queryから候補を作る
-   - fuzzy search、FTS、paginationは必要が生じた時の候補として残す
-2. Review action flowを作る（実装済み）
-   - relation / collector failureは対象fingerprint付きdismiss/defer decisionへ進める
-   - candidate identifierとdeveloper accountはconfirm/block/defer可能
-   - 選択中の既存projectへmanual seedをpreview後に追加可能
-3. Profile最小編集を入れる（実装済み）
-   - nameとnotesをWebから編集可能
-   - 保存前diffとproject revisionによるstale guardを実装済み
-   - tagline、summary、website_urlは必要になったら追加
-4. Background jobの運用穴を埋める（実装済み）
-   - 固定`enrich-runs/`からcheckpointを発見し、server再起動後もresume可能
-   - sync source内部とreview candidate単位のprogress/cancel境界を接続済み
-   - reviewはdry-run planのcandidateを選択し、fingerprint再検証後にexecuteする
-5. Operationsの安全表示を整える（実装済み）
-   - dry-runでもnetworkするsyncを開始確認に明示
-   - operationごとのStop境界とcheckpoint/process jobの違いを表示
-   - job eventはprocess内保持のまま。永続化は行わない
-6. Investigation viewerを追加する（実装済み）
-   - bundleをdecodeしないrun summary一覧と、選択時のrun detailを追加
-   - collector status、failure、上限付きevidence、input/output/evaluationを表示
-   - 現行ruleで要求時にread-only replayし、保存evaluationとの差分を表示
-7. Service / ownership reviewを厚くする（実装済み）
-   - 保存collector run間のservice verification比較
-   - NSID ownership relation、OAuth permission/include未解決、URL alias reviewを表示
-   - 新規network取得は行わず、未取得は`not_observed`として否定結果と区別する
-8. Explain系の土台を作る（実装済み）
-   - service status、ownership、contribution level、merge candidateを共通serviceで説明
-   - Web Overviewと`project-registry explain`から同じ保存済みstateを参照
-   - networkやLLMは呼ばず、結論、rule、支持/反証signal、保存source参照を返す
-   - Web detailではmerge candidateだけを非同期計算し、完了次第表示する。計算結果はDBへ保存しない
 
 ### 必要が生じた時に検討するもの
 
@@ -137,14 +101,12 @@
 - UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める
 - browser service verificationの実Playwright smoke testと複数surface統合を追加する
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
-- investigation runのretention、pruning、export時sanitize policyを決める
-- Web UIからrun/evidence diffを閲覧する必要性を再評価する
+- fixture export時のsanitize運用を実データ追加前に固定する
+- investigation viewerのbounded evidenceで不足する具体例を収集する
 
 未決定:
 
-- investigation runのretention
 - 複数projectを跨ぐ永続circuit breaker
-- Web UIからのevidence inspection導線
 
 設計途中の詳細は次の作業用文書へ分離しています。
 
@@ -236,15 +198,15 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 
 未接続 / 将来候補:
 
-- evidence全文表示
-  - run一覧、上限付きevidence、replay差分は接続済み
-  - raw HTMLやREADME全文は表示しない
-- relation/collector failureからreview actionへ移る導線
-- candidate developer accountの確認・昇格操作
-- Enrich jobのserver再起動対応
-  - subprocess runner、停止API、process内job一覧、cancelled/failed runの再開は実装済み
-  - サーバー再起動後に`enrich-runs/*.json`を発見し、Operationsから再開する導線は未実装
-  - UI job stateとcheckpoint stateの履歴統合は未実装
+- sync/reviewのcheckpoint再開
+  - 現状はsource/candidate境界のprogressと停止まで
+- server再起動後のprocess job一覧・event復元
+  - enrich checkpointの再発見と再開は接続済み
+  - job eventを永続化する場合は保存量とretention policyを先に決める
+- `assist-db-edit`の共通background job化
+- evidence表示上限の調整
+  - run一覧、bounded evidence、replay差分は接続済み
+  - raw HTMLやREADME全文の表示は非目標を維持する
 
 原則 CLI に残す保守操作:
 

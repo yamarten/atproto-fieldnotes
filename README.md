@@ -169,9 +169,13 @@ project-registry prune-migration-provenance --execute
 
 運用・設計向け:
 
+- [docs/status.md](docs/status.md): 現在の通常導線、既知の制約、検証状況
 - [docs/registry-internals.md](docs/registry-internals.md)
-- [docs/roadmap.md](docs/roadmap.md)
-- [docs/thread-handoff.md](docs/thread-handoff.md)
+- [docs/investigation-model.md](docs/investigation-model.md)
+- [docs/background-jobs.md](docs/background-jobs.md)
+- [docs/roadmap.md](docs/roadmap.md): 未完了・将来候補
+- [docs/thread-handoff.md](docs/thread-handoff.md): 次スレッド固有の差分
+- [docs/notes/](docs/notes/): 調査・比較・履歴資料
 
 実装:
 
