@@ -490,6 +490,22 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(timeline[0]["classification"], "candidate")
         self.assertEqual(bot[0]["classification"], "heuristic")
 
+    def test_tangled_ufos_entries_accept_null_topics(self) -> None:
+        entries = tangled_core.normalize_ufos_entries([{
+            "collection": tangled_core.TANGLED_COLLECTION,
+            "did": "did:plc:example",
+            "rkey": "repo",
+            "time_us": 1,
+            "record": {
+                "name": "Example",
+                "description": "An atproto repository",
+                "topics": None,
+            },
+        }])
+
+        self.assertEqual(len(entries), 1)
+        self.assertTrue(entries[0]["atproto_relevant"])
+
     def test_tangled_gap_does_not_advance_watermark(self) -> None:
         conn = registry.open_db()
         scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}

@@ -51,7 +51,12 @@ def repo_relevance(project: dict[str, Any], record: dict[str, Any], handle: str)
 
 
 def atproto_relevant(record: dict[str, Any]) -> bool:
-    topics = {str(item).lower() for item in record.get("topics", []) if str(item)}
+    raw_topics = record.get("topics")
+    topics = {
+        str(item).lower()
+        for item in (raw_topics if isinstance(raw_topics, list) else [])
+        if str(item)
+    }
     text = f"{record.get('name', '')} {record.get('description', '')}".lower()
     return bool(topics & {"atproto", "at-protocol", "bluesky", "pds", "lexicon"}) or any(
         token in text for token in ("atproto", "at protocol", "bluesky", "lexicon", "personal data server")

@@ -19,6 +19,11 @@
 403 は retry せず forbidden として扱います。retryable flag は最終 failure の性質であり、必ず次 run を
 自動 scheduling することを意味しません。
 
+## 調査履歴
+
+- 2026-06-19: UFOsの`sh.tangled.repo` response 42件中39件で`record.topics`が欠落または`null`だった。
+  `atproto_relevant()`が`None`を反復してsync全体を失敗させていたため、list以外を空topicsとして扱うよう修正した。
+
 ## Source 別の残件
 
 - GitHub: secondary rate limit と通常 403 の詳細分類、repo contents request の budget 統合
