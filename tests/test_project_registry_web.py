@@ -4,13 +4,14 @@ import json
 import sqlite3
 import threading
 import types
+from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler
+from project_registry_web.server import RegistryWebHandler, RegistryWebServer
 from project_registry_core.application import presentation
 
 
@@ -248,6 +249,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertIn("Latest Investigation", script)
         self.assertIn("Start enrich job", script)
+        self.assertIn("Reload server", script)
+
         self.assertIn("startProjectEnrich", script)
         self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
@@ -270,6 +273,42 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["sync"])
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
         self.assertFalse(settings["read_only"])
+
+    def test_manual_server_reload_requires_confirmation(self) -> None:
+        requested: list[str] = []
+        self.server.request_process_reload = lambda reason: requested.append(reason) or "reload:test"
+
+        status, payload, _ = self.request("/api/reload", method="POST", payload={"confirm": False})
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "validation_error")
+        self.assertEqual(requested, [])
+
+        status, payload, _ = self.request("/api/reload", method="POST", payload={"confirm": True})
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["reload_id"], "reload:test")
+        self.assertEqual(requested, ["manual API request"])
+
+    def test_manual_server_reload_stops_jobs_and_execs_same_argv(self) -> None:
+        server = RegistryWebServer.__new__(RegistryWebServer)
+        server.reload_lock = threading.Lock()
+        server.reload_requested = False
+        server.jobs = mock.Mock()
+        with mock.patch("project_registry_web.server.threading.Thread") as thread:
+            reload_id = server.request_process_reload("test")
+            target = thread.call_args.kwargs["target"]
+            thread.return_value.start.assert_called_once_with()
+        with (
+            mock.patch("project_registry_web.server.time.sleep"),
+            mock.patch("project_registry_web.server.os.execv") as execv,
+            mock.patch("builtins.print"),
+        ):
+            target()
+
+        self.assertTrue(reload_id)
+        server.jobs.close.assert_called_once_with()
+        execv.assert_called_once()
+        with self.assertRaisesRegex(ValueError, "already in progress"):
+            server.request_process_reload("again")
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
         status, payload, _ = self.request(

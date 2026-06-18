@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -73,6 +74,9 @@ class RegistryWebServer(ThreadingHTTPServer):
         self.token = token
         self.db_path = Path(db_path).expanduser().resolve()
         self.read_only = bool(read_only)
+        self.instance_id = uuid.uuid4().hex
+        self.reload_lock = threading.Lock()
+        self.reload_requested = False
         self.mutation_lock = threading.Lock()
         self.jobs = JobManager(self.db_path)
 
@@ -84,6 +88,22 @@ class RegistryWebServer(ThreadingHTTPServer):
         if jobs is not None:
             jobs.close()
         super().server_close()
+
+    def request_process_reload(self, reason: str) -> str:
+        with self.reload_lock:
+            if self.reload_requested:
+                raise ValueError("server reload is already in progress")
+            self.reload_requested = True
+        reload_id = uuid.uuid4().hex
+
+        def reload_soon() -> None:
+            time.sleep(0.25)
+            print(f"Reloading project registry web server ({reload_id}): {reason}", flush=True)
+            self.jobs.close()
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+
+        threading.Thread(target=reload_soon, name="registry-web-manual-reload", daemon=True).start()
+        return reload_id
 
 
 class RegistryWebHandler(BaseHTTPRequestHandler):
@@ -164,6 +184,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             self.send_json({
                 "schema_version": database.SCHEMA_VERSION,
+                "server_instance_id": str(getattr(self.server, "instance_id", "")),
                 "db_path": str(self.server.db_path),
                 "token_required": True,
                 "read_only": bool(getattr(self.server, "read_only", False)),
@@ -368,6 +389,12 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     project_key=str(payload.get("project_key") or "").strip() or None,
                 )
             self.send_json(result, status=HTTPStatus.CREATED)
+            return
+        if path == "/api/reload":
+            if payload.get("confirm") is not True:
+                raise ValueError("confirm=true is required")
+            reload_id = self.server.request_process_reload("manual API request")
+            self.send_json({"reload_id": reload_id, "status": "reloading"}, status=HTTPStatus.ACCEPTED)
             return
         if path == "/api/merge-batch/action":
             action = str(payload.get("action") or "").strip()

@@ -172,6 +172,9 @@ project-registry-web --db-path data/survey.db --token "$ATPROTO_SURVEY_WEB_TOKEN
 read-only modeでは全てのWeb POST APIを拒否し、画面上のmutationとjob controlも無効になります。project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。tokenとUI設定はURLへ保存しません。
 
 `--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
+Settingsの`Reload server`は同じcommand-line argumentでserver processを手動再起動します。SQLiteは変更せず、
+active background jobへ協調停止を要求します。shutdown timeoutを超えたworkerは終了してから再起動します。
+browserは新しいprocessが応答するまで待って自動再読込します。
 
 Operationsはbulk enrichの`enrich-runs/` checkpointを再発見します。server再起動でprocess内job eventは失われますが、未完了checkpointはDiscovered Checkpointsから再開できます。Review Opsは最初にnetwork-free planを作り、候補を選択してからSQLite更新を確認します。syncはdry-runでも外部networkへ接続します。
 
@@ -204,7 +207,7 @@ Operationsのenrich、sync、review classificationはWeb serverとは別process�
 
 - `assist-db-edit`
 - server再起動後のprocess job履歴復元（enrich checkpoint発見は接続済み）
-- LLM設定、server reload/shutdownの画面操作
+- LLM設定、server shutdownの画面操作
 
 APIは共有token必須です。起動時URLの`?token=...`を開くか、`Authorization: Bearer ...`または`X-Project-Registry-Token`を付けます。静的assetはtokenなしで配信します。
 

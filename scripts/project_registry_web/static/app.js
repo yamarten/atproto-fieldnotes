@@ -902,7 +902,7 @@ async function renderSettings() {
     <label>Merge limit<input id="setting-merge-limit" type="number" min="1" max="500" value="${esc(state.settings.mergeLimit)}"></label>
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
     <label class="settings-toggle"><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
-  </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button></div>
+  </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button>${state.server?.read_only ? "" : `<button id="reload-server" class="danger">Reload server</button>`}</div>
   ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Mode</dt><dd>${state.server?.read_only ? "Read-only" : "Read/write"}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
@@ -911,6 +911,40 @@ async function renderSettings() {
     saveSettings(); status("Settings saved.");
   };
   $("clear-token").onclick = () => { localStorage.removeItem("projectRegistryToken"); token = ""; status("Token cleared. Reload to sign in again."); };
+  $("reload-server")?.addEventListener("click", confirmServerReload);
+}
+
+function confirmServerReload() {
+  const dialog = $("confirm-dialog");
+  $("confirm-title").textContent = "Reload server";
+  $("confirm-message").textContent = "Restart the Web server with the same command-line arguments? Active background jobs receive a stop request; jobs that exceed the shutdown timeout are terminated.";
+  $("confirm-note-label").hidden = true;
+  dialog.showModal();
+  dialog.onclose = async () => {
+    if (dialog.returnValue !== "confirm") return;
+    const previousInstance = state.server?.server_instance_id || "";
+    try {
+      status("Requesting server reload...");
+      await api("/api/reload", {method:"POST", body:JSON.stringify({confirm:true})});
+      status("Waiting for server restart...");
+      waitForServerReload(previousInstance, Date.now() + 30000);
+    } catch (error) { status(error.message, true); }
+  };
+}
+
+async function waitForServerReload(previousInstance, deadline) {
+  try {
+    const server = await api("/api/settings");
+    if (server.server_instance_id && server.server_instance_id !== previousInstance) {
+      location.reload();
+      return;
+    }
+  } catch (_) {}
+  if (Date.now() >= deadline) {
+    status("Server reload was requested, but the restarted server did not become ready within 30 seconds.", true);
+    return;
+  }
+  setTimeout(() => waitForServerReload(previousInstance, deadline), 500);
 }
 
 document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.addEventListener("click", () => setScreen(button.dataset.screen)));
