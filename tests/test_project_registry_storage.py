@@ -14,6 +14,13 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_explain_parser_accepts_topic_and_format(self) -> None:
+        args = cli.build_parser().parse_args([
+            "explain", "--project-key", "proj:abc", "--topic", "ownership", "--format", "json"
+        ])
+        self.assertEqual(args.topic, "ownership")
+        self.assertEqual(args.format, "json")
+
     def test_sync_parsers_create_unmatched_by_default_with_opt_out(self) -> None:
         parser = cli.build_parser()
 

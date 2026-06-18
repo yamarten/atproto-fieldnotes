@@ -8,6 +8,7 @@ from pathlib import Path
 from . import registry
 from .commands import decisions as decision_commands
 from .commands import enrichment as enrichment_commands
+from .commands import explain as explain_commands
 from .commands import investigation as investigation_commands
 from .commands import maintenance as maintenance_commands
 from .commands import merge as merge_commands
@@ -83,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     show_parser.set_defaults(func=project_commands.cmd_show)
+
+    explain_parser = subparsers.add_parser("explain", help="Explain saved registry conclusions without network or LLM access.")
+    explain_parser.add_argument("-p", "--project-key", required=True, help="Target one project key.")
+    explain_parser.add_argument("--topic", choices=["all", *explain_commands.TOPICS], default="all", help="Explanation topic. Default: all.")
+    explain_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
+    explain_parser.set_defaults(func=explain_commands.cmd_explain)
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")

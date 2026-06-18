@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import registry as core
 from .. import storage
-from . import decisions, investigation, merge, projects, query as query_service, review, review_targets
+from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
 
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -530,6 +530,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "duplicates": prepared.get("duplicate_candidates", []),
         "merge_recommendation": prepared.get("merge_recommendation", {}),
         "service_ownership_review": _service_ownership_review(conn, resolved, prepared),
+        "explanations": explain.explain_project(conn, project_key=resolved),
     }
     merge_target_key = str(payload["merge_recommendation"].get("target_project_key") or "")
     payload["merge_target_revision"] = (

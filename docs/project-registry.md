@@ -139,6 +139,15 @@ project-registry show --seed sh.tangled.repo --type nsid
 project-registry show --all --format json
 ```
 
+保存済みcurrent stateの結論根拠を確認する場合:
+
+```bash
+project-registry explain --project-key 2f2acb
+project-registry explain --project-key 2f2acb --topic ownership --format json
+```
+
+`service_status`、ownership、atproto contribution、merge candidateについて、適用rule、支持/反証signal、保存source参照を表示します。このcommandは外部networkやLLMを呼びません。
+
 ## Web UI
 
 schema version 2対応のローカルWeb UIを起動できます。
@@ -170,6 +179,8 @@ project detailのInvestigation tabでは保存run一覧、collector結果、fail
 
 OverviewのService / Ownershipでは保存済みservice verificationの履歴、NSID ownership relation、OAuth permission、URL aliasを確認できます。OAuth `include:`は未解決であることを明示します。データが保存されていない場合は`not_observed`と表示し、否定結果とは扱いません。URL aliasは同じidentifier decision経路でblock/deferできます。
 
+OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのservice status、ownership、atproto contribution、merge candidateの根拠を表示します。画面表示のためのnetwork取得やLLM評価は行いません。
+
 画面構成:
 
 - `Review`: review queue、promotion queue、merge plan
@@ -192,8 +203,7 @@ Operationsのenrich、sync、review classificationはWeb serverとは別process�
 未接続:
 
 - `assist-db-edit`
-- server再起動後のjob履歴復元とcheckpoint発見
-- investigation run一覧とreplay差分の専用画面
+- server再起動後のprocess job履歴復元（enrich checkpoint発見は接続済み）
 - LLM設定、server reload/shutdownの画面操作
 
 APIは共有token必須です。起動時URLの`?token=...`を開くか、`Authorization: Bearer ...`または`X-Project-Registry-Token`を付けます。静的assetはtokenなしで配信します。

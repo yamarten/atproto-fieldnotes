@@ -5,10 +5,30 @@ import json
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
-from project_registry_core.application import decisions, maintenance, merge, presentation, projects, review
+from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_explain_uses_saved_state_without_network_or_llm(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:eeeeeeeeeeee")
+            project["service_status"] = "live"
+            project["service_status_evidence"] = ["http_200"]
+            project["collection_observations"] = [
+                {"collection": "app.example.post", "count": 12, "recent_count": 3},
+            ]
+            project.update(registry.compute_atproto_contribution(project))
+            registry.save_project(conn, project)
+            conn.commit()
+            payload = explain.explain_project(conn, project_key="proj:eeeeeeeeeeee")
+        finally:
+            conn.close()
+        self.assertFalse(payload["network_used"])
+        self.assertFalse(payload["llm_used"])
+        self.assertEqual(payload["topics"]["service_status"]["conclusion"], "live")
+        self.assertEqual(payload["topics"]["contribution"]["conclusion"], "substantial")
+
     def test_prune_migration_provenance_preserves_identifier_semantics(self) -> None:
         conn = registry.open_db()
         created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")

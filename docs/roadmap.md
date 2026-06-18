@@ -79,12 +79,10 @@
    - 保存collector run間のservice verification比較
    - NSID ownership relation、OAuth permission/include未解決、URL alias reviewを表示
    - 新規network取得は行わず、未取得は`not_observed`として否定結果と区別する
-8. Explain系の土台を作る
-   - why service_status
-   - why ownership
-   - why contribution level
-   - why merge candidate
-   - CLI commandでもWeb表示の裏側でも使えるようにする
+8. Explain系の土台を作る（実装済み）
+   - service status、ownership、contribution level、merge candidateを共通serviceで説明
+   - Web Overviewと`project-registry explain`から同じ保存済みstateを参照
+   - networkやLLMは呼ばず、結論、rule、支持/反証signal、保存source参照を返す
 
 ### 必要が生じた時に検討するもの
 
@@ -237,7 +235,9 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 
 未接続 / 将来候補:
 
-- investigation run一覧、evidence全文、replay差分の専用画面
+- evidence全文表示
+  - run一覧、上限付きevidence、replay差分は接続済み
+  - raw HTMLやREADME全文は表示しない
 - relation/collector failureからreview actionへ移る導線
 - candidate developer accountの確認・昇格操作
 - Enrich jobのserver再起動対応

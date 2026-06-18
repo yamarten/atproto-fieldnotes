@@ -92,6 +92,10 @@
   - 保存済みservice collector結果のrun間比較
   - NSID ownership relation、OAuth permission/include未解決、URL alias action
   - 未取得は`not_observed`として表示し、否定結果とは扱わない
+- 実装済み: Explain基盤
+  - service status、ownership、atproto contribution、merge candidateの共通application service
+  - Web Overviewと`project-registry explain --format text|json`へ接続
+  - 保存済みcurrent stateのみを使い、networkやLLMを呼ばない
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -112,7 +116,7 @@
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト197件
+- 全通常テスト208件
 - normalized table検索のWeb/API test 3件
 - 対象別review decision、developer account昇格、既存projectへのmanual seed追加
 - profile edit preview/apply、stale guard、read-only拒否
@@ -169,9 +173,8 @@
 
 ## 次候補
 
-- syncのsource内部progress/cancellationとreviewの候補選択式planを追加する
-- server再起動後も既存checkpointを発見・再開できる導線を追加する
-- identifier tableを直接queryする検索・collision監査へ移し、全project hydrateを減らす
 - service browser検証とidentity corroborationのcorpusを増やす
+- sync/reviewにもcheckpoint再開が必要か、実運用の中断頻度を見て判断する
+- process job履歴を永続化する場合はretention policyを先に決める
 
 恒久仕様は[project-record.md](project-record.md)、調査契約は[investigation-model.md](investigation-model.md)、長時間処理契約は[background-jobs.md](background-jobs.md)、内部の具体値は[registry-internals.md](registry-internals.md)、将来課題は[roadmap.md](roadmap.md)を参照してください。

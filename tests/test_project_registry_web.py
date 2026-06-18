@@ -423,6 +423,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         owned = next(item for item in review["nsid_ownership"] if item["nsid"] == "app.example.post")
         self.assertEqual(owned["evidence_status"], "observed")
         self.assertTrue(any(item["source"] == "service_static" for item in review["service_verifications"]))
+        self.assertFalse(detail["explanations"]["network_used"])
+        self.assertIn("merge_candidate", detail["explanations"]["topics"])
 
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (

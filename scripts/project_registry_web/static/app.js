@@ -316,6 +316,7 @@ function renderDetail(data) {
   const recommendation = data.merge_recommendation || {};
   const overview = data.overview || {};
   const serviceOwnership = data.service_ownership_review || {};
+  const explanations = data.explanations?.topics || {};
   state.detailRevision = data.revision || "";
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
@@ -326,6 +327,7 @@ function renderDetail(data) {
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
+    ${section("Explain", renderExplanations(explanations))}
   `;
   $("detail").innerHTML = `
     <div class="detail-header">
@@ -420,6 +422,12 @@ function renderServiceOwnership(data) {
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
     ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
     ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
+}
+
+function renderExplanations(topics) {
+  const entries = Object.entries(topics || {});
+  if (!entries.length) return `<p class="muted">No explanation available.</p>`;
+  return entries.map(([topic, item]) => `<details><summary>${esc(topic)}: ${esc(item.conclusion)}</summary><dl class="kv"><dt>Rule</dt><dd>${esc(item.rule)}</dd><dt>Supports</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "None observed"}</dd><dt>Counters</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "None observed"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details>`).join("");
 }
 
 async function loadInvestigationHistory(projectKey) {

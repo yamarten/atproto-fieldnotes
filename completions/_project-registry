@@ -7,6 +7,7 @@ subcommands=(
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
+  'explain:Explain saved registry conclusions'
   'review-queue:List projects that deserve human review'
   'promotion-queue:List unintroduced projects worth showcasing'
   'review-stalled:Suggest lower-frequency tracking or revival'
@@ -143,6 +144,12 @@ case "$cmd" in
       '(-p --project-key --seed --all)--all[Show all projects]' \
       "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '--format[Output format]:format:(text json)'
+    ;;
+  explain)
+    _arguments -S \
+      '(-p --project-key)'{-p,--project-key}'[Target one project key]:project key:' \
+      '--topic[Restrict to one explanation topic]:topic:(all service_status ownership contribution merge_candidate)' \
       '--format[Output format]:format:(text json)'
     ;;
   review-queue)

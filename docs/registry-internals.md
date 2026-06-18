@@ -220,7 +220,9 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離し、削除済みcompatibility fieldを再構築しません。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
-enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開を持ちます。sync/reviewは現状operation全体が1単位で、source page/candidate単位のprogress、途中停止、checkpoint再開は未接続です。server再起動後のjob一覧復元とcheckpoint発見も未接続です。旧Web helperは暫定復活させません。最新investigation runの概要は表示しますが、run一覧、evidence全文、replay差分の専用画面も未接続です。
+enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
+
+Explain serviceは`project_registry_core.application.explain`をCLIとWebで共有します。`service_status`、ownership、atproto contribution、merge candidateについて、保存済みcurrent stateとrelation sourceだけから結論、適用rule、支持/反証signalを返します。Explain実行中はnetwork collectorやLLMを呼ばず、replay結果もDBへ保存しません。
 
 ## enrich の判断材料
 
