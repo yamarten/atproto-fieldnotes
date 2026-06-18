@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import registry as core
 from .. import storage
-from . import decisions, merge, projects, query as query_service, review, review_targets
+from . import decisions, investigation, merge, projects, query as query_service, review, review_targets
 
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -315,6 +315,55 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
             {**failure.to_dict(), "review_target": review_targets.failure_target(run["run_id"], failure.to_dict())}
             for failure in bundle.failures
         ],
+    }
+
+
+def investigation_run_list(conn: sqlite3.Connection, *, project_key: str, limit: int = 50) -> dict[str, Any]:
+    resolved = core.resolve_project_key_input(conn, project_key)
+    items = storage.list_investigation_run_summaries(conn, project_key=resolved, limit=limit)
+    return {"project_key": resolved, "count": len(items), "items": items}
+
+
+def investigation_run_detail(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    evidence_limit: int = 100,
+) -> dict[str, Any]:
+    run = storage.load_investigation_run(conn, run_id)
+    if run is None:
+        raise KeyError("investigation run not found")
+    limit = max(1, min(500, int(evidence_limit)))
+    bundle = run["bundle"]
+    records = [item.to_dict() for item in bundle.records]
+    failures = [item.to_dict() for item in bundle.failures]
+    return {
+        "run_id": run["run_id"],
+        "project_key": run["project_key"],
+        "started_at": run["started_at"],
+        "completed_at": run["completed_at"],
+        "evidence_schema_version": run["evidence_schema_version"],
+        "evaluation_version": run["evaluation_version"],
+        "collectors": storage.list_collector_run_rows(conn, run_id),
+        "record_count": len(records),
+        "records": records[:limit],
+        "records_truncated": len(records) > limit,
+        "failure_count": len(failures),
+        "failures": failures[:limit],
+        "failures_truncated": len(failures) > limit,
+        "input_project": run["input_project"],
+        "output_project": run["output_project"],
+        "evaluation": run["evaluation"],
+    }
+
+
+def investigation_replay(conn: sqlite3.Connection, *, run_id: str) -> dict[str, Any]:
+    payload = investigation.replay(conn, run_id=run_id)
+    return {
+        "run_id": payload["run_id"],
+        "project_key": payload["project_key"],
+        "evaluation": payload["evaluation"],
+        "diff": payload["diff"],
     }
 
 

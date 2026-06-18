@@ -387,6 +387,24 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         }
         self.assertIn("https://app.example.com", candidate_values)
 
+    def test_investigation_history_detail_and_replay(self) -> None:
+        status, runs, _ = self.request("/api/projects/proj:111111111111/investigation-runs")
+        self.assertEqual(status, 200)
+        self.assertEqual(runs["count"], 1)
+        self.assertNotIn("bundle", runs["items"][0])
+        run_id = runs["items"][0]["run_id"]
+
+        status, detail, _ = self.request(f"/api/investigation-runs/{run_id}?evidence_limit=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["collector_count"] if "collector_count" in detail else len(detail["collectors"]), 1)
+        self.assertEqual(detail["failure_count"], 1)
+        self.assertLessEqual(len(detail["records"]), 1)
+
+        status, replay, _ = self.request(f"/api/investigation-runs/{run_id}/replay")
+        self.assertEqual(status, 200)
+        self.assertEqual(replay["run_id"], run_id)
+        self.assertIn("diff", replay)
+
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (
             ("identifier_kind=repo_url&identifier_value=example/candidate&identifier_classification=candidate", 1),

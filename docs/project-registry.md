@@ -166,6 +166,8 @@ read-only modeでは全てのWeb POST APIを拒否し、画面上のmutationとj
 
 Operationsはbulk enrichの`enrich-runs/` checkpointを再発見します。server再起動でprocess内job eventは失われますが、未完了checkpointはDiscovered Checkpointsから再開できます。Review Opsは最初にnetwork-free planを作り、候補を選択してからSQLite更新を確認します。syncはdry-runでも外部networkへ接続します。
 
+project detailのInvestigation tabでは保存run一覧、collector結果、failure、bounded evidence、input/output/evaluationを表示できます。Replay with current rulesは外部networkやDB更新を行わず、保存evaluationと現行ruleの差分をその場で計算します。
+
 画面構成:
 
 - `Review`: review queue、promotion queue、merge plan

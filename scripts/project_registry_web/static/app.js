@@ -339,7 +339,7 @@ function renderDetail(data) {
     ${tab("overview", "Overview", overviewBody)}
     ${tab("identifiers", "Identifiers", section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`))}
     ${tab("relations", "Relations", section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.summary)}</div><div class="muted">${esc(item.evidence_label)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`))}
-    ${tab("investigation", "Investigation", section("Latest Investigation", renderInvestigation(investigation)))}
+    ${tab("investigation", "Investigation", section("Latest Investigation", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">Load run history</button></div><div id="investigation-history"></div>`))}
     ${tab("decisions", "Decisions", section("Decisions / Guards", renderDecisions(decisions)))}
     ${tab("raw", "Raw", section("Raw Data", `<details open><summary>Project payload</summary>${json(data)}</details>`))}
   `;
@@ -348,6 +348,7 @@ function renderDetail(data) {
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
   $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
+  $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
     state.detailTab = button.dataset.detailTab;
     syncUrl();
@@ -405,6 +406,31 @@ function renderInvestigation(run) {
   return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(run.completed_at)}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
     <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.source)}</strong></div><div class="muted">${esc(item.operation)} · ${esc(item.request_count || 0)} requests · ${esc(item.result_count || 0)} results${item.stop_reason ? ` · ${esc(item.stop_reason)}` : ""}</div></div>`).join("") || `<p class="muted">No collector summaries.</p>`}</div>
     ${run.failures?.length ? `<details><summary>Failures</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(item.source)} ${esc(item.operation)}</div><div class="muted">${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
+}
+
+async function loadInvestigationHistory(projectKey) {
+  const target = $("investigation-history");
+  target.innerHTML = `<p class="muted">Loading runs...</p>`;
+  try {
+    const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/investigation-runs?limit=50`);
+    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(run.completed_at)}</strong>${pill(run.problem_count ? "problems" : "complete", run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
+    target.querySelectorAll("[data-investigation-run]").forEach((button) => button.onclick = () => loadInvestigationRun(button.dataset.investigationRun));
+  } catch (error) { status(error.message, true); }
+}
+
+async function loadInvestigationRun(runId) {
+  const target = $("investigation-run-detail");
+  target.innerHTML = `<p class="muted">Loading run...</p>`;
+  try {
+    const run = await api(`/api/investigation-runs/${encodeURIComponent(runId)}?evidence_limit=100`);
+    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
+    $("replay-investigation-run").onclick = async () => {
+      try {
+        const replay = await api(`/api/investigation-runs/${encodeURIComponent(runId)}/replay`);
+        $("investigation-replay-result").innerHTML = section("Replay diff", json(replay));
+      } catch (error) { status(error.message, true); }
+    };
+  } catch (error) { status(error.message, true); }
 }
 
 function reviewTargetActions(target) {

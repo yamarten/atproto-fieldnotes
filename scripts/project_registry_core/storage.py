@@ -182,3 +182,53 @@ def list_investigation_runs(conn: sqlite3.Connection, *, project_key: str = "") 
     else:
         rows = conn.execute("SELECT run_id FROM investigation_runs ORDER BY completed_at DESC, rowid DESC").fetchall()
     return [item for row in rows if (item := load_investigation_run(conn, str(row["run_id"]))) is not None]
+
+
+def list_investigation_run_summaries(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    ensure_investigation_tables(conn)
+    rows = conn.execute(
+        """
+        SELECT r.run_id, r.project_key, r.started_at, r.completed_at,
+               r.evidence_schema_version, r.evaluation_version,
+               COUNT(c.ordinal) AS collector_count,
+               SUM(CASE WHEN c.status IN ('failed', 'partial', 'rate_limited') THEN 1 ELSE 0 END) AS problem_count
+        FROM investigation_runs r
+        LEFT JOIN collector_runs c ON c.run_id = r.run_id
+        WHERE r.project_key = ?
+        GROUP BY r.run_id
+        ORDER BY r.completed_at DESC, r.rowid DESC
+        LIMIT ?
+        """,
+        (project_key, max(1, min(500, int(limit)))),
+    ).fetchall()
+    return [{
+        "run_id": str(row["run_id"]),
+        "project_key": str(row["project_key"]),
+        "started_at": str(row["started_at"]),
+        "completed_at": str(row["completed_at"]),
+        "evidence_schema_version": int(row["evidence_schema_version"]),
+        "evaluation_version": str(row["evaluation_version"]),
+        "collector_count": int(row["collector_count"] or 0),
+        "problem_count": int(row["problem_count"] or 0),
+    } for row in rows]
+
+
+def list_collector_run_rows(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    ensure_investigation_tables(conn)
+    rows = conn.execute(
+        "SELECT * FROM collector_runs WHERE run_id = ? ORDER BY ordinal", (run_id,)
+    ).fetchall()
+    return [{
+        "source": str(row["source"]),
+        "operation": str(row["operation"]),
+        "status": str(row["status"]),
+        "observed_at": str(row["observed_at"]),
+        "result": json.loads(str(row["result_json"])),
+        "record_count": len(json.loads(str(row["records_json"]))),
+        "failure_count": len(json.loads(str(row["failures_json"]))),
+    } for row in rows]

@@ -275,6 +275,33 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     seed_type=str(query.get("type", [""])[0]).strip() or None,
                 ))
             return
+        if path.startswith("/api/investigation-runs/"):
+            parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/investigation-runs/").split("/") if part]
+            if len(parts) not in {1, 2}:
+                raise KeyError("investigation run not found")
+            with contextlib.closing(self.server.open_db()) as conn:
+                if len(parts) == 2 and parts[1] == "replay":
+                    self.send_json(services.investigation_replay(conn, run_id=parts[0]))
+                elif len(parts) == 1:
+                    self.send_json(services.investigation_run_detail(
+                        conn,
+                        run_id=parts[0],
+                        evidence_limit=_int(query.get("evidence_limit", [100])[0], 100),
+                    ))
+                else:
+                    raise KeyError("investigation run not found")
+            return
+        if path.startswith("/api/projects/") and path.endswith("/investigation-runs"):
+            key = urllib.parse.unquote(path.removeprefix("/api/projects/").removesuffix("/investigation-runs")).strip("/")
+            if not key or "/" in key:
+                raise KeyError("project not found")
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(services.investigation_run_list(
+                    conn,
+                    project_key=key,
+                    limit=_int(query.get("limit", [50])[0], 50),
+                ))
+            return
         if path.startswith("/api/projects/"):
             key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")
             if not key or "/" in key:

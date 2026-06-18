@@ -71,12 +71,10 @@
    - dry-runでもnetworkするsyncを開始確認に明示
    - operationごとのStop境界とcheckpoint/process jobの違いを表示
    - job eventはprocess内保持のまま。永続化は行わない
-6. Investigation viewerを追加する
-   - run一覧
-   - collector status
-   - failures
-   - bounded evidence
-   - replay差分
+6. Investigation viewerを追加する（実装済み）
+   - bundleをdecodeしないrun summary一覧と、選択時のrun detailを追加
+   - collector status、failure、上限付きevidence、input/output/evaluationを表示
+   - 現行ruleで要求時にread-only replayし、保存evaluationとの差分を表示
 7. Service / ownership reviewを厚くする
    - service verification結果の比較
    - NSID ownershipの根拠表示

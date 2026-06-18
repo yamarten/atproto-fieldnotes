@@ -34,6 +34,8 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
 
 公開command入口は`bin/project-registry`と`bin/project-registry-web`です。調査CLIの`main()`は`project_registry_core.cli`、調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIと`scripts/`配下のCLI wrapperは削除済みです。
 
+Web detailはproject単位のinvestigation run summaryをSQLite rowから一覧し、選択したrunだけbundleをdecodeします。run detailのevidence/failureは上限付きで、raw HTMLやREADME全文を保存・表示しません。Replayは保存runを現行ruleで要求時に再評価するread-only処理で、結果をDBへ永続化しません。
+
 ## Evidence classification
 
 - `confirmed`: manual seed、first-party claim、検証済み identity path など強い帰属を持つ観測

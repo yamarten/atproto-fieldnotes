@@ -84,6 +84,10 @@
   - sync source内部とreview candidate単位のprogress/cancel
   - review dry-run planからcandidateを選択し、fingerprint検証後にexecute
   - Operationsにnetwork dry-runとoperation別停止境界を表示
+- 実装済み: Investigation viewer
+  - project別run summary一覧、collector status、failure、bounded evidence
+  - input/output/evaluation表示と要求時のread-only replay差分
+  - summary一覧はbundle JSONをdecodeしない
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -149,7 +153,7 @@
 - server再起動後のprocess job event復元（checkpoint discoveryは接続済み）
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
-- Webからのinvestigation run一覧、evidence全文、replay差分表示
+- evidence全文表示は非目標。Web run一覧、bounded evidence、replay差分は接続済み
 
 ## 互換性のためだけに残しているもの
 
