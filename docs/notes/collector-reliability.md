@@ -23,6 +23,8 @@
 
 - 2026-06-19: UFOsの`sh.tangled.repo` response 42件中39件で`record.topics`が欠落または`null`だった。
   `atproto_relevant()`が`None`を反復してsync全体を失敗させていたため、list以外を空topicsとして扱うよう修正した。
+- 2026-06-19: `sync-tangled-repos --create-unmatched --execute`の初回作成時、seed保存後もpartial runtime dictを
+  返して同じrun内の次saveをguardが拒否していた。`ensure_project_for_seed()`は保存後にDBからcomplete viewを再loadして返す。
 
 ## Source 別の残件
 

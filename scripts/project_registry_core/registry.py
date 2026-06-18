@@ -2935,7 +2935,10 @@ def ensure_project_for_seed(
             project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
     save_project(conn, project, enriched=False)
     conn.commit()
-    return project
+    saved = fetch_project(conn, target_project_key)
+    if saved is None:  # pragma: no cover - save_project succeeded immediately above
+        raise RuntimeError(f"saved project could not be reloaded: {target_project_key}")
+    return saved
 
 
 def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: str) -> None:

@@ -525,6 +525,29 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertFalse(summary["state_updated"])
         self.assertEqual(state["watermark"]["time_us"], 100)
 
+    def test_tangled_create_unmatched_can_update_new_project_in_same_run(self) -> None:
+        conn = registry.open_db()
+        try:
+            with (
+                mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=[{
+                    "owner_did": "did:plc:example",
+                    "rkey": "example-repo",
+                    "time_us": 200,
+                    "record": {"name": "example-repo", "description": "atproto repo"},
+                    "atproto_relevant": True,
+                }]),
+                mock.patch.object(registry, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+            ):
+                summary = registry.sync_tangled_repos(conn, execute=True, create_unmatched=True)
+            projects = registry.all_projects(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["created"], 1)
+        self.assertEqual(summary["results"][0]["outcome"], "created")
+        self.assertEqual(len(projects), 1)
+        self.assertTrue(registry.runtime_view.is_complete(projects[0]))
+
     def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
         fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
         bundle = EvidenceBundle.from_dict(fixture["bundle"])

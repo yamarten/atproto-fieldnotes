@@ -78,7 +78,7 @@
 
 2026-06-18から2026-06-19の変更時点で確認済み:
 
-- unit test 216件
+- unit test 217件
 - JavaScript syntax check
 - temp SQLiteでmigration、normalized row roundtrip、review、profile編集、履歴cleanup
 - fake workerと実workerによるbackground operation protocol
