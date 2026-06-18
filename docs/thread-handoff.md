@@ -23,8 +23,9 @@
 
 - 複数project mutationが`save_project()`の内部commitによりatomicではない
 - merge後のsource investigation historyがtarget detailへ引き継がれない
-- v2以降のincremental schema migration runnerがない
-- Web `--read-only`はSQLite接続自体をread-onlyにはしない
+
+v2以降のincremental schema migration runnerとSQLite接続自体のread-only化は、必要が生じた時の
+候補へ戻しています。通常DB置換前には、旧方式v2との誤認を防ぐ現行trust/data policy markerだけを扱います。
 
 重要な前提:
 

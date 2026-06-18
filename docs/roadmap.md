@@ -42,10 +42,9 @@
    - Web、enrich、CLI writerを全停止する
    - v1 backupの複製をmigration入力にし、唯一のbackup自体を置換しない
    - migration reportをファイル保存し、新旧DBのhashと一緒に保管する
-3. schema evolutionと移行世代をDB自身で識別可能にする
+3. 現行migrationの適用世代をDB自身で識別可能にする
    - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
    - trust/data policy markerを`registry_meta`へ残し、現行migration適用済みかを判定する
-   - v2以降のincremental migration runnerと、各stepのbackup/transaction/validation契約を追加する
    - schema versionとtrust/data policy versionを混同しない
 4. 複数project mutationをatomicにする
    - 確認済み: `save_project()`が内部commitするため、merge、split、separate更新は途中失敗時に全体rollbackできない
@@ -59,10 +58,6 @@
 6. 必要ならprocess間lockまたはpreflightを追加する
    - 現状の`migrate-db`は別processを自動停止・拒否しない
    - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
-7. read-only接続の強度を決める
-   - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するだけで、SQLite接続自体はwritable
-   - 誤書込み防止を目的にするならSQLite URI `mode=ro`または`PRAGMA query_only`で接続もread-onlyにする
-
 ### 必要が生じた時に検討するもの
 
 現状の運用を妨げてはいませんが、具体的な不便や保守上の問題が出た場合に検討します。
@@ -87,6 +82,11 @@
 - job event履歴永続化
   - checkpoint discoveryだけでは実行履歴を追えない場合に追加する
   - 保存量とretention policyを先に決める
+- v2以降のincremental schema migration runner
+  - 次のschema改版が具体化した時点で、backup/transaction/validation契約と一緒に実装する
+- SQLite接続自体のread-only化
+  - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するapplication-level mode
+  - 日常運用で使う必要が生じた場合にURI `mode=ro`または`PRAGMA query_only`を追加する
 
 ### 長期候補
 
