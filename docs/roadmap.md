@@ -31,13 +31,11 @@
 
 ### 通常DB置換前
 
-現行migrationの実v1 backup dry-runは合格済みです。通常DBを置換する前に次を完了します。
+現行migrationのworkspace v1 backup mirrorに対するdry-runは合格済みです。workspaceの旧方式v2ミラーとその調査履歴はテスト用として破棄し、本番移行へ引き継ぎません。通常DBを置換する前に次を完了します。
 
-1. 旧方式v2ミラーから調査履歴だけを移送する
-   - `investigation_runs` 112件、`collector_runs` 676件
-   - project current stateは移送しない
-   - input/output snapshotの削除済みcompatibility fieldをsanitizeする
-   - 移送後にrun/collector件数、foreign key、replay loadを検証する
+1. 本番v1でdry-runを実行する
+   - project / identifier / decision / relation / investigation / collector件数を確認する
+   - hard acceptance condition、SQLite integrity、foreign keyを確認する
 2. offline置換手順を固定する
    - Web、enrich、CLI writerを全停止する
    - v1 backupの複製をmigration入力にし、唯一のbackup自体を置換しない

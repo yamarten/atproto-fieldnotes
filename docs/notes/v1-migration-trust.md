@@ -26,7 +26,7 @@
 - temp SQLiteのv1 fixtureでquarantine、operator confirmation維持、backup、dry-run、再実行
 - candidate primary NSID / developer DIDの無変更load/save roundtrip
 - migration後のnormalized row roundtrip diff 0
-- 2026-06-18に実v1 backup 2540 projectsを現行migrationでdry-run
+- 2026-06-18にworkspaceのv1 backup mirror 2540 projectsを現行migrationでdry-run
   - identifier 16364件、decision 113件、relation 0件
   - SQLite integrity `ok`
   - active block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
@@ -34,11 +34,11 @@
 
 未検証:
 
-- 現在の通常運用DB置換
+- 本番稼働中のv1 DBに対するdry-runと通常運用DB置換
 
 通常DB置換前の残件:
 
-- v1 backupには調査履歴がない一方、現在の旧方式v2ミラーには`investigation_runs` 112件、`collector_runs` 676件がある。project current stateは採用せず、履歴だけをsnapshot sanitize後に新DBへ移送する
+- workspaceの旧方式v2ミラーはテスト用であり、その`investigation_runs` / `collector_runs`は本番移行へ引き継がない。本番v1に保存されている調査履歴は通常のmigration対象になる
 - `migrate-db`はCLI/Web/enrichを跨ぐ排他lockを取らない。全processを停止したoffline状態で実行する
 - `registry_meta`はschema versionしか持たず、`v1-quarantine-1`適用済みかをDB単体で識別できない。旧方式v2ミラーは`already_current`になるため、入力DBを手順で取り違えない
 - migration reportはDBへ永続化しないため、通常置換時のJSON出力をv1 backupと一緒に保管する

@@ -107,7 +107,7 @@
   - project/identifier/decision件数とintegrityは正常、manual seed欠落0件
   - 旧移行時の`llm_source` snapshot内に削除済みcompatibility aliasが2537 projects分残る
   - 通常運用へ切り替える時はこのv2ミラーを採用せず、v1 backupから現行migrationで再作成する
-- 2026-06-18にv1 backupから現行`v1-quarantine-1` migrationをdry-run
+- 2026-06-18にworkspaceのv1 backup mirrorから現行`v1-quarantine-1` migrationをdry-run
   - project 2540件、identifier 16364件、decision 113件、relation 0件
   - SQLite integrity、canonical snapshot、normalized row無変更roundtripを検証
   - active block衝突0件、根拠不明legacy confirmed 0件、roundtrip diff 0件
@@ -115,8 +115,9 @@
 
 ## 未検証
 
-- 通常運用DBの置換
-  - 現在の旧方式v2ミラーにだけ存在するinvestigation 112件 / collector 676件の移送が必要
+- 本番稼働中のv1 DBに対するdry-runと通常運用DBの置換
+  - workspaceの旧方式v2ミラーはテスト用として破棄し、その調査履歴は移送しない
+  - 本番v1に存在するinvestigation / collector rowはmigrationの通常コピー対象
   - migration command自体には別processとの排他lockがない
 - 今回追加したdetail tab、URL state、frontend mutation queue、read-only表示の実ブラウザ確認
   - API/component testとJavaScript syntax checkは通過
