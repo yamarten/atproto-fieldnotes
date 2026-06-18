@@ -75,11 +75,10 @@
    - bundleをdecodeしないrun summary一覧と、選択時のrun detailを追加
    - collector status、failure、上限付きevidence、input/output/evaluationを表示
    - 現行ruleで要求時にread-only replayし、保存evaluationとの差分を表示
-7. Service / ownership reviewを厚くする
-   - service verification結果の比較
-   - NSID ownershipの根拠表示
-   - OAuth permission inspector
-   - URL alias review
+7. Service / ownership reviewを厚くする（実装済み）
+   - 保存collector run間のservice verification比較
+   - NSID ownership relation、OAuth permission/include未解決、URL alias reviewを表示
+   - 新規network取得は行わず、未取得は`not_observed`として否定結果と区別する
 8. Explain系の土台を作る
    - why service_status
    - why ownership

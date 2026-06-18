@@ -109,6 +109,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
         project["candidate_developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:developer", "source": "fixture"}]
+        project["url_aliases"] = [{"alias": "https://example.com", "canonical": "https://app.example.com", "reason": "redirect", "confidence": "candidate"}]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
@@ -147,6 +148,14 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             category="timeout",
             message="fixture timeout",
             retryable=True,
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="service_static",
+            operation="probe",
+            status="success",
+            observed_at="2026-06-14T00:00:00+00:00",
+            request_count=1,
+            result_count=1,
         ))
         storage.save_investigation_run(
             conn,
@@ -396,7 +405,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         status, detail, _ = self.request(f"/api/investigation-runs/{run_id}?evidence_limit=1")
         self.assertEqual(status, 200)
-        self.assertEqual(detail["collector_count"] if "collector_count" in detail else len(detail["collectors"]), 1)
+        self.assertEqual(detail["collector_count"] if "collector_count" in detail else len(detail["collectors"]), 2)
         self.assertEqual(detail["failure_count"], 1)
         self.assertLessEqual(len(detail["records"]), 1)
 
@@ -404,6 +413,16 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(replay["run_id"], run_id)
         self.assertIn("diff", replay)
+
+    def test_service_and_ownership_review_uses_saved_evidence(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        review = detail["service_ownership_review"]
+        self.assertEqual(review["service_verification_status"], "observed")
+        self.assertEqual(review["oauth_status"], "not_observed")
+        owned = next(item for item in review["nsid_ownership"] if item["nsid"] == "app.example.post")
+        self.assertEqual(owned["evidence_status"], "observed")
+        self.assertTrue(any(item["source"] == "service_static" for item in review["service_verifications"]))
 
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (

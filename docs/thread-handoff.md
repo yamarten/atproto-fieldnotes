@@ -88,6 +88,10 @@
   - project別run summary一覧、collector status、failure、bounded evidence
   - input/output/evaluation表示と要求時のread-only replay差分
   - summary一覧はbundle JSONをdecodeしない
+- 実装済み: Service / ownership review
+  - 保存済みservice collector結果のrun間比較
+  - NSID ownership relation、OAuth permission/include未解決、URL alias action
+  - 未取得は`not_observed`として表示し、否定結果とは扱わない
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み

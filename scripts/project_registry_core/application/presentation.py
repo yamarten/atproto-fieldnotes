@@ -367,6 +367,91 @@ def investigation_replay(conn: sqlite3.Connection, *, run_id: str) -> dict[str, 
     }
 
 
+def _service_ownership_review(
+    conn: sqlite3.Connection,
+    project_key: str,
+    prepared: dict[str, Any],
+) -> dict[str, Any]:
+    service_rows = conn.execute(
+        """
+        SELECT c.run_id, r.completed_at, c.source, c.operation, c.status, c.result_json
+        FROM collector_runs c
+        JOIN investigation_runs r ON r.run_id = c.run_id
+        WHERE r.project_key = ? AND c.source LIKE 'service_%'
+        ORDER BY r.completed_at DESC, c.ordinal ASC
+        LIMIT 20
+        """,
+        (project_key,),
+    ).fetchall()
+    service_verifications = [{
+        "run_id": str(row["run_id"]),
+        "completed_at": str(row["completed_at"]),
+        "source": str(row["source"]),
+        "operation": str(row["operation"]),
+        "status": str(row["status"]),
+        "result": _json(str(row["result_json"]), {}),
+    } for row in service_rows]
+
+    nsids = conn.execute(
+        "SELECT value, role, classification FROM project_identifiers "
+        "WHERE project_key = ? AND kind = 'nsid' ORDER BY ordinal",
+        (project_key,),
+    ).fetchall()
+    relation_rows = conn.execute(
+        "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
+    ).fetchall()
+    ownership = []
+    for identifier in nsids:
+        value = str(identifier["value"])
+        evidence = [{
+            "predicate": str(row["predicate"]),
+            "subject_type": str(row["subject_type"]),
+            "subject_value": str(row["subject_value"]),
+            "source": str(row["source"]),
+            "locator": str(row["locator"]),
+            "classification": str(row["classification"]),
+        } for row in relation_rows if str(row["object_value"]) == value and str(row["predicate"]) in {"defines_schema", "owns_namespace", "serves_collection"}]
+        ownership.append({
+            "nsid": value,
+            "role": str(identifier["role"]),
+            "classification": str(identifier["classification"]),
+            "evidence": evidence,
+            "evidence_status": "observed" if evidence else "not_observed",
+        })
+
+    permissions = [{
+        "nsid": str(row["object_value"]),
+        "classification": str(row["classification"]),
+        "source": str(row["source"]),
+        "locator": str(row["locator"]),
+        "method": str(row["method"]),
+        "include_unresolved": str(row["method"]) == "oauth_scope:include",
+    } for row in relation_rows if str(row["predicate"]) == "requests_permission"]
+
+    aliases = []
+    for item in prepared.get("url_aliases", []):
+        if not isinstance(item, dict):
+            continue
+        alias = str(item.get("alias") or "")
+        aliases.append({
+            **dict(item),
+            "actions": {"identifier_type": "service_url", "value": alias} if alias else {},
+        })
+    return {
+        "service_verifications": service_verifications,
+        "service_verification_status": "observed" if service_verifications else "not_observed",
+        "current_service_status": str(prepared.get("service_status") or "unknown"),
+        "current_service_status_confidence": str(prepared.get("service_status_confidence") or "none"),
+        "current_service_status_evidence": list(prepared.get("service_status_evidence") or []),
+        "ownership_signal": str(prepared.get("ownership_signal") or "unknown"),
+        "nsid_ownership": ownership,
+        "oauth_permissions": permissions,
+        "oauth_status": "observed" if permissions else "not_observed",
+        "url_aliases": aliases,
+        "url_alias_status": "observed" if aliases else "not_observed",
+    }
+
+
 def project_revision(conn: sqlite3.Connection, project_key: str) -> str:
     row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (project_key,)).fetchone()
     if row is None:
@@ -444,6 +529,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "review": core.build_review_queue_item(conn, resolved),
         "duplicates": prepared.get("duplicate_candidates", []),
         "merge_recommendation": prepared.get("merge_recommendation", {}),
+        "service_ownership_review": _service_ownership_review(conn, resolved, prepared),
     }
     merge_target_key = str(payload["merge_recommendation"].get("target_project_key") or "")
     payload["merge_target_revision"] = (

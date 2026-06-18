@@ -315,6 +315,7 @@ function renderDetail(data) {
   const investigation = data.investigation;
   const recommendation = data.merge_recommendation || {};
   const overview = data.overview || {};
+  const serviceOwnership = data.service_ownership_review || {};
   state.detailRevision = data.revision || "";
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
@@ -324,6 +325,7 @@ function renderDetail(data) {
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>${state.server?.read_only ? "" : `<div class="actions"><button id="edit-profile">Edit</button></div>`}`)}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
+    ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
   `;
   $("detail").innerHTML = `
     <div class="detail-header">
@@ -406,6 +408,18 @@ function renderInvestigation(run) {
   return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(run.completed_at)}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
     <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.source)}</strong></div><div class="muted">${esc(item.operation)} · ${esc(item.request_count || 0)} requests · ${esc(item.result_count || 0)} results${item.stop_reason ? ` · ${esc(item.stop_reason)}` : ""}</div></div>`).join("") || `<p class="muted">No collector summaries.</p>`}</div>
     ${run.failures?.length ? `<details><summary>Failures</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(item.source)} ${esc(item.operation)}</div><div class="muted">${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
+}
+
+function renderServiceOwnership(data) {
+  const service = list(data.service_verifications);
+  const ownership = list(data.nsid_ownership);
+  const permissions = list(data.oauth_permissions);
+  const aliases = list(data.url_aliases);
+  return `<dl class="kv"><dt>Current service</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>
+    ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.completed_at)} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
+    ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
+    ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
+    ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
 }
 
 async function loadInvestigationHistory(projectKey) {

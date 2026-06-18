@@ -168,6 +168,8 @@ Operationsはbulk enrichの`enrich-runs/` checkpointを再発見します。serv
 
 project detailのInvestigation tabでは保存run一覧、collector結果、failure、bounded evidence、input/output/evaluationを表示できます。Replay with current rulesは外部networkやDB更新を行わず、保存evaluationと現行ruleの差分をその場で計算します。
 
+OverviewのService / Ownershipでは保存済みservice verificationの履歴、NSID ownership relation、OAuth permission、URL aliasを確認できます。OAuth `include:`は未解決であることを明示します。データが保存されていない場合は`not_observed`と表示し、否定結果とは扱いません。URL aliasは同じidentifier decision経路でblock/deferできます。
+
 画面構成:
 
 - `Review`: review queue、promotion queue、merge plan
