@@ -51,11 +51,10 @@
 
 移行後のDBをWeb UIとCLIから継続的にreviewできる状態にするための作業です。
 
-1. Search/queryをDB table直接利用へ寄せる
-   - identifier table直接検索
-   - relation table検索
-   - decision table検索
-   - 全project hydrate依存を減らす
+1. Search/queryをDB table直接利用へ寄せる（実装済み）
+   - identifier / relation / decision tableの構造化filterを接続済み
+   - project一覧検索は全project hydrateを行わず、project rowと`EXISTS` queryから候補を作る
+   - fuzzy search、FTS、paginationは必要が生じた時の候補として残す
 2. Review action flowを作る
    - relation / collector failure / candidateからconfirm、block、defer、dismissへ進める
    - candidate developer accountの確認・昇格を追加する

@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import registry as core
 from .. import storage
-from . import decisions, merge, projects, review
+from . import decisions, merge, projects, query as query_service, review
 
 
 REMOVED_COMPATIBILITY_FIELDS = {
@@ -48,9 +48,9 @@ def _summary(project: dict[str, Any]) -> dict[str, Any]:
         "technical_interest_level": str(project.get("technical_interest_level") or "unknown"),
         "last_seen_at": str(project.get("last_seen_at") or ""),
         "last_enriched_at": str(project.get("last_enriched_at") or ""),
-        "has_candidates": bool(project.get("service_url_candidates") or project.get("candidate_source_code_urls")),
+        "has_candidates": bool(project.get("_query_has_candidates", project.get("service_url_candidates") or project.get("candidate_source_code_urls"))),
         "has_errors": bool(project.get("last_run_errors")),
-        "promotion_hold": core.active_promotion_deferral(project) is not None,
+        "promotion_hold": bool(project.get("_query_promotion_hold", core.active_promotion_deferral(project) is not None)),
     }
 
 
@@ -70,22 +70,49 @@ def search_projects(
     enriched_before: str = "",
     sort: str = "",
     limit: int = 50,
+    identifier_kind: str = "",
+    identifier_value: str = "",
+    identifier_classification: str = "",
+    relation_predicate: str = "",
+    relation_subject_type: str = "",
+    relation_subject_value: str = "",
+    relation_object_type: str = "",
+    relation_object_value: str = "",
+    relation_source: str = "",
+    decision_kind: str = "",
+    decision_target_type: str = "",
+    decision_target_value: str = "",
+    decision_status: str = "",
 ) -> dict[str, Any]:
     search = str(query or "").strip()
-    projects_list = core.list_projects(conn, tracking_states=tracking_states)
+    projects_list = query_service.search_project_rows(
+        conn,
+        query=search,
+        tracking_states=tracking_states,
+        service_statuses=service_statuses,
+        contribution_levels=contribution_levels,
+        technical_interest_levels=technical_interest_levels,
+        identifier_kind=identifier_kind,
+        identifier_value=identifier_value,
+        identifier_classification=identifier_classification,
+        relation_predicate=relation_predicate,
+        relation_subject_type=relation_subject_type,
+        relation_subject_value=relation_subject_value,
+        relation_object_type=relation_object_type,
+        relation_object_value=relation_object_value,
+        relation_source=relation_source,
+        decision_kind=decision_kind,
+        decision_target_type=decision_target_type,
+        decision_target_value=decision_target_value,
+        decision_status=decision_status,
+    )
 
     def matches(project: dict[str, Any]) -> bool:
-        if service_statuses and str(project.get("service_status") or "") not in service_statuses:
-            return False
-        if contribution_levels and str(project.get("atproto_contribution_level") or "unknown") not in contribution_levels:
-            return False
-        if technical_interest_levels and str(project.get("technical_interest_level") or "unknown") not in technical_interest_levels:
-            return False
         checks = (
             (introduced, bool(project.get("introduced_url"))),
-            (has_candidates, bool(project.get("service_url_candidates") or project.get("candidate_source_code_urls"))),
+            (has_candidates, bool(project.get("_query_has_candidates"))),
             (has_errors, bool(project.get("last_run_errors"))),
-            (promotion_hold, core.active_promotion_deferral(project) is not None),
+            (promotion_hold, bool(project.get("_query_promotion_hold"))),
         )
         for choice, actual in checks:
             if choice in {"yes", "no"} and actual != (choice == "yes"):
@@ -100,7 +127,7 @@ def search_projects(
     filtered = [project for project in projects_list if matches(project)]
     by_key = {str(project.get("project_key") or ""): project for project in filtered}
     if search:
-        ranked = core.project_search_candidates(conn, search, limit=max(len(filtered), 1), projects=filtered)
+        ranked = query_service.rank_project_rows(conn, filtered, search)
         items = []
         for candidate in ranked:
             item = _summary(by_key[candidate["project_key"]])

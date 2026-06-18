@@ -68,6 +68,10 @@
   - `api_version: 2`、server presenter、project revision、stale guard
   - server内mutation直列化、frontend mutation queue、`--read-only`
   - detail tabとURL stateのreload/back/forward復元
+- 実装済み: normalized table直接検索
+  - Web project一覧は全project hydrateを行わない
+  - identifier kind/value/classification、relation predicate/subject/object/source、decision kind/target/statusをfilter可能
+  - relation subject/sourceとdecision target用indexを追加
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -89,6 +93,7 @@
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
 - 全通常テスト197件
+- normalized table検索のWeb/API test 3件
 - in-app Browserでschema v2 DBのreview-stalled dry-runを実行
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認

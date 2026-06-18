@@ -26,6 +26,10 @@ const state = {
     candidates: "any",
     errors: "any",
     sort: "last_seen_desc",
+    identifierKind: "", identifierValue: "", identifierClassification: "",
+    relationPredicate: "", relationSubjectType: "", relationSubjectValue: "",
+    relationObjectType: "", relationObjectValue: "", relationSource: "",
+    decisionKind: "", decisionTargetType: "", decisionTargetValue: "", decisionStatus: "",
   },
 };
 let mutationQueue = Promise.resolve();
@@ -80,6 +84,13 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
     candidates: query.get("candidates") || "any",
     errors: query.get("errors") || "any",
     sort: query.get("sort") || "last_seen_desc",
+    identifierKind: query.get("identifier_kind") || "", identifierValue: query.get("identifier_value") || "",
+    identifierClassification: query.get("identifier_classification") || "",
+    relationPredicate: query.get("relation_predicate") || "", relationSubjectType: query.get("relation_subject_type") || "",
+    relationSubjectValue: query.get("relation_subject_value") || "", relationObjectType: query.get("relation_object_type") || "",
+    relationObjectValue: query.get("relation_object_value") || "", relationSource: query.get("relation_source") || "",
+    decisionKind: query.get("decision_kind") || "", decisionTargetType: query.get("decision_target_type") || "",
+    decisionTargetValue: query.get("decision_target_value") || "", decisionStatus: query.get("decision_status") || "",
   };
 }
 
@@ -96,6 +107,13 @@ function syncUrl({replace = false} = {}) {
       candidates: state.projectSearch.candidates !== "any" ? state.projectSearch.candidates : "",
       errors: state.projectSearch.errors !== "any" ? state.projectSearch.errors : "",
       sort: state.projectSearch.sort !== "last_seen_desc" ? state.projectSearch.sort : "",
+      identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
+      identifier_classification: state.projectSearch.identifierClassification,
+      relation_predicate: state.projectSearch.relationPredicate, relation_subject_type: state.projectSearch.relationSubjectType,
+      relation_subject_value: state.projectSearch.relationSubjectValue, relation_object_type: state.projectSearch.relationObjectType,
+      relation_object_value: state.projectSearch.relationObjectValue, relation_source: state.projectSearch.relationSource,
+      decision_kind: state.projectSearch.decisionKind, decision_target_type: state.projectSearch.decisionTargetType,
+      decision_target_value: state.projectSearch.decisionTargetValue, decision_status: state.projectSearch.decisionStatus,
     };
     Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
   }
@@ -145,6 +163,19 @@ function listControls() {
       <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
       <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
       <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
+      <label>Identifier kind<input id="filter-identifier-kind" placeholder="nsid, account, repo_url" value="${esc(state.projectSearch.identifierKind)}"></label>
+      <label>Identifier value<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
+      <label>Identifier classification<input id="filter-identifier-classification" placeholder="confirmed, candidate" value="${esc(state.projectSearch.identifierClassification)}"></label>
+      <label>Relation predicate<input id="filter-relation-predicate" placeholder="defines_schema" value="${esc(state.projectSearch.relationPredicate)}"></label>
+      <label>Relation subject type<input id="filter-relation-subject-type" value="${esc(state.projectSearch.relationSubjectType)}"></label>
+      <label>Relation subject value<input id="filter-relation-subject-value" value="${esc(state.projectSearch.relationSubjectValue)}"></label>
+      <label>Relation object type<input id="filter-relation-object-type" value="${esc(state.projectSearch.relationObjectType)}"></label>
+      <label>Relation object value<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
+      <label>Relation source<input id="filter-relation-source" value="${esc(state.projectSearch.relationSource)}"></label>
+      <label>Decision kind<input id="filter-decision-kind" placeholder="block_identifier" value="${esc(state.projectSearch.decisionKind)}"></label>
+      <label>Decision target type<input id="filter-decision-target-type" value="${esc(state.projectSearch.decisionTargetType)}"></label>
+      <label>Decision target value<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
+      <label>Decision status<select id="filter-decision-status">${selectOptions([["", "Any"], ["active", "Active"], ["expired", "Expired"], ["cleared", "Cleared"]], state.projectSearch.decisionStatus)}</select></label>
     </div></details>
   </div>`;
 }
@@ -179,6 +210,13 @@ function projectSearchPath() {
     has_candidates: state.projectSearch.candidates,
     has_errors: state.projectSearch.errors,
     sort: state.projectSearch.sort,
+    identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
+    identifier_classification: state.projectSearch.identifierClassification,
+    relation_predicate: state.projectSearch.relationPredicate, relation_subject_type: state.projectSearch.relationSubjectType,
+    relation_subject_value: state.projectSearch.relationSubjectValue, relation_object_type: state.projectSearch.relationObjectType,
+    relation_object_value: state.projectSearch.relationObjectValue, relation_source: state.projectSearch.relationSource,
+    decision_kind: state.projectSearch.decisionKind, decision_target_type: state.projectSearch.decisionTargetType,
+    decision_target_value: state.projectSearch.decisionTargetValue, decision_status: state.projectSearch.decisionStatus,
   };
   Object.entries(values).forEach(([key, value]) => { if (value && value !== "any") query.set(key, value); });
   return `/api/projects?${query}`;
@@ -197,6 +235,13 @@ function captureProjectSearch() {
     candidates: $("filter-candidates")?.value || "any",
     errors: $("filter-errors")?.value || "any",
     sort: $("filter-sort")?.value || "last_seen_desc",
+    identifierKind: $("filter-identifier-kind")?.value || "", identifierValue: $("filter-identifier-value")?.value || "",
+    identifierClassification: $("filter-identifier-classification")?.value || "",
+    relationPredicate: $("filter-relation-predicate")?.value || "", relationSubjectType: $("filter-relation-subject-type")?.value || "",
+    relationSubjectValue: $("filter-relation-subject-value")?.value || "", relationObjectType: $("filter-relation-object-type")?.value || "",
+    relationObjectValue: $("filter-relation-object-value")?.value || "", relationSource: $("filter-relation-source")?.value || "",
+    decisionKind: $("filter-decision-kind")?.value || "", decisionTargetType: $("filter-decision-target-type")?.value || "",
+    decisionTargetValue: $("filter-decision-target-value")?.value || "", decisionStatus: $("filter-decision-status")?.value || "",
   };
 }
 

@@ -203,6 +203,23 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     enriched_before=_date(query.get("enriched_before", [""])[0]),
                     sort=str(query.get("sort", [""])[0]),
                     limit=_int(query.get("limit", [50])[0], 50),
+                    identifier_kind=str(query.get("identifier_kind", [""])[0]),
+                    identifier_value=str(query.get("identifier_value", [""])[0]),
+                    identifier_classification=str(query.get("identifier_classification", [""])[0]),
+                    relation_predicate=str(query.get("relation_predicate", [""])[0]),
+                    relation_subject_type=str(query.get("relation_subject_type", [""])[0]),
+                    relation_subject_value=str(query.get("relation_subject_value", [""])[0]),
+                    relation_object_type=str(query.get("relation_object_type", [""])[0]),
+                    relation_object_value=str(query.get("relation_object_value", [""])[0]),
+                    relation_source=str(query.get("relation_source", [""])[0]),
+                    decision_kind=str(query.get("decision_kind", [""])[0]),
+                    decision_target_type=str(query.get("decision_target_type", [""])[0]),
+                    decision_target_value=str(query.get("decision_target_value", [""])[0]),
+                    decision_status=_choice(
+                        query.get("decision_status", [""])[0],
+                        {"", "active", "expired", "cleared"},
+                        default="",
+                    ),
                 ))
             return
         if path == "/api/review-queue":

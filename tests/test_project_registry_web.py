@@ -378,6 +378,29 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         }
         self.assertIn("https://app.example.com", candidate_values)
 
+    def test_search_uses_normalized_table_filters(self) -> None:
+        cases = (
+            ("identifier_kind=repo_url&identifier_value=example/candidate&identifier_classification=candidate", 1),
+            ("relation_predicate=defines_schema&relation_object_type=nsid&relation_object_value=app.example", 1),
+            ("relation_source=github_source&relation_subject_type=repo", 1),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                status, payload, _ = self.request(f"/api/projects?{query}")
+                self.assertEqual(status, 200)
+                self.assertEqual(payload["count"], expected)
+                self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
+    def test_search_does_not_hydrate_all_projects(self) -> None:
+        original = registry.list_projects
+        registry.list_projects = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("hydrated all projects"))
+        try:
+            status, payload, _ = self.request("/api/projects?q=app.example.post")
+        finally:
+            registry.list_projects = original
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
     def test_stale_revision_and_read_only_reject_writes(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)

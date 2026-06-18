@@ -26,6 +26,8 @@ v1 migrationは`v1-quarantine-1` trust policyを適用します。旧confirmed f
 
 v1 migration provenanceは通常運用で増加しない固定量です。安定運用後は`prune-migration-provenance`で対象件数とmetadata削減量を確認し、`--execute`でidentifier rowを残したまま移行専用keyを削除できます。`legacy_record`内の通常metadataは平坦化して残します。
 
+Webのproject一覧検索は`projects` rowを起点に、`project_identifiers`、`project_relations`、`project_decisions`を`EXISTS` queryでfilterします。一覧候補作成時に全projectのnormalized childをhydrateしません。project detailは選択した1件について各child tableを直接取得します。
+
 ## 旧 discovery フローの扱い
 
 旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `project-registry` だけを前提にします。

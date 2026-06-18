@@ -108,6 +108,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_project_relations_object
             ON project_relations(predicate, object_type, object_value, classification);
+        CREATE INDEX IF NOT EXISTS idx_project_relations_subject
+            ON project_relations(subject_type, subject_value, predicate, classification);
+        CREATE INDEX IF NOT EXISTS idx_project_relations_source
+            ON project_relations(source, predicate, classification);
         CREATE TABLE IF NOT EXISTS project_decisions (
             project_key TEXT NOT NULL,
             ordinal INTEGER NOT NULL,
@@ -124,6 +128,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_project_decisions_kind
             ON project_decisions(project_key, kind, expires_at);
+        CREATE INDEX IF NOT EXISTS idx_project_decisions_target
+            ON project_decisions(kind, target_type, target_value, cleared_at, expires_at);
         CREATE TABLE IF NOT EXISTS sync_state (
             scope_key TEXT PRIMARY KEY,
             kind TEXT NOT NULL,
