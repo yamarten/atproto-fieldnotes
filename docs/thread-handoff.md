@@ -19,6 +19,13 @@
 [v1-migration-trust.md](notes/v1-migration-trust.md)と
 [roadmap.md](roadmap.md)の「通常DB置換前」を参照してください。
 
+通常DB置換前のコード上の優先残件として、次を確認済みです。
+
+- 複数project mutationが`save_project()`の内部commitによりatomicではない
+- merge後のsource investigation historyがtarget detailへ引き継がれない
+- v2以降のincremental schema migration runnerがない
+- Web `--read-only`はSQLite接続自体をread-onlyにはしない
+
 重要な前提:
 
 - Web、enrich、CLI writerを停止してから実行する

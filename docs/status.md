@@ -53,6 +53,13 @@
 - server再起動後のprocess job eventとjob一覧の復元
   - enrichの未完了checkpoint再発見は接続済み
 - CLIなど別processを含むwriter排他
+- 複数project mutationのtransaction ownership
+  - `save_project()`が内部commitするため、merge、split、separate更新は全体を単一transactionとしてrollbackできない
+- merge後のproject lineage
+  - source project rowは削除されるが、sourceの`investigation_runs.project_key`と他projectからの参照はtargetへ付け替えない
+  - investigation row自体は削除されないが、target projectの通常detailからは参照できない
+- schema v2以降のincremental migration
+  - 現状の`migrate-db`はv1からv2だけを扱い、既存v2 DBを次世代schemaへ更新するrunnerはない
 - `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
 - OAuth `include:` permission setの再帰解決
@@ -63,6 +70,10 @@
 - job eventのSQLite永続化
 - collector request途中の強制停止
 - 旧DB schema、旧Python import API、旧Web payload、EvidenceBundle v1 readerの互換維持
+
+安全上の制約:
+
+- Webの`--read-only`はPOSTとjob controlを拒否するapplication-level modeであり、SQLiteをOS/URI levelのread-onlyでは開かない
 
 ## 動作確認状況
 

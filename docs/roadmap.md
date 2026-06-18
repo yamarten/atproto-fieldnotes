@@ -42,12 +42,26 @@
    - Web、enrich、CLI writerを全停止する
    - v1 backupの複製をmigration入力にし、唯一のbackup自体を置換しない
    - migration reportをファイル保存し、新旧DBのhashと一緒に保管する
-3. 移行世代の誤認防止を決める
+3. schema evolutionと移行世代をDB自身で識別可能にする
    - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
-   - trust policy markerを`registry_meta`へ残すか、置換手順だけで管理するかを通常置換前に確定する
-4. 必要ならprocess間lockまたはpreflightを追加する
+   - trust/data policy markerを`registry_meta`へ残し、現行migration適用済みかを判定する
+   - v2以降のincremental migration runnerと、各stepのbackup/transaction/validation契約を追加する
+   - schema versionとtrust/data policy versionを混同しない
+4. 複数project mutationをatomicにする
+   - 確認済み: `save_project()`が内部commitするため、merge、split、separate更新は途中失敗時に全体rollbackできない
+   - transactionの開始・commit・rollbackはapplication serviceへ寄せ、repositoryの単体saveはcommitしない
+   - 2件目のsave、source delete、履歴更新を意図的に失敗させるrollback testを追加する
+5. merge後のidentity/history policyを固定する
+   - 確認済み: source project row削除後も`investigation_runs.project_key`はsource keyのままで、target detailから見えない
+   - source keyをtargetへ解決するalias/tombstoneを残すか、履歴と参照をtargetへ付け替えるか決める
+   - `separate_project`、checkpoint、run snapshot内の旧keyをどこまで履歴として維持するかを明示する
+   - splitは過去runを自動分配できないため、mergeと同じ処理にせず別policyにする
+6. 必要ならprocess間lockまたはpreflightを追加する
    - 現状の`migrate-db`は別processを自動停止・拒否しない
    - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
+7. read-only接続の強度を決める
+   - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するだけで、SQLite接続自体はwritable
+   - 誤書込み防止を目的にするならSQLite URI `mode=ro`または`PRAGMA query_only`で接続もread-onlyにする
 
 ### 必要が生じた時に検討するもの
 
