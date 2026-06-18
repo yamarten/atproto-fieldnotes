@@ -24,13 +24,15 @@ def _string_set(value: Any) -> set[str] | None:
     return result or None
 
 
-def _run_sync(conn: Any, request: OperationRequest) -> dict[str, Any]:
+def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, cancel_requested: Any = None) -> dict[str, Any]:
     parameters = request.parameters
     source = str(parameters.get("source") or "").strip()
     common = {
         "execute": request.execute,
         "incremental": bool(parameters.get("incremental", True)),
         "all_history": bool(parameters.get("all_history")),
+        "progress": progress,
+        "cancel_requested": cancel_requested,
     }
     if source == "introduced":
         return sync.introduced(
@@ -76,9 +78,11 @@ def _run_sync(conn: Any, request: OperationRequest) -> dict[str, Any]:
     raise ValueError(f"unsupported sync source: {source}")
 
 
-def _run_review(conn: Any, request: OperationRequest) -> dict[str, Any]:
+def _run_review(conn: Any, request: OperationRequest, *, progress: Any = None, cancel_requested: Any = None) -> dict[str, Any]:
     parameters = request.parameters
     kind = str(parameters.get("kind") or "").strip()
+    selected = _string_set(parameters.get("selected_candidate_ids"))
+    plan = str(parameters.get("plan_fingerprint") or "")
     if kind == "stalled":
         return review.stalled(
             conn,
@@ -87,6 +91,10 @@ def _run_review(conn: Any, request: OperationRequest) -> dict[str, Any]:
             max_enrich_age_days=max(1, int(parameters.get("max_enrich_age_days") or 30)),
             limit=max(1, int(parameters.get("limit") or 100)),
             note=str(parameters.get("note") or ""),
+            selected_candidate_ids=selected,
+            expected_plan_fingerprint=plan,
+            progress=progress,
+            cancel_requested=cancel_requested,
         )
     common = {
         "execute": request.execute,
@@ -94,6 +102,10 @@ def _run_review(conn: Any, request: OperationRequest) -> dict[str, Any]:
         "limit": max(1, int(parameters.get("limit") or 100)),
         "note": str(parameters.get("note") or ""),
         "note_reason": str(parameters.get("note_reason") or ""),
+        "selected_candidate_ids": selected,
+        "expected_plan_fingerprint": plan,
+        "progress": progress,
+        "cancel_requested": cancel_requested,
     }
     if kind == "ignore":
         return review.ignore(conn, **common)
@@ -109,22 +121,29 @@ def _run_simple(
     emit: Any,
 ) -> OperationResult:
     started_at = utc_now()
-    emit(OperationEvent(
-        operation_id=request.operation_id,
-        operation=request.operation,
-        kind="started",
-        sequence=1,
-        data={"parameters": request.to_dict()["parameters"]},
-    ))
-    if cancellation.cancel_requested:
-        completed_at = utc_now()
+    sequence = 0
+
+    def send(kind: str, data: dict[str, Any]) -> None:
+        nonlocal sequence
+        sequence += 1
         emit(OperationEvent(
             operation_id=request.operation_id,
             operation=request.operation,
-            kind="cancelled",
-            sequence=2,
-            data={"reason": cancellation.reason},
+            kind=kind,
+            sequence=sequence,
+            data=data,
         ))
+
+    def progress(current: int, total: int, item: dict[str, Any]) -> None:
+        send("progress", {
+            "progress": {"current": current, "total": total},
+            "project_key": str(item.get("project_key") or ""),
+            "kind": str(item.get("kind") or item.get("suggested_tracking_state") or ""),
+        })
+    send("started", {"parameters": request.to_dict()["parameters"]})
+    if cancellation.cancel_requested:
+        completed_at = utc_now()
+        send("cancelled", {"reason": cancellation.reason})
         return OperationResult(
             operation_id=request.operation_id,
             operation=request.operation,
@@ -134,17 +153,21 @@ def _run_simple(
             data={"reason": cancellation.reason},
         )
     try:
-        payload = _run_sync(conn, request) if request.operation == "sync" else _run_review(conn, request)
+        payload = _run_sync(
+            conn,
+            request,
+            progress=progress,
+            cancel_requested=lambda: cancellation.cancel_requested,
+        ) if request.operation == "sync" else _run_review(
+            conn,
+            request,
+            progress=progress,
+            cancel_requested=lambda: cancellation.cancel_requested,
+        )
     except Exception as exc:
         completed_at = utc_now()
         error = {"type": type(exc).__name__, "message": str(exc)}
-        emit(OperationEvent(
-            operation_id=request.operation_id,
-            operation=request.operation,
-            kind="failed",
-            sequence=2,
-            data={"error": error},
-        ))
+        send("failed", {"error": error})
         return OperationResult(
             operation_id=request.operation_id,
             operation=request.operation,
@@ -158,17 +181,12 @@ def _run_simple(
         "summary": payload,
         "cancel_requested": cancellation.cancel_requested,
     }
-    emit(OperationEvent(
-        operation_id=request.operation_id,
-        operation=request.operation,
-        kind="completed",
-        sequence=2,
-        data=data,
-    ))
+    status = "cancelled" if cancellation.cancel_requested else "completed"
+    send(status, data)
     return OperationResult(
         operation_id=request.operation_id,
         operation=request.operation,
-        status="completed",
+        status=status,
         started_at=started_at,
         completed_at=completed_at,
         data=data,

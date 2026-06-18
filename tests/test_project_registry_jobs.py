@@ -123,6 +123,33 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
             cancelled["operation_id"],
         )
 
+    def test_discovers_and_resumes_orphaned_checkpoint_from_fixed_root(self) -> None:
+        run_id = "enrich-discovered"
+        root = self.db_path.parent / "enrich-runs"
+        root.mkdir()
+        checkpoint = root / f"{run_id}.json"
+        checkpoint.write_text(json.dumps({
+            "version": 1,
+            "run_id": run_id,
+            "status": "running",
+            "updated_at": "2026-06-18T00:00:00+00:00",
+            "options": {"include_stable": True},
+            "selected_project_keys": ["proj:a", "proj:b"],
+            "completed_project_keys": ["proj:a"],
+            "failed_projects": [],
+        }))
+
+        discovered = self.manager.list_checkpoints()
+        self.assertEqual(discovered["items"][0]["status"], "orphaned")
+        self.assertTrue(discovered["items"][0]["can_resume"])
+        resumed = self.manager.resume_checkpoint(run_id)
+        completed = self.wait_for(resumed["job_id"], {"completed"})
+        self.assertEqual(completed["operation_id"], run_id)
+        self.assertEqual(completed["request"]["parameters"]["resume_run"], run_id)
+
+        with self.assertRaisesRegex(ValueError, "invalid checkpoint"):
+            self.manager.resume_checkpoint("../outside")
+
     def test_real_worker_protocol_completes_empty_bulk_enrich_without_network(self) -> None:
         checkpoint = Path(self.tempdir.name) / "empty-run.json"
         request = OperationRequest.create(
@@ -206,6 +233,49 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(payload["candidate_count"], 2)
         self.assertEqual(payload["total_candidate_count"], 3)
         self.assertEqual(len(payload["candidates"]), 2)
+        self.assertTrue(payload["plan_fingerprint"].startswith("plan:"))
+        self.assertTrue(all(item["candidate_id"].startswith("candidate:") for item in payload["candidates"]))
+
+        with mock.patch.object(review_services.core, "list_projects", return_value=projects), mock.patch.object(
+            review_services.core, "ensure_project_shape", side_effect=lambda project: project
+        ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
+            with self.assertRaisesRegex(ValueError, "plan changed"):
+                conn = registry.open_db()
+                try:
+                    review_services.stalled(
+                        conn,
+                        limit=2,
+                        expected_plan_fingerprint="plan:stale",
+                        now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
+                    )
+                finally:
+                    conn.close()
+
+    def test_sync_reports_item_progress_and_honors_boundary_cancellation(self) -> None:
+        entries = [{
+            "rkey": "repo-1",
+            "time_us": 10,
+            "record": {},
+            "atproto_relevant": False,
+            "owner_did": "",
+        }]
+        seen: list[tuple[int, int, dict]] = []
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=entries):
+                result = registry.sync_tangled_repos(
+                    conn,
+                    progress=lambda current, total, item: seen.append((current, total, item)),
+                    cancel_requested=lambda: False,
+                )
+                cancelled = registry.sync_tangled_repos(conn, cancel_requested=lambda: True)
+        finally:
+            conn.close()
+        self.assertEqual((seen[0][0], seen[0][1]), (1, 1))
+        self.assertEqual(seen[0][2]["source"], "tangled")
+        self.assertTrue(cancelled["cancelled"])
+        self.assertFalse(cancelled["state_updated"])
+        self.assertFalse(result["cancelled"])
 
 
 if __name__ == "__main__":

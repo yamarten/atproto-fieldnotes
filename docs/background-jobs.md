@@ -16,6 +16,12 @@
 - 複数の書き込みjobを同時実行すること
 - 任意commandや任意外部URLをWebから実行すること
 
+Web server起動時のjob eventはprocess内だけに保持します。一方、bulk enrich checkpointはDBと同じdirectoryの`enrich-runs/`から再発見し、未完了runをserver再起動後にresumeできます。APIはrun IDだけを受け取り、任意checkpoint pathは受け付けません。
+
+停止境界はoperationごとに異なります。enrichはproject境界、reviewはcandidate境界です。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはitem、collection inventoryはfetch/import境界でcancelを確認します。
+
+review executeは先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplan fingerprintとcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
+
 ## 共通契約
 
 `project_registry_core.jobs`のschema version 1を使用します。
@@ -53,7 +59,7 @@
 - `cancelled`
 - `failed`
 
-現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。sync/review serviceは現時点では1 operationを1単位として`started`と終了eventを返し、source内部のpage/item単位progressは未接続です。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
+現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。syncはsource内のquery/page/item境界、reviewはcandidate境界で`progress` eventを返します。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
 
 ## 中断
 
@@ -64,7 +70,7 @@
 - collectorや外部requestを途中で破棄しない。停止までの上限は各sourceのtimeoutに依存する
 - 完了済みprojectは再開時に再実行しない
 
-sync/reviewの停止粒度はenrichより粗く、実行中のsource scanまたはclassification全体が戻るまで待ちます。停止要求中にoperationが正常完了した場合は、DB更新を取り消さず`completed`として扱います。sync/reviewのcheckpoint再開は未接続です。
+syncは進行中のHTTP requestを中断せず次のquery/page/item境界で、reviewは次candidateの前で停止します。境界までに完了したDB更新は取り消しません。sync/review自体のcheckpoint再開は未接続です。
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
 
@@ -111,10 +117,9 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 
 未接続:
 
-- sync source内部とreview candidate単位のprogress/cancellation
 - sync/reviewのcheckpoint再開
 - `assist-db-edit`の共通job化
-- server再起動後のjob一覧復元と、checkpointだけが残ったrunの発見
+- server再起動後のprocess job一覧復元。enrich checkpoint発見は接続済み
 - job event履歴の永続化
 
 未検証:

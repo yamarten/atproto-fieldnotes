@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from .. import registry as core
 
@@ -20,6 +20,8 @@ def introduced(
     lookback_days: int = 7,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     return core.sync_introduced_entries(
         conn,
@@ -30,6 +32,8 @@ def introduced(
         lookback_days=lookback_days,
         incremental=incremental,
         all_history=all_history,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -45,6 +49,8 @@ def github(
     screen_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     config = core.load_config()
     search_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
@@ -64,6 +70,8 @@ def github(
         screen_unmatched=screen_unmatched,
         incremental=incremental,
         all_history=all_history,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -77,6 +85,8 @@ def collections(
     save_path: str | None = None,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     config = core.load_config()
     resolved_url = source_url or str(config.get("collection_inventory", {}).get("url") or "")
@@ -91,6 +101,8 @@ def collections(
         save_path=save_path,
         incremental=incremental,
         all_history=all_history,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -104,6 +116,8 @@ def semble(
     lookback_days: int = 14,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     return core.sync_semble_collections(
         conn,
@@ -114,6 +128,8 @@ def semble(
         lookback_days=lookback_days,
         incremental=incremental,
         all_history=all_history,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -124,6 +140,8 @@ def tangled(
     create_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     return core.sync_tangled_repos(
         conn,
@@ -131,4 +149,6 @@ def tangled(
         create_unmatched=create_unmatched,
         incremental=incremental,
         all_history=all_history,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )

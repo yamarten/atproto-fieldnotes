@@ -152,6 +152,62 @@ class JobManager:
             jobs = list(reversed(self._jobs.values()))[:max(1, min(500, int(limit)))]
             return {"count": len(jobs), "items": [job.snapshot() for job in jobs]}
 
+    @property
+    def checkpoint_root(self) -> Path:
+        return self.db_path.parent / "enrich-runs"
+
+    def list_checkpoints(self, *, limit: int = 100) -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
+        root = self.checkpoint_root
+        if not root.exists():
+            return {"count": 0, "items": []}
+        for path in sorted(root.glob("*.json"), key=lambda item: item.stat().st_mtime_ns, reverse=True):
+            try:
+                payload = json.loads(path.read_text())
+                run_id = str(payload.get("run_id") or "")
+                if not run_id or path.name != f"{run_id}.json":
+                    continue
+                selected = [str(item) for item in payload.get("selected_project_keys", []) if str(item)]
+                completed = [str(item) for item in payload.get("completed_project_keys", []) if str(item)]
+                status = str(payload.get("status") or "unknown")
+                resumable = status != "completed" and len(completed) < len(selected)
+                items.append({
+                    "kind": "checkpoint",
+                    "run_id": run_id,
+                    "status": "orphaned" if status == "running" else status,
+                    "checkpoint_status": status,
+                    "updated_at": str(payload.get("updated_at") or ""),
+                    "selected_project_count": len(selected),
+                    "completed_project_count": len(completed),
+                    "failed_project_count": len(payload.get("failed_projects", [])),
+                    "can_resume": resumable,
+                    "options": dict(payload.get("options") or {}),
+                })
+            except (OSError, ValueError, TypeError):
+                continue
+            if len(items) >= max(1, min(500, int(limit))):
+                break
+        return {"count": len(items), "items": items}
+
+    def resume_checkpoint(self, run_id: str) -> dict[str, Any]:
+        value = str(run_id or "").strip()
+        if not value or any(part in value for part in ("/", "\\", "..")):
+            raise ValueError("invalid checkpoint run id")
+        path = self.checkpoint_root / f"{value}.json"
+        if not path.is_file() or path.parent.resolve() != self.checkpoint_root.resolve():
+            raise ValueError("enrich checkpoint is not available")
+        payload = json.loads(path.read_text())
+        if str(payload.get("run_id") or "") != value:
+            raise ValueError("checkpoint run id mismatch")
+        selected = [item for item in payload.get("selected_project_keys", []) if str(item)]
+        completed = [item for item in payload.get("completed_project_keys", []) if str(item)]
+        if str(payload.get("status") or "") == "completed" or len(completed) >= len(selected):
+            raise ValueError("enrich checkpoint is already complete")
+        parameters = dict(payload.get("options") or {})
+        parameters.update({"all_projects": True, "resume_run": value, "checkpoint_path": str(path)})
+        parameters.pop("llm_api_key_configured", None)
+        return self.start_enrich(parameters, operation_id=value)
+
     def get_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             job = self._require_locked(job_id)

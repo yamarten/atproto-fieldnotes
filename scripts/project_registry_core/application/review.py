@@ -1,11 +1,47 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import sqlite3
 from collections.abc import Callable
 from typing import Any
 
 from .. import registry as core
+
+
+def _candidate_id(item: dict[str, Any]) -> str:
+    identity = {
+        key: item.get(key)
+        for key in ("project_key", "kind", "suggested_tracking_state", "reason")
+        if key in item
+    }
+    encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"candidate:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _plan(candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
+    decorated = [{**item, "candidate_id": _candidate_id(item)} for item in candidates]
+    encoded = json.dumps([item["candidate_id"] for item in decorated], separators=(",", ":"))
+    return decorated, f"plan:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
+def _select_plan(
+    candidates: list[dict[str, Any]],
+    *,
+    selected_candidate_ids: set[str] | None,
+    expected_plan_fingerprint: str,
+) -> tuple[list[dict[str, Any]], str]:
+    decorated, fingerprint = _plan(candidates)
+    if expected_plan_fingerprint and expected_plan_fingerprint != fingerprint:
+        raise ValueError("review plan changed; run dry-run again")
+    if selected_candidate_ids is not None:
+        available = {str(item["candidate_id"]) for item in decorated}
+        unknown = selected_candidate_ids - available
+        if unknown:
+            raise ValueError("review plan contains stale candidate ids")
+        decorated = [item for item in decorated if item["candidate_id"] in selected_candidate_ids]
+    return decorated, fingerprint
 
 
 def review_queue(
@@ -44,6 +80,10 @@ def stalled(
     limit: int | None = None,
     note: str = "",
     now: dt.datetime | None = None,
+    selected_candidate_ids: set[str] | None = None,
+    expected_plan_fingerprint: str = "",
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     inactivity_days = max(1, int(inactivity_days))
     max_enrich_age_days = max(1, int(max_enrich_age_days))
@@ -74,7 +114,15 @@ def stalled(
     suggested_state_counts = _counts(candidates, "suggested_tracking_state")
     if limit is not None:
         candidates = candidates[:max(1, int(limit))]
+    candidates, plan_fingerprint = _select_plan(
+        candidates,
+        selected_candidate_ids=selected_candidate_ids,
+        expected_plan_fingerprint=expected_plan_fingerprint,
+    )
     if not execute:
+        if progress:
+            for index, item in enumerate(candidates, 1):
+                progress(index, len(candidates), item)
         return {
             "mode": "dry_run",
             "inactivity_days": inactivity_days,
@@ -83,6 +131,7 @@ def stalled(
             "total_candidate_count": total_candidate_count,
             "suggested_state_counts": suggested_state_counts,
             "candidates": candidates,
+            "plan_fingerprint": plan_fingerprint,
         }
 
     updated: list[str] = []
@@ -95,6 +144,8 @@ def stalled(
         )
     )
     for item in candidates:
+        if cancel_requested and cancel_requested():
+            break
         project = core.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
@@ -109,6 +160,8 @@ def stalled(
             "project_key": str(project["project_key"]),
             "tracking_state": str(project.get("tracking_state") or ""),
         })
+        if progress:
+            progress(len(updated), len(candidates), item)
     conn.commit()
     return {
         "mode": "execute",
@@ -119,6 +172,8 @@ def stalled(
         "updated_project_keys": updated,
         "updated_projects": updated_projects,
         "suggested_state_counts": suggested_state_counts,
+        "plan_fingerprint": plan_fingerprint,
+        "cancelled": len(updated) < len(candidates) and bool(cancel_requested and cancel_requested()),
     }
 
 
@@ -130,6 +185,10 @@ def ignore(
     limit: int | None = 100,
     note: str = "",
     note_reason: str = "",
+    selected_candidate_ids: set[str] | None = None,
+    expected_plan_fingerprint: str = "",
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     return _classification(
         conn,
@@ -142,6 +201,10 @@ def ignore(
         limit=limit,
         note=note,
         note_reason=note_reason,
+        selected_candidate_ids=selected_candidate_ids,
+        expected_plan_fingerprint=expected_plan_fingerprint,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -153,6 +216,10 @@ def out_of_scope(
     limit: int | None = 100,
     note: str = "",
     note_reason: str = "",
+    selected_candidate_ids: set[str] | None = None,
+    expected_plan_fingerprint: str = "",
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     return _classification(
         conn,
@@ -166,6 +233,10 @@ def out_of_scope(
         note=note,
         note_reason=note_reason,
         default_tracking_states={"active", "watchlist", "stable", "stalled", "out_of_scope"},
+        selected_candidate_ids=selected_candidate_ids,
+        expected_plan_fingerprint=expected_plan_fingerprint,
+        progress=progress,
+        cancel_requested=cancel_requested,
     )
 
 
@@ -182,6 +253,10 @@ def _classification(
     note: str,
     note_reason: str,
     default_tracking_states: set[str] | None = None,
+    selected_candidate_ids: set[str] | None = None,
+    expected_plan_fingerprint: str = "",
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     resolved_states = set(
         tracking_states
@@ -198,7 +273,15 @@ def _classification(
     kind_counts = _counts(candidates, "kind")
     if limit is not None:
         candidates = candidates[:max(1, int(limit))]
+    candidates, plan_fingerprint = _select_plan(
+        candidates,
+        selected_candidate_ids=selected_candidate_ids,
+        expected_plan_fingerprint=expected_plan_fingerprint,
+    )
     if not execute:
+        if progress:
+            for index, item in enumerate(candidates, 1):
+                progress(index, len(candidates), item)
         return {
             "mode": "dry_run",
             "tracking_states": sorted(resolved_states),
@@ -206,6 +289,7 @@ def _classification(
             "total_candidate_count": total_candidate_count,
             "kind_counts": kind_counts,
             "candidates": candidates,
+            "plan_fingerprint": plan_fingerprint,
         }
 
     updated: list[str] = []
@@ -213,6 +297,8 @@ def _classification(
     static_note = str(note or "").strip()
     reason_override = str(note_reason or "").strip()
     for item in candidates:
+        if cancel_requested and cancel_requested():
+            break
         project = core.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
@@ -233,6 +319,8 @@ def _classification(
             "project_key": str(project["project_key"]),
             "tracking_note": str(project.get("tracking_note") or ""),
         })
+        if progress:
+            progress(len(updated), len(candidates), item)
     conn.commit()
     return {
         "mode": "execute",
@@ -242,6 +330,8 @@ def _classification(
         "updated_project_keys": updated,
         "updated_tracking_notes": updated_notes,
         "kind_counts": kind_counts,
+        "plan_fingerprint": plan_fingerprint,
+        "cancelled": len(updated) < len(candidates) and bool(cancel_requested and cancel_requested()),
     }
 
 

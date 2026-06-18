@@ -13,6 +13,7 @@ const state = {
   mergeTargetRevision: "",
   openJobDetails: new Set(),
   jobDetailCache: new Map(),
+  jobsById: new Map(),
   listRequest: 0,
   detailRequest: 0,
   operationTimer: null,
@@ -546,7 +547,7 @@ function renderNewSeed() {
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">${state.server?.read_only ? "Read-only mode. Job controls are disabled." : "Operations run in a separate process. Only one job runs at a time. Enrich stops between projects; sync and review finish their current operation before a cancellation request takes effect."}</p><div class="operation-grid">
+  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">${state.server?.read_only ? "Read-only mode. Job controls are disabled." : "Operations run in a separate process. Only one job runs at a time. Enrich stops between projects, sync at source page/item boundaries, and review between candidates."}</p><div class="operation-grid">
     <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
       <label>Target<select id="enrich-target"><option value="all">Active and watchlist projects</option><option value="project">One project</option></select></label>
       <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
@@ -577,11 +578,10 @@ function renderOperations() {
       <label id="review-inactivity-label">Inactivity days<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
       <label id="review-freshness-label">Max enrich age days<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>
       <label>Tracking note<input id="review-note" placeholder="Optional note for applied updates"></label>
-      <label><span><input id="review-execute" type="checkbox"> Apply tracking-state changes</span></label>
-      <button id="start-review" class="primary">Start review job</button>
+      <button id="start-review" class="primary">Build review plan</button>
     </div><code>project-registry review-&lt;kind&gt; [--execute]</code></article>
     <article class="operation-card"><h3>Investigation Replay</h3><p>Replay and benchmark saved evidence without network access.</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
-  </div>${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
+  </div>${section("Discovered Checkpoints", `<div id="checkpoint-list"><p class="muted">Loading...</p></div>`)}${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
   $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
   $("sync-source").onchange = updateSyncControls;
   $("review-kind").onchange = updateReviewControls;
@@ -680,22 +680,20 @@ function updateReviewControls() {
 
 function startReviewJob() {
   const kind = $("review-kind").value;
-  const execute = $("review-execute").checked;
   const payload = {
     kind,
-    execute,
+    execute:false,
     limit: Number($("review-limit").value || 100),
     inactivity_days: Number($("review-inactivity").value || 45),
     max_enrich_age_days: Number($("review-freshness").value || 30),
     note: $("review-note").value.trim(),
   };
-  const effect = execute ? "This applies every listed candidate from this run to SQLite." : "This only reports candidates and does not update SQLite.";
-  confirmOperation("Start review job", `Start ${kind} review? ${effect}`, async () => {
+  confirmOperation("Build review plan", `Calculate ${kind} candidates from saved data? This does not update SQLite.`, async () => {
     status("Starting review job...");
     await api("/api/jobs/review", {method:"POST", body:JSON.stringify(payload)});
     status("Review job started.");
     await loadJobs();
-  }, {write: execute});
+  }, {write: false});
 }
 
 function renderJobs(items) {
@@ -704,6 +702,7 @@ function renderJobs(items) {
     const progress = job.progress || {};
     const count = progress.total ? `${progress.current || 0} / ${progress.total}` : "";
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
+    const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>
       <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${esc(progress.elapsed || "")}</span></div>
       ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
@@ -711,10 +710,21 @@ function renderJobs(items) {
       <div class="actions">
         ${job.can_cancel && !state.server?.read_only ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
         ${job.can_resume && !state.server?.read_only ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
+        ${plan?.candidates?.length && !state.server?.read_only ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">Review ${esc(plan.candidates.length)} candidates</button>` : ""}
       </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
-        <summary>Details</summary><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
+        <summary>Details</summary><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
       </details></article>`;
   }).join("");
+}
+
+function renderReviewPlan(job) {
+  const summary = job.result?.data?.summary || {};
+  return `<div class="review-plan">${list(summary.candidates).map((item) => `<label><span><input type="checkbox" data-plan-candidate="${esc(job.job_id)}" value="${esc(item.candidate_id)}" checked> ${esc(item.project_key)} ${esc(item.kind || item.suggested_tracking_state || "")}</span></label>`).join("")}<div class="actions"><button class="danger" data-review-execute="${esc(job.job_id)}">Apply selected</button></div></div>`;
+}
+
+function renderCheckpoints(items) {
+  if (!items.length) return `<p class="muted">No enrich checkpoints found.</p>`;
+  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)}</span><span>${esc(item.updated_at)}</span></div>${item.can_resume && !state.server?.read_only ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
 }
 
 async function loadJobs() {
@@ -722,10 +732,14 @@ async function loadJobs() {
   if (state.operationTimer) clearTimeout(state.operationTimer);
   state.operationTimer = null;
   try {
-    const data = await api("/api/jobs?limit=50");
+    const [data, checkpoints] = await Promise.all([api("/api/jobs?limit=50"), api("/api/checkpoints?limit=100")]);
+    state.jobsById = new Map(list(data.items).map((job) => [job.job_id, job]));
     $("job-list").innerHTML = renderJobs(list(data.items));
+    $("checkpoint-list").innerHTML = renderCheckpoints(list(checkpoints.items));
     bindJobActions();
-    await Promise.all([...state.openJobDetails].map((jobId) => refreshJobDetail(jobId)));
+    await Promise.all([...state.openJobDetails]
+      .filter((jobId) => !state.jobsById.get(jobId)?.result?.data?.summary?.candidates?.length)
+      .map((jobId) => refreshJobDetail(jobId)));
     if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling")) {
       state.operationTimer = setTimeout(loadJobs, 2000);
     }
@@ -746,6 +760,25 @@ async function refreshJobDetail(jobId) {
 }
 
 function bindJobActions() {
+  document.querySelectorAll("[data-checkpoint-resume]").forEach((button) => button.onclick = () => confirmOperation("Resume discovered checkpoint", `Resume ${button.dataset.checkpointResume}?`, async () => {
+    await api(`/api/checkpoints/${encodeURIComponent(button.dataset.checkpointResume)}/resume`, {method:"POST", body:"{}"});
+    status("Resume job started."); await loadJobs();
+  }));
+  document.querySelectorAll("[data-review-plan]").forEach((button) => button.onclick = () => {
+    const details = button.closest("article").querySelector("details"); details.open = true;
+  });
+  document.querySelectorAll("[data-review-execute]").forEach((button) => button.onclick = () => {
+    const jobId = button.dataset.reviewExecute;
+    const card = button.closest("article");
+    const selected = [...card.querySelectorAll(`[data-plan-candidate="${jobId}"]:checked`)].map((item) => item.value);
+    const sourceJob = state.jobsById.get(jobId);
+    if (!sourceJob || !selected.length) { status("Select at least one review candidate.", true); return; }
+    confirmOperation("Apply review plan", `Apply ${selected.length} selected candidates?`, async () => {
+      const summary = sourceJob.result.data.summary;
+      await api("/api/jobs/review", {method:"POST", body:JSON.stringify({...sourceJob.request.parameters, execute:true, selected_candidate_ids:selected, plan_fingerprint:summary.plan_fingerprint})});
+      status("Review execution started."); await loadJobs();
+    });
+  });
   document.querySelectorAll("[data-job-cancel]").forEach((button) => button.onclick = () => {
     const jobId = button.dataset.jobCancel;
     confirmOperation("Stop background job", `Request cancellation for ${jobId}? The current operation may finish first.`, async () => {
@@ -767,6 +800,8 @@ function bindJobActions() {
       return;
     }
     state.openJobDetails.add(jobId);
+    const sourceJob = state.jobsById.get(jobId);
+    if (sourceJob?.operation === "review" && sourceJob?.result?.data?.summary?.candidates?.length) return;
     const target = $(`job-detail-${jobId.replaceAll(":", "-")}`);
     if (state.jobDetailCache.has(jobId)) target.innerHTML = json(state.jobDetailCache.get(jobId));
     await refreshJobDetail(jobId);

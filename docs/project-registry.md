@@ -164,6 +164,8 @@ read-only modeでは全てのWeb POST APIを拒否し、画面上のmutationとj
 
 `--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
 
+Operationsはbulk enrichの`enrich-runs/` checkpointを再発見します。server再起動でprocess内job eventは失われますが、未完了checkpointはDiscovered Checkpointsから再開できます。Review Opsは最初にnetwork-free planを作り、候補を選択してからSQLite更新を確認します。syncはdry-runでも外部networkへ接続します。
+
 画面構成:
 
 - `Review`: review queue、promotion queue、merge plan

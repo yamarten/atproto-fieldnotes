@@ -6111,11 +6111,24 @@ def sync_collection_inventory(
     save_path: Path | None = None,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"source_url": normalize_url(source_url)}
     state = read_sync_state(conn, "collections", scope)
     stored_watermark = sync_watermark_datetime(state) if incremental and not all_history else None
     payload = fetch_collection_inventory(source_url)
+    if progress:
+        progress(1, 2, {"kind": "source_page", "source": "collections", "entry_count": len(payload)})
+    if cancel_requested and cancel_requested():
+        return {
+            "source": f"collection_inventory_url:{source_url}",
+            "source_url": source_url,
+            "mode": "execute" if execute else "dry_run",
+            "cancelled": True,
+            "entries": 0,
+            "state_updated": False,
+        }
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
@@ -6176,6 +6189,8 @@ def sync_collection_inventory(
         source=f"collection_inventory_url:{source_url}",
         merge_existing_observations=True,
     )
+    if progress:
+        progress(2, 2, {"kind": "source_items", "source": "collections", "entry_count": len(filtered_payload)})
     summary.update(filter_stats)
     summary.update(activity_refresh)
     state_updated = bool(execute and incremental and newest_timestamp is not None and (create_unmatched or int(summary.get("unmatched") or 0) == 0))
@@ -6202,6 +6217,8 @@ def sync_introduced_entries(
     lookback_days: int = 7,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"query": str(query).strip()}
     state = read_sync_state(conn, "introduced", scope)
@@ -6218,8 +6235,12 @@ def sync_introduced_entries(
     pages = 0
     boundary_reached = False
     exhausted = False
+    cancelled = False
     newest_timestamp: dt.datetime | None = None
     while pages < max(1, max_pages):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            break
         payload = search_bsky_posts_payload(
             query,
             limit=min(100, max(1, limit)),
@@ -6232,6 +6253,8 @@ def sync_introduced_entries(
             break
         fetched_posts += len(page_posts)
         pages += 1
+        if progress:
+            progress(pages, max(1, max_pages), {"kind": "source_page", "source": "introduced", "item_count": len(page_posts)})
         for post in page_posts:
             record = post.get("record", {}) if isinstance(post.get("record"), dict) else {}
             timestamp = parse_iso_datetime(str(post.get("indexedAt") or record.get("createdAt") or ""))
@@ -6375,6 +6398,7 @@ def sync_introduced_entries(
         "imported_project_keys": imported_project_keys,
         "matched_project_keys": matched_project_keys,
         "unmatched_entries": unmatched_entries[:100],
+        "cancelled": cancelled,
     }
 
 
@@ -6738,6 +6762,8 @@ def sync_github_search(
     screen_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"queries": sorted(str(query).strip() for query in queries if str(query).strip())}
     state = read_sync_state(conn, "github-search", scope)
@@ -6751,10 +6777,16 @@ def sync_github_search(
     deduped_results: dict[str, dict[str, Any]] = {}
     scans: list[dict[str, Any]] = []
     next_watermarks = dict(stored_watermarks)
-    for query in queries:
+    cancelled = False
+    for query_index, query in enumerate(queries, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            break
         stored_cutoff = parse_iso_datetime(str(stored_watermarks.get(query) or "")) if incremental and not all_history else None
         cutoff = None if all_history else (stored_cutoff or fallback_cutoff)
         scan = fetch_github_search_query_sync_results(query, pages=pages, per_page=per_page, cutoff=cutoff)
+        if progress:
+            progress(query_index, len(queries), {"kind": "source_query", "source": "github", "query": query, "item_count": len(scan["results"])})
         scans.append(scan)
         for entry in scan["results"]:
             repo_url = str(entry.get("url") or "")
@@ -6765,7 +6797,7 @@ def sync_github_search(
             next_watermarks[query] = str(scan["newest_timestamp"])
     results = list(deduped_results.values())
     results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
-    scan_complete = all(bool(scan.get("scan_complete")) for scan in scans)
+    scan_complete = not cancelled and all(bool(scan.get("scan_complete")) for scan in scans)
     existing_projects = list_projects(conn)
     _, _, service_host_lookup = build_collection_project_matchers(existing_projects)
     known_repo_urls = {
@@ -6799,10 +6831,16 @@ def sync_github_search(
     screened_out_entries: list[dict[str, Any]] = []
     screen_reason_counts: dict[str, int] = {}
 
-    for entry in eligible:
+    for entry_index, entry in enumerate(eligible, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            scan_complete = False
+            break
         repo_url = normalize_url(str(entry.get("url") or ""))
         if not repo_url:
             continue
+        if progress:
+            progress(entry_index, len(eligible), {"kind": "source_item", "source": "github", "value": repo_url})
         project_key, match_kind = resolve_github_search_project_key(
             conn,
             entry,
@@ -6957,6 +6995,7 @@ def sync_github_search(
         "suggested_entries": suggested_entries[:100],
         "screened_out_entries": screened_out_entries[:100],
         "unmatched_entries": unmatched_entries[:100],
+        "cancelled": cancelled,
     }
 
 
@@ -6970,6 +7009,8 @@ def sync_semble_collections(
     lookback_days: int | None,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {
         "collections": sorted(
@@ -6988,11 +7029,17 @@ def sync_semble_collections(
     deduped_results: dict[tuple[str, str], dict[str, Any]] = {}
     scans: list[dict[str, Any]] = []
     next_watermarks = dict(stored_watermarks)
-    for source in SEMBLE_TRACKED_COLLECTIONS:
+    cancelled = False
+    for source_index, source in enumerate(SEMBLE_TRACKED_COLLECTIONS, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            break
         source_key = f"{str(source.get('handle') or '').strip()}/{str(source.get('rkey') or '').strip()}"
         stored_cutoff = parse_iso_datetime(str(stored_watermarks.get(source_key) or "")) if incremental and not all_history else None
         cutoff = None if all_history else (stored_cutoff or fallback_cutoff)
         scan = fetch_semble_collection_source_sync_results(source, pages=pages, per_page=per_page, cutoff=cutoff)
+        if progress:
+            progress(source_index, len(SEMBLE_TRACKED_COLLECTIONS), {"kind": "source_collection", "source": "semble", "value": source_key, "item_count": len(scan["results"])})
         scans.append(scan)
         for entry in scan["results"]:
             key = (str(entry.get("seed_type") or ""), str(entry.get("seed_value") or ""))
@@ -7003,7 +7050,7 @@ def sync_semble_collections(
             next_watermarks[source_key] = str(scan["newest_timestamp"])
     results = list(deduped_results.values())
     results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
-    scan_complete = all(bool(scan.get("scan_complete")) for scan in scans)
+    scan_complete = not cancelled and all(bool(scan.get("scan_complete")) for scan in scans)
     existing_keys = {str(project["project_key"]) for project in list_projects(conn)}
     imported_project_keys: list[str] = []
     skipped_old = 0
@@ -7022,9 +7069,15 @@ def sync_semble_collections(
             continue
         eligible.append(entry)
 
-    for entry in eligible:
+    for entry_index, entry in enumerate(eligible, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            scan_complete = False
+            break
         seed_type = str(entry.get("seed_type") or "")
         seed_value = str(entry.get("seed_value") or "")
+        if progress:
+            progress(entry_index, len(eligible), {"kind": "source_item", "source": "semble", "value": seed_value})
         project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
         is_new = project_key is None
         if is_new and not create_unmatched:
@@ -7132,6 +7185,7 @@ def sync_semble_collections(
         ],
         "imported_project_keys": imported_project_keys,
         "unmatched_entries": unmatched_entries[:100],
+        "cancelled": cancelled,
     }
 
 
@@ -7162,6 +7216,8 @@ def sync_tangled_repos(
     create_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
     state = read_sync_state(conn, "tangled-repos", scope)
@@ -7175,8 +7231,14 @@ def sync_tangled_repos(
     selected = [item for item in entries if not watermark_before or int(item.get("time_us") or 0) > watermark_before]
     matched = created = unmatched = skipped_irrelevant = 0
     results: list[dict[str, Any]] = []
-    for entry in selected:
+    cancelled = False
+    for entry_index, entry in enumerate(selected, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            break
         record = dict(entry.get("record") or {})
+        if progress:
+            progress(entry_index, len(selected), {"kind": "source_item", "source": "tangled", "value": str(entry.get("rkey") or "")})
         relevant = bool(entry.get("atproto_relevant"))
         if not relevant:
             skipped_irrelevant += 1
@@ -7215,7 +7277,7 @@ def sync_tangled_repos(
                 save_project(conn, finalize_project_shape(project), enriched=False)
         results.append({"repo_url": repo_url, "owner_did": owner_did, "outcome": outcome, "time_us": entry["time_us"]})
     state_updated = bool(
-        execute and incremental and newest and boundary_reached and (create_unmatched or unmatched == 0)
+        execute and not cancelled and incremental and newest and boundary_reached and (create_unmatched or unmatched == 0)
     )
     if state_updated:
         write_sync_state(conn, "tangled-repos", scope, {"time_us": newest, "rolling_window_oldest_time_us": oldest})
@@ -7230,6 +7292,7 @@ def sync_tangled_repos(
         "created": created,
         "unmatched": unmatched,
         "skipped_irrelevant": skipped_irrelevant,
+        "cancelled": cancelled,
         "watermark_before": watermark_before,
         "watermark_after": newest if state_updated else watermark_before,
         "boundary_reached": boundary_reached,

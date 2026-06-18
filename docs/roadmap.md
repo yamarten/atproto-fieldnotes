@@ -63,16 +63,14 @@
    - nameとnotesをWebから編集可能
    - 保存前diffとproject revisionによるstale guardを実装済み
    - tagline、summary、website_urlは必要になったら追加
-4. Background jobの運用穴を埋める
-   - checkpoint discovery
-   - server再起動後のbulk enrich resume
-   - sync source内部progress
-   - review candidate単位progress
-   - review executeは候補一括ではなくplan確認を挟む
-5. Operationsの安全表示を整える
-   - dry-runでもnetworkするsyncは明示
-   - Stop/Cancelの意味をoperation種別ごとに表示
-   - job event永続化はログ閲覧だけなら低優先。checkpoint discoveryを先に正本扱いする
+4. Background jobの運用穴を埋める（実装済み）
+   - 固定`enrich-runs/`からcheckpointを発見し、server再起動後もresume可能
+   - sync source内部とreview candidate単位のprogress/cancel境界を接続済み
+   - reviewはdry-run planのcandidateを選択し、fingerprint再検証後にexecuteする
+5. Operationsの安全表示を整える（実装済み）
+   - dry-runでもnetworkするsyncを開始確認に明示
+   - operationごとのStop境界とcheckpoint/process jobの違いを表示
+   - job eventはprocess内保持のまま。永続化は行わない
 6. Investigation viewerを追加する
    - run一覧
    - collector status

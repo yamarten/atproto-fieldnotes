@@ -180,6 +180,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if path == "/api/jobs":
             self.send_json(self.server.jobs.list_jobs(limit=_int(query.get("limit", [50])[0], 50)))
             return
+        if path == "/api/checkpoints":
+            self.send_json(self.server.jobs.list_checkpoints(limit=_int(query.get("limit", [100])[0], 100)))
+            return
         if path.startswith("/api/jobs/"):
             job_id = urllib.parse.unquote(path.removeprefix("/api/jobs/")).strip("/")
             if not job_id or "/" in job_id:
@@ -310,6 +313,12 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 self.send_json(self.server.jobs.resume(job_id), status=HTTPStatus.ACCEPTED)
                 return
             raise ValueError(f"unknown job action: {action}")
+        if path.startswith("/api/checkpoints/"):
+            parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/checkpoints/").split("/") if part]
+            if len(parts) == 2 and parts[1] == "resume":
+                self.send_json(self.server.jobs.resume_checkpoint(parts[0]), status=HTTPStatus.ACCEPTED)
+                return
+            raise ValueError("unknown checkpoint action")
         if path == "/api/seeds":
             seed = str(payload.get("seed") or "").strip()
             if not seed:
@@ -435,6 +444,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         )
         if note_reason and note_reason not in allowed_reasons:
             raise ValueError(f"invalid note_reason: {note_reason}")
+        selected_values = payload.get("selected_candidate_ids") or []
+        if not isinstance(selected_values, list):
+            raise ValueError("selected_candidate_ids must be an array")
         return {
             "kind": kind,
             "tracking_states": tracking_states,
@@ -443,6 +455,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             "max_enrich_age_days": _int(payload.get("max_enrich_age_days"), 30, maximum=3650),
             "note": str(payload.get("note") or "").strip(),
             "note_reason": note_reason,
+            "selected_candidate_ids": tuple(str(item) for item in selected_values if str(item)),
+            "plan_fingerprint": str(payload.get("plan_fingerprint") or ""),
         }
 
     def run_project_action(

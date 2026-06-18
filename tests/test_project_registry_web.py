@@ -51,6 +51,14 @@ class FakeJobManager:
             raise KeyError(f"job not found: {job_id}")
         return dict(self.job)
 
+    def list_checkpoints(self, *, limit: int = 100) -> dict:
+        return {"count": 0, "items": []}
+
+    def resume_checkpoint(self, run_id: str) -> dict:
+        job = dict(self.job)
+        job["operation_id"] = run_id
+        return job
+
     def cancel(self, job_id: str) -> dict:
         job = self.get_job(job_id)
         job["status"] = "cancelling"
@@ -234,7 +242,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("startProjectEnrich", script)
         self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
-        self.assertIn("Start review job", script)
+        self.assertIn("Build review plan", script)
         self.assertIn("javascript", content_type)
 
         status, payload, _ = self.request("/api/projects", token="wrong")

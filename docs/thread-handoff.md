@@ -79,6 +79,11 @@
 - 実装済み: profile最小編集
   - nameと`profile.core.notes`のpreview diff / apply
   - project revision必須、stale update拒否、read-only拒否
+- 実装済み: background job再開・plan実行
+  - 固定rootからenrich checkpointを発見し、orphaned/中断runを再開
+  - sync source内部とreview candidate単位のprogress/cancel
+  - review dry-run planからcandidateを選択し、fingerprint検証後にexecute
+  - Operationsにnetwork dry-runとoperation別停止境界を表示
 - 削除済み: `--enrich-age-days` option alias。`--max-enrich-age-days`のみ使用する
 
 ## 動作確認済み
@@ -139,9 +144,9 @@
 
 ## 未接続
 
-- sync/reviewのbackground job接続は完了。source page/candidate単位progress、途中停止、checkpoint再開は未接続
-- interactive reviewの候補選択式plan実行と`assist-db-edit`の共通job化
-- server再起動後のjob一覧復元とcheckpoint discovery
+- sync/reviewのcheckpoint再開は未接続。source progress/cancelとreview候補選択式planは接続済み
+- `assist-db-edit`の共通job化
+- server再起動後のprocess job event復元（checkpoint discoveryは接続済み）
 - Tangled optional adapterの通常実行
 - OAuth `include:` permission解決
 - Webからのinvestigation run一覧、evidence全文、replay差分表示
