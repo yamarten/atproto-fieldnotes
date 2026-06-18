@@ -36,6 +36,10 @@
   - 初期detailはmerge候補計算を待たずに表示
   - merge候補は後続requestで計算し、完了次第表示
   - 計算結果はDBへ保存しない
+- atomic project mutationとmerge lineage
+  - merge、split、separateの複数project書込みを単一transactionで実行
+  - merge済みsource keyをcanonical projectへ解決
+  - source keyのinvestigation runをtarget detailへ束ね、保存snapshotは維持
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
   - v1 migration専用provenance metadataを意味列を残して削除可能
@@ -53,11 +57,6 @@
 - server再起動後のprocess job eventとjob一覧の復元
   - enrichの未完了checkpoint再発見は接続済み
 - CLIなど別processを含むwriter排他
-- 複数project mutationのtransaction ownership
-  - `save_project()`が内部commitするため、merge、split、separate更新は全体を単一transactionとしてrollbackできない
-- merge後のproject lineage
-  - source project rowは削除されるが、sourceの`investigation_runs.project_key`と他projectからの参照はtargetへ付け替えない
-  - investigation row自体は削除されないが、target projectの通常detailからは参照できない
 - schema v2以降のincremental migration
   - 現状の`migrate-db`はv1からv2だけを扱い、既存v2 DBを次世代schemaへ更新するrunnerはない
 - `assist-db-edit`の共通background job化
@@ -79,7 +78,7 @@
 
 2026-06-18から2026-06-19の変更時点で確認済み:
 
-- unit test 210件
+- unit test 215件
 - JavaScript syntax check
 - temp SQLiteでmigration、normalized row roundtrip、review、profile編集、履歴cleanup
 - fake workerと実workerによるbackground operation protocol

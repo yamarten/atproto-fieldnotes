@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
+from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
 
 
@@ -337,6 +339,205 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             self.assertIsNotNone(registry.fetch_project(conn, target["project_key"]))
         finally:
             conn.close()
+
+    def test_merge_preserves_source_key_and_investigation_history_as_alias(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            final = projects.add_seed(conn, seed="https://final.example", seed_type="service_url")
+            other = projects.add_seed(conn, seed="https://other.example", seed_type="service_url")
+            decisions.set_separate(
+                conn,
+                project_key=source["project_key"],
+                other_project_key=other["project_key"],
+            )
+            source_project = registry.fetch_project(conn, source["project_key"])
+            assert source_project is not None
+            run_id = storage.save_investigation_run(
+                conn,
+                project_key=source["project_key"],
+                started_at="2026-06-19T00:00:00+00:00",
+                completed_at="2026-06-19T00:01:00+00:00",
+                input_project=source_project,
+                output_project=source_project,
+                bundle=EvidenceBundle(
+                    project_key=source["project_key"],
+                    collected_at="2026-06-19T00:01:00+00:00",
+                ),
+            )
+            conn.commit()
+
+            merge.merge_projects(
+                conn,
+                project_key=source["project_key"],
+                target_project_key=target["project_key"],
+                execute=True,
+                force=True,
+            )
+            merge.merge_projects(
+                conn,
+                project_key=target["project_key"],
+                target_project_key=final["project_key"],
+                execute=True,
+                force=True,
+            )
+
+            aliases = {
+                row["alias_project_key"]: (row["canonical_project_key"], row["reason"])
+                for row in conn.execute("SELECT * FROM project_key_aliases")
+            }
+            run = storage.load_investigation_run(conn, run_id)
+            summaries = storage.list_investigation_run_summaries(conn, project_key=final["project_key"])
+            summaries_via_alias = storage.list_investigation_run_summaries(conn, project_key=source["project_key"])
+            resolved_source_alias = registry.resolve_project_key_input(conn, source["project_key"])
+            resolved_target_alias = registry.resolve_project_key_input(conn, target["project_key"])
+            other_separate = conn.execute(
+                """
+                SELECT target_value FROM project_decisions
+                WHERE project_key = ? AND kind = 'separate_project'
+                """,
+                (other["project_key"],),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual(aliases[source["project_key"]], (final["project_key"], "merge"))
+        self.assertEqual(aliases[target["project_key"]], (final["project_key"], "merge"))
+        self.assertEqual(resolved_source_alias, final["project_key"])
+        self.assertEqual(resolved_target_alias, final["project_key"])
+        self.assertEqual(run["project_key"], source["project_key"])
+        self.assertEqual([item["run_id"] for item in summaries], [run_id])
+        self.assertEqual([item["run_id"] for item in summaries_via_alias], [run_id])
+        self.assertIn(final["project_key"], [row["target_value"] for row in other_separate])
+        self.assertNotIn(source["project_key"], [row["target_value"] for row in other_separate])
+        self.assertNotIn(target["project_key"], [row["target_value"] for row in other_separate])
+
+    def test_merge_rolls_back_target_and_alias_when_source_delete_fails(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            target_before = registry.fetch_project(conn, target["project_key"])
+            with (
+                mock.patch.object(merge.core, "delete_project", side_effect=RuntimeError("delete failed")),
+                self.assertRaisesRegex(RuntimeError, "delete failed"),
+            ):
+                merge.merge_projects(
+                    conn,
+                    project_key=source["project_key"],
+                    target_project_key=target["project_key"],
+                    execute=True,
+                    force=True,
+                )
+            target_after = registry.fetch_project(conn, target["project_key"])
+            source_after = registry.fetch_project(conn, source["project_key"])
+            alias_count = conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(source_after)
+        self.assertEqual(target_after["manual_seeds"], target_before["manual_seeds"])
+        self.assertEqual(alias_count, 0)
+
+    def test_merge_alias_reference_snapshot_can_be_restored_for_interactive_undo(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            other = projects.add_seed(conn, seed="https://other.example", seed_type="service_url")
+            decisions.set_separate(
+                conn,
+                project_key=source["project_key"],
+                other_project_key=other["project_key"],
+            )
+            reference_rows = registry.project_merge_reference_rows(conn, source["project_key"])
+            with conn:
+                registry.register_project_merge_alias(
+                    conn,
+                    source_project_key=source["project_key"],
+                    target_project_key=target["project_key"],
+                )
+            with conn:
+                registry.restore_project_merge_aliases(
+                    conn,
+                    source_project_key=source["project_key"],
+                    source_aliases=[],
+                )
+                registry.restore_project_merge_references(
+                    conn,
+                    source_project_key=source["project_key"],
+                    reference_rows=reference_rows,
+                )
+            alias_count = conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]
+            restored_targets = [
+                row["target_value"]
+                for row in conn.execute(
+                    "SELECT target_value FROM project_decisions WHERE project_key = ? AND kind = 'separate_project'",
+                    (other["project_key"],),
+                )
+            ]
+        finally:
+            conn.close()
+
+        self.assertEqual(alias_count, 0)
+        self.assertIn(source["project_key"], restored_targets)
+        self.assertNotIn(target["project_key"], restored_targets)
+
+    def test_split_and_separate_roll_back_when_second_project_save_fails(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            other = projects.add_seed(conn, seed="https://other.example", seed_type="service_url")
+            source_before = registry.fetch_project(conn, source["project_key"])
+            project_keys_before = {
+                row["project_key"] for row in conn.execute("SELECT project_key FROM projects")
+            }
+            original_save = registry.save_project
+            calls = 0
+
+            def fail_second_save(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("second save failed")
+                return original_save(*args, **kwargs)
+
+            with (
+                mock.patch.object(merge.core, "save_project", side_effect=fail_second_save),
+                self.assertRaisesRegex(RuntimeError, "second save failed"),
+            ):
+                merge.split_identifier(
+                    conn,
+                    project_key=source["project_key"],
+                    identifier_type="service_url",
+                    value="https://source.example",
+                    execute=True,
+                )
+            source_after_split = registry.fetch_project(conn, source["project_key"])
+            project_keys_after = {
+                row["project_key"] for row in conn.execute("SELECT project_key FROM projects")
+            }
+            self.assertEqual(project_keys_after, project_keys_before)
+            self.assertEqual(source_after_split["manual_seeds"], source_before["manual_seeds"])
+
+            calls = 0
+            with (
+                mock.patch.object(decisions.core, "save_project", side_effect=fail_second_save),
+                self.assertRaisesRegex(RuntimeError, "second save failed"),
+            ):
+                decisions.set_separate(
+                    conn,
+                    project_key=source["project_key"],
+                    other_project_key=other["project_key"],
+                )
+            source_after_separate = registry.fetch_project(conn, source["project_key"])
+            other_after_separate = registry.fetch_project(conn, other["project_key"])
+        finally:
+            conn.close()
+
+        self.assertNotIn(other["project_key"], source_after_separate["separate_project_keys"])
+        self.assertNotIn(source["project_key"], other_after_separate["separate_project_keys"])
 
     def test_review_queries_are_available_as_services(self) -> None:
         conn = registry.open_db()

@@ -65,6 +65,10 @@ def merge_projects(
     if core.merge_is_blocked(source, target) and not force:
         raise ValueError("merge is manually blocked for this project pair; pass force only to override that guard")
     merged = core.merge_project_records(target, source)
+    merged["separate_project_keys"] = [
+        key for key in merged.get("separate_project_keys", [])
+        if key not in {source["project_key"], target["project_key"]}
+    ]
     merged["duplicate_candidates"] = core.compute_duplicate_candidates(conn, merged)
     merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
     merged = core.apply_promotion_state(merged)
@@ -87,14 +91,20 @@ def merge_projects(
         "merge_recommendation": source.get("merge_recommendation", {}),
     }
     if execute:
-        core.save_project(
-            conn,
-            merged,
-            enriched=bool(merged.get("last_enriched_at")),
-            preserve_timestamps=True,
-        )
-        core.delete_project(conn, source["project_key"])
-        conn.commit()
+        with conn:
+            core.save_project(
+                conn,
+                merged,
+                enriched=bool(merged.get("last_enriched_at")),
+                preserve_timestamps=True,
+                commit=False,
+            )
+            core.register_project_merge_alias(
+                conn,
+                source_project_key=source["project_key"],
+                target_project_key=target["project_key"],
+            )
+            core.delete_project(conn, source["project_key"])
     return summary
 
 
@@ -181,12 +191,13 @@ def split_identifier(
         "target_source_code_urls": target.get("source_code_urls", []),
     }
     if execute:
-        core.save_project(
-            conn,
-            source,
-            enriched=bool(source.get("last_enriched_at")),
-            preserve_timestamps=True,
-        )
-        core.save_project(conn, target, enriched=False, preserve_timestamps=True)
-        conn.commit()
+        with conn:
+            core.save_project(
+                conn,
+                source,
+                enriched=bool(source.get("last_enriched_at")),
+                preserve_timestamps=True,
+                commit=False,
+            )
+            core.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
     return summary

@@ -12,6 +12,29 @@ from project_registry_core import runtime_view
 
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
+    def test_opening_existing_v2_database_adds_project_alias_table(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:additivev2")
+        registry.save_project(conn, project)
+        conn.close()
+
+        legacy_v2 = sqlite3.connect(self.db_path)
+        legacy_v2.execute("DROP TABLE project_key_aliases")
+        legacy_v2.commit()
+        legacy_v2.close()
+
+        conn = registry.open_db()
+        try:
+            alias_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_key_aliases'"
+            ).fetchone()
+            existing = registry.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(alias_table)
+        self.assertIsNotNone(existing)
+
     def test_loaded_normalized_rows_roundtrip_losslessly(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:v2lossless")

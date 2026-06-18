@@ -310,6 +310,11 @@ Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認�
 
 ## merge
 
+merge executeはtarget更新、source key alias作成、関連するseparate参照更新、source削除を
+単一transactionで行います。途中失敗時は部分更新を残しません。merge後も旧source keyを
+project指定へ使用でき、存続projectへ解決します。source keyで保存されたInvestigation runも
+存続projectの履歴に表示しますが、当時のsnapshot/bundle内keyは書き換えません。
+
 recommendationを見るだけ:
 
 ```bash
@@ -727,6 +732,7 @@ UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_pos
 現行DBはschema version 2です。
 
 - `projects`: scalar + `profile_json` + `state_json`
+- `project_key_aliases`: merge済みsource keyからcanonical projectへの解決
 - `project_identifiers`: NSID、service/repo URL、account、DID、domain
 - `project_relations`: typed relation evidence
 - `project_decisions`: block/defer/separateなどのoperator判断

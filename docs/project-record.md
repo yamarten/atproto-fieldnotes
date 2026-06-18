@@ -49,6 +49,22 @@ projectの現在状態を表すmaterialized recordです。
 
 scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限定します。
 
+### `project_key_aliases`
+
+mergeで削除したsource project keyを、存続するcanonical project keyへ解決するregistry-wide tableです。
+
+- `alias_project_key`: merge前のsource project key
+- `canonical_project_key`: 現在存続するproject key
+- `reason`: 現状は`merge`
+- `created_at`: alias作成時刻
+
+alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ
+解決し、canonical projectのInvestigation一覧にはalias元keyで保存されたrunも含めます。
+`investigation_runs.project_key`とrun内snapshot/bundleは、調査当時のidentityを残すため書き換えません。
+
+このtableはschema version 2へのadditive tableです。既存v2 DBは通常readerでopenした時に
+idempotentに作成でき、v1からのmigrationをやり直す必要はありません。
+
 ### `profile_json`
 
 人が読むproject profileとして比較的安定した情報です。
@@ -250,6 +266,16 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `result_json`, `records_json`, `failures_json`
 
 JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
+
+### Merge / Splitの履歴
+
+mergeはtarget保存、source alias作成、第三projectの`separate_project`参照更新、source削除を
+1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの
+investigation runはalias familyとしてtargetのrun一覧へ表示します。
+
+split前のrunは、どのidentifierに属する証拠かを自動分配できないため元projectに残します。
+split後の新しいrunだけを新project keyへ保存します。run snapshotを後から書き換えて
+現在状態と見せることはしません。
 
 ### Retention Policy
 

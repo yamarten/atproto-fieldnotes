@@ -71,6 +71,16 @@ def create_schema(conn: sqlite3.Connection) -> None:
             last_enriched_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state);
+        CREATE TABLE IF NOT EXISTS project_key_aliases (
+            alias_project_key TEXT PRIMARY KEY,
+            canonical_project_key TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            CHECK(alias_project_key <> canonical_project_key),
+            FOREIGN KEY(canonical_project_key) REFERENCES projects(project_key) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_key_aliases_canonical
+            ON project_key_aliases(canonical_project_key);
         CREATE TABLE IF NOT EXISTS project_identifiers (
             project_key TEXT NOT NULL,
             ordinal INTEGER NOT NULL,
@@ -143,6 +153,60 @@ def create_schema(conn: sqlite3.Connection) -> None:
         "INSERT INTO registry_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (str(SCHEMA_VERSION),),
+    )
+
+
+def project_key_alias_target(conn: sqlite3.Connection, project_key: str) -> str | None:
+    row = conn.execute(
+        "SELECT canonical_project_key FROM project_key_aliases WHERE alias_project_key = ?",
+        (project_key,),
+    ).fetchone()
+    return str(row[0]) if row else None
+
+
+def project_key_family(conn: sqlite3.Connection, canonical_project_key: str) -> list[str]:
+    canonical_project_key = project_key_alias_target(conn, canonical_project_key) or canonical_project_key
+    rows = conn.execute(
+        "SELECT alias_project_key FROM project_key_aliases WHERE canonical_project_key = ? ORDER BY alias_project_key",
+        (canonical_project_key,),
+    ).fetchall()
+    return [canonical_project_key, *[str(row[0]) for row in rows]]
+
+
+def project_key_aliases(conn: sqlite3.Connection, canonical_project_key: str) -> list[str]:
+    return project_key_family(conn, canonical_project_key)[1:]
+
+
+def register_project_key_alias(
+    conn: sqlite3.Connection,
+    *,
+    alias_project_key: str,
+    canonical_project_key: str,
+    reason: str,
+    created_at: str,
+) -> None:
+    if alias_project_key == canonical_project_key:
+        raise ValueError("project alias must differ from its canonical project")
+    target = conn.execute(
+        "SELECT 1 FROM projects WHERE project_key = ?",
+        (canonical_project_key,),
+    ).fetchone()
+    if target is None:
+        raise ValueError(f"canonical project not found: {canonical_project_key}")
+    conn.execute(
+        "UPDATE project_key_aliases SET canonical_project_key = ? WHERE canonical_project_key = ?",
+        (canonical_project_key, alias_project_key),
+    )
+    conn.execute(
+        """
+        INSERT INTO project_key_aliases(alias_project_key, canonical_project_key, reason, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(alias_project_key) DO UPDATE SET
+            canonical_project_key = excluded.canonical_project_key,
+            reason = excluded.reason,
+            created_at = excluded.created_at
+        """,
+        (alias_project_key, canonical_project_key, reason, created_at),
     )
 
 
@@ -858,6 +922,7 @@ def validate_database(
         "identifier_count": int(conn.execute("SELECT COUNT(*) FROM project_identifiers").fetchone()[0]),
         "relation_count": int(conn.execute("SELECT COUNT(*) FROM project_relations").fetchone()[0]),
         "decision_count": int(conn.execute("SELECT COUNT(*) FROM project_decisions").fetchone()[0]),
+        "project_alias_count": int(conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]),
         "integrity": integrity,
         "normalized_field_leak_count": len(leakage),
         "projects_without_manual_seed": projects_without_manual_seed,

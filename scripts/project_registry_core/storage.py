@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from .evidence import EvidenceBundle
+from . import database
 from .runtime_view import sanitize_runtime_snapshot
 
 
@@ -165,9 +166,12 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
 
 def latest_investigation_run(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] | None:
     ensure_investigation_tables(conn)
+    keys = database.project_key_family(conn, project_key)
+    placeholders = ",".join("?" for _ in keys)
     row = conn.execute(
-        "SELECT run_id FROM investigation_runs WHERE project_key = ? ORDER BY completed_at DESC, rowid DESC LIMIT 1",
-        (project_key,),
+        f"SELECT run_id FROM investigation_runs WHERE project_key IN ({placeholders}) "
+        "ORDER BY completed_at DESC, rowid DESC LIMIT 1",
+        keys,
     ).fetchone()
     return load_investigation_run(conn, str(row["run_id"])) if row else None
 
@@ -175,9 +179,12 @@ def latest_investigation_run(conn: sqlite3.Connection, project_key: str) -> dict
 def list_investigation_runs(conn: sqlite3.Connection, *, project_key: str = "") -> list[dict[str, Any]]:
     ensure_investigation_tables(conn)
     if project_key:
+        keys = database.project_key_family(conn, project_key)
+        placeholders = ",".join("?" for _ in keys)
         rows = conn.execute(
-            "SELECT run_id FROM investigation_runs WHERE project_key = ? ORDER BY completed_at DESC, rowid DESC",
-            (project_key,),
+            f"SELECT run_id FROM investigation_runs WHERE project_key IN ({placeholders}) "
+            "ORDER BY completed_at DESC, rowid DESC",
+            keys,
         ).fetchall()
     else:
         rows = conn.execute("SELECT run_id FROM investigation_runs ORDER BY completed_at DESC, rowid DESC").fetchall()
@@ -191,20 +198,22 @@ def list_investigation_run_summaries(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     ensure_investigation_tables(conn)
+    keys = database.project_key_family(conn, project_key)
+    placeholders = ",".join("?" for _ in keys)
     rows = conn.execute(
-        """
+        f"""
         SELECT r.run_id, r.project_key, r.started_at, r.completed_at,
                r.evidence_schema_version, r.evaluation_version,
                COUNT(c.ordinal) AS collector_count,
                SUM(CASE WHEN c.status IN ('failed', 'partial', 'rate_limited') THEN 1 ELSE 0 END) AS problem_count
         FROM investigation_runs r
         LEFT JOIN collector_runs c ON c.run_id = r.run_id
-        WHERE r.project_key = ?
+        WHERE r.project_key IN ({placeholders})
         GROUP BY r.run_id
         ORDER BY r.completed_at DESC, r.rowid DESC
         LIMIT ?
         """,
-        (project_key, max(1, min(500, int(limit)))),
+        (*keys, max(1, min(500, int(limit)))),
     ).fetchall()
     return [{
         "run_id": str(row["run_id"]),

@@ -2243,6 +2243,9 @@ def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
         raise ValueError("project key is required")
     if fetch_project(conn, value) is not None:
         return value
+    alias_target = registry_database.project_key_alias_target(conn, value)
+    if alias_target and fetch_project(conn, alias_target) is not None:
+        return alias_target
 
     prefix = value.lower()
     if prefix.startswith("proj:"):
@@ -2255,10 +2258,14 @@ def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
         SELECT project_key
         FROM projects
         WHERE project_key LIKE ?
+        UNION
+        SELECT canonical_project_key AS project_key
+        FROM project_key_aliases
+        WHERE alias_project_key LIKE ?
         ORDER BY project_key ASC
         LIMIT 21
         """,
-        (f"proj:{prefix}%",),
+        (f"proj:{prefix}%", f"proj:{prefix}%"),
     ).fetchall()
     matches = [str(row["project_key"]) for row in rows]
     if not matches:
@@ -2746,6 +2753,7 @@ def save_project(
     enriched: bool = False,
     *,
     preserve_timestamps: bool = False,
+    commit: bool = True,
 ) -> None:
     now = iso_now()
     preserve_normalized_rows = runtime_view.normalized_children_unchanged(project)
@@ -2888,7 +2896,8 @@ def save_project(
         project.update(preserved_runtime_rows)
         runtime_view.refresh_baselines(project)
     registry_database.replace_project_children(conn, project)
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def allocate_new_project_key(conn: sqlite3.Connection) -> str:
@@ -11550,6 +11559,97 @@ def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
     conn.execute("DELETE FROM projects WHERE project_key = ?", (project_key,))
 
 
+def register_project_merge_alias(
+    conn: sqlite3.Connection,
+    *,
+    source_project_key: str,
+    target_project_key: str,
+) -> None:
+    registry_database.register_project_key_alias(
+        conn,
+        alias_project_key=source_project_key,
+        canonical_project_key=target_project_key,
+        reason="merge",
+        created_at=iso_now(),
+    )
+    conn.execute(
+        """
+        UPDATE project_decisions
+        SET target_value = ?
+        WHERE kind = 'separate_project'
+          AND target_type = 'project_key'
+          AND target_value = ?
+          AND project_key <> ?
+        """,
+        (target_project_key, source_project_key, target_project_key),
+    )
+    conn.execute(
+        """
+        DELETE FROM project_decisions
+        WHERE project_key = ?
+          AND kind = 'separate_project'
+          AND target_type = 'project_key'
+          AND target_value IN (?, ?)
+        """,
+        (target_project_key, source_project_key, target_project_key),
+    )
+
+
+def project_merge_reference_rows(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+) -> list[tuple[str, int]]:
+    rows = conn.execute(
+        """
+        SELECT project_key, ordinal
+        FROM project_decisions
+        WHERE kind = 'separate_project'
+          AND target_type = 'project_key'
+          AND target_value = ?
+        ORDER BY project_key, ordinal
+        """,
+        (source_project_key,),
+    ).fetchall()
+    return [(str(row["project_key"]), int(row["ordinal"])) for row in rows]
+
+
+def restore_project_merge_aliases(
+    conn: sqlite3.Connection,
+    *,
+    source_project_key: str,
+    source_aliases: list[str],
+) -> None:
+    conn.execute(
+        "DELETE FROM project_key_aliases WHERE alias_project_key = ?",
+        (source_project_key,),
+    )
+    if source_aliases:
+        placeholders = ",".join("?" for _ in source_aliases)
+        conn.execute(
+            f"UPDATE project_key_aliases SET canonical_project_key = ? "
+            f"WHERE alias_project_key IN ({placeholders})",
+            (source_project_key, *source_aliases),
+        )
+
+
+def restore_project_merge_references(
+    conn: sqlite3.Connection,
+    *,
+    source_project_key: str,
+    reference_rows: list[tuple[str, int]],
+) -> None:
+    for project_key, ordinal in reference_rows:
+        conn.execute(
+            """
+            UPDATE project_decisions
+            SET target_value = ?
+            WHERE project_key = ? AND ordinal = ?
+              AND kind = 'separate_project' AND target_type = 'project_key'
+            """,
+            (source_project_key, project_key, ordinal),
+        )
+
+
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
@@ -13261,9 +13361,9 @@ def split_project_tenant_group(
     source["merge_recommendation"] = compute_merge_recommendation(source)
     target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
     target["merge_recommendation"] = compute_merge_recommendation(target)
-    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
-    save_project(conn, target, enriched=False)
-    conn.commit()
+    with conn:
+        save_project(conn, source, enriched=bool(source.get("last_enriched_at")), commit=False)
+        save_project(conn, target, enriched=False, commit=False)
     return {
         "source_project_key": source["project_key"],
         "target_project_key": target["project_key"],
@@ -13955,10 +14055,31 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
             print(json.dumps({"undo": "noop", "reason": "no_previous_action"}, ensure_ascii=False))
             return False
         entry = undo_stack.pop()
-        save_project(conn, entry["source_before"], enriched=bool(entry["source_before"].get("last_enriched_at")))
-        save_project(conn, entry["target_before"], enriched=bool(entry["target_before"].get("last_enriched_at")))
-        conn.commit()
         kind = str(entry.get("kind") or "")
+        with conn:
+            save_project(
+                conn,
+                entry["source_before"],
+                enriched=bool(entry["source_before"].get("last_enriched_at")),
+                commit=False,
+            )
+            save_project(
+                conn,
+                entry["target_before"],
+                enriched=bool(entry["target_before"].get("last_enriched_at")),
+                commit=False,
+            )
+            if kind == "merge":
+                restore_project_merge_aliases(
+                    conn,
+                    source_project_key=str(entry["source_before"]["project_key"]),
+                    source_aliases=list(entry.get("source_aliases_before") or []),
+                )
+                restore_project_merge_references(
+                    conn,
+                    source_project_key=str(entry["source_before"]["project_key"]),
+                    reference_rows=list(entry.get("source_reference_rows_before") or []),
+                )
         if kind == "merge" and executed:
             executed.pop()
         elif kind == "block" and blocked_pairs:
@@ -14054,9 +14175,9 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
                     source["merge_recommendation"] = compute_merge_recommendation(source)
                     target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
                     target["merge_recommendation"] = compute_merge_recommendation(target)
-                    save_project(conn, source, enriched=bool(source.get("last_enriched_at")))
-                    save_project(conn, target, enriched=bool(target.get("last_enriched_at")))
-                    conn.commit()
+                    with conn:
+                        save_project(conn, source, enriched=bool(source.get("last_enriched_at")), commit=False)
+                        save_project(conn, target, enriched=bool(target.get("last_enriched_at")), commit=False)
                     undo_stack.append(
                         {
                             "kind": "block",
@@ -14143,14 +14264,27 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
         if args.execute:
             source_before = copy.deepcopy(source)
             target_before = copy.deepcopy(target)
-            save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
-            delete_project(conn, source["project_key"])
-            conn.commit()
+            source_aliases_before = registry_database.project_key_aliases(conn, source["project_key"])
+            source_reference_rows_before = project_merge_reference_rows(conn, source["project_key"])
+            merged["separate_project_keys"] = [
+                key for key in merged.get("separate_project_keys", [])
+                if key not in {source["project_key"], target["project_key"]}
+            ]
+            with conn:
+                save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")), commit=False)
+                register_project_merge_alias(
+                    conn,
+                    source_project_key=source["project_key"],
+                    target_project_key=target["project_key"],
+                )
+                delete_project(conn, source["project_key"])
             undo_stack.append(
                 {
                     "kind": "merge",
                     "source_before": source_before,
                     "target_before": target_before,
+                    "source_aliases_before": source_aliases_before,
+                    "source_reference_rows_before": source_reference_rows_before,
                 }
             )
 
@@ -14254,9 +14388,18 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
                 merged["duplicate_candidates"] = compute_duplicate_candidates(conn, merged)
                 merged["merge_recommendation"] = compute_merge_recommendation(merged)
                 merged = apply_promotion_state(merged)
-                save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")))
-                delete_project(conn, source["project_key"])
-                conn.commit()
+                merged["separate_project_keys"] = [
+                    key for key in merged.get("separate_project_keys", [])
+                    if key not in {source["project_key"], target["project_key"]}
+                ]
+                with conn:
+                    save_project(conn, merged, enriched=bool(merged.get("last_enriched_at")), commit=False)
+                    register_project_merge_alias(
+                        conn,
+                        source_project_key=source["project_key"],
+                        target_project_key=target["project_key"],
+                    )
+                    delete_project(conn, source["project_key"])
                 payload["executed"] = {
                     "source_project_key": source["project_key"],
                     "target_project_key": target["project_key"],
@@ -14274,9 +14417,9 @@ def cmd_assist_db_edit(args: argparse.Namespace) -> int:
                 for item in (project, other):
                     item["duplicate_candidates"] = compute_duplicate_candidates(conn, item)
                     item["merge_recommendation"] = compute_merge_recommendation(item)
-                save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                save_project(conn, other, enriched=bool(other.get("last_enriched_at")))
-                conn.commit()
+                with conn:
+                    save_project(conn, project, enriched=bool(project.get("last_enriched_at")), commit=False)
+                    save_project(conn, other, enriched=bool(other.get("last_enriched_at")), commit=False)
                 payload["executed"] = {
                     "project_key": project["project_key"],
                     "other_project_key": other["project_key"],

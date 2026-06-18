@@ -19,10 +19,9 @@
 [v1-migration-trust.md](notes/v1-migration-trust.md)と
 [roadmap.md](roadmap.md)の「通常DB置換前」を参照してください。
 
-通常DB置換前のコード上の優先残件として、次を確認済みです。
-
-- 複数project mutationが`save_project()`の内部commitによりatomicではない
-- merge後のsource investigation historyがtarget detailへ引き継がれない
+通常DB置換前に確認した複数project mutationのatomic化とmerge後のsource identity/history保持は
+実装済みです。既存v2 DBへ`project_key_aliases`をadditiveに作るため、進行中のv1 migrationを
+やり直す必要はありません。新コードへ切り替えるまではmerge/split/separateを書き込まないでください。
 
 v2以降のincremental schema migration runnerとSQLite接続自体のread-only化は、必要が生じた時の
 候補へ戻しています。通常DB置換前には、旧方式v2との誤認を防ぐ現行trust/data policy markerだけを扱います。

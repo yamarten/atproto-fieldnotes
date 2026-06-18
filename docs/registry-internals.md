@@ -12,7 +12,7 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 ## データの持ち方
 
-現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。調査履歴は`investigation_runs` / `collector_runs`です。
+現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
 
 旧schemaは通常起動で自動変換せず、`project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
 
@@ -1002,6 +1002,11 @@ endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既�
 `duplicate_candidates` と `merge_recommendation` は派生データです。必要なら再計算できます。
 
 `merge-batch` は保守的です。曖昧な一致は自動実行せず、`merge` の dry-run / execute で人が判断する前提です。
+
+merge/split/separateの複数project書込みはoperation単位のSQLite transactionで実行します。
+repositoryの`save_project(..., commit=False)`を使い、2件目の保存、alias作成、source削除まで
+成功した時だけcommitします。merge済みsource keyは`project_key_aliases`からcanonical keyへ解決し、
+alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めます。run JSON自体は変更しません。
 
 `review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。
 

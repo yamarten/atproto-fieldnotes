@@ -46,16 +46,7 @@
    - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
    - trust/data policy markerを`registry_meta`へ残し、現行migration適用済みかを判定する
    - schema versionとtrust/data policy versionを混同しない
-4. 複数project mutationをatomicにする
-   - 確認済み: `save_project()`が内部commitするため、merge、split、separate更新は途中失敗時に全体rollbackできない
-   - transactionの開始・commit・rollbackはapplication serviceへ寄せ、repositoryの単体saveはcommitしない
-   - 2件目のsave、source delete、履歴更新を意図的に失敗させるrollback testを追加する
-5. merge後のidentity/history policyを固定する
-   - 確認済み: source project row削除後も`investigation_runs.project_key`はsource keyのままで、target detailから見えない
-   - source keyをtargetへ解決するalias/tombstoneを残すか、履歴と参照をtargetへ付け替えるか決める
-   - `separate_project`、checkpoint、run snapshot内の旧keyをどこまで履歴として維持するかを明示する
-   - splitは過去runを自動分配できないため、mergeと同じ処理にせず別policyにする
-6. 必要ならprocess間lockまたはpreflightを追加する
+4. 必要ならprocess間lockまたはpreflightを追加する
    - 現状の`migrate-db`は別processを自動停止・拒否しない
    - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
 ### 必要が生じた時に検討するもの
@@ -233,6 +224,10 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
   - Web UI には出さず CLI で扱う
+
+確認済みの小規模不具合:
+
+- `split-project --new-project-key`は新規keyを既存projectとして解決してから存在を拒否するため、明示key指定が実質使えない
 
 ## 周辺候補の参照先
 

@@ -39,15 +39,16 @@ def set_separate(
         other_blocked.add(project["project_key"])
     project["separate_project_keys"] = sorted(project_blocked)
     other["separate_project_keys"] = sorted(other_blocked)
-    for item in (project, other):
-        _refresh_merge_state(conn, item)
-        core.save_project(
-            conn,
-            item,
-            enriched=bool(item.get("last_enriched_at")),
-            preserve_timestamps=True,
-        )
-    conn.commit()
+    with conn:
+        for item in (project, other):
+            _refresh_merge_state(conn, item)
+            core.save_project(
+                conn,
+                item,
+                enriched=bool(item.get("last_enriched_at")),
+                preserve_timestamps=True,
+                commit=False,
+            )
     return {
         "mode": "clear" if clear else "set",
         "project_key": project["project_key"],
