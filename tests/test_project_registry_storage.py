@@ -245,6 +245,22 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(repair_args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertTrue(repair_args.execute)
 
+        prune_args = parser.parse_args([
+            "prune-investigation-history",
+            "--retention-days",
+            "30",
+            "--keep-latest-per-project",
+            "2",
+            "--execute",
+            "--vacuum",
+        ])
+
+        self.assertEqual(prune_args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertEqual(prune_args.retention_days, 30)
+        self.assertEqual(prune_args.keep_latest_per_project, 2)
+        self.assertTrue(prune_args.execute)
+        self.assertTrue(prune_args.vacuum)
+
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = cli.build_parser()
 

@@ -611,6 +611,34 @@ project-registry repair-db
 project-registry repair-db --execute
 ```
 
+## 調査履歴の削除
+
+保存済み調査は既定で、完了から90日以内の全runとprojectごとの最新3 runを保持します。それより古い`investigation_runs`と対応する`collector_runs`を確認するには:
+
+```bash
+project-registry prune-investigation-history
+```
+
+削除を実行する場合:
+
+```bash
+project-registry prune-investigation-history --execute
+```
+
+保持期間と最低保持件数は変更できます。
+
+```bash
+project-registry prune-investigation-history --retention-days 180 --keep-latest-per-project 5
+```
+
+通常のDELETE後に空いたSQLite pageは後続writeで再利用されますが、DB file自体は縮みません。file sizeも縮める場合はWeb UI、enrich、別CLIを停止してから実行します。
+
+```bash
+project-registry prune-investigation-history --execute --vacuum
+```
+
+operator decision、migration provenance、project current stateはこのcommandでは削除しません。
+
 ## 高度な調査・開発用コマンド
 
 以下は通常のseed登録・enrich・review操作には不要です。collectorやevaluationの開発、個別projectの深掘り、実験的sourceの確認に使います。

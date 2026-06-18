@@ -1,10 +1,79 @@
 from __future__ import annotations
 
+import datetime as dt
+
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core.application import decisions, merge, presentation, projects, review
+from project_registry_core import storage
+from project_registry_core.application import decisions, maintenance, merge, presentation, projects, review
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_prune_investigation_history_keeps_recent_and_latest_runs(self) -> None:
+        conn = registry.open_db()
+        storage.ensure_investigation_tables(conn)
+
+        def add_run(run_id: str, project_key: str, completed_at: str) -> None:
+            conn.execute(
+                """
+                INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, project_key, completed_at, completed_at, 2, "test", "{}", "{}", "{}", "{}"),
+            )
+            conn.execute(
+                """
+                INSERT INTO collector_runs VALUES (?, 0, 'test', 'collect', 'success', ?, '{}', '{}', '{}')
+                """,
+                (run_id, completed_at),
+            )
+
+        add_run("run:a-oldest", "proj:a", "2025-01-01T00:00:00+00:00")
+        add_run("run:a-old", "proj:a", "2025-02-01T00:00:00+00:00")
+        add_run("run:a-recent-1", "proj:a", "2025-06-01T00:00:00+00:00")
+        add_run("run:a-recent-2", "proj:a", "2025-06-10T00:00:00+00:00")
+        add_run("run:b-only", "proj:b", "2025-01-01T00:00:00+00:00")
+        conn.commit()
+        now = dt.datetime(2025, 6, 18, tzinfo=dt.timezone.utc)
+
+        dry_run = maintenance.prune_investigation_history(
+            conn,
+            retention_days=90,
+            keep_latest_per_project=2,
+            now=now,
+        )
+        self.assertEqual(dry_run["candidate_run_count"], 2)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM investigation_runs").fetchone()[0], 5)
+
+        executed = maintenance.prune_investigation_history(
+            conn,
+            retention_days=90,
+            keep_latest_per_project=2,
+            execute=True,
+            now=now,
+        )
+        remaining = {
+            str(row[0]) for row in conn.execute("SELECT run_id FROM investigation_runs")
+        }
+        collector_remaining = {
+            str(row[0]) for row in conn.execute("SELECT run_id FROM collector_runs")
+        }
+        conn.close()
+
+        self.assertEqual(executed["deleted_run_count"], 2)
+        self.assertEqual(executed["deleted_collector_run_count"], 2)
+        self.assertEqual(remaining, {"run:a-recent-1", "run:a-recent-2", "run:b-only"})
+        self.assertEqual(collector_remaining, remaining)
+
+    def test_prune_investigation_history_requires_execute_for_vacuum(self) -> None:
+        conn = registry.open_db()
+        try:
+            with self.assertRaisesRegex(ValueError, "requires --execute"):
+                maintenance.prune_investigation_history(conn, vacuum=True)
+            result = maintenance.prune_investigation_history(conn, execute=True, vacuum=True)
+        finally:
+            conn.close()
+
+        self.assertTrue(result["vacuumed"])
+
     def test_project_services_do_not_require_cli_namespace(self) -> None:
         conn = registry.open_db()
         try:

@@ -74,10 +74,12 @@ classification は project field の confidence と同義ではありません�
 - `investigation_runs` は input project snapshot、bundle、evaluation version、保存済み評価、output snapshot を保持
 - `collector_runs` は source/operation ごとの状態、対応 record、failure を順序付きで保持
 - full HTML や README 本文は保存せず、bounded extract、hash、URL、repo path など判断に必要な材料だけを残す
-- raw evidence の自動削除は行わない
+- raw evidence の自動削除は行わない。手動retention commandで古いrun単位に削除できる
 
 run 保存は project row の代替ではありません。再評価可能な調査成果と、その時点の materialized
 record を対応づける履歴です。
+
+既定retention policyは完了から90日以内の全runとprojectごとの最新3 runを保持します。`prune-investigation-history`はそれより古いrunをdry-runで列挙し、`--execute`時だけ対応するcollector runとまとめて削除します。fixtureへexportしたcaseはDB runとは独立して保持します。
 
 ## 調査状態
 

@@ -248,6 +248,23 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
 
+### Retention Policy
+
+増加量の大きい`investigation_runs` / `collector_runs`だけを定期削除の対象にします。既定policyは次の両方を保持します。
+
+- 完了から90日以内の全run
+- 日数にかかわらずprojectごとの最新3 run
+
+削除は自動実行せず、`prune-investigation-history`のdry-runを確認してから`--execute`で行います。`investigation_runs`を削除すると対応する`collector_runs`もforeign-key cascadeで削除します。SQLiteはrow削除だけではfile sizeを縮めないため、filesystemへ空き領域を返す必要がある場合だけ、他のWeb/CLI/enrich processを止めて`--execute --vacuum`を使います。
+
+次は自動削除しません。
+
+- `project_decisions`: operator assertionの正本
+- `project_identifiers`のmigration provenance: v1 migration時だけ増える固定量で、通常運用では増加し続けない
+- current project state: 履歴ではなく現在状態の正本
+
+Web job eventはprocess内保持で再起動時に消えます。`sync_state`は最新watermarkだけを保持し、実行履歴として蓄積しません。enrich checkpoint fileの自動削除は未接続です。
+
 ## Non-goals
 
 - app lexiconとの完全互換

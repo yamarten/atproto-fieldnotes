@@ -41,6 +41,18 @@ def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prune_investigation_history(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.prune_investigation_history(
+        conn,
+        retention_days=int(args.retention_days),
+        keep_latest_per_project=int(args.keep_latest_per_project),
+        execute=bool(args.execute),
+        vacuum=bool(args.vacuum),
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_audit_source_config(args: argparse.Namespace) -> int:
     interactive = bool(args.interactive)
     if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):

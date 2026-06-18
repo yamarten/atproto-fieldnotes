@@ -144,6 +144,15 @@ project-registry migrate-db data/survey.db
 
 v1からの移行では、旧confirmedを無条件には信頼しません。根拠を再構成できないidentifierはmetadata付きcandidateへ降格し、`manual_seed`または`confirm_identifier` decisionがあるものだけoperator根拠としてconfirmedを維持します。出力reportの`uncorroborated_legacy_confirmed_count`、`active_block_identifier_collision_count`、`normalized_roundtrip_diff_count`が0であることが移行成功条件です。置換前に確認したい場合は`--dry-run`を使います。
 
+古い調査履歴は自動削除しません。既定で90日以内の全runとprojectごとの最新3 runを残し、それより古いrunをdry-run確認・手動削除できます。
+
+```bash
+project-registry prune-investigation-history
+project-registry prune-investigation-history --execute
+```
+
+DB file自体も縮める場合だけ、他processを停止して`--execute --vacuum`を使います。詳細は[docs/project-registry.md](docs/project-registry.md)を参照してください。
+
 ## 文書
 
 利用者向け:

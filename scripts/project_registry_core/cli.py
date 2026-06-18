@@ -242,6 +242,30 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply profile_json app link updates. Without this flag, show a dry-run summary only.")
     cleanup_app_links_parser.set_defaults(func=maintenance_commands.cmd_cleanup_app_links)
 
+    prune_history_parser = subparsers.add_parser(
+        "prune-investigation-history",
+        help="Delete old investigation and collector runs while retaining recent and per-project history.",
+    )
+    prune_history_parser.add_argument(
+        "--retention-days",
+        type=int,
+        default=90,
+        help="Keep every run completed within this many days. Default: 90.",
+    )
+    prune_history_parser.add_argument(
+        "--keep-latest-per-project",
+        type=int,
+        default=3,
+        help="Always keep at least this many newest runs per project. Default: 3.",
+    )
+    prune_history_parser.add_argument("--execute", action="store_true", help="Delete matching runs. Without this flag, report candidates only.")
+    prune_history_parser.add_argument(
+        "--vacuum",
+        action="store_true",
+        help="After deletion, VACUUM the database to return free pages to the filesystem. Requires --execute.",
+    )
+    prune_history_parser.set_defaults(func=maintenance_commands.cmd_prune_investigation_history)
+
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
     tracking_target.add_argument("-p", "--project-key", help="Target one project key.")
