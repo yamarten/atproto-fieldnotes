@@ -124,6 +124,11 @@
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認
   - 実外部sync sourceのWeb worker経由実行は未検証
+- 2026-06-18に一時fixture DBで日常運用安定化UIをin-app Browser確認
+  - desktopでproject detail、Explain、profile diff preview、空のInvestigation run履歴を確認
+  - Operationsでsync dry-runのnetwork警告とoperation別停止境界を確認
+  - mobileでproject一覧からdetailへ遷移し、6つのdetail tabが2行内に収まることを確認
+  - browser console error / warning 0件
 - 2026-06-14にミラー`data/survey.db`を実移行
   - project 2540件、identifier 18388件、decision 113件、relation 0件
   - SQLite integrity / foreign key / canonical snapshot検証済み
@@ -150,9 +155,6 @@
   - workspaceの旧方式v2ミラーはテスト用として破棄し、その調査履歴は移送しない
   - 本番v1に存在するinvestigation / collector rowはmigrationの通常コピー対象
   - migration command自体には別processとの排他lockがない
-- 今回追加したdetail tab、URL state、frontend mutation queue、read-only表示の実ブラウザ確認
-  - API/component testとJavaScript syntax checkは通過
-  - この作業環境ではlocalhost listenがsandboxに拒否され、in-app Browserは接続できなかった
 
 ## 未接続
 

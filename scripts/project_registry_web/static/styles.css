@@ -162,5 +162,6 @@ dialog label { display: grid; gap: 5px; }
   body.detail-open .detail-pane { display: block; }
   .mobile-back { display: inline-flex; }
   .primary-nav { margin-left: -10px; margin-right: -10px; padding: 0 10px; scrollbar-width: none; }
+  .detail-tabs { flex-wrap: wrap; gap: 4px 12px; overflow-x: visible; }
   .kv { grid-template-columns: 1fr; }
 }
