@@ -266,6 +266,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prune_history_parser.set_defaults(func=maintenance_commands.cmd_prune_investigation_history)
 
+    prune_migration_parser = subparsers.add_parser(
+        "prune-migration-provenance",
+        help="Remove schema-v1 audit metadata from identifiers without deleting identifier rows.",
+    )
+    prune_migration_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Rewrite matching metadata. Without this flag, report candidates only.",
+    )
+    prune_migration_parser.set_defaults(func=maintenance_commands.cmd_prune_migration_provenance)
+
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
     tracking_target.add_argument("-p", "--project-key", help="Target one project key.")

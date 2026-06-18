@@ -261,6 +261,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(prune_args.execute)
         self.assertTrue(prune_args.vacuum)
 
+        migration_prune_args = parser.parse_args(["prune-migration-provenance", "--execute"])
+
+        self.assertEqual(migration_prune_args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertTrue(migration_prune_args.execute)
+
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = cli.build_parser()
 

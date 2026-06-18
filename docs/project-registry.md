@@ -639,6 +639,17 @@ project-registry prune-investigation-history --execute --vacuum
 
 operator decision、migration provenance、project current stateはこのcommandでは削除しません。
 
+### v1 migration provenanceの削除
+
+v1から移行したidentifierには旧field、旧classification、降格理由などのprovenance metadataが残ります。通常運用が十分安定し、v1 backupを別途保持した後は、identifier rowを残したまま移行専用metadataだけを削除できます。
+
+```bash
+project-registry prune-migration-provenance
+project-registry prune-migration-provenance --execute
+```
+
+dry-runが既定です。`legacy_record`内の通常repo/account/manual seed metadataは平坦化して残し、repository confidenceは現在のidentifier classificationへ合わせます。identifierのkind、value、role、classification、primary、provider、observed_atは変更しません。実行判断の詳細は[notes/v1-migration-trust.md](notes/v1-migration-trust.md)を参照してください。
+
 ## 高度な調査・開発用コマンド
 
 以下は通常のseed登録・enrich・review操作には不要です。collectorやevaluationの開発、個別projectの深掘り、実験的sourceの確認に使います。

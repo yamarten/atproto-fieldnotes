@@ -24,6 +24,8 @@ v1 migrationは`v1-quarantine-1` trust policyを適用します。旧confirmed f
 
 調査履歴は自動削除しません。`prune-investigation-history`の既定policyは完了から90日以内の全runとprojectごとの最新3 runを保持し、それ以外の`investigation_runs`と対応する`collector_runs`を手動削除対象にします。dry-runが既定です。通常のDELETE後にできたSQLite free pageは再利用されますがfile sizeは縮まないため、実容量を縮める場合だけ別processを停止して`--execute --vacuum`を実行します。operator decisionとmigration provenanceはこのprune対象に含めません。
 
+v1 migration provenanceは通常運用で増加しない固定量です。安定運用後は`prune-migration-provenance`で対象件数とmetadata削減量を確認し、`--execute`でidentifier rowを残したまま移行専用keyを削除できます。`legacy_record`内の通常metadataは平坦化して残します。
+
 ## 旧 discovery フローの扱い
 
 旧 `discover.py` 系の独立フローは廃止しました。今後の本線は `project-registry` だけを前提にします。

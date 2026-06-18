@@ -153,6 +153,13 @@ project-registry prune-investigation-history --execute
 
 DB file自体も縮める場合だけ、他processを停止して`--execute --vacuum`を使います。詳細は[docs/project-registry.md](docs/project-registry.md)を参照してください。
 
+v1移行後に十分安定したら、identifier rowを残したまま移行専用metadataだけを削除できます。
+
+```bash
+project-registry prune-migration-provenance
+project-registry prune-migration-provenance --execute
+```
+
 ## 文書
 
 利用者向け:

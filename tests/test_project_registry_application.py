@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
@@ -8,6 +9,101 @@ from project_registry_core.application import decisions, maintenance, merge, pre
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_prune_migration_provenance_preserves_identifier_semantics(self) -> None:
+        conn = registry.open_db()
+        created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")
+        row = conn.execute(
+            """
+            SELECT * FROM project_identifiers
+            WHERE project_key = ? AND role = 'manual_seed'
+            """,
+            (created["project_key"],),
+        ).fetchone()
+        metadata = {
+            "migration_source": "schema_v1",
+            "legacy_field": "manual_seeds",
+            "legacy_classification": "confirmed",
+            "trust_policy": "v1-quarantine-1",
+            "trust_basis": "operator_input",
+            "legacy_record": {
+                "type": "service_url",
+                "value": "https://example.com",
+                "added_at": "2025-01-01T00:00:00+00:00",
+            },
+            "retained_note": "keep",
+        }
+        conn.execute(
+            "UPDATE project_identifiers SET metadata_json = ? WHERE project_key = ? AND ordinal = ?",
+            (json.dumps(metadata), created["project_key"], int(row["ordinal"])),
+        )
+        repo_ordinal = int(conn.execute(
+            "SELECT MAX(ordinal) + 1 FROM project_identifiers WHERE project_key = ?",
+            (created["project_key"],),
+        ).fetchone()[0])
+        conn.execute(
+            """
+            INSERT INTO project_identifiers VALUES (?, ?, 'repo_url', ?, 'source_repository_record',
+                'candidate', 0, 'github', ?, '')
+            """,
+            (
+                created["project_key"],
+                repo_ordinal,
+                "https://github.com/example/app",
+                json.dumps({
+                    "migration_source": "schema_v1",
+                    "legacy_classification": "confirmed",
+                    "trust_policy": "v1-quarantine-1",
+                    "downgrade_reason": "no current corroboration",
+                    "legacy_record": {
+                        "url": "https://github.com/example/app",
+                        "provider": "github",
+                        "confidence": "confirmed",
+                        "source": "legacy",
+                    },
+                }),
+            ),
+        )
+        conn.commit()
+        semantic_before = tuple(row[key] for key in (
+            "project_key", "kind", "value", "role", "classification", "is_primary", "provider", "observed_at",
+        ))
+
+        dry_run = maintenance.prune_migration_provenance(conn)
+        unchanged = json.loads(conn.execute(
+            "SELECT metadata_json FROM project_identifiers WHERE project_key = ? AND ordinal = ?",
+            (created["project_key"], int(row["ordinal"])),
+        ).fetchone()[0])
+        executed = maintenance.prune_migration_provenance(conn, execute=True)
+        after = conn.execute(
+            "SELECT * FROM project_identifiers WHERE project_key = ? AND ordinal = ?",
+            (created["project_key"], int(row["ordinal"])),
+        ).fetchone()
+        repo_after = conn.execute(
+            "SELECT * FROM project_identifiers WHERE project_key = ? AND ordinal = ?",
+            (created["project_key"], repo_ordinal),
+        ).fetchone()
+        fetched = registry.fetch_project(conn, created["project_key"])
+        conn.close()
+
+        semantic_after = tuple(after[key] for key in (
+            "project_key", "kind", "value", "role", "classification", "is_primary", "provider", "observed_at",
+        ))
+        compacted = json.loads(after["metadata_json"])
+        self.assertEqual(dry_run["candidate_identifier_count"], 2)
+        self.assertEqual(unchanged, metadata)
+        self.assertEqual(executed["updated_identifier_count"], 2)
+        self.assertEqual(semantic_after, semantic_before)
+        self.assertEqual(compacted["retained_note"], "keep")
+        self.assertEqual(compacted["type"], "service_url")
+        self.assertEqual(compacted["value"], "https://example.com")
+        self.assertNotIn("migration_source", compacted)
+        self.assertNotIn("legacy_record", compacted)
+        repo_metadata = json.loads(repo_after["metadata_json"])
+        self.assertEqual(repo_after["classification"], "candidate")
+        self.assertEqual(repo_metadata["confidence"], "candidate")
+        self.assertEqual(fetched["source_code_urls"], [])
+        self.assertIn("https://github.com/example/app", fetched["candidate_source_code_urls"])
+
     def test_prune_investigation_history_keeps_recent_and_latest_runs(self) -> None:
         conn = registry.open_db()
         storage.ensure_investigation_tables(conn)

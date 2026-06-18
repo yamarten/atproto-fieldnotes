@@ -260,7 +260,7 @@ JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigat
 次は自動削除しません。
 
 - `project_decisions`: operator assertionの正本
-- `project_identifiers`のmigration provenance: v1 migration時だけ増える固定量で、通常運用では増加し続けない
+- `project_identifiers`のmigration provenance: v1 migration時だけ増える固定量で、通常運用では増加し続けない。安定運用後は`prune-migration-provenance --execute`でidentifier rowを残したまま移行専用metadataだけを削除できる
 - current project state: 履歴ではなく現在状態の正本
 
 Web job eventはprocess内保持で再起動時に消えます。`sync_state`は最新watermarkだけを保持し、実行履歴として蓄積しません。enrich checkpoint fileの自動削除は未接続です。

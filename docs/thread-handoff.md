@@ -60,6 +60,10 @@
   - 既定で90日以内の全runとprojectごとの最新3 runを保持
   - `--execute`でcollector runもcascade削除し、`--vacuum`でfile sizeを縮小可能
   - operator decisionとmigration provenanceは対象外
+- 実装済み: v1 migration provenance cleanup
+  - `prune-migration-provenance`はdry-run既定
+  - identifier rowと意味列を維持し、移行専用metadataだけを削除
+  - `legacy_record`内の通常metadataは平坦化して保持
 - 実装済み: Web write安全策と状態復元
   - `api_version: 2`、server presenter、project revision、stale guard
   - server内mutation直列化、frontend mutation queue、`--read-only`
@@ -78,12 +82,13 @@
 - temp SQLiteでv1 migration trust policy、operator confirmation維持、normalized row roundtrip diff 0
 - temp SQLiteでcandidate primary NSID / developer DIDの無変更load/save保持
 - temp SQLiteで調査履歴pruneのdry-run、最新件数保持、collector cascade削除
+- temp SQLiteでmigration provenance削除後もidentifier意味列と通常metadataを保持
 - in-app Browserでdesktop検索・mutation・merge確認とmobile detail遷移
 - temp SQLiteでenrichのproject境界中断、checkpoint再開、API key非保存
 - fake subprocess workerで完了、競合拒否、SIGINT停止、再開
 - 実workerと空のtemp DBでnetwork-free protocol実行
 - in-app Browserでtemp DBのbulk enrich起動と完了event/result表示
-- 全通常テスト196件
+- 全通常テスト197件
 - in-app Browserでschema v2 DBのreview-stalled dry-runを実行
   - DB更新なし、全候補839件のうちlimit 50件をresultへ返すことを確認
   - GitHub sync選択時だけscreening optionが有効になることを確認

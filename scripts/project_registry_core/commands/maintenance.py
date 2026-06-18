@@ -53,6 +53,15 @@ def cmd_prune_investigation_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prune_migration_provenance(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.prune_migration_provenance(
+        conn,
+        execute=bool(args.execute),
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_audit_source_config(args: argparse.Namespace) -> int:
     interactive = bool(args.interactive)
     if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):

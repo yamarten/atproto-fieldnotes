@@ -32,6 +32,41 @@
 - 実v1 backup全体を現行migrationでdry-runした件数確認
 - 現在の通常運用DB置換
 
+## 移行provenanceの削除
+
+通常運用が十分安定し、v1 backupとmigration reportだけで旧状態を追跡できると判断した後は、identifier rowを残したままmigration専用metadataを削除できます。
+
+dry-run:
+
+```bash
+project-registry prune-migration-provenance
+```
+
+実行:
+
+```bash
+project-registry prune-migration-provenance --execute
+```
+
+削除対象:
+
+- `migration_source`
+- `legacy_field`
+- `legacy_classification`
+- `trust_policy`
+- `downgrade_reason`
+- `trust_basis`
+- `legacy_record` wrapper
+
+`legacy_record`の中にあるrepo/account/manual seed metadataは通常metadataへ平坦化して残します。repository recordの`confidence`は旧値ではなく現在のidentifier classificationへ合わせ、quarantine candidateを再昇格させません。`project_key`、kind、value、role、classification、primary、provider、observed_atは変更せず、`project_identifiers` row自体は削除しません。
+
+実行前条件:
+
+- 通常運用DBが現行migrationから作成済み
+- migration reportのhard acceptance conditionがすべて0
+- quarantine candidateのreviewまたは再調査が十分進んでいる
+- v1 backupを別途保持している
+
 ## 問題
 
 構造上のmigrationが成功しても、旧heuristicがconfirmed fieldへ昇格させた誤情報をそのままv2のconfirmed identifierとして保存すると、ownership、duplicate/merge、service判定、次回collectorの入力が誤情報を相互補強します。
@@ -139,6 +174,7 @@ normalized rowの無変更roundtrip、active blockとの衝突0件、根拠不�
 5. 実DB由来correction fixtureでblock/defer/false-confirm回帰
 6. v1 backupからdry-runし、sanitized fixtureで判定diffを確認
 7. 合格後にだけ通常DBを置換
+8. 安定運用後、必要ならmigration provenance metadataだけを手動削除
 
 ## 非目標
 
