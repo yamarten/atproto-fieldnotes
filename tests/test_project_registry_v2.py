@@ -189,10 +189,22 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             },
             "evidence": {
                 "input_nsids": ["app.example.post"],
+                "external_lexicons": ["com.example.shared.record"],
+                "manual_seeds": [{
+                    "type": "repo_url",
+                    "value": "https://github.com/example/app",
+                    "added_at": "2026-06-01T00:00:00+00:00",
+                }],
                 "service_url_candidates": ["https://app.example"],
                 "website_url_candidates": ["https://legacy.example"],
                 "source_code_urls": [],
                 "github_repo_urls": ["https://github.com/example/app"],
+                "source_repo_records": [{
+                    "url": "https://github.com/example/app",
+                    "provider": "github",
+                    "confidence": "confirmed",
+                    "source": "legacy",
+                }],
                 "resource_urls": ["https://example.com/docs"],
             },
         }
@@ -242,6 +254,10 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             self.assertEqual(project["service_url_candidates"], ["https://app.example", "https://legacy.example"])
             self.assertEqual(project["source_code_urls"], [])
             self.assertEqual(project["candidate_source_code_urls"], ["https://github.com/example/app"])
+            self.assertEqual(project["external_lexicons"], ["com.example.shared.record"])
+            self.assertEqual(project["manual_seeds"][0]["type"], "repo_url")
+            self.assertEqual(project["manual_seeds"][0]["value"], "https://github.com/example/app")
+            self.assertEqual(project["source_repo_records"][0]["confidence"], "candidate")
             self.assertEqual(project["resource_url_records"][0]["url"], "https://example.com/docs")
             self.assertEqual(project["blocked_identifiers"][0]["value"], "app.example.noise")
             repo_row = conn.execute(
@@ -251,6 +267,7 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
                 WHERE project_key = 'proj:legacy'
                   AND kind = 'repo_url'
                   AND value = 'https://github.com/example/app'
+                  AND role = 'source_repository'
                 """
             ).fetchone()
             self.assertEqual(repo_row["classification"], "candidate")
@@ -259,6 +276,18 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             self.assertEqual(repo_metadata["legacy_field"], "github_repo_urls")
             self.assertEqual(repo_metadata["trust_policy"], "v1-quarantine-1")
             self.assertEqual(repo_metadata["downgrade_reason"], "no current corroboration")
+            referenced_row = conn.execute(
+                """
+                SELECT classification, metadata_json
+                FROM project_identifiers
+                WHERE project_key = 'proj:legacy'
+                  AND kind = 'nsid'
+                  AND value = 'com.example.shared.record'
+                  AND role = 'referenced_nsid'
+                """
+            ).fetchone()
+            self.assertEqual(referenced_row["classification"], "candidate")
+            self.assertEqual(json.loads(referenced_row["metadata_json"])["legacy_field"], "external_lexicons")
             run = conn.execute(
                 "SELECT evidence_schema_version, input_project_json, bundle_json FROM investigation_runs WHERE run_id='inv:legacy'"
             ).fetchone()

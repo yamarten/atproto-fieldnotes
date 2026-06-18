@@ -25,6 +25,7 @@ project-registry migrate-db data/survey.db
 ```
 
 移行成功時は旧DBを同じdirectoryのtimestamp付きbackupへ移し、新DBを元pathへ置きます。失敗時は旧DBを変更しません。
+`migrate-db`は別processとの排他lockを取得しないため、Web、enrich、他のCLI writerを停止したoffline状態で実行します。すでにschema v2のDBはtrust policy適用世代に関係なく`already_current`になるため、旧方式v2を現行migration済みDBとして扱わないでください。
 
 v1からの移行では`v1-quarantine-1` trust policyを適用します。旧DBでconfirmed相当だったidentifierでも、現在の根拠で再現できないものは`project_identifiers`のcandidate rowへ降格し、`metadata_json`へ旧field、旧classification、policy、降格理由を残します。`manual_seed`はoperator入力としてconfirmed rowにできますが、同じ値であることだけをownershipやsource repositoryのconfirmed根拠にはしません。`confirm_identifier` decisionが残るoperator確認済みidentifier、または現行ruleで再構成できる根拠だけをconfirmedとして維持します。
 

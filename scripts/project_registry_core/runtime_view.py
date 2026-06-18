@@ -119,6 +119,27 @@ def require_complete_for_update(project: Mapping[str, Any], *, exists: bool) -> 
         )
 
 
+def refresh_baselines(project: dict[str, Any]) -> dict[str, Any]:
+    mark_complete(project)
+    project[RUNTIME_IDENTIFIER_BASELINE] = [asdict(item) for item in _derive_project_identifiers(project)]
+    project[RUNTIME_RELATION_BASELINE] = copy.deepcopy(project.get("relation_evidence", []))
+    project[RUNTIME_DECISION_BASELINE] = [asdict(item) for item in _derive_project_decisions(project)]
+    return project
+
+
+def normalized_children_unchanged(project: Mapping[str, Any]) -> bool:
+    identifier_baseline = project.get(RUNTIME_IDENTIFIER_BASELINE)
+    relation_baseline = project.get(RUNTIME_RELATION_BASELINE)
+    decision_baseline = project.get(RUNTIME_DECISION_BASELINE)
+    if not all(isinstance(value, list) for value in (identifier_baseline, relation_baseline, decision_baseline)):
+        return False
+    identifiers = [asdict(item) for item in _derive_project_identifiers(project)]
+    decisions = [asdict(item) for item in _derive_project_decisions(project)]
+    from .relations import normalize_relation_records
+    relations = normalize_relation_records(project.get("relation_evidence", []))
+    return identifiers == identifier_baseline and relations == relation_baseline and decisions == decision_baseline
+
+
 def sanitize_runtime_snapshot(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {
@@ -420,6 +441,10 @@ def hydrate(
     decision_rows: Iterable[Mapping[str, Any]],
     load_json: Any,
 ) -> dict[str, Any]:
+    def semantic_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+        legacy_record = metadata.get("legacy_record")
+        return copy.deepcopy(dict(legacy_record)) if isinstance(legacy_record, Mapping) else copy.deepcopy(metadata)
+
     identifier_payload = [
         {
             "kind": str(row["kind"]),
@@ -474,7 +499,7 @@ def hydrate(
         classification = row["classification"]
         metadata = row["metadata"]
         if role == "manual_seed":
-            project["manual_seeds"].append(metadata or {"type": kind, "value": value})
+            project["manual_seeds"].append(semantic_metadata(metadata) or {"type": kind, "value": value})
             continue
         if kind == "nsid":
             if role == "primary_nsid" and classification == "confirmed": project["primary_nsid"] = value
@@ -492,11 +517,14 @@ def hydrate(
             if bool(row["is_primary"]) and classification == "confirmed": project["source_code_url"] = value
             target = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
             project[target].append(value)
-            if metadata and role == "source_repository_record": project["source_repo_records"].append(metadata)
+            if metadata and role == "source_repository_record":
+                record = semantic_metadata(metadata)
+                record["confidence"] = classification
+                project["source_repo_records"].append(record)
         elif kind == "account":
             if role == "developer_account":
                 target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
-                project[target].append(metadata or {"handle": value})
+                project[target].append(semantic_metadata(metadata) or {"handle": value})
             elif str(row["provider"]) == "bluesky": project["bluesky_handles"].append(value)
             elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
         elif kind == "did" and role == "brand_did" and classification == "confirmed":
@@ -549,11 +577,7 @@ def hydrate(
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "cleared_at": str(row["cleared_at"]),
             })
-    mark_complete(project)
     project[RUNTIME_IDENTIFIER_ROWS] = copy.deepcopy(identifier_payload)
-    project[RUNTIME_IDENTIFIER_BASELINE] = [asdict(item) for item in _derive_project_identifiers(project)]
     project[RUNTIME_RELATION_ROWS] = copy.deepcopy(relation_payload)
-    project[RUNTIME_RELATION_BASELINE] = copy.deepcopy(project["relation_evidence"])
     project[RUNTIME_DECISION_ROWS] = [asdict(ProjectDecision(**item)) for item in decision_payload]
-    project[RUNTIME_DECISION_BASELINE] = [asdict(item) for item in _derive_project_decisions(project)]
-    return project
+    return refresh_baselines(project)

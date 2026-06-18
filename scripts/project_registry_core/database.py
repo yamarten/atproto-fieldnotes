@@ -442,6 +442,8 @@ def decode_legacy_project(row: sqlite3.Row) -> dict[str, Any]:
         add_identifier("nsid", value, "owned_nsid", "resolved_nsids", "confirmed")
     for value in raw.get("lexicons", []) or []:
         add_identifier("nsid", value, "observed_lexicon", "lexicons", "candidate")
+    for value in raw.get("external_lexicons", []) or []:
+        add_identifier("nsid", value, "referenced_nsid", "external_lexicons", "candidate")
     for value in raw.get("recorded_lexicon_namespaces", []) or []:
         add_identifier("nsid", value, "recorded_namespace", "recorded_lexicon_namespaces", "derived")
     for value in raw.get("authority_domains", []) or []:
@@ -898,13 +900,34 @@ def migrate_database(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
 
         rows = source.execute("SELECT * FROM projects ORDER BY project_key").fetchall()
         decoded_projects = [decode_legacy_project(row) for row in rows]
-        source_projects = [dict(item["project"]) for item in decoded_projects]
+        source_projects: list[dict[str, Any]] = []
         trust_report = merge_migration_reports([dict(item["report"]) for item in decoded_projects])
         for decoded in decoded_projects:
             project_payload = dict(decoded["project"])
             project = registry.ensure_project_shape(project_payload)
+            source_projects.append(project)
+            identifiers = list(decoded["identifiers"])
+            identifier_keys = {(item.kind, item.value, item.role) for item in identifiers}
+            for value in project.get("external_lexicons", []):
+                normalized = registry.normalize_nsid(str(value or ""))
+                key = ("nsid", normalized, "referenced_nsid")
+                if not normalized or key in identifier_keys:
+                    continue
+                identifier_keys.add(key)
+                identifiers.append(ProjectIdentifier(
+                    kind="nsid",
+                    value=normalized,
+                    role="referenced_nsid",
+                    classification="candidate",
+                    metadata=_legacy_metadata(
+                        legacy_field="computed_external_lexicons",
+                        legacy_classification="candidate",
+                        classification="candidate",
+                        trust_basis="current_rule",
+                    ),
+                ))
             registry.save_project(target, project, enriched=False, preserve_timestamps=True)
-            replace_identifier_rows(target, str(project["project_key"]), list(decoded["identifiers"]))
+            replace_identifier_rows(target, str(project["project_key"]), identifiers)
         copy_table_rows(source, target, "sync_state")
         migrate_investigation_rows(source, target)
         copy_table_rows(source, target, "collector_runs")

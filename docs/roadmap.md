@@ -29,6 +29,26 @@
 - [web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)
 - [core-overhaul-backlog.md](notes/core-overhaul-backlog.md)
 
+### 通常DB置換前
+
+現行migrationの実v1 backup dry-runは合格済みです。通常DBを置換する前に次を完了します。
+
+1. 旧方式v2ミラーから調査履歴だけを移送する
+   - `investigation_runs` 112件、`collector_runs` 676件
+   - project current stateは移送しない
+   - input/output snapshotの削除済みcompatibility fieldをsanitizeする
+   - 移送後にrun/collector件数、foreign key、replay loadを検証する
+2. offline置換手順を固定する
+   - Web、enrich、CLI writerを全停止する
+   - v1 backupの複製をmigration入力にし、唯一のbackup自体を置換しない
+   - migration reportをファイル保存し、新旧DBのhashと一緒に保管する
+3. 移行世代の誤認防止を決める
+   - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
+   - trust policy markerを`registry_meta`へ残すか、置換手順だけで管理するかを通常置換前に確定する
+4. 必要ならprocess間lockまたはpreflightを追加する
+   - 現状の`migrate-db`は別processを自動停止・拒否しない
+   - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
+
 ### 日常運用を安定させるまで
 
 移行後のDBをWeb UIとCLIから継続的にreviewできる状態にするための作業です。

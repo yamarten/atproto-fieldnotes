@@ -2020,7 +2020,7 @@ def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
 def project_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     payload = project_from_row_payload(row)
     payload = registry_database.hydrate_project_children(conn, payload)
-    return ensure_project_shape(payload)
+    return runtime_view.refresh_baselines(ensure_project_shape(payload))
 
 
 def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set[str]:
@@ -2234,7 +2234,7 @@ def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] 
         return None
     payload = project_from_row_payload(row)
     payload = registry_database.hydrate_project_children(conn, payload)
-    return ensure_project_shape(payload)
+    return runtime_view.refresh_baselines(ensure_project_shape(payload))
 
 
 def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
@@ -2748,6 +2748,15 @@ def save_project(
     preserve_timestamps: bool = False,
 ) -> None:
     now = iso_now()
+    preserve_normalized_rows = runtime_view.normalized_children_unchanged(project)
+    preserved_runtime_rows = {
+        key: copy.deepcopy(project.get(key))
+        for key in (
+            runtime_view.RUNTIME_IDENTIFIER_ROWS,
+            runtime_view.RUNTIME_RELATION_ROWS,
+            runtime_view.RUNTIME_DECISION_ROWS,
+        )
+    } if preserve_normalized_rows else {}
     project = ensure_project_shape(project)
     project["primary_nsid"] = normalize_nsid(project.get("primary_nsid", "")) if project.get("primary_nsid") else ""
     project["input_nsids"] = unique_list([normalize_nsid(item) for item in project.get("input_nsids", []) if item])
@@ -2875,6 +2884,9 @@ def save_project(
                 project["project_key"],
             ),
         )
+    if preserve_normalized_rows:
+        project.update(preserved_runtime_rows)
+        runtime_view.refresh_baselines(project)
     registry_database.replace_project_children(conn, project)
     conn.commit()
 
