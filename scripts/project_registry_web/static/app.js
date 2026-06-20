@@ -56,6 +56,13 @@ function safeUrl(value) { try { const url = new URL(String(value || "")); return
 function link(value) { const href = safeUrl(value); return href ? `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(value)}</a>` : esc(value); }
 function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value)}</span>` : ""; }
 function json(value) { return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`; }
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return "";
+  const value = Math.max(0, Math.round(Number(seconds)));
+  if (value < 60) return `${value}s`;
+  if (value < 3600) return `${Math.floor(value / 60)}m ${value % 60}s`;
+  return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
+}
 
 async function api(path, options = {}) {
   const headers = {"X-Project-Registry-Token": token, ...(options.headers || {})};
@@ -388,15 +395,20 @@ function renderIdentifier(item) {
   const classifications = item.classifications || [item.classification];
   const effectiveClassification = item.classification || classifications[0] || "";
   const actionKind = item.actions?.identifier_type || "";
-  const actions = `${item.actions?.confirm ? actionButton("Confirm", "confirm-candidate", {type:actionKind, value:item.value}, "small primary") : ""}${item.actions?.reject ? actionButton("Reject", "reject-candidate", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.block ? actionButton("Block", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split", "split-project", {type:actionKind, value:item.value}) : ""}`;
+  const actions = `${item.actions?.block ? actionButton("Block all roles", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer all roles 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split identifier", "split-project", {type:actionKind, value:item.value}) : ""}`;
   const showKinds = item.family === "identity" || item.family.startsWith("other:");
-  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.role_labels, ...item.providers]).join(" · ");
+  const entries = list(item.entries);
+  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
   return `<div class="identifier ${esc(effectiveClassification)}">
     <div class="identifier-main">
       <div class="identifier-value">${item.kinds.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>
-      <div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(detail)}</span></div>
+      ${detail ? `<div class="identifier-roles">${esc(detail)}</div>` : ""}
+      <div class="identifier-entry-list">${entries.map((entry) => {
+        const confirm = entry.actions?.confirm ? actionButton("Confirm value", "confirm-candidate", {type:entry.actions.identifier_type, value:item.value}, "small primary") : "";
+        return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(entry.role_label || entry.role)}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([entry.kind, entry.provider, entry.observed_at]).join(" · "))}</div>${confirm ? `<div class="actions">${confirm}</div>` : ""}</div>`;
+      }).join("") || `<div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(item.role_labels.join(" · "))}</span></div>`}</div>
     </div>
-    ${actions ? `<details class="identifier-actions"><summary>Actions</summary><div class="actions">${actions}</div></details>` : ""}
+    ${actions ? `<details class="identifier-actions"><summary>Identifier actions</summary><div class="actions"><p class="muted">These apply to every saved role with this kind and value.</p>${actions}</div></details>` : ""}
   </div>`;
 }
 
@@ -451,8 +463,10 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
     const otherCandidates = candidates.filter((item) => item.project_key !== recommendation.target_project_key).slice(0, 5);
     state.mergeTargetRevision = data.merge_target_revision || "";
     $("merge-analysis-content").innerHTML = recommendation.target_project_key
-      ? `<dl class="kv"><dt>Candidate</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>Confidence</dt><dd>${pill(recommendation.merge_confidence || "unknown")} score ${esc(recommendation.score || 0)}</dd><dt>Auto merge</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "Manual review required"}</dd></dl>${otherCandidates.length ? `<details><summary>Other candidates (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} score ${esc(item.score || 0)}</div></div>`).join("")}</details>` : ""}`
+      ? `<dl class="kv"><dt>Candidate</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>Confidence</dt><dd>${pill(recommendation.merge_confidence || "unknown")} score ${esc(recommendation.score || 0)}</dd><dt>Auto merge</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "Manual review required"}</dd></dl><div class="actions"><button class="small" data-view-project="${esc(recommendation.target_project_key)}">View candidate detail</button><button class="small" data-review-merge="${esc(recommendation.target_project_key)}">Compare before merge</button></div>${otherCandidates.length ? `<details><summary>Other candidates (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} score ${esc(item.score || 0)}</div><div class="actions"><button class="small" data-view-project="${esc(item.project_key)}">View</button><button class="small" data-review-merge="${esc(item.project_key)}">Compare</button></div></div>`).join("")}</details>` : ""}`
       : `<p class="muted">No merge candidate found.</p>`;
+    document.querySelectorAll("[data-view-project]").forEach((button) => button.onclick = () => loadDetail(button.dataset.viewProject));
+    document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge));
     if (recommendation.auto_merge_ready && !state.server?.read_only) {
       $("merge-analysis-action").innerHTML = actionButton("Apply merge recommendation", "merge-recommendation", {other:recommendation.target_project_key}, "danger");
       bindDetailActions(projectKey);
@@ -597,8 +611,14 @@ async function loadMergeDetail(source, target) {
     if (request !== state.detailRequest || state.selected !== source) return;
     state.mergeSourceRevision = data.source_revision || "";
     state.mergeTargetRevision = data.target_revision || "";
-    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(source)} → ${esc(target)}</h2>${section("Comparison", json(data.comparison || data))}${section("Preview", json(data.merged_preview || {}))}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : `<div class="actions"><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`}`;
+    const snapshot = (project, side) => {
+      const identifiers = list(project.identifiers);
+      const identifierRows = (classification) => identifiers.filter((item) => item.classification === classification).map((item) => `<div><span class="muted">${esc(item.role || item.kind)}</span> ${link(item.value)}</div>`).join("") || `<span class="muted">None</span>`;
+      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Status</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>Seed</dt><dd>${esc(`${project.seed?.type || ""}: ${project.seed?.value || ""}`)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl><div class="merge-identifiers"><strong>Confirmed identifiers</strong>${identifierRows("confirmed")}<strong>Candidates</strong>${identifierRows("candidate")}</div><button class="small" data-merge-view="${esc(side)}">Open full detail</button></article>`;
+    };
+    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : `<div class="actions"><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`}`;
     $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
+    document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target));
     $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
     $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
   } catch (error) {
@@ -790,7 +810,7 @@ function renderJobs(items) {
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>
-      <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${esc(progress.elapsed || "")}</span></div>
+      <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `Elapsed ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `ETA ${esc(formatDuration(job.eta_seconds))}`}</span></div>
       ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
       <div class="actions">
@@ -798,7 +818,7 @@ function renderJobs(items) {
         ${job.can_resume && !state.server?.read_only ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
         ${plan?.candidates?.length && !state.server?.read_only ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">Review ${esc(plan.candidates.length)} candidates</button>` : ""}
       </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
-        <summary>Details</summary><div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
+        <summary>Details</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">Refresh details</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
       </details></article>`;
   }).join("");
 }
@@ -820,12 +840,23 @@ async function loadJobs() {
   try {
     const [data, checkpoints] = await Promise.all([api("/api/jobs?limit=50"), api("/api/checkpoints?limit=100")]);
     state.jobsById = new Map(list(data.items).map((job) => [job.job_id, job]));
+    const anchor = document.querySelector("[data-job-details][open]");
+    const anchorTop = anchor?.getBoundingClientRect().top;
+    const detailScroll = new Map([...document.querySelectorAll("[data-job-details][open]")].map((details) => {
+      const pre = details.querySelector("pre");
+      return [details.dataset.jobDetails, {top:pre?.scrollTop || 0, left:pre?.scrollLeft || 0}];
+    }));
     $("job-list").innerHTML = renderJobs(list(data.items));
     $("checkpoint-list").innerHTML = renderCheckpoints(list(checkpoints.items));
     bindJobActions();
-    await Promise.all([...state.openJobDetails]
-      .filter((jobId) => !state.jobsById.get(jobId)?.result?.data?.summary?.candidates?.length)
-      .map((jobId) => refreshJobDetail(jobId)));
+    if (anchor && anchorTop !== undefined) {
+      const replacement = document.querySelector(`[data-job-details="${CSS.escape(anchor.dataset.jobDetails)}"]`);
+      if (replacement) window.scrollBy(0, replacement.getBoundingClientRect().top - anchorTop);
+    }
+    detailScroll.forEach((position, jobId) => {
+      const pre = document.querySelector(`[data-job-details="${CSS.escape(jobId)}"] pre`);
+      if (pre) { pre.scrollTop = position.top; pre.scrollLeft = position.left; }
+    });
     if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling")) {
       state.operationTimer = setTimeout(loadJobs, 2000);
     }
@@ -846,6 +877,7 @@ async function refreshJobDetail(jobId) {
 }
 
 function bindJobActions() {
+  document.querySelectorAll("[data-job-detail-refresh]").forEach((button) => button.onclick = () => refreshJobDetail(button.dataset.jobDetailRefresh));
   document.querySelectorAll("[data-checkpoint-resume]").forEach((button) => button.onclick = () => confirmOperation("Resume discovered checkpoint", `Resume ${button.dataset.checkpointResume}?`, async () => {
     await api(`/api/checkpoints/${encodeURIComponent(button.dataset.checkpointResume)}/resume`, {method:"POST", body:"{}"});
     status("Resume job started."); await loadJobs();
@@ -903,7 +935,7 @@ async function renderSettings() {
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
     <label class="settings-toggle"><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
   </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button>${state.server?.read_only ? "" : `<button id="reload-server" class="danger">Reload server</button>`}</div>
-  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Mode</dt><dd>${state.server?.read_only ? "Read-only" : "Read/write"}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
+  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Commit</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? " (dirty)" : ""}</code>` : "Unavailable outside a Git checkout"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>Mode</dt><dd>${state.server?.read_only ? "Read-only" : "Read/write"}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import datetime as dt
 import json
 import os
 import signal
@@ -50,6 +51,18 @@ class JobRecord:
             (event.get("data") for event in reversed(self.events) if event.get("kind") == "item_completed"),
             None,
         )
+        elapsed_seconds: int | None = None
+        eta_seconds: int | None = None
+        if self.started_at and self.status in ACTIVE_STATUSES:
+            try:
+                started = dt.datetime.fromisoformat(self.started_at)
+                elapsed_seconds = max(0, int((dt.datetime.now(dt.timezone.utc) - started).total_seconds()))
+                current = int((progress or {}).get("current") or 0)
+                total = int((progress or {}).get("total") or 0)
+                if current > 0 and total > current and elapsed_seconds > 0:
+                    eta_seconds = max(1, int(elapsed_seconds * (total - current) / current))
+            except (TypeError, ValueError):
+                pass
         output = {
             "job_id": self.job_id,
             "operation_id": self.request.operation_id,
@@ -65,6 +78,8 @@ class JobRecord:
             "error": self.error,
             "latest_event": self.events[-1] if self.events else None,
             "progress": progress,
+            "elapsed_seconds": elapsed_seconds,
+            "eta_seconds": eta_seconds,
             "last_item": last_item,
             "event_count": len(self.events),
             "can_cancel": self.status in {"queued", "running"},

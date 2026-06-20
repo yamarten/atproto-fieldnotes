@@ -12,7 +12,7 @@ from unittest import mock
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
-from project_registry_web.jobs import JobConflictError, JobManager
+from project_registry_web.jobs import JobConflictError, JobManager, JobRecord
 
 
 FAKE_WORKER = r'''
@@ -91,6 +91,20 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertFalse(completed["can_cancel"])
         self.assertFalse(completed["can_resume"])
         self.assertTrue(completed["request"]["parameters"]["checkpoint_path"].endswith(".json"))
+
+    def test_running_job_estimates_eta_from_latest_progress(self) -> None:
+        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        record = JobRecord(
+            job_id="job:eta",
+            request=OperationRequest.create("enrich"),
+            status="running",
+            started_at=started,
+            events=[{"kind": "progress", "data": {"progress": {"current": 2, "total": 10}}}],
+        )
+        snapshot = record.snapshot()
+        self.assertGreaterEqual(snapshot["elapsed_seconds"], 99)
+        self.assertGreaterEqual(snapshot["eta_seconds"], 396)
+        self.assertLessEqual(snapshot["eta_seconds"], 404)
 
     def test_generic_sync_and_review_jobs_use_same_process_boundary(self) -> None:
         sync_job = self.manager.start_sync({"source": "github"}, execute=False)

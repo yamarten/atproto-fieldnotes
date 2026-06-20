@@ -27,6 +27,10 @@
   - bounded investigation run viewerとread-only replay
   - service verification比較、ownership、OAuth、URL aliasの確認
   - 保存済みstateに対するExplain
+  - source/targetの主要属性とidentifierを並べるmerge review
+  - identifierのrole/classification対応を行単位で表示
+  - background jobの経過時間、progress比から算出したETA、手動details更新
+  - Git checkoutではSettingsにcommit hashとdirty状態を表示
 - background operation
   - enrich、sync、reviewを別processで実行
   - operation別のprogressと協調停止
@@ -76,12 +80,14 @@
 安全上の制約:
 
 - Webの`--read-only`はPOSTとjob controlを拒否するapplication-level modeであり、SQLiteをOS/URI levelのread-onlyでは開かない
+- identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
+- job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
 
 ## 動作確認状況
 
-2026-06-18から2026-06-19の変更時点で確認済み:
+2026-06-18から2026-06-20の変更時点で確認済み:
 
-- unit test 219件
+- unit test 223件
 - JavaScript syntax check
 - temp SQLiteでmigration、normalized row roundtrip、review、profile編集、履歴cleanup
 - fake workerと実workerによるbackground operation protocol

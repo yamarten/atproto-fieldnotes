@@ -212,6 +212,9 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - evidence表示上限の調整
   - run一覧、bounded evidence、replay差分は接続済み
   - raw HTMLやREADME全文の表示は非目標を維持する
+- role単位のidentifier decision
+  - 現行confirm/block/defer/splitは`kind + value`単位で、同じ値を持つ全roleへ作用する
+  - 実例でrole単位の拒否が必要になった時に、decision targetとruntime guardを拡張する
 
 原則 CLI に残す保守操作:
 

@@ -107,6 +107,8 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .identifier-kind-header span { font-size: 11px; }
 .identifier { position: relative; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 9px; }
 .identifier-main { min-width: 0; display: grid; gap: 3px; }
+.identifier-entry-list { display: grid; gap: 4px; margin-top: 3px; }
+.identifier-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-top: 4px; border-top: 1px solid var(--line); font-size: 12px; }
 .identifier-summary { min-width: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .identifier-roles { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .identifier-actions { position: relative; }
@@ -144,6 +146,9 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .job-error { color: var(--danger); }
 .job-details > summary { width: fit-content; cursor: pointer; color: var(--accent); }
 .job-details > div { margin-top: 8px; }
+.merge-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.merge-project { min-width: 0; display: grid; align-content: start; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.merge-identifiers { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }
@@ -164,4 +169,6 @@ dialog label { display: grid; gap: 5px; }
   .primary-nav { margin-left: -10px; margin-right: -10px; padding: 0 10px; scrollbar-width: none; }
   .detail-tabs { flex-wrap: wrap; gap: 4px 12px; overflow-x: visible; }
   .kv { grid-template-columns: 1fr; }
+  .merge-comparison { grid-template-columns: 1fr; }
+  .identifier-entry { grid-template-columns: 1fr; }
 }

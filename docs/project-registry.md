@@ -189,9 +189,11 @@ OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのserv
 - `Review`: review queue、promotion queue、merge plan
 - `Projects`: project検索、schema v2 detail、seed preview・追加
 - `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
-- `Settings`: queue limit、merge mode、token、接続DBの確認
+- `Settings`: queue limit、merge mode、token、接続DB、Python version、Git checkoutのcommit確認
 
-project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、auto-ready mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
+project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。同じ値にconfirmed/candidateなど複数行がある場合もroleとclassificationの組を分けて表示します。candidate confirmは該当行から開始できますが、confirm/block/defer/splitのdecision identityは保存契約上`kind + value`であり、同じ値のrole単位ではありません。block/defer/splitは画面でも作用範囲を明示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
+
+merge candidateからは候補projectの通常detailまたはmerge reviewへ移動できます。merge reviewはsource/targetのprofile、状態、seed、confirmed/candidate identifier、pair判定signalとmerged result previewを並べます。
 
 relationと最新collector failureは個別対象としてdismissまたはdeferできます。判断は証拠行を変更せず`project_decisions`へ保存します。candidate developer accountはidentifierと同じdetail actionからconfirm/block/deferでき、既存projectへのmanual seed追加もdetail headerからpreview後に実行できます。
 
@@ -201,7 +203,9 @@ ProjectsのFiltersではidentifierのkind/value/classification、relationのpred
 
 Operationsのenrich、sync、review classificationはWeb serverとは別processで動きます。enrichは単体projectまたはbulkを選び、deep investigation、未enrichのみ、前回失敗のみ、追加tracking stateを指定できます。syncは設定済みのintroduced/GitHub/collection inventory/Semble/Tangled sourceだけを選択でき、任意URLやqueryはCLIで扱います。syncのdry-runも外部通信しますがSQLiteは更新しません。reviewのdry-runはnetwork-freeで、executeは表示対象になった候補を一括適用します。
 
-同じWeb serverから同時に実行できるbackground jobは1件です。CLIなど別processとの排他は行いません。enrichのStopは処理中projectの保存後に停止し、cancelled/failedのbulk runは同じcheckpointからResumeできます。sync/reviewの停止要求は現在のoperation完了後に反映され、checkpoint再開はありません。job一覧とeventはserver process内保持で、server再起動後は復元されません。
+同じWeb serverから同時に実行できるbackground jobは1件です。CLIなど別processとの排他は行いません。enrichのStopは処理中projectの保存後に停止し、cancelled/failedのbulk runは同じcheckpointからResumeできます。sync/reviewの停止要求は現在のoperation完了後に反映され、checkpoint再開はありません。running jobはprogressの`current / total`が得られる場合だけ、開始後の平均速度から線形外挿したETAを表示します。Detailsは自動pollで内容とスクロール位置を戻さず、`Refresh details`で明示更新します。job一覧とeventはserver process内保持で、server再起動後は復元されません。
+
+Settingsのcommit hashとdirty表示は起動時に一度だけ取得します。配布物など`.git`が無い環境ではUnavailableと表示し、実行中にcheckoutが変わった場合はserver reload後に更新します。
 
 未接続:
 

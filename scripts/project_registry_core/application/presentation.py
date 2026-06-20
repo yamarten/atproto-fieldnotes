@@ -201,7 +201,20 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "is_primary": False,
             "metadata": [],
             "observed_at": "",
+            "entries": [],
         })
+        entry = dict(item)
+        entry["role_label"] = role_labels.get(item["role"], item["role"].replace("_", " "))
+        developer_candidate = item["role"] == "developer_account"
+        entry_action_kind = "account" if developer_candidate else item["kind"]
+        entry["actions"] = {
+            "identifier_type": entry_action_kind,
+            "confirm": item["classification"] == "candidate" and (
+                entry_action_kind in {"service_url", "repo_url", "account"}
+            ),
+            "scope": "identifier",
+        }
+        group["entries"].append(entry)
         for field, value in (
             ("kinds", item["kind"]),
             ("roles", item["role"]),
@@ -231,6 +244,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "block": bool(action_kind),
             "defer": bool(action_kind),
             "split": bool(action_kind),
+            "scope": "identifier",
         }
         output.append(group)
     return output
@@ -703,8 +717,56 @@ def merge_pair(conn: sqlite3.Connection, *, source_project_key: str, target_proj
         project_key=source_project_key,
         target_project_key=target_project_key,
     )
+    source = core.resolve_single_project(conn, project_key=source_project_key)
+    target = core.resolve_single_project(conn, project_key=target_project_key)
+
+    def snapshot(project: dict[str, Any]) -> dict[str, Any]:
+        shaped = core.ensure_project_shape(project)
+        identifier_rows = conn.execute(
+            """
+            SELECT kind, value, role, classification, is_primary, provider
+            FROM project_identifiers
+            WHERE project_key = ?
+            ORDER BY ordinal
+            """,
+            (shaped["project_key"],),
+        ).fetchall()
+        return {
+            **_summary(shaped),
+            "seed": {"type": shaped.get("seed_type", ""), "value": shaped.get("seed_value", "")},
+            "service_urls": list(shaped.get("service_urls") or []),
+            "candidate_service_urls": list(shaped.get("candidate_service_urls") or []),
+            "source_code_urls": list(shaped.get("source_code_urls") or []),
+            "candidate_source_code_urls": list(shaped.get("candidate_source_code_urls") or []),
+            "input_nsids": list(shaped.get("input_nsids") or []),
+            "candidate_nsids": list(shaped.get("candidate_nsids") or []),
+            "developer_accounts": list(shaped.get("developer_accounts") or []),
+            "candidate_developer_accounts": list(shaped.get("candidate_developer_accounts") or []),
+            "identifiers": [
+                {
+                    "kind": str(row["kind"]),
+                    "value": str(row["value"]),
+                    "role": str(row["role"]),
+                    "classification": str(row["classification"]),
+                    "is_primary": bool(row["is_primary"]),
+                    "provider": str(row["provider"]),
+                }
+                for row in identifier_rows
+            ],
+        }
+
+    preview = merge.merge_projects(
+        conn,
+        project_key=source_project_key,
+        target_project_key=target_project_key,
+        execute=False,
+        force=True,
+    )
     return {
         **result,
+        "source": snapshot(source),
+        "target": snapshot(target),
+        "merged_preview": preview,
         "source_revision": project_revision(conn, core.resolve_project_key_input(conn, source_project_key)),
         "target_revision": project_revision(conn, core.resolve_project_key_input(conn, target_project_key)),
     }

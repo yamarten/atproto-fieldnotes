@@ -11,7 +11,7 @@ from io import BytesIO
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler, RegistryWebServer
+from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information
 from project_registry_core.application import presentation
 
 
@@ -274,6 +274,21 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
         self.assertFalse(settings["read_only"])
 
+    def test_build_information_only_reads_git_checkout(self) -> None:
+        root = self.db_path.parent / "source"
+        root.mkdir()
+        self.assertEqual(build_information(root)["commit"], "")
+        (root / ".git").mkdir()
+        completed = [
+            mock.Mock(stdout="abc123def456\n"),
+            mock.Mock(stdout=" M scripts/example.py\n"),
+        ]
+        with mock.patch("project_registry_web.server.subprocess.run", side_effect=completed) as run:
+            info = build_information(root)
+        self.assertEqual(info["commit"], "abc123def456")
+        self.assertTrue(info["dirty"])
+        self.assertEqual(run.call_count, 2)
+
     def test_manual_server_reload_requires_confirmation(self) -> None:
         requested: list[str] = []
         self.server.request_process_reload = lambda reason: requested.append(reason) or "reload:test"
@@ -434,6 +449,48 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             item["value"] for item in detail["identifiers"] if item["classification"] == "candidate"
         }
         self.assertIn("https://app.example.com", candidate_values)
+
+    def test_identifier_entries_keep_role_classification_association(self) -> None:
+        conn = registry.open_db()
+        ordinal = conn.execute(
+            "SELECT MAX(ordinal) + 1 FROM project_identifiers WHERE project_key = ?",
+            ("proj:111111111111",),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "proj:111111111111", ordinal, "repo_url", "https://github.com/example/app",
+                "source_repository_record", "candidate", 0, "fixture", "{}",
+                "2026-06-14T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        repository = next(
+            item for item in detail["identifiers"]
+            if item["value"] == "https://github.com/example/app"
+        )
+        self.assertEqual(
+            {entry["classification"] for entry in repository["entries"]},
+            {"confirmed", "candidate"},
+        )
+        candidate = next(entry for entry in repository["entries"] if entry["classification"] == "candidate")
+        self.assertTrue(candidate["actions"]["confirm"])
+        self.assertEqual(repository["actions"]["scope"], "identifier")
+
+    def test_merge_pair_includes_both_projects_and_result_preview(self) -> None:
+        status, payload, _ = self.request(
+            "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["source"]["name"], "Example App")
+        self.assertEqual(payload["target"]["name"], "Example Duplicate")
+        self.assertTrue(payload["source"]["identifiers"])
+        self.assertEqual(payload["merged_preview"]["target_project_key"], "proj:222222222222")
+        self.assertEqual(payload["merged_preview"]["merged_name"], "Example Duplicate")
 
     def test_investigation_history_detail_and_replay(self) -> None:
         status, runs, _ = self.request("/api/projects/proj:111111111111/investigation-runs")
@@ -688,6 +745,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         account = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertTrue(account["actions"]["confirm"])
+        developer_entry = next(
+            entry for entry in account["entries"]
+            if entry["classification"] == "candidate" and entry["role"] == "developer_account"
+        )
+        self.assertEqual(developer_entry["actions"]["identifier_type"], "account")
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/confirm-candidate",
             method="POST",

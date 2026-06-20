@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -25,6 +26,38 @@ from .jobs import JobConflictError, JobManager
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 DEFAULT_REVIEW_STATES = {"active", "watchlist", "stable", "stalled"}
 DEFAULT_PROMOTION_STATES = {"active", "watchlist"}
+
+
+def build_information(root: Path | None = None) -> dict[str, Any]:
+    root = (root or Path(__file__).resolve().parents[2]).resolve()
+    info: dict[str, Any] = {
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "commit": "",
+        "dirty": False,
+    }
+    if not (root / ".git").exists():
+        return info
+    try:
+        info["commit"] = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout.strip()
+        info["dirty"] = bool(subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        info["commit"] = ""
+        info["dirty"] = False
+    return info
 
 
 def _int(value: Any, default: int, *, minimum: int = 1, maximum: int = 500) -> int:
@@ -75,6 +108,7 @@ class RegistryWebServer(ThreadingHTTPServer):
         self.db_path = Path(db_path).expanduser().resolve()
         self.read_only = bool(read_only)
         self.instance_id = uuid.uuid4().hex
+        self.build_info = build_information()
         self.reload_lock = threading.Lock()
         self.reload_requested = False
         self.mutation_lock = threading.Lock()
@@ -190,6 +224,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "read_only": bool(getattr(self.server, "read_only", False)),
                 "tracking_states": sorted(core.TRACKING_STATES),
                 "operations_connected": True,
+                "build": dict(getattr(self.server, "build_info", {}) or {}),
                 "operation_capabilities": {
                     "enrich": True,
                     "sync": True,
