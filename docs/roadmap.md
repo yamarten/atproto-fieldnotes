@@ -25,30 +25,24 @@
 
 ## 直近の実装順
 
-ここでは、通常運用へ移るまでに順番を決めて進める未完了作業だけを扱います。
+ここでは、通常運用開始後に順番を決めて進める未完了作業だけを扱います。
 完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
 過去の広域棚卸しは履歴資料として
 [web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)と
 [core-overhaul-backlog.md](notes/core-overhaul-backlog.md)に残しています。
 
-### 通常DB置換前
+### 通常DB移行後
 
-現行migrationのworkspace v1 backup mirrorに対するdry-runは合格済みです。workspaceの旧方式v2ミラーとその調査履歴はテスト用として破棄し、本番移行へ引き継ぎません。通常DBを置換する前に次を完了します。
+通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。v1 backupとmigration reportは保持しています。直近に残るのはDB-level markerです。
 
-1. 本番v1でdry-runを実行する
-   - project / identifier / decision / relation / investigation / collector件数を確認する
-   - hard acceptance condition、SQLite integrity、foreign keyを確認する
-2. offline置換手順を固定する
-   - Web、enrich、CLI writerを全停止する
-   - v1 backupの複製をmigration入力にし、唯一のbackup自体を置換しない
-   - migration reportをファイル保存し、新旧DBのhashと一緒に保管する
-3. 現行migrationの適用世代をDB自身で識別可能にする
+1. 現行migrationの適用世代をDB自身で識別可能にする
    - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
-   - trust/data policy markerを`registry_meta`へ残し、現行migration適用済みかを判定する
-   - schema versionとtrust/data policy versionを混同しない
-4. 必要ならprocess間lockまたはpreflightを追加する
-   - 現状の`migrate-db`は別processを自動停止・拒否しない
-   - 個人ローカル運用ではoffline手順で代替可能だが、自動判定ではない
+   - trust/data policy markerを`registry_meta`へ残し、schema versionとは分けて判定する
+   - 新規v1 migrationではacceptance check完了後にmarkerを書く
+   - markerなし既存v2はread-only auditに合格した場合だけmarkerをadditiveに後付けする
+   - 通常DBはrow-level policyとacceptance conditionを確認済みであり、再移行しない
+
+process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
 ### 必要が生じた時に検討するもの
 
 現状の運用を妨げてはいませんが、具体的な不便や保守上の問題が出た場合に検討します。

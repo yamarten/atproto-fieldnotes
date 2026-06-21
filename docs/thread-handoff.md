@@ -7,38 +7,32 @@
 ## 現在地
 
 - 日常運用安定化の8項目は実装済みです。
-- project detailのmerge候補計算は初期表示から分離済みです。
-  - 初期detailを先に表示する
-  - merge候補は自動で後続計算し、完了次第表示する
-  - 計算結果はDBへ保存しない
-- workspaceの現行v2 DBは移行検証用mirrorです。通常運用DBとして採用しません。
+- 通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。
+  - migration report: `data/migrate-log.json`
+  - v1 backup: `data/survey.db.v1-backup-20260618-151007`
+  - migration時のproject 2575件、identifier 16554件、decision 116件、relation 0件
+  - integrity、hard acceptance condition、normalized roundtripは合格
+- 2026-06-21に通常DBをread-onlyで再監査済みです。
+  - integrity `ok`、foreign key違反0件
+  - v1由来identifier 14950件は全件`v1-quarantine-1`
+  - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
+- Web server reloadのpackage entrypoint修正まで`master`へ反映済みです。
 
 ## 次に必要な作業
 
-本番v1 DBのoffline migrationが直近の未完了作業です。手順とacceptance conditionは
-[v1-migration-trust.md](notes/v1-migration-trust.md)と
-[roadmap.md](roadmap.md)の「通常DB置換前」を参照してください。
+直近のDB課題はtrust/data policy markerだけです。これは再移行ではありません。
 
-通常DB置換前に確認した複数project mutationのatomic化とmerge後のsource identity/history保持は
-実装済みです。既存v2 DBへ`project_key_aliases`をadditiveに作るため、進行中のv1 migrationを
-やり直す必要はありません。新コードへ切り替えるまではmerge/split/separateを書き込まないでください。
+- 新規v1 migrationはacceptance check完了後にDB-level markerを書く
+- markerなし既存v2はread-only audit合格時だけmarkerをadditiveに後付けする
+- 現行通常DBは後付け条件を確認済みで、project/identifier/investigationを書き換えない
+- marker実装前でも通常運用データの意味はrow-level`v1-quarantine-1` metadataで確認できる
 
-v2以降のincremental schema migration runnerとSQLite接続自体のread-only化は、必要が生じた時の
-候補へ戻しています。通常DB置換前には、旧方式v2との誤認を防ぐ現行trust/data policy markerだけを扱います。
-
-重要な前提:
-
-- Web、enrich、CLI writerを停止してから実行する
-- 本番v1の唯一のbackup自体をmigration入力として置換しない
-- workspaceの旧方式v2 mirrorと、その調査履歴は引き継がない
-- 本番v1に存在するinvestigation/collector rowは通常migrationのコピー対象
-- `migrate-db`自体には別processとの排他lockがない
+この作業を理由に専用worktreeを維持する必要はありません。次スレッドはmain worktreeから開始して構いません。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、backupまたは複製を用意して実行してください。
 
 ## 未検証・未接続
 
 未検証:
 
-- 本番v1 DBに対するdry-runと通常運用DBの置換
 - Web workerから実外部sync sourceへのend-to-end接続
 
 未接続:

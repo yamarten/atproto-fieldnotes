@@ -20,6 +20,9 @@
   - 移行、検証、backup、元path置換
   - 由来不明のlegacy confirmed identifierをcandidateへ降格
   - operator確認済みidentifierとactive decisionを維持
+- 通常DBのschema v2移行
+  - 2026-06-18にoffline migrationを実行し、v1 backupと`data/migrate-log.json`を保持
+  - migration時のhard acceptance condition、SQLite integrity、normalized roundtripは合格
 - Web UIの日常運用
   - normalized tableを直接使うproject検索と構造化filter
   - identifier、relation、collector failure、developer accountのreview action
@@ -66,6 +69,9 @@
 - CLIなど別processを含むwriter排他
 - schema v2以降のincremental migration
   - 現状の`migrate-db`はv1からv2だけを扱い、既存v2 DBを次世代schemaへ更新するrunnerはない
+- DB-level trust/data policy marker
+  - 現行通常DBのv1由来identifierは`v1-quarantine-1` metadataを持つが、`registry_meta`はschema versionしか持たない
+  - markerは再移行せず、audit合格後のadditive updateとして後付けする
 - `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
 - OAuth `include:` permission setの再帰解決
@@ -95,10 +101,16 @@
 - 2540 projectの通常DBでdetail初期表示と非同期merge解析
   - 対象projectの初期detailは変更前6.13秒、変更後0.002秒
   - merge解析は後続requestで1.21秒
+- 2026-06-18の通常DB migration report
+  - project 2575件、identifier 16554件、decision 116件、relation 0件
+  - integrity `ok`、block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
+- 2026-06-21の移行後通常DB read-only audit
+  - integrity `ok`、foreign key違反0件
+  - v1由来identifier 14950件は全件`v1-quarantine-1`
+  - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
 
 未検証:
 
-- 本番稼働中のv1 DBに対するdry-runと通常運用DBのoffline置換
 - Web workerから実外部sync sourceへ接続するend-to-end実行
 - 長時間運用時の実API retry/cache/budget値
 

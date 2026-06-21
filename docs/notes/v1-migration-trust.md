@@ -31,17 +31,23 @@
   - SQLite integrity `ok`
   - active block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
   - activeなidentifier defer 80件、期限切れまたは不正なdefer 0件
+- 2026-06-18に通常DBを現行migrationでoffline置換
+  - migration reportは`data/migrate-log.json`、v1 backupは`data/survey.db.v1-backup-20260618-151007`
+  - project 2575件、identifier 16554件、decision 116件、relation 0件
+  - SQLite integrity `ok`
+  - active block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
+- 2026-06-21に移行後通常DBをread-onlyで再監査
+  - v1由来identifier 14950件は全件`v1-quarantine-1`
+  - SQLite integrity `ok`、foreign key違反、active block衝突、根拠不明legacy confirmed、policy欠落はいずれも0
 
 未検証:
 
-- 本番稼働中のv1 DBに対するdry-runと通常運用DB置換
+- Web workerから実外部sync sourceへのend-to-end接続
 
-通常DB置換前の残件:
+通常DB置換後の残件:
 
-- workspaceの旧方式v2ミラーはテスト用であり、その`investigation_runs` / `collector_runs`は本番移行へ引き継がない。本番v1に保存されている調査履歴は通常のmigration対象になる
-- `migrate-db`はCLI/Web/enrichを跨ぐ排他lockを取らない。全processを停止したoffline状態で実行する
-- `registry_meta`はschema versionしか持たず、`v1-quarantine-1`適用済みかをDB単体で識別できない。旧方式v2ミラーは`already_current`になるため、入力DBを手順で取り違えない
-- migration reportはDBへ永続化しないため、通常置換時のJSON出力をv1 backupと一緒に保管する
+- `registry_meta`はschema versionしか持たず、`v1-quarantine-1`適用済みかをDB単体で識別できない
+- 新規migrationでmarkerを書き、既存通常DBはread-only audit後にmarkerだけをadditiveに後付けする。再移行はしない
 
 ## 移行provenanceの削除
 
