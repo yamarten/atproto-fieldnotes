@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import threading
 import types
 from unittest import mock
@@ -11,7 +12,7 @@ from io import BytesIO
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information
+from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, restart_argv
 from project_registry_core.application import presentation
 
 
@@ -315,15 +316,25 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         with (
             mock.patch("project_registry_web.server.time.sleep"),
             mock.patch("project_registry_web.server.os.execv") as execv,
+            mock.patch("project_registry_web.server.sys.argv", ["/path/project_registry_web/__main__.py", "--port", "8888"]),
             mock.patch("builtins.print"),
         ):
             target()
 
         self.assertTrue(reload_id)
         server.jobs.close.assert_called_once_with()
-        execv.assert_called_once()
+        execv.assert_called_once_with(
+            sys.executable,
+            [sys.executable, "-m", "project_registry_web", "--port", "8888"],
+        )
         with self.assertRaisesRegex(ValueError, "already in progress"):
             server.request_process_reload("again")
+
+    def test_restart_argv_preserves_arguments_but_uses_package_entrypoint(self) -> None:
+        self.assertEqual(
+            restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--read-only"]),
+            [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--read-only"],
+        )
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
         status, payload, _ = self.request(

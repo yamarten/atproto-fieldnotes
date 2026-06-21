@@ -37,7 +37,7 @@
   - enrich checkpointの再発見と再開
   - review dry-run planの選択実行とfingerprint再検証
 - Web serverの手動reload
-  - Settingsから同じargvでprocessを再起動
+  - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動
   - active background jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続
 - project detail
   - 初期detailはmerge候補計算を待たずに表示
@@ -87,7 +87,7 @@
 
 2026-06-18から2026-06-20の変更時点で確認済み:
 
-- unit test 223件
+- unit test 224件
 - JavaScript syntax check
 - temp SQLiteでmigration、normalized row roundtrip、review、profile編集、履歴cleanup
 - fake workerと実workerによるbackground operation protocol

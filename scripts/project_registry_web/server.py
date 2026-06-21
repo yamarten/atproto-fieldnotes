@@ -28,6 +28,11 @@ DEFAULT_REVIEW_STATES = {"active", "watchlist", "stable", "stalled"}
 DEFAULT_PROMOTION_STATES = {"active", "watchlist"}
 
 
+def restart_argv(argv: list[str] | None = None) -> list[str]:
+    current = list(sys.argv if argv is None else argv)
+    return [sys.executable, "-m", "project_registry_web", *current[1:]]
+
+
 def build_information(root: Path | None = None) -> dict[str, Any]:
     root = (root or Path(__file__).resolve().parents[2]).resolve()
     info: dict[str, Any] = {
@@ -134,7 +139,7 @@ class RegistryWebServer(ThreadingHTTPServer):
             time.sleep(0.25)
             print(f"Reloading project registry web server ({reload_id}): {reason}", flush=True)
             self.jobs.close()
-            os.execv(sys.executable, [sys.executable, *sys.argv])
+            os.execv(sys.executable, restart_argv())
 
         threading.Thread(target=reload_soon, name="registry-web-manual-reload", daemon=True).start()
         return reload_id
@@ -722,7 +727,7 @@ def start_reload_watcher(server: RegistryWebServer, paths: list[Path], interval:
                     continue
                 if current != previous:
                     server.jobs.close()
-                    os.execv(sys.executable, [sys.executable, *sys.argv])
+                    os.execv(sys.executable, restart_argv())
 
     threading.Thread(target=watch, name="registry-web-reload", daemon=True).start()
 
