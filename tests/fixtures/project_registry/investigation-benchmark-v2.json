@@ -27,7 +27,7 @@
     "case_id": "tangled-account-repository",
     "input_project": {"project_key": "proj:8926f562c0e5", "seed_type": "service_url", "seed_value": "https://tangled.org", "name": "Tangled", "developer_accounts": [{"handle": "tangled.org", "did": "did:plc:owner", "source": "manual"}]},
     "bundle": {"schema_version": 2, "project_key": "proj:8926f562c0e5", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "tangled_repo_snapshot", "source": "tangled_pds:tangled.org", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"owner_handle": "tangled.org", "owner_did": "did:plc:owner", "repo_url": "https://tangled.org/tangled.org/core", "repo_did": "did:plc:repo", "record": {"name": "core"}, "score": 5}, "context": {}}], "failures": [], "collector_results": []},
-    "expected_evaluation": {"source_code_urls": ["https://tangled.org/tangled.org/core"]}
+    "expected_evaluation": {"source_code_urls": []}
   },
   {
     "case_id": "passing-reads-browser-surface",

@@ -1171,6 +1171,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
     def test_confirmed_repo_link_supports_service_probe(self) -> None:
         project = registry.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {

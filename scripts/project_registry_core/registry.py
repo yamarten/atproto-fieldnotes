@@ -34,6 +34,7 @@ from project_registry_core.evidence import add_collector_result_summary
 from project_registry_core import relations as relation_core
 from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
+from project_registry_core import trust_graph as trust_graph_core
 from project_registry_core import url_alias as url_alias_core
 from project_registry_core import legacy_collectors as legacy_collector_core
 from project_registry_core import reliability as reliability_core
@@ -388,6 +389,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "watch_reason",
         "confidence",
         "relation_evidence",
+        "trust_graph",
         "service_verification_results",
         "url_aliases",
     ),
@@ -3401,6 +3403,269 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     }
 
 
+def identifier_has_active_confirm_decision(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
+        if (
+            str(item.get("type") or "") == identifier_type
+            and str(item.get("value") or "") == normalized
+            and not str(item.get("cleared_at") or "")
+        ):
+            return True
+    return False
+
+
+def identifier_is_manual_seed(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    for seed in project.get("manual_seeds", []):
+        if not isinstance(seed, dict) or str(seed.get("type") or "") != identifier_type:
+            continue
+        if normalize_blocked_identifier_value(identifier_type, str(seed.get("value") or "")) == normalized:
+            return True
+    return False
+
+
+def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
+    project = ensure_project_shape(project)
+    before_graph = dump_json(trust_graph_core.graph(project))
+    sync_trust_edges_from_project_relations(project)
+    recomputed_graph_changed = before_graph != dump_json(trust_graph_core.graph(project))
+    identifiers = runtime_view.project_identifiers(project)
+    rows: list[dict[str, Any]] = []
+    for item in identifiers:
+        kind = "collection" if item.kind == "nsid" else item.kind
+        if kind not in trust_graph_core.NODE_KINDS:
+            continue
+        node = trust_node(kind, item.value)
+        if not node:
+            continue
+        evaluation = {}
+        directional_paths: list[dict[str, Any]] = []
+        if item.kind in {"service_url", "repo_url"}:
+            evaluation = trust_graph_core.evaluate_auto_confirm(
+                project,
+                candidate=node,
+                anchors=trusted_anchor_nodes(project),
+            )
+            directional_paths = trust_graph_core.directional_paths(
+                project,
+                candidate=node,
+                anchors=trusted_anchor_nodes(project),
+            )
+        rows.append({
+            "identifier": {"kind": item.kind, "value": item.value, "role": item.role},
+            "node": node,
+            "classification": item.classification,
+            "manual_seed": identifier_is_manual_seed(project, item.kind, item.value),
+            "operator_confirmed": identifier_has_active_confirm_decision(project, item.kind, item.value),
+            "guarded": identifier_is_blocked(project, item.kind, item.value)
+            or identifier_is_deferred(project, item.kind, item.value),
+            "evaluation": evaluation,
+            "directional_paths": directional_paths,
+        })
+    edges = trust_graph_core.graph(project).get("edges", [])
+    auto_confirmed = [row for row in rows if bool(row.get("evaluation", {}).get("auto_confirm"))]
+    unsupported_confirmed = [
+        row for row in rows
+        if row["classification"] == "confirmed"
+        and row["identifier"]["kind"] in {"service_url", "repo_url"}
+        and not row["manual_seed"]
+        and not row["operator_confirmed"]
+        and not bool(row.get("evaluation", {}).get("auto_confirm"))
+    ]
+    return {
+        "topic": "trust",
+        "conclusion": "needs_review" if unsupported_confirmed else ("supported" if auto_confirmed else "unknown"),
+        "rule": "trust-graph-v1 mutual directed trust paths for URL auto-confirm",
+        "supporting_signals": [
+            f"{row['identifier']['kind']}:{row['identifier']['value']}"
+            for row in auto_confirmed[:20]
+        ],
+        "counter_signals": [
+            f"unsupported_confirmed:{row['identifier']['kind']}:{row['identifier']['value']}"
+            for row in unsupported_confirmed[:20]
+        ],
+        "identifier_evaluations": rows,
+        "edge_count": len(edges),
+        "edges": edges[:100],
+        "anchors": trusted_anchor_nodes(project),
+        "recomputed_graph_changed": recomputed_graph_changed,
+    }
+
+
+def refresh_trust_graph_evaluations(project: dict[str, Any]) -> dict[str, Any]:
+    before = dump_json(trust_graph_core.graph(project))
+    sync_trust_edges_from_project_relations(project)
+    evaluated = 0
+    auto_confirmable = 0
+    for item in runtime_view.project_identifiers(project):
+        if item.kind not in {"service_url", "repo_url"}:
+            continue
+        evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
+        evaluated += 1
+        if evaluation.get("auto_confirm"):
+            auto_confirmable += 1
+    after = dump_json(trust_graph_core.graph(project))
+    return {
+        "changed": before != after,
+        "evaluated_identifier_count": evaluated,
+        "auto_confirmable_identifier_count": auto_confirmable,
+    }
+
+
+def classify_trust_identifier_issue(project: dict[str, Any], item: dict[str, Any], *, graph_changed: bool) -> str:
+    if item.get("guarded"):
+        return "guarded_confirmed_identifier"
+    if item.get("manual_seed") or item.get("operator_confirmed"):
+        return "operator_confirmed_identifier"
+    evaluation = item.get("evaluation") if isinstance(item.get("evaluation"), dict) else {}
+    if evaluation.get("auto_confirm"):
+        return "missing_recomputed_edge" if graph_changed else "supported_by_trust_graph"
+    directional = item.get("directional_paths") if isinstance(item.get("directional_paths"), list) else []
+    if directional:
+        return "needs_reprobe"
+    return "should_downgrade"
+
+
+def build_trust_graph_audit(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    issues: dict[str, list[dict[str, Any]]] = {
+        "missing_recomputed_edge": [],
+        "needs_reprobe": [],
+        "should_downgrade": [],
+        "unsupported_confirmed_identifier": [],
+        "guarded_confirmed_identifier": [],
+        "legacy_confirmed_anchor_dependency": [],
+    }
+    project_count = 0
+    edge_count = 0
+    seen_issue_keys: set[tuple[str, str, str, str]] = set()
+    for row in rows:
+        project = ensure_project_shape(project_from_row(conn, row))
+        project_count += 1
+        explanation = trust_explanation(project)
+        graph_changed = bool(explanation.get("recomputed_graph_changed"))
+        edge_count += int(explanation.get("edge_count") or 0)
+        for item in explanation.get("identifier_evaluations", []):
+            identifier = item.get("identifier") if isinstance(item.get("identifier"), dict) else {}
+            identifier_type = str(identifier.get("kind") or "")
+            value = str(identifier.get("value") or "")
+            classification = str(item.get("classification") or "")
+            if identifier_type not in {"service_url", "repo_url"} or classification != "confirmed":
+                continue
+            issue = {
+                "project_key": str(project.get("project_key") or ""),
+                "identifier_type": identifier_type,
+                "value": value,
+                "role": str(identifier.get("role") or ""),
+                "evaluation_reason": str((item.get("evaluation") or {}).get("reason") or ""),
+            }
+            classification_kind = classify_trust_identifier_issue(project, item, graph_changed=graph_changed)
+            issue_key = (classification_kind, issue["project_key"], identifier_type, value)
+            if issue_key in seen_issue_keys:
+                continue
+            seen_issue_keys.add(issue_key)
+            issue["classification"] = classification_kind
+            if classification_kind in issues:
+                issues[classification_kind].append(issue)
+            if item.get("manual_seed") or item.get("operator_confirmed"):
+                continue
+            if not bool((item.get("evaluation") or {}).get("auto_confirm")):
+                issues["unsupported_confirmed_identifier"].append(issue)
+                issues["legacy_confirmed_anchor_dependency"].append(issue)
+    return {
+        "mode": "dry_run",
+        "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
+        "project_count": project_count,
+        "trust_edge_count": edge_count,
+        "issue_counts": {key: len(value) for key, value in issues.items()},
+        "examples": {
+            key: value[: max(0, int(example_limit))]
+            for key, value in issues.items()
+        },
+    }
+
+
+def repair_trust_graph(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    downgrade_unsupported: bool = False,
+    example_limit: int = 20,
+) -> dict[str, Any]:
+    if downgrade_unsupported and not execute:
+        raise ValueError("--downgrade-unsupported requires --execute")
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
+    changed_projects: list[dict[str, Any]] = []
+    downgraded_identifiers: list[dict[str, str]] = []
+    evaluated_identifier_count = 0
+    auto_confirmable_identifier_count = 0
+    for row in rows:
+        project = ensure_project_shape(project_from_row(conn, row))
+        project_key = str(project.get("project_key") or "")
+        refresh = refresh_trust_graph_evaluations(project)
+        evaluated_identifier_count += int(refresh.get("evaluated_identifier_count") or 0)
+        auto_confirmable_identifier_count += int(refresh.get("auto_confirmable_identifier_count") or 0)
+
+        downgrade_values: list[tuple[str, str]] = []
+        seen_downgrade_values: set[tuple[str, str]] = set()
+        if downgrade_unsupported:
+            explanation = trust_explanation(project)
+            for item in explanation.get("identifier_evaluations", []):
+                identifier = item.get("identifier") if isinstance(item.get("identifier"), dict) else {}
+                identifier_type = str(identifier.get("kind") or "")
+                value = str(identifier.get("value") or "")
+                if identifier_type not in {"service_url", "repo_url"}:
+                    continue
+                if str(item.get("classification") or "") != "confirmed":
+                    continue
+                if classify_trust_identifier_issue(project, item, graph_changed=False) != "should_downgrade":
+                    continue
+                normalized_value = normalize_blocked_identifier_value(identifier_type, value)
+                key = (identifier_type, normalized_value)
+                if key in seen_downgrade_values:
+                    continue
+                seen_downgrade_values.add(key)
+                downgrade_values.append(key)
+
+        for identifier_type, value in downgrade_values:
+            downgrade_identifier_to_candidate(project, identifier_type, value)
+            downgraded_identifiers.append({
+                "project_key": project_key,
+                "identifier_type": identifier_type,
+                "value": normalize_blocked_identifier_value(identifier_type, value),
+            })
+
+        if refresh.get("changed") or downgrade_values:
+            changed_projects.append({
+                "project_key": project_key,
+                "trust_graph_changed": bool(refresh.get("changed")),
+                "downgraded_identifier_count": len(downgrade_values),
+            })
+            if execute:
+                save_project(conn, project, enriched=False, preserve_timestamps=True)
+
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
+        "project_count": len(rows),
+        "evaluated_identifier_count": evaluated_identifier_count,
+        "auto_confirmable_identifier_count": auto_confirmable_identifier_count,
+        "changed_project_count": len(changed_projects),
+        "updated_project_count": len(changed_projects) if execute else 0,
+        "downgrade_unsupported": bool(downgrade_unsupported),
+        "downgraded_identifier_count": len(downgraded_identifiers) if execute else 0,
+        "changed_project_examples": changed_projects[: max(0, int(example_limit))],
+        "downgraded_identifier_examples": downgraded_identifiers[: max(0, int(example_limit))],
+    }
+
+
 def bsky_auth_settings() -> dict[str, str]:
     return {
         "identifier": os.getenv("BSKY_HANDLE", "").strip(),
@@ -4558,14 +4823,22 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> boo
     normalized = canonical_repo_url(url)
     if not normalized:
         return False
-    if not repo_url_allowed_for_project(project, normalized):
+    owner = repo_owner_identity(normalized)
+    developer_handles = {
+        str(item.get("handle") or "").strip().lower().removeprefix("@")
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("handle") or "").strip()
+    }
+    developer_handle_match = bool(owner and owner.lower().removeprefix("@") in developer_handles)
+    if not repo_url_allowed_for_project(project, normalized) and not developer_handle_match:
         return False
     if normalized in manual_repo_urls(project) or normalized in project.get("source_code_urls", []):
         return True
     trusted_owners = trusted_repo_owner_identities(project)
     if trusted_owners:
-        owner = repo_owner_identity(normalized)
         return bool(owner and owner in trusted_owners)
+    if developer_handle_match:
+        return True
     return True
 
 
@@ -5464,6 +5737,20 @@ def add_developer_account(project: dict[str, Any], handle: str, source: str, did
     if source:
         account["source"] = source
     project["developer_accounts"] = normalize_developer_accounts(list(project.get("developer_accounts", [])) + [account])
+    if normalized_handle and normalized_did:
+        record_trust_edge(
+            project,
+            "handle",
+            normalized_handle,
+            "handle_resolves_did",
+            "did",
+            normalized_did,
+            source=source,
+            method="resolved_profile",
+            classification="confirmed",
+            eligible_for_auto_confirm=False,
+            observed_at=iso_now(),
+        )
 
 
 def add_candidate_developer_account(project: dict[str, Any], handle: str, source: str, did: str = "") -> None:
@@ -7720,6 +8007,200 @@ def repo_references_service(project: dict[str, Any], repo_url: str, service_url:
     return False
 
 
+def normalize_trust_node_value(kind: str, value: str) -> str:
+    if kind == "service_url":
+        return normalize_confirmed_service_url(value) or ""
+    if kind == "repo_url":
+        return canonical_repo_url(value)
+    if kind == "collection":
+        return normalize_nsid(value)
+    if kind == "domain":
+        return str(value or "").strip().lower().rstrip(".")
+    if kind in {"did", "handle"}:
+        return str(value or "").strip()
+    return ""
+
+
+def trust_node(kind: str, value: str) -> dict[str, str]:
+    return trust_graph_core.node(kind, normalize_trust_node_value(kind, value))
+
+
+def record_trust_edge(
+    project: dict[str, Any],
+    subject_kind: str,
+    subject_value: str,
+    predicate: str,
+    object_kind: str,
+    object_value: str,
+    *,
+    source: str = "",
+    locator: str = "",
+    method: str = "",
+    classification: str = "candidate",
+    eligible_for_auto_confirm: bool = False,
+    observed_at: str = "",
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    subject = trust_node(subject_kind, subject_value)
+    obj = trust_node(object_kind, object_value)
+    if not subject or not obj:
+        return {}
+    return trust_graph_core.upsert_edge(
+        project,
+        subject=subject,
+        predicate=predicate,
+        object=obj,
+        source=source,
+        locator=normalize_url(locator) if locator else "",
+        method=method,
+        classification=classification,
+        eligible_for_auto_confirm=eligible_for_auto_confirm,
+        observed_at=observed_at,
+        context=context or {},
+        generated_at=iso_now(),
+    )
+
+
+def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(identifier_type: str, value: str) -> None:
+        kind = "collection" if identifier_type == "nsid" else identifier_type
+        node = trust_node(kind, value)
+        key = trust_graph_core.node_key(node)
+        if not node or key in seen:
+            return
+        seen.add(key)
+        output.append(node)
+
+    for seed in project.get("manual_seeds", []):
+        if not isinstance(seed, dict):
+            continue
+        seed_type = str(seed.get("type") or "")
+        if seed_type in {"service_url", "repo_url", "nsid"}:
+            add(seed_type, str(seed.get("value") or ""))
+    for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
+        if str(item.get("cleared_at") or ""):
+            continue
+        identifier_type = str(item.get("type") or "")
+        if identifier_type in {"service_url", "repo_url", "nsid"}:
+            add(identifier_type, str(item.get("value") or ""))
+    for item in trust_graph_core.graph(project).get("evaluations", []):
+        if not bool(item.get("auto_confirm")) or item.get("policy_version") != trust_graph_core.TRUST_POLICY_VERSION:
+            continue
+        candidate = item.get("candidate") if isinstance(item.get("candidate"), dict) else {}
+        key = trust_graph_core.node_key(candidate)
+        if key[0] and key not in seen:
+            seen.add(key)
+            output.append({"kind": key[0], "value": key[1]})
+    return output
+
+
+def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = item["relation"]
+        if relation.get("predicate") != "source_repository":
+            continue
+        subject = relation.get("subject") or {}
+        obj = relation.get("object") or {}
+        method = str(relation.get("method") or "")
+        source = str(item.get("source") or "")
+        observed_at = str(item.get("observed_at") or "")
+        if subject.get("type") == "repo" and obj.get("type") in {"website", "service"}:
+            record_trust_edge(
+                project,
+                "repo_url",
+                str(subject.get("value") or ""),
+                "repo_links_service",
+                "service_url",
+                str(obj.get("value") or ""),
+                source=source,
+                locator=str(relation.get("locator") or ""),
+                method=method,
+                classification="confirmed" if method == "github_homepage" else str(item.get("classification") or "candidate"),
+                eligible_for_auto_confirm=method == "github_homepage",
+                observed_at=observed_at,
+                context={"from_relation": True},
+            )
+        elif subject.get("type") in {"website", "service"} and obj.get("type") == "repo":
+            record_trust_edge(
+                project,
+                "service_url",
+                str(subject.get("value") or ""),
+                "service_links_repo",
+                "repo_url",
+                str(obj.get("value") or ""),
+                source=source,
+                locator=str(relation.get("locator") or ""),
+                method=method,
+                classification=str(item.get("classification") or "candidate"),
+                eligible_for_auto_confirm=str(item.get("classification") or "") == "confirmed",
+                observed_at=observed_at,
+                context={"from_relation": True},
+            )
+
+
+def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str, value: str) -> dict[str, Any]:
+    kind = "collection" if identifier_type == "nsid" else identifier_type
+    candidate = trust_node(kind, value)
+    if not candidate:
+        return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": {"kind": kind, "value": value}}
+    if identifier_is_blocked(project, identifier_type, value) or identifier_is_deferred(project, identifier_type, value):
+        evaluation = {"auto_confirm": False, "reason": "guarded_identifier", "candidate": candidate}
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=iso_now())
+        return evaluation
+    sync_trust_edges_from_project_relations(project)
+    evaluation = trust_graph_core.evaluate_auto_confirm(
+        project,
+        candidate=candidate,
+        anchors=trusted_anchor_nodes(project),
+    )
+    trust_graph_core.upsert_evaluation(project, evaluation, generated_at=iso_now())
+    return evaluation
+
+
+def confirm_service_url_with_trust(project: dict[str, Any], url: str) -> bool:
+    normalized = normalize_confirmed_service_url(url) or ""
+    if not normalized:
+        return False
+    evaluation = trust_auto_confirm_identifier(project, "service_url", normalized)
+    if not evaluation.get("auto_confirm"):
+        return False
+    confirm_service_url(project, normalized)
+    return True
+
+
+def confirm_source_code_url_with_trust(
+    project: dict[str, Any],
+    url: str,
+    source: str,
+    relation: str = "source_repo",
+    *,
+    reason: str = "",
+    evidence_kind: str = "",
+    evidence_url: str = "",
+    updated_at: str = "",
+) -> bool:
+    normalized = canonical_repo_url(url)
+    if not normalized:
+        return False
+    evaluation = trust_auto_confirm_identifier(project, "repo_url", normalized)
+    if not evaluation.get("auto_confirm"):
+        return False
+    confirm_source_code_url(
+        project,
+        normalized,
+        source,
+        relation,
+        reason=reason,
+        evidence_kind=evidence_kind,
+        evidence_url=evidence_url,
+        updated_at=updated_at,
+    )
+    return True
+
+
 def accepted_repo_schema_relation(project: dict[str, Any], relation: dict[str, Any]) -> bool:
     if relation.get("predicate") != "defines_schema":
         return True
@@ -7769,6 +8250,7 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
     host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
     if not host or service_probe_looks_parked(result):
         return False
+    sync_trust_edges_from_project_relations(project)
     for link in result.get("links", []):
         if not isinstance(link, dict):
             continue
@@ -7776,17 +8258,23 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
         if not url:
             continue
         repo_url = canonical_repo_url(url)
-        confirmed_repos = set(manual_repo_urls(project)) | {
-            canonical_repo_url(str(item or ""))
-            for item in project.get("source_code_urls", [])
-            if canonical_repo_url(str(item or ""))
-        }
-        if (
-            normalize_github_repo_url(url)
-            and repo_url
-            and repo_url in confirmed_repos
-            and repo_references_service(project, repo_url, service_url)
-        ):
+        if normalize_github_repo_url(url) and repo_url:
+            record_trust_edge(
+                project,
+                "service_url",
+                service_url,
+                "service_links_repo",
+                "repo_url",
+                repo_url,
+                source=f"service_probe:{normalize_url(service_url)}",
+                locator=normalize_url(service_url),
+                method="html_link",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=iso_now(),
+                context={"link_text": str(link.get("text") or "")[:200]},
+            )
+        if trust_auto_confirm_identifier(project, "service_url", service_url).get("auto_confirm"):
             return True
     if host in manual_service_hosts(project):
         return True
@@ -7826,7 +8314,35 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
         return
     project["evidence_urls"] = add_unique(project.get("evidence_urls", []), final_url)
     if result.get("redirect_same_site_family") and not normalize_url(str(project.get("website_url") or "")):
-        confirm_service_url(project, final_url)
+        record_trust_edge(
+            project,
+            "service_url",
+            requested_url,
+            "service_canonical",
+            "service_url",
+            final_url,
+            source=f"service_redirect:{normalize_url(requested_url)}",
+            locator=normalize_url(requested_url),
+            method="same_site_redirect",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=iso_now(),
+        )
+        record_trust_edge(
+            project,
+            "service_url",
+            final_url,
+            "service_canonical",
+            "service_url",
+            requested_url,
+            source=f"service_redirect:{normalize_url(requested_url)}",
+            locator=normalize_url(requested_url),
+            method="same_site_redirect",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=iso_now(),
+        )
+        confirm_service_url_with_trust(project, final_url)
         return
     add_candidate_url(project, "service_url", final_url)
     add_candidate_url(project, "website_url", final_url)
@@ -7841,8 +8357,32 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
             continue
         classification = classify_official_link(base_url, url, text)
         if classification == "source_repo":
+            record_trust_edge(
+                project,
+                "service_url",
+                base_url,
+                "service_links_repo",
+                "repo_url",
+                url,
+                source=source,
+                locator=base_url,
+                method="first_party_link",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=iso_now(),
+                context={"link_text": text[:200]},
+            )
             if owner_matches_project(project, url) or is_same_site_family(base_url, url):
-                confirm_source_code_url(
+                add_candidate_source_code_url(
+                    project,
+                    url,
+                    source,
+                    reason=f"first-party page linked repo with anchor text: {text[:120]}",
+                    evidence_kind="first_party_link",
+                    evidence_url=base_url,
+                    relation="official_link",
+                )
+                confirm_source_code_url_with_trust(
                     project,
                     url,
                     source,
@@ -7888,7 +8428,31 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
             record_developer_profile_url(project, url, source)
         elif classification == "same_site":
             if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
-                confirm_source_code_url(
+                record_trust_edge(
+                    project,
+                    "service_url",
+                    base_url,
+                    "service_links_repo",
+                    "repo_url",
+                    url,
+                    source=source,
+                    locator=base_url,
+                    method="same_site_link",
+                    classification="confirmed",
+                    eligible_for_auto_confirm=True,
+                    observed_at=iso_now(),
+                    context={"link_text": text[:200]},
+                )
+                add_candidate_source_code_url(
+                    project,
+                    url,
+                    source,
+                    reason=f"same-site family link resolved to repo URL with anchor text: {text[:120]}",
+                    evidence_kind="same_site_link",
+                    evidence_url=base_url,
+                    relation="same_site_repo",
+                )
+                confirm_source_code_url_with_trust(
                     project,
                     url,
                     source,
@@ -8539,6 +9103,34 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     if authority_domain:
         project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
         add_authority_service_candidates(project, authority_domain, verified=True)
+        record_trust_edge(
+            project,
+            "collection",
+            resolved_nsid,
+            "collection_authority_domain",
+            "domain",
+            authority_domain,
+            source=f"lexicon_resolution:{normalize_nsid(nsid)}",
+            locator=str(record.get("uri") or ""),
+            method="lexicon_record_authority",
+            classification="confirmed",
+            eligible_for_auto_confirm=False,
+            observed_at=iso_now(),
+        )
+    record_trust_edge(
+        project,
+        "did",
+        result["did"],
+        "did_publishes_schema",
+        "collection",
+        resolved_nsid,
+        source=f"lexicon_resolution:{normalize_nsid(nsid)}",
+        locator=str(record.get("uri") or ""),
+        method="repo_record",
+        classification="confirmed",
+        eligible_for_auto_confirm=False,
+        observed_at=iso_now(),
+    )
     description = str(schema.get("description") or "")
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
@@ -8593,6 +9185,7 @@ def apply_github_repo_evidence(project: dict[str, Any], bundle: EvidenceBundle) 
             repo_url_allowed_for_project=repo_url_allowed_for_project,
             add_candidate_source_code_url=add_candidate_source_code_url,
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
+            record_trust_edge=record_trust_edge,
         ),
     )
 
@@ -8658,6 +9251,35 @@ def apply_service_probe_result(
             redirect_cross_host=bool(result.get("redirect_cross_host")),
             at=iso_now(),
         )
+        if result.get("redirect_same_host") and result.get("redirect_http_to_https"):
+            record_trust_edge(
+                project,
+                "service_url",
+                normalized_service_url,
+                "service_canonical",
+                "service_url",
+                canonical_service_url,
+                source=f"service_redirect:{normalized_service_url}",
+                locator=normalized_service_url,
+                method="http_to_https_redirect",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=iso_now(),
+            )
+            record_trust_edge(
+                project,
+                "service_url",
+                canonical_service_url,
+                "service_canonical",
+                "service_url",
+                normalized_service_url,
+                source=f"service_redirect:{normalized_service_url}",
+                locator=normalized_service_url,
+                method="http_to_https_redirect",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=iso_now(),
+            )
     if supported:
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
         if not represents_service_identity:
@@ -8678,11 +9300,10 @@ def apply_service_probe_result(
                 item for item in project.get("supported_service_urls", [])
                 if normalize_url(str(item or "")) != canonical_service_url
             ]
-        if supported and represents_service_identity and service_url_auto_confirmable(project, canonical_service_url):
-            confirm_service_url(project, canonical_service_url)
-        elif supported and represents_service_identity:
-            add_candidate_url(project, "service_url", canonical_service_url)
-            add_candidate_url(project, "website_url", canonical_service_url)
+        if supported and represents_service_identity:
+            if not confirm_service_url_with_trust(project, canonical_service_url):
+                add_candidate_url(project, "service_url", canonical_service_url)
+                add_candidate_url(project, "website_url", canonical_service_url)
         elif not supported:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
     elif result["status_code"] >= 400 or result.get("fetch_error"):
@@ -9728,6 +10349,7 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
             confirm_source_code_url=confirm_source_code_url,
             add_candidate_source_code_url=add_candidate_source_code_url,
             add_developer_account=lambda target, handle, source, did: add_developer_account(target, handle, source, did=did),
+            record_trust_edge=record_trust_edge,
             note_failure=note_failure,
         ),
     )

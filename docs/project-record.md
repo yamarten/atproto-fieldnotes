@@ -89,7 +89,7 @@ idempotentに作成でき、v1からのmigrationをやり直す必要はあり�
 機械による評価・調査のcurrent stateを保持します。内部は概ね次の責務に分かれます。
 
 - `ops`: classification、review/promotion/merge signal、評価score、errorなど、現在の運用・評価結果
-- `evidence`: 候補値、bounded observation、調査logなど、project単位で参照する補助材料
+- `evidence`: 候補値、bounded observation、調査log、`trust_graph`など、project単位で参照する補助材料
 
 保存上のinvariant:
 
@@ -98,7 +98,7 @@ idempotentに作成でき、v1からのmigrationをやり直す必要はあり�
 - 候補や機械評価を`profile_json`の確定値と同じ意味で扱わない
 - fieldの欠落をconfirmedな否定として扱わない。未調査、partial failure、証拠なしは調査履歴と評価detailで区別する
 
-代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
+代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
 
 ## `project_identifiers`
 

@@ -6,7 +6,7 @@ from typing import Any
 from .. import registry as core
 
 
-TOPICS = ("service_status", "ownership", "contribution", "merge_candidate")
+TOPICS = ("service_status", "ownership", "contribution", "merge_candidate", "trust")
 
 
 def _sources(project: dict[str, Any], predicates: set[str] | None = None) -> list[dict[str, str]]:
@@ -81,6 +81,7 @@ def explain_project_state(
         "ownership": ownership,
         "contribution": contribution,
         "merge_candidate": merge,
+        "trust": core.trust_explanation(dict(project)),
     }
     if topic != "all" and topic not in explanations:
         raise ValueError(f"unknown explain topic: {topic}")

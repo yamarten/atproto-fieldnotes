@@ -109,6 +109,35 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 
 canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。補助pageは`resource_url_records`に残します。
 
+### Trust graph
+
+実装済みの `trust-graph-v1` は、confirmed identifier への自動昇格に使う信頼関係を `state_json.trust_graph` に保存します。DB schema は増やしていません。
+
+- node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
+- 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
+- edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
+- 初回の実動作適用は `service_url` と `repo_url` の自動confirmだけです
+- `collection` / `did` / `handle` / `domain` edge は保存・説明・監査対象ですが、現時点では自動confirmの置き換えには使いません
+- `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
+- legacy confirmed identifier は監査対象であり、新規URL昇格のtrusted anchorにはしません
+
+URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
+
+確認用 command:
+
+- `project-registry explain --topic trust -p <project_key>`
+- `project-registry audit-trust-graph`
+- `project-registry repair-trust-graph`
+
+`audit-trust-graph` は読み取り専用で、既存 confirmed URL を次のように分類します。
+
+- `missing_recomputed_edge`: 既存 relation から trust edge を再構成すれば説明できる
+- `needs_reprobe`: 片方向の強い edge だけがあり、service/repo の再検証が必要
+- `should_downgrade`: operator decision でも相互信頼でも説明できない
+- `guarded_confirmed_identifier`: block/defer 済みなのに confirmed 相当で残っている
+
+`repair-trust-graph` はデフォルトでは trust edge/evaluation の再計算結果だけを保存します。confirmed URL の降格は `--execute --downgrade-unsupported` を明示した場合だけ行い、`needs_reprobe` は降格せず再検証候補として残します。
+
 削除済みのruntime compatibility field:
 
 - `website_url_candidates`
@@ -294,10 +323,12 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - same site family でも既存 `website_url` がある場合は、redirect 先を candidate に留めます
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
-- `service_probe_supports_project()` が真になる主な条件:
-  - service page から、既にこの project の manual seed または confirmed source repository として受け入れている GitHub repo へリンクしており、repo側にも同じservice familyへのhomepage/README等の参照がある
-  - manual service seed の host そのもの
-- service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。既存の `project -> repo` 根拠と `repo -> service` 参照を、別 source である `service -> repo` link が補強する場合だけ service support に使います。
+- `service_probe_supports_project()` は `trust-graph-v1` の URL 相互信頼で判定します
+  - service page の GitHub repo link は `service_links_repo`
+  - GitHub repository metadata の homepage は `repo_links_service`
+  - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
+  - manual service seed の host そのものは operator anchor として support します
+- service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。`service -> repo` と `repo -> service` の相互信頼が成立する場合だけ URL confirmed に使います。
 - `lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃っていても、それは `repo/NSID -> authority domain` の片方向根拠です。service host がそのauthority domainと一致して正常応答するだけでは、`domain/service -> project` の根拠として扱わず、confirmed service URLへ昇格しません。
 - service page が project の NSID を直接言及しているだけでは、互換実装や利用関係と区別できないため、`domain/service -> project` のconfirmed service support根拠にしません。
 - service page が authority domain、alias token、atproto marker を自称しているだけでは、`domain/service -> project` のconfirmed service support根拠にしません。
@@ -316,10 +347,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - probe が project を支持する
   - HTTP が `2xx/3xx`
   - URL がfollow-up/deep page由来の補助ページではない
-  - `service_url_auto_confirmable()` が真
-    - manual service host と一致
-    - authority domain と一致
-    - alias token と host が強く一致
+  - `trust-graph-v1` で candidate URL と trusted anchor の間に相互の強い有向経路がある
 - 上の条件を満たさないが page は支持している時:
   - `service_url_candidates` に留めます
 - page が project を支持しない時:
@@ -455,8 +483,8 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
   - `bluesky_profile`
   - `same_site`
 - confirmed に上げるのは:
-  - first-party page が repo を明示し、owner や site family が project と噛む時
-  - same-site family の repo URL で owner も噛む時
+  - first-party page が repo を明示し、repo側からも同じserviceへ戻る信頼エッジがある時
+  - same-site family の repo URL でも片方向リンクだけでは candidate に留めます
 - それ以外の repo-like URL は candidate に留めます
 - docs/blog/same-site 補助ページは `resource_url_records` に残し、`resource_url_values()` 経由で必要なら追加 probe の対象にします
 

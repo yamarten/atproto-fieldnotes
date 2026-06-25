@@ -35,6 +35,23 @@ def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit_trust_graph(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.audit_trust_graph(conn, example_limit=int(args.example_limit)))
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_repair_trust_graph(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.repair_trust_graph(
+        conn,
+        execute=bool(args.execute),
+        downgrade_unsupported=bool(args.downgrade_unsupported),
+        example_limit=int(args.example_limit),
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
 def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.cleanup_app_links(conn, execute=bool(args.execute)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

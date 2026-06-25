@@ -645,6 +645,16 @@ project-registry repair-db
 project-registry repair-db --execute
 ```
 
+trust graph による URL confirmed 判定を点検する場合:
+
+```bash
+project-registry audit-trust-graph
+project-registry repair-trust-graph
+project-registry repair-trust-graph --execute
+```
+
+`audit-trust-graph` は読み取り専用です。`repair-trust-graph` は `--execute` なしではdry-runで、通常は trust edge/evaluation の再計算結果だけを保存します。unsupported confirmed URL の候補降格は `repair-trust-graph --execute --downgrade-unsupported` を明示した場合だけ行います。
+
 ## 調査履歴の削除
 
 保存済み調査は既定で、完了から90日以内の全runとprojectごとの最新3 runを保持します。それより古い`investigation_runs`と対応する`collector_runs`を確認するには:

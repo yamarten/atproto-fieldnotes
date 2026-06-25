@@ -37,6 +37,7 @@ class GitHubRepoIntegrationDependencies:
     repo_url_allowed_for_project: Callable[[dict[str, Any], str], bool]
     add_candidate_source_code_url: Callable[..., None]
     repo_context_service_candidate_allowed: Callable[..., bool]
+    record_trust_edge: Callable[..., dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class TangledIntegrationDependencies:
     confirm_source_code_url: Callable[..., None]
     add_candidate_source_code_url: Callable[..., None]
     add_developer_account: Callable[[dict[str, Any], str, str, str], None]
+    record_trust_edge: Callable[..., dict[str, Any]]
     note_failure: Callable[[dict[str, Any], str], None]
 
 
@@ -128,11 +130,28 @@ def apply_tangled_evidence(
             dependencies.add_developer_account(project, handle, record.source, did)
         repo_url = str(value.get("repo_url") or "")
         score = int(value.get("score") or 0)
+        if did and repo_url:
+            dependencies.record_trust_edge(
+                project,
+                "did",
+                did,
+                "did_links_repo",
+                "repo_url",
+                repo_url,
+                source=record.source,
+                locator=repo_url,
+                method="tangled_pds_record",
+                classification="confirmed" if score >= 5 else "candidate",
+                eligible_for_auto_confirm=False,
+                observed_at=record.observed_at,
+                context={"owner_handle": handle, "score": score},
+            )
         if score >= 5:
-            dependencies.confirm_source_code_url(
-                project, repo_url, record.source, relation="tangled_account_repo",
-                reason=f"Tangled repo belongs to a confirmed developer account and relevance score is {score}",
+            dependencies.add_candidate_source_code_url(
+                project, repo_url, record.source,
+                reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
                 evidence_kind="tangled_pds_record", evidence_url=repo_url,
+                relation="tangled_account_repo",
             )
         elif score >= 2:
             dependencies.add_candidate_source_code_url(
@@ -287,6 +306,29 @@ def apply_github_repo_evidence(
                     "classification": classification, "observed_at": record.observed_at,
                     "context": dict(record.context)}]
             )
+            subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+            obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+            if (
+                relation.get("predicate") == "source_repository"
+                and subject.get("type") == "repo"
+                and obj.get("type") in {"website", "service"}
+            ):
+                method = str(relation.get("method") or "")
+                dependencies.record_trust_edge(
+                    project,
+                    "repo_url",
+                    str(subject.get("value") or ""),
+                    "repo_links_service",
+                    "service_url",
+                    str(obj.get("value") or ""),
+                    source=record.source,
+                    locator=str(relation.get("locator") or ""),
+                    method=method,
+                    classification="confirmed" if method == "github_homepage" else classification,
+                    eligible_for_auto_confirm=method == "github_homepage",
+                    observed_at=record.observed_at,
+                    context={"from_relation": True},
+                )
     for record in bundle.records:
         if record.kind == "relation":
             continue
@@ -338,6 +380,21 @@ def apply_github_repo_evidence(
         if homepage:
             normalized_homepage = dependencies.normalize_service_candidate_url(homepage)
             if normalized_homepage:
+                dependencies.record_trust_edge(
+                    project,
+                    "repo_url",
+                    repo_url,
+                    "repo_links_service",
+                    "service_url",
+                    normalized_homepage,
+                    source=record.source,
+                    locator=repo_url,
+                    method="github_homepage",
+                    classification="confirmed",
+                    eligible_for_auto_confirm=True,
+                    observed_at=record.observed_at,
+                    context={"from_snapshot": True},
+                )
                 dependencies.add_candidate_url(project, "service_url", normalized_homepage)
                 dependencies.add_candidate_url(project, "website_url", normalized_homepage)
 
@@ -415,6 +472,21 @@ def apply_github_repo_evidence(
                     repo_url=repo_url,
                     lexicon_ids=repo_lexicon_ids,
                 ):
+                    dependencies.record_trust_edge(
+                        project,
+                        "repo_url",
+                        repo_url,
+                        "repo_links_service",
+                        "service_url",
+                        normalized_service,
+                        source=f"github_readme:{source_label}",
+                        locator=repo_url,
+                        method="readme_link",
+                        classification="candidate",
+                        eligible_for_auto_confirm=False,
+                        observed_at=record.observed_at,
+                        context={"from_readme": True},
+                    )
                     dependencies.add_candidate_url(project, "service_url", normalized_service)
                     dependencies.add_candidate_url(project, "website_url", normalized_service)
 

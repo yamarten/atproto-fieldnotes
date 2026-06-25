@@ -245,6 +245,16 @@ def build_parser() -> argparse.ArgumentParser:
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
     audit_url_parser.set_defaults(func=maintenance_commands.cmd_audit_url_fields)
 
+    audit_trust_parser = subparsers.add_parser("audit-trust-graph", help="Report trust-graph confirmation issues without changing the DB.")
+    audit_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum issue examples per kind. Default: 20.")
+    audit_trust_parser.set_defaults(func=maintenance_commands.cmd_audit_trust_graph)
+
+    repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported URL confirmations.")
+    repair_trust_parser.add_argument("--execute", action="store_true", help="Apply trust graph recomputation. Without this flag, show a dry-run summary only.")
+    repair_trust_parser.add_argument("--downgrade-unsupported", action="store_true", help="With --execute, downgrade confirmed URL identifiers that have no trust evidence to candidates.")
+    repair_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum examples in the summary. Default: 20.")
+    repair_trust_parser.set_defaults(func=maintenance_commands.cmd_repair_trust_graph)
+
     cleanup_app_links_parser = subparsers.add_parser("cleanup-app-links", help="Rebuild stored app.links from canonical URL fields and confirmed resource records.")
     cleanup_app_links_parser.add_argument("--execute", action="store_true", help="Apply profile_json app link updates. Without this flag, show a dry-run summary only.")
     cleanup_app_links_parser.set_defaults(func=maintenance_commands.cmd_cleanup_app_links)
