@@ -805,6 +805,48 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         confirmed = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertEqual(confirmed["classification"], "confirmed")
 
+    def test_identity_identifier_defer_accepts_account_and_handle_types(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/defer-identifier",
+            method="POST",
+            payload={
+                "expected_revision": detail["revision"],
+                "identifier_type": "account",
+                "value": "did:plc:developer",
+                "days": 30,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(any(
+            item["kind"] == "defer_identifier"
+            and item["target_type"] == "account"
+            and item["target_value"] == "did:plc:developer"
+            for item in payload["detail"]["decisions"]["active"]
+        ))
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/defer-identifier",
+            method="POST",
+            payload={
+                "expected_revision": detail["revision"],
+                "identifier_type": "handle",
+                "value": "dev.example.com",
+                "days": 30,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(any(
+            item["kind"] == "defer_identifier"
+            and item["target_type"] == "handle"
+            and item["target_value"] == "dev.example.com"
+            for item in payload["detail"]["decisions"]["active"]
+        ))
+
     def test_add_manual_seed_to_existing_project(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
