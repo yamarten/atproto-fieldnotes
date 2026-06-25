@@ -146,8 +146,11 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .job-error { color: var(--danger); }
 .job-details > summary { width: fit-content; cursor: pointer; color: var(--accent); }
 .job-details > div { margin-top: 8px; }
-.merge-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.merge-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; margin-top: 12px; }
 .merge-project { min-width: 0; display: grid; align-content: start; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.merge-project .kv { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.merge-project .kv dt { margin-top: 4px; }
+.merge-project .kv dt:first-child { margin-top: 0; }
 .merge-identifiers { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
