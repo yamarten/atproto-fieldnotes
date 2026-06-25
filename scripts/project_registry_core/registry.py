@@ -14362,6 +14362,80 @@ def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False
     }
 
 
+SYNC_PROVENANCE_NOTE_PREFIXES = (
+    "collection import matched by ",
+    "collection import suggested existing project ",
+    "github search sync matched query=",
+    "github search sync matched by ",
+    "github search sync suggested existing project ",
+    "semble collection sync matched ",
+    "semble collection sync matched by ",
+)
+
+
+def cleanup_project_sync_notes(conn: sqlite3.Connection, *, execute: bool = False, example_limit: int = 20) -> dict[str, Any]:
+    rows = conn.execute("SELECT project_key, profile_json FROM projects ORDER BY project_key ASC").fetchall()
+    changed_projects = 0
+    removed_line_count = 0
+    examples: list[dict[str, Any]] = []
+
+    for row in rows:
+        project_key = str(row["project_key"])
+        record_payload = load_json(str(row["profile_json"] or "{}")) or {}
+        if not isinstance(record_payload, dict):
+            raise ValueError(f"profile_json must be an object: {project_key}")
+        core_payload = dict(record_payload.get("core") or {})
+        notes = str(core_payload.get("notes") or "")
+        if not notes:
+            continue
+        kept_lines: list[str] = []
+        removed_lines: list[str] = []
+        for line in notes.splitlines():
+            stripped = line.strip()
+            if any(stripped.startswith(prefix) for prefix in SYNC_PROVENANCE_NOTE_PREFIXES):
+                removed_lines.append(line)
+            else:
+                kept_lines.append(line)
+        if not removed_lines:
+            continue
+        changed_projects += 1
+        removed_line_count += len(removed_lines)
+        if len(examples) < max(0, example_limit):
+            examples.append(
+                {
+                    "project_key": project_key,
+                    "removed_line_count": len(removed_lines),
+                    "removed_lines": removed_lines[:10],
+                    "remaining_notes": "\n".join(kept_lines).strip(),
+                }
+            )
+        if execute:
+            remaining = "\n".join(kept_lines).strip()
+            if remaining:
+                core_payload["notes"] = remaining
+            else:
+                core_payload.pop("notes", None)
+            if core_payload:
+                record_payload["core"] = core_payload
+            else:
+                record_payload.pop("core", None)
+            conn.execute(
+                "UPDATE projects SET profile_json = ? WHERE project_key = ?",
+                (dump_json(record_payload, sort_keys=False), project_key),
+            )
+
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": changed_projects,
+        "removed_line_count": removed_line_count,
+        "prefixes": list(SYNC_PROVENANCE_NOTE_PREFIXES),
+        "examples": examples,
+    }
+
+
 def tenant_identity_for_suffix(host: str, suffix: str) -> str:
     lowered = str(host or "").strip().lower().rstrip(".")
     normalized_suffix = normalize_multi_tenant_suffix(suffix)
