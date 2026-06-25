@@ -17,6 +17,11 @@ AUTO_CONFIRM_PREDICATES = {
     "service_links_repo",
     "repo_links_service",
     "service_canonical",
+    "did_publishes_schema",
+    "collection_authority_domain",
+    "domain_exact_handle",
+    "handle_resolves_did",
+    "did_document_claims_handle",
 }
 
 
@@ -173,7 +178,14 @@ def upsert_edge(
     return candidate
 
 
-def auto_confirm_edges(edges: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def auto_confirm_edges(
+    edges: Iterable[Mapping[str, Any]],
+    *,
+    allowed_node_kinds: set[str] | None = None,
+    allowed_predicates: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    node_kinds = allowed_node_kinds or URL_NODE_KINDS
+    predicates = allowed_predicates or AUTO_CONFIRM_PREDICATES
     output: list[dict[str, Any]] = []
     for edge in edges:
         if not isinstance(edge, Mapping):
@@ -183,9 +195,9 @@ def auto_confirm_edges(edges: Iterable[Mapping[str, Any]]) -> list[dict[str, Any
             normalized
             and normalized["classification"] == "confirmed"
             and normalized.get("eligible_for_auto_confirm")
-            and normalized["predicate"] in AUTO_CONFIRM_PREDICATES
-            and normalized["subject"]["kind"] in URL_NODE_KINDS
-            and normalized["object"]["kind"] in URL_NODE_KINDS
+            and normalized["predicate"] in predicates
+            and normalized["subject"]["kind"] in node_kinds
+            and normalized["object"]["kind"] in node_kinds
         ):
             output.append(normalized)
     return output
@@ -221,15 +233,22 @@ def directional_paths(
     *,
     candidate: Mapping[str, Any],
     anchors: Iterable[Mapping[str, Any]],
+    allowed_node_kinds: set[str] | None = None,
+    allowed_predicates: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     candidate_node = node(str(candidate.get("kind") or ""), str(candidate.get("value") or ""))
     if not candidate_node:
         return []
-    normalized_edges = auto_confirm_edges(graph(project).get("edges", []))
+    node_kinds = allowed_node_kinds or URL_NODE_KINDS
+    normalized_edges = auto_confirm_edges(
+        graph(project).get("edges", []),
+        allowed_node_kinds=node_kinds,
+        allowed_predicates=allowed_predicates,
+    )
     output: list[dict[str, Any]] = []
     for anchor in anchors:
         anchor_node = node(str(anchor.get("kind") or ""), str(anchor.get("value") or ""))
-        if not anchor_node or anchor_node["kind"] not in URL_NODE_KINDS:
+        if not anchor_node or anchor_node["kind"] not in node_kinds:
             continue
         forward_path = _path_between(normalized_edges, anchor_node, candidate_node)
         backward_path = _path_between(normalized_edges, candidate_node, anchor_node)
@@ -248,13 +267,20 @@ def evaluate_auto_confirm(
     *,
     candidate: Mapping[str, Any],
     anchors: Iterable[Mapping[str, Any]],
+    allowed_node_kinds: set[str] | None = None,
+    allowed_predicates: set[str] | None = None,
 ) -> dict[str, Any]:
     candidate_node = node(str(candidate.get("kind") or ""), str(candidate.get("value") or ""))
+    node_kinds = allowed_node_kinds or URL_NODE_KINDS
     if not candidate_node:
         return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": dict(candidate)}
-    if candidate_node["kind"] not in URL_NODE_KINDS:
+    if candidate_node["kind"] not in node_kinds:
         return {"auto_confirm": False, "reason": "kind_not_in_v1_scope", "candidate": candidate_node}
-    normalized_edges = auto_confirm_edges(graph(project).get("edges", []))
+    normalized_edges = auto_confirm_edges(
+        graph(project).get("edges", []),
+        allowed_node_kinds=node_kinds,
+        allowed_predicates=allowed_predicates,
+    )
     normalized_anchors = [
         item
         for anchor in anchors
@@ -263,7 +289,7 @@ def evaluate_auto_confirm(
     if not normalized_anchors:
         return {"auto_confirm": False, "reason": "no_trusted_anchor", "candidate": candidate_node}
     for anchor in normalized_anchors:
-        if anchor["kind"] not in URL_NODE_KINDS:
+        if anchor["kind"] not in node_kinds:
             continue
         if node_key(anchor) == node_key(candidate_node):
             return {

@@ -116,12 +116,14 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 - node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
-- 初回の実動作適用は `service_url` と `repo_url` の自動confirmだけです
-- `collection` / `did` / `handle` / `domain` edge は保存・説明・監査対象ですが、現時点では自動confirmの置き換えには使いません
+- 初回の実動作適用は `service_url` / `repo_url` の自動confirmと、`collection` ownership判定です
+- `did` / `handle` / `domain` は edge として使いますが、単独identifierの自動confirm対象にはしていません
 - `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
 - legacy confirmed identifier は監査対象であり、新規URL昇格のtrusted anchorにはしません
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
+
+collection ownership は、manual NSID seed、または confirmed developer DID との相互 trust path がある場合だけ成立します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
 
 確認用 command:
 
@@ -494,12 +496,9 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 
 1. manual `nsid` seed そのもの
 2. manual `nsid` seed の親 namespace と一致
-3. confirmed 開発者アカウントが authority domain を持っていそう
-4. confirmed 開発者 DID がその `NSID` の schema record を持っている
-5. confirmed service host と authority domain が整合する
-6. 既存の token ベース整合
+3. `trust-graph-v1` で collection と confirmed developer DID の間に相互の強い有向経路がある
 
-意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを弱めることです。
+意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONだけでは ownership を確定しません。
 
 repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。manual repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。

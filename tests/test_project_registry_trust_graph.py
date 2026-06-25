@@ -184,6 +184,59 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertTrue(any(edge["predicate"] == "handle_resolves_did" for edge in edges))
         self.assertTrue(any(edge["predicate"] == "did_links_repo" for edge in edges))
 
+    def test_collection_owned_when_schema_did_and_exact_authority_handle_are_mutual(self) -> None:
+        project = registry.default_project_record("proj:collectiontrust", "service_url", "https://example.com")
+        project["developer_accounts"] = [{"handle": "example.com", "did": "did:plc:dev", "source": "manual"}]
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:dev",
+                "authority_domain": "example.com",
+                "record_uri": "at://did:plc:dev/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+
+        self.assertTrue(registry.project_owned_lexicon_nsid(project, "app.example.post"))
+
+        edges = trust_graph.graph(project)["edges"]
+        self.assertTrue(any(edge["predicate"] == "did_publishes_schema" for edge in edges))
+        self.assertTrue(any(edge["predicate"] == "collection_authority_domain" for edge in edges))
+        self.assertTrue(any(edge["predicate"] == "domain_exact_handle" for edge in edges))
+
+    def test_collection_not_owned_by_schema_record_without_exact_authority_handle(self) -> None:
+        project = registry.default_project_record("proj:hostedcollection", "service_url", "https://sprk.so")
+        project["developer_accounts"] = [{"handle": "sprk.so", "did": "did:plc:spark", "source": "manual"}]
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "so.sprk.alice.post",
+                "resolved_nsid": "so.sprk.alice.post",
+                "repo_did": "did:plc:spark",
+                "authority_domain": "alice.sprk.so",
+                "record_uri": "at://did:plc:spark/com.atproto.lexicon.schema/so.sprk.alice.post",
+                "resolved_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "so.sprk.alice.post"))
+
+    def test_collection_not_owned_by_did_schema_record_one_way_only(self) -> None:
+        project = registry.default_project_record("proj:onewaycollection", "service_url", "https://example.com")
+        project["developer_accounts"] = [{"did": "did:plc:dev", "source": "manual"}]
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:dev",
+                "authority_domain": "example.com",
+                "record_uri": "at://did:plc:dev/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "app.example.post"))
+
 
 class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
     def _source_repository_relation(

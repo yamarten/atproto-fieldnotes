@@ -277,7 +277,7 @@ class ProjectRegistryV2MigrationTest(unittest.TestCase):
             self.assertEqual(project["service_url_candidates"], ["https://app.example", "https://legacy.example"])
             self.assertEqual(project["source_code_urls"], [])
             self.assertEqual(project["candidate_source_code_urls"], ["https://github.com/example/app"])
-            self.assertEqual(project["external_lexicons"], ["com.example.shared.record"])
+            self.assertEqual(project["external_lexicons"], ["com.example.shared.record", "app.example"])
             self.assertEqual(project["manual_seeds"][0]["type"], "repo_url")
             self.assertEqual(project["manual_seeds"][0]["value"], "https://github.com/example/app")
             self.assertEqual(project["source_repo_records"][0]["confidence"], "candidate")

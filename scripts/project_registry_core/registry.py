@@ -1850,27 +1850,13 @@ def developer_holds_schema_record(project: dict[str, Any], nsid: str) -> bool:
 
 
 def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
-    if relation_core.identifier_is_guarded(project, "nsid", normalize_nsid(nsid)):
+    normalized = normalize_nsid(nsid)
+    if relation_core.identifier_is_guarded(project, "nsid", normalized):
         return False
-    if relation_core.relation_supports_nsid_ownership(project, normalize_nsid(nsid)):
+    if manual_nsid_seed_supports(project, normalized):
         return True
-    return evaluation_core.project_owned_lexicon_nsid(
-        project,
-        nsid,
-        evaluation_core.OwnershipDependencies(
-            normalize_nsid=normalize_nsid,
-            manual_seed_values=manual_seed_values,
-            lexicon_namespace_for_project=lexicon_namespace_for_project,
-            derive_authority_domain=derive_authority_domain,
-            developer_controls_authority_domain=developer_controls_authority_domain,
-            developer_holds_schema_record=developer_holds_schema_record,
-            ownership_anchor_service_hosts=ownership_anchor_service_hosts,
-            nsid_is_builtin_reference=nsid_is_builtin_reference,
-            project_identity_anchor_tokens=project_identity_anchor_tokens,
-            normalize_alias_token=normalize_alias_token,
-            root_domain=root_domain,
-        ),
-    )
+    evaluation = trust_collection_ownership_evaluation(project, normalized)
+    return bool(evaluation.get("auto_confirm"))
 
 
 def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
@@ -3456,6 +3442,15 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
                 candidate=node,
                 anchors=trusted_anchor_nodes(project),
             )
+        elif item.kind == "nsid":
+            evaluation = trust_collection_ownership_evaluation(project, item.value)
+            directional_paths = trust_graph_core.directional_paths(
+                project,
+                candidate=node,
+                anchors=collection_trusted_anchor_nodes(project),
+                allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
+                allowed_predicates=COLLECTION_TRUST_PREDICATES,
+            )
         rows.append({
             "identifier": {"kind": item.kind, "value": item.value, "role": item.role},
             "node": node,
@@ -3503,9 +3498,12 @@ def refresh_trust_graph_evaluations(project: dict[str, Any]) -> dict[str, Any]:
     evaluated = 0
     auto_confirmable = 0
     for item in runtime_view.project_identifiers(project):
-        if item.kind not in {"service_url", "repo_url"}:
+        if item.kind in {"service_url", "repo_url"}:
+            evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
+        elif item.kind == "nsid":
+            evaluation = trust_collection_ownership_evaluation(project, item.value)
+        else:
             continue
-        evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
         evaluated += 1
         if evaluation.get("auto_confirm"):
             auto_confirmable += 1
@@ -8139,6 +8137,139 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
                 observed_at=observed_at,
                 context={"from_relation": True},
             )
+
+
+COLLECTION_TRUST_NODE_KINDS = {"did", "collection", "domain", "handle"}
+COLLECTION_TRUST_PREDICATES = {
+    "did_publishes_schema",
+    "collection_authority_domain",
+    "domain_exact_handle",
+    "handle_resolves_did",
+    "did_document_claims_handle",
+}
+
+
+def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
+    for account in project.get("developer_accounts", []):
+        if not isinstance(account, dict):
+            continue
+        handle = str(account.get("handle") or "").strip().lower()
+        did = str(account.get("did") or "").strip()
+        if handle and did:
+            record_trust_edge(
+                project,
+                "handle",
+                handle,
+                "handle_resolves_did",
+                "did",
+                did,
+                source=str(account.get("source") or "developer_account"),
+                method="developer_account",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(account.get("observed_at") or ""),
+            )
+        if handle and "." in handle and not is_shared_official_identity_host(handle):
+            record_trust_edge(
+                project,
+                "domain",
+                handle,
+                "domain_exact_handle",
+                "handle",
+                handle,
+                source=str(account.get("source") or "developer_account"),
+                method="exact_handle",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(account.get("observed_at") or ""),
+            )
+    for entry in normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", [])):
+        resolved_nsid = normalize_nsid(str(entry.get("resolved_nsid") or ""))
+        repo_did = str(entry.get("repo_did") or "").strip()
+        if repo_did and resolved_nsid:
+            record_trust_edge(
+                project,
+                "did",
+                repo_did,
+                "did_publishes_schema",
+                "collection",
+                resolved_nsid,
+                source=f"lexicon_resolution:{resolved_nsid}",
+                locator=str(entry.get("record_uri") or ""),
+                method="repo_record",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(entry.get("resolved_at") or ""),
+            )
+        authority_domain = str(entry.get("authority_domain") or derive_authority_domain(resolved_nsid)).strip().lower().rstrip(".")
+        if resolved_nsid and authority_domain:
+            record_trust_edge(
+                project,
+                "collection",
+                resolved_nsid,
+                "collection_authority_domain",
+                "domain",
+                authority_domain,
+                source=f"lexicon_resolution:{resolved_nsid}",
+                locator=str(entry.get("record_uri") or ""),
+                method="lexicon_record_authority",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(entry.get("resolved_at") or ""),
+            )
+
+
+def collection_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for did in sorted(confirmed_developer_dids(project) | ({str(project.get("brand_did") or "").strip()} if str(project.get("brand_did") or "").strip() else set())):
+        node = trust_node("did", did)
+        key = trust_graph_core.node_key(node)
+        if node and key not in seen:
+            seen.add(key)
+            output.append(node)
+    return output
+
+
+def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:
+    normalized = normalize_nsid(nsid)
+    if not normalized:
+        return False
+    namespace = lexicon_namespace_for_project(normalized)
+    for seed in manual_seed_values(project, "nsid"):
+        seed_nsid = normalize_nsid(seed)
+        if not seed_nsid:
+            continue
+        seed_namespace = lexicon_namespace_for_project(seed_nsid)
+        if normalized == seed_nsid or namespace == seed_namespace or namespace.startswith(f"{seed_namespace}.") or seed_namespace.startswith(f"{namespace}."):
+            return True
+    return False
+
+
+def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str) -> dict[str, Any]:
+    normalized = normalize_nsid(nsid)
+    candidate = trust_node("collection", normalized)
+    if not candidate:
+        return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": {"kind": "collection", "value": nsid}}
+    if relation_core.identifier_is_guarded(project, "nsid", normalized):
+        return {"auto_confirm": False, "reason": "guarded_identifier", "candidate": candidate}
+    if manual_nsid_seed_supports(project, normalized):
+        return {
+            "auto_confirm": True,
+            "reason": "manual_collection_seed",
+            "candidate": candidate,
+            "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
+        }
+    sync_trust_edges_from_project_identity(project)
+    evaluation = trust_graph_core.evaluate_auto_confirm(
+        project,
+        candidate=candidate,
+        anchors=collection_trusted_anchor_nodes(project),
+        allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
+        allowed_predicates=COLLECTION_TRUST_PREDICATES,
+    )
+    trust_graph_core.upsert_evaluation(project, evaluation, generated_at=iso_now())
+    return evaluation
 
 
 def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str, value: str) -> dict[str, Any]:
