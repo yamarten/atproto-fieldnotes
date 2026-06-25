@@ -171,7 +171,7 @@ function listControls() {
       <label>Contribution<input id="filter-contribution" placeholder="core, substantial" value="${esc(state.projectSearch.contribution)}"></label>
       <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
       <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
-      <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
+      <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["first_seen_desc", "Recently added"], ["first_seen_asc", "Oldest added"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
       <label>Identifier kind<input id="filter-identifier-kind" placeholder="nsid, account, repo_url" value="${esc(state.projectSearch.identifierKind)}"></label>
       <label>Identifier value<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
       <label>Identifier classification<input id="filter-identifier-classification" placeholder="confirmed, candidate" value="${esc(state.projectSearch.identifierClassification)}"></label>

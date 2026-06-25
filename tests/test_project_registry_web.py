@@ -596,6 +596,30 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                 self.assertEqual(payload["count"], expected)
                 self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
 
+    def test_project_search_supports_first_seen_sort(self) -> None:
+        conn = registry.open_db()
+        conn.execute(
+            "UPDATE projects SET first_seen_at = ?, last_seen_at = ? WHERE project_key = ?",
+            ("2026-06-01T00:00:00+00:00", "2026-06-20T00:00:00+00:00", "proj:111111111111"),
+        )
+        conn.execute(
+            "UPDATE projects SET first_seen_at = ?, last_seen_at = ? WHERE project_key = ?",
+            ("2026-06-10T00:00:00+00:00", "2026-06-19T00:00:00+00:00", "proj:222222222222"),
+        )
+        conn.commit()
+        conn.close()
+
+        status, payload, _ = self.request("/api/projects?sort=first_seen_desc")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["sort"], "first_seen_desc")
+        self.assertEqual(payload["items"][0]["project_key"], "proj:222222222222")
+        self.assertEqual(payload["items"][0]["first_seen_at"], "2026-06-10T00:00:00+00:00")
+
+        status, payload, _ = self.request("/api/projects?sort=first_seen_asc")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["sort"], "first_seen_asc")
+        self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
+
     def test_search_does_not_hydrate_all_projects(self) -> None:
         original = registry.list_projects
         registry.list_projects = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("hydrated all projects"))

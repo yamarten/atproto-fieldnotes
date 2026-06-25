@@ -46,6 +46,7 @@ def _summary(project: dict[str, Any]) -> dict[str, Any]:
         "category": str(project.get("category") or ""),
         "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
         "technical_interest_level": str(project.get("technical_interest_level") or "unknown"),
+        "first_seen_at": str(project.get("first_seen_at") or ""),
         "last_seen_at": str(project.get("last_seen_at") or ""),
         "last_enriched_at": str(project.get("last_enriched_at") or ""),
         "has_candidates": bool(project.get("_query_has_candidates", project.get("service_url_candidates") or project.get("candidate_source_code_urls"))),
@@ -140,6 +141,10 @@ def search_projects(
         resolved_sort = sort or "last_seen_desc"
     if resolved_sort == "last_seen_desc":
         items.sort(key=lambda item: (str(item.get("last_seen_at") or ""), str(item["project_key"])), reverse=True)
+    elif resolved_sort == "first_seen_desc":
+        items.sort(key=lambda item: (str(item.get("first_seen_at") or ""), str(item["project_key"])), reverse=True)
+    elif resolved_sort == "first_seen_asc":
+        items.sort(key=lambda item: (str(item.get("first_seen_at") or ""), str(item["project_key"])))
     elif resolved_sort == "last_enriched_asc":
         items.sort(key=lambda item: (str(item.get("last_enriched_at") or ""), str(item["project_key"])))
     elif resolved_sort == "name_asc":
