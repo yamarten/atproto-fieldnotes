@@ -119,6 +119,8 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 
 provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
+same-siteの`/docs`、`/documentation`、`/about`、`/blog`、`/faq`、`/help`配下の情報ページと、`/login`、`/signin`、`/signup`、`/register`などの認証入口はservice identityではなく`resource_url_records`へ残します。これは補助ページをconfirmed service URLへ過剰昇格させないための暫定heuristicで、path名だけを長期的な信頼根拠とはみなしません。service follow-up probeやdeep page probeの結果はservice statusの補助evidenceには使いますが、補助ページURL自体をconfirmed service URLへ昇格しません。`/app`はapp surfaceとして使われることがあるため、この補助ページ判定だけでは落としません。`block_identifier` / `defer_identifier`されたservice rootは同一originの配下URLにもguardとして効き、confirmed service URL、supporting resource record、`operates_service` relationから除外します。
+
 `project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
 
 runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。
@@ -293,14 +295,13 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
 - `service_probe_supports_project()` が真になる主な条件:
-  - lexicon record解決済みのauthority domainと、正常応答したservice hostが完全一致する
-  - page text に project の NSID が直接出る
-  - authority domain と atproto 系 marker が同時に出る
-  - alias token と atproto 系 marker が同時に出る
-  - project に許された GitHub/Tangled repo へのリンクがある
-  - project に一致する Bluesky handle へのリンクがある
+  - service page から、既にこの project の manual seed または confirmed source repository として受け入れている GitHub repo へリンクしており、repo側にも同じservice familyへのhomepage/README等の参照がある
   - manual service seed の host そのもの
-- `authority_domains` へ推測値が入っているだけでは上の完全一致条件を使いません。`lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃う場合だけ検証済みauthorityとして扱います
+- service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。既存の `project -> repo` 根拠と `repo -> service` 参照を、別 source である `service -> repo` link が補強する場合だけ service support に使います。
+- `lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃っていても、それは `repo/NSID -> authority domain` の片方向根拠です。service host がそのauthority domainと一致して正常応答するだけでは、`domain/service -> project` の根拠として扱わず、confirmed service URLへ昇格しません。
+- service page が project の NSID を直接言及しているだけでは、互換実装や利用関係と区別できないため、`domain/service -> project` のconfirmed service support根拠にしません。
+- service page が authority domain、alias token、atproto marker を自称しているだけでは、`domain/service -> project` のconfirmed service support根拠にしません。
+- service page 上の Bluesky profile link は `official_account` relation evidence としては残しますが、それ単独では `domain/service -> project` のconfirmed service support根拠にしません。
 - 検証済みauthorityの完全一致hostが正常応答し、titleまたはdescriptionを持つ場合、汎用classifierが `unverified` でも `verified_authority_service_surface` evidence付きの `live` として扱います。`none` / `unreleased` / `beta` などの明示分類は上書きしません
 - `service_status` の決め方:
   - parked domain, `404/410` は `dead`
@@ -314,6 +315,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - confirmed に上げる条件:
   - probe が project を支持する
   - HTTP が `2xx/3xx`
+  - URL がfollow-up/deep page由来の補助ページではない
   - `service_url_auto_confirmable()` が真
     - manual service host と一致
     - authority domain と一致
@@ -322,6 +324,10 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - `service_url_candidates` に留めます
 - page が project を支持しない時:
   - その URL は project から外します
+- 到達できたがproject supportが無いURL:
+  - `service_verification` recordは保存します
+  - `operates_service` relationは作りません
+  - candidate repo linkやalias tokenだけではsupport根拠にしません
 - `4xx` / fetch error は:
   - `failed_service_urls` に残します
 - probe が project を支持し、HTTP が成功した時:
@@ -462,13 +468,12 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 2. manual `nsid` seed の親 namespace と一致
 3. confirmed 開発者アカウントが authority domain を持っていそう
 4. confirmed 開発者 DID がその `NSID` の schema record を持っている
-5. confirmed repo の `defines_schema` relation
-6. confirmed service host と authority domain が整合する
-7. 既存の token ベース整合
+5. confirmed service host と authority domain が整合する
+6. 既存の token ベース整合
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを弱めることです。
 
-`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
+repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。manual repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
 domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
 [identity-ownership-evidence.md](notes/identity-ownership-evidence.md) に分離しています。

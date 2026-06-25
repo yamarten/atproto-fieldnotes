@@ -258,7 +258,7 @@ schema v2、調査pipeline境界、application service分割が入った後のco
 - `defines_schema`と`uses_collection`を厳密に分ける
   - repo内にlexicon JSONがあるだけでは根拠として弱い
   - 他からJSONを持ってきている場合もあり、逆にlexicon fileを置かずschemaを運用するprojectもある
-  - `defines_schema`の強さは、repo ownership、authority path、service/account corroboration、package contextなどと合わせて評価する
+  - `defines_schema`は repo と NSID の両方が accepted の場合だけ成立する relation として扱う
   - API usageは`uses_collection`
   - docs/examplesは`mentions_collection`
 - README URL extraction
@@ -480,7 +480,7 @@ schema v2、調査pipeline境界、application service分割が入った後のco
 - NSID ownership改善
   - manual seed
   - official account PDS schema record
-  - confirmed repo `defines_schema`
+  - accepted repo/NSID `defines_schema`
   - authority identity path
   - `uses_collection`やOAuth permissionはownershipにしない
 - atproto contribution evaluation

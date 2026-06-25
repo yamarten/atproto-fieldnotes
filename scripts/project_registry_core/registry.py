@@ -3018,6 +3018,8 @@ def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: 
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return False
+    if identifier_type == "service_url":
+        return any(service_url_matches_guard(normalized, item) for item in blocked_identifier_values(project, identifier_type))
     return normalized in blocked_identifier_values(project, identifier_type)
 
 
@@ -3033,7 +3035,27 @@ def identifier_is_deferred(project: dict[str, Any], identifier_type: str, value:
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return False
+    if identifier_type == "service_url":
+        return any(service_url_matches_guard(normalized, item) for item in deferred_identifier_values(project, identifier_type))
     return normalized in deferred_identifier_values(project, identifier_type)
+
+
+def service_url_matches_guard(value: str, guard_value: str) -> bool:
+    normalized = normalize_url(value)
+    guard = normalize_url(guard_value)
+    if not normalized or not guard:
+        return False
+    if normalized == guard:
+        return True
+    parsed = urllib.parse.urlparse(normalized)
+    guard_parsed = urllib.parse.urlparse(guard)
+    if parsed.scheme != guard_parsed.scheme or parsed.netloc.lower() != guard_parsed.netloc.lower():
+        return False
+    guard_path = guard_parsed.path.rstrip("/")
+    if not guard_path:
+        return True
+    path = parsed.path.rstrip("/")
+    return path.startswith(f"{guard_path}/")
 
 
 def downgrade_identifier_to_candidate(project: dict[str, Any], identifier_type: str, value: str) -> None:
@@ -3088,6 +3110,65 @@ def apply_deferred_identifier_guards(project: dict[str, Any]) -> None:
     project["deferred_identifiers"] = normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
     for item in project["deferred_identifiers"]:
         downgrade_identifier_to_candidate(project, str(item.get("type") or ""), str(item.get("value") or ""))
+
+
+def service_url_is_guarded(project: dict[str, Any], url: str) -> bool:
+    return identifier_is_blocked(project, "service_url", url) or identifier_is_deferred(project, "service_url", url)
+
+
+def purge_guarded_service_observations(project: dict[str, Any]) -> None:
+    if service_url_is_guarded(project, str(project.get("website_url") or "")):
+        project["website_url"] = ""
+    project["service_urls"] = [
+        url
+        for url in project.get("service_urls", [])
+        if not service_url_is_guarded(project, str(url or ""))
+    ]
+    project["supported_service_urls"] = [
+        url
+        for url in project.get("supported_service_urls", [])
+        if not service_url_is_guarded(project, str(url or ""))
+    ]
+    project["failed_service_urls"] = [
+        url
+        for url in project.get("failed_service_urls", [])
+        if not service_url_is_guarded(project, str(url or ""))
+    ]
+    project["resource_url_records"] = [
+        record
+        for record in normalize_resource_url_records(list(project.get("resource_url_records", [])))
+        if not service_url_is_guarded(project, record["url"])
+    ]
+    project["evidence_urls"] = [
+        url
+        for url in unique_list(project.get("evidence_urls", []))
+        if not service_url_is_guarded(project, str(url or ""))
+    ]
+    set_service_url_candidate_values(
+        project,
+        [
+            url
+            for url in service_url_candidate_values(project)
+            if not identifier_is_blocked(project, "service_url", url)
+        ],
+    )
+
+
+def purge_guarded_service_relations(project: dict[str, Any]) -> None:
+    relations = []
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = item["relation"]
+        if (
+            relation["predicate"] == "operates_service"
+            and relation["object"]["type"] == "service"
+            and (
+                service_url_is_guarded(project, relation["object"]["value"])
+                or service_url_is_supporting_page(relation["object"]["value"])
+            )
+        ):
+            continue
+        relations.append(item)
+    project["relation_evidence"] = relations
 
 
 def purge_blocked_identifiers(project: dict[str, Any]) -> None:
@@ -3530,6 +3611,9 @@ TLDEXTRACT_CACHE_DIR = ROOT / "data" / "tldextract-cache"
 
 def sanitize_extracted_url(raw_url: str) -> str:
     value = str(raw_url or "").strip().strip("<>[]{}\"'")
+    for marker in ("](", ")("):
+        if marker in value:
+            value = value.split(marker, 1)[0].rstrip()
     while value.endswith(("**", "__")):
         value = value[:-2].rstrip()
     while value.count("(") < value.count(")") and value.endswith(")"):
@@ -3706,6 +3790,12 @@ def extract_urls(html: str) -> list[str]:
     pattern = r'https?://[^\s"\'<>]+'
     output: list[str] = []
     for raw in re.findall(pattern, html):
+        cleaned = sanitize_extracted_url(raw)
+        parsed = urllib.parse.urlparse(cleaned)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        output.append(normalize_url(cleaned))
+    for raw in re.findall(r'\]\((https?://[^)\s]+)\)', html):
         cleaned = sanitize_extracted_url(raw)
         parsed = urllib.parse.urlparse(cleaned)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -5075,6 +5165,110 @@ def deep_investigation_page_kind(url: str) -> str:
     }.get(first, "resource")
 
 
+def service_probe_represents_service_identity(url: str, result: dict[str, Any]) -> bool:
+    lane = str(result.get("lane") or "static")
+    if lane == "follow_up":
+        return False
+    parsed = urllib.parse.urlparse(normalize_url(url))
+    first = parsed.path.strip("/").split("/", 1)[0].lower()
+    return not first or first not in service_core.SUPPORTING_PAGE_PATHS
+
+
+def service_url_is_supporting_page(url: str) -> bool:
+    normalized = normalize_url(url)
+    return bool(normalized and not service_probe_represents_service_identity(normalized, {"lane": "static"}))
+
+
+def supporting_page_resource_record(url: str, *, confidence: str) -> dict[str, str]:
+    normalized = normalize_url(url)
+    return {
+        "url": normalized,
+        "role": deep_investigation_page_kind(normalized),
+        "source": "service_url_cleanup",
+        "observed_at": "",
+        "confidence": confidence if confidence in RESOURCE_URL_CONFIDENCE_VALUES else "candidate",
+    }
+
+
+def purge_supporting_page_service_observations(project: dict[str, Any]) -> None:
+    moved_records: list[dict[str, str]] = []
+    website_url = normalize_url(str(project.get("website_url") or ""))
+    if website_url and service_url_is_supporting_page(website_url):
+        moved_records.append(supporting_page_resource_record(website_url, confidence="confirmed"))
+        project["website_url"] = ""
+
+    cleaned_service_urls: list[str] = []
+    for url in project.get("service_urls", []):
+        normalized = normalize_url(str(url or ""))
+        if normalized and service_url_is_supporting_page(normalized):
+            moved_records.append(supporting_page_resource_record(normalized, confidence="confirmed"))
+            continue
+        cleaned_service_urls.append(str(url))
+    project["service_urls"] = unique_list(cleaned_service_urls)
+
+    cleaned_supported_urls: list[str] = []
+    for url in project.get("supported_service_urls", []):
+        normalized = normalize_url(str(url or ""))
+        if normalized and service_url_is_supporting_page(normalized):
+            moved_records.append(supporting_page_resource_record(normalized, confidence="confirmed"))
+            continue
+        cleaned_supported_urls.append(str(url))
+    project["supported_service_urls"] = unique_list(cleaned_supported_urls)
+
+    project["failed_service_urls"] = [
+        url
+        for url in project.get("failed_service_urls", [])
+        if not service_url_is_supporting_page(str(url or ""))
+    ]
+
+    candidate_records: list[dict[str, str]] = []
+    cleaned_candidates: list[str] = []
+    for url in service_url_candidate_values(project):
+        if service_url_is_supporting_page(url):
+            candidate_records.append(supporting_page_resource_record(url, confidence="candidate"))
+            continue
+        cleaned_candidates.append(url)
+    set_service_url_candidate_values(project, cleaned_candidates)
+
+    if moved_records or candidate_records:
+        project["resource_url_records"] = normalize_resource_url_records(
+            list(project.get("resource_url_records", [])) + moved_records + candidate_records
+        )
+
+
+def normalize_service_identifier_views(project: dict[str, Any]) -> None:
+    project["service_urls"] = unique_list(
+        [
+            normalized
+            for item in project.get("service_urls", [])
+            if (normalized := normalize_confirmed_service_url(str(item or "")))
+        ]
+    )
+    confirmed_urls = {normalize_url(str(item or "")) for item in project.get("service_urls", []) if normalize_url(str(item or ""))}
+    project["supported_service_urls"] = unique_list(
+        [
+            normalized
+            for item in project.get("supported_service_urls", [])
+            if (normalized := normalize_confirmed_service_url(str(item or "")))
+        ]
+    )
+    project["failed_service_urls"] = unique_list(
+        [
+            normalized
+            for item in project.get("failed_service_urls", [])
+            if (normalized := normalize_service_candidate_url(str(item or "")))
+        ]
+    )
+    set_service_url_candidate_values(
+        project,
+        [
+            url
+            for url in service_url_candidate_values(project)
+            if normalize_url(url) not in confirmed_urls
+        ],
+    )
+
+
 def apply_resource_page_probe_status(project: dict[str, Any], page_url: str, result: dict[str, Any]) -> None:
     observed_service_status = normalize_service_status(result.get("service_status"))
     observed_confidence = normalize_service_status_confidence(result.get("service_status_confidence"))
@@ -5109,6 +5303,8 @@ def add_resource_url(
 ) -> None:
     normalized = normalize_url(url)
     if not normalized:
+        return
+    if identifier_is_blocked(project, "service_url", normalized) or identifier_is_deferred(project, "service_url", normalized):
         return
     if normalized == normalize_url(str(project.get("website_url") or "")):
         return
@@ -7500,65 +7696,98 @@ def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:
     }
 
 
+def repo_references_service(project: dict[str, Any], repo_url: str, service_url: str) -> bool:
+    normalized_repo = canonical_repo_url(repo_url)
+    normalized_service = normalize_url(service_url)
+    if not normalized_repo or not normalized_service:
+        return False
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = item["relation"]
+        if relation["predicate"] != "source_repository":
+            continue
+        if relation["subject"]["type"] != "repo" or canonical_repo_url(relation["subject"]["value"]) != normalized_repo:
+            continue
+        if relation["object"]["type"] not in {"website", "service"}:
+            continue
+        if is_same_site_family(relation["object"]["value"], normalized_service):
+            return True
+    for record in normalize_source_repo_records(project.get("source_repo_records", [])):
+        if canonical_repo_url(str(record.get("url") or "")) != normalized_repo:
+            continue
+        evidence_url = normalize_url(str(record.get("evidence_url") or ""))
+        if evidence_url and is_same_site_family(evidence_url, normalized_service):
+            return True
+    return False
+
+
+def accepted_repo_schema_relation(project: dict[str, Any], relation: dict[str, Any]) -> bool:
+    if relation.get("predicate") != "defines_schema":
+        return True
+    subject = relation.get("subject") or {}
+    obj = relation.get("object") or {}
+    if subject.get("type") != "repo" or obj.get("type") != "nsid":
+        return True
+    repo_url = canonical_repo_url(str(subject.get("value") or ""))
+    nsid = normalize_nsid(str(obj.get("value") or ""))
+    if not repo_url or not nsid:
+        return False
+    accepted_repos = set(manual_repo_urls(project)) | {
+        canonical_repo_url(str(item or ""))
+        for item in list(project.get("source_code_urls", [])) + [str(project.get("source_code_url") or "")]
+        if canonical_repo_url(str(item or ""))
+    }
+    return repo_url in accepted_repos and project_owned_lexicon_nsid(project, nsid)
+
+
+def normalize_schema_definition_relations(project: dict[str, Any]) -> None:
+    normalized: list[dict[str, Any]] = []
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = dict(item["relation"])
+        if not accepted_repo_schema_relation(project, relation):
+            relation["predicate"] = "mentions_collection"
+            item = {
+                **item,
+                "relation": relation,
+                "classification": "candidate",
+                "context": {
+                    **dict(item.get("context") or {}),
+                    "downgraded_from": "defines_schema",
+                    "downgrade_reason": "repo_and_nsid_not_both_accepted",
+                },
+            }
+        elif (
+            relation.get("predicate") == "defines_schema"
+            and (relation.get("subject") or {}).get("type") == "repo"
+            and (relation.get("object") or {}).get("type") == "nsid"
+        ):
+            item = {**item, "classification": "confirmed"}
+        normalized.append(item)
+    project["relation_evidence"] = relation_core.normalize_relation_records(normalized)
+
+
 def service_probe_supports_project(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
     host = urllib.parse.urlparse(normalize_url(service_url)).netloc.lower()
     if not host or service_probe_looks_parked(result):
         return False
-    status_code = int(result.get("status_code") or 0)
-    if 0 < status_code < 400 and host in verified_lexicon_authority_domains(project):
-        return True
-    text = "\n".join(
-        [
-            str(result.get("title") or ""),
-            str(result.get("description") or ""),
-            str(result.get("html") or "")[:20000],
-        ]
-    ).lower()
-    nsids = {
-        normalize_nsid(value)
-        for value in (
-            list(project.get("input_nsids", []))
-            + list(project.get("resolved_nsids", []))
-            + ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
-        )
-        if normalize_nsid(value)
-    }
-    if any(nsid.lower() in text for nsid in nsids):
-        return True
-
-    authority_domains = {
-        str(domain or "").strip().lower()
-        for domain in project.get("authority_domains", [])
-        if str(domain or "").strip()
-    }
-    mentions_authority = any(domain in text for domain in authority_domains)
-    mentions_atproto = any(marker in text for marker in ATPROTO_EVIDENCE_MARKERS)
-    if mentions_authority and mentions_atproto:
-        return True
-
-    alias_tokens = {
-        token
-        for token in project_alias_tokens(project)
-        if token and len(token) >= 4
-    }
-    if alias_tokens and mentions_atproto:
-        compact_text = re.sub(r"[^a-z0-9]+", "", text)
-        if any(token in compact_text for token in alias_tokens):
-            return True
-
     for link in result.get("links", []):
         if not isinstance(link, dict):
             continue
         url = normalize_url(str(link.get("url") or ""))
         if not url:
             continue
-        if normalize_github_repo_url(url) and repo_url_allowed_for_project(project, url):
+        repo_url = canonical_repo_url(url)
+        confirmed_repos = set(manual_repo_urls(project)) | {
+            canonical_repo_url(str(item or ""))
+            for item in project.get("source_code_urls", [])
+            if canonical_repo_url(str(item or ""))
+        }
+        if (
+            normalize_github_repo_url(url)
+            and repo_url
+            and repo_url in confirmed_repos
+            and repo_references_service(project, repo_url, service_url)
+        ):
             return True
-        if is_bluesky_profile_url(url):
-            handle = extract_bluesky_profile_handle(url)
-            if handle and handle in set(project.get("bluesky_handles", [])):
-                return True
-
     if host in manual_service_hosts(project):
         return True
     return False
@@ -7584,6 +7813,8 @@ def service_probe_supported_redirect_final_url(project: dict[str, Any], requeste
         return ""
     if result.get("redirect_same_host") and result.get("redirect_http_to_https"):
         return ""
+    if result.get("redirect_same_site_family") and service_probe_supports_project(project, requested, result):
+        return final
     if not service_probe_supports_project(project, final, result):
         return ""
     return final
@@ -8414,6 +8645,7 @@ def apply_service_probe_result(
         )
     normalized_service_url = normalize_url(service_url)
     canonical_service_url = service_probe_canonical_url(normalized_service_url, result)
+    represents_service_identity = service_probe_represents_service_identity(canonical_service_url, result)
     if result.get("redirected"):
         add_investigation_log(
             project,
@@ -8428,21 +8660,30 @@ def apply_service_probe_result(
         )
     if supported:
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), canonical_service_url)
-    apply_service_probe_redirect_final_url(project, normalized_service_url, result)
+        if not represents_service_identity:
+            add_resource_url(
+                project,
+                canonical_service_url,
+                role=deep_investigation_page_kind(canonical_service_url),
+                source=f"service_{str(result.get('lane') or 'static')}:{normalized_service_url}",
+                confidence="confirmed",
+            )
+    if represents_service_identity:
+        apply_service_probe_redirect_final_url(project, normalized_service_url, result)
     if 0 < result["status_code"] < 400:
-        if supported:
+        if supported and represents_service_identity:
             project["supported_service_urls"] = add_unique(project.get("supported_service_urls", []), canonical_service_url)
         else:
             project["supported_service_urls"] = [
                 item for item in project.get("supported_service_urls", [])
                 if normalize_url(str(item or "")) != canonical_service_url
             ]
-        if supported and service_url_auto_confirmable(project, canonical_service_url):
+        if supported and represents_service_identity and service_url_auto_confirmable(project, canonical_service_url):
             confirm_service_url(project, canonical_service_url)
-        elif supported:
+        elif supported and represents_service_identity:
             add_candidate_url(project, "service_url", canonical_service_url)
             add_candidate_url(project, "website_url", canonical_service_url)
-        else:
+        elif not supported:
             remove_identifier_from_project(project, "service_url", normalized_service_url)
     elif result["status_code"] >= 400 or result.get("fetch_error"):
         project["supported_service_urls"] = [
@@ -9390,6 +9631,10 @@ def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
                 follow_up_timeout=min(service_probe_timeout_for_project(target, url), REQUEST_TIMEOUT_SHORT),
                 collect_follow_ups=False,
             ),
+            service_url_is_guarded=lambda target, url: (
+                identifier_is_blocked(target, "service_url", url)
+                or identifier_is_deferred(target, "service_url", url)
+            ),
             note_failure=note_failure,
         ),
     )
@@ -9404,6 +9649,7 @@ def collect_service_evidence_with_followups(
 ) -> EvidenceBundle:
     bundle = service_core.collect_service_probe_evidence(
         str(project.get("project_key") or ""), service_url, result, observed_at=iso_now(), lane=lane,
+        supports_project=service_probe_supports_project(project, service_url, result),
     )
     working = copy.deepcopy(project)
     follow_urls = collect_first_party_links(
@@ -9418,6 +9664,7 @@ def collect_service_evidence_with_followups(
             follow_bundle = service_core.collect_service_probe_evidence(
                 str(project.get("project_key") or ""), follow_url, follow_result,
                 observed_at=iso_now(), lane="follow_up",
+                supports_project=service_probe_supports_project(project, follow_url, follow_result),
             )
         except Exception as exc:
             follow_bundle = failed_collector_bundle(
@@ -9438,6 +9685,10 @@ def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle
                 {**result, "html": str(result.get("html_extract") or "")},
                 follow_up_timeout=0,
                 collect_follow_ups=False,
+            ),
+            service_url_is_guarded=lambda target, url: (
+                identifier_is_blocked(target, "service_url", url)
+                or identifier_is_deferred(target, "service_url", url)
             ),
             note_failure=note_failure,
         ),
@@ -11656,6 +11907,9 @@ def restore_project_merge_references(
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
+    purge_supporting_page_service_observations(project)
+    purge_guarded_service_observations(project)
+    purge_guarded_service_relations(project)
     pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
@@ -11722,6 +11976,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
 
     sync_primary_service_urls(project)
     prune_project_urls(project)
+    purge_supporting_page_service_observations(project)
     project["developer_accounts"] = [
         dict(item)
         for item in normalize_developer_accounts(project.get("developer_accounts", []))
@@ -11754,6 +12009,9 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     sync_primary_service_urls(project)
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
+    purge_supporting_page_service_observations(project)
+    purge_guarded_service_observations(project)
+    purge_guarded_service_relations(project)
     if runtime_view.is_complete(project):
         project["recorded_lexicon_namespaces"] = unique_list(
             [normalize_nsid(str(item)) for item in project.get("recorded_lexicon_namespaces", []) if str(item).strip()]
@@ -11777,6 +12035,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         if url not in project.get("source_code_urls", [])
     ]
     sync_source_repo_provider_views(project)
+    normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)
     chosen_name = choose_best_project_name(project)
@@ -11793,6 +12052,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             slug = extract_github_slug(provider_repo_url_values(project, "github")[0])
             if slug:
                 project["name"] = slug.split("/")[-1]
+    normalize_service_identifier_views(project)
     for removed_field in ("website_url_candidates", "github_repo_urls", "tangled_repo_urls", "resource_urls", "introduced"):
         project.pop(removed_field, None)
     return project

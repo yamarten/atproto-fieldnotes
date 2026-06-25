@@ -110,6 +110,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 設計途中の詳細は次の作業用文書へ分離しています。
 
 - ownership / identity: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
+- trust graph based confirm policy: [trust-graph-confirm-policy.md](notes/trust-graph-confirm-policy.md)
 - service verification: [service-verification.md](notes/service-verification.md)
 - replay / fixture corpus: [evidence-replay.md](notes/evidence-replay.md)
 - collector failure policy: [collector-reliability.md](notes/collector-reliability.md)
@@ -172,6 +173,18 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 `technical_interest_level`、owned surface、独自データモデルの有無を加味して、
 紹介スコープ外と技術調査対象を分離します。
 
+### service URL と補助ページの分類
+
+現行の補助ページ判定は、confirmed service URLへの過剰昇格を防ぐための暫定heuristicです。
+path名の名指しだけでは信頼性が低いため、将来的には次の材料を組み合わせて分類します。
+
+- top pageからのリンク関係、anchor text、rel/canonical、redirect/canonical URL
+- page title、meta description、本文のdocs/login/support/statusらしさ
+- service root、app shell、auth entry、docs/support/status pageの役割分離
+- 手動seed、operator decision、過去probe結果との整合
+
+非目標として、pathがあるURLを一律に落とすことや、`/about`などの名前だけで恒久的に分類を確定することは避けます。
+
 ### atproto寄与度の独立評価
 
 現行の level、score、evidence と rule-based v1 は [registry-internals.md](registry-internals.md) を正本とします。
@@ -218,6 +231,16 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - 複数 identifier を動かすため、通常のモバイル review 導線には出さない
 - `audit-url-fields`
   - 原則 read-only report
+- 判定feedback後の既存DB cleanup audit
+  - confirmed service URLに補助ページやdefer/block配下URLが残っていないか確認する
+  - 旧NSID直接言及ruleだけでconfirmedになったservice URLを保存済みprobeから再評価してcandidate/deferへ落とす
+  - repoとNSIDの両方がacceptedではない `defines_schema` relationと、それに連動したowned NSIDを棚卸しする
+  - dry-runで影響projectとidentifier/relation差分を出し、backup後にrepairまたは個別cleanupを実行する
+- trust graph based confirm policy
+  - identifier間の有向trust edgeを定義し、confirmed/manual anchorとの相互trust pathが成立した場合だけauto-confirmする
+  - 片方向link、self-claim、usage/compatibility mentionはcandidate/reviewに留める
+  - cryptographic/atproto recordなど片方向でも強い検証になる根拠は、明示的な例外edgeとして通常link evidenceから分ける
+  - confirmed identifierごとに、成立したtrust pathをdry-run/explainで出せるようにする
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
   - Web UI には出さず CLI で扱う

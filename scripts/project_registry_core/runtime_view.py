@@ -23,6 +23,18 @@ RUNTIME_INTERNAL_FIELDS = {
 }
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 
+
+def _unique(values: Iterable[str]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
+
+
 IDENTIFIER_FIELDS = {
     "primary_nsid",
     "input_nsids",
@@ -542,6 +554,14 @@ def hydrate(
             elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
         elif kind == "did" and role == "brand_did" and classification == "confirmed":
             project["brand_did"] = value
+
+    project["service_urls"] = _unique([str(item) for item in project["service_urls"] if str(item)])
+    confirmed_service_urls = set(project["service_urls"])
+    project["service_url_candidates"] = _unique([
+        str(item)
+        for item in project["service_url_candidates"]
+        if str(item) and str(item) not in confirmed_service_urls
+    ])
 
     project["relation_evidence"] = [{
         "relation": {

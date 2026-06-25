@@ -97,7 +97,7 @@ schema v2移行後のWeb UIを、今のうちに壊して直せる前提で広�
   - `source_repository` candidateからrepo identifier confirm
   - `official_account` candidateからaccount confirm
   - `redirects_to`からURL alias confirm
-  - `defines_schema`からNSID ownership確認
+  - `defines_schema`を表示する時は、repo と NSID の両方が accepted であることを併記
 - Collector failure panel
   - source、operation、target、category、retryableを一覧
   - timeout/rate limit/partial/no evidenceを区別
@@ -151,7 +151,7 @@ schema v2移行後のWeb UIを、今のうちに壊して直せる前提で広�
   - login/signup/app shell/runtime errorの到達段階
   - status値そのものと根拠surfaceを分けて表示
 - NSID ownership review
-  - manual seed、official account、PDS schema record、confirmed repo defines_schema、authority pathを並べる
+  - manual seed、official account、PDS schema record、accepted repo/NSID defines_schema、authority pathを並べる
   - `uses_collection`だけではownershipにしない理由を見える化
 - OAuth permission viewer
   - client metadataから`requests_permission`を表示

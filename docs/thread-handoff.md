@@ -8,24 +8,26 @@
 
 - 日常運用安定化の8項目は実装済みです。
 - 通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。
-  - migration report: `data/migrate-log.json`
-  - v1 backup: `data/survey.db.v1-backup-20260618-151007`
-  - migration時のproject 2575件、identifier 16554件、decision 116件、relation 0件
-  - integrity、hard acceptance condition、normalized roundtripは合格
-- 2026-06-21に通常DBをread-onlyで再監査済みです。
-  - integrity `ok`、foreign key違反0件
-  - v1由来identifier 14950件は全件`v1-quarantine-1`
-  - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
 - Web server reloadのpackage entrypoint修正まで`master`へ反映済みです。
+- 判定feedback対応は実装・DB適用とも進行済みです。現在の確認済み範囲は[status.md](status.md)、trust graph方針は[trust-graph-confirm-policy.md](notes/trust-graph-confirm-policy.md)、将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
 
-直近のDB課題はtrust/data policy markerだけです。これは再移行ではありません。
+この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 新規v1 migrationはacceptance check完了後にDB-level markerを書く
-- markerなし既存v2はread-only audit合格時だけmarkerをadditiveに後付けする
-- 現行通常DBは後付け条件を確認済みで、project/identifier/investigationを書き換えない
-- marker実装前でも通常運用データの意味はrow-level`v1-quarantine-1` metadataで確認できる
+- 旧NSID直接言及ruleだけでconfirmedになったservice URLを保存済みprobeから再評価し、dry-run reportを出す。
+- `proj:29a36771674f`など、複数project collisionの個別split/merge判断を行う。
+- 新規v1 migrationはacceptance check完了後にDB-level markerを書く。markerなし既存v2への後付けはread-only audit合格時だけadditiveに行う。
+
+## DB 操作メモ
+
+次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認してください。
+
+直近のbackup:
+
+- `data/survey.db.backup-20260625-judgement-feedback`
+- `data/survey.db.backup-20260625-one-way-service-trust`
+- `data/survey.db.backup-20260625-defines-schema-policy`
 
 この作業を理由に専用worktreeを維持する必要はありません。次スレッドはmain worktreeから開始して構いません。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、backupまたは複製を用意して実行してください。
 

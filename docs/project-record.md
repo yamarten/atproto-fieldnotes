@@ -164,9 +164,9 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 
 主要predicate:
 
-- `defines_schema`: repoやaccountがschemaを定義する
+- `defines_schema`: accepted repoやaccountがaccepted schemaを定義する
 - `uses_collection`: read/write/queryなどでcollectionを利用する
-- `mentions_collection`: docs、example、testなどで言及するだけ
+- `mentions_collection`: docs、example、test、unaccepted schema fileなどで言及するだけ
 - `official_account`: siteやrepoがaccountを公式として示す
 - `operates_service`: identityがserviceを運営する
 - `source_repository`: app/siteとrepoがsource関係にある

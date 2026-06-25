@@ -3,4 +3,7 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+  exec "$ROOT_DIR/.venv/bin/python" -m project_registry_web "$@"
+fi
 exec python3 -m project_registry_web "$@"

@@ -42,6 +42,7 @@ class GitHubRepoIntegrationDependencies:
 @dataclass(frozen=True)
 class ServiceIntegrationDependencies:
     apply_probe: Callable[[dict[str, Any], str, dict[str, Any]], None]
+    service_url_is_guarded: Callable[[dict[str, Any], str], bool]
     note_failure: Callable[[dict[str, Any], str], None]
 
 
@@ -150,9 +151,20 @@ def apply_service_evidence(
 ) -> None:
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
+            relation = dict(record.value)
+            if (
+                relation.get("predicate") == "operates_service"
+                and relation.get("object", {}).get("type") == "service"
+                and (
+                    str(record.source).startswith("service_follow_up:")
+                    or relation.get("method") == "follow_up_probe"
+                    or dependencies.service_url_is_guarded(project, str(relation.get("object", {}).get("value") or ""))
+                )
+            ):
+                continue
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
-                + [{"relation": dict(record.value), "source": record.source,
+                + [{"relation": relation, "source": record.source,
                     "classification": record.classification, "observed_at": record.observed_at,
                     "context": dict(record.context)}]
             )
@@ -187,10 +199,13 @@ def apply_investigation_evidence(
 
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
+            relation = dict(record.value)
+            if relation.get("predicate") == "operates_service" and str(record.source).startswith("service_"):
+                continue
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
                 + [{
-                    "relation": dict(record.value),
+                    "relation": relation,
                     "source": record.source,
                     "classification": record.classification,
                     "observed_at": record.observed_at,
@@ -259,25 +274,16 @@ def apply_github_repo_evidence(
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
             classification = record.classification
-            subject = dict(record.value.get("subject") or {})
-            registered_repos = {
-                str(item).rstrip("/") for item in project.get("source_code_urls", []) if str(item)
-            }
-            registered_repos.update(
-                str(item.get("value") or "").rstrip("/")
-                for item in project.get("manual_seeds", [])
-                if isinstance(item, dict) and item.get("type") == "repo_url"
+            relation = dict(record.value)
+            relation, classification = _normalize_github_repo_schema_relation(
+                project,
+                relation,
+                classification,
+                dependencies,
             )
-            if (
-                classification == "candidate"
-                and record.value.get("predicate") == "defines_schema"
-                and subject.get("type") == "repo"
-                and str(subject.get("value") or "").rstrip("/") in registered_repos
-            ):
-                classification = "confirmed"
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
-                + [{"relation": dict(record.value), "source": record.source,
+                + [{"relation": relation, "source": record.source,
                     "classification": classification, "observed_at": record.observed_at,
                     "context": dict(record.context)}]
             )
@@ -417,3 +423,48 @@ def _add_unique(values: list[str], value: str) -> list[str]:
     if value and value not in values:
         values.append(value)
     return values
+
+
+def _accepted_github_repo_urls(
+    project: dict[str, Any],
+    normalize_github_repo_url: Callable[[str], str | None],
+) -> set[str]:
+    urls: set[str] = set()
+    for value in (
+        [str(project.get("source_code_url") or ""), str(project.get("seed_value") or "")]
+        + [str(item or "") for item in project.get("source_code_urls", [])]
+    ):
+        normalized = normalize_github_repo_url(value)
+        if normalized:
+            urls.add(normalized)
+    for seed in project.get("manual_seeds", []):
+        if not isinstance(seed, dict) or str(seed.get("type") or "") != "repo_url":
+            continue
+        normalized = normalize_github_repo_url(str(seed.get("value") or ""))
+        if normalized:
+            urls.add(normalized)
+    return urls
+
+
+def _normalize_github_repo_schema_relation(
+    project: dict[str, Any],
+    relation: dict[str, Any],
+    classification: str,
+    dependencies: GitHubRepoIntegrationDependencies,
+) -> tuple[dict[str, Any], str]:
+    if relation.get("predicate") != "defines_schema":
+        return relation, classification
+    subject = relation.get("subject") or {}
+    obj = relation.get("object") or {}
+    if subject.get("type") != "repo" or obj.get("type") != "nsid":
+        return relation, classification
+    repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+    nsid = str(obj.get("value") or "").strip()
+    repo_accepted = bool(repo_url and repo_url in _accepted_github_repo_urls(project, dependencies.normalize_github_repo_url))
+    nsid_accepted = bool(nsid and dependencies.project_owned_lexicon_nsid(project, nsid))
+    if repo_accepted and nsid_accepted:
+        return relation, "confirmed"
+
+    downgraded = dict(relation)
+    downgraded["predicate"] = "mentions_collection"
+    return downgraded, "candidate"

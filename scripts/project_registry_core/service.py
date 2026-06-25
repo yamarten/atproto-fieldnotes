@@ -9,9 +9,32 @@ from typing import Any, Callable
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 
+SUPPORTING_PAGE_PATHS = {
+    "about",
+    "blog",
+    "docs",
+    "documentation",
+    "faq",
+    "help",
+    "login",
+    "register",
+    "sign-in",
+    "signin",
+    "sign-up",
+    "signup",
+}
+
 
 def bounded_text(value: str, limit: int = 20000) -> str:
     return str(value or "")[:limit]
+
+
+def service_probe_represents_service_identity(requested_url: str, lane: str) -> bool:
+    if str(lane or "") == "follow_up":
+        return False
+    parsed = urllib.parse.urlparse(requested_url)
+    first_path = parsed.path.strip("/").split("/", 1)[0].lower()
+    return not first_path or first_path not in SUPPORTING_PAGE_PATHS
 
 
 def collect_service_probe_evidence(
@@ -21,6 +44,7 @@ def collect_service_probe_evidence(
     *,
     observed_at: str,
     lane: str = "static",
+    supports_project: bool = False,
 ) -> EvidenceBundle:
     html = str(result.get("html") or "")
     value = {
@@ -46,7 +70,12 @@ def collect_service_probe_evidence(
         observed_at=observed_at,
         value=value,
     ))
-    if int(result.get("status_code") or 0) and int(result.get("status_code") or 0) < 400:
+    if (
+        int(result.get("status_code") or 0)
+        and int(result.get("status_code") or 0) < 400
+        and supports_project
+        and service_probe_represents_service_identity(requested_url, lane)
+    ):
         bundle.add_record(relation_record(
             source=f"service_{lane}:{requested_url}", classification="confirmed", observed_at=observed_at,
             subject_type="project", subject_value=project_key, predicate="operates_service",

@@ -668,7 +668,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertNotIn("https://other.example.net", project["service_urls"])
         self.assertNotIn("https://other.example.net", project["service_url_candidates"])
 
-    def test_supported_cross_host_redirect_adds_final_url_as_candidate(self) -> None:
+    def test_nsid_mention_cross_host_redirect_does_not_add_final_url_as_candidate(self) -> None:
         project = registry.default_project_record("proj:redirectcandidate", "service_url", "https://example.com")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
@@ -696,8 +696,8 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         registry.apply_service_probe_result(project, "https://example.com", result)
 
         self.assertNotIn("https://other.example.net", project["service_urls"])
-        self.assertIn("https://other.example.net", project["service_url_candidates"])
-        self.assertIn("https://other.example.net", project["evidence_urls"])
+        self.assertNotIn("https://other.example.net", project["service_url_candidates"])
+        self.assertNotIn("https://other.example.net", project["evidence_urls"])
 
     def test_supported_same_site_redirect_sets_empty_primary_website_url(self) -> None:
         project = registry.default_project_record("proj:redirectsamefamily", "service_url", "https://example.com")
@@ -785,7 +785,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
             "fetch_error": "",
         }
 
-    def test_supported_authority_root_survives_unverified_guess_prune(self) -> None:
+    def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["primary_nsid"] = "xyz.tz2at.raw.observation"
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
@@ -799,10 +799,10 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         project = registry.finalize_project_shape(project)
 
         retained_urls = set(project["service_urls"]) | set(project["service_url_candidates"])
-        self.assertIn("https://tz2at.xyz", project["supported_service_urls"])
-        self.assertIn("https://tz2at.xyz", retained_urls)
+        self.assertNotIn("https://tz2at.xyz", project["supported_service_urls"])
+        self.assertNotIn("https://tz2at.xyz", retained_urls)
 
-    def test_verified_exact_authority_supports_spa_without_atproto_text(self) -> None:
+    def test_verified_exact_authority_does_not_confirm_service_without_reverse_evidence(self) -> None:
         project = registry.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
         project["primary_nsid"] = "app.userinput.vote"
         project["input_nsids"] = ["app.userinput.vote"]
@@ -828,10 +828,10 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         registry.apply_service_probe_result(project, "https://userinput.app", result)
         project = registry.finalize_project_shape(project)
 
-        self.assertEqual(project["website_url"], "https://userinput.app")
-        self.assertIn("https://userinput.app", project["supported_service_urls"])
-        self.assertEqual(project["service_status"], "live")
-        self.assertIn("verified_authority_service_surface", project["service_status_evidence"])
+        self.assertEqual(project["website_url"], "")
+        self.assertNotIn("https://userinput.app", project["supported_service_urls"])
+        self.assertNotIn("https://userinput.app", project["service_urls"])
+        self.assertEqual(project["service_status"], "unknown")
 
     def test_unverified_exact_authority_still_requires_page_evidence(self) -> None:
         project = registry.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
@@ -1074,6 +1074,240 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.com/docs"]["role"], "docs")
         self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
 
+    def test_deferred_service_origin_blocks_supporting_page_resource(self) -> None:
+        project = registry.default_project_record("proj:deferredresource", "service_url", "https://example.com")
+        registry.defer_identifier_on_project(project, "service_url", "https://example.com", note="not this project")
+
+        registry.add_resource_url(
+            project,
+            "https://example.com/docs",
+            role="docs",
+            source="service_page:https://example.com",
+            confidence="confirmed",
+        )
+
+        self.assertTrue(registry.identifier_is_deferred(project, "service_url", "https://example.com/docs"))
+        self.assertEqual(project["resource_url_records"], [])
+
+    def test_follow_up_service_probe_records_resource_not_service_url(self) -> None:
+        project = registry.default_project_record("proj:followupresource", "service_url", "https://example.com")
+        project["manual_seeds"] = [{"type": "service_url", "value": "https://example.com"}]
+        project["website_url"] = "https://example.com"
+        project["service_urls"] = ["https://example.com"]
+
+        registry.apply_service_probe_result(
+            project,
+            "https://example.com/docs",
+            {
+                "lane": "follow_up",
+                "status_code": 200,
+                "final_url": "https://example.com/docs",
+                "title": "Docs",
+                "description": "Docs for Example",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["docs_only_surface_detected"],
+                "redirected": False,
+                "urls": [],
+                "links": [],
+            },
+        )
+
+        self.assertEqual(project["service_urls"], ["https://example.com"])
+        self.assertEqual(registry.resource_url_values(project), ["https://example.com/docs"])
+
+    def test_future_service_identity_excludes_named_noncanonical_pages(self) -> None:
+        self.assertTrue(registry.service_url_is_supporting_page("https://example.com/docs/intro"))
+        self.assertTrue(registry.service_url_is_supporting_page("https://example.com/about"))
+        self.assertTrue(registry.service_url_is_supporting_page("https://example.com/login"))
+        self.assertTrue(registry.service_url_is_supporting_page("https://example.com/signup"))
+        self.assertTrue(registry.service_url_is_supporting_page("https://example.com/register"))
+        self.assertFalse(registry.service_url_is_supporting_page("https://example.com/app"))
+        self.assertFalse(registry.service_url_is_supporting_page("https://example.com/app/login"))
+
+    def test_finalize_moves_supporting_service_paths_to_resource_records(self) -> None:
+        project = registry.default_project_record("proj:supportingpagecleanup", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com/docs"
+        project["service_urls"] = ["https://example.com", "https://example.com/docs", "https://example.com/about"]
+        project["supported_service_urls"] = ["https://example.com/docs"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "project", "value": "proj:supportingpagecleanup"},
+                    "predicate": "operates_service",
+                    "object": {"type": "service", "value": "https://example.com/docs"},
+                    "locator": "https://example.com/docs",
+                    "method": "static_probe",
+                },
+                "source": "service_static:https://example.com/docs",
+                "classification": "confirmed",
+            }
+        ]
+
+        finalized = registry.finalize_project_shape(project)
+
+        self.assertEqual(finalized["website_url"], "https://example.com")
+        self.assertEqual(finalized["service_urls"], ["https://example.com"])
+        self.assertEqual(finalized["supported_service_urls"], [])
+        self.assertEqual(finalized["relation_evidence"], [])
+        resource_urls = registry.resource_url_values(finalized)
+        self.assertIn("https://example.com/docs", resource_urls)
+        self.assertIn("https://example.com/about", resource_urls)
+
+    def test_candidate_repo_link_does_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:candidatereposervice", "service_url", "https://kimbia.app")
+        project["name"] = "Kimbia"
+        project["manual_seeds"] = [{"type": "service_url", "value": "https://kimbia.app"}]
+        project["candidate_source_code_urls"] = ["https://github.com/mistweaverco/kimbia"]
+        result = {
+            "status_code": 200,
+            "title": "Kimbia",
+            "description": "A minimal task runner.",
+            "html": "A minimal task runner.",
+            "links": [{"url": "https://github.com/mistweaverco/kimbia", "text": "Source"}],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://kimbia.mwco.app", result))
+
+    def test_confirmed_repo_link_supports_service_probe(self) -> None:
+        project = registry.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "source_repository",
+                    "object": {"type": "website", "value": "https://app.example.com"},
+                    "locator": "README",
+                    "method": "github_homepage",
+                },
+                "source": "github_repo_metadata:https://github.com/example/app",
+                "classification": "candidate",
+            }
+        ]
+        result = {
+            "status_code": 200,
+            "title": "Example App",
+            "description": "Project homepage.",
+            "html": "Project homepage.",
+            "links": [{"url": "https://github.com/example/app", "text": "Source"}],
+        }
+
+        self.assertTrue(registry.service_probe_supports_project(project, "https://app.example.com", result))
+
+    def test_confirmed_repo_link_without_repo_to_service_reference_does_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:repoonlyservice", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        result = {
+            "status_code": 200,
+            "title": "Example App",
+            "description": "Project homepage.",
+            "html": "Project homepage.",
+            "links": [{"url": "https://github.com/example/app", "text": "Source"}],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
+
+    def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")
+        project["primary_nsid"] = "com.whtwnd.blog.entry"
+        project["input_nsids"] = ["com.whtwnd.blog.entry"]
+        result = {
+            "status_code": 200,
+            "title": "GreenGale",
+            "description": "WhiteWind-compatible editor.",
+            "html": "GreenGale supports com.whtwnd.blog.entry records.",
+            "links": [],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://greengale.example.com", result))
+
+    def test_verified_authority_domain_alone_does_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:authorityonlyservice", "repo_url", "https://github.com/example/app")
+        project["lexicon_resolution_entries"] = [
+            {
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:example",
+                "authority_domain": "example.com",
+                "record_uri": "at://did:plc:example/com.atproto.lexicon.schema/app.example.post",
+            }
+        ]
+        project["authority_domains"] = ["example.com"]
+        result = {
+            "status_code": 200,
+            "title": "Example",
+            "description": "A live website.",
+            "html": "A live website.",
+            "links": [],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
+
+    def test_bluesky_profile_link_alone_does_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:profilelinkservice", "repo_url", "https://github.com/example/app")
+        project["bluesky_handles"] = ["example.com"]
+        result = {
+            "status_code": 200,
+            "title": "Example",
+            "description": "A live website.",
+            "html": "A live website.",
+            "links": [{"url": "https://bsky.app/profile/example.com", "text": "Bluesky"}],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
+
+    def test_self_claimed_atproto_markers_do_not_support_service_probe(self) -> None:
+        project = registry.default_project_record("proj:selfclaimservice", "repo_url", "https://github.com/example/app")
+        project["name"] = "Example"
+        project["authority_domains"] = ["example.com"]
+        result = {
+            "status_code": 200,
+            "title": "Example",
+            "description": "Example is an atproto service for example.com.",
+            "html": "Example is an atproto service for example.com.",
+            "links": [],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
+
+    def test_finalize_removes_deferred_service_operates_relation(self) -> None:
+        project = registry.default_project_record("proj:guardedrelation", "service_url", "https://example.com")
+        registry.defer_identifier_on_project(project, "service_url", "https://other.example.com")
+        project["service_urls"] = ["https://other.example.com"]
+        project["supported_service_urls"] = ["https://other.example.com/docs"]
+        project["resource_url_records"] = [
+            {
+                "url": "https://other.example.com/docs",
+                "role": "docs",
+                "source": "service_follow_up:https://other.example.com/docs",
+                "observed_at": "2026-06-25T00:00:00+00:00",
+                "confidence": "confirmed",
+            }
+        ]
+        project["evidence_urls"] = ["https://other.example.com/docs"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "project", "value": "proj:guardedrelation"},
+                    "predicate": "operates_service",
+                    "object": {"type": "service", "value": "https://other.example.com/docs"},
+                    "locator": "https://other.example.com/docs",
+                    "method": "follow_up_probe",
+                },
+                "source": "service_follow_up:https://other.example.com/docs",
+                "classification": "confirmed",
+            }
+        ]
+
+        finalized = registry.finalize_project_shape(project)
+
+        self.assertEqual(finalized["relation_evidence"], [])
+        self.assertNotIn("https://other.example.com", finalized["service_urls"])
+        self.assertEqual(finalized["supported_service_urls"], [])
+        self.assertEqual(finalized["resource_url_records"], [])
+        self.assertNotIn("https://other.example.com/docs", finalized["evidence_urls"])
+
 
 class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def nsid_project(self) -> dict:
@@ -1130,6 +1364,60 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(project["lexicon_scope"], "unknown")
         self.assertEqual(project["category"], "lexicon")
         self.assertIn("shared_lexicon_positioning_not_found", project["lexicon_scope_evidence"])
+
+    def test_finalize_downgrades_unaccepted_repo_defines_schema_relation(self) -> None:
+        project = registry.default_project_record("proj:repoonlyschema", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "defines_schema",
+                    "object": {"type": "nsid", "value": "org.other.post"},
+                    "locator": "lexicons/org/other/post.json",
+                    "method": "lexicon_json",
+                },
+                "source": "github_repo:https://github.com/example/app",
+                "classification": "confirmed",
+                "observed_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+
+        finalized = registry.finalize_project_shape(project)
+
+        relation_record = finalized["relation_evidence"][0]
+        self.assertEqual(relation_record["relation"]["predicate"], "mentions_collection")
+        self.assertEqual(relation_record["classification"], "candidate")
+        self.assertEqual(relation_record["context"]["downgraded_from"], "defines_schema")
+
+    def test_finalize_keeps_defines_schema_for_accepted_repo_and_nsid(self) -> None:
+        project = registry.default_project_record("proj:acceptedschema", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["manual_seeds"] = [
+            {"type": "repo_url", "value": "https://github.com/example/app"},
+            {"type": "nsid", "value": "app.example.post"},
+        ]
+        project["input_nsids"] = ["app.example.post"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "defines_schema",
+                    "object": {"type": "nsid", "value": "app.example.post"},
+                    "locator": "lexicons/app/example/post.json",
+                    "method": "lexicon_json",
+                },
+                "source": "github_repo:https://github.com/example/app",
+                "classification": "candidate",
+                "observed_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+
+        finalized = registry.finalize_project_shape(project)
+
+        relation_record = finalized["relation_evidence"][0]
+        self.assertEqual(relation_record["relation"]["predicate"], "defines_schema")
+        self.assertEqual(relation_record["classification"], "confirmed")
 
     def test_llm_evidence_exposes_lexicon_scope(self) -> None:
         project = self.nsid_project()

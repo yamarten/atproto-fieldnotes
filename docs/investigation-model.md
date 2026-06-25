@@ -101,13 +101,14 @@ record を対応づける履歴です。
 
 ## Relation と ownership
 
-- `defines_schema` は ownership の強い候補になる
-- repositoryにlexicon JSONらしいファイルが存在するだけでは`candidate`とし、first-party repo、ownership、独立sourceのcorroborationをintegration/evaluationで加味する
+- `defines_schema` は accepted repo と accepted NSID の間だけに保存する schema definition relation
+- repositoryにlexicon JSONらしいファイルが存在するだけの場合は、`defines_schema` ではなく弱い `mentions_collection` として扱う
 - `uses_collection` と OAuth の `repo:` permission は利用関係であり ownership を確定しない
 - `mentions_collection` は docs、example、test、fixture、vendor、generated などの弱い言及
 - confirmed repo と first-party app が独立 source から相互リンクした場合、`source_repository` を昇格できる
-- NSID ownership は manual seed、公式 account の PDS schema record、confirmed repo の
-  `defines_schema`、authority までの identity path を優先する
+- NSID ownership は manual seed、公式 account の PDS schema record、authority までの identity path を優先する
+- manual repo seedはsource repositoryの根拠であり、そのrepo内にある全NSIDのownership根拠ではない
+- service到達確認は`service_verification`として保存するが、`operates_service` relationはproject support判定後にだけ保存する
 - defer / block された identifier は relation corroboration より優先して抑止する
 
 ## Replay と benchmark

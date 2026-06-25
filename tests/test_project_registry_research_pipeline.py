@@ -112,6 +112,14 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(snapshot["readme_urls"], ["https://app.example.com"])
         self.assertEqual(snapshot["lexicon_hints"][0]["nsid"], "app.example.post")
 
+    def test_extract_urls_trims_markdown_image_link_boundaries(self) -> None:
+        text = "[![Crate](https://img.shields.io/crates/v/app.svg)](https://crates.io/crates/app)"
+
+        self.assertEqual(
+            registry.extract_urls(text),
+            ["https://img.shields.io/crates/v/app.svg", "https://crates.io/crates/app"],
+        )
+
     def test_evidence_fixture_roundtrip_preserves_ordered_records(self) -> None:
         fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "evidence-v2-synthetic-reference.json"
         bundle = EvidenceBundle.load(fixture_path)
@@ -396,6 +404,68 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             registry.apply_service_evidence(project, bundle)
         self.assertEqual(len(project["service_verification_results"]), 1)
 
+    def test_follow_up_service_evidence_does_not_emit_operates_service_relation(self) -> None:
+        bundle = service_core.collect_service_probe_evidence(
+            "proj:service-followup",
+            "https://example.com/docs",
+            {"status_code": 200, "title": "Docs", "description": "Docs", "links": [], "urls": []},
+            observed_at="2026-06-13T00:00:00+00:00",
+            lane="follow_up",
+        )
+
+        self.assertFalse(
+            any(
+                record.kind == "relation"
+                and isinstance(record.value, dict)
+                and record.value.get("predicate") == "operates_service"
+                for record in bundle.records
+            )
+        )
+
+    def test_service_probe_evidence_requires_project_support_for_operates_service_relation(self) -> None:
+        unsupported = service_core.collect_service_probe_evidence(
+            "proj:service-static",
+            "https://example.net",
+            {"status_code": 200, "title": "Other", "description": "Other", "links": [], "urls": []},
+            observed_at="2026-06-13T00:00:00+00:00",
+        )
+        supported = service_core.collect_service_probe_evidence(
+            "proj:service-static",
+            "https://example.com",
+            {"status_code": 200, "title": "Example", "description": "Example", "links": [], "urls": []},
+            observed_at="2026-06-13T00:00:00+00:00",
+            supports_project=True,
+        )
+
+        self.assertFalse(any(record.kind == "relation" for record in unsupported.records))
+        self.assertTrue(any(
+            record.kind == "relation"
+            and isinstance(record.value, dict)
+            and record.value.get("predicate") == "operates_service"
+            for record in supported.records
+        ))
+
+    def test_service_integration_ignores_guarded_operates_service_relation(self) -> None:
+        project = self.make_project("proj:guarded-service", "service_url", "https://example.com")
+        registry.defer_identifier_on_project(project, "service_url", "https://other.example.com")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="service_static:https://other.example.com",
+            classification="confirmed",
+            observed_at=bundle.collected_at,
+            subject_type="project",
+            subject_value=project["project_key"],
+            predicate="operates_service",
+            object_type="service",
+            object_value="https://other.example.com",
+            locator="https://other.example.com",
+            method="static_probe",
+        ))
+
+        registry.apply_service_evidence(project, bundle)
+
+        self.assertEqual(project.get("relation_evidence", []), [])
+
     def test_oauth_repo_scope_is_usage_evidence_not_ownership(self) -> None:
         records = relation_core.oauth_metadata_relation_records(
             "https://example.com/client-metadata.json",
@@ -413,6 +483,76 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         schema = {"lexicon": 1, "defs": {"main": {"type": "record"}}}
         self.assertEqual(relation_core.classify_lexicon_path("lexicons/app.example.post.json", schema), ("defines_schema", "candidate"))
         self.assertEqual(relation_core.classify_lexicon_path("tests/fixtures/app.example.post.json", schema), ("mentions_collection", "candidate"))
+
+    def test_repo_schema_relation_without_accepted_nsid_does_not_prove_nsid_ownership(self) -> None:
+        project = self.make_project("proj:repodefines", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "defines_schema",
+                    "object": {"type": "nsid", "value": "org.other.post"},
+                    "locator": "lexicons/org/other/post.json",
+                    "method": "lexicon_json",
+                },
+                "source": "github_repo:https://github.com/example/app",
+                "classification": "confirmed",
+            }
+        ]
+
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "org.other.post"))
+
+    def test_github_integration_downgrades_unowned_repo_lexicon_relation(self) -> None:
+        project = self.make_project("proj:reporelation", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["manual_seeds"] = [{"type": "repo_url", "value": "https://github.com/example/app"}]
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="github_repo:https://github.com/example/app",
+            classification="candidate",
+            observed_at=bundle.collected_at,
+            subject_type="repo",
+            subject_value="https://github.com/example/app",
+            predicate="defines_schema",
+            object_type="nsid",
+            object_value="org.other.post",
+            locator="lexicons/org/other/post.json",
+            method="lexicon_json",
+        ))
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        relation = project["relation_evidence"][0]["relation"]
+        self.assertEqual(relation["predicate"], "mentions_collection")
+        self.assertEqual(project["relation_evidence"][0]["classification"], "candidate")
+
+    def test_github_integration_accepts_repo_schema_relation_for_owned_nsid(self) -> None:
+        project = self.make_project("proj:acceptedrepodefine", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["manual_seeds"] = [
+            {"type": "repo_url", "value": "https://github.com/example/app"},
+            {"type": "nsid", "value": "app.example.post"},
+        ]
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="github_repo:https://github.com/example/app",
+            classification="candidate",
+            observed_at=bundle.collected_at,
+            subject_type="repo",
+            subject_value="https://github.com/example/app",
+            predicate="defines_schema",
+            object_type="nsid",
+            object_value="app.example.post",
+            locator="lexicons/app/example/post.json",
+            method="lexicon_json",
+        ))
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        relation = project["relation_evidence"][0]["relation"]
+        self.assertEqual(relation["predicate"], "defines_schema")
+        self.assertEqual(project["relation_evidence"][0]["classification"], "confirmed")
 
     def test_relation_dedupe_keeps_strongest_latest_record(self) -> None:
         base = {

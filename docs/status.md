@@ -108,11 +108,23 @@
   - integrity `ok`、foreign key違反0件
   - v1由来identifier 14950件は全件`v1-quarantine-1`
   - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
+- 2026-06-25の判定feedback対応
+  - service follow-up/deep page URL、service URL guard、service support relation、repo/NSIDからauthority domainへの片方向根拠、repo内lexicon ownership、README URL抽出のtargeted unit test
+  - 補助ページservice URLの既存DB cleanupを`repair-db --execute`で適用済み
+  - 適用前backup: `data/survey.db.backup-20260625-judgement-feedback`
+  - `proj:bbd470871ccc`の`https://leaflet.pub`は片方向根拠だけでconfirmed service URLになっていたため、`defer-identifier`でdefer済み
+  - 追加backup: `data/survey.db.backup-20260625-one-way-service-trust`
+  - `defines_schema`はaccepted repoとaccepted NSIDが揃う場合だけ保存し、repo内lexicon JSONだけの既存relation 444件を`mentions_collection`へdowngrade済み
+  - 追加backup: `data/survey.db.backup-20260625-defines-schema-policy`
+  - service pageのNSID直接言及だけではconfirmed service URLへ昇格しない
+  - `.venv/bin/python`で全unit test 245件
 
 未検証:
 
 - Web workerから実外部sync sourceへ接続するend-to-end実行
 - 長時間運用時の実API retry/cache/budget値
+- `proj:29a36771674f`など、複数projectを跨いで残るidentifier collisionの個別分離・merge判断
+- 既存DBのconfirmed service URLのうち、旧NSID直接言及ruleだけで成立していたものの網羅的downgrade audit
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。
