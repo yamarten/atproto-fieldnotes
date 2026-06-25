@@ -14,6 +14,17 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_open_db_uses_busy_timeout_and_wal(self) -> None:
+        conn = registry.open_db()
+        try:
+            busy_timeout_ms = int(conn.execute("PRAGMA busy_timeout").fetchone()[0])
+            journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+        finally:
+            conn.close()
+
+        self.assertGreaterEqual(busy_timeout_ms, 30000)
+        self.assertEqual(journal_mode, "wal")
+
     def test_explain_parser_accepts_topic_and_format(self) -> None:
         args = cli.build_parser().parse_args([
             "explain", "--project-key", "proj:abc", "--topic", "ownership", "--format", "json"

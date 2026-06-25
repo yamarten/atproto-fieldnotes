@@ -15,6 +15,8 @@ from . import runtime_view
 SCHEMA_VERSION = 2
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 V1_TRUST_POLICY = "v1-quarantine-1"
+SQLITE_BUSY_TIMEOUT_SECONDS = 30.0
+SQLITE_BUSY_TIMEOUT_MS = int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
 
 
 class SchemaMismatchError(RuntimeError):
@@ -47,6 +49,16 @@ def database_schema_version(conn: sqlite3.Connection) -> int | None:
         return None
     value = conn.execute("SELECT value FROM registry_meta WHERE key = 'schema_version'").fetchone()
     return int(value[0]) if value else None
+
+
+def configure_connection(conn: sqlite3.Connection) -> None:
+    conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def enable_wal_mode(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
@@ -214,8 +226,9 @@ def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
     path = Path(path)
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
+    configure_connection(conn)
     version = database_schema_version(conn)
     has_projects = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projects'"
@@ -226,6 +239,7 @@ def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
     if version not in {None, SCHEMA_VERSION}:
         conn.close()
         raise SchemaMismatchError(f"unsupported registry schema version {version}: {path}")
+    enable_wal_mode(conn)
     create_schema(conn)
     return conn
 

@@ -14,6 +14,8 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
 
+SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
+
 旧schemaは通常起動で自動変換せず、`project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
 
 v1 migrationは`v1-quarantine-1` trust policyを適用します。旧confirmed fieldはそのままv2 confirmedへ写さず、operator confirmationまたは現行ruleで再現できる根拠がないclaimをcandidate rowへ降格します。降格したrowは`metadata_json`に`migration_source=schema_v1`、`legacy_field`、`legacy_classification`、`trust_policy`、`downgrade_reason`を持ちます。active block対象は移行せず、active defer対象はcandidateとして残します。untrustedなprimary website/repo/NSIDは`projects.website_url`、`source_code_url`、`primary_nsid`へhydrateしません。
