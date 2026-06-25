@@ -191,7 +191,7 @@ OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのserv
 - `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
 - `Settings`: queue limit、merge mode、token、接続DB、Python version、Git checkoutのcommit確認
 
-project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。同じ値にconfirmed/candidateなど複数行がある場合もroleとclassificationの組を分けて表示します。candidate confirmは該当行から開始できますが、confirm/block/defer/splitのdecision identityは保存契約上`kind + value`であり、同じ値のrole単位ではありません。block/defer/splitは画面でも作用範囲を明示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
+project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。同じ値にconfirmed/candidateなど複数行がある場合もroleとclassificationの組を分けて表示します。`website` roleは独立identifierとして強調せず、同じservice URL groupのprimary markerとして表示します。DID/handle/accountは同じaccount metadataを持つ場合は1つのidentity groupに畳みます。candidate confirmは該当行から開始できますが、confirm/block/defer/splitのdecision identityは保存契約上`kind + value`であり、同じ値のrole単位ではありません。block/defer/splitは画面でも作用範囲を明示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
 
 merge candidateからは候補projectの通常detailまたはmerge reviewへ移動できます。merge reviewはsource/targetのprofile、状態、seed、confirmed/candidate identifier、pair判定signalとmerged result previewを並べます。
 

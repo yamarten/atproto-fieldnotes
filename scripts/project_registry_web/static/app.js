@@ -395,7 +395,7 @@ function renderIdentifier(item) {
   const classifications = item.classifications || [item.classification];
   const effectiveClassification = item.classification || classifications[0] || "";
   const actionKind = item.actions?.identifier_type || "";
-  const actions = `${item.actions?.block ? actionButton("Block all roles", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer all roles 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split identifier", "split-project", {type:actionKind, value:item.value}) : ""}`;
+  const actions = `${item.actions?.block ? actionButton("Block identifier", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer identifier 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split identifier", "split-project", {type:actionKind, value:item.value}) : ""}`;
   const showKinds = item.family === "identity" || item.family.startsWith("other:");
   const entries = list(item.entries);
   const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
@@ -404,11 +404,14 @@ function renderIdentifier(item) {
       <div class="identifier-value">${item.kinds.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>
       ${detail ? `<div class="identifier-roles">${esc(detail)}</div>` : ""}
       <div class="identifier-entry-list">${entries.map((entry) => {
-        const confirm = entry.actions?.confirm ? actionButton("Confirm value", "confirm-candidate", {type:entry.actions.identifier_type, value:item.value}, "small primary") : "";
-        return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(entry.role_label || entry.role)}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([entry.kind, entry.provider, entry.observed_at]).join(" · "))}</div>${confirm ? `<div class="actions">${confirm}</div>` : ""}</div>`;
+        const entryType = entry.actions?.identifier_type || "";
+        const entryValue = entry.value || item.value;
+        const entryActions = `${entry.actions?.confirm ? actionButton("Confirm value", "confirm-candidate", {type:entryType, value:entryValue}, "small primary") : ""}${entry.actions?.reject ? actionButton("Reject value", "reject-candidate", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.block ? actionButton("Block value", "block-identifier", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.defer ? actionButton("Defer value 30d", "defer-identifier", {type:entryType, value:entryValue}, "small") : ""}${entry.actions?.split ? actionButton("Split value", "split-project", {type:entryType, value:entryValue}, "small") : ""}`;
+        const entryValueLabel = entryValue !== item.value ? entryValue : "";
+        return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(entry.role_label || entry.role)}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([entry.kind, entryValueLabel, entry.provider, entry.observed_at]).join(" · "))}</div>${entryActions ? `<div class="actions">${entryActions}</div>` : ""}</div>`;
       }).join("") || `<div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(item.role_labels.join(" · "))}</span></div>`}</div>
     </div>
-    ${actions ? `<details class="identifier-actions"><summary>Identifier actions</summary><div class="actions"><p class="muted">These apply to every saved role with this kind and value.</p>${actions}</div></details>` : ""}
+    ${actions ? `<details class="identifier-actions"><summary>Identifier actions</summary><div class="actions"><p class="muted">These apply to this identifier value.</p>${actions}</div></details>` : ""}
   </div>`;
 }
 

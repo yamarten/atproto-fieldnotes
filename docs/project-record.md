@@ -125,7 +125,7 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `referenced_nsid`: projectが利用・参照する外部NSID
   - `recorded_namespace`: collection観測から導出したnamespace
 - service
-  - `website`: 代表公開URL
+  - `website`: 代表公開URL。Web表示では独立した別identifierではなく、同じ `service_url` group のprimary markerとして扱う
   - `service`: confirmedまたはcandidateのservice surface
 - repository
   - `source_repository`: projectのsource候補またはconfirmed repo

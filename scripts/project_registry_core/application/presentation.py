@@ -175,24 +175,46 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "repo_url": ("repository", "Repositories"),
         "nsid": ("schema", "NSIDs"),
         "account": ("identity", "Identities"),
+        "handle": ("identity", "Identities"),
         "did": ("identity", "Identities"),
         "domain": ("identity", "Identities"),
     }
     role_labels = {
         "primary_nsid": "primary", "input_nsid": "input", "owned_nsid": "owned",
         "observed_lexicon": "observed", "recorded_namespace": "namespace",
-        "manual_seed": "manual seed", "source_repository": "source",
+        "website": "primary", "manual_seed": "manual seed", "source_repository": "source",
         "source_repository_record": "source record", "developer_account": "developer",
-        "project_account": "project", "authority_domain": "authority",
+        "developer_handle": "handle", "developer_did": "DID",
+        "project_account": "project", "project_handle": "project handle",
+        "authority_domain": "authority",
     }
+    primary_service_values = {
+        item["value"]
+        for item in raw
+        if item["kind"] == "service_url" and item["role"] == "website"
+    }
+    service_values_with_confirmed_non_website_role = {
+        item["value"]
+        for item in raw
+        if item["kind"] == "service_url" and item["role"] != "website" and item["classification"] == "confirmed"
+    }
+
+    def group_value(item: dict[str, Any], family: str) -> str:
+        if family == "identity" and isinstance(item.get("metadata"), dict):
+            account_value = str(item["metadata"].get("account") or "").strip()
+            if account_value:
+                return account_value
+        return item["value"]
+
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for item in raw:
         family, family_label = family_specs.get(item["kind"], (f"other:{item['kind']}", item["kind"]))
-        key = (family, item["value"])
+        key_value = group_value(item, family)
+        key = (family, key_value)
         group = grouped.setdefault(key, {
             "family": family,
             "family_label": family_label,
-            "value": item["value"],
+            "value": key_value,
             "kinds": [],
             "roles": [],
             "role_labels": [],
@@ -203,6 +225,16 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "observed_at": "",
             "entries": [],
         })
+        group["is_primary"] = group["is_primary"] or (
+            item["kind"] == "service_url" and key_value in primary_service_values
+        )
+        if (
+            item["kind"] == "service_url"
+            and item["role"] == "website"
+            and item["value"] in service_values_with_confirmed_non_website_role
+        ):
+            group["observed_at"] = max(group["observed_at"], item["observed_at"])
+            continue
         entry = dict(item)
         entry["role_label"] = role_labels.get(item["role"], item["role"].replace("_", " "))
         developer_candidate = item["role"] == "developer_account"
@@ -212,6 +244,11 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "confirm": item["classification"] == "candidate" and (
                 entry_action_kind in {"service_url", "repo_url", "account"}
             ),
+            "reject": item["classification"] == "candidate"
+            and entry_action_kind in {"service_url", "repo_url", "account", "did", "handle", "domain", "nsid"},
+            "block": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
+            "defer": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
+            "split": False,
             "scope": "identifier",
         }
         group["entries"].append(entry)
@@ -234,13 +271,18 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             (value for value in CLASSIFICATION_ORDER if value in group["classifications"]),
             group["classifications"][0] if group["classifications"] else "candidate",
         )
-        developer_candidate = "developer_account" in group["roles"]
-        action_kind = next((kind for kind in group["kinds"] if kind in {"service_url", "repo_url", "nsid", "account"}), "")
+        action_kind = next(
+            (
+                kind for kind in group["kinds"]
+                if group["family"] != "identity" and kind in {"service_url", "repo_url", "nsid"}
+            ),
+            "",
+        )
         candidate_only = "candidate" in group["classifications"] and "confirmed" not in group["classifications"]
         group["actions"] = {
             "identifier_type": action_kind,
-            "confirm": candidate_only and (action_kind in {"service_url", "repo_url"} or developer_candidate),
-            "reject": candidate_only and action_kind in {"service_url", "repo_url", "account"},
+            "confirm": candidate_only and action_kind in {"service_url", "repo_url"},
+            "reject": candidate_only and action_kind in {"service_url", "repo_url"},
             "block": bool(action_kind),
             "defer": bool(action_kind),
             "split": bool(action_kind),

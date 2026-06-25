@@ -492,6 +492,36 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(candidate["actions"]["confirm"])
         self.assertEqual(repository["actions"]["scope"], "identifier")
 
+    def test_website_role_displays_as_primary_service_marker(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            assert project is not None
+            project["website_url"] = "https://app.example.com"
+            project["service_urls"] = ["https://app.example.com"]
+            registry.save_project(conn, project, preserve_timestamps=True)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        service = next(item for item in detail["identifiers"] if item["value"] == "https://app.example.com")
+        self.assertTrue(service["is_primary"])
+        self.assertEqual([entry["role"] for entry in service["entries"]], ["service"])
+
+    def test_identity_identifier_groups_handle_with_account_did(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        identity = next(item for item in detail["identifiers"] if item["value"] == "did:plc:developer")
+
+        self.assertEqual(identity["family"], "identity")
+        self.assertIn("account", identity["kinds"])
+        self.assertIn("handle", identity["kinds"])
+        self.assertIn("did", identity["kinds"])
+        self.assertFalse(identity["actions"]["confirm"])
+        self.assertFalse(any(item["value"] == "dev.example.com" for item in detail["identifiers"]))
+
     def test_merge_pair_includes_both_projects_and_result_preview(self) -> None:
         status, payload, _ = self.request(
             "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222"
@@ -755,11 +785,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(any(item["kind"] == "defer_review_target" for item in payload["detail"]["decisions"]["active"]))
 
         account = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
-        self.assertTrue(account["actions"]["confirm"])
+        self.assertFalse(account["actions"]["confirm"])
         developer_entry = next(
             entry for entry in account["entries"]
             if entry["classification"] == "candidate" and entry["role"] == "developer_account"
         )
+        self.assertTrue(developer_entry["actions"]["confirm"])
         self.assertEqual(developer_entry["actions"]["identifier_type"], "account")
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/confirm-candidate",
