@@ -167,6 +167,49 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertFalse(summary["state_updated"])
         self.assertEqual(state["watermark"], {})
 
+    def test_github_create_unmatched_keeps_operator_notes_empty(self) -> None:
+        conn = registry.open_db()
+        query = "atproto"
+        repo_url = "https://github.com/example/new-project"
+        scan = {
+            "query": query,
+            "results": [
+                {
+                    "url": repo_url,
+                    "full_name": "example/new-project",
+                    "description": "",
+                    "homepage": "",
+                    "updated_at": "2026-06-10T00:00:00Z",
+                    "stargazers_count": 12,
+                    "query": query,
+                }
+            ],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = registry.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=True,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                )
+            projects = registry.all_projects(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["created"], 1)
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["notes"], "")
+        self.assertIn("github_repo_search_sync", projects[0]["discovery_sources"])
+        self.assertEqual(projects[0]["manual_seeds"][0]["value"], repo_url)
+
     def test_github_screen_failure_does_not_advance_watermark(self) -> None:
         conn = registry.open_db()
         query = "atproto"

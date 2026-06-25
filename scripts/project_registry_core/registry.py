@@ -6436,22 +6436,12 @@ def import_collection_inventory_payload(
         project = fetch_project(conn, project_key) or default_project_record(project_key, "nsid", representative_nsid)
         add_manual_seed(project, "nsid", representative_nsid, source="collection_inventory_import")
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "collection_inventory_import")
-        if suggested_project_key and suggested_match_kind:
-            note = f"collection import suggested existing project {suggested_project_key} by weak match {suggested_match_kind}: {namespace}"
-            existing_note = str(project.get("notes") or "").strip()
-            if note not in existing_note.splitlines():
-                project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
         upsert_collection_observation(
             project,
             item,
             source="collection_inventory_import",
             merge_existing=merge_existing_observations,
         )
-        if match_kind:
-            note = f"collection import matched by {match_kind}: {namespace}"
-            existing_note = str(project.get("notes") or "").strip()
-            if note not in existing_note.splitlines():
-                project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)
@@ -7516,17 +7506,6 @@ def sync_github_search(
         if homepage:
             add_candidate_url(project, "service_url", homepage)
             add_candidate_url(project, "website_url", homepage)
-        if suggested_project_key and suggested_match_kind:
-            suggestion = f"github search sync suggested existing project {suggested_project_key} by weak match {suggested_match_kind}: {repo_url}"
-            existing_note = str(project.get("notes") or "").strip()
-            if suggestion not in existing_note.splitlines():
-                project["notes"] = "\n".join([part for part in [existing_note, suggestion] if part]).strip()
-        note = f"github search sync matched query={entry.get('query') or ''} updated_at={entry.get('updated_at') or ''} stars={int(entry.get('stargazers_count') or 0)}"
-        existing_note = str(project.get("notes") or "").strip()
-        if note not in existing_note.splitlines():
-            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
-        if match_kind and match_kind not in existing_note.splitlines():
-            project["notes"] = "\n".join([part for part in [str(project.get("notes") or "").strip(), f"github search sync matched by {match_kind}: {repo_url}"] if part]).strip()
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)
@@ -7703,18 +7682,6 @@ def sync_semble_collections(
         card_uri = str(entry.get("card_uri") or "").strip()
         if card_uri:
             project["evidence_urls"] = add_unique(project.get("evidence_urls", []), card_uri)
-        note = (
-            f"semble collection sync matched {entry.get('collection_label') or entry.get('collection_rkey') or ''} "
-            f"updated_at={entry.get('card_updated_at') or ''}"
-        ).strip()
-        existing_note = str(project.get("notes") or "").strip()
-        if note and note not in existing_note.splitlines():
-            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
-        if match_kind:
-            match_note = f"semble collection sync matched by {match_kind}: {seed_type}:{seed_value}"
-            existing_note = str(project.get("notes") or "").strip()
-            if match_note not in existing_note.splitlines():
-                project["notes"] = "\n".join([part for part in [existing_note, match_note] if part]).strip()
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)
