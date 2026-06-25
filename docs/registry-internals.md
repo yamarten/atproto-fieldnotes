@@ -116,8 +116,8 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 - node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
-- 初回の実動作適用は `service_url` / `repo_url` の自動confirmと、`collection` ownership判定です
-- `did` / `handle` / `domain` は edge として使いますが、単独identifierの自動confirm対象にはしていません
+- 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
+- `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
 - `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
 - legacy confirmed identifier は監査対象であり、新規URL昇格のtrusted anchorにはしません
 
@@ -125,13 +125,15 @@ URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true`
 
 collection ownership は、manual NSID seed、または confirmed developer DID との相互 trust path がある場合だけ成立します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
 
+identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v1` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
+
 確認用 command:
 
 - `project-registry explain --topic trust -p <project_key>`
 - `project-registry audit-trust-graph`
 - `project-registry repair-trust-graph`
 
-`audit-trust-graph` は読み取り専用で、既存 confirmed URL を次のように分類します。
+`audit-trust-graph` は読み取り専用で、既存 confirmed identifier を次のように分類します。`repair-trust-graph --execute` は edge/evaluation の再計算を保存しますが、`--downgrade-unsupported` による自動降格は現時点では URL に限定します。collection/identity の既存 confirmed 修復は監査結果を見て別作業に分けます。
 
 - `missing_recomputed_edge`: 既存 relation から trust edge を再構成すれば説明できる
 - `needs_reprobe`: 片方向の強い edge だけがあり、service/repo の再検証が必要

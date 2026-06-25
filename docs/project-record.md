@@ -102,7 +102,7 @@ idempotentに作成でき、v1からのmigrationをやり直す必要はあり�
 
 ## `project_identifiers`
 
-projectに結び付くNSID、service URL、repo URL、account、DID、authority domainを順序付きで保持します。
+projectに結び付くNSID、service URL、repo URL、account、handle、DID、authority domainを順序付きで保持します。
 
 - `project_key`: 所属project
 - `ordinal`: project内の保存順
@@ -132,9 +132,11 @@ projectに結び付くNSID、service URL、repo URL、account、DID、authority 
   - `source_repository_record`: metadata、README、treeなどを取得したrepo observation
 - identity
   - `developer_account`: 開発者・運営者account
+  - `developer_handle`: accountに対応するhandle
   - `developer_did`: accountに対応するDID
   - `brand_did`: project自身のDID
   - `project_account`: project名義のaccount候補
+  - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
 - `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
 

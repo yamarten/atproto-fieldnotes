@@ -237,6 +237,98 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
 
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "app.example.post"))
 
+    def test_handle_requires_did_document_reverse_claim_for_auto_confirm(self) -> None:
+        project = registry.default_project_record("proj:handletrust", "did", "did:plc:dev")
+        registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
+        registry.record_trust_edge(
+            project,
+            "handle",
+            "dev.example.com",
+            "handle_resolves_did",
+            "did",
+            "did:plc:dev",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        one_way = registry.trust_auto_confirm_identifier(project, "handle", "dev.example.com")
+        self.assertFalse(one_way["auto_confirm"])
+
+        registry.record_trust_edge(
+            project,
+            "did",
+            "did:plc:dev",
+            "did_document_claims_handle",
+            "handle",
+            "dev.example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        mutual = registry.trust_auto_confirm_identifier(project, "handle", "dev.example.com")
+        self.assertTrue(mutual["auto_confirm"])
+        self.assertEqual(mutual["reason"], "mutual_trust_path")
+
+    def test_exact_domain_can_auto_confirm_only_through_mutual_identity_path(self) -> None:
+        project = registry.default_project_record("proj:domaintrust", "did", "did:plc:dev")
+        registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
+        registry.record_trust_edge(
+            project,
+            "handle",
+            "example.com",
+            "handle_resolves_did",
+            "did",
+            "did:plc:dev",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        registry.record_trust_edge(
+            project,
+            "did",
+            "did:plc:dev",
+            "did_document_claims_handle",
+            "handle",
+            "example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        registry.record_trust_edge(
+            project,
+            "domain",
+            "example.com",
+            "domain_exact_handle",
+            "handle",
+            "example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        missing_reverse = registry.trust_auto_confirm_identifier(project, "domain", "example.com")
+        self.assertFalse(missing_reverse["auto_confirm"])
+
+        registry.record_trust_edge(
+            project,
+            "handle",
+            "example.com",
+            "handle_exact_domain",
+            "domain",
+            "example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        mutual = registry.trust_auto_confirm_identifier(project, "domain", "example.com")
+        self.assertTrue(mutual["auto_confirm"])
+
+    def test_runtime_view_exposes_handle_identifier_separately_from_account(self) -> None:
+        project = registry.default_project_record("proj:runtimehandle", "service_url", "https://example.com")
+        project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
+
+        identifiers = registry.runtime_view.project_identifiers(project)
+        self.assertTrue(any(item.kind == "account" and item.role == "developer_account" for item in identifiers))
+        self.assertTrue(any(item.kind == "handle" and item.value == "dev.example.com" for item in identifiers))
+        self.assertTrue(any(item.kind == "did" and item.value == "did:plc:dev" for item in identifiers))
+
 
 class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
     def _source_repository_relation(

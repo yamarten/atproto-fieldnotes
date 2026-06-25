@@ -500,7 +500,14 @@ def decode_legacy_project(row: sqlite3.Row) -> dict[str, Any]:
         if not isinstance(item, dict):
             continue
         seed_type = str(item.get("type") or "")
-        kind = {"service_url": "service_url", "repo_url": "repo_url", "nsid": "nsid"}.get(seed_type, "")
+        kind = {
+            "service_url": "service_url",
+            "repo_url": "repo_url",
+            "nsid": "nsid",
+            "did": "did",
+            "handle": "handle",
+            "domain": "domain",
+        }.get(seed_type, "")
         if kind:
             add_identifier(kind, item.get("value"), "manual_seed", "manual_seeds", "confirmed", extra=item, observed_at=str(item.get("added_at") or ""))
 
@@ -557,11 +564,13 @@ def decode_legacy_project(row: sqlite3.Row) -> dict[str, Any]:
                 continue
             value = str(item.get("did") or item.get("handle") or item.get("url") or "")
             add_identifier("account", value, "developer_account", field, legacy_classification, extra=item)
+            add_identifier("handle", item.get("handle"), "developer_handle", field, legacy_classification, extra={"account": value, **item})
             add_identifier("did", item.get("did"), "developer_did", field, legacy_classification, extra={"account": value, **item})
     add_identifier("did", raw.get("brand_did"), "brand_did", "brand_did", "confirmed", primary=True)
     for field, provider in (("bluesky_handles", "bluesky"), ("tangled_handles", "tangled")):
         for value in raw.get(field, []) or []:
             add_identifier("account", value, "project_account", field, "candidate", provider=provider)
+            add_identifier("handle", value, "project_handle", field, "candidate", provider=provider)
 
     for field in ("website_url", "source_code_url", "primary_nsid"):
         if str(raw.get(field) or "").strip():

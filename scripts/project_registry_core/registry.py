@@ -852,7 +852,7 @@ def unique_manual_seeds(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 seed_value = extracted_nsid
             else:
                 seed_value = canonical_seed_value(seed_type, raw_seed_value)
-        elif seed_type in {"repo_url", "nsid"}:
+        elif seed_type in {"repo_url", "nsid", "did", "handle", "domain"}:
             seed_value = canonical_seed_value(seed_type, raw_seed_value)
         key = (seed_type, seed_value)
         if not seed_type or not seed_value or key in seen:
@@ -1084,6 +1084,8 @@ def canonical_seed_value(seed_type: str, seed_value: str) -> str:
         return extracted or normalize_nsid(seed_value)
     if seed_type == "repo_url":
         return canonical_repo_url(seed_value)
+    if seed_type in {"handle", "domain"}:
+        return str(seed_value or "").strip().lower().rstrip(".")
     if seed_type.endswith("_url"):
         return normalize_url(seed_value)
     return seed_value
@@ -1144,6 +1146,8 @@ def detect_seed_type(seed: str, explicit_type: str | None = None) -> str:
         if host in {"tangled.org", "tangled.sh"} and len(segments) >= 2:
             return "repo_url"
         return "service_url"
+    if seed.startswith("did:"):
+        return "did"
     if re.fullmatch(NSID_PATTERN, seed):
         return "nsid"
     raise ValueError(f"could not detect seed type: {seed}")
@@ -1300,6 +1304,8 @@ def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
         return canonical_repo_url(value)
     if identifier_type == "nsid":
         return normalize_nsid(value)
+    if identifier_type in {"handle", "domain"}:
+        return str(value or "").strip().lower().rstrip(".")
     return str(value or "").strip()
 
 
@@ -1310,7 +1316,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
+        if identifier_type not in IDENTIFIER_DECISION_TYPES:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         if not normalized_value:
@@ -1332,6 +1338,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
 
 DEFAULT_DEFER_IDENTIFIER_DAYS = 30
 DEFAULT_PROMOTION_DEFER_DAYS = 7
+IDENTIFIER_DECISION_TYPES = {"service_url", "repo_url", "nsid", "account", "did", "handle", "domain"}
 
 
 def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
@@ -1342,7 +1349,7 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
+        if identifier_type not in IDENTIFIER_DECISION_TYPES:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         expires_at = str(item.get("expires_at") or "").strip()
@@ -1372,7 +1379,7 @@ def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         identifier_type = str(item.get("type") or "").strip()
-        if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
+        if identifier_type not in IDENTIFIER_DECISION_TYPES:
             continue
         normalized_value = normalize_blocked_identifier_value(identifier_type, str(item.get("value") or ""))
         if not normalized_value:
@@ -1403,8 +1410,8 @@ def add_confirmed_identifier_decision(
     source: str,
     note: str = "",
 ) -> str:
-    if identifier_type not in {"service_url", "repo_url", "nsid", "account"}:
-        raise ValueError("identifier_type must be service_url, repo_url, nsid, or account")
+    if identifier_type not in IDENTIFIER_DECISION_TYPES:
+        raise ValueError("identifier_type must be service_url, repo_url, nsid, account, did, handle, or domain")
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         raise ValueError("identifier value could not be normalized")
@@ -2431,6 +2438,27 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
         return (0, True) if normalized in [normalize_nsid(str(item)) for item in project.get("resolved_nsids", []) if item] else (99, False)
     if identifier_type == "repo_url":
         return (0, True) if normalized in [normalize_url(str(item)) for item in source_code_url_values(project) if item] else (99, False)
+    if identifier_type == "did":
+        if str(project.get("brand_did") or "").strip() == normalized:
+            return 0, True
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", [])) + list(project.get("candidate_developer_accounts", []))):
+            if str(account.get("did") or "").strip() == normalized:
+                return 0, True
+        return 99, False
+    if identifier_type == "handle":
+        lowered = normalized.lower()
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", [])) + list(project.get("candidate_developer_accounts", []))):
+            if str(account.get("handle") or "").strip().lower().rstrip(".") == lowered:
+                return 0, True
+        for handle in list(project.get("bluesky_handles", [])) + list(project.get("tangled_handles", [])):
+            if str(handle or "").strip().lower().rstrip(".") == lowered:
+                return 1, True
+        return 99, False
+    if identifier_type == "domain":
+        lowered = normalized.lower()
+        if lowered in {str(domain or "").strip().lower().rstrip(".") for domain in project.get("authority_domains", [])}:
+            return 0, True
+        return 99, False
     if identifier_type == "github_repo_url":
         return (0, True) if normalized in [normalize_url(str(item)) for item in provider_repo_url_values(project, "github") if item] else (99, False)
     if identifier_type == "tangled_repo_url":
@@ -2956,6 +2984,21 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         segments = [segment for segment in parsed.path.split("/") if segment]
         if segments:
             add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
+    elif seed_type == "did":
+        normalized = str(seed_value or "").strip()
+        if normalized:
+            project["brand_did"] = project.get("brand_did") or normalized
+            add_developer_account(project, "", "manual_seed", did=normalized)
+    elif seed_type == "handle":
+        normalized = str(seed_value or "").strip().lower()
+        if normalized:
+            add_developer_account(project, normalized, "manual_seed")
+            if "." in normalized and not is_shared_official_identity_host(normalized):
+                project["authority_domains"] = add_unique(project.get("authority_domains", []), normalized)
+    elif seed_type == "domain":
+        normalized = str(seed_value or "").strip().lower().rstrip(".")
+        if normalized:
+            project["authority_domains"] = add_unique(project.get("authority_domains", []), normalized)
     else:
         normalized = normalize_url(seed_value)
         add_candidate_url(project, "service_url", normalized)
@@ -3068,8 +3111,8 @@ def defer_identifier_on_project(
     note: str = "",
     days: int = DEFAULT_DEFER_IDENTIFIER_DAYS,
 ) -> str:
-    if identifier_type not in {"service_url", "repo_url", "nsid"}:
-        raise ValueError("identifier_type must be service_url, repo_url, or nsid")
+    if identifier_type not in IDENTIFIER_DECISION_TYPES:
+        raise ValueError("identifier_type must be service_url, repo_url, nsid, account, did, handle, or domain")
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         raise ValueError("identifier value could not be normalized")
@@ -3163,6 +3206,9 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
     blocked_services = blocked_identifier_values(project, "service_url")
     blocked_repos = blocked_identifier_values(project, "repo_url")
     blocked_nsids = blocked_identifier_values(project, "nsid")
+    blocked_dids = blocked_identifier_values(project, "did")
+    blocked_handles = blocked_identifier_values(project, "handle")
+    blocked_domains = blocked_identifier_values(project, "domain")
 
     if blocked_services:
         if normalize_url(str(project.get("website_url") or "")) in blocked_services:
@@ -3208,7 +3254,14 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
             if isinstance(item, dict) and normalize_nsid(str(item.get("collection") or "")) not in blocked_nsids
         ]
 
-    if blocked_services or blocked_repos or blocked_nsids:
+    for did in blocked_dids:
+        remove_identifier_from_project(project, "did", did)
+    for handle in blocked_handles:
+        remove_identifier_from_project(project, "handle", handle)
+    for domain in blocked_domains:
+        remove_identifier_from_project(project, "domain", domain)
+
+    if blocked_services or blocked_repos or blocked_nsids or blocked_dids or blocked_handles or blocked_domains:
         project["manual_seeds"] = [
             dict(item)
             for item in project.get("manual_seeds", [])
@@ -3270,6 +3323,40 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
                 for item in normalize_developer_accounts(list(project.get(field, [])))
                 if lowered not in {str(item.get("handle") or "").lower(), str(item.get("did") or "").lower()}
             ]
+    elif identifier_type == "did":
+        if str(project.get("brand_did") or "").strip() == normalized:
+            project["brand_did"] = ""
+        for field in ("developer_accounts", "candidate_developer_accounts"):
+            project[field] = [
+                dict(item)
+                for item in normalize_developer_accounts(list(project.get(field, [])))
+                if str(item.get("did") or "").strip() != normalized
+            ]
+    elif identifier_type == "handle":
+        lowered = normalized.lower()
+        for field in ("developer_accounts", "candidate_developer_accounts"):
+            project[field] = [
+                dict(item)
+                for item in normalize_developer_accounts(list(project.get(field, [])))
+                if str(item.get("handle") or "").strip().lower().rstrip(".") != lowered
+            ]
+        project["bluesky_handles"] = [
+            handle
+            for handle in unique_list(project.get("bluesky_handles", []))
+            if str(handle or "").strip().lower().rstrip(".") != lowered
+        ]
+        project["tangled_handles"] = [
+            handle
+            for handle in unique_list(project.get("tangled_handles", []))
+            if str(handle or "").strip().lower().rstrip(".") != lowered
+        ]
+    elif identifier_type == "domain":
+        lowered = normalized.lower()
+        project["authority_domains"] = [
+            domain
+            for domain in unique_list(project.get("authority_domains", []))
+            if str(domain or "").strip().lower().rstrip(".") != lowered
+        ]
     project["manual_seeds"] = [
         dict(item)
         for item in project.get("manual_seeds", [])
@@ -3451,6 +3538,15 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
                 allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
                 allowed_predicates=COLLECTION_TRUST_PREDICATES,
             )
+        elif item.kind in IDENTITY_TRUST_NODE_KINDS:
+            evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
+            directional_paths = trust_graph_core.directional_paths(
+                project,
+                candidate=node,
+                anchors=identity_trusted_anchor_nodes(project),
+                allowed_node_kinds=IDENTITY_TRUST_NODE_KINDS,
+                allowed_predicates=IDENTITY_TRUST_PREDICATES,
+            )
         rows.append({
             "identifier": {"kind": item.kind, "value": item.value, "role": item.role},
             "node": node,
@@ -3467,7 +3563,7 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
     unsupported_confirmed = [
         row for row in rows
         if row["classification"] == "confirmed"
-        and row["identifier"]["kind"] in {"service_url", "repo_url"}
+        and row["identifier"]["kind"] in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}
         and not row["manual_seed"]
         and not row["operator_confirmed"]
         and not bool(row.get("evaluation", {}).get("auto_confirm"))
@@ -3475,7 +3571,7 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "topic": "trust",
         "conclusion": "needs_review" if unsupported_confirmed else ("supported" if auto_confirmed else "unknown"),
-        "rule": "trust-graph-v1 mutual directed trust paths for URL auto-confirm",
+        "rule": "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers",
         "supporting_signals": [
             f"{row['identifier']['kind']}:{row['identifier']['value']}"
             for row in auto_confirmed[:20]
@@ -3488,6 +3584,8 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
         "edge_count": len(edges),
         "edges": edges[:100],
         "anchors": trusted_anchor_nodes(project),
+        "identity_anchors": identity_trusted_anchor_nodes(project),
+        "collection_anchors": collection_trusted_anchor_nodes(project),
         "recomputed_graph_changed": recomputed_graph_changed,
     }
 
@@ -3498,10 +3596,8 @@ def refresh_trust_graph_evaluations(project: dict[str, Any]) -> dict[str, Any]:
     evaluated = 0
     auto_confirmable = 0
     for item in runtime_view.project_identifiers(project):
-        if item.kind in {"service_url", "repo_url"}:
+        if item.kind in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
             evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
-        elif item.kind == "nsid":
-            evaluation = trust_collection_ownership_evaluation(project, item.value)
         else:
             continue
         evaluated += 1
@@ -3553,7 +3649,7 @@ def build_trust_graph_audit(conn: sqlite3.Connection, *, example_limit: int = 20
             identifier_type = str(identifier.get("kind") or "")
             value = str(identifier.get("value") or "")
             classification = str(item.get("classification") or "")
-            if identifier_type not in {"service_url", "repo_url"} or classification != "confirmed":
+            if identifier_type not in {"service_url", "repo_url", "nsid", "did", "handle", "domain"} or classification != "confirmed":
                 continue
             issue = {
                 "project_key": str(project.get("project_key") or ""),
@@ -8014,7 +8110,9 @@ def normalize_trust_node_value(kind: str, value: str) -> str:
         return normalize_nsid(value)
     if kind == "domain":
         return str(value or "").strip().lower().rstrip(".")
-    if kind in {"did", "handle"}:
+    if kind == "handle":
+        return str(value or "").strip().lower().rstrip(".")
+    if kind == "did":
         return str(value or "").strip()
     return ""
 
@@ -8076,13 +8174,13 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(seed, dict):
             continue
         seed_type = str(seed.get("type") or "")
-        if seed_type in {"service_url", "repo_url", "nsid"}:
+        if seed_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
             add(seed_type, str(seed.get("value") or ""))
     for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
         if str(item.get("cleared_at") or ""):
             continue
         identifier_type = str(item.get("type") or "")
-        if identifier_type in {"service_url", "repo_url", "nsid"}:
+        if identifier_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
             add(identifier_type, str(item.get("value") or ""))
     for item in trust_graph_core.graph(project).get("evaluations", []):
         if not bool(item.get("auto_confirm")) or item.get("policy_version") != trust_graph_core.TRUST_POLICY_VERSION:
@@ -8147,6 +8245,13 @@ COLLECTION_TRUST_PREDICATES = {
     "handle_resolves_did",
     "did_document_claims_handle",
 }
+IDENTITY_TRUST_NODE_KINDS = {"did", "domain", "handle"}
+IDENTITY_TRUST_PREDICATES = {
+    "domain_exact_handle",
+    "handle_exact_domain",
+    "handle_resolves_did",
+    "did_document_claims_handle",
+}
 
 
 def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
@@ -8176,6 +8281,19 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 handle,
                 "domain_exact_handle",
                 "handle",
+                handle,
+                source=str(account.get("source") or "developer_account"),
+                method="exact_handle",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(account.get("observed_at") or ""),
+            )
+            record_trust_edge(
+                project,
+                "handle",
+                handle,
+                "handle_exact_domain",
+                "domain",
                 handle,
                 source=str(account.get("source") or "developer_account"),
                 method="exact_handle",
@@ -8231,6 +8349,14 @@ def collection_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, s
     return output
 
 
+def identity_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        node
+        for node in trusted_anchor_nodes(project)
+        if str(node.get("kind") or "") in IDENTITY_TRUST_NODE_KINDS
+    ]
+
+
 def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:
     normalized = normalize_nsid(nsid)
     if not normalized:
@@ -8279,6 +8405,19 @@ def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str,
         return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": {"kind": kind, "value": value}}
     if identifier_is_blocked(project, identifier_type, value) or identifier_is_deferred(project, identifier_type, value):
         evaluation = {"auto_confirm": False, "reason": "guarded_identifier", "candidate": candidate}
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=iso_now())
+        return evaluation
+    if identifier_type == "nsid":
+        return trust_collection_ownership_evaluation(project, value)
+    if identifier_type in IDENTITY_TRUST_NODE_KINDS:
+        sync_trust_edges_from_project_identity(project)
+        evaluation = trust_graph_core.evaluate_auto_confirm(
+            project,
+            candidate=candidate,
+            anchors=identity_trusted_anchor_nodes(project),
+            allowed_node_kinds=IDENTITY_TRUST_NODE_KINDS,
+            allowed_predicates=IDENTITY_TRUST_PREDICATES,
+        )
         trust_graph_core.upsert_evaluation(project, evaluation, generated_at=iso_now())
         return evaluation
     sync_trust_edges_from_project_relations(project)
@@ -9007,6 +9146,15 @@ def extract_pds_url(did_doc: dict[str, Any]) -> str:
     return ""
 
 
+def did_document_handles(did_doc: dict[str, Any]) -> list[str]:
+    values = []
+    for item in did_doc.get("alsoKnownAs", []) if isinstance(did_doc.get("alsoKnownAs"), list) else []:
+        text = str(item or "").strip()
+        if text.startswith("at://"):
+            values.append(text.removeprefix("at://").strip().lower().rstrip("."))
+    return unique_list([value for value in values if value])
+
+
 def compact_json_value(value: Any, *, depth: int = 0, max_depth: int = 3, max_items: int = 8, max_string: int = 240) -> Any:
     if depth >= max_depth:
         if isinstance(value, dict):
@@ -9230,6 +9378,35 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             "resolved_at": iso_now(),
         }
     )
+    record_trust_edge(
+        project,
+        "did",
+        result["did"],
+        "did_publishes_schema",
+        "collection",
+        resolved_nsid,
+        source=f"lexicon_resolution:{normalize_nsid(nsid)}",
+        locator=str(record.get("uri") or ""),
+        method="repo_record",
+        classification="confirmed",
+        eligible_for_auto_confirm=True,
+        observed_at=iso_now(),
+    )
+    for handle in did_document_handles(dict(result.get("did_doc") or {})):
+        record_trust_edge(
+            project,
+            "did",
+            result["did"],
+            "did_document_claims_handle",
+            "handle",
+            handle,
+            source=f"did_document:{result['did']}",
+            locator=resolve_did_document_url(str(result["did"])),
+            method="alsoKnownAs",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=iso_now(),
+        )
     authority_domain = derive_authority_domain(resolved_nsid)
     if authority_domain:
         project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
@@ -9245,23 +9422,9 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             locator=str(record.get("uri") or ""),
             method="lexicon_record_authority",
             classification="confirmed",
-            eligible_for_auto_confirm=False,
+            eligible_for_auto_confirm=True,
             observed_at=iso_now(),
         )
-    record_trust_edge(
-        project,
-        "did",
-        result["did"],
-        "did_publishes_schema",
-        "collection",
-        resolved_nsid,
-        source=f"lexicon_resolution:{normalize_nsid(nsid)}",
-        locator=str(record.get("uri") or ""),
-        method="repo_record",
-        classification="confirmed",
-        eligible_for_auto_confirm=False,
-        observed_at=iso_now(),
-    )
     description = str(schema.get("description") or "")
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")

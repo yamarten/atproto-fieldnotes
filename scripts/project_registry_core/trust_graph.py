@@ -11,6 +11,7 @@ TRUST_GRAPH_FIELD = "trust_graph"
 
 NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection"}
 URL_NODE_KINDS = {"service_url", "repo_url"}
+IDENTITY_NODE_KINDS = {"did", "handle", "domain"}
 CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
 
 AUTO_CONFIRM_PREDICATES = {
@@ -20,6 +21,7 @@ AUTO_CONFIRM_PREDICATES = {
     "did_publishes_schema",
     "collection_authority_domain",
     "domain_exact_handle",
+    "handle_exact_domain",
     "handle_resolves_did",
     "did_document_claims_handle",
 }

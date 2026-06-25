@@ -283,13 +283,22 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
                 continue
             value = str(item.get("did") or item.get("handle") or item.get("url") or "")
             add("account", value, "developer_account", classification, metadata=dict(item))
+            add("handle", item.get("handle"), "developer_handle", classification, metadata={"account": value})
             add("did", item.get("did"), "developer_did", classification, metadata={"account": value})
     add("did", project.get("brand_did"), "brand_did", "confirmed", primary=True)
     for field, provider in (("bluesky_handles", "bluesky"), ("tangled_handles", "tangled")):
         for value in project.get(field, []):
             add("account", value, "project_account", "candidate", provider=provider)
+            add("handle", value, "project_handle", "candidate", provider=provider)
 
-    seed_kind = {"service_url": "service_url", "repo_url": "repo_url", "nsid": "nsid"}
+    seed_kind = {
+        "service_url": "service_url",
+        "repo_url": "repo_url",
+        "nsid": "nsid",
+        "did": "did",
+        "handle": "handle",
+        "domain": "domain",
+    }
     for item in project.get("manual_seeds", []):
         if not isinstance(item, dict):
             continue
