@@ -9797,6 +9797,56 @@ def project_identity_hosts(project: dict[str, Any], *, include_candidates: bool 
     return {host for host in hosts if host}
 
 
+def active_confirmed_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", [])))
+        if str(item.get("type") or "") == identifier_type
+        and str(item.get("value") or "").strip()
+        and not str(item.get("cleared_at") or "").strip()
+    }
+
+
+def trusted_collection_nsids_for_merge(project: dict[str, Any]) -> set[str]:
+    candidates = {
+        normalize_nsid(str(value or ""))
+        for value in (
+            list(project.get("input_nsids", []))
+            + list(project.get("resolved_nsids", []))
+            + list(project.get("lexicons", []))
+            + manual_seed_values(project, "nsid")
+            + list(active_confirmed_identifier_values(project, "nsid"))
+        )
+        if normalize_nsid(str(value or ""))
+    }
+    trusted: set[str] = set()
+    for nsid in candidates:
+        if (
+            manual_nsid_seed_supports(project, nsid)
+            or nsid in active_confirmed_identifier_values(project, "nsid")
+            or trust_graph_core.confirmed_by_trust_policy(project, "collection", nsid)
+        ):
+            trusted.add(nsid)
+    return trusted
+
+
+def project_merge_identity_hosts(project: dict[str, Any]) -> set[str]:
+    hosts = set(service_hosts(project)) | set(manual_service_hosts(project))
+    for domain in active_confirmed_identifier_values(project, "domain"):
+        lowered = normalize_blocked_identifier_value("domain", domain)
+        if lowered and not is_shared_official_identity_host(lowered):
+            hosts.add(lowered)
+    for nsid in trusted_collection_nsids_for_merge(project):
+        authority_domain = derive_authority_domain(nsid)
+        if authority_domain and not is_shared_official_identity_host(authority_domain):
+            hosts.add(authority_domain)
+    return {host for host in hosts if host}
+
+
+def project_merge_authority_families(project: dict[str, Any]) -> set[str]:
+    return {root_domain(host) for host in project_merge_identity_hosts(project) if root_domain(host)}
+
+
 def project_collection_nsids(project: dict[str, Any]) -> set[str]:
     collections: set[str] = set()
     for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("lexicons", [])):
@@ -9839,6 +9889,16 @@ def project_bootstrap_first_creator_did_map(project: dict[str, Any]) -> dict[str
 def project_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     for host in project_identity_hosts(project, include_candidates=False):
+        for value in (host, root_domain(host)):
+            token = normalize_alias_token(value)
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def project_merge_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for host in project_merge_identity_hosts(project):
         for value in (host, root_domain(host)):
             token = normalize_alias_token(value)
             if token:
@@ -12209,8 +12269,8 @@ def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
         "service_urls": services,
         "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),
         "record_creators": set(project.get("record_creators", [])),
-        "authority_service_families": authority_families(project),
-        "domain_identity_tokens": project_domain_identity_tokens(project),
+        "authority_service_families": project_merge_authority_families(project),
+        "domain_identity_tokens": project_merge_domain_identity_tokens(project),
         "merge_aliases": project_merge_aliases(project),
     }
 
@@ -12390,7 +12450,7 @@ def batch_moderate_overlap(
         reasons["record_creators_and_namespace_lineage"] = namespace_lineage
         return reasons
 
-    domain_token_overlap = sorted(project_domain_identity_tokens(project_a) & project_domain_identity_tokens(project_b))
+    domain_token_overlap = sorted(project_merge_domain_identity_tokens(project_a) & project_merge_domain_identity_tokens(project_b))
     if domain_token_overlap and alias_overlap:
         reasons["domain_identity_tokens"] = domain_token_overlap
         reasons["alias_overlap"] = alias_overlap
@@ -12403,14 +12463,14 @@ def batch_moderate_overlap(
             reasons["alias_overlap"] = alias_overlap
             return reasons
 
-    family_overlap = sorted(authority_families(project_a) & authority_families(project_b))
+    family_overlap = sorted(project_merge_authority_families(project_a) & project_merge_authority_families(project_b))
     if family_overlap and domain_token_overlap:
         reasons["authority_service_families"] = family_overlap
         reasons["domain_identity_tokens"] = domain_token_overlap
         return reasons
 
-    host_a = project_identity_hosts(project_a, include_candidates=False)
-    host_b = project_identity_hosts(project_b, include_candidates=False)
+    host_a = project_merge_identity_hosts(project_a)
+    host_b = project_merge_identity_hosts(project_b)
     root_overlap = sorted({root_domain(host) for host in host_a} & {root_domain(host) for host in host_b})
     if root_overlap and alias_overlap:
         reasons["manual_service_root_domain_and_alias"] = root_overlap

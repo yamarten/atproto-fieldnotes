@@ -1495,6 +1495,30 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
             ("medium", True),
         )
 
+    def test_observed_lexicon_authority_does_not_create_medium_merge_candidate(self) -> None:
+        source = registry.default_project_record("proj:sourceleaflet", "repo_url", "https://github.com/WaveringAna/atproto-ui")
+        source["name"] = "Leaflet"
+        source["authority_domains"] = ["leaflet.pub", "blocks.leaflet.pub", "graph.leaflet.pub"]
+        source["input_nsids"] = ["pub.leaflet.document", "pub.leaflet.comment"]
+        source["lexicons"] = ["pub.leaflet.document", "pub.leaflet.comment"]
+        source["service_url_candidates"] = ["https://leaflet.pub", "https://blocks.leaflet.pub"]
+        source["source_code_urls"] = ["https://github.com/WaveringAna/atproto-ui"]
+
+        target = registry.default_project_record("proj:targetleaflet", "repo_url", "https://github.com/ETJeanMachine/jeanmachine.dev")
+        target["name"] = "Leaflet"
+        target["authority_domains"] = ["leaflet.pub"]
+        target["input_nsids"] = ["pub.leaflet.document"]
+        target["lexicons"] = ["pub.leaflet.document"]
+        target["service_url_candidates"] = ["https://leaflet.pub"]
+        target["source_code_urls"] = ["https://github.com/ETJeanMachine/jeanmachine.dev"]
+
+        candidates = registry.compute_duplicate_candidates(None, source, projects=[source, target])
+
+        pair = next(item for item in candidates if item["project_key"] == "proj:targetleaflet")
+        self.assertEqual(pair["reasons"], {"merge_aliases": ["leaflet"]})
+        self.assertEqual(pair["merge_confidence"], "low")
+        self.assertFalse(pair["auto_merge_ready"])
+
     def test_record_creator_with_namespace_lineage_is_high_confidence_auto_merge(self) -> None:
         self.assertEqual(
             self.confidence_for({"record_creators_and_namespace_lineage": ["app.example"]}),

@@ -1071,6 +1071,9 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - `merge_aliases`
 - これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
 - `github_repo_urls`は保存fieldではなく、`source_code_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
+- duplicate / merge 用の `authority_service_families` と `domain_identity_tokens` は、確認済みのservice/manual service、operator confirmed domain、manual/confirmed/trust-policy confirmed collectionから導いたauthorityだけを使います
+  - `input_nsids` / `lexicons` / `authority_domains` / `service_url_candidates` のような候補・観測fieldだけでは、merge用のdomain/family根拠にしません
+  - 同じlexiconを使っている、または同じlexicon authorityを観測しただけでは、medium以上のmerge candidateにしません
 - ただし次は最初から除外します
   - 自分自身
   - `separate_project_keys` で相互 block された pair
