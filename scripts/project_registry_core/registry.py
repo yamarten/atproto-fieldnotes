@@ -1718,7 +1718,7 @@ def compute_external_lexicons(project: dict[str, Any]) -> list[str]:
         if resolved_nsid:
             observed_nsids.append(resolved_nsid)
     for nsid in unique_list(observed_nsids):
-        if project_owned_lexicon_nsid(project, nsid):
+        if project_trusted_collection_nsid_from_state(project, nsid):
             continue
         prefix = builtin_lexicon_prefix(nsid)
         if prefix:
@@ -1864,6 +1864,17 @@ def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
         return True
     evaluation = trust_collection_ownership_evaluation(project, normalized)
     return bool(evaluation.get("auto_confirm"))
+
+
+def project_trusted_collection_nsid_from_state(project: dict[str, Any], nsid: str) -> bool:
+    normalized = normalize_nsid(nsid)
+    if not normalized or relation_core.identifier_is_guarded(project, "nsid", normalized):
+        return False
+    return (
+        manual_nsid_seed_supports(project, normalized)
+        or normalized in active_confirmed_identifier_values(project, "nsid")
+        or trust_graph_core.confirmed_by_trust_policy(project, "collection", normalized)
+    )
 
 
 def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
@@ -9821,11 +9832,7 @@ def trusted_collection_nsids_for_merge(project: dict[str, Any]) -> set[str]:
     }
     trusted: set[str] = set()
     for nsid in candidates:
-        if (
-            manual_nsid_seed_supports(project, nsid)
-            or nsid in active_confirmed_identifier_values(project, "nsid")
-            or trust_graph_core.confirmed_by_trust_policy(project, "collection", nsid)
-        ):
+        if project_trusted_collection_nsid_from_state(project, nsid):
             trusted.add(nsid)
     return trusted
 
@@ -12079,14 +12086,22 @@ def inspect_merge_pair_payload(
 ) -> dict[str, Any]:
     source = ensure_project_shape(source)
     target = ensure_project_shape(target)
+    project_list = list_projects(conn)
+    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
     source_candidates = compute_duplicate_candidates(
         conn,
         source,
+        projects=project_list,
+        duplicate_profiles=duplicate_profiles,
+        duplicate_index=duplicate_index,
         bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
     )
     target_candidates = compute_duplicate_candidates(
         conn,
         target,
+        projects=project_list,
+        duplicate_profiles=duplicate_profiles,
+        duplicate_index=duplicate_index,
         bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
     )
     source_recommendation = compute_merge_recommendation(dict(source, duplicate_candidates=source_candidates))

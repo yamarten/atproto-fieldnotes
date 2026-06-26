@@ -1519,6 +1519,52 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(pair["merge_confidence"], "low")
         self.assertFalse(pair["auto_merge_ready"])
 
+    def test_inspect_merge_pair_reuses_duplicate_index(self) -> None:
+        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/source")
+        source["name"] = "Example Source"
+        target = registry.default_project_record("proj:mergetarget", "repo_url", "https://github.com/example/target")
+        target["name"] = "Example Target"
+        projects = [source, target]
+
+        original_list_projects = registry.list_projects
+        original_build_index = registry.build_duplicate_candidate_index
+        call_count = 0
+
+        def counted_list_projects(_conn: object) -> list[dict[str, object]]:
+            return projects
+
+        def counted_build_index(items: list[dict[str, object]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
+            nonlocal call_count
+            call_count += 1
+            return original_build_index(items)
+
+        try:
+            registry.list_projects = counted_list_projects
+            registry.build_duplicate_candidate_index = counted_build_index
+
+            registry.inspect_merge_pair_payload(None, source, target)
+
+            self.assertEqual(call_count, 1)
+        finally:
+            registry.list_projects = original_list_projects
+            registry.build_duplicate_candidate_index = original_build_index
+
+    def test_compute_external_lexicons_uses_saved_trust_state_only(self) -> None:
+        project = registry.default_project_record("proj:externallexicon", "repo_url", "https://github.com/example/app")
+        project["input_nsids"] = ["org.other.post"]
+
+        original_owned = registry.project_owned_lexicon_nsid
+
+        def fail_owned(_project: dict[str, object], _nsid: str) -> bool:
+            raise AssertionError("compute_external_lexicons should not evaluate trust ownership")
+
+        try:
+            registry.project_owned_lexicon_nsid = fail_owned
+
+            self.assertEqual(registry.compute_external_lexicons(project), ["org.other"])
+        finally:
+            registry.project_owned_lexicon_nsid = original_owned
+
     def test_record_creator_with_namespace_lineage_is_high_confidence_auto_merge(self) -> None:
         self.assertEqual(
             self.confidence_for({"record_creators_and_namespace_lineage": ["app.example"]}),
