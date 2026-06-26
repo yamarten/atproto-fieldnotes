@@ -449,6 +449,57 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         self.assertEqual(fetched["service_urls"], [])
         self.assertEqual(fetched["service_url_candidates"], ["https://unrelated.example.com"])
 
+    def test_repair_trust_graph_can_downgrade_unsupported_nsid(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:trustnsiddowngrade", "nsid", "app.example.post")
+            project["resolved_nsids"] = ["app.example.post"]
+            project["lexicon_resolution_entries"] = [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:other",
+                "authority_domain": "example.com",
+                "record_uri": "at://did:plc:other/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-06-25T00:00:00+00:00",
+            }]
+            registry.save_project(conn, project)
+
+            executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
+            fetched = registry.fetch_project(conn, "proj:trustnsiddowngrade")
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(executed["downgraded_identifier_count"], 1)
+        self.assertEqual(fetched["primary_nsid"], "")
+        self.assertEqual(fetched["resolved_nsids"], [])
+        self.assertEqual(fetched["input_nsids"], ["app.example.post"])
+        self.assertEqual(fetched["lexicon_resolution_entries"][0]["resolved_nsid"], "app.example.post")
+
+    def test_repair_trust_graph_can_downgrade_did_without_dropping_handle(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:trustdiddowngrade", "repo_url", "https://github.com/example/app")
+            registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+            project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
+            registry.save_project(conn, project)
+
+            executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
+            fetched = registry.fetch_project(conn, "proj:trustdiddowngrade")
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(executed["downgraded_identifier_count"], 2)
+        self.assertEqual(fetched["developer_accounts"], [])
+        self.assertEqual(
+            sorted(fetched["candidate_developer_accounts"], key=lambda item: sorted(item)),
+            [
+                {"did": "did:plc:dev", "source": "manual"},
+                {"handle": "dev.example.com", "source": "manual"},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

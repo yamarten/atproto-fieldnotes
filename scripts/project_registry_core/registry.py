@@ -3089,18 +3089,94 @@ def service_url_matches_guard(value: str, guard_value: str) -> bool:
     return path.startswith(f"{guard_path}/")
 
 
-def downgrade_identifier_to_candidate(project: dict[str, Any], identifier_type: str, value: str) -> None:
+def downgrade_identifier_to_candidate(
+    project: dict[str, Any],
+    identifier_type: str,
+    value: str,
+    *,
+    keep_candidate: bool = True,
+) -> None:
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return
-    remove_identifier_from_project(project, identifier_type, normalized)
     if identifier_type == "service_url":
+        remove_identifier_from_project(project, identifier_type, normalized)
         add_candidate_url(project, "service_url", normalized)
         add_candidate_url(project, "website_url", normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
     elif identifier_type == "repo_url":
+        remove_identifier_from_project(project, identifier_type, normalized)
         project["candidate_source_code_urls"] = add_unique(project.get("candidate_source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+    elif identifier_type == "nsid":
+        if not keep_candidate:
+            remove_identifier_from_project(project, identifier_type, normalized)
+            return
+        if normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
+            project["primary_nsid"] = ""
+        project["resolved_nsids"] = [
+            nsid
+            for nsid in project.get("resolved_nsids", [])
+            if normalize_nsid(str(nsid or "")) != normalized
+        ]
+        project["input_nsids"] = add_unique(project.get("input_nsids", []), normalized)
+    elif identifier_type == "did":
+        if not keep_candidate:
+            remove_identifier_from_project(project, identifier_type, normalized)
+            return
+        if str(project.get("brand_did") or "").strip() == normalized:
+            project["brand_did"] = ""
+            project["candidate_developer_accounts"] = normalize_developer_accounts(
+                list(project.get("candidate_developer_accounts", []))
+                + [{"did": normalized, "source": "trust_graph_downgrade"}]
+            )
+        remaining_accounts: list[dict[str, str]] = []
+        candidate_accounts = list(project.get("candidate_developer_accounts", []))
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", []))):
+            if str(account.get("did") or "").strip() != normalized:
+                remaining_accounts.append(account)
+                continue
+            candidate = {"did": normalized}
+            if account.get("source"):
+                candidate["source"] = str(account["source"])
+            candidate_accounts.append(candidate)
+            if account.get("handle"):
+                retained = dict(account)
+                retained.pop("did", None)
+                remaining_accounts.append(retained)
+        project["developer_accounts"] = normalize_developer_accounts(remaining_accounts)
+        project["candidate_developer_accounts"] = normalize_developer_accounts(candidate_accounts)
+    elif identifier_type == "handle":
+        if not keep_candidate:
+            remove_identifier_from_project(project, identifier_type, normalized)
+            return
+        lowered = normalized.lower()
+        remaining_accounts = []
+        candidate_accounts = list(project.get("candidate_developer_accounts", []))
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", []))):
+            if str(account.get("handle") or "").strip().lower().rstrip(".") != lowered:
+                remaining_accounts.append(account)
+                continue
+            candidate = {"handle": normalized}
+            if account.get("source"):
+                candidate["source"] = str(account["source"])
+            candidate_accounts.append(candidate)
+            if account.get("did"):
+                retained = dict(account)
+                retained.pop("handle", None)
+                remaining_accounts.append(retained)
+        project["developer_accounts"] = normalize_developer_accounts(remaining_accounts)
+        project["candidate_developer_accounts"] = normalize_developer_accounts(candidate_accounts)
+    elif identifier_type == "domain":
+        if not keep_candidate:
+            remove_identifier_from_project(project, identifier_type, normalized)
+            return
+        lowered = normalized.lower()
+        project["authority_domains"] = [
+            domain
+            for domain in unique_list(project.get("authority_domains", []))
+            if str(domain or "").strip().lower().rstrip(".") != lowered
+        ]
 
 
 def defer_identifier_on_project(
@@ -3133,14 +3209,25 @@ def defer_identifier_on_project(
         }
     )
     project["deferred_identifiers"] = deferred
-    downgrade_identifier_to_candidate(project, identifier_type, normalized)
+    downgrade_identifier_to_candidate(
+        project,
+        identifier_type,
+        normalized,
+        keep_candidate=identifier_type in {"service_url", "repo_url"},
+    )
     return normalized
 
 
 def apply_deferred_identifier_guards(project: dict[str, Any]) -> None:
     project["deferred_identifiers"] = normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
     for item in project["deferred_identifiers"]:
-        downgrade_identifier_to_candidate(project, str(item.get("type") or ""), str(item.get("value") or ""))
+        identifier_type = str(item.get("type") or "")
+        downgrade_identifier_to_candidate(
+            project,
+            identifier_type,
+            str(item.get("value") or ""),
+            keep_candidate=identifier_type in {"service_url", "repo_url"},
+        )
 
 
 def service_url_is_guarded(project: dict[str, Any], url: str) -> bool:
@@ -3708,31 +3795,36 @@ def repair_trust_graph(
         downgrade_values: list[tuple[str, str]] = []
         seen_downgrade_values: set[tuple[str, str]] = set()
         if downgrade_unsupported:
-            explanation = trust_explanation(project)
-            for item in explanation.get("identifier_evaluations", []):
-                identifier = item.get("identifier") if isinstance(item.get("identifier"), dict) else {}
-                identifier_type = str(identifier.get("kind") or "")
-                value = str(identifier.get("value") or "")
-                if identifier_type not in {"service_url", "repo_url"}:
-                    continue
-                if str(item.get("classification") or "") != "confirmed":
-                    continue
-                if classify_trust_identifier_issue(project, item, graph_changed=False) != "should_downgrade":
-                    continue
-                normalized_value = normalize_blocked_identifier_value(identifier_type, value)
-                key = (identifier_type, normalized_value)
-                if key in seen_downgrade_values:
-                    continue
-                seen_downgrade_values.add(key)
-                downgrade_values.append(key)
-
-        for identifier_type, value in downgrade_values:
-            downgrade_identifier_to_candidate(project, identifier_type, value)
-            downgraded_identifiers.append({
-                "project_key": project_key,
-                "identifier_type": identifier_type,
-                "value": normalize_blocked_identifier_value(identifier_type, value),
-            })
+            while True:
+                batch: list[tuple[str, str]] = []
+                explanation = trust_explanation(project)
+                for item in explanation.get("identifier_evaluations", []):
+                    identifier = item.get("identifier") if isinstance(item.get("identifier"), dict) else {}
+                    identifier_type = str(identifier.get("kind") or "")
+                    value = str(identifier.get("value") or "")
+                    if identifier_type not in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
+                        continue
+                    if str(item.get("classification") or "") != "confirmed":
+                        continue
+                    if classify_trust_identifier_issue(project, item, graph_changed=False) != "should_downgrade":
+                        continue
+                    normalized_value = normalize_blocked_identifier_value(identifier_type, value)
+                    key = (identifier_type, normalized_value)
+                    if key in seen_downgrade_values:
+                        continue
+                    seen_downgrade_values.add(key)
+                    batch.append(key)
+                if not batch:
+                    break
+                for identifier_type, value in batch:
+                    downgrade_identifier_to_candidate(project, identifier_type, value)
+                    downgraded_identifiers.append({
+                        "project_key": project_key,
+                        "identifier_type": identifier_type,
+                        "value": normalize_blocked_identifier_value(identifier_type, value),
+                    })
+                downgrade_values.extend(batch)
+                refresh_trust_graph_evaluations(project)
 
         if refresh.get("changed") or downgrade_values:
             changed_projects.append({

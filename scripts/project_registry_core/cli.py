@@ -249,9 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum issue examples per kind. Default: 20.")
     audit_trust_parser.set_defaults(func=maintenance_commands.cmd_audit_trust_graph)
 
-    repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported URL confirmations.")
+    repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported confirmations.")
     repair_trust_parser.add_argument("--execute", action="store_true", help="Apply trust graph recomputation. Without this flag, show a dry-run summary only.")
-    repair_trust_parser.add_argument("--downgrade-unsupported", action="store_true", help="With --execute, downgrade confirmed URL identifiers that have no trust evidence to candidates.")
+    repair_trust_parser.add_argument("--downgrade-unsupported", action="store_true", help="With --execute, downgrade confirmed identifiers that have no trust evidence to candidates.")
     repair_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum examples in the summary. Default: 20.")
     repair_trust_parser.set_defaults(func=maintenance_commands.cmd_repair_trust_graph)
 

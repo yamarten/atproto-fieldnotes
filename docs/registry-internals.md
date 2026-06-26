@@ -135,14 +135,14 @@ identity identifier は、manual/operator anchor との間に相互 path があ�
 - `project-registry audit-trust-graph`
 - `project-registry repair-trust-graph`
 
-`audit-trust-graph` は読み取り専用で、既存 confirmed identifier を次のように分類します。`repair-trust-graph --execute` は edge/evaluation の再計算を保存しますが、`--downgrade-unsupported` による自動降格は現時点では URL に限定します。collection/identity の既存 confirmed 修復は監査結果を見て別作業に分けます。
+`audit-trust-graph` は読み取り専用で、既存 confirmed identifier を次のように分類します。`repair-trust-graph --execute` は edge/evaluation の再計算を保存します。`--downgrade-unsupported` を付けた場合は、operator decision や相互 trust path で説明できない confirmed identifier を候補・派生相当へ降格します。
 
 - `missing_recomputed_edge`: 既存 relation から trust edge を再構成すれば説明できる
 - `needs_reprobe`: 片方向の強い edge だけがあり、service/repo の再検証が必要
 - `should_downgrade`: operator decision でも相互信頼でも説明できない
 - `guarded_confirmed_identifier`: block/defer 済みなのに confirmed 相当で残っている
 
-`repair-trust-graph` はデフォルトでは trust edge/evaluation の再計算結果だけを保存します。confirmed URL の降格は `--execute --downgrade-unsupported` を明示した場合だけ行い、`needs_reprobe` は降格せず再検証候補として残します。
+`repair-trust-graph` はデフォルトでは trust edge/evaluation の再計算結果だけを保存します。confirmed identifier の降格は `--execute --downgrade-unsupported` を明示した場合だけ行い、`needs_reprobe` は降格せず再検証候補として残します。
 
 削除済みのruntime compatibility field:
 
