@@ -1129,6 +1129,9 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - `reasons`
 - top 候補が `auto_merge_ready=false` で、2 位が同点の時だけ `ambiguous_with` を付けます
 - つまり recommendation は「最有力候補」であって「必ず merge してよい」ではありません
+- pair指定の `inspect-merge-pair` / Web merge review は、指定された2 projectだけを比較します
+  - 一覧用の全project duplicate indexや、source/targetそれぞれの現在の `merge_recommendation` は計算しません
+  - 表示する `source_pair_candidate` / `target_pair_candidate` は、一覧用 `compute_duplicate_candidates()` と同じpair判定関数から作ります
 
 ### merge-batch の追加安全策
 

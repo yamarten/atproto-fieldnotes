@@ -340,6 +340,34 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_explicit_merge_dry_run_does_not_compute_global_recommendations(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            original = registry.compute_duplicate_candidates
+
+            def fail_compute(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+                raise AssertionError("explicit dry-run merge preview should not compute global duplicate candidates")
+
+            registry.compute_duplicate_candidates = fail_compute
+            try:
+                preview = merge.merge_projects(
+                    conn,
+                    project_key=source["project_key"],
+                    target_project_key=target["project_key"],
+                    execute=False,
+                    force=True,
+                )
+            finally:
+                registry.compute_duplicate_candidates = original
+        finally:
+            conn.close()
+
+        self.assertEqual(preview["mode"], "dry_run")
+        self.assertEqual(preview["source_project_key"], source["project_key"])
+        self.assertEqual(preview["target_project_key"], target["project_key"])
+
     def test_merge_preserves_source_key_and_investigation_history_as_alias(self) -> None:
         conn = registry.open_db()
         try:

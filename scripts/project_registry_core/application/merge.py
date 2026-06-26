@@ -44,10 +44,10 @@ def merge_projects(
     force: bool = False,
 ) -> dict[str, Any]:
     source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    source["duplicate_candidates"] = core.compute_duplicate_candidates(conn, source)
-    source["merge_recommendation"] = core.compute_merge_recommendation(source)
     resolve_recommendation = use_recommendation or not any([target_project_key, target_seed])
     if resolve_recommendation:
+        source["duplicate_candidates"] = core.compute_duplicate_candidates(conn, source)
+        source["merge_recommendation"] = core.compute_merge_recommendation(source)
         recommendation = source.get("merge_recommendation") or {}
         resolved_target_key = str(recommendation.get("target_project_key") or "")
         if not resolved_target_key:
@@ -69,8 +69,9 @@ def merge_projects(
         key for key in merged.get("separate_project_keys", [])
         if key not in {source["project_key"], target["project_key"]}
     ]
-    merged["duplicate_candidates"] = core.compute_duplicate_candidates(conn, merged)
-    merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
+    if execute:
+        merged["duplicate_candidates"] = core.compute_duplicate_candidates(conn, merged)
+        merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
     merged = core.apply_promotion_state(merged)
     summary = {
         "mode": "execute" if execute else "dry_run",

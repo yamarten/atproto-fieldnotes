@@ -12086,28 +12086,22 @@ def inspect_merge_pair_payload(
 ) -> dict[str, Any]:
     source = ensure_project_shape(source)
     target = ensure_project_shape(target)
-    project_list = list_projects(conn)
-    duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
-    source_candidates = compute_duplicate_candidates(
-        conn,
+    source_profile = duplicate_profile(source)
+    target_profile = duplicate_profile(target)
+    source_pair_candidate = duplicate_candidate_for_pair(
         source,
-        projects=project_list,
-        duplicate_profiles=duplicate_profiles,
-        duplicate_index=duplicate_index,
-        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
-    )
-    target_candidates = compute_duplicate_candidates(
-        conn,
         target,
-        projects=project_list,
-        duplicate_profiles=duplicate_profiles,
-        duplicate_index=duplicate_index,
+        project_profile=source_profile,
+        other_profile=target_profile,
         bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
     )
-    source_recommendation = compute_merge_recommendation(dict(source, duplicate_candidates=source_candidates))
-    target_recommendation = compute_merge_recommendation(dict(target, duplicate_candidates=target_candidates))
-    source_pair_candidate = next((item for item in source_candidates if str(item.get("project_key") or "") == target["project_key"]), None)
-    target_pair_candidate = next((item for item in target_candidates if str(item.get("project_key") or "") == source["project_key"]), None)
+    target_pair_candidate = duplicate_candidate_for_pair(
+        target,
+        source,
+        project_profile=target_profile,
+        other_profile=source_profile,
+        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+    )
     strict_overlap = batch_strict_overlap(source, target)
     moderate_overlap = batch_moderate_overlap(source, target)
     heuristic_overlap = (
@@ -12126,8 +12120,6 @@ def inspect_merge_pair_payload(
         "merge_blocked": merge_is_blocked(source, target),
         "source_pair_candidate": source_pair_candidate,
         "target_pair_candidate": target_pair_candidate,
-        "source_recommendation": source_recommendation,
-        "target_recommendation": target_recommendation,
         "strict_overlap": strict_overlap,
         "moderate_overlap": moderate_overlap,
         "bootstrap_collection_creator_heuristic": bool(bootstrap_collection_creator_heuristic),
@@ -12168,6 +12160,68 @@ def merge_is_blocked(project_a: dict[str, Any], project_b: dict[str, Any]) -> bo
     return key_b in blocked_a or key_a in blocked_b
 
 
+def duplicate_candidate_for_pair(
+    project: dict[str, Any],
+    other: dict[str, Any],
+    *,
+    project_profile: dict[str, set[str]] | None = None,
+    other_profile: dict[str, set[str]] | None = None,
+    bootstrap_collection_creator_heuristic: bool = False,
+) -> dict[str, Any] | None:
+    if other.get("project_key") == project.get("project_key"):
+        return None
+    if merge_is_blocked(project, other):
+        return None
+    target_profile = project_profile or duplicate_profile(project)
+    candidate_profile = other_profile or duplicate_profile(other)
+    reasons: dict[str, list[str]] = {}
+    source_overlap = sorted(target_profile["source_code_urls"] & candidate_profile["source_code_urls"])
+    if source_overlap:
+        reasons["source_code_urls"] = source_overlap
+    github_overlap = sorted(target_profile["github_repo_urls"] & candidate_profile["github_repo_urls"])
+    if github_overlap:
+        reasons["github_repo_urls"] = github_overlap
+    candidate_repo_overlap = sorted(target_profile["candidate_source_code_urls"] & candidate_profile["candidate_source_code_urls"])
+    if candidate_repo_overlap:
+        reasons["candidate_source_code_urls"] = candidate_repo_overlap
+    service_overlap = sorted(target_profile["service_urls"] & candidate_profile["service_urls"])
+    if service_overlap:
+        reasons["service_urls"] = service_overlap
+    namespace_overlap = sorted(target_profile["recorded_lexicon_namespaces"] & candidate_profile["recorded_lexicon_namespaces"])
+    if namespace_overlap:
+        reasons["recorded_lexicon_namespaces"] = namespace_overlap
+    record_creator_overlap = sorted(set(project.get("record_creators", [])) & set(other.get("record_creators", [])))
+    namespace_lineage = namespace_lineage_overlap(project, other)
+    if record_creator_overlap and namespace_lineage:
+        reasons["record_creators_and_namespace_lineage"] = namespace_lineage
+    family_overlap = sorted(target_profile["authority_service_families"] & candidate_profile["authority_service_families"])
+    if family_overlap:
+        reasons["authority_service_families"] = family_overlap
+    domain_token_overlap = sorted(target_profile["domain_identity_tokens"] & candidate_profile["domain_identity_tokens"])
+    if domain_token_overlap:
+        reasons["domain_identity_tokens"] = domain_token_overlap
+    alias_overlap = sorted(target_profile["merge_aliases"] & candidate_profile["merge_aliases"])
+    if alias_overlap:
+        reasons["merge_aliases"] = alias_overlap
+    if bootstrap_collection_creator_heuristic and alias_overlap:
+        first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project) & project_bootstrap_first_creator_dids(other))
+        if first_creator_overlap:
+            reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
+    if not reasons:
+        return None
+    score = merge_score_from_reasons(reasons)
+    confidence, auto_merge_ready = merge_confidence_from_reasons(reasons, score)
+    return {
+        "project_key": other["project_key"],
+        "name": other.get("name") or "",
+        "status": other.get("status") or "",
+        "reasons": reasons,
+        "score": score,
+        "merge_confidence": confidence,
+        "auto_merge_ready": auto_merge_ready,
+    }
+
+
 def compute_duplicate_candidates(
     conn: sqlite3.Connection,
     project: dict[str, Any],
@@ -12200,56 +12254,16 @@ def compute_duplicate_candidates(
             continue
         if other["project_key"] == project["project_key"]:
             continue
-        if merge_is_blocked(project, other):
-            continue
         other_profile = duplicate_profiles.get(other_key) or duplicate_profile(other)
-        reasons: dict[str, list[str]] = {}
-        source_overlap = sorted(target_profile["source_code_urls"] & other_profile["source_code_urls"])
-        if source_overlap:
-            reasons["source_code_urls"] = source_overlap
-        github_overlap = sorted(target_profile["github_repo_urls"] & other_profile["github_repo_urls"])
-        if github_overlap:
-            reasons["github_repo_urls"] = github_overlap
-        candidate_repo_overlap = sorted(target_profile["candidate_source_code_urls"] & other_profile["candidate_source_code_urls"])
-        if candidate_repo_overlap:
-            reasons["candidate_source_code_urls"] = candidate_repo_overlap
-        service_overlap = sorted(target_profile["service_urls"] & other_profile["service_urls"])
-        if service_overlap:
-            reasons["service_urls"] = service_overlap
-        namespace_overlap = sorted(target_profile["recorded_lexicon_namespaces"] & other_profile["recorded_lexicon_namespaces"])
-        if namespace_overlap:
-            reasons["recorded_lexicon_namespaces"] = namespace_overlap
-        record_creator_overlap = sorted(set(project.get("record_creators", [])) & set(other.get("record_creators", [])))
-        namespace_lineage = namespace_lineage_overlap(project, other)
-        if record_creator_overlap and namespace_lineage:
-            reasons["record_creators_and_namespace_lineage"] = namespace_lineage
-        family_overlap = sorted(target_profile["authority_service_families"] & other_profile["authority_service_families"])
-        if family_overlap:
-            reasons["authority_service_families"] = family_overlap
-        domain_token_overlap = sorted(target_profile["domain_identity_tokens"] & other_profile["domain_identity_tokens"])
-        if domain_token_overlap:
-            reasons["domain_identity_tokens"] = domain_token_overlap
-        alias_overlap = sorted(target_profile["merge_aliases"] & other_profile["merge_aliases"])
-        if alias_overlap:
-            reasons["merge_aliases"] = alias_overlap
-        if bootstrap_collection_creator_heuristic and alias_overlap:
-            first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project) & project_bootstrap_first_creator_dids(other))
-            if first_creator_overlap:
-                reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
-        if reasons:
-            score = merge_score_from_reasons(reasons)
-            confidence, auto_merge_ready = merge_confidence_from_reasons(reasons, score)
-            candidates.append(
-                {
-                    "project_key": other["project_key"],
-                    "name": other.get("name") or "",
-                    "status": other.get("status") or "",
-                    "reasons": reasons,
-                    "score": score,
-                    "merge_confidence": confidence,
-                    "auto_merge_ready": auto_merge_ready,
-                }
-            )
+        candidate = duplicate_candidate_for_pair(
+            project,
+            other,
+            project_profile=target_profile,
+            other_profile=other_profile,
+            bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
+        )
+        if candidate:
+            candidates.append(candidate)
     candidates.sort(key=lambda item: (-int(item.get("score", 0)), item["project_key"]))
     return candidates
 

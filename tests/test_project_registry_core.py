@@ -1519,32 +1519,28 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(pair["merge_confidence"], "low")
         self.assertFalse(pair["auto_merge_ready"])
 
-    def test_inspect_merge_pair_reuses_duplicate_index(self) -> None:
+    def test_inspect_merge_pair_does_not_build_global_duplicate_index(self) -> None:
         source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/source")
         source["name"] = "Example Source"
         target = registry.default_project_record("proj:mergetarget", "repo_url", "https://github.com/example/target")
         target["name"] = "Example Target"
-        projects = [source, target]
 
         original_list_projects = registry.list_projects
         original_build_index = registry.build_duplicate_candidate_index
-        call_count = 0
 
-        def counted_list_projects(_conn: object) -> list[dict[str, object]]:
-            return projects
+        def fail_list_projects(_conn: object) -> list[dict[str, object]]:
+            raise AssertionError("pair inspection should not load all projects")
 
-        def counted_build_index(items: list[dict[str, object]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
-            nonlocal call_count
-            call_count += 1
-            return original_build_index(items)
+        def fail_build_index(_items: list[dict[str, object]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
+            raise AssertionError("pair inspection should not build the global duplicate index")
 
         try:
-            registry.list_projects = counted_list_projects
-            registry.build_duplicate_candidate_index = counted_build_index
+            registry.list_projects = fail_list_projects
+            registry.build_duplicate_candidate_index = fail_build_index
 
-            registry.inspect_merge_pair_payload(None, source, target)
-
-            self.assertEqual(call_count, 1)
+            payload = registry.inspect_merge_pair_payload(None, source, target)
+            self.assertIn("source_pair_candidate", payload)
+            self.assertNotIn("source_recommendation", payload)
         finally:
             registry.list_projects = original_list_projects
             registry.build_duplicate_candidate_index = original_build_index
