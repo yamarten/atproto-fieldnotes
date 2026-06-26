@@ -1545,6 +1545,29 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
             registry.list_projects = original_list_projects
             registry.build_duplicate_candidate_index = original_build_index
 
+    def test_inspect_merge_pair_can_include_bootstrap_details_without_primary_signal(self) -> None:
+        source = registry.default_project_record("proj:sourcebootstrap", "repo_url", "https://github.com/example/source")
+        source["name"] = "Example"
+        source["input_nsids"] = ["app.example.post"]
+        target = registry.default_project_record("proj:targetbootstrap", "repo_url", "https://github.com/example/target")
+        target["name"] = "Example"
+        target["input_nsids"] = ["app.example.comment"]
+        original_fetch = registry.fetch_collection_first_creator_did
+
+        def fake_fetch(_collection: str) -> str:
+            return "did:plc:shared"
+
+        try:
+            registry.fetch_collection_first_creator_did = fake_fetch
+
+            payload = registry.inspect_merge_pair_payload(None, source, target, include_bootstrap_details=True)
+        finally:
+            registry.fetch_collection_first_creator_did = original_fetch
+
+        self.assertTrue(payload["bootstrap_details_included"])
+        self.assertEqual(payload["bootstrap_overlap"]["bootstrap_first_record_creator_dids"], ["did:plc:shared"])
+        self.assertNotIn("bootstrap_first_record_creator_dids", payload["source_pair_candidate"]["reasons"])
+
     def test_compute_external_lexicons_uses_saved_trust_state_only(self) -> None:
         project = registry.default_project_record("proj:externallexicon", "repo_url", "https://github.com/example/app")
         project["input_nsids"] = ["org.other.post"]

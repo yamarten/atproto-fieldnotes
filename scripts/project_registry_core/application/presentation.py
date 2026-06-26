@@ -758,11 +758,18 @@ def merge_batch_plan(
     return {"mode": mode, "items": plans[:limit], "count": len(plans), "skipped_count": len(skipped)}
 
 
-def merge_pair(conn: sqlite3.Connection, *, source_project_key: str, target_project_key: str) -> dict[str, Any]:
+def merge_pair(
+    conn: sqlite3.Connection,
+    *,
+    source_project_key: str,
+    target_project_key: str,
+    include_bootstrap_details: bool = False,
+) -> dict[str, Any]:
     result = merge.inspect_pair(
         conn,
         project_key=source_project_key,
         target_project_key=target_project_key,
+        include_bootstrap_details=include_bootstrap_details,
     )
     source = core.resolve_single_project(conn, project_key=source_project_key)
     target = core.resolve_single_project(conn, project_key=target_project_key)

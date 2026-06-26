@@ -12083,6 +12083,7 @@ def inspect_merge_pair_payload(
     target: dict[str, Any],
     *,
     bootstrap_collection_creator_heuristic: bool = False,
+    include_bootstrap_details: bool = False,
 ) -> dict[str, Any]:
     source = ensure_project_shape(source)
     target = ensure_project_shape(target)
@@ -12106,7 +12107,7 @@ def inspect_merge_pair_payload(
     moderate_overlap = batch_moderate_overlap(source, target)
     heuristic_overlap = (
         batch_moderate_overlap(source, target, bootstrap_collection_creator_heuristic=True)
-        if bootstrap_collection_creator_heuristic else {}
+        if bootstrap_collection_creator_heuristic or include_bootstrap_details else {}
     )
     summary: dict[str, Any] = {
         "source_project_key": source["project_key"],
@@ -12123,9 +12124,10 @@ def inspect_merge_pair_payload(
         "strict_overlap": strict_overlap,
         "moderate_overlap": moderate_overlap,
         "bootstrap_collection_creator_heuristic": bool(bootstrap_collection_creator_heuristic),
+        "bootstrap_details_included": bool(include_bootstrap_details or bootstrap_collection_creator_heuristic),
         "bootstrap_overlap": heuristic_overlap,
     }
-    if bootstrap_collection_creator_heuristic:
+    if include_bootstrap_details or bootstrap_collection_creator_heuristic:
         summary["source_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(source)
         summary["target_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(target)
     return summary

@@ -530,8 +530,18 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["source"]["name"], "Example App")
         self.assertEqual(payload["target"]["name"], "Example Duplicate")
         self.assertTrue(payload["source"]["identifiers"])
+        self.assertFalse(payload["bootstrap_details_included"])
         self.assertEqual(payload["merged_preview"]["target_project_key"], "proj:222222222222")
         self.assertEqual(payload["merged_preview"]["merged_name"], "Example Duplicate")
+
+    def test_merge_pair_can_include_bootstrap_details_on_request(self) -> None:
+        status, payload, _ = self.request(
+            "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222&include_bootstrap_details=1"
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["bootstrap_details_included"])
+        self.assertIn("source_collection_first_creator_dids", payload)
+        self.assertIn("target_collection_first_creator_dids", payload)
 
     def test_investigation_history_detail_and_replay(self) -> None:
         status, runs, _ = self.request("/api/projects/proj:111111111111/investigation-runs")

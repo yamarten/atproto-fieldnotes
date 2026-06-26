@@ -1132,6 +1132,10 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 - pair指定の `inspect-merge-pair` / Web merge review は、指定された2 projectだけを比較します
   - 一覧用の全project duplicate indexや、source/targetそれぞれの現在の `merge_recommendation` は計算しません
   - 表示する `source_pair_candidate` / `target_pair_candidate` は、一覧用 `compute_duplicate_candidates()` と同じpair判定関数から作ります
+- `bootstrap_collection_creator_heuristic` は通常のWeb merge reviewでは初期計算しません
+  - Webでは `Load bootstrap heuristic` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
+  - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
+  - CLIの `inspect-merge-pair --bootstrap-collection-creator-heuristic` と `merge-batch --bootstrap-collection-creator-heuristic` は、明示的にheuristicを判定へ含める暫定導線として残っています
 
 ### merge-batch の追加安全策
 

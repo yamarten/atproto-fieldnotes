@@ -322,8 +322,14 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             target = str(query.get("target_project_key", [""])[0]).strip()
             if not source or not target:
                 raise ValueError("source_project_key and target_project_key are required")
+            include_bootstrap_details = str(query.get("include_bootstrap_details", [""])[0]).lower() in {"1", "true", "yes"}
             with contextlib.closing(self.server.open_db()) as conn:
-                self.send_json(services.merge_pair(conn, source_project_key=source, target_project_key=target))
+                self.send_json(services.merge_pair(
+                    conn,
+                    source_project_key=source,
+                    target_project_key=target,
+                    include_bootstrap_details=include_bootstrap_details,
+                ))
             return
         if path == "/api/seeds/preview":
             seed = str(query.get("seed", [""])[0]).strip()
