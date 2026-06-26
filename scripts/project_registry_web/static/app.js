@@ -161,6 +161,7 @@ function listControls() {
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
+      <button id="refresh-review-list" class="secondary">Refresh</button>
     </div></div>`;
   }
   return `<div class="controls">
@@ -256,6 +257,7 @@ function captureProjectSearch() {
 
 function bindControls() {
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
+  $("refresh-review-list")?.addEventListener("click", () => loadList());
   $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
   $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
   $("new-seed")?.addEventListener("click", renderNewSeed);
@@ -286,6 +288,43 @@ function renderList(data) {
     const target = card.dataset.mergeTarget;
     target ? loadMergeDetail(source, target) : loadDetail(source);
   });
+}
+
+function openListCard(card) {
+  if (!card) return false;
+  const source = card.dataset.projectKey;
+  const target = card.dataset.mergeTarget;
+  target ? loadMergeDetail(source, target) : loadDetail(source);
+  return true;
+}
+
+function advanceReviewListAfterMutation(response, path) {
+  if (state.screen !== "review") return false;
+  const sourceKey = path === "/api/merge-batch/action"
+    ? String(response.source_project_key || state.selected || "")
+    : String(response.project_key || state.selected || "");
+  if (!sourceKey) return false;
+  const cards = Array.from(document.querySelectorAll("[data-project-key]"));
+  const current = cards.find((card) => card.dataset.projectKey === sourceKey) || cards.find((card) => card.classList.contains("selected"));
+  if (!current) return false;
+  const next = current.nextElementSibling?.matches?.("[data-project-key]") ? current.nextElementSibling : null;
+  const previous = current.previousElementSibling?.matches?.("[data-project-key]") ? current.previousElementSibling : null;
+  current.remove();
+  const remaining = Array.from(document.querySelectorAll("[data-project-key]")).length;
+  const meta = $("list")?.querySelector(".meta-row strong");
+  if (meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
+  if (next || previous) {
+    status(`Saved. Moved to next item. ${remaining} visible; refresh to recalculate.`);
+    openListCard(next || previous);
+  } else {
+    state.selected = "";
+    document.body.classList.remove("detail-open");
+    syncUrl();
+    $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
+    $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
+    status("Saved. No more visible review items; refresh to recalculate.");
+  }
+  return true;
 }
 
 async function loadDetail(key, {updateUrl = true} = {}) {
@@ -584,6 +623,9 @@ function confirmMutation(title, message, path, payload, note) {
         if (path.endsWith("/merge-recommendation")) payload.expected_target_revision = state.mergeTargetRevision;
         status("Saving...");
         const response = await api(path, {method:"POST", body:JSON.stringify(payload)});
+        if (advanceReviewListAfterMutation(response, path)) {
+          return;
+        }
         status("Saved.");
         if (response.detail) {
           renderDetail(response.detail);
