@@ -56,6 +56,10 @@ function safeUrl(value) { try { const url = new URL(String(value || "")); return
 function link(value) { const href = safeUrl(value); return href ? `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(value)}</a>` : esc(value); }
 function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value)}</span>` : ""; }
 function json(value) { return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`; }
+function showDialogWithoutInputFocus(dialog) {
+  dialog.showModal();
+  requestAnimationFrame(() => dialog.focus({preventScroll: true}));
+}
 function formatDuration(seconds) {
   if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return "";
   const value = Math.max(0, Math.round(Number(seconds)));
@@ -584,7 +588,7 @@ function editProfile(project, profile) {
       status(error.message, true);
     }
   };
-  dialog.showModal();
+  showDialogWithoutInputFocus(dialog);
 }
 
 async function addProjectSeed(projectKey) {
@@ -613,7 +617,7 @@ function confirmMutation(title, message, path, payload, note) {
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = !note;
   $("confirm-note").value = "";
-  dialog.showModal();
+  showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;
     if (note) payload.note = $("confirm-note").value.trim();
@@ -761,7 +765,7 @@ function confirmOperation(title, message, callback, {write = true} = {}) {
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = true;
   $("confirm-note").value = "";
-  dialog.showModal();
+  showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;
     try { await callback(); } catch (error) { status(error.message, true); }
@@ -1001,7 +1005,7 @@ function confirmServerReload() {
   $("confirm-title").textContent = "Reload server";
   $("confirm-message").textContent = "Restart the Web server with the same command-line arguments? Active background jobs receive a stop request; jobs that exceed the shutdown timeout are terminated.";
   $("confirm-note-label").hidden = true;
-  dialog.showModal();
+  showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;
     const previousInstance = state.server?.server_instance_id || "";
