@@ -71,7 +71,8 @@
   - 現状の`migrate-db`はv1からv2だけを扱い、既存v2 DBを次世代schemaへ更新するrunnerはない
 - DB-level trust/data policy marker
   - 現行通常DBのv1由来identifierは`v1-quarantine-1` metadataを持つが、`registry_meta`はschema versionしか持たない
-  - markerは再移行せず、audit合格後のadditive updateとして後付けする
+  - 正本DBが単一で、移行後の修正も通常DBへ反映済みのため、直近の実装優先から外した
+  - 将来必要になった場合は、再移行ではなくaudit合格後のadditive updateとして後付けする
 - `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
 - OAuth `include:` permission setの再帰解決
@@ -117,6 +118,12 @@
   - `defines_schema`はaccepted repoとaccepted NSIDが揃う場合だけ保存し、repo内lexicon JSONだけの既存relation 444件を`mentions_collection`へdowngrade済み
   - 追加backup: `data/survey.db.backup-20260625-defines-schema-policy`
   - service pageのNSID直接言及だけではconfirmed service URLへ昇格しない
+  - 旧NSID直接言及ruleだけでconfirmedになった可能性があるservice URLを既存DBで確認済み
+    - 2026-06-26 read-only preliminary count: confirmed service URL pairは652、当時supported判定の`operates_service`を持つものは544、そのうちmanual seedではない上限候補は56
+    - 保存済みprobe本文をprojectのNSIDと照合した直接NSID言及候補3件はuser確認済み。`atplan`と`Tree Appreciation`はOK、`atjam`のround個別ページはproject紐付け対象として外した
+    - 2026-06-27: 候補projectを順次enrichし、35/36 projectは完了。先に`.envrc`なしで実行した3件は`.envrc`ありで再実行し、`last_run_errors`が空になることを確認済み
+    - `proj:3b0767e1cad9`は通常enrichが240秒timeout、個別再実行も600秒timeout
+    - 最終user review: `https://granary-demo.appspot.com`は正しいが不要、`https://granary.readthedocs.io`はGitHub側linkで確認済み。旧NSID直接言及rule由来の追加manual review対象は残っていない
   - `.venv/bin/python`で全unit test 245件
 
 未検証:
@@ -124,7 +131,6 @@
 - Web workerから実外部sync sourceへ接続するend-to-end実行
 - 長時間運用時の実API retry/cache/budget値
 - `proj:29a36771674f`など、複数projectを跨いで残るidentifier collisionの個別分離・merge判断
-- 既存DBのconfirmed service URLのうち、旧NSID直接言及ruleだけで成立していたものの網羅的downgrade audit
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。

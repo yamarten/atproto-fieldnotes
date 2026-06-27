@@ -15,9 +15,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 旧NSID直接言及ruleだけでconfirmedになったservice URLを保存済みprobeから再評価し、dry-run reportを出す。
 - `proj:29a36771674f`など、複数project collisionの個別split/merge判断を行う。
-- 新規v1 migrationはacceptance check完了後にDB-level markerを書く。markerなし既存v2への後付けはread-only audit合格時だけadditiveに行う。
 
 ## DB 操作メモ
 
@@ -42,5 +40,8 @@
 - sync/reviewのcheckpoint再開
 - server再起動後のprocess job eventとjob一覧の復元
 - CLIなど別processを含むwriter排他
+- DB-level migration/data policy marker
+  - 正本DBが単一で、移行後の修正も通常DBへ反映済みのため直近優先から外した
+  - 将来、複数DBやpolicy世代分岐を扱う場合だけ再検討する
 
 より広い制約と確認済み範囲は[status.md](status.md)を参照してください。

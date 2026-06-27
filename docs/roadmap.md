@@ -33,14 +33,14 @@
 
 ### 通常DB移行後
 
-通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。v1 backupとmigration reportは保持しています。直近に残るのはDB-level markerです。
+通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。v1 backupとmigration reportは保持しています。通常DBは単一の正本として運用しており、移行後の不整合修正も通常DBへ反映済みです。
 
-1. 現行migrationの適用世代をDB自身で識別可能にする
-   - 現状は`schema_version=2`だけで、旧方式v2も`already_current`になる
-   - trust/data policy markerを`registry_meta`へ残し、schema versionとは分けて判定する
-   - 新規v1 migrationではacceptance check完了後にmarkerを書く
-   - markerなし既存v2はread-only auditに合格した場合だけmarkerをadditiveに後付けする
-   - 通常DBはrow-level policyとacceptance conditionを確認済みであり、再移行しない
+DB-level migration/data policy markerは直近優先から外します。
+
+- 現状は`schema_version=2`だけで、旧方式v2や試験生成v2とのpolicy世代差はDB単体では識別できない
+- ただし正本DBが基本1つで、巻き戻しや複数policy世代DBの並行運用も想定していないため、現時点の実利は小さい
+- 将来、複数DB、再migration、schema v2内でのdata policy世代分岐が必要になった場合に再検討する
+- 実装する場合は、open時の自動付与ではなく、新規v1 migrationのacceptance check完了後、またはmarkerなし既存v2のread-only audit合格後にだけadditiveに付与する
 
 process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
 ### 必要が生じた時に検討するもの
@@ -233,7 +233,6 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - 原則 read-only report
 - 判定feedback後の既存DB cleanup audit
   - confirmed service URLに補助ページやdefer/block配下URLが残っていないか確認する
-  - 旧NSID直接言及ruleだけでconfirmedになったservice URLを保存済みprobeから再評価してcandidate/deferへ落とす
   - repoとNSIDの両方がacceptedではない `defines_schema` relationと、それに連動したowned NSIDを棚卸しする
   - dry-runで影響projectとidentifier/relation差分を出し、backup後にrepairまたは個別cleanupを実行する
 - trust graph based confirm policy
@@ -241,6 +240,7 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - 片方向link、self-claim、usage/compatibility mentionはcandidate/reviewに留める
   - cryptographic/atproto recordなど片方向でも強い検証になる根拠は、明示的な例外edgeとして通常link evidenceから分ける
   - confirmed identifierごとに、成立したtrust pathをdry-run/explainで出せるようにする
+  - accepted GitHub repoからReadTheDocsなどのdocs siteへ明示的にlinkしている場合、README内の任意URLとは分けて`repo_links_service`へ昇格できる条件を検討する
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
   - Web UI には出さず CLI で扱う
