@@ -117,7 +117,7 @@ class RegistryWebServer(ThreadingHTTPServer):
         self.reload_lock = threading.Lock()
         self.reload_requested = False
         self.mutation_lock = threading.Lock()
-        self.jobs = JobManager(self.db_path)
+        self.jobs = JobManager(self.db_path, enable_scheduler=not self.read_only)
 
     def open_db(self) -> sqlite3.Connection:
         return database.open_database(self.db_path)
@@ -243,6 +243,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/checkpoints":
             self.send_json(self.server.jobs.list_checkpoints(limit=_int(query.get("limit", [100])[0], 100)))
+            return
+        if path == "/api/job-schedules":
+            self.send_json(self.server.jobs.list_schedules())
             return
         if path.startswith("/api/jobs/"):
             job_id = urllib.parse.unquote(path.removeprefix("/api/jobs/")).strip("/")
@@ -401,6 +404,15 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             result = self.server.jobs.start_review(parameters, execute=_boolean(payload.get("execute")))
             self.send_json(result, status=HTTPStatus.ACCEPTED)
             return
+        if path == "/api/job-schedules":
+            self.send_json(self.server.jobs.update_schedules(payload))
+            return
+        if path.startswith("/api/job-schedules/"):
+            parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/job-schedules/").split("/") if part]
+            if len(parts) == 2 and parts[1] == "run":
+                self.send_json(self.server.jobs.run_scheduled_preset(parts[0]), status=HTTPStatus.ACCEPTED)
+                return
+            raise ValueError("unknown schedule action")
         if path.startswith("/api/jobs/"):
             parts = [urllib.parse.unquote(part) for part in path.removeprefix("/api/jobs/").split("/") if part]
             if len(parts) != 2:

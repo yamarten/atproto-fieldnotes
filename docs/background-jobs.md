@@ -99,6 +99,9 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - Web APIのenrich開始、一覧、詳細、停止、再開
 - Web APIのsync/review開始、dry-run/execute指定、一覧、詳細、停止要求
 - Operations画面のenrich、sync、review設定と直近event/result表示
+- Operations画面のscheduled preset設定、手動発火、定期発火
+  - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all`
+  - presetごとに毎週または第N週の曜日、時刻、time zoneを設定する
 - 同じWeb serverから同時に実行するbackground jobを1件へ制限
 - `project_registry_core.application.review`の非対話classification service
 
@@ -139,6 +142,7 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - 完了jobは直近100件、eventはjobごとに直近200件、stderrは直近50行を保持する
 - Web server終了・reload時はactive workerへ協調停止を要求し、timeout後にprocessを終了する
 - custom DBのcheckpointはそのDBと同じdirectoryの`enrich-runs/`へ保存する
+- scheduled preset設定とpending queueはDBと同じdirectoryの`job-schedules.json`へ保存する。server再起動時に実行中だったscheduled stepは同じstepから再試行する
 - Web APIはLLM API keyを受け取らず、workerはserver processの環境変数を継承する
 - syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない

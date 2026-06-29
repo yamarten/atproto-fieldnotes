@@ -56,6 +56,19 @@ class FakeJobManager:
     def list_checkpoints(self, *, limit: int = 100) -> dict:
         return {"count": 0, "items": []}
 
+    def list_schedules(self) -> dict:
+        return {"version": 1, "items": [{"preset_id": "enrich_all", "schedule": {"enabled": False}}], "queue": []}
+
+    def update_schedules(self, payload) -> dict:
+        self.parameters = payload
+        return {"version": 1, "items": payload if isinstance(payload, list) else payload.get("items", []), "queue": []}
+
+    def run_scheduled_preset(self, preset_id: str) -> dict:
+        if preset_id != "enrich_all":
+            raise ValueError(f"unknown schedule preset: {preset_id}")
+        self.parameters = {"preset_id": preset_id}
+        return {"version": 1, "items": [], "queue": [{"preset_id": preset_id}]}
+
     def resume_checkpoint(self, run_id: str) -> dict:
         job = dict(self.job)
         job["operation_id"] = run_id
@@ -437,6 +450,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             method="POST",
             payload={"all_projects": True, "tracking_states": ["invalid"]},
         )
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+    def test_job_schedule_endpoints_validate_preset_allowlist(self) -> None:
+        status, schedules, _ = self.request("/api/job-schedules")
+        self.assertEqual(status, 200)
+        self.assertEqual(schedules["items"][0]["preset_id"], "enrich_all")
+
+        status, updated, _ = self.request(
+            "/api/job-schedules",
+            method="POST",
+            payload={"items": [{"preset_id": "enrich_all", "enabled": True, "week_of_month": 0, "weekday": 4, "time": "03:00", "timezone": "Asia/Tokyo"}]},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.server.jobs.parameters["items"][0]["preset_id"], "enrich_all")
+
+        status, queued, _ = self.request("/api/job-schedules/enrich_all/run", method="POST", payload={})
+        self.assertEqual(status, 202)
+        self.assertEqual(queued["queue"][0]["preset_id"], "enrich_all")
+
+        status, error, _ = self.request("/api/job-schedules/delete_everything/run", method="POST", payload={})
         self.assertEqual(status, 400)
         self.assertEqual(error["error"]["code"], "validation_error")
 

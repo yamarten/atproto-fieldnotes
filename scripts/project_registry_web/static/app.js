@@ -808,7 +808,7 @@ function renderOperations() {
       <button id="start-review" class="primary">Build review plan</button>
     </div><code>project-registry review-&lt;kind&gt; [--execute]</code></article>
     <article class="operation-card"><h3>Investigation Replay</h3><p>Replay and benchmark saved evidence without network access.</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
-  </div>${section("Discovered Checkpoints", `<div id="checkpoint-list"><p class="muted">Loading...</p></div>`)}${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
+  </div>${section("Scheduled Presets", `<div id="schedule-list"><p class="muted">Loading...</p></div>`)}${section("Discovered Checkpoints", `<div id="checkpoint-list"><p class="muted">Loading...</p></div>`)}${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
   $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
   $("sync-source").onchange = updateSyncControls;
   $("review-kind").onchange = updateReviewControls;
@@ -954,12 +954,69 @@ function renderCheckpoints(items) {
   return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume && !state.server?.read_only ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
 }
 
+function scheduleWeekdayOptions(selected) {
+  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, index) => `<option value="${index}" ${Number(selected) === index ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function scheduleWeekOptions(selected) {
+  return [
+    [0, "Every week"],
+    [1, "1st week"],
+    [2, "2nd week"],
+    [3, "3rd week"],
+    [4, "4th week"],
+    [5, "5th week"],
+  ].map(([value, label]) => `<option value="${value}" ${Number(selected) === value ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function renderSchedules(data) {
+  const items = list(data.items);
+  if (!items.length) return `<p class="muted">No schedule presets are available.</p>`;
+  const queue = list(data.queue);
+  const queueHtml = queue.length ? `<p class="notice">Queued scheduled work: ${esc(queue.map((item) => `${item.preset_id}:${item.current_job_id || "waiting"}`).join(", "))}</p>` : "";
+  return `${queueHtml}<div class="operation-grid">${items.map((item) => {
+    const schedule = item.schedule || {};
+    const steps = list(item.steps).map((step) => esc(step.label || step.operation)).join(" → ");
+    const statusLine = [item.last_status, item.last_message, item.last_started_at ? `started ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `completed ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
+    return `<article class="operation-card schedule-card" data-schedule-card="${esc(item.preset_id)}">
+      <div class="card-title"><strong>${esc(item.label)}</strong>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
+      <p class="muted">${esc(item.description)}</p>
+      <p class="muted">${steps}</p>
+      <div class="controls">
+        <label><span><input type="checkbox" data-schedule-field="enabled" data-preset-id="${esc(item.preset_id)}" ${schedule.enabled ? "checked" : ""}> Enabled</span></label>
+        <label>Week<select data-schedule-field="week_of_month" data-preset-id="${esc(item.preset_id)}">${scheduleWeekOptions(schedule.week_of_month)}</select></label>
+        <label>Weekday<select data-schedule-field="weekday" data-preset-id="${esc(item.preset_id)}">${scheduleWeekdayOptions(schedule.weekday)}</select></label>
+        <label>Time<input type="time" data-schedule-field="time" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.time || "03:00")}"></label>
+        <label>Time zone<input data-schedule-field="timezone" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.timezone || "Asia/Tokyo")}"></label>
+      </div>
+      <p class="muted">Next: ${esc(formatTimestamp(item.next_due_at))}</p>
+      ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
+      <div class="actions">${state.server?.read_only ? "" : `<button class="small primary" data-schedule-run="${esc(item.preset_id)}">Run now</button>`}</div>
+    </article>`;
+  }).join("")}</div>${state.server?.read_only ? "" : `<div class="actions"><button id="save-schedules" class="primary">Save schedules</button></div>`}`;
+}
+
+function collectScheduleUpdates() {
+  const updates = new Map();
+  document.querySelectorAll("[data-schedule-field]").forEach((input) => {
+    const presetId = input.dataset.presetId;
+    if (!presetId) return;
+    const item = updates.get(presetId) || {preset_id: presetId};
+    const field = input.dataset.scheduleField;
+    if (field === "enabled") item[field] = input.checked;
+    else if (field === "weekday" || field === "week_of_month") item[field] = Number(input.value);
+    else item[field] = input.value;
+    updates.set(presetId, item);
+  });
+  return [...updates.values()];
+}
+
 async function loadJobs() {
   if (state.screen !== "operations") return;
   if (state.operationTimer) clearTimeout(state.operationTimer);
   state.operationTimer = null;
   try {
-    const [data, checkpoints] = await Promise.all([api("/api/jobs?limit=50"), api("/api/checkpoints?limit=100")]);
+    const [data, checkpoints, schedules] = await Promise.all([api("/api/jobs?limit=50"), api("/api/checkpoints?limit=100"), api("/api/job-schedules")]);
     state.jobsById = new Map(list(data.items).map((job) => [job.job_id, job]));
     const anchor = document.querySelector("[data-job-details][open]");
     const anchorTop = anchor?.getBoundingClientRect().top;
@@ -969,6 +1026,7 @@ async function loadJobs() {
     }));
     $("job-list").innerHTML = renderJobs(list(data.items));
     $("checkpoint-list").innerHTML = renderCheckpoints(list(checkpoints.items));
+    $("schedule-list").innerHTML = renderSchedules(schedules);
     bindJobActions();
     if (anchor && anchorTop !== undefined) {
       const replacement = document.querySelector(`[data-job-details="${CSS.escape(anchor.dataset.jobDetails)}"]`);
@@ -978,7 +1036,7 @@ async function loadJobs() {
       const pre = document.querySelector(`[data-job-details="${CSS.escape(jobId)}"] pre`);
       if (pre) { pre.scrollTop = position.top; pre.scrollLeft = position.left; }
     });
-    if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling")) {
+    if (list(data.items).some((job) => job.can_cancel || job.status === "cancelling") || list(schedules.queue).length) {
       state.operationTimer = setTimeout(loadJobs, 2000);
     }
   } catch (error) { status(error.message, true); }
@@ -998,6 +1056,21 @@ async function refreshJobDetail(jobId) {
 }
 
 function bindJobActions() {
+  $("save-schedules")?.addEventListener("click", async () => {
+    try {
+      await api("/api/job-schedules", {method:"POST", body:JSON.stringify({items: collectScheduleUpdates()})});
+      status("Schedules saved.");
+      await loadJobs();
+    } catch (error) { status(error.message, true); }
+  });
+  document.querySelectorAll("[data-schedule-run]").forEach((button) => button.onclick = () => {
+    const presetId = button.dataset.scheduleRun;
+    confirmOperation("Run scheduled preset", `Queue ${presetId} now? This may write to SQLite.`, async () => {
+      await api(`/api/job-schedules/${encodeURIComponent(presetId)}/run`, {method:"POST", body:"{}"});
+      status("Scheduled preset queued.");
+      await loadJobs();
+    });
+  });
   document.querySelectorAll("[data-job-detail-refresh]").forEach((button) => button.onclick = () => refreshJobDetail(button.dataset.jobDetailRefresh));
   document.querySelectorAll("[data-checkpoint-resume]").forEach((button) => button.onclick = () => confirmOperation("Resume discovered checkpoint", `Resume ${button.dataset.checkpointResume}?`, async () => {
     await api(`/api/checkpoints/${encodeURIComponent(button.dataset.checkpointResume)}/resume`, {method:"POST", body:"{}"});

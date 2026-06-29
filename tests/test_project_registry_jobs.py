@@ -66,20 +66,22 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.manager = JobManager(
             self.db_path,
             worker_command=[sys.executable, str(self.worker_path)],
+            enable_scheduler=False,
         )
 
     def tearDown(self) -> None:
         self.manager.close(timeout=1.0)
         super().tearDown()
 
-    def wait_for(self, job_id: str, statuses: set[str], timeout: float = 3.0) -> dict:
+    def wait_for(self, job_id: str, statuses: set[str], timeout: float = 3.0, manager: JobManager | None = None) -> dict:
+        manager = manager or self.manager
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            job = self.manager.get_job(job_id)
+            job = manager.get_job(job_id)
             if job["status"] in statuses:
                 return job
             time.sleep(0.02)
-        self.fail(f"job did not reach {statuses}: {self.manager.get_job(job_id)}")
+        self.fail(f"job did not reach {statuses}: {manager.get_job(job_id)}")
 
     def test_subprocess_job_completes_and_keeps_events(self) -> None:
         job = self.manager.start_enrich({"all_projects": True})
@@ -118,6 +120,101 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(review_completed["operation"], "review")
         self.assertTrue(review_completed["request"]["execute"])
         self.assertFalse(review_completed["can_resume"])
+
+    def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
+        queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        self.assertEqual(queued["queue"][0]["preset_id"], "sync_sources_then_enrich")
+
+        started = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(started["operation"], "sync")
+        self.assertEqual(started["request"]["parameters"]["source"], "github")
+
+        for expected_source in ("collections", "semble", "tangled"):
+            state = self.manager.run_scheduler_once()
+            current_job_id = state["queue"][0]["current_job_id"]
+            completed = self.wait_for(current_job_id, {"completed"})
+            self.assertEqual(completed["operation"], "sync")
+            self.assertEqual(completed["request"]["parameters"]["source"], expected_source)
+
+        state = self.manager.run_scheduler_once()
+        enrich_job_id = state["queue"][0]["current_job_id"]
+        completed = self.wait_for(enrich_job_id, {"completed"})
+        self.assertEqual(completed["operation"], "enrich")
+        self.assertTrue(completed["request"]["parameters"]["all_projects"])
+
+        state = self.manager.run_scheduler_once()
+        self.assertEqual(state["queue"], [])
+        schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+        self.assertEqual(schedule["last_status"], "completed")
+
+    def test_all_state_maintenance_runs_enrich_then_stalled_review(self) -> None:
+        queued = self.manager.run_scheduled_preset("enrich_all_states")
+        enrich_job = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(enrich_job["operation"], "enrich")
+        self.assertTrue(enrich_job["request"]["parameters"]["all_tracking_states"])
+
+        state = self.manager.run_scheduler_once()
+        review_job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(review_job["operation"], "review")
+        self.assertEqual(review_job["request"]["parameters"]["kind"], "stalled")
+        self.assertTrue(review_job["request"]["execute"])
+
+        state = self.manager.run_scheduler_once()
+        self.assertEqual(state["queue"], [])
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
+        self.assertEqual(schedule["last_status"], "completed")
+
+    def test_schedule_queue_retries_running_step_after_manager_restart(self) -> None:
+        state_path = self.db_path.parent / "job-schedules.json"
+        state_path.write_text(json.dumps({
+            "version": 1,
+            "schedules": {
+                "sync_sources_then_enrich": {
+                    "preset_id": "sync_sources_then_enrich",
+                    "enabled": False,
+                    "week_of_month": 0,
+                    "weekday": 2,
+                    "time": "03:00",
+                    "timezone": "Asia/Tokyo",
+                }
+            },
+            "queue": [{
+                "preset_id": "sync_sources_then_enrich",
+                "period": "manual:restart",
+                "reason": "manual",
+                "queued_at": "2026-06-29T00:00:00+00:00",
+                "remaining_steps": [{
+                    "operation": "sync",
+                    "label": "sync github",
+                    "parameters": {"source": "github"},
+                    "execute": True,
+                }],
+                "current_step": {
+                    "operation": "sync",
+                    "label": "sync github",
+                    "parameters": {"source": "github"},
+                    "execute": True,
+                },
+                "current_job_id": "job:lost",
+                "completed_steps": [],
+            }],
+        }))
+        restarted = JobManager(
+            self.db_path,
+            worker_command=[sys.executable, str(self.worker_path)],
+            enable_scheduler=False,
+        )
+        try:
+            state = restarted.list_schedules()
+            self.assertEqual(state["queue"][0]["current_job_id"], "")
+            schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+            self.assertEqual(schedule["last_status"], "deferred")
+
+            state = restarted.run_scheduler_once()
+            completed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"}, manager=restarted)
+            self.assertEqual(completed["request"]["parameters"]["source"], "github")
+        finally:
+            restarted.close(timeout=1.0)
 
     def test_cancel_conflict_and_resume_use_same_operation_checkpoint(self) -> None:
         first = self.manager.start_enrich({"all_projects": True, "wait_on_first": True})
