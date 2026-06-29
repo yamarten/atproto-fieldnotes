@@ -25,6 +25,8 @@
   - migration時のhard acceptance condition、SQLite integrity、normalized roundtripは合格
 - Web UIの日常運用
   - normalized tableを直接使うproject検索と構造化filter
+    - 自由入力検索は `project_key`、`name`、`website_url`、identifier value、relation subject/object/locator、decision target/note の大小文字を無視した部分一致
+    - summary、tagline、raw evidence、README/HTML全文、自然語の意図や概念は検索対象外
   - identifier、relation、collector failure、developer accountのreview action
   - project nameとnotesのpreview付き編集
   - bounded investigation run viewerとread-only replay

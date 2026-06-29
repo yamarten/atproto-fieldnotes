@@ -200,6 +200,9 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 
 - SQLite FTS table の追加
 - typo tolerance / edit distance
+- 自然語・概念検索
+  - 例: 「ブログサービス」で blogging / publishing / CMS / article posting 系projectを探す
+  - 単純な部分一致ではなく、project category / feature tag / summary evidence の整備とquery expansionを前提にする
 - OR group や否定条件を含む query builder
 - 保存済み検索条件
 - URL query への filter 状態の永続化
@@ -222,6 +225,10 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - role単位のidentifier decision
   - 現行confirm/block/defer/splitは`kind + value`単位で、同じ値を持つ全roleへ作用する
   - 実例でrole単位の拒否が必要になった時に、decision targetとruntime guardを拡張する
+- PWA/local app化の再評価
+  - オフラインDB操作は非目標のまま、静的asset cache、standalone表示、ホーム画面起動、軽いreload耐性に実利があるかを見る
+  - Firefox中心の運用ではinstallabilityの恩恵が限定的なので、manifest/service workerの小規模追加で済む場合だけ候補にする
+  - build stepや複雑なcache invalidationが必要なら優先しない
 
 原則 CLI に残す保守操作:
 
