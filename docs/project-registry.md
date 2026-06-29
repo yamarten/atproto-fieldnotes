@@ -191,7 +191,7 @@ OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのserv
 - `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
 - `Settings`: queue limit、merge mode、token、接続DB、Python version、Git checkoutのcommit確認
 
-`Review`画面では、個別のreview action保存後に一覧全体を自動再計算しません。表示中のカードだけをローカル一覧から外して次の項目を開きます。新しい候補や正確な件数を取り直す場合は`Refresh`でqueueを再計算します。
+`Review`画面では、個別のreview action保存後に一覧全体を自動再計算しません。表示中のカードだけをローカル一覧から外して次の項目を開きます。`Skip for now`はDBへ何も書かず、表示中カードを一時的に飛ばして次へ進みます。merge reviewでも同じく、merge/separateを選ばず保留できます。新しい候補や正確な件数を取り直す場合は`Refresh`でqueueを再計算します。
 
 project detailではprofileに加え、classification付きidentifier、typed relation、active decisionと履歴、評価結果、最新investigation runのcollector状態を表示します。同じ値にconfirmed/candidateなど複数行がある場合もroleとclassificationの組を分けて表示します。`website` roleは独立identifierとして強調せず、同じservice URL groupのprimary markerとして表示します。DID/handle/accountは同じaccount metadataを持つ場合は1つのidentity groupに畳みます。candidate confirmは該当行から開始できますが、confirm/block/defer/splitのdecision identityは保存契約上`kind + value`であり、同じ値のrole単位ではありません。block/defer/splitは画面でも作用範囲を明示します。tracking state、candidate confirm/reject、block/defer、promotion hold、split、separate解除、mergeは明示確認後にSQLiteへ保存します。表示中projectの単体enrichもdetail headerから開始できます。
 

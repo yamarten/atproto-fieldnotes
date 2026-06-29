@@ -302,11 +302,8 @@ function openListCard(card) {
   return true;
 }
 
-function advanceReviewListAfterMutation(response, path) {
+function advanceReviewList(sourceKey, {statusPrefix = "Skipped for now."} = {}) {
   if (state.screen !== "review") return false;
-  const sourceKey = path === "/api/merge-batch/action"
-    ? String(response.source_project_key || state.selected || "")
-    : String(response.project_key || state.selected || "");
   if (!sourceKey) return false;
   const cards = Array.from(document.querySelectorAll("[data-project-key]"));
   const current = cards.find((card) => card.dataset.projectKey === sourceKey) || cards.find((card) => card.classList.contains("selected"));
@@ -318,7 +315,7 @@ function advanceReviewListAfterMutation(response, path) {
   const meta = $("list")?.querySelector(".meta-row strong");
   if (meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
   if (next || previous) {
-    status(`Saved. Moved to next item. ${remaining} visible; refresh to recalculate.`);
+    status(`${statusPrefix} Moved to next item. ${remaining} visible; refresh to recalculate.`);
     openListCard(next || previous);
   } else {
     state.selected = "";
@@ -326,9 +323,22 @@ function advanceReviewListAfterMutation(response, path) {
     syncUrl();
     $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status("Saved. No more visible review items; refresh to recalculate.");
+    status(`${statusPrefix} No more visible review items; refresh to recalculate.`);
   }
   return true;
+}
+
+function advanceReviewListAfterMutation(response, path) {
+  const sourceKey = path === "/api/merge-batch/action"
+    ? String(response.source_project_key || state.selected || "")
+    : String(response.project_key || state.selected || "");
+  return advanceReviewList(sourceKey, {statusPrefix: "Saved."});
+}
+
+function skipReviewItem(sourceKey = state.selected) {
+  if (!advanceReviewList(String(sourceKey || ""), {statusPrefix: "Skipped for now."})) {
+    status("No visible review item to skip; refresh list.", true);
+  }
 }
 
 async function loadDetail(key, {updateUrl = true} = {}) {
@@ -371,6 +381,7 @@ function renderDetail(data) {
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
   const manualSeed = overview.manual_seed;
+  const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(project.last_seen_at)}</dd><dt>Last enriched</dt><dd>${esc(project.last_enriched_at || "Never")}</dd></dl>${state.server?.read_only ? "" : `<div class="actions"><button id="edit-profile">Edit</button></div>`}`)}
@@ -386,7 +397,7 @@ function renderDetail(data) {
       <p class="eyebrow">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}<span id="merge-analysis-action"></span></div>`}
+      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>${reviewSkipAction ? `<div class="actions">${reviewSkipAction}</div>` : ""}` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>`}
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -403,6 +414,7 @@ function renderDetail(data) {
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
   $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
+  $("skip-review-item")?.addEventListener("click", () => skipReviewItem(project.project_key));
   $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
     state.detailTab = button.dataset.detailTab;
@@ -669,10 +681,12 @@ async function loadMergeDetail(source, target, options = {}) {
     const bootstrapBody = data.bootstrap_details_included
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.bootstrap_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view.</p>`
       : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-bootstrap-heuristic" class="secondary">Load bootstrap heuristic</button></div>`;
-    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${section("Bootstrap heuristic", bootstrapBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : `<div class="actions"><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`}`;
+    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button>${state.server?.read_only ? "" : `<button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button>`}</div>`;
+    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${section("Bootstrap heuristic", bootstrapBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : ""}${mergeActions}`;
     $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target));
     $("load-bootstrap-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeBootstrap: true}));
+    $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source));
     $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
     $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
   } catch (error) {
