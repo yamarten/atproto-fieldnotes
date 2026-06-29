@@ -9,7 +9,7 @@
 - 日常運用安定化の8項目は実装済みです。
 - 通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。
 - Web server reloadのpackage entrypoint修正まで`master`へ反映済みです。
-- 判定feedback対応は実装・DB適用とも進行済みです。現在の確認済み範囲は[status.md](status.md)、trust graph方針は[trust-graph-confirm-policy.md](notes/trust-graph-confirm-policy.md)、将来作業は[roadmap.md](roadmap.md)を参照してください。
+- 判定feedback対応は実装・DB適用とも進行済みです。現在の確認済み範囲は[status.md](status.md)、trust graphの現行仕様は[registry-internals.md](registry-internals.md)、将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
 

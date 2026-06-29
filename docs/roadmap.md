@@ -27,9 +27,7 @@
 
 ここでは、通常運用開始後に順番を決めて進める未完了作業だけを扱います。
 完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
-過去の広域棚卸しは履歴資料として
-[web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)と
-[core-overhaul-backlog.md](notes/core-overhaul-backlog.md)に残しています。
+過去の広域棚卸しで残すべき候補は、このroadmapまたは役割別notesへ移しています。
 
 ### 通常DB移行後
 
@@ -61,6 +59,9 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - 詳細の前/次切り替え、detail tab jump程度に留める
 - static JS / CSS / route table分割
   - 編集衝突が増えた時、または責務を追いにくくなった時点で分割する
+- app record / app lexicon export
+  - 今すぐ完全互換を目標にしないが、紹介用profileとconfirmed identifierからread-only export reportを作れる状態は将来候補として残す
+  - exportのために不確かな`profile_json.app`を埋めず、まず不足fieldと根拠不足をvalidation reportとして出す
 - security / safety整理
   - LAN、他利用者なし、必要に応じてTailscale越しという公開範囲は維持する
   - その前提で必要十分な対策に留める
@@ -72,6 +73,8 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - SQLite接続自体のread-only化
   - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するapplication-level mode
   - 日常運用で使う必要が生じた場合にURI `mode=ro`または`PRAGMA query_only`を追加する
+- 互換・移行・暫定コードのcleanup
+  - v1 migration、migration provenance、removed compatibility field guard、bootstrap heuristicなどの棚卸しは[compatibility-cleanup.md](notes/compatibility-cleanup.md)に置く
 
 ### 長期候補
 
@@ -107,10 +110,10 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 
 - 複数projectを跨ぐ永続circuit breaker
 
-設計途中の詳細は次の作業用文書へ分離しています。
+設計途中の詳細は次の作業用文書へ分離しています。trust graphの現行仕様は
+[registry-internals.md](registry-internals.md)を正本とします。
 
 - ownership / identity: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
-- trust graph based confirm policy: [trust-graph-confirm-policy.md](notes/trust-graph-confirm-policy.md)
 - service verification: [service-verification.md](notes/service-verification.md)
 - replay / fixture corpus: [evidence-replay.md](notes/evidence-replay.md)
 - collector failure policy: [collector-reliability.md](notes/collector-reliability.md)
@@ -225,6 +228,10 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - role単位のidentifier decision
   - 現行confirm/block/defer/splitは`kind + value`単位で、同じ値を持つ全roleへ作用する
   - 実例でrole単位の拒否が必要になった時に、decision targetとruntime guardを拡張する
+- Webからのprofile編集範囲拡大
+  - 現状の通常編集は`name`とoperator向け`notes`だけ
+  - 必要になったら`tagline`、`summary`、`website_url`、`profile_json.app.links`などをfield単位preview、revision check、根拠表示付きで追加する
+  - identifier/relation/decisionの正本を直接JSON編集させず、既存review actionや専用mutationを優先する
 - PWA/local app化の再評価
   - オフラインDB操作は非目標のまま、静的asset cache、standalone表示、ホーム画面起動、軽いreload耐性に実利があるかを見る
   - Firefox中心の運用ではinstallabilityの恩恵が限定的なので、manifest/service workerの小規模追加で済む場合だけ候補にする
@@ -242,11 +249,9 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - confirmed service URLに補助ページやdefer/block配下URLが残っていないか確認する
   - repoとNSIDの両方がacceptedではない `defines_schema` relationと、それに連動したowned NSIDを棚卸しする
   - dry-runで影響projectとidentifier/relation差分を出し、backup後にrepairまたは個別cleanupを実行する
-- trust graph based confirm policy
-  - identifier間の有向trust edgeを定義し、confirmed/manual anchorとの相互trust pathが成立した場合だけauto-confirmする
-  - 片方向link、self-claim、usage/compatibility mentionはcandidate/reviewに留める
-  - cryptographic/atproto recordなど片方向でも強い検証になる根拠は、明示的な例外edgeとして通常link evidenceから分ける
-  - confirmed identifierごとに、成立したtrust pathをdry-run/explainで出せるようにする
+- trust graph残件
+  - `trust-graph-v1` の本体方針、URL相互trust、collection ownership、identity trust評価、audit/repair/explainは接続済み。現行仕様は[registry-internals.md](registry-internals.md)を正本にする
+  - `did` / `handle` / `domain` のtrust評価結果を、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続
   - accepted GitHub repoからReadTheDocsなどのdocs siteへ明示的にlinkしている場合、README内の任意URLとは分けて`repo_links_service`へ昇格できる条件を検討する
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
@@ -255,7 +260,3 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 確認済みの小規模不具合:
 
 - `split-project --new-project-key`は新規keyを既存projectとして解決してから存在を拒否するため、明示key指定が実質使えない
-
-## 周辺候補の参照先
-
-Web UIとcoreの広い棚卸しは、[web-ui-overhaul-backlog.md](notes/web-ui-overhaul-backlog.md)と[core-overhaul-backlog.md](notes/core-overhaul-backlog.md)に置いています。具体的な着手条件と実装順が決まった項目は、このroadmapの該当箇所へ反映します。
