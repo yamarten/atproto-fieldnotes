@@ -73,6 +73,10 @@ class TangledIntegrationDependencies:
     confirm_source_code_url: Callable[..., None]
     add_candidate_source_code_url: Callable[..., None]
     add_developer_account: Callable[[dict[str, Any], str, str, str], None]
+    add_name_candidate: Callable[[dict[str, Any], str, str], None]
+    add_candidate_text: Callable[[dict[str, Any], str, str, str], None]
+    add_candidate_url: Callable[[dict[str, Any], str, str], None]
+    normalize_service_candidate_url: Callable[[str], str]
     record_trust_edge: Callable[..., dict[str, Any]]
     note_failure: Callable[[dict[str, Any], str], None]
 
@@ -121,15 +125,32 @@ def apply_tangled_evidence(
                     "context": dict(record.context)}]
             )
             continue
+        if record.kind == "tangled_repo_inspection" and isinstance(record.value, dict):
+            _apply_tangled_repo_inspection(project, dict(record.value), record, dependencies)
+            continue
         if record.kind != "tangled_repo_snapshot" or not isinstance(record.value, dict):
             continue
         value = dict(record.value)
         handle = str(value.get("owner_handle") or "")
         did = str(value.get("owner_did") or "")
+        tangled_record = dict(value.get("record") or {})
+        repo_name = str(tangled_record.get("name") or "").strip()
+        description = str(tangled_record.get("description") or "").strip()
+        website = str(tangled_record.get("website") or "").strip()
         if handle or did:
             dependencies.add_developer_account(project, handle, record.source, did)
         repo_url = str(value.get("repo_url") or "")
         score = int(value.get("score") or 0)
+        if repo_name:
+            dependencies.add_name_candidate(project, repo_name, record.source)
+        if description:
+            dependencies.add_candidate_text(project, "summary", description, record.source)
+            dependencies.add_candidate_text(project, "tagline", description, record.source)
+        if website:
+            normalized_website = dependencies.normalize_service_candidate_url(website)
+            if normalized_website:
+                dependencies.add_candidate_url(project, "service_url", normalized_website)
+                dependencies.add_candidate_url(project, "website_url", normalized_website)
         if did and repo_url:
             dependencies.record_trust_edge(
                 project,
@@ -161,6 +182,56 @@ def apply_tangled_evidence(
             )
     for failure in bundle.failures:
         dependencies.note_failure(project, failure.message)
+
+
+def _apply_tangled_repo_inspection(
+    project: dict[str, Any],
+    snapshot: dict[str, Any],
+    record: Any,
+    dependencies: TangledIntegrationDependencies,
+) -> None:
+    repo_url = str(snapshot.get("repo_url") or "").rstrip("/")
+    repo = dict(snapshot.get("repo") or {})
+    full_name = str(repo.get("full_name") or "")
+    repo_name = str(repo.get("name") or "")
+    description = str(repo.get("description") or "").strip()
+    readme_excerpt = str(snapshot.get("readme_excerpt") or "").strip()
+    source_label = full_name or repo_url
+    if repo_name:
+        dependencies.add_name_candidate(project, repo_name, f"tangled_repo:{source_label}")
+    if description:
+        dependencies.add_candidate_text(project, "summary", description, f"tangled_repo:{source_label}")
+        dependencies.add_candidate_text(project, "tagline", description, f"tangled_repo:{source_label}")
+    if readme_excerpt:
+        dependencies.add_candidate_text(project, "summary", readme_excerpt, f"tangled_readme:{source_label}")
+    for url_value in snapshot.get("readme_urls", []):
+        url = str(url_value or "")
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if parsed.netloc in {"github.com", "tangled.org", "tangled.sh"}:
+            continue
+        normalized_service = dependencies.normalize_service_candidate_url(url)
+        if not normalized_service:
+            continue
+        if repo_url:
+            dependencies.record_trust_edge(
+                project,
+                "repo_url",
+                repo_url,
+                "repo_links_service",
+                "service_url",
+                normalized_service,
+                source=f"tangled_readme:{source_label}",
+                locator=repo_url,
+                method="readme_link",
+                classification="candidate",
+                eligible_for_auto_confirm=False,
+                observed_at=record.observed_at,
+                context={"from_readme": True, "provider": "tangled"},
+            )
+        dependencies.add_candidate_url(project, "service_url", normalized_service)
+        dependencies.add_candidate_url(project, "website_url", normalized_service)
 
 
 def apply_service_evidence(

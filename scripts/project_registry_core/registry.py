@@ -79,6 +79,7 @@ SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
 _GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
+_TANGLED_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
 _TLD_EXTRACTORS: dict[str, Any] = {}
@@ -8855,6 +8856,141 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     return result
 
 
+def decode_http_text(body: bytes, headers: dict[str, str]) -> str:
+    charset = "utf-8"
+    content_type = headers.get("content-type", "")
+    charset_match = re.search(r"charset=([A-Za-z0-9_-]+)", content_type)
+    if charset_match:
+        charset = charset_match.group(1)
+    return body.decode(charset, errors="replace")
+
+
+def tangled_repo_segments(repo_url: str) -> tuple[str, str]:
+    normalized = normalize_tangled_repo_url(repo_url)
+    if not normalized:
+        raise ValueError(f"not a Tangled repo URL: {repo_url}")
+    parsed = urllib.parse.urlparse(normalized)
+    segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
+    if len(segments) < 2:
+        raise ValueError(f"not a Tangled repo URL: {repo_url}")
+    return segments[0], segments[1]
+
+
+def extract_tangled_default_branch(html: str) -> str:
+    title_match = re.search(r"<title>.*?\sat\s+([^<·]+)\s+&middot;\s+Tangled</title>", html, flags=re.I | re.S)
+    if title_match:
+        branch = unescape(title_match.group(1)).strip()
+        if branch:
+            return branch
+    href_match = re.search(r"/(?:[^/]+)/(?:[^/]+)/(?:tree|blob)/([^/\"?#]+)", html)
+    if href_match:
+        return urllib.parse.unquote(href_match.group(1))
+    return "main"
+
+
+def extract_tangled_repo_description(html: str) -> str:
+    patterns = [
+        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']',
+        r'<meta[^>]+name=["\']twitter:description["\'][^>]+content=["\'](.*?)["\']',
+        r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+        if match:
+            return unescape(re.sub(r"\s+", " ", match.group(1)).strip())
+    return ""
+
+
+def extract_tangled_repo_tree(repo_url: str, html: str) -> list[dict[str, Any]]:
+    owner, repo = tangled_repo_segments(repo_url)
+    parser = HrefHTMLParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        return []
+    output: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    base = normalize_tangled_repo_url(repo_url) or repo_url
+    for href in parser.hrefs:
+        parsed = urllib.parse.urlparse(urllib.parse.urljoin(base.rstrip("/") + "/", href))
+        segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
+        if len(segments) < 5 or segments[0] != owner or segments[1] != repo:
+            continue
+        kind = segments[2]
+        if kind not in {"blob", "tree"}:
+            continue
+        path = "/".join(segments[4:]).strip("/")
+        if not path:
+            continue
+        item_type = "blob" if kind == "blob" else "tree"
+        key = (item_type, path)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append({"path": path, "type": item_type, "size": 0})
+    return output
+
+
+def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> str:
+    normalized = normalize_tangled_repo_url(repo_url)
+    if not normalized:
+        return ""
+    owner, repo = tangled_repo_segments(normalized)
+    normalized_path = str(path or "").strip().lstrip("/")
+    if not normalized_path:
+        return ""
+    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
+    raw_url = (
+        f"https://tangled.org/{urllib.parse.quote(owner, safe='._:-')}/"
+        f"{urllib.parse.quote(repo, safe='._-')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
+    )
+    try:
+        _status, body, headers = request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
+        return decode_http_text(body, headers)
+    except Exception:
+        return ""
+
+
+def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
+    normalized = normalize_tangled_repo_url(repo_url)
+    if not normalized:
+        raise ValueError(f"not a Tangled repo URL: {repo_url}")
+    cached = _TANGLED_REPO_FETCH_CACHE.get(normalized)
+    if isinstance(cached, dict):
+        return copy.deepcopy(cached)
+    status, body, headers, final_url = request_bytes_with_final_url(normalized, timeout=REQUEST_TIMEOUT_DEFAULT)
+    html = decode_http_text(body, headers) if status < 400 else ""
+    owner, repo = tangled_repo_segments(normalized)
+    default_branch = extract_tangled_default_branch(html)
+    tree = extract_tangled_repo_tree(normalized, html)
+    readme_candidates = [
+        str(item.get("path") or "")
+        for item in tree
+        if str(item.get("path") or "").lower().rsplit("/", 1)[-1] in {"readme.md", "readme"}
+    ]
+    readme_candidates.extend(["README.md", "README", "readme.md"])
+    readme_text = ""
+    for path in unique_list([path for path in readme_candidates if path]):
+        readme_text = tangled_repo_file_text(normalized, path, ref=default_branch)
+        if readme_text:
+            break
+    result = {
+        "repo": {
+            "full_name": f"{owner}/{repo}",
+            "name": repo,
+            "owner": owner,
+            "description": extract_tangled_repo_description(html),
+            "html_url": normalized,
+            "final_url": final_url,
+        },
+        "readme_text": readme_text,
+        "tree": tree,
+        "default_branch": default_branch,
+    }
+    _TANGLED_REPO_FETCH_CACHE.set(normalized, copy.deepcopy(result), ttl=300)
+    return result
+
+
 def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
     cached = _GITHUB_REPO_SEARCH_CACHE.get(repr(cache_key))
@@ -9525,6 +9661,18 @@ def collect_github_repo_evidence(project: dict[str, Any], repo_url: str) -> Evid
             repo_lexicon_hints=repo_lexicon_hints,
             extract_urls=extract_urls,
             repo_semantic_hints=repo_semantic_hints,
+        ),
+    )
+
+
+def collect_tangled_repo_evidence(project: dict[str, Any], repo_url: str) -> EvidenceBundle:
+    return investigation_core.collect_tangled_repo_evidence(
+        project,
+        repo_url,
+        investigation_core.TangledRepoCollectorDependencies(
+            now=iso_now,
+            fetch_tangled_repo=fetch_tangled_repo,
+            extract_urls=extract_urls,
         ),
     )
 
@@ -10769,6 +10917,10 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
             confirm_source_code_url=confirm_source_code_url,
             add_candidate_source_code_url=add_candidate_source_code_url,
             add_developer_account=lambda target, handle, source, did: add_developer_account(target, handle, source, did=did),
+            add_name_candidate=add_name_candidate,
+            add_candidate_text=add_candidate_text,
+            add_candidate_url=add_candidate_url,
+            normalize_service_candidate_url=normalize_service_candidate_url,
             record_trust_edge=record_trust_edge,
             note_failure=note_failure,
         ),
@@ -13185,17 +13337,26 @@ def enrich_project(
 
     initial_repo_urls = unique_list(source_code_url_values(project))
     for repo_url in initial_repo_urls:
-        if extract_github_slug(repo_url) is None:
-            continue
-        try:
-            repo_evidence = collect_github_repo_evidence(project, repo_url)
-            apply_github_repo_evidence(project, repo_evidence)
-            run_evidence.extend(repo_evidence)
-        except Exception as exc:
-            note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
-            run_evidence.extend(failed_collector_bundle(
-                project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
-            ))
+        if extract_github_slug(repo_url) is not None:
+            try:
+                repo_evidence = collect_github_repo_evidence(project, repo_url)
+                apply_github_repo_evidence(project, repo_evidence)
+                run_evidence.extend(repo_evidence)
+            except Exception as exc:
+                note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
+                run_evidence.extend(failed_collector_bundle(
+                    project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
+                ))
+        elif normalize_tangled_repo_url(repo_url):
+            try:
+                repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+                apply_tangled_evidence(project, repo_evidence)
+                run_evidence.extend(repo_evidence)
+            except Exception as exc:
+                note_failure(project, f"tangled repo enrichment failed for {repo_url}: {exc}")
+                run_evidence.extend(failed_collector_bundle(
+                    project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
+                ))
 
     discovered_nsids = [
         nsid
@@ -13274,6 +13435,17 @@ def enrich_project(
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
                 project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
+            ))
+    secondary_tangled_repo_urls = unique_list(provider_repo_url_values(project, "tangled"))
+    for repo_url in secondary_tangled_repo_urls:
+        try:
+            repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+            apply_tangled_evidence(project, repo_evidence)
+            run_evidence.extend(repo_evidence)
+        except Exception as exc:
+            note_failure(project, f"tangled secondary enrichment failed for {repo_url}: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
             ))
 
     if deep_investigation:

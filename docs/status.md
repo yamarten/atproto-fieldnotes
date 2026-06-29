@@ -78,6 +78,7 @@
   - 将来必要になった場合は、再移行ではなくaudit合格後のadditive updateとして後付けする
 - `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
+- Tangled repoの完全なtree取得。現状は公開HTMLとREADME raw取得に限定
 - OAuth `include:` permission setの再帰解決
 
 現行設計の非目標:

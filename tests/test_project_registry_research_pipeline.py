@@ -112,6 +112,34 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(snapshot["readme_urls"], ["https://app.example.com"])
         self.assertEqual(snapshot["lexicon_hints"][0]["nsid"], "app.example.post")
 
+    def test_tangled_repo_collector_returns_readme_snapshot_without_mutating_project(self) -> None:
+        project = self.make_project("proj:tangledreposnapshot", "repo_url", "https://tangled.org/dev.example/app")
+        original = copy.deepcopy(project)
+        dependencies = investigation_core.TangledRepoCollectorDependencies(
+            now=lambda: "2026-06-13T00:00:00+00:00",
+            fetch_tangled_repo=lambda repo_url: {
+                "repo": {"full_name": "dev.example/app", "name": "app", "description": "Example Tangled app"},
+                "readme_text": "See https://app.example.com for docs.",
+                "tree": [{"path": "README.md", "type": "blob"}],
+                "default_branch": "main",
+            },
+            extract_urls=lambda text: registry.extract_urls(text),
+        )
+
+        bundle = investigation_core.collect_tangled_repo_evidence(
+            project,
+            "https://tangled.org/dev.example/app",
+            dependencies,
+        )
+
+        self.assertEqual(project, original)
+        self.assertEqual(bundle.records[0].kind, "tangled_repo_inspection")
+        snapshot = bundle.records[0].value
+        assert isinstance(snapshot, dict)
+        self.assertEqual(snapshot["readme_urls"], ["https://app.example.com"])
+        self.assertIn("See https://app.example.com", snapshot["readme_excerpt"])
+        self.assertTrue(any(record.source.startswith("tangled_readme:") for record in bundle.records))
+
     def test_extract_urls_trims_markdown_image_link_boundaries(self) -> None:
         text = "[![Crate](https://img.shields.io/crates/v/app.svg)](https://crates.io/crates/app)"
 
@@ -620,6 +648,41 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(cursors, ["", "next"])
         self.assertEqual(bundle.records[0].kind, "tangled_repo_snapshot")
 
+    def test_tangled_evidence_applies_record_and_readme_text_as_candidates(self) -> None:
+        project = self.make_project("proj:tangledtext", "repo_url", "https://tangled.org/dev.example/app")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(EvidenceRecord(
+            kind="tangled_repo_snapshot",
+            source="tangled_pds:dev.example",
+            classification="candidate",
+            observed_at="2026-06-13T00:00:00+00:00",
+            value={
+                "owner_handle": "dev.example",
+                "owner_did": "did:plc:dev",
+                "repo_url": "https://tangled.org/dev.example/app",
+                "record": {"name": "app", "description": "Protocol-aware local app"},
+                "score": 1,
+            },
+        ))
+        bundle.add_record(EvidenceRecord(
+            kind="tangled_repo_inspection",
+            source="tangled_repo:https://tangled.org/dev.example/app",
+            classification="candidate",
+            observed_at="2026-06-13T00:00:00+00:00",
+            value={
+                "repo_url": "https://tangled.org/dev.example/app",
+                "repo": {"full_name": "dev.example/app", "name": "app", "description": "README-backed app"},
+                "readme_urls": ["https://app.example.com"],
+                "readme_excerpt": "README says this is the official app.",
+            },
+        ))
+
+        registry.apply_tangled_evidence(project, bundle)
+
+        self.assertIn("Protocol-aware local app", [item["value"] for item in project["summary_candidates"]])
+        self.assertIn("README says this is the official app.", [item["value"] for item in project["summary_candidates"]])
+        self.assertIn("https://app.example.com", registry.service_url_candidate_values(project))
+
     def test_tangled_optional_adapters_remain_weak_candidates(self) -> None:
         timeline = tangled_core.normalize_optional_adapter_candidates(
             '<a href="https://tangled.org/dev.example/app">repo</a>', adapter="timeline",
@@ -743,6 +806,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "apply_investigation_evidence",
             "collect_github_repo_evidence",
             "apply_github_repo_evidence",
+            "collect_tangled_repo_evidence",
+            "apply_tangled_evidence",
             "plan_investigation_queries",
             "run_investigation_collectors",
             "enrich_from_github_repo",

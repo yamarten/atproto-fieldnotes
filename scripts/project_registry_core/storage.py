@@ -60,6 +60,8 @@ def collector_source_roots(source: str) -> set[str]:
     root = source_root(source)
     if root == "github_repo":
         return {"github_repo", "github_repo_metadata", "github_readme", "github_source"}
+    if root == "tangled_repo":
+        return {"tangled_repo", "tangled_readme"}
     if root.startswith("service_"):
         return {root, "service_page"}
     return {root}

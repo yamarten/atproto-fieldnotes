@@ -698,7 +698,11 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - unmatched project作成は既定offで、`--create-unmatched`が必要です
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、
   `com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
+- accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを
+  `raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
 - owner DID一致はrepo所有の強い根拠ですが、対象projectとの関連性はname、website、内容で別にscoreします
+- Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。
+  GitHubのrecursive tree API相当の完全なcontents取得ではありません
 - timeline、community search、bot adapterは正規化parserのみ実装済みで、config既定無効かつ通常導線未接続です
 
 ## マージ時の editorial 優先

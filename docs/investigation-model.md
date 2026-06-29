@@ -141,6 +141,7 @@ fixture は raw response archive ではありません。誤判定を再現す�
 - OAuth client metadata の permission relation
 - anonymous browser service verification
 - confirmed developer account からの Tangled PDS record 探索
+- Tangled repo URL のHTML/README inspection
 - UFOs rolling window の `sync-tangled-repos`
 - root と `www` の観測済み redirect/canonical alias
 - retry、Retry-After、TTL cache、source-local circuit breaker、request budget
@@ -151,6 +152,10 @@ fixture は raw response archive ではありません。誤判定を再現す�
 - OAuth `include:` permission set の再帰解決
 - browser 認証後操作。登録、認証入力、投稿は設計上の非目標
 - raw HTMLやREADME全文を含む無制限のevidence inspection
+
+未検証 / 制約:
+
+- Tangled repo inspection は公開HTMLと `raw/{ref}/{path}` でREADMEを取得する。GitHub APIのような完全なrecursive tree APIとは扱わない
 
 Web UIのrun summary、bounded evidence、input/output/evaluation、要求時のread-only replay差分は
 接続済みです。

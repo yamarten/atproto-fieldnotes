@@ -742,6 +742,8 @@ python3 -m playwright install chromium
 
 `sync-tangled-repos`はUFOsのrolling windowからTangled repo recordを探す補助経路です。通常の全履歴syncではなく、既定はdry-runかつunmatched project作成offです。
 
+通常の`enrich`では、accepted source repo URLがTangledの場合にrepo root HTMLとREADME rawを取得し、README内URLと短いexcerptを候補evidenceへ反映します。これは完全なTangled履歴syncやrecursive tree取得ではありません。
+
 ```bash
 project-registry sync-tangled-repos
 project-registry sync-tangled-repos --execute

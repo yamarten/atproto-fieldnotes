@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 import urllib.error
+import urllib.parse
 from dataclasses import dataclass, field
+from html import unescape
 from typing import Any, Callable
 
 from .evidence import (
@@ -221,6 +223,14 @@ class GitHubRepoCollectorDependencies:
     extract_urls: Callable[[str], list[str]]
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     repo_semantic_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
+
+
+@dataclass(frozen=True)
+class TangledRepoCollectorDependencies:
+    now: Callable[[], str]
+    fetch_tangled_repo: Callable[[str], dict[str, Any]]
+    extract_urls: Callable[[str], list[str]]
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
 
 
 def collector_failure(
@@ -638,6 +648,70 @@ def collect_github_repo_evidence(
     add_collector_result_summary(
         bundle,
         source="github_repo",
+        operation="inspect",
+        observed_at=observed_at,
+        request_count=1,
+    )
+    return bundle
+
+
+def readme_excerpt(text: str, *, limit: int = 1200) -> str:
+    cleaned = re.sub(r"<!--.*?-->", "", str(text or ""), flags=re.S)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    cleaned = unescape(cleaned)
+    cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", cleaned)
+    cleaned = "\n".join(line.strip() for line in cleaned.splitlines())
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rsplit("\n", 1)[0].strip()
+
+
+def collect_tangled_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    dependencies: TangledRepoCollectorDependencies,
+) -> EvidenceBundle:
+    data, _attempts = run_with_retry(
+        lambda: dependencies.fetch_tangled_repo(repo_url),
+        policy=dependencies.retry_policy,
+    )
+    repo = dict(data.get("repo") or {})
+    readme_text = str(data.get("readme_text") or "")
+    repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
+    default_branch = str(data.get("default_branch") or "")
+    observed_at = dependencies.now()
+    bundle = EvidenceBundle(
+        project_key=str(project.get("project_key") or ""),
+        collected_at=observed_at,
+    )
+    bundle.add_record(evidence_record(
+        kind="tangled_repo_inspection",
+        source=f"tangled_repo:{repo_url}",
+        classification="candidate",
+        observed_at=observed_at,
+        value={
+            "repo_url": repo_url,
+            "repo": repo,
+            "default_branch": default_branch,
+            "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
+            "readme_urls": dependencies.extract_urls(readme_text),
+            "readme_excerpt": readme_excerpt(readme_text),
+        },
+    ))
+    normalized_repo_url = str(repo_url).rstrip("/")
+    for url in dependencies.extract_urls(readme_text):
+        parsed = urllib.parse.urlparse(url)
+        object_type = "repo" if parsed.netloc in {"github.com", "tangled.org", "tangled.sh"} else "website"
+        bundle.add_record(relation_record(
+            source=f"tangled_readme:{repo_url}", classification="candidate", observed_at=observed_at,
+            subject_type="repo", subject_value=normalized_repo_url,
+            predicate="source_repository" if object_type == "website" else "mentions_collection",
+            object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
+        ))
+    add_collector_result_summary(
+        bundle,
+        source="tangled_repo",
         operation="inspect",
         observed_at=observed_at,
         request_count=1,
