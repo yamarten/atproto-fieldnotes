@@ -189,7 +189,9 @@ OverviewのExplainではCLIと同じ共通serviceを使い、保存済みのserv
 - `Review`: review queue、promotion queue、merge plan
 - `Projects`: project検索、schema v2 detail、seed preview・追加
 - `Operations`: enrich、sync、review classificationのbackground jobと、未接続処理のCLI案内
-- `Settings`: queue limit、merge mode、token、接続DB、Python version、Git checkoutのcommit確認
+- `Settings`: queue limit、merge mode、表示time zone、token、接続DB、Python version、Git checkoutのcommit確認
+
+Web UIの時刻表示はSettingsのtime zoneで整形します。既定は`Asia/Tokyo`です。IANA time zone名または`+09:00`のような固定offsetを指定できます。DBに保存するtimestampは変更しません。
 
 `Review`画面では、個別のreview action保存後に一覧全体を自動再計算しません。表示中のカードだけをローカル一覧から外して次の項目を開きます。`Skip for now`はDBへ何も書かず、表示中カードを一時的に飛ばして次へ進みます。merge reviewでも同じく、merge/separateを選ばず保留できます。新しい候補や正確な件数を取り直す場合は`Refresh`でqueueを再計算します。
 
