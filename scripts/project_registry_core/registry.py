@@ -1140,11 +1140,7 @@ def detect_seed_type(seed: str, explicit_type: str | None = None) -> str:
         return "nsid"
     parsed = urllib.parse.urlparse(seed)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
-        host = parsed.netloc.lower()
-        segments = [segment for segment in parsed.path.split("/") if segment]
-        if host == "github.com" and len(segments) >= 2:
-            return "repo_url"
-        if host in {"tangled.org", "tangled.sh"} and len(segments) >= 2:
+        if is_supported_repo_url(seed):
             return "repo_url"
         return "service_url"
     if seed.startswith("did:"):
@@ -3984,6 +3980,8 @@ def extract_meta_description(html: str) -> str:
 
 
 STRICT_GITHUB_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+KNOWN_FORGE_REPO_HOSTS = {"codeberg.org", "gitlab.com"}
+KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX = {"git.sr.ht"}
 NOISY_SERVICE_HOSTS = {
     "img.shields.io",
     "shields.io",
@@ -4883,6 +4881,35 @@ def normalize_tangled_repo_url(url: str) -> str | None:
     return f"https://tangled.org/{owner}/{repo}"
 
 
+def normalize_forge_repo_url(url: str) -> str | None:
+    normalized = normalize_url(sanitize_extracted_url(url))
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if host in KNOWN_FORGE_REPO_HOSTS:
+        if len(segments) < 2:
+            return None
+        owner, repo = segments[0], segments[1]
+        if any(segment in {"issues", "pulls", "pull", "search", "about", "src", "tree", "blob", "-", "explore"} for segment in (owner, repo)):
+            return None
+        if not STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
+            return None
+        return f"https://{host}/{owner}/{repo}"
+    if host in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
+        if len(segments) < 2:
+            return None
+        owner, repo = segments[0], segments[1]
+        owner_valid = owner.startswith("~") and STRICT_GITHUB_SEGMENT_RE.fullmatch(owner[1:])
+        if not owner_valid or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
+            return None
+        return f"https://{host}/{owner}/{repo}"
+    return None
+
+
+def is_supported_repo_url(url: str) -> bool:
+    return bool(normalize_github_repo_url(url) or normalize_tangled_repo_url(url) or normalize_forge_repo_url(url))
+
+
 def manual_service_hosts(project: dict[str, Any]) -> set[str]:
     hosts: set[str] = set()
     for seed in project.get("manual_seeds", []):
@@ -4990,12 +5017,12 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     normalized = canonical_repo_url(url)
     if not normalized:
         return False
-    if not (normalize_github_repo_url(normalized) or normalize_tangled_repo_url(normalized)):
-        return False
     if normalized == "https://github.com/notjuliet/pdsls" and not project_explicitly_targets_pdsls(project):
         return False
     if normalized in manual_repo_urls(project):
         return True
+    if not is_supported_repo_url(normalized):
+        return False
     parsed = urllib.parse.urlparse(normalized)
     segments = [segment for segment in parsed.path.split("/") if segment]
     if len(segments) < 2:
@@ -5051,6 +5078,11 @@ def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -
             continue
         if provider == "tangled" or parsed.netloc == "tangled.org":
             normalized = normalize_tangled_repo_url(url)
+            if normalized:
+                normalized_urls.append(normalized)
+            continue
+        if parsed.netloc in KNOWN_FORGE_REPO_HOSTS or parsed.netloc in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
+            normalized = normalize_forge_repo_url(url)
             if normalized:
                 normalized_urls.append(normalized)
             continue
@@ -5134,6 +5166,9 @@ def canonical_repo_url(url: str) -> str:
     if provider == "tangled":
         normalized = normalize_tangled_repo_url(url)
         return normalized or normalize_url(url)
+    if provider in KNOWN_FORGE_REPO_HOSTS or provider in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
+        normalized = normalize_forge_repo_url(url)
+        return normalized or normalize_url(url)
     return normalize_url(url)
 
 
@@ -5145,6 +5180,8 @@ def repo_owner_identity(url: str) -> str:
         return segments[0].lower()
     if parsed.netloc == "tangled.org" and len(segments) >= 1:
         return segments[0].lower()
+    if parsed.netloc in KNOWN_FORGE_REPO_HOSTS | KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX and len(segments) >= 1:
+        return segments[0].lower().removeprefix("~")
     return ""
 
 
@@ -5356,7 +5393,7 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
     lowered_url = normalized.lower()
     if is_bluesky_profile_url(normalized):
         return "bluesky_profile"
-    if normalize_github_repo_url(normalized) or normalize_tangled_repo_url(normalized):
+    if is_supported_repo_url(normalized):
         if any(token in lowered_text for token in ["source", "view source", "repo", "repository", "monorepo"]):
             return "source_repo"
     if any(token in lowered_text for token in ["source", "view source", "monorepo"]):
@@ -10802,6 +10839,8 @@ def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle
             add_candidate_url=add_candidate_url,
             normalize_github_repo_url=normalize_github_repo_url,
             normalize_tangled_repo_url=normalize_tangled_repo_url,
+            canonical_repo_url=canonical_repo_url,
+            is_supported_repo_url=is_supported_repo_url,
             record_developer_handle=record_developer_handle,
             note_failure=note_failure,
         ),

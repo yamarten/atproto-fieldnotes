@@ -44,6 +44,25 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
         self.assertNotIn("tangled_repo_urls", shaped)
         self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
 
+    def test_codeberg_repo_seed_is_generic_repo_url(self) -> None:
+        project = registry.default_project_record("proj:codeberg", "repo_url", "https://codeberg.org/cartes/web/src/branch/main")
+        registry.confirm_repo_seed(project, "https://codeberg.org/cartes/web/src/branch/main", source="test")
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(registry.detect_seed_type("https://codeberg.org/cartes/web"), "repo_url")
+        self.assertEqual(registry.canonical_seed_value("repo_url", "https://codeberg.org/cartes/web/src/branch/main"), "https://codeberg.org/cartes/web")
+        self.assertEqual(shaped["source_code_urls"], ["https://codeberg.org/cartes/web"])
+        self.assertEqual(registry.infer_repo_provider(shaped["source_code_urls"][0]), "codeberg.org")
+
+    def test_sourcehut_repo_seed_is_generic_repo_url(self) -> None:
+        project = registry.default_project_record("proj:sourcehut", "repo_url", "https://git.sr.ht/~example/app/tree/main")
+        registry.confirm_repo_seed(project, "https://git.sr.ht/~example/app/tree/main", source="test")
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(registry.detect_seed_type("https://git.sr.ht/~example/app"), "repo_url")
+        self.assertEqual(shaped["source_code_urls"], ["https://git.sr.ht/~example/app"])
+        self.assertEqual(registry.infer_repo_provider(shaped["source_code_urls"][0]), "git.sr.ht")
+
     def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
         project = registry.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
         registry.add_candidate_source_code_url(

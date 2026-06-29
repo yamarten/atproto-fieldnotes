@@ -656,14 +656,23 @@ function editProfile(project, profile) {
   showDialogWithoutInputFocus(dialog);
 }
 
+function parseSeedInput(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(nsid|repo_url|service_url)\s*:\s*(.+)$/i) || raw.match(/^(nsid|repo_url|service_url)\s+(.+)$/i);
+  if (!match) return {seed: raw, type: ""};
+  return {seed: match[2].trim(), type: match[1].toLowerCase()};
+}
+
 async function addProjectSeed(projectKey) {
-  const seed = prompt("NSID, repository URL, or service URL");
-  if (!seed) return;
+  const input = prompt("NSID, repository URL, or service URL. Use repo_url: https://... to override.");
+  const parsed = parseSeedInput(input);
+  if (!parsed.seed) return;
   try {
-    const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(seed)}`);
+    const typeQuery = parsed.type ? `&type=${encodeURIComponent(parsed.type)}` : "";
+    const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(parsed.seed)}${typeQuery}`);
     if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`Seed belongs to ${preview.exact_project_key}`);
     if (preview.exact_project_key === projectKey) { status("Seed is already attached to this project."); return; }
-    confirmMutation("Add manual seed", `Add ${seed} to ${projectKey}?`, "/api/seeds", {seed, project_key:projectKey, expected_revision:state.detailRevision}, false);
+    confirmMutation("Add manual seed", `Add ${preview.seed_type}: ${preview.seed_value} to ${projectKey}?`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
   } catch (error) { status(error.message, true); }
 }
 

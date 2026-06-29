@@ -82,10 +82,12 @@ project-registry add-seed sh.tangled.repo
 project-registry add-seed https://github.com/example/project
 project-registry add-seed https://github.com/example/project/blob/main/lexicons/app/example/post.json
 project-registry add-seed https://tangled.sh/@example/app/tree/main/lexdocs/example
+project-registry add-seed https://codeberg.org/cartes/web
 project-registry add-seed https://example.com
+project-registry add-seed https://forge.example/dev/app --type repo_url
 ```
 
-GitHub の `blob/tree` URL や `tangled.sh` の tree URL は repo root に正規化します。
+GitHub の `blob/tree` URL、`tangled.sh` の tree URL、Codeberg/GitLab/sourcehut系の既知forge URLは repo root に正規化します。未知のforgeや曖昧なURLは `--type repo_url` を明示します。Web UIの `Add seed` では `repo_url: https://forge.example/dev/app` のようにprefixを書くとtypeを上書きできます。
 
 既存projectへ追加する場合:
 
@@ -245,7 +247,7 @@ project-registry import-seed-list tmpdata.txt
 project-registry import-seed-list tmpdata.txt --execute
 ```
 
-このコマンドは GitHub/Tangled/service URL/`pdsls`/`lexicon.garden` を seed に正規化します。`pdsls` の record URL は collection NSID に落とし、`lexicon.garden` の identity URL や `bsky.app` のプロフィール/投稿 URL も、そこから service URL / repo URL / NSID を導ける場合だけ展開します。材料が無いものだけスキップします。`Echosky: ...` のように注記の直後に複数 seed が並ぶ場合は、ラベルと seed が十分近い時だけ同一 project へ束ねます。
+このコマンドは repo URL、service URL、`pdsls`、`lexicon.garden` を seed に正規化します。`pdsls` の record URL は collection NSID に落とし、`lexicon.garden` の identity URL や `bsky.app` のプロフィール/投稿 URL も、そこから service URL / repo URL / NSID を導ける場合だけ展開します。材料が無いものだけスキップします。`Echosky: ...` のように注記の直後に複数 seed が並ぶ場合は、ラベルと seed が十分近い時だけ同一 project へ束ねます。
 
 ## collection inventory APIの同期
 

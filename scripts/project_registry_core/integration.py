@@ -16,6 +16,8 @@ class IntegrationDependencies:
     add_candidate_url: Callable[[dict[str, Any], str, str], None]
     normalize_github_repo_url: Callable[[str], str | None]
     normalize_tangled_repo_url: Callable[[str], str | None]
+    canonical_repo_url: Callable[[str], str]
+    is_supported_repo_url: Callable[[str], bool]
     record_developer_handle: Callable[[dict[str, Any], str, str], None]
     note_failure: Callable[[dict[str, Any], str], None]
 
@@ -333,12 +335,7 @@ def apply_investigation_evidence(
             continue
         if record.kind == "source_code_reference":
             url = str(record.value or "")
-            parsed = urllib.parse.urlparse(url)
-            normalized = None
-            if parsed.netloc == "github.com":
-                normalized = dependencies.normalize_github_repo_url(url)
-            elif parsed.netloc == "tangled.org":
-                normalized = dependencies.normalize_tangled_repo_url(url)
+            normalized = dependencies.canonical_repo_url(url) if dependencies.is_supported_repo_url(url) else ""
             if normalized:
                 dependencies.add_candidate_source_code_url(
                     project,
