@@ -142,7 +142,7 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - 完了jobは直近100件、eventはjobごとに直近200件、stderrは直近50行を保持する
 - Web server終了・reload時はactive workerへ協調停止を要求し、timeout後にprocessを終了する
 - custom DBのcheckpointはそのDBと同じdirectoryの`enrich-runs/`へ保存する
-- scheduled preset設定とpending queueはDBと同じdirectoryの`job-schedules.json`へ保存する。server再起動時に実行中だったscheduled stepは同じstepから再試行する
+- scheduled preset設定とpending queueはDBと同じdirectoryの`job-schedules.json`へ保存する。予定時刻から24時間以内だけdueとし、それより古い未実行分は後追い発火しない。server再起動時に実行中だったscheduled stepは同じstepから再試行する
 - Web APIはLLM API keyを受け取らず、workerはserver processの環境変数を継承する
 - syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない

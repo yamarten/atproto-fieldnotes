@@ -12,7 +12,7 @@ from unittest import mock
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
-from project_registry_web.jobs import JobConflictError, JobManager, JobRecord
+from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
 
 
 FAKE_WORKER = r'''
@@ -163,6 +163,52 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(state["queue"], [])
         schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
         self.assertEqual(schedule["last_status"], "completed")
+
+    def test_monthly_schedule_is_due_within_24_hours_only(self) -> None:
+        schedule = {
+            "enabled": True,
+            "week_of_month": 2,
+            "weekday": 1,
+            "time": "01:00",
+            "timezone": "Asia/Tokyo",
+        }
+
+        due, period, due_at = _schedule_due(schedule, dt.datetime(2026, 6, 8, 16, 0, tzinfo=dt.timezone.utc))
+        self.assertTrue(due)
+        self.assertEqual(period, "2026-06-W2-1")
+        self.assertEqual(due_at, "2026-06-08T16:00:00+00:00")
+
+        next_morning_due, next_morning_period, _ = _schedule_due(
+            schedule,
+            dt.datetime(2026, 6, 9, 14, 59, tzinfo=dt.timezone.utc),
+        )
+        self.assertTrue(next_morning_due)
+        self.assertEqual(next_morning_period, "2026-06-W2-1")
+
+        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 14, 0, tzinfo=dt.timezone.utc))
+        self.assertFalse(late_due)
+        self.assertEqual(late_period, "2026-06-W2-1")
+
+    def test_weekly_schedule_is_due_within_24_hours_only(self) -> None:
+        schedule = {
+            "enabled": True,
+            "week_of_month": 0,
+            "weekday": 0,
+            "time": "08:00",
+            "timezone": "Asia/Tokyo",
+        }
+
+        due, period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 0, 0, tzinfo=dt.timezone.utc))
+        self.assertTrue(due)
+        self.assertEqual(period, "2026-W27-0")
+
+        next_day_due, next_day_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 22, 59, tzinfo=dt.timezone.utc))
+        self.assertTrue(next_day_due)
+        self.assertEqual(next_day_period, "2026-W27-0")
+
+        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 30, 23, 0, tzinfo=dt.timezone.utc))
+        self.assertFalse(late_due)
+        self.assertEqual(late_period, "2026-W27-0")
 
     def test_schedule_queue_retries_running_step_after_manager_restart(self) -> None:
         state_path = self.db_path.parent / "job-schedules.json"

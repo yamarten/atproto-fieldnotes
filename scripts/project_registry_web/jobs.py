@@ -182,7 +182,7 @@ def _schedule_due(schedule: dict[str, Any], now_utc: dt.datetime) -> tuple[bool,
             return False, period, ""
         target = dt.datetime.combine(target_date, dt.time(hour, minute), tzinfo=timezone)
         period = f"{local.year}-{local.month:02d}-W{week_of_month}-{weekday}"
-    return local >= target, period, target.astimezone(dt.timezone.utc).isoformat()
+    return target <= local < target + dt.timedelta(hours=24), period, target.astimezone(dt.timezone.utc).isoformat()
 
 
 def _schedule_next_due_at(schedule: dict[str, Any], now_utc: dt.datetime) -> str:
