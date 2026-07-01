@@ -138,6 +138,121 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
 - 速度改善候補は model変更だけでなく、長大 evidence の cap / summarize / field selection を同時に見る
 - benchmarkでは warm/cold、同一prompt repeat、別prompt連続実行を分けないと判断を誤る
 
+## 2026-07-02 evidence compaction experiment
+
+実装済み / 実行済み:
+
+- 通常DBを `mode=ro` で開き、保存済み `investigation_runs.output_project_json` の
+  `llm_source.evidence` を集計した
+- `.tmp/llm_evidence_shrink_experiment.py` で、長大 evidence の field別サイズと縮約variantを検証した
+- report は `.tmp/llm-evidence-shrink-*.json` に保存した
+
+動作確認済み:
+
+- `prompt_chars >= 50k` の保存runは250件
+- 肥大の主因は `resource_url_records`
+  - 250件すべてに存在
+  - average size: 56,916 chars
+  - median size: 47,283 chars
+  - max size: 121,180 chars
+- 次に大きい field は桁が落ちる
+  - `candidate_developer_accounts`: average 1,572 chars、max 40,932 chars
+  - `summary_candidates`: average 1,332 chars、max 8,029 chars
+  - `tagline_candidates`: average 1,212 chars、max 7,908 chars
+- 最大case `Hypercerts` の `resource_url_records` は579件、約110,858 chars
+  - recordは主に `url`、`source`、`confidence`、`role`、`observed_at` の単純な繰り返し
+- 最大caseでのprompt削減:
+  - original: 161,798 chars
+  - `cap-heavy`: 22,866 chars、85.9% reduction、parse ok
+  - `resource-summary`: 13,381 chars、91.7% reduction、parse ok
+  - `summary-heavy`: 13,210 chars、91.8% reduction、parse ok
+  - `minimal`: 11,783 chars、92.7% reduction、parse ok
+- 別project `porxie` での `resource-summary`:
+  - original: 151,052 chars
+  - `resource-summary`: 9,090 chars、94.0% reduction、parse ok
+
+未検証 / 解釈:
+
+- LLM実行は最大caseと別project各1件中心で、品質評価や回帰評価としては不足
+- `resource-summary` は URL群の全列挙を捨て、host別countと代表URLへ畳むため、
+  特定URL pathが分類に必要なcaseでは情報を落とす可能性がある
+- ただし現在の長大caseでは、`resource_url_records` が legacy unknown URL の大量列挙になっており、
+  LLM triageへ全件渡す価値は低い可能性が高い
+- `candidate_developer_accounts` の最大40k級は別途個別に縮約が必要
+
+方針への影響:
+
+- 第一候補は、`resource_url_records` を host別summaryへ変換すること
+  - total count
+  - source / role / confidence counts
+  - top hosts with count
+  - hostごとの代表URL少数
+- `resource_url_records` を単純に先頭N件へ切るより、host別summaryの方が分布情報を保ちやすい
+- prompt長capは `resource_url_records` の後段ではなく、LLM evidence bundle生成時点に入れる
+- 次に見るべき縮約対象は `candidate_developer_accounts`、`summary_candidates`、`tagline_candidates`
+- モデル比較の前に、少なくとも `resource_url_records` summary化の実装を検討する価値がある
+
+## 2026-07-02 resource URL bloat root cause
+
+実装済み:
+
+- `collect_first_party_links()` の `same_site` 分岐で、repo候補でも既知の補助ページroleでもない
+  同一site URLを `resource_url_records` に保存しないようにした
+- これにより、投稿、profile、listなどのcontent URLが `role="unknown"` のconfirmed
+  resource recordとして蓄積される経路を止めた
+- 同一siteの `docs` / `blog` / `support` など、roleを判定できる補助ページは引き続き保存する
+- `resource_url_records` の正規化時に、URL+role単位のmergeと代表選抜budgetを適用する
+  - project全体は最大32件
+  - role別上限は docs 8、blog 4、support 4、status/privacy/terms 各2、unknown 3
+  - host+role別上限は docs 4、blog 2、support 3、status/privacy/terms 各1、unknown 2
+  - confirmed、直接source、root/入口URL、短いpathを優先し、tag/archive/post/profile系pathを低く扱う
+
+動作確認済み:
+
+- 通常DBをread-only集計した結果、肥大化は normalized child table ではなく
+  `projects.state_json.evidence.resource_url_records` に集中していた
+  - `project_identifiers` の `role='resource'` は0件
+  - active stateの `resource_url_records` は79,505件
+  - role別では `unknown` が62,625件で最多
+- 最大caseは `Longform` (`proj:1e87756b829c`) で13,947件
+  - `service_follow_up:https://longform.social/profile/rlsbb.ru.web.brid.gy` 由来だけで12,731件
+  - 例は `https://longform.social/post/...`、`/profile/...`、`/posts` などの同一site content URL
+- `.tmp/resource_url_bloat_dry_run.py` で、既存active DBを更新せずにcleanup候補の上限を見積もった
+  - `role` が空または `unknown`: 62,625件
+  - source URL と同一siteで、URL pathから補助ページroleを判定できないもの: 56,864件
+  - 多いpath kindは `/post` 13,224件、`/blog` 4,480件、root 2,591件、
+    `/books` 2,398件、`/specs` 1,686件
+- 後続snapshotでは active state が79,509件 / unknown 62,626件に増えていた。
+  同じread-only dry-runで現行の正規化budgetを適用した場合の `resource_url_records` は4,613件相当
+- 対象unit test:
+  - `PYTHONPATH=tests .venv/bin/python -m unittest test_project_registry_core.ProjectRegistryResourceUrlRecordTest -v`
+  - 23 tests OK
+- core test file:
+  - `PYTHONPATH=tests .venv/bin/python -m unittest discover -s tests -p 'test_project_registry_core.py' -v`
+  - 113 tests OK
+
+未検証 / 未実施:
+
+- 既存DBの `resource_url_records` はまだ削除・再構築していない
+- このguard後に通常enrichを回した時のprompt長分布、wall-clock、LLM latency低下は未測定
+- budget/ranking後の全件保存状態やLLM品質への影響は未測定
+- 4,613件は通常DBを更新した結果ではなく、read-onlyで現行正規化を適用した概算
+- role unknown の全recordが不要とは確定していない。削除する場合は、host/path/source/role/confidence
+  ごとのdry-run reportを先に作る
+- 56,864件のdry-run候補は削除対象の確定値ではない。保存時のlink textや
+  `classify_official_link()` の当時の分類結果は復元していないため、`/blog`、`/about`、
+  `/specs` のように残すべき補助ページ候補が混ざる
+- `resource-summary` 縮約は依然として有効な安全弁候補だが、根本原因の予防とは別物として扱う
+
+方針への影響:
+
+- まず過収集経路を止め、次に既存DB cleanupのdry-runで削除候補を確認する
+- cleanup実装では、`/post`、`/profile`、record id風pathなど明らかなcontent URLと、
+  docs/blog/spec/about系の補助ページを分ける
+- 同種大量への一次対策は、保存時のbudget/rankingで行う。LLM evidence縮約は二段目の安全弁にする
+- 縮約は、未知の肥大化や長期運用での上限超過に備える二段目の対策として設計する
+- モデル比較では、cleanup前後のprompt長分布を分けて記録しないと、モデル差と入力肥大差が混ざる
+
 ## 評価軸
 
 優先度:
@@ -165,6 +280,46 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
 prompt は model 変更ごとに多少の tuning が必要になる前提で扱う。ただし、model 比較の第一段階では
 prompt 変更を混ぜない。まず同一 prompt で素の相性を測り、その後に上位候補だけ prompt variant を
 比較する。
+
+## Prompt tuning の扱い
+
+model ごとの prompt tuning は必要になる可能性が高いが、最初から全候補へ深く行わない。
+比較の原因を分離するため、段階を固定する。
+
+1. `model-only` screening
+   - prompt は現行baselineに固定する
+   - model / quantization / runtime / reasoning setting だけを変える
+   - JSON安定性、evidence外の創作、速度、メモリ、短い人手品質確認で明らかに弱い候補を落とす
+2. `prompt-variant` screening
+   - baseline model と上位2-3候補だけを対象にする
+   - variant は小さく保つ
+     - `baseline_current`
+     - `strict_json`
+     - `compact_output`
+     - `no_reasoning`
+     - `evidence_guard_strict`
+   - model固有promptは、汎用variantで救えないが速度・メモリが有望な候補だけに限定する
+3. tuned heavy subset
+   - 採用候補の `model + quantization + runtime + prompt_variant` 組み合わせだけを重いsubsetで測る
+   - ここで初めて実運用候補として比較する
+
+report では必ず `prompt_variant` を保存する。最終判断の単位は model 単体ではなく
+`model + quantization + runtime + prompt_variant + reasoning_effort + output_cap` とする。
+ただし第一段階の足切りでは `prompt_variant=baseline_current` に固定する。
+
+model固有promptの深掘りをしない条件:
+
+- baseline promptでJSON/schemaが大きく崩れる
+- evidence外URL/identifierの創作が多い
+- 速度・メモリがbaselineから改善しない
+- 日本語summary/taglineが明確に弱く、用途限定でも使いにくい
+
+model固有promptを試す条件:
+
+- baseline promptでは一部不安定だが、速度またはメモリが大きく改善する
+- errorが形式面に寄っており、promptで修正できる見込みがある
+- Qwen以外の系列で、既存promptの語法と相性が悪い可能性が高い
+- query planning専用、final triage専用など用途限定なら有望
 
 ## 分けて測るもの
 
@@ -493,6 +648,67 @@ model 変更と混ぜず、別実験として測る。
 
 model と prompt を同時に変えると原因が分からなくなるため、report は `model-only`、`prompt-only`、
 `model+prompt` を分ける。
+
+## 最初に着手する実験手順
+
+実験実装に入る時は、まず固定 evidence benchmark だけを作る。通常DBはread-onlyで使い、
+結果は `.tmp/` か専用reportへ保存する。
+
+### 0. Corpus manifest 作成
+
+- 保存済み `investigation_runs.output_project_json.llm_source.evidence` から候補を抽出する
+- corpus manifest には少なくとも次を持たせる
+  - `case_id`
+  - `project_key`
+  - `project_name`
+  - `source_run_id`
+  - `prompt_chars`
+  - `prompt_bucket`
+  - `evidence_hash`
+  - `evidence_field_sizes`
+  - `known_manual_signal` があればその参照
+- 初回 corpus は30-50件
+  - short `<10k`: 10-15件
+  - medium `10k-20k`: 8-12件
+  - long `50k-100k`: 5-10件
+  - extreme `>=100k`: 3-5件
+  - thin/conflicting/manual-correction系を少数入れる
+
+### 1. Baseline 再測定
+
+- 現行modelを `baseline_current` promptで測る
+- coldに近い1回目と、warm repeatを分けて記録する
+- 同一prompt repeatと別prompt連続実行を分ける
+- timeoutしたcaseは、server側cacheの可能性があるため、失敗後repeatを別eventとして記録する
+
+### 2. Candidate model screening
+
+- 同じ corpus / 同じ prompt / 同じ output cap / 同じ reasoning setting で比較する
+- 各 model は原則1回、上位候補と不安定候補だけ3回repeatする
+- 初回で見る足切り条件
+  - parse失敗
+  - schema違反
+  - evidence外URL/identifier
+  - latencyの大幅悪化
+  - memory pressure / swap悪化
+
+### 3. Prompt variant screening
+
+- baseline model と上位2-3候補だけで実施する
+- `strict_json`、`compact_output`、`evidence_guard_strict` のような小さいvariantから試す
+- model固有promptは最後にし、report上も `model_specific:*` と明示する
+
+### 4. Heavy subset
+
+- cleanup / resource URL budget 前後の差が混ざらないよう、input snapshot と prompt hash を固定する
+- 重いsubsetでは full enrich ではなく、まず固定 evidence LLM replay を使う
+- その後に複製DBで30-50件の full enrich shadow runへ進む
+
+この順であれば、次に必要な実装は次の3点に絞れる。
+
+- corpus manifest exporter
+- fixed evidence LLM runner
+- structured comparison report writer
 
 ## 採用判断
 
