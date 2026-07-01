@@ -114,6 +114,15 @@
   - active `projects.state_json` の `resource_url_records[].confidence = "legacy"` を `candidate` へ吸収
   - 変換後のactive `confidence = "legacy"` 件数0、SQLite integrity `ok`
   - investigation history側の過去bundleは履歴として残している
+- 2026-07-02のresource URL過収集guard
+  - 同一siteリンクでも、repo候補またはdocs/blog/support/status/privacy/terms等の補助ページroleを判定できないURLは `resource_url_records` に保存しない
+  - `resource_url_records` はURL+role単位へmergeし、project全体最大32件、role別、host+role別のbudgetで代表選抜する
+  - 対象unit test `ProjectRegistryResourceUrlRecordTest` は23件OK、`test_project_registry_core.py` 全体は113件OK
+  - active DBでは `resource_url_records` 79,505件中 `role="unknown"` が62,625件あり、最大caseはLongformの13,947件であることをread-only確認済み
+  - 作業中の別process更新とみられる変化により、後続snapshotでは79,509件 / unknown 62,626件も観測した
+  - 後続snapshotに現行の正規化budgetをread-only適用した概算では、`resource_url_records` は4,613件相当
+  - read-only dry-runでは、同一siteかつ補助ページrole不明の候補は56,864件。ただし `/blog`、`/about`、`/specs` など残すべき可能性のあるURLも混ざるため、削除対象としては未確定
+  - 既存DB cleanupとguard後の全件prompt長改善は未実施・未検証
 - 2026-06-25の判定feedback対応
   - service follow-up/deep page URL、service URL guard、service support relation、repo/NSIDからauthority domainへの片方向根拠、repo内lexicon ownership、README URL抽出のtargeted unit test
   - 補助ページservice URLの既存DB cleanupを`repair-db --execute`で適用済み

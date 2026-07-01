@@ -102,6 +102,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - fixture export時のsanitize運用を実データ追加前に固定する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
 - LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
+- `resource_url_records` の既存DB cleanup dry-runを追加し、role不明の同一site content URLを削除してよい範囲を確認する
 
 未決定:
 

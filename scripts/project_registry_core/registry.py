@@ -641,6 +641,64 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
 )
 RESOURCE_URL_ROLES = {"unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService"}
 RESOURCE_URL_CONFIDENCE_VALUES = {"candidate", "confirmed"}
+RESOURCE_URL_TOTAL_BUDGET = 32
+RESOURCE_URL_ROLE_BUDGETS = {
+    "docs": 8,
+    "blog": 4,
+    "support": 4,
+    "status": 2,
+    "privacyPolicy": 2,
+    "termsOfService": 2,
+    "unknown": 3,
+}
+RESOURCE_URL_HOST_ROLE_BUDGETS = {
+    "docs": 4,
+    "blog": 2,
+    "support": 3,
+    "status": 1,
+    "privacyPolicy": 1,
+    "termsOfService": 1,
+    "unknown": 2,
+}
+RESOURCE_URL_ROLE_RANK = {
+    "status": 0,
+    "support": 1,
+    "docs": 2,
+    "privacyPolicy": 3,
+    "termsOfService": 4,
+    "blog": 5,
+    "unknown": 6,
+}
+RESOURCE_URL_SOURCE_RANK_PREFIXES = {
+    "service_page": 0,
+    "service_follow_up": 1,
+    "resource_page": 2,
+    "resource_follow_up": 3,
+    "service_url_cleanup": 4,
+    "legacy_resource_urls": 5,
+}
+RESOURCE_URL_LOW_VALUE_PATH_SEGMENTS = {
+    "archive",
+    "archives",
+    "author",
+    "category",
+    "categories",
+    "feed",
+    "feeds",
+    "list",
+    "lists",
+    "page",
+    "pagination",
+    "post",
+    "posts",
+    "profile",
+    "profiles",
+    "search",
+    "tag",
+    "tags",
+    "user",
+    "users",
+}
 
 
 def normalize_app_link_role(value: str | None) -> str:
@@ -5553,8 +5611,7 @@ def confirm_service_url(project: dict[str, Any], url: str) -> None:
 
 
 def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
-    output: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    merged: dict[tuple[str, str], dict[str, str]] = {}
     for item in entries:
         if not isinstance(item, dict):
             continue
@@ -5569,31 +5626,108 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
             confidence = "candidate"
         source = str(item.get("source") or "").strip()
         observed_at = str(item.get("observed_at") or "").strip()
-        key = (url, role, confidence, source)
-        if key in seen:
+        record = {
+            "url": url,
+            "role": role,
+            "source": source,
+            "observed_at": observed_at,
+            "confidence": confidence,
+        }
+        key = (url, role)
+        existing = merged.get(key)
+        if existing is None or resource_url_record_sort_key(record) < resource_url_record_sort_key(existing):
+            merged[key] = record
+        elif existing["confidence"] != "confirmed" and confidence == "confirmed":
+            existing["confidence"] = "confirmed"
+    return select_resource_url_records(list(merged.values()))
+
+
+def resource_url_source_rank(source: str) -> int:
+    prefix = str(source or "").split(":", 1)[0]
+    return RESOURCE_URL_SOURCE_RANK_PREFIXES.get(prefix, 99)
+
+
+def resource_url_path_segments(url: str) -> list[str]:
+    parsed = urllib.parse.urlparse(normalize_url(url))
+    return [segment for segment in parsed.path.lower().strip("/").split("/") if segment]
+
+
+def resource_url_path_rank(url: str, role: str) -> tuple[int, int, int, str]:
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    path = parsed.path.lower().rstrip("/")
+    segments = resource_url_path_segments(normalized)
+    if not path:
+        return (0, 0, 0, normalized)
+    if app_link_role_from_resource_url(normalized) == role:
+        for _hint_role, prefixes in APP_LINK_RESOURCE_PATH_HINTS:
+            if _hint_role != role:
+                continue
+            if any(path == prefix for prefix in prefixes):
+                return (0, len(segments), len(path), normalized)
+            if any(path.startswith(f"{prefix}/") for prefix in prefixes):
+                return (1, len(segments), len(path), normalized)
+    if segments and segments[0] == str(role or "").lower() and len(segments) == 1:
+        return (1, len(segments), len(path), normalized)
+    if any(segment in RESOURCE_URL_LOW_VALUE_PATH_SEGMENTS for segment in segments):
+        return (8, len(segments), len(path), normalized)
+    if segments and segments[0] == str(role or "").lower():
+        return (3, len(segments), len(path), normalized)
+    if any(re.fullmatch(r"\d{4}|\d+|[0-9a-f]{12,}", segment) for segment in segments):
+        return (6, len(segments), len(path), normalized)
+    return (3, len(segments), len(path), normalized)
+
+
+def resource_url_record_sort_key(record: dict[str, str]) -> tuple[int, int, int, tuple[int, int, int, str], str]:
+    role = str(record.get("role") or "unknown")
+    confidence_rank = 0 if str(record.get("confidence") or "") == "confirmed" else 1
+    return (
+        confidence_rank,
+        RESOURCE_URL_ROLE_RANK.get(role, 99),
+        resource_url_source_rank(str(record.get("source") or "")),
+        resource_url_path_rank(str(record.get("url") or ""), role),
+        str(record.get("url") or ""),
+    )
+
+
+def resource_url_host_key(url: str) -> str:
+    host = urllib.parse.urlparse(normalize_url(url)).netloc.lower()
+    return root_domain(host) or host
+
+
+def select_resource_url_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    role_counts: dict[str, int] = {}
+    host_role_counts: dict[tuple[str, str], int] = {}
+    selected: list[dict[str, str]] = []
+    for record in sorted(records, key=resource_url_record_sort_key):
+        if len(selected) >= RESOURCE_URL_TOTAL_BUDGET:
+            break
+        role = str(record.get("role") or "unknown")
+        role_budget = RESOURCE_URL_ROLE_BUDGETS.get(role, 3)
+        if role_counts.get(role, 0) >= role_budget:
             continue
-        seen.add(key)
-        output.append(
-            {
-                "url": url,
-                "role": role,
-                "source": source,
-                "observed_at": observed_at,
-                "confidence": confidence,
-            }
-        )
-    return output
+        host_role = (resource_url_host_key(str(record.get("url") or "")), role)
+        host_role_budget = RESOURCE_URL_HOST_ROLE_BUDGETS.get(role, 2)
+        if host_role_counts.get(host_role, 0) >= host_role_budget:
+            continue
+        selected.append(record)
+        role_counts[role] = role_counts.get(role, 0) + 1
+        host_role_counts[host_role] = host_role_counts.get(host_role, 0) + 1
+    return selected
 
 
 def resource_url_record_values(project: dict[str, Any]) -> list[dict[str, str]]:
-    records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
     website_url = normalize_url(str(project.get("website_url") or ""))
     service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
-    return [
-        record
-        for record in records
-        if record["url"] != website_url and record["url"] not in service_urls
-    ]
+    filtered_entries: list[Any] = []
+    for item in list(project.get("resource_url_records", [])):
+        if not isinstance(item, dict):
+            continue
+        url = normalize_url(str(item.get("url") or ""))
+        if not url or url == website_url or url in service_urls:
+            continue
+        filtered_entries.append(item)
+    return normalize_resource_url_records(filtered_entries)
 
 
 def resource_url_values(
@@ -8838,13 +8972,15 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="same_site_candidate",
                 )
             else:
-                add_resource_url(
-                    project,
-                    url,
-                    role=app_link_role_from_resource_url(url),
-                    source=source,
-                    confidence="confirmed",
-                )
+                resource_role = app_link_role_from_resource_url(url)
+                if resource_role:
+                    add_resource_url(
+                        project,
+                        url,
+                        role=resource_role,
+                        source=source,
+                        confidence="confirmed",
+                    )
     return unique_list(follow_up_urls)
 
 

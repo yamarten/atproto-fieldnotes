@@ -1032,6 +1032,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             project,
             "https://example.com/docs",
             role="docs",
+            source="resource_page:https://example.com/docs",
+            confidence="candidate",
+        )
+        registry.add_resource_url(
+            project,
+            "https://example.com/docs",
+            role="docs",
             source="service_page:https://example.com",
             confidence="confirmed",
         )
@@ -1048,6 +1055,29 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
                 }
             ],
         )
+
+    def test_resource_url_records_keep_representative_budget_per_host_and_role(self) -> None:
+        project = registry.default_project_record("proj:resourcebudget", "service_url", "https://example.com")
+
+        for index in range(10):
+            registry.add_resource_url(
+                project,
+                f"https://example.com/docs/page-{index}",
+                role="docs",
+                source="service_page:https://example.com",
+                confidence="confirmed",
+            )
+        registry.add_resource_url(
+            project,
+            "https://example.com/docs",
+            role="docs",
+            source="service_page:https://example.com",
+            confidence="confirmed",
+        )
+
+        docs_records = [record for record in project["resource_url_records"] if record["role"] == "docs"]
+        self.assertEqual(len(docs_records), 4)
+        self.assertEqual(docs_records[0]["url"], "https://example.com/docs")
 
     def test_first_party_link_collection_records_same_site_docs_as_confirmed(self) -> None:
         project = registry.default_project_record("proj:resourcefirstparty", "service_url", "https://example.com")
@@ -1066,6 +1096,25 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.com/docs"]["confidence"], "confirmed")
         self.assertEqual(records["https://example.com/docs"]["role"], "docs")
         self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
+
+    def test_first_party_link_collection_skips_same_site_content_pages_without_resource_role(self) -> None:
+        project = registry.default_project_record("proj:resourcecontent", "service_url", "https://example.com")
+
+        registry.collect_first_party_links(
+            project,
+            "https://example.com",
+            [
+                {"url": "https://example.com/post/did:plc:abc/123", "text": "A post"},
+                {"url": "https://example.com/profile/alice", "text": "Alice"},
+                {"url": "https://example.com/support/contact", "text": "Support"},
+            ],
+            "service_page:https://example.com",
+        )
+
+        records = {record["url"]: record for record in project["resource_url_records"]}
+        self.assertNotIn("https://example.com/post/did:plc:abc/123", records)
+        self.assertNotIn("https://example.com/profile/alice", records)
+        self.assertEqual(records["https://example.com/support/contact"]["role"], "support")
 
     def test_deferred_service_origin_blocks_supporting_page_resource(self) -> None:
         project = registry.default_project_record("proj:deferredresource", "service_url", "https://example.com")

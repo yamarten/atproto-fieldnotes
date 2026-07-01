@@ -478,7 +478,16 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
   - first-party page が repo を明示し、repo側からも同じserviceへ戻る信頼エッジがある時
   - same-site family の repo URL でも片方向リンクだけでは candidate に留めます
 - それ以外の repo-like URL は candidate に留めます
-- docs/blog/same-site 補助ページは `resource_url_records` に残し、`resource_url_values()` 経由で必要なら追加 probe の対象にします
+- docs/blog/same-site 補助ページと、`support` / `status` / `privacyPolicy` / `termsOfService`
+  など URL path から補助ページ role を判定できる同一siteリンクは `resource_url_records`
+  に残し、`resource_url_values()` 経由で必要なら追加 probe の対象にします
+- 投稿、profile、listなど補助ページ role を判定できない同一site content URL は
+  `resource_url_records` に保存しません。これは補助URL evidence の過収集を防ぐための
+  guardであり、既存DB内の過去recordを自動削除する cleanup ではありません
+- `resource_url_records` はリンク発見ログではなく代表補助ページの集合です。正規化時に
+  URL+role単位へmergeし、project全体、role単位、host+role単位のbudgetで絞ります。
+  confirmed、直接的なsource、root/短い入口URL、既知roleを優先し、tag/archive/profile/post
+  など大量contentになりやすいpathは低く扱います
 
 ### 4.1 NSID ownership の現在の優先順位
 
