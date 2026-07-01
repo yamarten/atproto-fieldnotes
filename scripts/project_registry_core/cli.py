@@ -24,14 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    migrate_parser = subparsers.add_parser(
-        "migrate-db",
-        help="Replace a legacy registry DB with schema v2 while retaining a timestamped backup.",
-    )
-    migrate_parser.add_argument("database", type=Path, help="Legacy SQLite database path.")
-    migrate_parser.add_argument("--dry-run", action="store_true", help="Build and validate a temporary v2 DB without replacing the source.")
-    migrate_parser.set_defaults(func=maintenance_commands.cmd_migrate_db)
-
     add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
     add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")
     add_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Override automatic seed type detection.")
@@ -288,17 +280,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prune_history_parser.set_defaults(func=maintenance_commands.cmd_prune_investigation_history)
 
-    prune_migration_parser = subparsers.add_parser(
-        "prune-migration-provenance",
-        help="Remove schema-v1 audit metadata from identifiers without deleting identifier rows.",
-    )
-    prune_migration_parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Rewrite matching metadata. Without this flag, report candidates only.",
-    )
-    prune_migration_parser.set_defaults(func=maintenance_commands.cmd_prune_migration_provenance)
-
     tracking_parser = subparsers.add_parser("set-tracking-state", help="Set tracking state for one project.")
     tracking_target = tracking_parser.add_mutually_exclusive_group(required=True)
     tracking_target.add_argument("-p", "--project-key", help="Target one project key.")
@@ -390,7 +371,6 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_merge_target.add_argument("-t", "--target-project-key", help="Target project key.")
     inspect_merge_target.add_argument("-T", "--target-seed", help="Target project by known seed value.")
     inspect_merge_parser.add_argument("--target-type", choices=["nsid", "repo_url", "service_url"], help="Required when --target-seed is ambiguous.")
-    inspect_merge_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Include the temporary listReposByCollection first-DID heuristic in the inspection output.")
     inspect_merge_parser.set_defaults(func=merge_commands.cmd_inspect_merge_pair)
 
     merge_parser = subparsers.add_parser("merge", help="Merge one project into another.")
@@ -411,7 +391,6 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")
     merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
     merge_batch_parser.add_argument("--mode", choices=["strict", "moderate", "broad"], default=None, help="Safety level for automatic batch merge planning. Default: strict, or moderate when --interactive is set.")
-    merge_batch_parser.add_argument("--bootstrap-collection-creator-heuristic", action="store_true", help="Temporarily treat same-alias collections with the same first listReposByCollection DID as safe enough for startup merge review.")
     merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
     merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
     merge_batch_parser.set_defaults(func=registry.cmd_merge_batch)

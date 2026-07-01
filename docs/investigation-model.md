@@ -50,7 +50,7 @@ classification は project field の confidence と同義ではありません�
 
 ## EvidenceBundle v2
 
-通常readerが受理するのはEvidenceBundle v2だけです。旧v1 fixtureはv2へ変換済みで、v1互換readerは削除しました。
+通常readerが受理するのはEvidenceBundle v2だけです。旧v1 bundleの互換readerは提供しません。
 
 - `EvidenceBundle`
   - `schema_version`, `project_key`, `collected_at`
@@ -64,7 +64,7 @@ classification は project field の confidence と同義ではありません�
   - `success | partial | skipped | rate_limited | failed`
   - request/result 数、cursor、stop reason、retry 時刻、cache hit
 
-通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する処理はv1 migrationと旧fixture変換だけに限定します。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。
+通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。
 
 主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
 `official_account`, `operates_service`, `source_repository`, `requests_permission`, `redirects_to` です。

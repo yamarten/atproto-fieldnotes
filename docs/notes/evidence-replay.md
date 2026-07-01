@@ -9,7 +9,7 @@
 
 - `investigation_runs` / `collector_runs` への v2 bundle と評価 snapshot 保存
 - EvidenceBundle v2 fixtureの読み込み
-- v1 fixtureはv2へ変換済みで、通常readerの互換は削除済み
+- 通常readerはEvidenceBundle v2だけを受理する
 - `replay-investigation`, `benchmark-investigation`, `export-investigation-fixture`
 - relation/evaluation を中心にした semantic diff
 - 6 case の synthetic/regression corpus

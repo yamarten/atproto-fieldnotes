@@ -488,8 +488,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(detail["investigation"]["failures"][0]["category"], "timeout")
         self.assertTrue(detail["revision"])
         self.assertEqual(detail["overview"]["manual_seed"]["value"], "app.example.post")
-        self.assertNotIn("website_url_candidates", detail["project"])
-        self.assertNotIn("github_repo_urls", detail["project"])
         candidate_values = {
             item["value"] for item in detail["identifiers"] if item["classification"] == "candidate"
         }
@@ -564,16 +562,16 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["source"]["name"], "Example App")
         self.assertEqual(payload["target"]["name"], "Example Duplicate")
         self.assertTrue(payload["source"]["identifiers"])
-        self.assertFalse(payload["bootstrap_details_included"])
+        self.assertFalse(payload["first_creator_details_included"])
         self.assertEqual(payload["merged_preview"]["target_project_key"], "proj:222222222222")
         self.assertEqual(payload["merged_preview"]["merged_name"], "Example Duplicate")
 
-    def test_merge_pair_can_include_bootstrap_details_on_request(self) -> None:
+    def test_merge_pair_can_include_first_creator_details_on_request(self) -> None:
         status, payload, _ = self.request(
-            "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222&include_bootstrap_details=1"
+            "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222&include_first_creator_details=1"
         )
         self.assertEqual(status, 200)
-        self.assertTrue(payload["bootstrap_details_included"])
+        self.assertTrue(payload["first_creator_details_included"])
         self.assertIn("source_collection_first_creator_dids", payload)
         self.assertIn("target_collection_first_creator_dids", payload)
 

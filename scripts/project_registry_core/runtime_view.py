@@ -43,14 +43,11 @@ IDENTIFIER_FIELDS = {
     "external_lexicons",
     "recorded_lexicon_namespaces",
     "authority_domains",
-    "website_url_candidates",
     "service_urls",
     "service_url_candidates",
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
-    "github_repo_urls",
-    "tangled_repo_urls",
     "source_repo_records",
     "developer_accounts",
     "candidate_developer_accounts",
@@ -70,15 +67,7 @@ DECISION_FIELDS = {
     "review_target_decisions",
 }
 
-REMOVED_COMPATIBILITY_FIELDS = {
-    "website_url_candidates",
-    "github_repo_urls",
-    "tangled_repo_urls",
-    "resource_urls",
-    "introduced",
-}
-
-NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence"} | REMOVED_COMPATIBILITY_FIELDS
+NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence"}
 
 
 @dataclass(frozen=True)
@@ -158,7 +147,7 @@ def sanitize_runtime_snapshot(value: Any) -> Any:
         return {
             key: sanitize_runtime_snapshot(item)
             for key, item in value.items()
-            if key not in REMOVED_COMPATIBILITY_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
+            if key not in RUNTIME_INTERNAL_FIELDS
         }
     if isinstance(value, list):
         return [sanitize_runtime_snapshot(item) for item in value]
@@ -171,7 +160,7 @@ def strip_runtime_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
             return {
                 key: strip_nested(item)
                 for key, item in value.items()
-                if key not in REMOVED_COMPATIBILITY_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
+                if key not in RUNTIME_INTERNAL_FIELDS
             }
         if isinstance(value, list):
             return [strip_nested(item) for item in value]
@@ -475,10 +464,6 @@ def hydrate(
     decision_rows: Iterable[Mapping[str, Any]],
     load_json: Any,
 ) -> dict[str, Any]:
-    def semantic_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-        legacy_record = metadata.get("legacy_record")
-        return copy.deepcopy(dict(legacy_record)) if isinstance(legacy_record, Mapping) else copy.deepcopy(metadata)
-
     identifier_payload = [
         {
             "kind": str(row["kind"]),
@@ -533,7 +518,7 @@ def hydrate(
         classification = row["classification"]
         metadata = row["metadata"]
         if role == "manual_seed":
-            project["manual_seeds"].append(semantic_metadata(metadata) or {"type": kind, "value": value})
+            project["manual_seeds"].append(copy.deepcopy(metadata) or {"type": kind, "value": value})
             continue
         if kind == "nsid":
             if role == "primary_nsid" and classification == "confirmed": project["primary_nsid"] = value
@@ -552,13 +537,13 @@ def hydrate(
             target = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
             project[target].append(value)
             if metadata and role == "source_repository_record":
-                record = semantic_metadata(metadata)
+                record = copy.deepcopy(metadata)
                 record["confidence"] = classification
                 project["source_repo_records"].append(record)
         elif kind == "account":
             if role == "developer_account":
                 target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
-                project[target].append(semantic_metadata(metadata) or {"handle": value})
+                project[target].append(copy.deepcopy(metadata) or {"handle": value})
             elif str(row["provider"]) == "bluesky": project["bluesky_handles"].append(value)
             elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
         elif kind == "did" and role == "brand_did" and classification == "confirmed":

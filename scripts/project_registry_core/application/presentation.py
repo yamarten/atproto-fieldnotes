@@ -11,13 +11,6 @@ from .. import storage
 from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
 
 
-REMOVED_COMPATIBILITY_FIELDS = {
-    "website_url_candidates",
-    "github_repo_urls",
-    "tangled_repo_urls",
-    "resource_urls",
-    "introduced",
-}
 WEB_API_VERSION = 2
 CLASSIFICATION_ORDER = ("confirmed", "candidate", "derived", "heuristic")
 
@@ -606,8 +599,6 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "manual_seed": manual_seed,
         "active_guards": payload["decisions"]["active"],
     }
-    if REMOVED_COMPATIBILITY_FIELDS.intersection(payload["project"]):
-        raise AssertionError("removed compatibility fields leaked into Web payload")
     return payload
 
 
@@ -763,13 +754,13 @@ def merge_pair(
     *,
     source_project_key: str,
     target_project_key: str,
-    include_bootstrap_details: bool = False,
+    include_first_creator_details: bool = False,
 ) -> dict[str, Any]:
     result = merge.inspect_pair(
         conn,
         project_key=source_project_key,
         target_project_key=target_project_key,
-        include_bootstrap_details=include_bootstrap_details,
+        include_first_creator_details=include_first_creator_details,
     )
     source = core.resolve_single_project(conn, project_key=source_project_key)
     target = core.resolve_single_project(conn, project_key=target_project_key)

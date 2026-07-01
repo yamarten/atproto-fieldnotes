@@ -29,16 +29,14 @@
 完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
 過去の広域棚卸しで残すべき候補は、このroadmapまたは役割別notesへ移しています。
 
-### 通常DB移行後
-
-通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。v1 backupとmigration reportは保持しています。通常DBは単一の正本として運用しており、移行後の不整合修正も通常DBへ反映済みです。
+### DB-level policy marker
 
 DB-level migration/data policy markerは直近優先から外します。
 
 - 現状は`schema_version=2`だけで、旧方式v2や試験生成v2とのpolicy世代差はDB単体では識別できない
 - ただし正本DBが基本1つで、巻き戻しや複数policy世代DBの並行運用も想定していないため、現時点の実利は小さい
 - 将来、複数DB、再migration、schema v2内でのdata policy世代分岐が必要になった場合に再検討する
-- 実装する場合は、open時の自動付与ではなく、新規v1 migrationのacceptance check完了後、またはmarkerなし既存v2のread-only audit合格後にだけadditiveに付与する
+- 実装する場合は、open時の自動付与ではなく、markerなし既存v2のread-only audit合格後にだけadditiveに付与する
 
 process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
 ### 必要が生じた時に検討するもの
@@ -73,8 +71,6 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - SQLite接続自体のread-only化
   - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するapplication-level mode
   - 日常運用で使う必要が生じた場合にURI `mode=ro`または`PRAGMA query_only`を追加する
-- 互換・移行・暫定コードのcleanup
-  - v1 migration、migration provenance、removed compatibility field guard、bootstrap heuristicなどの棚卸しは[compatibility-cleanup.md](notes/compatibility-cleanup.md)に置く
 
 ### 長期候補
 

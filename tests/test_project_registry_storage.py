@@ -352,11 +352,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertTrue(prune_args.execute)
         self.assertTrue(prune_args.vacuum)
 
-        migration_prune_args = parser.parse_args(["prune-migration-provenance", "--execute"])
-
-        self.assertEqual(migration_prune_args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertTrue(migration_prune_args.execute)
-
     def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
         parser = cli.build_parser()
 
@@ -730,9 +725,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 2)
             self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 0)
             self.assertEqual(summary["migration_candidates"], [])
-            fields = {item["field"] for item in summary["field_inventory"]}
-            self.assertNotIn("website_url_candidates", fields)
-            self.assertNotIn("github_repo_urls", fields)
         finally:
             conn.close()
 

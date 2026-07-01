@@ -3,16 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from .. import registry as core
 from ..application import maintenance as services
-
-
-def cmd_migrate_db(args: argparse.Namespace) -> int:
-    payload = services.migrate_database(Path(args.database), dry_run=bool(args.dry_run))
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
 
 
 def _with_db(call):
@@ -75,15 +68,6 @@ def cmd_prune_investigation_history(args: argparse.Namespace) -> int:
         keep_latest_per_project=int(args.keep_latest_per_project),
         execute=bool(args.execute),
         vacuum=bool(args.vacuum),
-    ))
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def cmd_prune_migration_provenance(args: argparse.Namespace) -> int:
-    payload = _with_db(lambda conn: services.prune_migration_provenance(
-        conn,
-        execute=bool(args.execute),
     ))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

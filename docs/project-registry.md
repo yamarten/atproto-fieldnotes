@@ -386,26 +386,6 @@ project-registry inspect-merge-pair \
   --target-seed com.diffdown.document --target-type nsid
 ```
 
-立ち上げ時の暫定措置として、`listReposByCollection` の先頭 DID と alias 一致を使う heuristic を有効にする場合:
-
-```bash
-project-registry merge-batch \
-  --mode moderate \
-  --bootstrap-collection-creator-heuristic \
-  -v
-```
-
-これは常用向けではありません。`com.atproto.sync.listReposByCollection` の先頭 DID を「最初の record 作成者」とみなす経験則に依存するため、まず dry-run で中身を確認してから使います。
-
-pair 単位でその heuristic だけを確認したい場合:
-
-```bash
-project-registry inspect-merge-pair \
-  --seed app.diffdown.comment --type nsid \
-  --target-seed com.diffdown.document --target-type nsid \
-  --bootstrap-collection-creator-heuristic
-```
-
 ## tracking state
 
 継続調査対象の切り替え:
@@ -689,18 +669,7 @@ project-registry prune-investigation-history --retention-days 180 --keep-latest-
 project-registry prune-investigation-history --execute --vacuum
 ```
 
-operator decision、migration provenance、project current stateはこのcommandでは削除しません。
-
-### v1 migration provenanceの削除
-
-v1から移行したidentifierには旧field、旧classification、降格理由などのprovenance metadataが残ります。通常運用が十分安定し、v1 backupを別途保持した後は、identifier rowを残したまま移行専用metadataだけを削除できます。
-
-```bash
-project-registry prune-migration-provenance
-project-registry prune-migration-provenance --execute
-```
-
-dry-runが既定です。`legacy_record`内の通常repo/account/manual seed metadataは平坦化して残し、repository confidenceは現在のidentifier classificationへ合わせます。identifierのkind、value、role、classification、primary、provider、observed_atは変更しません。実行判断の詳細は[notes/v1-migration-trust.md](notes/v1-migration-trust.md)を参照してください。
+operator decisionとproject current stateはこのcommandでは削除しません。
 
 ## 高度な調査・開発用コマンド
 
@@ -765,16 +734,7 @@ UFOsは完全履歴ではありません。出力の`boundary_reached`, `gap_pos
 - `project_decisions`: block/defer/separateなどのoperator判断
 - `investigation_runs` / `collector_runs`: replay可能な調査履歴
 
-旧DBは`project-registry migrate-db OLD_DB_PATH`で移行します。`--dry-run`は一時DBを作って検証し、元DBを変更しません。
-
-v1移行は旧confirmedをそのまま信用せず、根拠を再構成できないidentifierをmetadata付きcandidateへ降格します。`manual_seed`または`confirm_identifier` decisionがあるidentifierだけをoperator根拠としてconfirmed維持します。reportでは少なくとも次を確認します。
-
-- `uncorroborated_legacy_confirmed_count`: 0であること
-- `active_block_identifier_collision_count`: 0であること
-- `normalized_roundtrip_diff_count`: 0であること
-- `downgraded_to_candidate_counts`: 旧confirmedからcandidateへ隔離した内訳
-
-詳細は [project-record.md](project-record.md) を参照してください。
+旧DB schemaは現行導線の対象外です。詳細は [project-record.md](project-record.md) を参照してください。
 
 ## 環境変数
 

@@ -16,17 +16,11 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
-旧schemaは通常起動で自動変換せず、`project-registry migrate-db OLD_DB_PATH`で一方向移行します。成功時は旧DBをtimestamp付きbackupへ移し、新DBを元pathへ置きます。
-
-v1 migrationは`v1-quarantine-1` trust policyを適用します。旧confirmed fieldはそのままv2 confirmedへ写さず、operator confirmationまたは現行ruleで再現できる根拠がないclaimをcandidate rowへ降格します。降格したrowは`metadata_json`に`migration_source=schema_v1`、`legacy_field`、`legacy_classification`、`trust_policy`、`downgrade_reason`を持ちます。active block対象は移行せず、active defer対象はcandidateとして残します。untrustedなprimary website/repo/NSIDは`projects.website_url`、`source_code_url`、`primary_nsid`へhydrateしません。
-
-移行reportは旧confirmed、維持confirmed、candidate降格、block除外、defer維持、primary scalar clear、active block衝突、根拠不明legacy confirmed、normalized row roundtrip diffを出します。active block衝突、根拠不明legacy confirmed、roundtrip diffはhard acceptance conditionで、非0なら移行は失敗してsource DBを変更しません。
+旧schemaは通常起動で自動変換せず、現行CLIにも旧DBを開く・変換する入口はありません。
 
 `repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
-調査履歴は自動削除しません。`prune-investigation-history`の既定policyは完了から90日以内の全runとprojectごとの最新3 runを保持し、それ以外の`investigation_runs`と対応する`collector_runs`を手動削除対象にします。dry-runが既定です。通常のDELETE後にできたSQLite free pageは再利用されますがfile sizeは縮まないため、実容量を縮める場合だけ別processを停止して`--execute --vacuum`を実行します。operator decisionとmigration provenanceはこのprune対象に含めません。
-
-v1 migration provenanceは通常運用で増加しない固定量です。安定運用後は`prune-migration-provenance`で対象件数とmetadata削減量を確認し、`--execute`でidentifier rowを残したまま移行専用keyを削除できます。`legacy_record`内の通常metadataは平坦化して残します。
+調査履歴は自動削除しません。`prune-investigation-history`の既定policyは完了から90日以内の全runとprojectごとの最新3 runを保持し、それ以外の`investigation_runs`と対応する`collector_runs`を手動削除対象にします。dry-runが既定です。通常のDELETE後にできたSQLite free pageは再利用されますがfile sizeは縮まないため、実容量を縮める場合だけ別processを停止して`--execute --vacuum`を実行します。operator decisionとcurrent project stateはこのprune対象に含めません。
 
 Webのproject一覧検索は`projects` rowを起点に、`project_identifiers`、`project_relations`、`project_decisions`を`EXISTS` queryでfilterします。一覧候補作成時に全projectのnormalized childをhydrateしません。project detailは選択した1件について各child tableを直接取得します。
 
@@ -121,7 +115,7 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
 - `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
-- legacy confirmed identifier は監査対象であり、新規URL昇格のtrusted anchorにはしません
+- 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 
@@ -143,14 +137,6 @@ identity identifier は、manual/operator anchor との間に相互 path があ�
 - `guarded_confirmed_identifier`: block/defer 済みなのに confirmed 相当で残っている
 
 `repair-trust-graph` はデフォルトでは trust edge/evaluation の再計算結果だけを保存します。confirmed identifier の降格は `--execute --downgrade-unsupported` を明示した場合だけ行い、`needs_reprobe` は降格せず再検証候補として残します。
-
-削除済みのruntime compatibility field:
-
-- `website_url_candidates`
-- `github_repo_urls`
-- `tangled_repo_urls`
-- `resource_urls`
-- `introduced`
 
 provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
@@ -191,7 +177,7 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - collector は project dict を変更せず evidence bundle を返す
   - source別 retry、request budget、rate-limit stop
 - `project_registry_core/integration.py`
-  - GitHub / Bluesky / service / Tangled / legacy evidence を既存 project field へ適用する
+  - GitHub / Bluesky / service / Tangled / collector snapshot evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
@@ -240,7 +226,7 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 現行の制約:
 
 - project row は現在状態の正本、run table は再評価可能な調査履歴
-- resource page は legacy mutator を project copy 上で実行し、許可 field の patch として統合する暫定実装
+- resource page は既存のresource-page mutatorを project copy 上で実行し、許可 field の patch として統合する暫定実装
 - cache と circuit breaker は process/source 単位で、複数 project を跨ぐ永続 policy ではない
 
 collector reliability と replay の設計途中の論点は
@@ -255,7 +241,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+Cは協調的な停止要求となり、処理中projectを保存した後に`status=interrupted`と再開commandを記録します。次回`--resume-run`は完了済みkeyを飛ばします。契約の正本は[background-jobs.md](background-jobs.md)です。
 
-Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離し、削除済みcompatibility fieldを再構築しません。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。`website` roleはservice URLのprimary markerとして表示し、DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
+Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。`website` roleはservice URLのprimary markerとして表示し、DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
 enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
 
@@ -776,7 +762,7 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 
 ### 6. 内部 shape の最終整理
 
-- schema v2ではidentifier、relation、decisionを専用tableへ移行済み
+- schema v2ではidentifier、relation、decisionを専用tableへ保存する
 - collector/evaluation間のflat project dictは`runtime_view.py`で組み立てる明示的な非永続viewになった
 - 長期的にはtyped aggregateまたは用途別viewへ寄せ、全project hydrateを減らし、normalized tableを直接queryする検索・collision監査を増やす
 - 3 は suggestion に落とします
@@ -962,7 +948,7 @@ collection inventory import は project 粒度で集約しますが、lexicon �
   - `confirmed_nsids`
 - observation
   - `resource_url_records`
-  - record ごとに `legacy / candidate / confirmed` を持つ
+  - record ごとに `candidate / confirmed` を持つ
 - candidate
   - `service_url_candidates`
   - `candidate_source_code_urls`
@@ -1095,7 +1081,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - `authority_service_families`
   - `domain_identity_tokens`
   - `merge_aliases`
-  - `bootstrap_first_record_creator_dids`
+  - `collection_first_record_creator_dids`
     - 明示的に heuristic を有効化した時だけ
 - `record_creators` 単独では merge 理由にしません
   - namespace lineage が同時に必要です
@@ -1112,7 +1098,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - `authority_service_families`: 6
   - `candidate_source_code_urls`: 5
   - `domain_identity_tokens`: 5
-  - `bootstrap_first_record_creator_dids`: 6
+  - `collection_first_record_creator_dids`: 6
   - `merge_aliases`: 3
 - `merge_confidence` / `auto_merge_ready` は score だけではなく理由の組み合わせで決まります
   - `service_urls` があれば `high` かつ `auto_merge_ready=true`
@@ -1136,10 +1122,10 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 - pair指定の `inspect-merge-pair` / Web merge review は、指定された2 projectだけを比較します
   - 一覧用の全project duplicate indexや、source/targetそれぞれの現在の `merge_recommendation` は計算しません
   - 表示する `source_pair_candidate` / `target_pair_candidate` は、一覧用 `compute_duplicate_candidates()` と同じpair判定関数から作ります
-- `bootstrap_collection_creator_heuristic` は通常のWeb merge reviewでは初期計算しません
-  - Webでは `Load bootstrap heuristic` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
+- collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
+  - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
-  - CLIの `inspect-merge-pair --bootstrap-collection-creator-heuristic` と `merge-batch --bootstrap-collection-creator-heuristic` は、明示的にheuristicを判定へ含める暫定導線として残っています
+  - CLIからheuristicを判定へ含める導線はありません
 
 ### merge-batch の追加安全策
 
@@ -1161,7 +1147,6 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
     - authority family + domain token
     - service root domain + alias overlap
     - website root domain + alias overlap
-    - optional bootstrap first creator DID heuristic
 - safe overlap が無い pair は recommendation があっても batch では落とします
 
 ### merge 方向の決め方
@@ -1206,7 +1191,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 既定は dry-run です。`--execute` を付けた時だけ正規化と派生フィールド再計算を保存します。collision は報告のみで、自動 merge / separate は行いません。
 
 旧 `data_json` 前処理はもう行いません。
-schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは`migrate-db`でのみ読み込みます。
+schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。
 
 ## review-stalled
 

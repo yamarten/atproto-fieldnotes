@@ -36,7 +36,7 @@ from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
 from project_registry_core import trust_graph as trust_graph_core
 from project_registry_core import url_alias as url_alias_core
-from project_registry_core import legacy_collectors as legacy_collector_core
+from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
@@ -640,7 +640,7 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
     "/dashboard",
 )
 RESOURCE_URL_ROLES = {"unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService"}
-RESOURCE_URL_CONFIDENCE_VALUES = {"legacy", "candidate", "confirmed"}
+RESOURCE_URL_CONFIDENCE_VALUES = {"candidate", "confirmed"}
 
 
 def normalize_app_link_role(value: str | None) -> str:
@@ -1603,8 +1603,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     sync_resource_url_records(defaults)
     defaults["supported_service_urls"] = unique_list([normalize_url(str(item)) for item in defaults.get("supported_service_urls", []) if normalize_url(str(item))])
     refresh_project_seed_identity(defaults)
-    for removed_field in ("website_url_candidates", "github_repo_urls", "tangled_repo_urls", "resource_urls", "introduced"):
-        defaults.pop(removed_field, None)
     return apply_technical_interest_state(apply_atproto_contribution_state(defaults))
 
 
@@ -5584,19 +5582,10 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
                 "confidence": confidence,
             }
         )
-    confirmed_urls = {
-        record["url"]
-        for record in output
-        if record["confidence"] == "confirmed"
-    }
-    return [
-        record
-        for record in output
-        if record["confidence"] != "legacy" or record["url"] not in confirmed_urls
-    ]
+    return output
 
 
-def resource_url_record_values(project: dict[str, Any], *, include_legacy_view: bool = True) -> list[dict[str, str]]:
+def resource_url_record_values(project: dict[str, Any]) -> list[dict[str, str]]:
     records = normalize_resource_url_records(list(project.get("resource_url_records", [])))
     website_url = normalize_url(str(project.get("website_url") or ""))
     service_urls = {normalize_url(str(item)) for item in project.get("service_urls", []) if normalize_url(str(item))}
@@ -5610,14 +5599,13 @@ def resource_url_record_values(project: dict[str, Any], *, include_legacy_view: 
 def resource_url_values(
     project: dict[str, Any],
     *,
-    include_legacy_view: bool = True,
     confidences: set[str] | None = None,
     roles: set[str] | None = None,
 ) -> list[str]:
     normalized_confidences = {str(item or "").strip().lower() for item in confidences or set()}
     normalized_roles = {str(item or "").strip() for item in roles or set()}
     urls: list[str] = []
-    for record in resource_url_record_values(project, include_legacy_view=include_legacy_view):
+    for record in resource_url_record_values(project):
         if normalized_confidences and str(record.get("confidence") or "") not in normalized_confidences:
             continue
         if normalized_roles and str(record.get("role") or "") not in normalized_roles:
@@ -10054,7 +10042,7 @@ def project_collection_nsids(project: dict[str, Any]) -> set[str]:
     return collections
 
 
-def project_bootstrap_first_creator_dids(project: dict[str, Any]) -> set[str]:
+def project_collection_first_creator_dids(project: dict[str, Any]) -> set[str]:
     dids: set[str] = set()
     for collection in sorted(project_collection_nsids(project)):
         try:
@@ -10066,7 +10054,7 @@ def project_bootstrap_first_creator_dids(project: dict[str, Any]) -> set[str]:
     return dids
 
 
-def project_bootstrap_first_creator_did_map(project: dict[str, Any]) -> dict[str, str]:
+def project_collection_first_creator_did_map(project: dict[str, Any]) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for collection in sorted(project_collection_nsids(project)):
         try:
@@ -10271,7 +10259,7 @@ def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
         "record_creators_and_namespace_lineage": 7,
         "authority_service_families": 6,
         "domain_identity_tokens": 5,
-        "bootstrap_first_record_creator_dids": 6,
+        "collection_first_record_creator_dids": 6,
         "merge_aliases": 3,
     }
     score = 0
@@ -10298,7 +10286,7 @@ def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> 
         or "authority_service_families" in reasons
     ):
         return "high", True
-    if "bootstrap_first_record_creator_dids" in reasons and "merge_aliases" in reasons:
+    if "collection_first_record_creator_dids" in reasons and "merge_aliases" in reasons:
         return "medium", True
     if "authority_service_families" in reasons and "recorded_lexicon_namespaces" in reasons:
         return "high", True
@@ -10966,11 +10954,11 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
     )
 
 
-def apply_legacy_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
-    integration_core.apply_legacy_evidence(
+def apply_collector_snapshot_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+    integration_core.apply_collector_snapshot_evidence(
         project,
         bundle,
-        integration_core.LegacyIntegrationDependencies(
+        integration_core.CollectorIntegrationDependencies(
             apply_lexicon_result=apply_lexicon_record_result,
             note_failure=note_failure,
         ),
@@ -12273,8 +12261,7 @@ def inspect_merge_pair_payload(
     source: dict[str, Any],
     target: dict[str, Any],
     *,
-    bootstrap_collection_creator_heuristic: bool = False,
-    include_bootstrap_details: bool = False,
+    include_first_creator_details: bool = False,
 ) -> dict[str, Any]:
     source = ensure_project_shape(source)
     target = ensure_project_shape(target)
@@ -12285,20 +12272,18 @@ def inspect_merge_pair_payload(
         target,
         project_profile=source_profile,
         other_profile=target_profile,
-        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
     )
     target_pair_candidate = duplicate_candidate_for_pair(
         target,
         source,
         project_profile=target_profile,
         other_profile=source_profile,
-        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
     )
     strict_overlap = batch_strict_overlap(source, target)
     moderate_overlap = batch_moderate_overlap(source, target)
     heuristic_overlap = (
-        batch_moderate_overlap(source, target, bootstrap_collection_creator_heuristic=True)
-        if bootstrap_collection_creator_heuristic or include_bootstrap_details else {}
+        batch_moderate_overlap(source, target, collection_first_creator_heuristic=True)
+        if include_first_creator_details else {}
     )
     summary: dict[str, Any] = {
         "source_project_key": source["project_key"],
@@ -12314,13 +12299,12 @@ def inspect_merge_pair_payload(
         "target_pair_candidate": target_pair_candidate,
         "strict_overlap": strict_overlap,
         "moderate_overlap": moderate_overlap,
-        "bootstrap_collection_creator_heuristic": bool(bootstrap_collection_creator_heuristic),
-        "bootstrap_details_included": bool(include_bootstrap_details or bootstrap_collection_creator_heuristic),
-        "bootstrap_overlap": heuristic_overlap,
+        "first_creator_details_included": bool(include_first_creator_details),
+        "first_creator_overlap": heuristic_overlap,
     }
-    if include_bootstrap_details or bootstrap_collection_creator_heuristic:
-        summary["source_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(source)
-        summary["target_collection_first_creator_dids"] = project_bootstrap_first_creator_did_map(target)
+    if include_first_creator_details:
+        summary["source_collection_first_creator_dids"] = project_collection_first_creator_did_map(source)
+        summary["target_collection_first_creator_dids"] = project_collection_first_creator_did_map(target)
     return summary
 
 
@@ -12359,7 +12343,6 @@ def duplicate_candidate_for_pair(
     *,
     project_profile: dict[str, set[str]] | None = None,
     other_profile: dict[str, set[str]] | None = None,
-    bootstrap_collection_creator_heuristic: bool = False,
 ) -> dict[str, Any] | None:
     if other.get("project_key") == project.get("project_key"):
         return None
@@ -12396,10 +12379,6 @@ def duplicate_candidate_for_pair(
     alias_overlap = sorted(target_profile["merge_aliases"] & candidate_profile["merge_aliases"])
     if alias_overlap:
         reasons["merge_aliases"] = alias_overlap
-    if bootstrap_collection_creator_heuristic and alias_overlap:
-        first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project) & project_bootstrap_first_creator_dids(other))
-        if first_creator_overlap:
-            reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
     if not reasons:
         return None
     score = merge_score_from_reasons(reasons)
@@ -12422,7 +12401,6 @@ def compute_duplicate_candidates(
     projects: list[dict[str, Any]] | None = None,
     duplicate_profiles: dict[str, dict[str, set[str]]] | None = None,
     duplicate_index: dict[str, dict[str, set[str]]] | None = None,
-    bootstrap_collection_creator_heuristic: bool = False,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     all_projects = projects if projects is not None else list_projects(conn)
@@ -12453,7 +12431,6 @@ def compute_duplicate_candidates(
             other,
             project_profile=target_profile,
             other_profile=other_profile,
-            bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
         )
         if candidate:
             candidates.append(candidate)
@@ -12647,7 +12624,7 @@ def batch_moderate_overlap(
     project_a: dict[str, Any],
     project_b: dict[str, Any],
     *,
-    bootstrap_collection_creator_heuristic: bool = False,
+    collection_first_creator_heuristic: bool = False,
 ) -> dict[str, list[str]]:
     if merge_is_blocked(project_a, project_b):
         return {}
@@ -12678,10 +12655,10 @@ def batch_moderate_overlap(
         reasons["alias_overlap"] = alias_overlap
         return reasons
 
-    if bootstrap_collection_creator_heuristic and alias_overlap:
-        first_creator_overlap = sorted(project_bootstrap_first_creator_dids(project_a) & project_bootstrap_first_creator_dids(project_b))
+    if collection_first_creator_heuristic and alias_overlap:
+        first_creator_overlap = sorted(project_collection_first_creator_dids(project_a) & project_collection_first_creator_dids(project_b))
         if first_creator_overlap:
-            reasons["bootstrap_first_record_creator_dids"] = first_creator_overlap
+            reasons["collection_first_record_creator_dids"] = first_creator_overlap
             reasons["alias_overlap"] = alias_overlap
             return reasons
 
@@ -12712,14 +12689,8 @@ def batch_broad_overlap(
     project_a: dict[str, Any],
     project_b: dict[str, Any],
     recommendation: dict[str, Any],
-    *,
-    bootstrap_collection_creator_heuristic: bool = False,
 ) -> dict[str, list[str]]:
-    reasons = batch_moderate_overlap(
-        project_a,
-        project_b,
-        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
-    )
+    reasons = batch_moderate_overlap(project_a, project_b)
     if reasons:
         return reasons
     if merge_is_blocked(project_a, project_b):
@@ -12795,8 +12766,6 @@ def choose_batch_merge_direction(project_a: dict[str, Any], project_b: dict[str,
 def build_batch_merge_plan(
     conn: sqlite3.Connection,
     mode: str = "strict",
-    *,
-    bootstrap_collection_creator_heuristic: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     merge_tracking_states = TRACKING_STATES - {"ignore"}
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=merge_tracking_states)]
@@ -12813,7 +12782,6 @@ def build_batch_merge_plan(
             projects=project_list,
             duplicate_profiles=duplicate_profiles,
             duplicate_index=duplicate_index,
-            bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
         )
         analyzed[project_key] = {
             "project": project,
@@ -12849,18 +12817,9 @@ def build_batch_merge_plan(
         if mode == "strict":
             safe_reasons = batch_strict_overlap(project, target)
         elif mode == "moderate":
-            safe_reasons = batch_moderate_overlap(
-                project,
-                target,
-                bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
-            )
+            safe_reasons = batch_moderate_overlap(project, target)
         else:
-            safe_reasons = batch_broad_overlap(
-                project,
-                target,
-                recommendation,
-                bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
-            )
+            safe_reasons = batch_broad_overlap(project, target, recommendation)
         if not safe_reasons:
             skipped.append(
                 attach_batch_entry_seed_fields(
@@ -13310,8 +13269,6 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             if slug:
                 project["name"] = slug.split("/")[-1]
     normalize_service_identifier_views(project)
-    for removed_field in ("website_url_candidates", "github_repo_urls", "tangled_repo_urls", "resource_urls", "introduced"):
-        project.pop(removed_field, None)
     return project
 
 
@@ -13348,10 +13305,10 @@ def enrich_project(
             }
             for nsid in initial_nsids:
                 try:
-                    lexicon_evidence = legacy_collector_core.collect_lexicon_result(
+                    lexicon_evidence = collector_adapter_core.collect_lexicon_result(
                         str(project.get("project_key") or ""), nsid, lexicon_futures[nsid].result(), iso_now()
                     )
-                    apply_legacy_evidence(project, lexicon_evidence)
+                    apply_collector_snapshot_evidence(project, lexicon_evidence)
                     run_evidence.extend(lexicon_evidence)
                 except Exception as exc:
                     note_failure(project, f"lexicon enrichment failed for {nsid}: {exc}")
@@ -13362,11 +13319,11 @@ def enrich_project(
     if should_refresh_recent_record_samples(project):
         try:
             collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
-            sample_evidence = legacy_collector_core.collect_record_samples(
+            sample_evidence = collector_adapter_core.collect_record_samples(
                 str(project.get("project_key") or ""), collections,
                 fetch_recent_record_samples(collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),
             )
-            apply_legacy_evidence(project, sample_evidence)
+            apply_collector_snapshot_evidence(project, sample_evidence)
             run_evidence.extend(sample_evidence)
         except Exception as exc:
             note_failure(project, f"recent record sampling failed: {exc}")
@@ -13405,12 +13362,12 @@ def enrich_project(
     if should_refresh_lexicon_surface(project, discovered_nsids):
         for nsid in discovered_nsids:
             try:
-                lexicon_evidence = legacy_collector_core.collect_lexicon_result(
+                lexicon_evidence = collector_adapter_core.collect_lexicon_result(
                     str(project.get("project_key") or ""), nsid,
                     fetch_lexicon_record(nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP),
                     iso_now(),
                 )
-                apply_legacy_evidence(project, lexicon_evidence)
+                apply_collector_snapshot_evidence(project, lexicon_evidence)
                 run_evidence.extend(lexicon_evidence)
             except Exception as exc:
                 note_failure(project, f"lexicon enrichment failed for discovered repo hint {nsid}: {exc}")
@@ -13489,10 +13446,10 @@ def enrich_project(
 
     if deep_investigation:
         try:
-            resource_evidence = legacy_collector_core.collect_resource_page_patch(
+            resource_evidence = collector_adapter_core.collect_resource_page_patch(
                 project, enrich_from_resource_pages, iso_now()
             )
-            apply_legacy_evidence(project, resource_evidence)
+            apply_collector_snapshot_evidence(project, resource_evidence)
             run_evidence.extend(resource_evidence)
         except Exception as exc:
             note_failure(project, f"resource page enrichment failed: {exc}")
@@ -14652,7 +14609,7 @@ def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> No
     apply_github_repo_evidence(project, bundle)
     apply_saved_service_evidence(project, bundle)
     apply_tangled_evidence(project, bundle)
-    apply_legacy_evidence(project, bundle)
+    apply_collector_snapshot_evidence(project, bundle)
     for repo_url in relation_core.corroborate_source_repositories(project):
         confirm_source_code_url(
             project,
@@ -15651,7 +15608,6 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
     plans, skipped = build_batch_merge_plan(
         conn,
         mode=effective_mode,
-        bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
     )
     if args.max_merges is not None:
         plans = plans[: max(0, int(args.max_merges))]
@@ -15907,7 +15863,6 @@ def cmd_merge_batch(args: argparse.Namespace) -> int:
             ({
                 "mode": "execute" if args.execute else "dry_run",
                 "merge_mode": effective_mode,
-                "bootstrap_collection_creator_heuristic": bool(args.bootstrap_collection_creator_heuristic),
                 "planned_merges": len(plans),
                 "executed_merges": len(executed),
                 "executed": executed,

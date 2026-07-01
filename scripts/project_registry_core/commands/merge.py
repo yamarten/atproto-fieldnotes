@@ -18,7 +18,6 @@ def cmd_inspect_merge_pair(args: argparse.Namespace) -> int:
             target_project_key=args.target_project_key,
             target_seed=args.target_seed,
             target_seed_type=args.target_type,
-            bootstrap_collection_creator_heuristic=bool(args.bootstrap_collection_creator_heuristic),
         )
     finally:
         conn.close()

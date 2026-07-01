@@ -18,18 +18,7 @@ app lexiconとの完全互換や即時exportは主目的ではありません。
 
 ## Schema Version
 
-現行schemaはversion 2です。`registry_meta.schema_version=2`を持たない旧DBは通常起動では読み込みません。
-
-```sh
-project-registry migrate-db data/survey.db
-```
-
-移行成功時は旧DBを同じdirectoryのtimestamp付きbackupへ移し、新DBを元pathへ置きます。失敗時は旧DBを変更しません。
-`migrate-db`は別processとの排他lockを取得しないため、Web、enrich、他のCLI writerを停止したoffline状態で実行します。すでにschema v2のDBはtrust policy適用世代に関係なく`already_current`になるため、旧方式v2を現行migration済みDBとして扱わないでください。
-
-v1からの移行では`v1-quarantine-1` trust policyを適用します。旧DBでconfirmed相当だったidentifierでも、現在の根拠で再現できないものは`project_identifiers`のcandidate rowへ降格し、`metadata_json`へ旧field、旧classification、policy、降格理由を残します。`manual_seed`はoperator入力としてconfirmed rowにできますが、同じ値であることだけをownershipやsource repositoryのconfirmed根拠にはしません。`confirm_identifier` decisionが残るoperator確認済みidentifier、または現行ruleで再構成できる根拠だけをconfirmedとして維持します。
-
-移行reportは旧confirmed件数、維持/降格/除外件数、primary scalarを空にしてcandidate rowへ移した件数、active block衝突、根拠不明legacy confirmed、normalized rowの無変更roundtrip diffを含みます。active block衝突、根拠不明legacy confirmed、roundtrip diffがある場合は移行失敗として扱います。
+現行schemaはversion 2です。`registry_meta.schema_version=2`を持たない旧DBは通常起動では読み込みません。旧DB schemaは現行導線の対象外です。
 
 ## 保存責務
 
@@ -63,7 +52,7 @@ alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Web�
 `investigation_runs.project_key`とrun内snapshot/bundleは、調査当時のidentityを残すため書き換えません。
 
 このtableはschema version 2へのadditive tableです。既存v2 DBは通常readerでopenした時に
-idempotentに作成でき、v1からのmigrationをやり直す必要はありません。
+idempotentに作成できます。
 
 ### `profile_json`
 
@@ -213,14 +202,6 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - supporting page: `state_json.evidence.resource_url_records`
 - introduction state: `introduced_url`が空でないか
 
-削除済みruntime field:
-
-- `website_url_candidates`
-- `github_repo_urls`
-- `tangled_repo_urls`
-- `resource_urls`
-- `introduced`
-
 provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出します。
 
 ## Status Values
@@ -291,7 +272,6 @@ split後の新しいrunだけを新project keyへ保存します。run snapshot�
 次は自動削除しません。
 
 - `project_decisions`: operator assertionの正本
-- `project_identifiers`のmigration provenance: v1 migration時だけ増える固定量で、通常運用では増加し続けない。安定運用後は`prune-migration-provenance --execute`でidentifier rowを残したまま移行専用metadataだけを削除できる
 - current project state: 履歴ではなく現在状態の正本
 
 Web job eventはprocess内保持で再起動時に消えます。`sync_state`は最新watermarkだけを保持し、実行履歴として蓄積しません。enrich checkpoint fileの自動削除は未接続です。

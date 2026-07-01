@@ -16,13 +16,6 @@
 - 公開command入口
   - `bin/project-registry`
   - `bin/project-registry-web`
-- v1 DBからv2 DBへの保守的migration
-  - 移行、検証、backup、元path置換
-  - 由来不明のlegacy confirmed identifierをcandidateへ降格
-  - operator確認済みidentifierとactive decisionを維持
-- 通常DBのschema v2移行
-  - 2026-06-18にoffline migrationを実行し、v1 backupと`data/migrate-log.json`を保持
-  - migration時のhard acceptance condition、SQLite integrity、normalized roundtripは合格
 - Web UIの日常運用
   - normalized tableを直接使うproject検索と構造化filter
     - 自由入力検索は `project_key`、`name`、`website_url`、identifier value、relation subject/object/locator、decision target/note の大小文字を無視した部分一致
@@ -57,7 +50,6 @@
   - source keyのinvestigation runをtarget detailへ束ね、保存snapshotは維持
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
-  - v1 migration専用provenance metadataを意味列を残して削除可能
 
 利用手順は[project-registry.md](project-registry.md)、保存契約は
 [project-record.md](project-record.md)、調査契約は
@@ -73,11 +65,11 @@
   - enrichの未完了checkpoint再発見は接続済み
 - CLIなど別processを含むwriter排他
 - schema v2以降のincremental migration
-  - 現状の`migrate-db`はv1からv2だけを扱い、既存v2 DBを次世代schemaへ更新するrunnerはない
+  - 次世代schemaへ更新するrunnerは未実装
 - DB-level trust/data policy marker
-  - 現行通常DBのv1由来identifierは`v1-quarantine-1` metadataを持つが、`registry_meta`はschema versionしか持たない
-  - 正本DBが単一で、移行後の修正も通常DBへ反映済みのため、直近の実装優先から外した
-  - 将来必要になった場合は、再移行ではなくaudit合格後のadditive updateとして後付けする
+  - `registry_meta`はschema versionしか持たない
+  - 正本DBが単一のため、直近の実装優先から外した
+  - 将来必要になった場合は、audit合格後のadditive updateとして後付けする
 - `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
 - Tangled repoの完全なtree取得。現状は公開HTMLとREADME raw取得に限定
@@ -113,16 +105,23 @@
   - integrity `ok`、block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
 - 2026-06-21の移行後通常DB read-only audit
   - integrity `ok`、foreign key違反0件
-  - v1由来identifier 14950件は全件`v1-quarantine-1`
+  - 当時のv1由来identifier 14950件は全件`v1-quarantine-1`
   - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
+- 2026-07-01のmigration provenance cleanup
+  - `project_identifiers` 14022行の移行専用metadataを削除
+  - 削除後のv1 migration metadata件数0、SQLite integrity `ok`、foreign key違反0件
+- 2026-07-01のresource URL record cleanup
+  - active `projects.state_json` の `resource_url_records[].confidence = "legacy"` を `candidate` へ吸収
+  - 変換後のactive `confidence = "legacy"` 件数0、SQLite integrity `ok`
+  - investigation history側の過去bundleは履歴として残している
 - 2026-06-25の判定feedback対応
   - service follow-up/deep page URL、service URL guard、service support relation、repo/NSIDからauthority domainへの片方向根拠、repo内lexicon ownership、README URL抽出のtargeted unit test
   - 補助ページservice URLの既存DB cleanupを`repair-db --execute`で適用済み
-  - 適用前backup: `data/survey.db.backup-20260625-judgement-feedback`
+  - 適用前backup `data/survey.db.backup-20260625-judgement-feedback` は2026-06-30に削除済み
   - `proj:bbd470871ccc`の`https://leaflet.pub`は片方向根拠だけでconfirmed service URLになっていたため、`defer-identifier`でdefer済み
-  - 追加backup: `data/survey.db.backup-20260625-one-way-service-trust`
+  - 追加backup `data/survey.db.backup-20260625-one-way-service-trust` は2026-06-30に削除済み
   - `defines_schema`はaccepted repoとaccepted NSIDが揃う場合だけ保存し、repo内lexicon JSONだけの既存relation 444件を`mentions_collection`へdowngrade済み
-  - 追加backup: `data/survey.db.backup-20260625-defines-schema-policy`
+  - 追加backup `data/survey.db.backup-20260625-defines-schema-policy` は2026-06-30に削除済み
   - service pageのNSID直接言及だけではconfirmed service URLへ昇格しない
   - 旧NSID直接言及ruleだけでconfirmedになった可能性があるservice URLを既存DBで確認済み
     - 2026-06-26 read-only preliminary count: confirmed service URL pairは652、当時supported判定の`operates_service`を持つものは544、そのうちmanual seedではない上限候補は56

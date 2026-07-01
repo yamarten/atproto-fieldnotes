@@ -347,7 +347,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         project = self.make_project("proj:storedrun")
         project["service_urls"] = ["https://example.com"]
-        project["website_url_candidates"] = ["https://legacy.example"]
         project[runtime_view.RUNTIME_VIEW_MARKER] = True
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
         bundle.add_record(relation_core.relation_record(
@@ -370,7 +369,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             conn.close()
         assert run is not None
         self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, run["input_project"])
-        self.assertNotIn("website_url_candidates", run["input_project"])
         self.assertEqual(run["input_project"]["service_urls"], ["https://example.com"])
         replayed = registry.replay_core.replay_and_diff(
             run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()

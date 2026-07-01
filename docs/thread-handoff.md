@@ -7,7 +7,6 @@
 ## 現在地
 
 - 日常運用安定化の8項目は実装済みです。
-- 通常DBは2026-06-18に現行`v1-quarantine-1` policyでschema v2へoffline移行済みです。
 - Web server reloadのpackage entrypoint修正まで`master`へ反映済みです。
 - 判定feedback対応は実装・DB適用とも進行済みです。現在の確認済み範囲は[status.md](status.md)、trust graphの現行仕様は[registry-internals.md](registry-internals.md)、将来作業は[roadmap.md](roadmap.md)を参照してください。
 
@@ -21,13 +20,7 @@
 
 次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認してください。
 
-直近のbackup:
-
-- `data/survey.db.backup-20260625-judgement-feedback`
-- `data/survey.db.backup-20260625-one-way-service-trust`
-- `data/survey.db.backup-20260625-defines-schema-policy`
-
-この作業を理由に専用worktreeを維持する必要はありません。次スレッドはmain worktreeから開始して構いません。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、backupまたは複製を用意して実行してください。
+この作業を理由に専用worktreeを維持する必要はありません。次スレッドはmain worktreeから開始して構いません。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、必要ならその時点で新しいbackupまたは複製を用意して実行してください。
 
 ## 未検証・未接続
 

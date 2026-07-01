@@ -15,8 +15,7 @@ def inspect_pair(
     target_project_key: str | None = None,
     target_seed: str | None = None,
     target_seed_type: str | None = None,
-    bootstrap_collection_creator_heuristic: bool = False,
-    include_bootstrap_details: bool = False,
+    include_first_creator_details: bool = False,
 ) -> dict[str, Any]:
     source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     target = core.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
@@ -26,8 +25,7 @@ def inspect_pair(
         conn,
         source,
         target,
-        bootstrap_collection_creator_heuristic=bootstrap_collection_creator_heuristic,
-        include_bootstrap_details=include_bootstrap_details,
+        include_first_creator_details=include_first_creator_details,
     )
 
 

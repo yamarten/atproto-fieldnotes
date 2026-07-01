@@ -84,15 +84,15 @@ class TangledIntegrationDependencies:
 
 
 @dataclass(frozen=True)
-class LegacyIntegrationDependencies:
+class CollectorIntegrationDependencies:
     apply_lexicon_result: Callable[[dict[str, Any], str, dict[str, Any]], None]
     note_failure: Callable[[dict[str, Any], str], None]
 
 
-def apply_legacy_evidence(
+def apply_collector_snapshot_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
-    dependencies: LegacyIntegrationDependencies,
+    dependencies: CollectorIntegrationDependencies,
 ) -> None:
     for record in bundle.records:
         if record.kind == "lexicon_resolution_snapshot" and isinstance(record.value, dict):
