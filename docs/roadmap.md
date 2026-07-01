@@ -101,6 +101,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - fixture export時のsanitize運用を実データ追加前に固定する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
+- LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
 
 未決定:
 
@@ -113,6 +114,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - service verification: [service-verification.md](notes/service-verification.md)
 - replay / fixture corpus: [evidence-replay.md](notes/evidence-replay.md)
 - collector failure policy: [collector-reliability.md](notes/collector-reliability.md)
+- LLM model comparison: [llm-model-evaluation.md](notes/llm-model-evaluation.md)
 
 ### ステータス系
 
