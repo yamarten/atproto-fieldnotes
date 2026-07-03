@@ -235,7 +235,7 @@ collector reliability と replay の設計途中の論点は
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
-`enrich --all` は既定で `tracking_state=active|watchlist` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
+`enrich --all` は既定で `tracking_state=active` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
 `enrich`のproject選択、保存、checkpoint、再開は`project_registry_core.application.enrichment`へ接続済みです。CLIは`project_registry_core.commands.enrichment`で引数を`OperationRequest`へ変換し、serviceのevent dataをJSON linesへ変換します。
 
@@ -1204,7 +1204,7 @@ schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`�
 
 ## review-stalled
 
-`review-stalled` は `active/watchlist -> stalled` の候補だけではなく、
+`review-stalled` は `active -> stalled` の候補だけではなく、
 
 - `active -> stable`
   - collection は最近動いているが repo 側は止まっている
@@ -1238,9 +1238,7 @@ schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`�
   - repo は recent ではない
   - collection は recent
 - これは「ソースコード更新は止まっているが、collection はまだ実運用されている」ケースを落とし過ぎないためです
-- `watchlist` はここでは `stable` に落としません
-
-### `active/watchlist -> stalled`
+### `active -> stalled`
 
 - まず recent repo activity がある project は何もしません
 - そのうえで、collection も recent でない時だけ stalled 判定に進みます
@@ -1263,14 +1261,13 @@ schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`�
 ### 調査鮮度ゲート
 
 - `max_enrich_age_days` は停止の根拠ではなく、降格判定に使える調査結果の最大経過日数です
-- 未enrichまたは期限超過の `active/watchlist` は `stalled` 候補を返しません
+- 未enrichまたは期限超過の `active` は `stalled` 候補を返しません
 - recent activityによる `stalled -> active` と `active -> stable` は、調査鮮度ゲートより先に判定します
 
 ### review-stalled の対象範囲
 
 - `review-stalled` が見る tracking state は:
   - `active`
-  - `watchlist`
   - `stalled`
 - `stable` / `out_of_scope` / `archived` / `ignore` はこの自動判定の対象外です
 - `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します

@@ -420,7 +420,7 @@ project-registry review-ignore --execute
 
 repo 更新日時と collection activity のどちらか一方でも最近動いていれば、少なくとも `stalled` には落としません。
 
-`active/watchlist -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。
+`active -> stalled` の降格判定は、`last_enriched_at` が `--max-enrich-age-days` 未満のprojectだけを対象にします。未enrichまたは調査結果が古いprojectは、停止を確定する材料が不足しているため候補から外します。`stalled -> active` と `active -> stable` はrecent activityを直接根拠にするため、この鮮度ゲートの対象外です。
 
 `review-out-of-scope` は、atprotoとの関係を保持したまま現在の紹介・重点調査対象から外す候補を出します。
 
@@ -433,7 +433,7 @@ repo 更新日時と collection activity のどちらか一方でも最近動い
 
 - 独立した website / service / owned lexicon surface が見えない GitHub fork repo
 
-新規のスコープ外候補については、両コマンドとも既定で `active / watchlist / stable / stalled` を見て、すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。`review-out-of-scope` だけは既存の `out_of_scope` も走査し、owned protocol surfaceが見つかった場合の `active` 復帰候補を出します。
+新規のスコープ外候補については、両コマンドとも既定で `active / stable / stalled` を見て、すでに `introduced_url` があるもの、`archived`、`ignore` は候補にしません。`review-out-of-scope` だけは既存の `out_of_scope` も走査し、owned protocol surfaceが見つかった場合の `active` 復帰候補を出します。
 
 ## 紹介候補キュー
 

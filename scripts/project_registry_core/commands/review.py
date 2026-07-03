@@ -16,7 +16,7 @@ def _print(payload: dict[str, Any]) -> int:
 
 def cmd_review_queue(args: argparse.Namespace) -> int:
     conn = core.open_db()
-    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist", "stable", "stalled"}
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "stable", "stalled"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     load_more: Callable[[], list[dict[str, Any]]] | None = None
@@ -70,7 +70,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
 
 def cmd_promotion_queue(args: argparse.Namespace) -> int:
     conn = core.open_db()
-    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active", "watchlist"}
+    tracking_states = {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()} or {"active"}
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     include_personal_tools = bool(getattr(args, "include_personal_tools", False))

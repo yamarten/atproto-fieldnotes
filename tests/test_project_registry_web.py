@@ -687,7 +687,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/tracking-state",
             method="POST",
-            payload={"tracking_state": "watchlist", "expected_revision": stale_revision},
+            payload={"tracking_state": "stable", "expected_revision": stale_revision},
             include_revision=False,
         )
         self.assertEqual(status, 409)
@@ -706,20 +706,20 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/tracking-state",
             method="POST",
-            payload={"tracking_state": "watchlist"},
+            payload={"tracking_state": "stable"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(payload["detail"]["project"]["tracking_state"], "watchlist")
+        self.assertEqual(payload["detail"]["project"]["tracking_state"], "stable")
         self.assertEqual(lock.entries, 1)
 
     def test_tracking_confirm_reject_and_decision_roundtrip(self) -> None:
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/tracking-state",
             method="POST",
-            payload={"tracking_state": "watchlist", "note": "web review"},
+            payload={"tracking_state": "stable", "note": "web review"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(payload["detail"]["project"]["tracking_state"], "watchlist")
+        self.assertEqual(payload["detail"]["project"]["tracking_state"], "stable")
 
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/confirm-candidate",

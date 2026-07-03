@@ -227,7 +227,7 @@ function listControls() {
   return `<div class="controls">
     <div class="toolbar"><input id="project-query" type="search" placeholder="Search name, NSID, account, URL" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">Search</button><button id="new-seed">New Seed</button></div>
     <details><summary>Filters</summary><div class="filter-grid">
-      <label>Tracking states<input id="filter-tracking" placeholder="active, watchlist" value="${esc(state.projectSearch.tracking)}"></label>
+      <label>Tracking states<input id="filter-tracking" placeholder="active, stable" value="${esc(state.projectSearch.tracking)}"></label>
       <label>Service status<input id="filter-service" placeholder="live, unknown" value="${esc(state.projectSearch.service)}"></label>
       <label>Contribution<input id="filter-contribution" placeholder="core, substantial" value="${esc(state.projectSearch.contribution)}"></label>
       <label>Introduced<select id="filter-introduced">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.introduced)}</select></label>
@@ -791,7 +791,7 @@ function renderNewSeed() {
 function renderOperations() {
   $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">${state.server?.read_only ? "Read-only mode. Job controls are disabled." : "Operations run in a separate process. Only one job runs at a time. Enrich stops between projects, sync at source page/item boundaries, and review between candidates."}</p><div class="operation-grid">
     <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
-      <label>Target<select id="enrich-target"><option value="all">Active and watchlist projects</option><option value="project">One project</option></select></label>
+      <label>Target<select id="enrich-target"><option value="all">Active projects</option><option value="project">One project</option></select></label>
       <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
       <label><span><input id="enrich-deep" type="checkbox"> Deep investigation</span></label>
       <label><span><input id="enrich-new-only" type="checkbox"> Never enriched only</span></label>

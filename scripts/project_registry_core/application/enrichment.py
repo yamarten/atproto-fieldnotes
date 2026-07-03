@@ -149,7 +149,7 @@ def _tracking_states(options: EnrichmentOptions) -> set[str] | None:
     if options.tracking_states:
         cleaned = {item.strip().lower() for item in options.tracking_states if item.strip()}
         return {item for item in cleaned if item in core.TRACKING_STATES} or None
-    states = {"active", "watchlist"}
+    states = {"active"}
     for enabled, value in (
         (options.include_stable, "stable"),
         (options.include_stalled, "stalled"),

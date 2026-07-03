@@ -90,7 +90,7 @@ def stalled(
     current_time = now or dt.datetime.now(dt.timezone.utc)
     projects = [
         core.ensure_project_shape(project)
-        for project in core.list_projects(conn, tracking_states={"active", "watchlist", "stalled"})
+        for project in core.list_projects(conn, tracking_states={"active", "stalled"})
     ]
     candidates = [
         entry
@@ -232,7 +232,7 @@ def out_of_scope(
         limit=limit,
         note=note,
         note_reason=note_reason,
-        default_tracking_states={"active", "watchlist", "stable", "stalled", "out_of_scope"},
+        default_tracking_states={"active", "stable", "stalled", "out_of_scope"},
         selected_candidate_ids=selected_candidate_ids,
         expected_plan_fingerprint=expected_plan_fingerprint,
         progress=progress,
@@ -261,7 +261,7 @@ def _classification(
     resolved_states = set(
         tracking_states
         or default_tracking_states
-        or {"active", "watchlist", "stable", "stalled"}
+        or {"active", "stable", "stalled"}
     )
     projects = [
         core.ensure_project_shape(project)

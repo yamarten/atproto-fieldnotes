@@ -84,7 +84,7 @@ _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
 _TLD_EXTRACTORS: dict[str, Any] = {}
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
-TRACKING_STATES = {"active", "watchlist", "stable", "stalled", "out_of_scope", "archived", "ignore"}
+TRACKING_STATES = {"active", "stable", "stalled", "out_of_scope", "archived", "ignore"}
 PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
 PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
 SEMBLE_TRACKED_COLLECTIONS = (
@@ -6498,7 +6498,7 @@ def parse_db_edit_request(
         '  "project_query": "string",\n'
         '  "identifier_type": "nsid|repo_url|service_url|",\n'
         '  "identifier_value": "string",\n'
-        '  "tracking_state": "active|watchlist|stable|stalled|out_of_scope|archived|ignore|",\n'
+        '  "tracking_state": "active|stable|stalled|out_of_scope|archived|ignore|",\n'
         '  "note": "string",\n'
         '  "reason": "string"\n'
         "}\n"
@@ -13784,7 +13784,7 @@ def output_project_queue(
                         print(json.dumps(runtime_view.sanitize_runtime_snapshot(project), ensure_ascii=False, indent=2, sort_keys=True))
                     continue
                 if queue_name == "review" and lowered == "k":
-                    print("[a]ctive/[w]atchlist/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
+                    print("[a]ctive/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
                     try:
                         state_answer = input().strip().lower()
                     except EOFError:
@@ -13792,8 +13792,6 @@ def output_project_queue(
                     state_map = {
                         "a": "active",
                         "active": "active",
-                        "w": "watchlist",
-                        "watchlist": "watchlist",
                         "s": "stable",
                         "stable": "stable",
                         "t": "stalled",
@@ -13823,7 +13821,7 @@ def output_project_queue(
                         current_item = refreshed
                     continue
                 if queue_name == "promotion" and lowered == "k":
-                    print("[a]ctive/[w]atchlist/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
+                    print("[a]ctive/[s]table/s[t]alled/[i]gnore/[Enter]=cancel", file=sys.stderr)
                     try:
                         state_answer = input().strip().lower()
                     except EOFError:
@@ -13831,8 +13829,6 @@ def output_project_queue(
                     state_map = {
                         "a": "active",
                         "active": "active",
-                        "w": "watchlist",
-                        "watchlist": "watchlist",
                         "s": "stable",
                         "stable": "stable",
                         "t": "stalled",
@@ -14288,7 +14284,7 @@ def stalled_review_entry(
             }
         return None
 
-    if tracking_state not in {"active", "watchlist"}:
+    if tracking_state != "active":
         return None
 
     if recent_repo_activity:
@@ -14373,7 +14369,7 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     inactivity_days = max(1, int(args.inactivity_days or 45))
     max_enrich_age_days = max(1, int(args.max_enrich_age_days or 30))
-    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states={"active", "watchlist", "stalled"})]
+    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states={"active", "stalled"})]
     candidates = [
         entry
         for project in project_list
@@ -14483,7 +14479,7 @@ def cmd_review_classification(
     conn = open_db()
     tracking_states = (
         {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()}
-        or set(default_tracking_states or {"active", "watchlist", "stable", "stalled"})
+        or set(default_tracking_states or {"active", "stable", "stalled"})
     )
     project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
     candidates = [entry for project in project_list if (entry := entry_builder(project))]
@@ -14632,7 +14628,7 @@ def cmd_review_out_of_scope(args: argparse.Namespace) -> int:
         note_reason_choices=OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
         default_note_reason=default_out_of_scope_review_note_reason,
         build_note=build_out_of_scope_review_note,
-        default_tracking_states={"active", "watchlist", "stable", "stalled", "out_of_scope"},
+        default_tracking_states={"active", "stable", "stalled", "out_of_scope"},
     )
 
 

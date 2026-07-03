@@ -84,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.set_defaults(func=explain_commands.cmd_explain)
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
-    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active watchlist stable stalled.")
+    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active stable stalled.")
     review_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_candidate_needs_confirmation",
         "candidate_repo_needs_confirmation",
@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
-    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active watchlist.")
+    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_ready_for_introduction",
         "lexicon_ready_for_introduction",
@@ -114,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=review_commands.cmd_promotion_queue)
 
-    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active/watchlist projects that likely deserve a lower tracking frequency.")
+    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active projects that likely deserve a lower tracking frequency.")
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
     review_stalled_parser.add_argument(
         "--max-enrich-age-days",
@@ -129,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.set_defaults(func=review_commands.cmd_review_stalled)
 
     review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest unrelated or identity-less noise that likely deserves tracking_state=ignore.")
-    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active watchlist stable stalled.")
+    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active stable stalled.")
     review_ignore_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
     review_ignore_parser.add_argument("--interactive", action="store_true", help="Step through ignore candidates interactively and apply confirmed ignores.")
@@ -141,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-out-of-scope",
         help="Suggest related projects that are currently outside the survey scope but should remain re-evaluable.",
     )
-    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active watchlist stable stalled out_of_scope.")
+    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active stable stalled out_of_scope.")
     review_scope_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_scope_parser.add_argument("--execute", action="store_true", help="Apply suggested tracking_state=out_of_scope updates. Without this flag, show a dry-run summary only.")
     review_scope_parser.add_argument("--interactive", action="store_true", help="Step through out-of-scope candidates interactively and apply confirmed updates.")

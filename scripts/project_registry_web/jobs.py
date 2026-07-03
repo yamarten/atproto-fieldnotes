@@ -26,7 +26,7 @@ WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
     "enrich_all": {
         "label": "Enrich all",
-        "description": "Run normal enrich --all for active/watchlist projects.",
+        "description": "Run normal enrich --all for active projects.",
         "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 4, "time": "03:00", "timezone": "Asia/Tokyo"},
     },
     "sync_introduced": {

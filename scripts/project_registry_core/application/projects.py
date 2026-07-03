@@ -80,7 +80,10 @@ def set_tracking_state(
     note: str | None = None,
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type)
-    project["tracking_state"] = core.normalize_tracking_state(tracking_state)
+    target_state = str(tracking_state or "").strip().lower()
+    if target_state not in core.TRACKING_STATES:
+        raise ValueError(f"invalid tracking_state: {tracking_state}")
+    project["tracking_state"] = target_state
     if note is not None:
         project["tracking_note"] = str(note).strip()
     core.save_project(
@@ -151,12 +154,15 @@ def set_tracking_state_batch(
 ) -> dict[str, Any]:
     normalized_record_did = str(record_did or "").strip()
     normalized_nsid_prefix = core.normalize_nsid(str(nsid_prefix or "").strip()) if nsid_prefix else ""
-    target_state = core.normalize_tracking_state(tracking_state)
-    filter_states = (
-        {core.normalize_tracking_state(item) for item in current_tracking_states if item}
-        if current_tracking_states
-        else None
-    )
+    target_state = str(tracking_state or "").strip().lower()
+    if target_state not in core.TRACKING_STATES:
+        raise ValueError(f"invalid tracking_state: {tracking_state}")
+    filter_states: set[str] | None = None
+    if current_tracking_states:
+        filter_states = {str(item or "").strip().lower() for item in current_tracking_states if str(item or "").strip()}
+        invalid_states = filter_states - core.TRACKING_STATES
+        if invalid_states:
+            raise ValueError(f"invalid current_tracking_states: {', '.join(sorted(invalid_states))}")
     matched: list[dict[str, Any]] = []
     updated = 0
     for project in core.list_projects(conn):

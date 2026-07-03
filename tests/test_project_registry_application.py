@@ -145,7 +145,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             updated = projects.set_tracking_state(
                 conn,
                 project_key=created["project_key"],
-                tracking_state="watchlist",
+                tracking_state="stable",
                 note="application service test",
             )
             after = registry.fetch_project(conn, created["project_key"])
@@ -154,10 +154,27 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             conn.close()
 
         self.assertEqual(len(selected), 1)
-        self.assertEqual(updated["tracking_state"], "watchlist")
+        self.assertEqual(updated["tracking_state"], "stable")
         self.assertEqual(updated["tracking_note"], "application service test")
         self.assertEqual(after["last_seen_at"], before["last_seen_at"])
         self.assertEqual(after["last_enriched_at"], before["last_enriched_at"])
+
+    def test_project_services_reject_removed_tracking_state(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")
+            with self.assertRaisesRegex(ValueError, "invalid tracking_state"):
+                projects.set_tracking_state(
+                    conn,
+                    project_key=created["project_key"],
+                    tracking_state="watchlist",
+                )
+            after = registry.fetch_project(conn, created["project_key"])
+            assert after is not None
+        finally:
+            conn.close()
+
+        self.assertEqual(after["tracking_state"], "active")
 
     def test_decision_services_persist_normalized_rows(self) -> None:
         conn = registry.open_db()

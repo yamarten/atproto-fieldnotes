@@ -24,8 +24,8 @@ from .jobs import JobConflictError, JobManager
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-DEFAULT_REVIEW_STATES = {"active", "watchlist", "stable", "stalled"}
-DEFAULT_PROMOTION_STATES = {"active", "watchlist"}
+DEFAULT_REVIEW_STATES = {"active", "stable", "stalled"}
+DEFAULT_PROMOTION_STATES = {"active"}
 
 
 def restart_argv(argv: list[str] | None = None) -> list[str]:

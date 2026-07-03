@@ -209,7 +209,6 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 `tracking_state`:
 
 - `active`: 通常の継続調査対象
-- `watchlist`: 情報不足、未公開などで追跡を続ける
 - `stable`: 安定しており通常の全件enrich頻度を下げる
 - `stalled`: 立ち消え気味だがarchivedとは確定しない
 - `out_of_scope`: atprotoとの関係はあるが現在の紹介・重点調査対象外
