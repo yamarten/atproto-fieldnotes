@@ -25,6 +25,7 @@ const state = {
     tracking: "",
     service: "",
     contribution: "",
+    introduced: "any",
     candidates: "any",
     errors: "any",
     sort: "last_seen_desc",
@@ -147,6 +148,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
     tracking: query.get("tracking") || "",
     service: query.get("service") || "",
     contribution: query.get("contribution") || "",
+    introduced: query.get("introduced") || "any",
     candidates: query.get("candidates") || "any",
     errors: query.get("errors") || "any",
     sort: query.get("sort") || "last_seen_desc",
@@ -170,6 +172,7 @@ function syncUrl({replace = false} = {}) {
       tracking: state.projectSearch.tracking,
       service: state.projectSearch.service,
       contribution: state.projectSearch.contribution,
+      introduced: state.projectSearch.introduced !== "any" ? state.projectSearch.introduced : "",
       candidates: state.projectSearch.candidates !== "any" ? state.projectSearch.candidates : "",
       errors: state.projectSearch.errors !== "any" ? state.projectSearch.errors : "",
       sort: state.projectSearch.sort !== "last_seen_desc" ? state.projectSearch.sort : "",
@@ -227,6 +230,7 @@ function listControls() {
       <label>Tracking states<input id="filter-tracking" placeholder="active, watchlist" value="${esc(state.projectSearch.tracking)}"></label>
       <label>Service status<input id="filter-service" placeholder="live, unknown" value="${esc(state.projectSearch.service)}"></label>
       <label>Contribution<input id="filter-contribution" placeholder="core, substantial" value="${esc(state.projectSearch.contribution)}"></label>
+      <label>Introduced<select id="filter-introduced">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.introduced)}</select></label>
       <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
       <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
       <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["first_seen_desc", "Recently added"], ["first_seen_asc", "Oldest added"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
@@ -274,6 +278,7 @@ function projectSearchPath() {
     tracking_states: state.projectSearch.tracking,
     service_statuses: state.projectSearch.service,
     contribution_levels: state.projectSearch.contribution,
+    introduced: state.projectSearch.introduced,
     has_candidates: state.projectSearch.candidates,
     has_errors: state.projectSearch.errors,
     sort: state.projectSearch.sort,
@@ -299,6 +304,7 @@ function captureProjectSearch() {
     tracking: $("filter-tracking")?.value || "",
     service: $("filter-service")?.value || "",
     contribution: $("filter-contribution")?.value || "",
+    introduced: $("filter-introduced")?.value || "any",
     candidates: $("filter-candidates")?.value || "any",
     errors: $("filter-errors")?.value || "any",
     sort: $("filter-sort")?.value || "last_seen_desc",
