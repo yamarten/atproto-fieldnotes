@@ -488,6 +488,17 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(detail["investigation"]["failures"][0]["category"], "timeout")
         self.assertTrue(detail["revision"])
         self.assertEqual(detail["overview"]["manual_seed"]["value"], "app.example.post")
+        manual_seed_nsid = next(
+            item for item in detail["identifiers"]
+            if item["value"] == "app.example.post" and "manual_seed" in item["roles"]
+        )
+        manual_seed_candidate_roles = {
+            entry["role"]
+            for entry in manual_seed_nsid["entries"]
+            if entry["classification"] == "candidate"
+        }
+        self.assertNotIn("input_nsid", manual_seed_candidate_roles)
+        self.assertNotIn("primary_nsid", manual_seed_candidate_roles)
         candidate_values = {
             item["value"] for item in detail["identifiers"] if item["classification"] == "candidate"
         }

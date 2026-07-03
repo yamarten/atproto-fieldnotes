@@ -191,6 +191,11 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         for item in raw
         if item["kind"] == "service_url" and item["role"] == "website"
     }
+    manual_seed_nsids = {
+        item["value"]
+        for item in raw
+        if item["kind"] == "nsid" and item["role"] == "manual_seed"
+    }
     service_values_with_confirmed_non_website_role = {
         item["value"]
         for item in raw
@@ -206,6 +211,13 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for item in raw:
+        if (
+            item["kind"] == "nsid"
+            and item["value"] in manual_seed_nsids
+            and item["role"] in {"input_nsid", "primary_nsid"}
+            and item["classification"] == "candidate"
+        ):
+            continue
         family, family_label = family_specs.get(item["kind"], (f"other:{item['kind']}", item["kind"]))
         key_value = group_value(item, family)
         key = (family, key_value)

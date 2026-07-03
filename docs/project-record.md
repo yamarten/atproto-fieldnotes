@@ -108,7 +108,7 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
 
 - NSID
   - `primary_nsid`: runtimeで代表として使うowned NSID
-  - `input_nsid`: seedや調査入力として得たが、ownership確定前のNSID
+  - `input_nsid`: seedや調査入力として得たNSID。ownership確定前の作業入力であり、単独では「そのprojectのowned collection」とは扱わない
   - `owned_nsid`: ownership評価を通過したNSID
   - `observed_lexicon`: project周辺で観測したlexicon
   - `referenced_nsid`: projectが利用・参照する外部NSID
@@ -128,6 +128,8 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
 - `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
+
+manual seed NSIDはoperator decisionとして保持します。同じ値の`input_nsid`やcandidate `primary_nsid`は内部調査用の重複表現であり、Web detailでは個別の確認対象として表示しません。manual seed自体が誤りなら、そのNSIDをreject/block/deferしてseedごと外します。
 
 load時は専用runtime codecがnormalized child tableを読み、collector/evaluationが使うcanonical project dictへhydrateします。このdictは保存正本ではなく、既存の調査ロジックへ渡す完全なruntime viewです。
 
