@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const list = (value) => Array.isArray(value) ? value : [];
+const resetDetailScroll = () => { if ($("detail")) $("detail").scrollTop = 0; window.scrollTo({top:0, left:0}); };
 const settingsKey = "projectRegistryWebV2Settings";
 const defaults = { reviewLimit: 50, projectLimit: 50, mergeLimit: 50, mergeMode: "moderate", includePersonalTools: false, timeZone: "Asia/Tokyo" };
 const state = {
@@ -381,6 +382,7 @@ function advanceReviewList(sourceKey, {statusPrefix = "Skipped for now."} = {}) 
     document.body.classList.remove("detail-open");
     syncUrl();
     $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
+    resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
     status(`${statusPrefix} No more visible review items; refresh to recalculate.`);
   }
@@ -405,6 +407,7 @@ async function loadDetail(key, {updateUrl = true} = {}) {
   state.selected = key; document.body.classList.add("detail-open");
   if (updateUrl) syncUrl();
   $("detail").innerHTML = `<p class="muted">Loading ${esc(key)}...</p>`;
+  resetDetailScroll();
   try {
     const data = await api(`/api/projects/${encodeURIComponent(key)}`);
     if (request === state.detailRequest && state.selected === key) renderDetail(data);
@@ -735,8 +738,9 @@ async function loadMergeDetail(source, target, options = {}) {
   const request = ++state.detailRequest;
   state.selected = source; document.body.classList.add("detail-open");
   syncUrl();
+  const includeFirstCreator = Boolean(options.includeFirstCreator);
+  if (!includeFirstCreator) resetDetailScroll();
   try {
-    const includeFirstCreator = Boolean(options.includeFirstCreator);
     const data = await api(`/api/merge-pair?source_project_key=${encodeURIComponent(source)}&target_project_key=${encodeURIComponent(target)}${includeFirstCreator ? "&include_first_creator_details=1" : ""}`);
     if (request !== state.detailRequest || state.selected !== source) return;
     state.mergeSourceRevision = data.source_revision || "";
