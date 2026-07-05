@@ -453,7 +453,7 @@ function renderDetail(data) {
   $("detail").innerHTML = `
     <div class="detail-header">
       <button class="mobile-back secondary" id="detail-back">Back to list</button>
-      <p class="eyebrow">${esc(project.project_key)}</p>
+      <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
       ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>${reviewSkipAction ? `<div class="actions">${reviewSkipAction}</div>` : ""}` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>`}
