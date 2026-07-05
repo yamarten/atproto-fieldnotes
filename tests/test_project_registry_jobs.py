@@ -141,6 +141,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         completed = self.wait_for(enrich_job_id, {"completed"})
         self.assertEqual(completed["operation"], "enrich")
         self.assertTrue(completed["request"]["parameters"]["all_projects"])
+        self.assertTrue(completed["request"]["parameters"]["new_only"])
 
         state = self.manager.run_scheduler_once()
         self.assertEqual(state["queue"], [])

@@ -100,7 +100,7 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - Web APIのsync/review開始、dry-run/execute指定、一覧、詳細、停止要求
 - Operations画面のenrich、sync、review設定と直近event/result表示
 - Operations画面のscheduled preset設定、手動発火、定期発火
-  - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all`
+  - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`
   - presetごとに毎週または第N週の曜日、時刻、time zoneを設定する
 - 同じWeb serverから同時に実行するbackground jobを1件へ制限
 - `project_registry_core.application.review`の非対話classification service

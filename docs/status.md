@@ -35,7 +35,7 @@
   - enrich checkpointの再発見と再開
   - review dry-run planの選択実行とfingerprint再検証
   - Operationsからallowlist済みjob presetを手動または定期発火
-    - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all`
+    - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`
     - presetごとに毎週または第N週の曜日、時刻、time zoneを設定可能
 - Web serverの手動reload
   - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動

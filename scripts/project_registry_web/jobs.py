@@ -36,7 +36,7 @@ SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
     },
     "sync_sources_then_enrich": {
         "label": "Sync sources + enrich",
-        "description": "Run non-introduced sync sources, then normal enrich --all.",
+        "description": "Run non-introduced sync sources, then enrich newly created projects only.",
         "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 2, "time": "03:00", "timezone": "Asia/Tokyo"},
     },
     "enrich_all_states": {
@@ -111,7 +111,7 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
                 "incremental": True,
                 "all_history": False,
             }),
-            _step("enrich", "enrich --all", {"all_projects": True}),
+            _step("enrich", "enrich --all --new-only", {"all_projects": True, "new_only": True}),
         ]
     raise ValueError(f"unknown schedule preset: {preset_id}")
 
