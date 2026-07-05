@@ -2738,13 +2738,46 @@ def build_unique_lookup(pairs: list[tuple[str, str]]) -> dict[str, str]:
 
 
 def sync_match_is_auto_attach_safe(match_kind: str) -> bool:
-    return str(match_kind or "") in {
+    normalized = str(match_kind or "")
+    if normalized.startswith("member_"):
+        return True
+    return normalized in {
         "exact_namespace",
         "exact_namespace_scan",
         "seed_parent_namespace",
         "repo_url",
         "homepage_exact",
     }
+
+
+def safe_collection_member_namespace_match(
+    projects: list[dict[str, Any]],
+    members: list[str],
+) -> tuple[str | None, str]:
+    namespace_matches: dict[str, set[tuple[str, str]]] = {}
+    for member in members:
+        normalized_member = normalize_nsid(str(member or ""))
+        namespace = namespace_from_collection_nsid(normalized_member)
+        if not namespace:
+            continue
+        project_key, match_kind = find_project_key_for_nsid_seed(projects, normalized_member)
+        if not project_key or not sync_match_is_auto_attach_safe(match_kind):
+            namespace_matches.setdefault(namespace, set())
+            continue
+        namespace_matches.setdefault(namespace, set()).add((project_key, match_kind))
+    if not namespace_matches:
+        return None, ""
+    matched_pairs: set[tuple[str, str]] = set()
+    for matches in namespace_matches.values():
+        if len(matches) != 1:
+            return None, ""
+        matched_pairs.update(matches)
+    matched_project_keys = {project_key for project_key, _ in matched_pairs}
+    if len(matched_project_keys) != 1:
+        return None, ""
+    project_key = next(iter(matched_project_keys))
+    match_kinds = sorted({match_kind for _, match_kind in matched_pairs})
+    return project_key, f"member_{'+'.join(match_kinds)}"
 
 
 def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -6636,13 +6669,20 @@ def import_collection_inventory_payload(
         registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
         service_host_key = root_domain(authority_domain)
         match_kind = ""
-        project_key = namespace_lookup.get(namespace)
+        project_key, match_kind = safe_collection_member_namespace_match(
+            existing_projects,
+            [str(member) for member in item.get("members", [])],
+        )
         if project_key:
-            match_kind = "exact_namespace"
+            match_kind = match_kind or "member_namespace"
+        if not project_key:
+            project_key = namespace_lookup.get(namespace)
+        if project_key:
+            match_kind = match_kind or "exact_namespace"
         if not project_key:
             project_key = find_project_key_by_collection_namespace(existing_projects, namespace)
         if project_key:
-            match_kind = "exact_namespace_scan"
+            match_kind = match_kind or "exact_namespace_scan"
         if not project_key and registrable_namespace:
             project_key = registrable_namespace_lookup.get(registrable_namespace)
             if project_key:

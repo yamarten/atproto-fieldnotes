@@ -51,6 +51,88 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(introduced.limit, 10)
         self.assertEqual(parser.parse_args(["sync-semble-collections"]).pages, 100)
 
+    def test_collection_import_attaches_by_member_parent_namespace(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:homeport", "nsid", "social.homeport.activitypub.announce")
+            parent_only_project = dict(project)
+            parent_only_project["primary_nsid"] = ""
+            parent_only_project["input_nsids"] = []
+            parent_only_project["resolved_nsids"] = []
+            parent_only_project["recorded_lexicon_namespaces"] = []
+            self.assertEqual(
+                registry.safe_collection_member_namespace_match(
+                    [parent_only_project],
+                    ["social.homeport.activitypub.note"],
+                ),
+                ("proj:homeport", "member_seed_parent_namespace"),
+            )
+            registry.add_manual_seed(project, "nsid", "social.homeport.activitypub.announce", source="test")
+            registry.save_project(conn, project)
+
+            result = registry.import_collection_inventory_payload(
+                conn,
+                [
+                    {
+                        "collection": "social.homeport.activitypub.note",
+                        "count": 10,
+                        "recent_count": 2,
+                        "min": "2026-07-01T00:00:00+00:00",
+                        "max": "2026-07-04T00:00:00+00:00",
+                    }
+                ],
+                execute=True,
+                create_unmatched=True,
+                source="test_collection_inventory",
+            )
+            fetched = registry.fetch_project(conn, "proj:homeport")
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 1)
+        self.assertIn("social.homeport.activitypub.note", fetched["input_nsids"])
+        self.assertIn("social.homeport.activitypub.note", [item["value"] for item in fetched["manual_seeds"]])
+
+    def test_collection_import_does_not_attach_by_service_host_family(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:bakery", "service_url", "https://bakery.minomobi.com")
+            self.assertEqual(
+                registry.safe_collection_member_namespace_match(
+                    [project],
+                    ["com.minomobi.hoop.story.pulse"],
+                ),
+                (None, ""),
+            )
+            registry.add_manual_seed(project, "service_url", "https://bakery.minomobi.com", source="test")
+            registry.save_project(conn, project)
+
+            result = registry.import_collection_inventory_payload(
+                conn,
+                [
+                    {
+                        "collection": "com.minomobi.hoop.story.pulse",
+                        "count": 10,
+                        "recent_count": 2,
+                        "min": "2026-07-01T00:00:00+00:00",
+                        "max": "2026-07-04T00:00:00+00:00",
+                    }
+                ],
+                execute=True,
+                create_unmatched=True,
+                source="test_collection_inventory",
+            )
+            fetched = registry.fetch_project(conn, "proj:bakery")
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(fetched["input_nsids"], [])
+
     def test_cleanup_sync_notes_removes_only_machine_generated_lines(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:syncnotes", "repo_url", "https://github.com/example/app")

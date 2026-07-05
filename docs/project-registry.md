@@ -264,8 +264,10 @@ project-registry sync-collections --source-url https://collectiondata.usounds.wo
 
 未知候補は既定で新規 project にします。棚卸しだけ行い DB 候補を増やしたくない場合は
 `--no-create-unmatched` を付けます。また、sync/import 時の既存 project への自動ひも付けは
-conservative です。`exact_namespace` 以外の弱い一致は既存 project に吸わず、
+conservative です。registrable namespaceやservice host familyだけの弱い一致は既存 project に吸わず、
 `suggested_project_key` として提案だけ残します。
+full collectionから得た親namespaceが既存projectのNSID seed / recorded namespaceと一意に一致する場合は、
+registrable namespaceへの集約前に同一projectとして扱います。
 
 週次運用向けに、必要ならlookbackを調整できます:
 

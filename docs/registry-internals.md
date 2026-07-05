@@ -659,12 +659,13 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - namespace が短すぎる
   - authority domain が import 許可ルールに合わない
 - 既存 project への match 順:
-  1. `exact_namespace`
-  2. `exact_namespace_scan`
-  3. `registrable_namespace`
-  4. `service_host_family`
-- 自動 attach するのは 1 と 2 だけです
-- 3 と 4 は `suggested_project_key` に落とし、既存 project に自動では吸いません
+  1. payload内のfull collectionから得た親 namespace が、既存projectのNSID seed / recorded namespace と一意に一致する
+  2. `exact_namespace`
+  3. `exact_namespace_scan`
+  4. `registrable_namespace`
+  5. `service_host_family`
+- 自動 attach するのは 1、2、3 だけです
+- 4 と 5 は `suggested_project_key` に落とし、既存 project に自動では吸いません
 
 ### `sync-github-search`
 
