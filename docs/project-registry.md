@@ -324,6 +324,7 @@ project-registry sync-github-search \
 - timestamp 境界は再取得を許す at-least-once 方式です。重複処理はあり得ますが、同一 timestamp の新規項目を落としにくくします
 
 Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた場合だけ、watermark より古い card で早期停止します。`sync-collections` は既知 project の activity refresh のため、増分化後も inventory API 全件を取得します。
+Semble card の非root service URLは project seed にせず、既存root service projectがある場合だけ evidence URL として添付します。
 
 ## merge
 

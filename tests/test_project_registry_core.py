@@ -233,6 +233,38 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
         self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
         self.assertEqual(results[0]["collection_label"], "current collection name")
 
+    def test_semble_service_subpage_is_evidence_only(self) -> None:
+        source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
+        with mock.patch.object(
+            registry,
+            "request_json",
+            return_value={
+                "uri": "at://did:plc:example/network.cosmik.collection/collection",
+                "name": "apps",
+                "urlCards": [
+                    {
+                        "url": "https://cred.blue/gov.glados.computer",
+                        "uri": "at://did:plc:example/network.cosmik.card/card123",
+                        "updatedAt": "2026-06-01T00:00:00Z",
+                        "createdAt": "2026-05-30T00:00:00Z",
+                        "cardContent": {"title": "cred.blue", "description": "Score page"},
+                    }
+                ],
+                "pagination": {"hasMore": False},
+            },
+        ):
+            scan = registry.fetch_semble_collection_source_sync_results(
+                source,
+                pages=1,
+                per_page=20,
+                cutoff=None,
+            )
+
+        self.assertEqual(scan["results"], [])
+        self.assertEqual(len(scan["evidence_only"]), 1)
+        self.assertEqual(scan["evidence_only"][0]["evidence_url"], "https://cred.blue/gov.glados.computer")
+        self.assertEqual(scan["evidence_only"][0]["root_service_url"], "https://cred.blue")
+
     def test_semble_incremental_scan_stops_only_when_sort_order_is_confirmed(self) -> None:
         cutoff = dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)
 

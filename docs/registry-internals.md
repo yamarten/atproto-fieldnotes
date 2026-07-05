@@ -798,10 +798,13 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
 - 動作確認済み:
   - 2026-06-07 時点で旧 `/api/collections/at/{handle}/{rkey}` は Semble live API で 404
   - 同日時点で現行 XRPC API は tracked 2 collection について 200 を返し、`sync-semble-collections --pages 1 --per-page 1 --all-history --no-create-unmatched` の dry-run が成功
-- 各 card URL を `classify_text_seed_value()` で seed に落とせるものだけ使います
+- 各 card URL は Semble 専用分類を通し、project seed と evidence-only を分けます
   - `nsid`
   - `repo_url`
-  - `service_url`
+  - root `service_url`
+- 非root `service_url` は Semble 上のコンテンツ/対象別ページである可能性が高いため、project seed にはしません
+  - 既存 root `service_url` project があれば `evidence_urls` にだけ添付します
+  - 既存 project が無ければ project は作らず、sync 結果の `evidence_only_entries` に出します
 - tracked collection ごとに `card_updated_at` watermark を保存します
 - `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた response だけ、古い card 到達で早期停止します
 - watermark が無い初回は `lookback_days` を使います
@@ -809,8 +812,7 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
   - `repo_url` / `service_url` は exact identifier match
   - `nsid` は `find_project_key_for_nsid_seed()` で namespace / registrable namespace / service host family まで見ます
 - 注意:
-  - 現状の `sync-semble-collections` は、`sync-collections` や `sync-github-search` と違って weak match を suggestion に落とさず、そのまま attach し得ます
-  - 仕様として明示されているというより、今の実装挙動です
+  - Semble は補助導線なので、曖昧な service subpage は seed より evidence-only へ寄せます
 
 ### sync state の更新条件
 

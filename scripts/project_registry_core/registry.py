@@ -6350,8 +6350,11 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
     normalized_value = canonical_seed_value(seed_type, seed_value)
     if identifier_is_deferred(project, seed_type, normalized_value):
         return
+    seed_entry = {"type": seed_type, "value": normalized_value, "added_at": iso_now()}
+    if source:
+        seed_entry["source"] = source
     project["manual_seeds"] = unique_manual_seeds(
-        list(project.get("manual_seeds", [])) + [{"type": seed_type, "value": normalized_value, "added_at": iso_now()}]
+        list(project.get("manual_seeds", [])) + [seed_entry]
     )
     apply_seed_to_project(project, seed_type, normalized_value)
     if source:
@@ -7415,8 +7418,10 @@ def fetch_semble_collection_source_sync_results(
     exhausted = False
     fetched_pages = 0
     fetched_cards = 0
+    skipped_cards = 0
     ordered_desc = False
     newest_timestamp: dt.datetime | None = None
+    evidence_only: dict[tuple[str, str], dict[str, Any]] = {}
     if handle and rkey:
         for page in range(1, max(1, pages) + 1):
             params = urllib.parse.urlencode(
@@ -7454,8 +7459,35 @@ def fetch_semble_collection_source_sync_results(
                         break
                     continue
                 url = str(raw.get("url") or "").strip()
-                classified = classify_text_seed_value(url)
+                classified = classify_semble_card_seed_value(url)
+                if classified.get("status") == "evidence_only":
+                    evidence_url = str(classified.get("evidence_url") or "")
+                    if not evidence_url:
+                        skipped_cards += 1
+                        continue
+                    entry = {
+                        "raw_url": url,
+                        "evidence_url": evidence_url,
+                        "root_service_url": str(classified.get("root_service_url") or ""),
+                        "reason": str(classified.get("reason") or "evidence_only"),
+                        "card_uri": str(raw.get("uri") or ""),
+                        "card_updated_at": str(raw.get("updatedAt") or ""),
+                        "card_created_at": str(raw.get("createdAt") or ""),
+                        "title": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("title") or ""),
+                        "description": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("description") or ""),
+                        "site_name": str(((raw.get("cardContent") or {}) if isinstance(raw.get("cardContent"), dict) else {}).get("siteName") or ""),
+                        "collection_handle": handle,
+                        "collection_rkey": rkey,
+                        "collection_label": collection_label,
+                        "collection_uri": str(payload.get("uri") or f"at://{handle}/collections/{rkey}"),
+                    }
+                    key = (evidence_url, str(entry.get("card_uri") or ""))
+                    existing = evidence_only.get(key)
+                    if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
+                        evidence_only[key] = entry
+                    continue
                 if classified.get("status") != "seed":
+                    skipped_cards += 1
                     continue
                 seed_type = str(classified.get("seed_type") or "")
                 seed_value = str(classified.get("seed_value") or "")
@@ -7489,15 +7521,50 @@ def fetch_semble_collection_source_sync_results(
                 break
     results = list(deduped.values())
     results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
+    evidence_only_results = list(evidence_only.values())
+    evidence_only_results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
     return {
         "source_key": f"{handle}/{rkey}",
         "results": results,
+        "evidence_only": evidence_only_results,
         "pages": fetched_pages,
         "fetched_cards": fetched_cards,
+        "skipped_cards": skipped_cards,
         "ordered_desc": ordered_desc,
         "boundary_reached": reached_cutoff,
         "scan_complete": reached_cutoff or exhausted,
         "newest_timestamp": newest_timestamp.isoformat() if newest_timestamp else "",
+    }
+
+
+def root_service_url_for_evidence(url: str) -> str:
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def classify_semble_card_seed_value(raw_value: str) -> dict[str, Any]:
+    classified = classify_text_seed_value(raw_value)
+    if classified.get("status") != "seed":
+        return classified
+    seed_type = str(classified.get("seed_type") or "")
+    seed_value = str(classified.get("seed_value") or "")
+    if seed_type != "service_url":
+        return classified
+    normalized = normalize_url(seed_value)
+    parsed = urllib.parse.urlparse(normalized)
+    path = parsed.path.strip("/")
+    if not path:
+        return classified
+    return {
+        "status": "evidence_only",
+        "reason": "semble_service_subpage",
+        "seed_type": seed_type,
+        "seed_value": seed_value,
+        "evidence_url": normalized,
+        "root_service_url": root_service_url_for_evidence(normalized),
     }
 
 
@@ -7898,6 +7965,7 @@ def sync_semble_collections(
         if lookback_days is not None else None
     )
     deduped_results: dict[tuple[str, str], dict[str, Any]] = {}
+    deduped_evidence_only: dict[tuple[str, str], dict[str, Any]] = {}
     scans: list[dict[str, Any]] = []
     next_watermarks = dict(stored_watermarks)
     cancelled = False
@@ -7910,17 +7978,28 @@ def sync_semble_collections(
         cutoff = None if all_history else (stored_cutoff or fallback_cutoff)
         scan = fetch_semble_collection_source_sync_results(source, pages=pages, per_page=per_page, cutoff=cutoff)
         if progress:
-            progress(source_index, len(SEMBLE_TRACKED_COLLECTIONS), {"kind": "source_collection", "source": "semble", "value": source_key, "item_count": len(scan["results"])})
+            evidence_count = len(scan.get("evidence_only", [])) if isinstance(scan.get("evidence_only", []), list) else 0
+            progress(source_index, len(SEMBLE_TRACKED_COLLECTIONS), {"kind": "source_collection", "source": "semble", "value": source_key, "item_count": len(scan["results"]) + evidence_count})
         scans.append(scan)
         for entry in scan["results"]:
             key = (str(entry.get("seed_type") or ""), str(entry.get("seed_value") or ""))
             existing = deduped_results.get(key)
             if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
                 deduped_results[key] = entry
+        for entry in scan.get("evidence_only", []) if isinstance(scan.get("evidence_only", []), list) else []:
+            evidence_url = str(entry.get("evidence_url") or "")
+            if not evidence_url:
+                continue
+            key = (evidence_url, str(entry.get("card_uri") or ""))
+            existing = deduped_evidence_only.get(key)
+            if existing is None or str(entry.get("card_updated_at") or "") > str(existing.get("card_updated_at") or ""):
+                deduped_evidence_only[key] = dict(entry)
         if scan.get("scan_complete") and scan.get("newest_timestamp"):
             next_watermarks[source_key] = str(scan["newest_timestamp"])
     results = list(deduped_results.values())
     results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
+    evidence_only_results = list(deduped_evidence_only.values())
+    evidence_only_results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
     scan_complete = not cancelled and all(bool(scan.get("scan_complete")) for scan in scans)
     existing_keys = {str(project["project_key"]) for project in list_projects(conn)}
     imported_project_keys: list[str] = []
@@ -7930,6 +8009,9 @@ def sync_semble_collections(
     created = 0
     unmatched = 0
     unmatched_entries: list[dict[str, Any]] = []
+    evidence_only_attached = 0
+    evidence_only_unmatched = 0
+    evidence_only_entries: list[dict[str, Any]] = []
 
     eligible: list[dict[str, Any]] = []
     for entry in results:
@@ -7994,6 +8076,66 @@ def sync_semble_collections(
         if is_new:
             created += 1
 
+    for entry_index, entry in enumerate(evidence_only_results, 1):
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            scan_complete = False
+            break
+        evidence_url = normalize_url(str(entry.get("evidence_url") or entry.get("raw_url") or ""))
+        root_service_url = normalize_url(str(entry.get("root_service_url") or root_service_url_for_evidence(evidence_url)))
+        if progress:
+            progress(entry_index, len(evidence_only_results), {"kind": "source_item", "source": "semble", "value": evidence_url, "classification": "evidence_only"})
+        project_key = find_project_key_by_identifier(conn, "service_url", root_service_url) if root_service_url else None
+        if not project_key:
+            evidence_only_unmatched += 1
+            evidence_only_entries.append(
+                {
+                    "evidence_url": evidence_url,
+                    "root_service_url": root_service_url,
+                    "reason": str(entry.get("reason") or "evidence_only"),
+                    "title": str(entry.get("title") or ""),
+                    "collection_label": str(entry.get("collection_label") or ""),
+                    "collection_rkey": str(entry.get("collection_rkey") or ""),
+                    "card_updated_at": str(entry.get("card_updated_at") or ""),
+                    "attached_project_key": "",
+                }
+            )
+            continue
+        project = fetch_project(conn, project_key)
+        if project is None:
+            evidence_only_unmatched += 1
+            continue
+        if evidence_url:
+            project["evidence_urls"] = add_unique(project.get("evidence_urls", []), evidence_url)
+        card_uri = str(entry.get("card_uri") or "").strip()
+        if card_uri:
+            project["evidence_urls"] = add_unique(project.get("evidence_urls", []), card_uri)
+        title = str(entry.get("title") or "").strip()
+        description = str(entry.get("description") or "").strip()
+        if title:
+            add_candidate_text(project, "tagline", title, f"semble_collection_sync:{entry.get('collection_rkey') or ''}")
+        if description:
+            add_candidate_text(project, "summary", description, f"semble_collection_sync:{entry.get('collection_rkey') or ''}")
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "semble_collection_sync")
+        project = finalize_project_shape(project)
+        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+        project["merge_recommendation"] = compute_merge_recommendation(project)
+        if execute:
+            save_project(conn, project, enriched=False)
+        evidence_only_attached += 1
+        evidence_only_entries.append(
+            {
+                "evidence_url": evidence_url,
+                "root_service_url": root_service_url,
+                "reason": str(entry.get("reason") or "evidence_only"),
+                "title": title,
+                "collection_label": str(entry.get("collection_label") or ""),
+                "collection_rkey": str(entry.get("collection_rkey") or ""),
+                "card_updated_at": str(entry.get("card_updated_at") or ""),
+                "attached_project_key": project_key,
+            }
+        )
+
     state_updated = bool(
         execute
         and incremental
@@ -8017,8 +8159,11 @@ def sync_semble_collections(
         ],
         "fetched_cards": sum(int(scan.get("fetched_cards") or 0) for scan in scans),
         "eligible_cards": len(eligible),
+        "evidence_only_cards": len(evidence_only_results),
+        "evidence_only_attached": evidence_only_attached,
+        "evidence_only_unmatched": evidence_only_unmatched,
         "skipped_old": skipped_old,
-        "skipped_non_seed": skipped_non_seed,
+        "skipped_non_seed": skipped_non_seed + sum(int(scan.get("skipped_cards") or 0) for scan in scans),
         "created": created,
         "matched_existing": matched_existing,
         "unmatched": unmatched,
@@ -8033,6 +8178,8 @@ def sync_semble_collections(
                 "source_key": str(scan.get("source_key") or ""),
                 "pages": int(scan.get("pages") or 0),
                 "fetched_cards": int(scan.get("fetched_cards") or 0),
+                "evidence_only_cards": len(scan.get("evidence_only", [])) if isinstance(scan.get("evidence_only", []), list) else 0,
+                "skipped_cards": int(scan.get("skipped_cards") or 0),
                 "ordered_desc": bool(scan.get("ordered_desc")),
                 "boundary_reached": bool(scan.get("boundary_reached")),
                 "scan_complete": bool(scan.get("scan_complete")),
@@ -8043,6 +8190,7 @@ def sync_semble_collections(
             for scan in scans
         ],
         "imported_project_keys": imported_project_keys,
+        "evidence_only_entries": evidence_only_entries[:100],
         "unmatched_entries": unmatched_entries[:100],
         "cancelled": cancelled,
     }

@@ -133,6 +133,64 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(result["updated"], 0)
         self.assertEqual(fetched["input_nsids"], [])
 
+    def test_semble_subpage_attaches_as_evidence_without_seed(self) -> None:
+        conn = registry.open_db()
+        original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
+        try:
+            project = self.make_project("proj:cred", "service_url", "https://cred.blue")
+            registry.add_manual_seed(project, "service_url", "https://cred.blue", source="test")
+            registry.save_project(conn, project)
+            registry.SEMBLE_TRACKED_COLLECTIONS = (
+                {"handle": "example.test", "rkey": "collection", "label": "apps"},
+            )
+            scan = {
+                "source_key": "example.test/collection",
+                "results": [],
+                "evidence_only": [
+                    {
+                        "evidence_url": "https://cred.blue/gov.glados.computer",
+                        "root_service_url": "https://cred.blue",
+                        "reason": "semble_service_subpage",
+                        "card_uri": "at://did:plc:example/network.cosmik.card/card123",
+                        "card_updated_at": "2026-06-01T00:00:00Z",
+                        "card_created_at": "2026-05-30T00:00:00Z",
+                        "title": "cred.blue",
+                        "description": "Score page",
+                        "collection_label": "apps",
+                        "collection_rkey": "collection",
+                    }
+                ],
+                "pages": 1,
+                "fetched_cards": 1,
+                "skipped_cards": 0,
+                "ordered_desc": True,
+                "boundary_reached": False,
+                "scan_complete": True,
+                "newest_timestamp": "2026-06-01T00:00:00+00:00",
+            }
+            with mock.patch.object(registry, "fetch_semble_collection_source_sync_results", return_value=scan):
+                result = registry.sync_semble_collections(
+                    conn,
+                    execute=True,
+                    create_unmatched=True,
+                    pages=1,
+                    per_page=20,
+                    lookback_days=None,
+                    incremental=False,
+                )
+            fetched = registry.fetch_project(conn, "proj:cred")
+        finally:
+            registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["evidence_only_attached"], 1)
+        self.assertIn("https://cred.blue/gov.glados.computer", fetched["evidence_urls"])
+        self.assertIn("at://did:plc:example/network.cosmik.card/card123", fetched["evidence_urls"])
+        self.assertNotIn("https://cred.blue/gov.glados.computer", [item["value"] for item in fetched["manual_seeds"]])
+        self.assertNotIn("https://cred.blue/gov.glados.computer", fetched["service_url_candidates"])
+
     def test_cleanup_sync_notes_removes_only_machine_generated_lines(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:syncnotes", "repo_url", "https://github.com/example/app")
