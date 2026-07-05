@@ -577,6 +577,18 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_merge_pair_suggests_unconfigured_multi_tenant_suffix(self) -> None:
+        source = self.make_project("proj:foo", "service_url", "https://foo.example.com")
+        registry.add_manual_seed(source, "service_url", "https://foo.example.com", source="test")
+        target = self.make_project("proj:bar", "service_url", "https://bar.example.com")
+        registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
+
+        suggestions = registry.merge_pair_multi_tenant_suffix_suggestions(source, target)
+
+        self.assertEqual([item["suffix"] for item in suggestions], ["example.com"])
+        self.assertEqual(suggestions[0]["source_tenants"], ["foo.example.com"])
+        self.assertEqual(suggestions[0]["target_tenants"], ["bar.example.com"])
+
     def test_source_config_tenant_split_moves_group_atomically(self) -> None:
         conn = registry.open_db()
         try:

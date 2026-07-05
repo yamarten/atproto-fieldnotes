@@ -633,6 +633,19 @@ function reviewTargetActions(target) {
   return `${actionButton("Dismiss", "dismiss-review-target", data)}${actionButton("Defer 30d", "defer-review-target", data)}`;
 }
 
+function renderMultiTenantSuffixSuggestions(suggestions) {
+  const items = list(suggestions);
+  if (!items.length) return "";
+  return section("Multi-Tenant Suffix Candidate", items.map((item) => `
+    <div class="identifier">
+      <div>${pill("suggested", "candidate")} <strong>${esc(item.suffix)}</strong></div>
+      <div class="muted">Source tenants: ${esc(list(item.source_tenants).join(", ") || "none")} · Target tenants: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
+      <div class="muted">Hosts: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
+      ${state.server?.read_only ? "" : `<div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">Add suffix</button></div>`}
+    </div>
+  `).join(""));
+}
+
 function editProfile(project, profile) {
   const dialog = $("profile-dialog");
   $("profile-name").value = project.name || "";
@@ -754,9 +767,10 @@ async function loadMergeDetail(source, target, options = {}) {
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view.</p>`
       : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">Load first-creator details</button></div>`;
     const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button>${state.server?.read_only ? "" : `<button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button>`}</div>`;
-    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : ""}${mergeActions}`;
+    $("detail").innerHTML = `<button class="mobile-back secondary" id="detail-back">Back to list</button><p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : ""}${mergeActions}`;
     $("detail-back").onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target));
+    document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
     $("load-first-creator-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeFirstCreator: true}));
     $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source));
     $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
@@ -764,6 +778,15 @@ async function loadMergeDetail(source, target, options = {}) {
   } catch (error) {
     if (request === state.detailRequest && state.selected === source) status(error.message, true);
   }
+}
+
+function addMultiTenantSuffix(suffix, source, target) {
+  confirmOperation("Add multi-tenant suffix", `Add ${suffix} to custom_multi_tenant_suffixes? This changes domain family matching for future merge calculations.`, async () => {
+    const response = await api("/api/domain-overrides/multi-tenant-suffixes", {method:"POST", body:JSON.stringify({suffix})});
+    status(response.added ? `Added multi-tenant suffix ${response.suffix}.` : `Multi-tenant suffix ${response.suffix} was already configured.`);
+    await loadMergeDetail(source, target);
+    await loadList();
+  });
 }
 
 function confirmMerge(title, action, source, target) {

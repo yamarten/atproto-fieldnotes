@@ -1134,6 +1134,9 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 - pair指定の `inspect-merge-pair` / Web merge review は、指定された2 projectだけを比較します
   - 一覧用の全project duplicate indexや、source/targetそれぞれの現在の `merge_recommendation` は計算しません
   - 表示する `source_pair_candidate` / `target_pair_candidate` は、一覧用 `compute_duplicate_candidates()` と同じpair判定関数から作ります
+- Web merge review は、両projectのmerge identity hostが同じregistrable domain配下の別tenantに見える場合、未登録の `custom_multi_tenant_suffixes` 候補を表示します
+  - 例: `foo.example.com` と `bar.example.com` なら `example.com`
+  - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
 - collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
   - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません

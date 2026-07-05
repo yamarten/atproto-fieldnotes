@@ -12623,6 +12623,7 @@ def inspect_merge_pair_payload(
         "target_pair_candidate": target_pair_candidate,
         "strict_overlap": strict_overlap,
         "moderate_overlap": moderate_overlap,
+        "suggested_multi_tenant_suffixes": merge_pair_multi_tenant_suffix_suggestions(source, target),
         "first_creator_details_included": bool(include_first_creator_details),
         "first_creator_overlap": heuristic_overlap,
     }
@@ -12659,6 +12660,46 @@ def merge_is_blocked(project_a: dict[str, Any], project_b: dict[str, Any]) -> bo
     blocked_a = {str(item).strip() for item in project_a.get("separate_project_keys", []) if str(item).strip()}
     blocked_b = {str(item).strip() for item in project_b.get("separate_project_keys", []) if str(item).strip()}
     return key_b in blocked_a or key_a in blocked_b
+
+
+def merge_pair_multi_tenant_suffix_suggestions(project_a: dict[str, Any], project_b: dict[str, Any]) -> list[dict[str, Any]]:
+    configured = configured_multi_tenant_suffixes() | KNOWN_MULTI_TENANT_SUFFIXES
+    source_hosts = sorted(project_merge_identity_hosts(project_a))
+    target_hosts = sorted(project_merge_identity_hosts(project_b))
+    suggestions: dict[str, dict[str, Any]] = {}
+    for source_host in source_hosts:
+        source_root = root_domain(source_host, include_configured_suffixes=False)
+        if not source_root or source_root in configured or source_root == source_host:
+            continue
+        source_tenant = tenant_identity_for_suffix(source_host, source_root)
+        if not source_tenant:
+            continue
+        for target_host in target_hosts:
+            if target_host == source_host:
+                continue
+            target_root = root_domain(target_host, include_configured_suffixes=False)
+            if target_root != source_root:
+                continue
+            target_tenant = tenant_identity_for_suffix(target_host, source_root)
+            if not target_tenant or target_tenant == source_tenant:
+                continue
+            entry = suggestions.setdefault(
+                source_root,
+                {
+                    "suffix": source_root,
+                    "source_tenants": [],
+                    "target_tenants": [],
+                    "source_hosts": [],
+                    "target_hosts": [],
+                    "reason": "shared_registrable_domain_with_distinct_tenants",
+                    "configured": False,
+                },
+            )
+            entry["source_tenants"] = add_unique(entry["source_tenants"], source_tenant)
+            entry["target_tenants"] = add_unique(entry["target_tenants"], target_tenant)
+            entry["source_hosts"] = add_unique(entry["source_hosts"], source_host)
+            entry["target_hosts"] = add_unique(entry["target_hosts"], target_host)
+    return sorted(suggestions.values(), key=lambda item: str(item.get("suffix") or ""))
 
 
 def duplicate_candidate_for_pair(

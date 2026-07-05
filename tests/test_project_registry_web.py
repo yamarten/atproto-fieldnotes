@@ -577,6 +577,51 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["merged_preview"]["target_project_key"], "proj:222222222222")
         self.assertEqual(payload["merged_preview"]["merged_name"], "Example Duplicate")
 
+    def test_merge_pair_includes_multi_tenant_suffix_suggestion(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = registry.default_project_record("proj:foofoofoofoo", "service_url", "https://foo.example.com")
+            registry.add_manual_seed(source, "service_url", "https://foo.example.com", source="test")
+            target = registry.default_project_record("proj:barbarbarbar", "service_url", "https://bar.example.com")
+            registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
+            registry.save_project(conn, source)
+            registry.save_project(conn, target)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, payload, _ = self.request(
+            "/api/merge-pair?source_project_key=proj:foofoofoofoo&target_project_key=proj:barbarbarbar"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual([item["suffix"] for item in payload["suggested_multi_tenant_suffixes"]], ["example.com"])
+
+    def test_can_add_multi_tenant_suffix_from_web_api(self) -> None:
+        original_domain_overrides_path = registry.DOMAIN_OVERRIDES_PATH
+        original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
+        domain_overrides_path = self.db_path.with_name("domain-overrides.json")
+        domain_overrides_path.write_text('{"custom_multi_tenant_suffixes": []}\n')
+        try:
+            registry.DOMAIN_OVERRIDES_PATH = domain_overrides_path
+            registry.reset_domain_config_cache()
+
+            status, payload, _ = self.request(
+                "/api/domain-overrides/multi-tenant-suffixes",
+                method="POST",
+                payload={"suffix": "Example.COM."},
+                include_revision=False,
+            )
+
+            self.assertEqual(status, 200)
+            self.assertTrue(payload["added"])
+            self.assertEqual(payload["suffix"], "example.com")
+            self.assertEqual(json.loads(domain_overrides_path.read_text())["custom_multi_tenant_suffixes"], ["example.com"])
+        finally:
+            registry.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
+            registry._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
+            registry.reset_domain_extractors()
+
     def test_merge_pair_can_include_first_creator_details_on_request(self) -> None:
         status, payload, _ = self.request(
             "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222&include_first_creator_details=1"
