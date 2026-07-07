@@ -7,6 +7,7 @@ __pycache__/
 .tmp/
 
 data/
+config/domain-overrides.json
 tmpdata.txt
 
 reports/*.md

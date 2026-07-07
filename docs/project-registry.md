@@ -37,7 +37,7 @@ export PATH="$PWD/bin:$PATH"
 
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 
-PSL に載っていない hosted suffix を追加したい場合は、[config/domain-overrides.json](../config/domain-overrides.json) の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。discovery source の設定は `config/sources.json` に残します。
+PSL に載っていない hosted suffix を追加したい場合は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。初期形は [config/domain-overrides.example.json](../config/domain-overrides.example.json) です。discovery source の設定は `config/sources.json` に残します。
 
 既存 DB を追加後の基準で確認しながら追記する場合:
 

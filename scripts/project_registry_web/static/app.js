@@ -362,14 +362,17 @@ function openListCard(card) {
   return true;
 }
 
-function advanceReviewList(sourceKey, {statusPrefix = "Skipped for now."} = {}) {
+function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped for now."} = {}) {
   if (state.screen !== "review") return false;
   if (!sourceKey) return false;
-  const cards = Array.from(document.querySelectorAll("[data-project-key]"));
-  const current = cards.find((card) => card.dataset.projectKey === sourceKey) || cards.find((card) => card.classList.contains("selected"));
+  const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
+  const current = cards.find((card) => card.dataset.projectKey === sourceKey && (!targetKey || card.dataset.mergeTarget === targetKey))
+    || cards.find((card) => card.dataset.projectKey === sourceKey)
+    || cards.find((card) => card.classList.contains("selected"));
   if (!current) return false;
-  const next = current.nextElementSibling?.matches?.("[data-project-key]") ? current.nextElementSibling : null;
-  const previous = current.previousElementSibling?.matches?.("[data-project-key]") ? current.previousElementSibling : null;
+  const currentIndex = cards.indexOf(current);
+  const next = currentIndex >= 0 ? cards[currentIndex + 1] : null;
+  const previous = currentIndex >= 0 ? cards[currentIndex - 1] : null;
   current.remove();
   const remaining = Array.from(document.querySelectorAll("[data-project-key]")).length;
   const meta = $("list")?.querySelector(".meta-row strong");
@@ -393,7 +396,8 @@ function advanceReviewListAfterMutation(response, path) {
   const sourceKey = path === "/api/merge-batch/action"
     ? String(response.source_project_key || state.selected || "")
     : String(response.project_key || state.selected || "");
-  return advanceReviewList(sourceKey, {statusPrefix: "Saved."});
+  const targetKey = path === "/api/merge-batch/action" ? String(response.target_project_key || "") : "";
+  return advanceReviewList(sourceKey, {targetKey, statusPrefix: "Saved."});
 }
 
 function skipReviewItem(sourceKey = state.selected) {
@@ -637,10 +641,13 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
   const items = list(suggestions);
   if (!items.length) return "";
   return section("Multi-Tenant Suffix Candidate", items.map((item) => `
-    <div class="identifier">
-      <div>${pill("suggested", "candidate")} <strong>${esc(item.suffix)}</strong></div>
-      <div class="muted">Source tenants: ${esc(list(item.source_tenants).join(", ") || "none")} · Target tenants: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
-      <div class="muted">Hosts: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
+    <div class="suffix-suggestion">
+      <div class="suffix-suggestion-main">
+        <div>${pill("suggested", "candidate")} <strong>${esc(item.suffix)}</strong></div>
+        <div class="muted">Source tenants: ${esc(list(item.source_tenants).join(", ") || "none")}</div>
+        <div class="muted">Target tenants: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
+        <div class="muted">Hosts: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
+      </div>
       ${state.server?.read_only ? "" : `<div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">Add suffix</button></div>`}
     </div>
   `).join(""));
@@ -783,8 +790,9 @@ async function loadMergeDetail(source, target, options = {}) {
 function addMultiTenantSuffix(suffix, source, target) {
   confirmOperation("Add multi-tenant suffix", `Add ${suffix} to custom_multi_tenant_suffixes? This changes domain family matching for future merge calculations.`, async () => {
     const response = await api("/api/domain-overrides/multi-tenant-suffixes", {method:"POST", body:JSON.stringify({suffix})});
-    status(response.added ? `Added multi-tenant suffix ${response.suffix}.` : `Multi-tenant suffix ${response.suffix} was already configured.`);
-    await loadMergeDetail(source, target);
+    const prefix = response.added ? `Added multi-tenant suffix ${response.suffix}.` : `Multi-tenant suffix ${response.suffix} was already configured.`;
+    if (advanceReviewList(source, {targetKey: target, statusPrefix: prefix})) return;
+    status(`${prefix} Refreshing list.`);
     await loadList();
   });
 }

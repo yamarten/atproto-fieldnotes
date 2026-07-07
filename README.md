@@ -28,7 +28,7 @@ export PATH="$PWD/bin:$PATH"
 
 `tldextract` を使って PSL 判定を行います。入力は repo 内の [vendor/public_suffix_list.dat](vendor/public_suffix_list.dat) に固定し、ライブラリの cache は [data/tldextract-cache](data/tldextract-cache) 配下に置きます。外部の絶対パスには依存しません。
 
-PSL に無い hosted suffix を手動で足したい場合は、[config/domain-overrides.json](config/domain-overrides.json) の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。discovery source の設定は [config/sources.json](config/sources.json) に分離しています。
+PSL に無い hosted suffix を手動で足したい場合は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。初期形は [config/domain-overrides.example.json](config/domain-overrides.example.json) です。discovery source の設定は [config/sources.json](config/sources.json) に分離しています。
 
 登録済み project への影響も確認する場合は、監査コマンドから追加できます。
 

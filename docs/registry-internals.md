@@ -1054,7 +1054,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 
 `promotion_deferrals` に active な entry がある project は signal 計算前に除外します。interactive の `h` は理由付きで既定 7 日の entry を追加します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
 
-`audit-source-config [domain]` は [config/domain-overrides.json](../config/domain-overrides.json) の `custom_multi_tenant_suffixes` 追加後基準で既存 project を読み取り監査します。discovery fetch 設定の `config/sources.json` とは保存責務を分離しています。service URL と NSID authority を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
+`audit-source-config [domain]` はローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` 追加後基準で既存 project を読み取り監査します。discovery fetch 設定の `config/sources.json` とは保存責務を分離しています。service URL と NSID authority を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
 
 このコマンドはデフォルト interactive です。tenant group の番号を選んだ場合だけ、service URL / NSID を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。split 適用後は suggestion を再構築し、同じ元 project に複数 tenant が残る間はその project を優先して再表示します。Enter で送った suggestion key はその実行中だけ skip set に残します。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` の責務は引数 domain の `domain-overrides.json` 追記だけで、split は自動適用しません。
 

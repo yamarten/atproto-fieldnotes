@@ -153,6 +153,8 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .merge-project .kv dt { margin-top: 4px; }
 .merge-project .kv dt:first-child { margin-top: 0; }
 .merge-identifiers { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.suffix-suggestion { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 9px; border-left: 3px solid var(--warning); border-radius: 7px; background: var(--panel-soft); }
+.suffix-suggestion-main { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }
@@ -175,4 +177,7 @@ dialog label { display: grid; gap: 5px; }
   .kv { grid-template-columns: 1fr; }
   .merge-comparison { grid-template-columns: 1fr; }
   .identifier-entry { grid-template-columns: 1fr; }
+  .suffix-suggestion { grid-template-columns: 1fr; }
+  .suffix-suggestion .actions { justify-content: stretch; }
+  .suffix-suggestion .actions button { width: 100%; }
 }
