@@ -524,7 +524,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         )
 
         self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
-        self.assertEqual(args.days, 7)
+        self.assertIsNone(args.days)
 
     def test_parser_accepts_audit_url_fields_command(self) -> None:
         args = cli.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
@@ -890,6 +890,28 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(len(project["promotion_deferrals"]), 2)
         self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
         self.assertEqual(registry.active_promotion_deferral(project)["reason"], "中核機能が未実装")
+
+    def test_promotion_deferral_days_are_suggested_from_age_and_history(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+        project["first_seen_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
+
+        self.assertEqual(registry.suggested_promotion_defer_days(project), 14)
+        registry.defer_promotion_on_project(project, reason="young project")
+        self.assertEqual(registry.suggested_promotion_defer_days(project), 45)
+        registry.clear_active_promotion_deferrals(project)
+        registry.defer_promotion_on_project(project)
+        self.assertEqual(registry.suggested_promotion_defer_days(project), 60)
+
+    def test_promotion_deferral_uses_explicit_days_when_provided(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+
+        entry = registry.defer_promotion_on_project(project, reason="explicit", days=7)
+        expires = registry.parse_iso(entry["expires_at"])
+        added = registry.parse_iso(entry["added_at"])
+
+        self.assertIsNotNone(expires)
+        self.assertIsNotNone(added)
+        self.assertAlmostEqual((expires - added).total_seconds(), 7 * 24 * 60 * 60, delta=5)
 
     def test_save_project_splits_scalars_profile_state_and_normalized_children(self) -> None:
         conn = registry.open_db()

@@ -1511,7 +1511,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
 
 
 DEFAULT_DEFER_IDENTIFIER_DAYS = 30
-DEFAULT_PROMOTION_DEFER_DAYS = 7
+DEFAULT_PROMOTION_DEFER_DAYS = 30
 IDENTIFIER_DECISION_TYPES = {"service_url", "repo_url", "nsid", "account", "did", "handle", "domain"}
 
 
@@ -1648,12 +1648,31 @@ def latest_promotion_deferral_reason(project: dict[str, Any]) -> str:
     return str(deferrals[-1].get("reason") or "") if deferrals else ""
 
 
-def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", days: int = DEFAULT_PROMOTION_DEFER_DAYS) -> dict[str, str]:
+def suggested_promotion_defer_days(project: dict[str, Any]) -> int:
+    previous_count = len(normalize_promotion_deferrals(list(project.get("promotion_deferrals", []))))
+    if previous_count >= 3:
+        return 90
+    if previous_count >= 2:
+        return 60
+    if previous_count >= 1:
+        return 45
+    first_seen = parse_iso(str(project.get("first_seen_at") or ""))
+    if first_seen is not None:
+        now = dt.datetime.now(dt.timezone.utc)
+        if first_seen.tzinfo is None:
+            first_seen = first_seen.replace(tzinfo=dt.timezone.utc)
+        if first_seen > now - dt.timedelta(days=14):
+            return 14
+    return DEFAULT_PROMOTION_DEFER_DAYS
+
+
+def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", days: int | None = None) -> dict[str, str]:
     effective_reason = str(reason or latest_promotion_deferral_reason(project)).strip()
     if not effective_reason:
         raise ValueError("promotion deferral reason is required")
+    effective_days = max(1, min(365, int(days) if days is not None else suggested_promotion_defer_days(project)))
     expires_at = (
-        dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=max(1, int(days or DEFAULT_PROMOTION_DEFER_DAYS)))
+        dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=effective_days)
     ).replace(microsecond=0).isoformat()
     entry = {
         "reason": effective_reason,

@@ -339,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     defer_promotion_target.add_argument("-p", "--project-key", help="Target one project key.")
     defer_promotion_target.add_argument("-s", "--seed", help="Target by known seed value.")
     defer_promotion_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    defer_promotion_parser.add_argument("--days", type=int, default=registry.DEFAULT_PROMOTION_DEFER_DAYS, help="How many days to hide the project from promotion-queue. Default: 7.")
+    defer_promotion_parser.add_argument("--days", type=int, default=None, help="How many days to hide the project from promotion-queue. Default: automatic based on project age and prior deferrals.")
     defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
     defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
     defer_promotion_parser.set_defaults(func=decision_commands.cmd_defer_promotion)

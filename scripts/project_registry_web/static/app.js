@@ -453,6 +453,13 @@ function renderDetail(data) {
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
   const manualSeed = overview.manual_seed;
+  const promotionDefer = overview.promotion_defer || {};
+  const promotionDeferDays = Number(promotionDefer.suggested_days || 30);
+  const promotionDeferAction = actionButton(
+    `Defer promotion ${promotionDeferDays}d`,
+    "defer-promotion",
+    {days: promotionDeferDays, "default-note": promotionDefer.last_reason || ""}
+  );
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
@@ -469,7 +476,7 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>${reviewSkipAction ? `<div class="actions">${reviewSkipAction}</div>` : ""}` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : actionButton("Defer promotion 7d", "defer-promotion")}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>`}
+      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>${reviewSkipAction ? `<div class="actions">${reviewSkipAction}</div>` : ""}` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : promotionDeferAction}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>`}
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -715,18 +722,18 @@ async function addProjectSeed(projectKey) {
 function bindDetailActions(projectKey) {
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
-    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || ""};
+    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
     const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target"].includes(action);
-    confirmMutation(action.replaceAll("-", " "), `${action.replaceAll("-", " ")} ${payload.value || payload.other_project_key || projectKey}?`, `/api/projects/${encodeURIComponent(projectKey)}/${action}`, payload, needsNote);
+    confirmMutation(action.replaceAll("-", " "), `${action.replaceAll("-", " ")} ${payload.value || payload.other_project_key || projectKey}?`, `/api/projects/${encodeURIComponent(projectKey)}/${action}`, payload, needsNote, button.dataset.defaultNote || "");
   });
 }
 
-function confirmMutation(title, message, path, payload, note) {
+function confirmMutation(title, message, path, payload, note, defaultNote = "") {
   const dialog = $("confirm-dialog");
   $("confirm-title").textContent = title;
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = !note;
-  $("confirm-note").value = "";
+  $("confirm-note").value = note ? defaultNote : "";
   showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;

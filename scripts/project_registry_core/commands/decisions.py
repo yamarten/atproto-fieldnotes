@@ -76,7 +76,7 @@ def cmd_defer_promotion(args: argparse.Namespace) -> int:
             seed=args.seed,
             seed_type=args.project_type,
             reason=args.reason or "",
-            days=int(args.days or core.DEFAULT_PROMOTION_DEFER_DAYS),
+            days=int(args.days) if args.days is not None else None,
             clear=bool(args.clear),
         )
     finally:

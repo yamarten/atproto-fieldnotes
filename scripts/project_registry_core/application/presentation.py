@@ -610,6 +610,10 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "account": primary_account["value"] if primary_account else "",
         "manual_seed": manual_seed,
         "active_guards": payload["decisions"]["active"],
+        "promotion_defer": {
+            "suggested_days": core.suggested_promotion_defer_days(project),
+            "last_reason": core.latest_promotion_deferral_reason(project),
+        },
     }
     return payload
 

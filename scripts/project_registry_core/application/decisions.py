@@ -157,7 +157,7 @@ def set_promotion_defer(
     seed: str | None = None,
     seed_type: str | None = None,
     reason: str = "",
-    days: int = core.DEFAULT_PROMOTION_DEFER_DAYS,
+    days: int | None = None,
     clear: bool = False,
 ) -> dict[str, Any]:
     project = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))

@@ -483,6 +483,7 @@ project-registry defer-promotion --project-key proj:xxxxxxxxxxxx --clear
 ```
 
 `promotion_deferrals`の理由は現状では運用メモです。理由から復活条件を自動判定する処理は未接続です。解除しても履歴は残ります。
+保留期間は `--days` 未指定なら自動で決まります。初回の若い project は14日、通常初回は30日、過去に promotion defer した project は履歴回数に応じて45/60/90日へ延びます。明示的に固定したい場合だけ `--days` を指定します。
 
 表示順は全対象 project を先にスコアリングしたグローバル順です。`--limit` はソート後に適用します。interactive でも同じ順序を使い、DB 順の部分集合だけを先に表示することはありません。
 

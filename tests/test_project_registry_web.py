@@ -823,6 +823,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(status, 200)
         self.assertFalse(any(item["kind"] == "defer_promotion" for item in payload["detail"]["decisions"]["active"]))
+        self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["last_reason"], "wait for editorial review")
+        self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["suggested_days"], 45)
 
         conn = registry.open_db()
         rows = conn.execute(

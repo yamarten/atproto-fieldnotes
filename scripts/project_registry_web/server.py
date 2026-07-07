@@ -645,11 +645,12 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 clear=action.startswith("clear-"),
             )
         if action in {"defer-promotion", "clear-promotion-deferral"}:
+            raw_days = payload.get("days")
             return decisions.set_promotion_defer(
                 conn,
                 project_key=project_key,
                 reason=str(payload.get("reason") or note),
-                days=_int(payload.get("days"), 7, maximum=365),
+                days=None if raw_days in (None, "") else _int(raw_days, core.DEFAULT_PROMOTION_DEFER_DAYS, maximum=365),
                 clear=action.startswith("clear-"),
             )
         if action == "dismiss-review-kind":
