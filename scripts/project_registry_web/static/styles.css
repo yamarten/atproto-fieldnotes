@@ -91,6 +91,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .pill.candidate { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
 .pill.failed, .pill.rate_limited { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .detail-header { display: grid; gap: 8px; }
+.detail-footer { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .detail-tabs { position: sticky; top: 0; z-index: 3; display: flex; gap: 14px; margin: 12px -2px 0; padding: 6px 2px 0; overflow-x: auto; background: var(--panel); border-bottom: 1px solid var(--line); }
 .detail-tabs button.secondary { flex: 0 0 auto; min-height: 34px; padding: 5px 2px 7px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); }
 .detail-tabs button.secondary:hover { color: var(--text); border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent); }
