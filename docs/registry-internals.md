@@ -270,8 +270,9 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - lexicon description 由来の `summary_candidates` / `tagline_candidates`
 - 保守的な点:
   - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
-  - authority domain は NSID record の公開元としてだけ扱い、service URL候補やprobe入口は合成しません
-  - 過去に保存された authority domain 由来の service URL候補/失敗probe URL は、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
+  - authority domain 由来の service URL は、recent record sample 内のURLが同じhostを指す場合だけ低優先でprobeします
+  - authority domain 由来probeが成功し、実service surfaceらしく、record sample URLによるhost一致がある場合だけ `service_url_candidates` に残します
+  - authority domain 由来の失敗probe URLや、record sample URLによる補強がない旧candidateは、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
 
 ### 2. GitHub repo から取るもの
 

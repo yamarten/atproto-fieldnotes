@@ -889,6 +889,78 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://release.freemix.fm", project["service_urls"])
         self.assertIn("https://release.freemix.fm", project["supported_service_urls"])
 
+    def test_authority_service_probe_keeps_candidate_when_record_urls_match_host(self) -> None:
+        project = registry.default_project_record("proj:authoritycandidate", "nsid", "com.suibari.meyasuat.answer")
+        project["primary_nsid"] = "com.suibari.meyasuat.answer"
+        project["input_nsids"] = ["com.suibari.meyasuat.answer"]
+        project["authority_domains"] = ["meyasuat.suibari.com"]
+        project["recorded_lexicon_namespaces"] = ["com.suibari.meyasuat"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "com.suibari.meyasuat.answer"}]
+        project["collection_observations"] = [
+            {
+                "collection": "com.suibari.meyasuat",
+                "members": ["com.suibari.meyasuat.answer"],
+                "count": 1,
+                "recent_count": 1,
+                "source": "test",
+            }
+        ]
+        project["recent_record_samples"] = [
+            {
+                "collection": "com.suibari.meyasuat.answer",
+                "record": {
+                    "$type": "com.suibari.meyasuat.answer",
+                    "url": "https://meyasuat.suibari.com/u/alice.example/m/123",
+                },
+            }
+        ]
+        result = self.probe_result(
+            '<title>めやすあっと</title><meta name="description" content="Bluesky users can receive anonymous messages">'
+        )
+        result["requested_url"] = "https://meyasuat.suibari.com"
+        result["final_url"] = "https://meyasuat.suibari.com"
+        result["service_status"] = "live"
+        result["service_status_confidence"] = "medium"
+        result["service_status_evidence"] = ["http_200", "login_surface_detected"]
+
+        self.assertEqual(registry.derived_authority_probe_urls(project), ["https://meyasuat.suibari.com"])
+        registry.apply_authority_service_probe_result(project, "https://meyasuat.suibari.com", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://meyasuat.suibari.com", project["service_url_candidates"])
+        self.assertNotIn("https://meyasuat.suibari.com", project["service_urls"])
+        self.assertNotIn("https://meyasuat.suibari.com", project["supported_service_urls"])
+
+    def test_finalize_restores_authority_candidate_from_saved_probe_result(self) -> None:
+        project = registry.default_project_record("proj:authoritysavedprobe", "nsid", "com.suibari.meyasuat.answer")
+        project["primary_nsid"] = "com.suibari.meyasuat.answer"
+        project["input_nsids"] = ["com.suibari.meyasuat.answer"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "com.suibari.meyasuat.answer"}]
+        project["authority_domains"] = ["meyasuat.suibari.com"]
+        project["recent_record_samples"] = [
+            {
+                "collection": "com.suibari.meyasuat.answer",
+                "record": {"url": "https://meyasuat.suibari.com/u/alice.example/m/123"},
+            }
+        ]
+        project["service_verification_results"] = [
+            {
+                "requested_url": "https://meyasuat.suibari.com",
+                "final_url": "https://meyasuat.suibari.com",
+                "status_code": 200,
+                "title": "めやすあっと",
+                "description": "Bluesky users can receive anonymous messages",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+                "html_extract": "<title>めやすあっと</title>",
+            }
+        ]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://meyasuat.suibari.com", project["service_url_candidates"])
+
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["primary_nsid"] = "xyz.tz2at.raw.observation"

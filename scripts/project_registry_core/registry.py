@@ -977,6 +977,11 @@ def candidate_service_origins_for_authority_domain(authority_domain: str) -> lis
     return unique_list(candidates)
 
 
+def exact_service_origin_for_authority_domain(authority_domain: str) -> str:
+    lowered = str(authority_domain or "").strip().lower().rstrip(".")
+    return f"https://{lowered}" if lowered else ""
+
+
 def authority_service_candidates_allowed(
     project: dict[str, Any],
     authority_domain: str,
@@ -1031,8 +1036,48 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             candidate_url
             for candidate_url in candidate_service_origins_for_authority_domain(authority_domain)
             if normalize_url(candidate_url) not in supported_urls
+            and not authority_service_candidate_has_record_url(project, candidate_url)
         )
     return guesses
+
+
+def urls_from_nested_value(value: Any, *, depth: int = 0) -> list[str]:
+    if depth > 5:
+        return []
+    if isinstance(value, str):
+        return extract_urls(value)
+    if isinstance(value, dict):
+        urls: list[str] = []
+        for item in value.values():
+            urls.extend(urls_from_nested_value(item, depth=depth + 1))
+        return unique_list(urls)
+    if isinstance(value, list):
+        urls = []
+        for item in value:
+            urls.extend(urls_from_nested_value(item, depth=depth + 1))
+        return unique_list(urls)
+    return []
+
+
+def recent_record_sample_urls(project: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    for sample in project.get("recent_record_samples", []):
+        if not isinstance(sample, dict):
+            continue
+        urls.extend(urls_from_nested_value(sample.get("record", {})))
+    return unique_list([normalize_url(url) for url in urls if normalize_url(url)])
+
+
+def authority_service_candidate_has_record_url(project: dict[str, Any], service_url: str) -> bool:
+    normalized = normalize_url(service_url)
+    host = urllib.parse.urlparse(normalized).netloc.lower()
+    if not host:
+        return False
+    for url in recent_record_sample_urls(project):
+        parsed = urllib.parse.urlparse(url)
+        if parsed.netloc.lower() == host:
+            return True
+    return False
 
 
 def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]:
@@ -1061,6 +1106,7 @@ def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]
         *(normalize_url(str(item or "")) for item in project.get("service_urls", [])),
         *(normalize_url(str(item or "")) for item in project.get("supported_service_urls", [])),
         *(normalize_url(str(item or "")) for item in manual_service_seed_urls),
+        *(url for url in guesses if authority_service_candidate_has_record_url(project, url)),
     }
     return {url for url in guesses if url and url not in retained}
 
@@ -1112,8 +1158,34 @@ def prune_stale_service_trust_evaluations(project: dict[str, Any]) -> None:
 
 
 def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
-    _ = project
-    return []
+    existing_urls = {
+        normalize_url(str(url or ""))
+        for url in (
+            ([project.get("website_url")] if project.get("website_url") else [])
+            + list(project.get("service_urls", []))
+            + service_url_candidate_values(project)
+        )
+        if normalize_url(str(url or ""))
+    }
+    failed_urls = {
+        normalize_url(str(url or ""))
+        for url in project.get("failed_service_urls", [])
+        if normalize_url(str(url or ""))
+    }
+    probe_urls: list[str] = []
+    observed_nsids = unique_list(list(project.get("resolved_nsids", [])) + list(project.get("input_nsids", [])))
+    for raw_nsid in observed_nsids:
+        nsid = normalize_nsid(str(raw_nsid or ""))
+        if not nsid:
+            continue
+        candidate_url = normalize_url(exact_service_origin_for_authority_domain(derive_authority_domain(nsid)))
+        if not candidate_url or candidate_url in existing_urls or candidate_url in failed_urls:
+            continue
+        if not authority_service_candidate_has_record_url(project, candidate_url):
+            continue
+        probe_urls.append(candidate_url)
+        existing_urls.add(candidate_url)
+    return unique_list(probe_urls)
 
 
 def normalize_nsid(nsid: str) -> str:
@@ -9107,6 +9179,52 @@ def verified_authority_live_surface(project: dict[str, Any], service_url: str, r
     return bool(str(result.get("title") or "").strip() or str(result.get("description") or "").strip())
 
 
+def authority_service_probe_candidate_allowed(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
+    normalized = normalize_service_candidate_url(service_url)
+    if not normalized or service_url_is_guarded(project, normalized):
+        return False
+    status_code = int(result.get("status_code") or 0)
+    if not (0 < status_code < 400):
+        return False
+    if service_probe_looks_parked(result):
+        return False
+    if not service_probe_represents_service_identity(normalized, {**result, "lane": str(result.get("lane") or "authority")}):
+        return False
+    parsed = urllib.parse.urlparse(normalized)
+    if normalized != normalize_url(exact_service_origin_for_authority_domain(parsed.netloc)):
+        return False
+    authority_domains = {str(item or "").strip().lower().rstrip(".") for item in project.get("authority_domains", []) if str(item or "").strip()}
+    if parsed.netloc.lower() not in authority_domains:
+        return False
+    if not authority_service_candidate_has_record_url(project, normalized):
+        return False
+    observed_status = normalize_service_status(result.get("service_status"))
+    if observed_status in {"dead", "unreleased", "unknown"}:
+        return False
+    return True
+
+
+def apply_authority_service_probe_result(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> None:
+    normalized = normalize_service_candidate_url(service_url)
+    if not normalized:
+        return
+    if authority_service_probe_candidate_allowed(project, normalized, result):
+        add_candidate_url(project, "service_url", normalized)
+        add_candidate_url(project, "website_url", normalized)
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
+
+
+def sync_authority_service_candidates_from_probe_results(project: dict[str, Any]) -> None:
+    for item in project.get("service_verification_results", []):
+        if not isinstance(item, dict):
+            continue
+        requested_url = normalize_url(str(item.get("requested_url") or ""))
+        if not requested_url:
+            continue
+        result = {**item, "html": str(item.get("html_extract") or item.get("html") or ""), "lane": "authority"}
+        apply_authority_service_probe_result(project, requested_url, result)
+
+
 def service_probe_supported_redirect_final_url(project: dict[str, Any], requested_url: str, result: dict[str, Any]) -> str:
     requested = normalize_url(requested_url)
     final = normalize_service_candidate_url(str(result.get("final_url") or ""))
@@ -13619,6 +13737,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_supporting_page_service_observations(project)
     purge_guarded_service_observations(project)
     purge_guarded_service_relations(project)
+    sync_authority_service_candidates_from_probe_results(project)
     prune_nsid_authority_service_url_guesses(project)
     pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
@@ -13873,11 +13992,12 @@ def enrich_project(
                     project, source="lexicon_resolution", operation="resolve", target=nsid, exc=exc,
                 ))
 
+    authority_probe_urls = set(derived_authority_probe_urls(project))
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
         + project.get("service_urls", [])
         + service_url_candidate_values(project)
-        + derived_authority_probe_urls(project)
+        + list(authority_probe_urls)
     )
     if initial_service_urls:
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
@@ -13893,8 +14013,11 @@ def enrich_project(
                 try:
                     timeout = service_probe_timeout_for_project(project, service_url)
                     probe_result = service_futures[service_url].result()
-                    service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result)
+                    lane = "authority" if normalize_url(service_url) in authority_probe_urls else "static"
+                    service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result, lane=lane)
                     apply_service_evidence(project, service_evidence)
+                    if lane == "authority":
+                        apply_authority_service_probe_result(project, service_url, probe_result)
                     run_evidence.extend(service_evidence)
                     for metadata_url in relation_core.oauth_metadata_candidates(
                         service_url,
@@ -13912,7 +14035,7 @@ def enrich_project(
                             ))
                 except Exception as exc:
                     normalized_service_url = normalize_url(service_url)
-                    if normalized_service_url:
+                    if normalized_service_url and normalized_service_url not in authority_probe_urls:
                         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
                     note_failure(project, f"service probe failed for {service_url}: {exc}")
                     run_evidence.extend(failed_collector_bundle(
