@@ -666,6 +666,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   5. `service_host_family`
 - 自動 attach するのは 1、2、3 だけです
 - 4 と 5 は `suggested_project_key` に落とし、既存 project に自動では吸いません
+- 代表collectionだけでなく、同じ集約bucket内で既存 seed と同じ3-label以上の親namespaceを持つmember collectionもNSID seedへ同期します
+  - `link.latr.saved.external` と `link.latr.saved.item` はどちらも `link.latr.saved` familyとして同じprojectに残します
+  - registrable namespaceが同じだけのmemberは、この補完条件ではseed化しません
 
 ### `sync-github-search`
 

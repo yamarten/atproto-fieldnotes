@@ -3564,11 +3564,17 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     project_map: dict[str, dict[str, Any]] = {}
     pruned_projects = 0
     normalized_projects = 0
+    collection_member_seed_repairs = 0
     for row in rows:
         stored_payload = project_from_row_payload(row)
         raw = project_from_row(conn, row)
         original = ensure_project_shape(raw)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        collection_member_seed_repairs += add_collection_observation_member_seeds(
+            normalized,
+            default_source="collection_observation_repair",
+        )
+        normalized = finalize_project_shape(normalized)
         contribution_changed = any(
             dump_json(stored_payload.get(field, default)) != dump_json(normalized.get(field, default))
             for field, default in (
@@ -3643,6 +3649,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "project_count": len(rows),
         "normalized_project_count": normalized_projects,
         "pruned_project_count": pruned_projects,
+        "collection_member_seed_repair_count": collection_member_seed_repairs,
         "refreshed_derived_project_count": refreshed_derived_projects,
         "orphan_count": 0,
         "stale_count": 0,
@@ -6361,6 +6368,44 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), source)
 
 
+def collection_seed_parent_namespaces(project: dict[str, Any]) -> set[str]:
+    parents: set[str] = set()
+    for value in unique_list(
+        [str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict) and str(item.get("type") or "") == "nsid"]
+        + [str(item or "") for item in project.get("input_nsids", [])]
+        + [str(item or "") for item in project.get("resolved_nsids", [])]
+    ):
+        parent = namespace_from_collection_nsid(value)
+        if parent and len(parent.split(".")) >= 3:
+            parents.add(parent)
+    return parents
+
+
+def add_collection_observation_member_seeds(project: dict[str, Any], *, default_source: str) -> int:
+    before = {
+        canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or ""))
+        for item in project.get("manual_seeds", [])
+        if isinstance(item, dict) and str(item.get("type") or "") == "nsid"
+    }
+    seed_parents = collection_seed_parent_namespaces(project)
+    if not seed_parents:
+        return 0
+    for observation in project.get("collection_observations", []):
+        if not isinstance(observation, dict):
+            continue
+        source = str(observation.get("source") or default_source)
+        for member in observation.get("members", []):
+            normalized = normalize_nsid(str(member or ""))
+            if normalized and namespace_from_collection_nsid(normalized) in seed_parents:
+                add_manual_seed(project, "nsid", normalized, source=source)
+    after = {
+        canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or ""))
+        for item in project.get("manual_seeds", [])
+        if isinstance(item, dict) and str(item.get("type") or "") == "nsid"
+    }
+    return len(after - before)
+
+
 def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: str) -> str:
     normalized = normalize_url(service_url)
     if not normalized or identifier_is_deferred(project, "service_url", normalized):
@@ -6748,6 +6793,7 @@ def import_collection_inventory_payload(
             source="collection_inventory_import",
             merge_existing=merge_existing_observations,
         )
+        add_collection_observation_member_seeds(project, default_source="collection_inventory_import")
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)

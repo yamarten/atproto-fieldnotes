@@ -268,6 +268,9 @@ conservative です。registrable namespaceやservice host familyだけの弱い
 `suggested_project_key` として提案だけ残します。
 full collectionから得た親namespaceが既存projectのNSID seed / recorded namespaceと一意に一致する場合は、
 registrable namespaceへの集約前に同一projectとして扱います。
+同じ集約bucket内に、既にseed化したcollectionと同じ3-label以上の親namespaceを持つmemberがある場合は、
+そのmemberも同じprojectのNSID seedとして記録します。例えば `link.latr.saved.external` をseed化したprojectに
+`link.latr.saved.item` が同じobservationで現れた場合、後者もidentifierとして残します。
 
 週次運用向けに、必要ならlookbackを調整できます:
 

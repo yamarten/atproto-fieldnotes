@@ -95,6 +95,75 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("social.homeport.activitypub.note", fetched["input_nsids"])
         self.assertIn("social.homeport.activitypub.note", [item["value"] for item in fetched["manual_seeds"]])
 
+    def test_collection_import_attaches_all_aggregated_members(self) -> None:
+        conn = registry.open_db()
+        try:
+            result = registry.import_collection_inventory_payload(
+                conn,
+                [
+                    {
+                        "collection": "link.latr.saved.external",
+                        "count": 10,
+                        "recent_count": 2,
+                        "min": "2026-07-01T00:00:00+00:00",
+                        "max": "2026-07-04T00:00:00+00:00",
+                    },
+                    {
+                        "collection": "link.latr.saved.item",
+                        "count": 3,
+                        "recent_count": 1,
+                        "min": "2026-07-02T00:00:00+00:00",
+                        "max": "2026-07-05T00:00:00+00:00",
+                    },
+                ],
+                execute=True,
+                create_unmatched=True,
+                source="test_collection_inventory",
+            )
+            fetched = registry.fetch_project(conn, result["imported_project_keys"][0])
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(fetched["collection_observations"][0]["members"], ["link.latr.saved.external", "link.latr.saved.item"])
+        self.assertIn("link.latr.saved.external", fetched["input_nsids"])
+        self.assertIn("link.latr.saved.item", fetched["input_nsids"])
+        self.assertIn("link.latr.saved.external", [item["value"] for item in fetched["manual_seeds"]])
+        self.assertIn("link.latr.saved.item", [item["value"] for item in fetched["manual_seeds"]])
+
+    def test_repair_db_attaches_missing_collection_observation_members(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:latr", "nsid", "link.latr.saved.external")
+            registry.add_manual_seed(project, "nsid", "link.latr.saved.external", source="collection_inventory_import")
+            project["collection_observations"] = [
+                {
+                    "collection": "link.latr",
+                    "count": 13,
+                    "recent_count": 3,
+                    "min": "2026-07-01T00:00:00+00:00",
+                    "max": "2026-07-05T00:00:00+00:00",
+                    "members": ["link.latr.saved.external", "link.latr.saved.item"],
+                    "source": "collection_inventory_import",
+                }
+            ]
+            registry.save_project(conn, project)
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            before = registry.fetch_project(conn, "proj:latr")
+            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            after = registry.fetch_project(conn, "proj:latr")
+        finally:
+            conn.close()
+
+        assert before is not None
+        assert after is not None
+        self.assertEqual(dry_run["collection_member_seed_repair_count"], 1)
+        self.assertNotIn("link.latr.saved.item", before["input_nsids"])
+        self.assertEqual(executed["collection_member_seed_repair_count"], 1)
+        self.assertIn("link.latr.saved.item", after["input_nsids"])
+        self.assertIn("link.latr.saved.item", [item["value"] for item in after["manual_seeds"]])
+
     def test_collection_import_does_not_attach_by_service_host_family(self) -> None:
         conn = registry.open_db()
         try:
