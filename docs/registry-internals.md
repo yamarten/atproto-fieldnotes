@@ -115,6 +115,7 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
 - `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
+- `repo_url` の `manual_seed` は、active な confirmed `source_repository` に残っている場合だけ trust graph anchor にします。manual repo seed は confirmed `source_repository` として保存し、旧データにある「manual seed だが source repository は candidate」の形は `repair-db` で補正します。defer/block された repo seed は confirmed repo に戻さず、anchor にもしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。

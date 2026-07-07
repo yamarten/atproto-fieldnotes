@@ -3565,10 +3565,13 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     pruned_projects = 0
     normalized_projects = 0
     collection_member_seed_repairs = 0
+    manual_repo_seed_repairs = 0
     for row in rows:
         stored_payload = project_from_row_payload(row)
         raw = project_from_row(conn, row)
         original = ensure_project_shape(raw)
+        original_repo_urls = set(normalize_repo_collection(source_code_url_values(original)))
+        manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
         collection_member_seed_repairs += add_collection_observation_member_seeds(
             normalized,
@@ -3650,6 +3653,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "normalized_project_count": normalized_projects,
         "pruned_project_count": pruned_projects,
         "collection_member_seed_repair_count": collection_member_seed_repairs,
+        "manual_repo_seed_repair_count": manual_repo_seed_repairs,
         "refreshed_derived_project_count": refreshed_derived_projects,
         "orphan_count": 0,
         "stale_count": 0,
@@ -5035,6 +5039,15 @@ def manual_repo_urls(project: dict[str, Any]) -> set[str]:
     return urls
 
 
+def active_manual_repo_urls(project: dict[str, Any]) -> set[str]:
+    return {
+        url
+        for url in manual_repo_urls(project)
+        if not identifier_is_blocked(project, "repo_url", url)
+        and not identifier_is_deferred(project, "repo_url", url)
+    }
+
+
 def project_alias_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     if project.get("name"):
@@ -6066,6 +6079,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
     elif website_url and not service_url_allowed_for_project(project, website_url, confirmed=True):
         project["website_url"] = ""
 
+    active_manual_repos = active_manual_repo_urls(project)
     cleaned_records: list[dict[str, Any]] = []
     for record in normalize_source_repo_records(project.get("source_repo_records", [])):
         url = str(record.get("url") or "")
@@ -6076,6 +6090,9 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         if identifier_is_deferred(project, "repo_url", url):
             record = dict(record)
             record["confidence"] = "candidate"
+        elif url in active_manual_repos:
+            record = dict(record)
+            record["confidence"] = "confirmed"
         elif relation in {"official_link", "same_site_repo"} and same_site_evidence:
             record = dict(record)
             record["confidence"] = "confirmed"
@@ -6094,8 +6111,8 @@ def prune_project_urls(project: dict[str, Any]) -> None:
 
     project["source_code_urls"] = [
         url
-        for url in normalize_repo_collection(project.get("source_code_urls", []))
-        if repo_url_allowed_for_project(project, url) and (url in manual_repo_urls(project) or url in kept_confirmed)
+        for url in normalize_repo_collection(unique_list(project.get("source_code_urls", []) + sorted(active_manual_repos)))
+        if repo_url_allowed_for_project(project, url) and (url in active_manual_repos or url in kept_confirmed)
     ]
     project["candidate_source_code_urls"] = [
         url
@@ -8625,6 +8642,16 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
+    def manual_seed_is_confirmed_anchor(seed_type: str, seed_value: str) -> bool:
+        if identifier_is_blocked(project, seed_type, seed_value) or identifier_is_deferred(project, seed_type, seed_value):
+            return False
+        if seed_type == "service_url":
+            return True
+        if seed_type == "repo_url":
+            normalized = canonical_repo_url(seed_value)
+            return bool(normalized and normalized in set(source_code_url_values(project)))
+        return True
+
     def add(identifier_type: str, value: str) -> None:
         kind = "collection" if identifier_type == "nsid" else identifier_type
         node = trust_node(kind, value)
@@ -8638,8 +8665,12 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(seed, dict):
             continue
         seed_type = str(seed.get("type") or "")
-        if seed_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
-            add(seed_type, str(seed.get("value") or ""))
+        seed_value = str(seed.get("value") or "")
+        if (
+            seed_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}
+            and manual_seed_is_confirmed_anchor(seed_type, seed_value)
+        ):
+            add(seed_type, seed_value)
     for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
         if str(item.get("cleared_at") or ""):
             continue
@@ -13656,7 +13687,9 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     confirmed_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") == "confirmed"]
     candidate_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"]
-    project["source_code_urls"] = normalize_repo_collection(unique_list(project.get("source_code_urls", []) + confirmed_urls))
+    project["source_code_urls"] = normalize_repo_collection(
+        unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
+    )
     project["candidate_source_code_urls"] = [
         url for url in normalize_repo_collection(unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
         if url not in project.get("source_code_urls", [])

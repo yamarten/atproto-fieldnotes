@@ -755,6 +755,79 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
         self.assertEqual(project["deferred_identifiers"][0]["type"], "repo_url")
 
+    def test_manual_repo_seed_stays_confirmed_source_repository(self) -> None:
+        project = self.make_project("proj:manualrepo", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://github.com/example/app", project["source_code_urls"])
+        self.assertNotIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertIn(
+            {"kind": "repo_url", "value": "https://github.com/example/app"},
+            registry.trusted_anchor_nodes(project),
+        )
+
+    def test_manual_repo_seed_candidate_shape_is_repaired(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:oldrepo", "repo_url", "https://github.com/example/app")
+            project["manual_seeds"] = [
+                {"type": "repo_url", "value": "https://github.com/example/app", "added_at": "2026-01-01T00:00:00+00:00"}
+            ]
+            project["source_code_urls"] = []
+            project["candidate_source_code_urls"] = ["https://github.com/example/app"]
+            project["source_repo_records"] = [
+                {
+                    "url": "https://github.com/example/app",
+                    "provider": "github",
+                    "confidence": "candidate",
+                    "relation": "repo_seed",
+                    "source": "github_repo_seed",
+                    "reason": "registered manually as repository seed",
+                    "evidence_kind": "manual_seed",
+                    "evidence_url": "https://github.com/example/app",
+                    "recorded_at": "2026-01-01T00:00:00+00:00",
+                }
+            ]
+            registry.save_project(conn, project)
+            before = registry.fetch_project(conn, "proj:oldrepo")
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            after = registry.fetch_project(conn, "proj:oldrepo")
+        finally:
+            conn.close()
+
+        assert before is not None
+        assert after is not None
+        self.assertNotIn("https://github.com/example/app", before["source_code_urls"])
+        self.assertNotIn(
+            {"kind": "repo_url", "value": "https://github.com/example/app"},
+            registry.trusted_anchor_nodes(before),
+        )
+        self.assertEqual(dry_run["manual_repo_seed_repair_count"], 1)
+        self.assertEqual(executed["manual_repo_seed_repair_count"], 1)
+        self.assertIn("https://github.com/example/app", after["source_code_urls"])
+        self.assertNotIn("https://github.com/example/app", after["candidate_source_code_urls"])
+        self.assertNotIn(
+            "candidate_repo_needs_confirmation",
+            {signal["kind"] for signal in registry.compute_review_signals(after)},
+        )
+
+    def test_deferred_manual_repo_seed_is_not_trusted_anchor(self) -> None:
+        project = self.make_project("proj:deferredrepo", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertNotIn(
+            {"kind": "repo_url", "value": "https://github.com/example/app"},
+            registry.trusted_anchor_nodes(project),
+        )
+
     def test_defer_nsid_keeps_value_in_temporary_category(self) -> None:
         project = self.make_project("proj:565656565656", "nsid", "app.example.post")
         project["primary_nsid"] = "app.example.post"
