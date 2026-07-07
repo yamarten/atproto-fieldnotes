@@ -824,6 +824,71 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
             "fetch_error": "",
         }
 
+    def test_nsid_seed_does_not_create_authority_service_candidates(self) -> None:
+        project = registry.default_project_record("proj:authorityseed", "nsid", "fm.freemix.release.track")
+
+        registry.apply_seed_to_project(project, "nsid", "fm.freemix.release.track")
+        self.assertIn("release.freemix.fm", project["authority_domains"])
+        self.assertEqual(project["service_url_candidates"], [])
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertEqual(project["service_url_candidates"], [])
+        self.assertEqual(registry.derived_authority_probe_urls(project), [])
+
+    def test_finalize_prunes_stored_nsid_authority_service_guesses(self) -> None:
+        project = registry.default_project_record("proj:authoritycleanup", "nsid", "fm.freemix.release.track")
+        project["primary_nsid"] = "fm.freemix.release.track"
+        project["input_nsids"] = ["fm.freemix.release.track"]
+        project["authority_domains"] = ["release.freemix.fm"]
+        project["service_url_candidates"] = ["https://release.freemix.fm"]
+        project["failed_service_urls"] = ["https://release.freemix.fm"]
+        project["llm_source"] = {
+            "evidence": {
+                "input_nsids": ["fm.freemix.release.track"],
+                "authority_domains": ["release.freemix.fm"],
+                "failed_service_urls": ["https://release.freemix.fm"],
+            }
+        }
+        project["trust_graph"] = {
+            "version": 1,
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "edges": [],
+            "evaluations": [
+                {
+                    "candidate": {"kind": "service_url", "value": "https://release.freemix.fm"},
+                    "auto_confirm": False,
+                    "reason": "no_mutual_trust_path",
+                }
+            ],
+        }
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://release.freemix.fm", project["service_url_candidates"])
+        self.assertNotIn("https://release.freemix.fm", project["failed_service_urls"])
+        self.assertNotIn("https://release.freemix.fm", project["llm_source"]["evidence"]["failed_service_urls"])
+        evaluated_service_urls = [
+            item["candidate"]["value"]
+            for item in project["trust_graph"]["evaluations"]
+            if item.get("candidate", {}).get("kind") == "service_url"
+        ]
+        self.assertNotIn("https://release.freemix.fm", evaluated_service_urls)
+
+    def test_finalize_keeps_confirmed_authority_service_url(self) -> None:
+        project = registry.default_project_record("proj:authorityconfirmed", "nsid", "fm.freemix.release.track")
+        project["primary_nsid"] = "fm.freemix.release.track"
+        project["input_nsids"] = ["fm.freemix.release.track"]
+        project["authority_domains"] = ["release.freemix.fm"]
+        project["service_urls"] = ["https://release.freemix.fm"]
+        project["supported_service_urls"] = ["https://release.freemix.fm"]
+        project["failed_service_urls"] = ["https://release.freemix.fm"]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://release.freemix.fm", project["service_urls"])
+        self.assertIn("https://release.freemix.fm", project["supported_service_urls"])
+
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["primary_nsid"] = "xyz.tz2at.raw.observation"

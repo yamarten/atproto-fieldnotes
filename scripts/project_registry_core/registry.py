@@ -1000,11 +1000,10 @@ def add_authority_service_candidates(
     *,
     verified: bool = False,
 ) -> None:
-    if not authority_service_candidates_allowed(project, authority_domain, verified=verified):
-        return
-    for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
-        add_candidate_url(project, "website_url", candidate_url)
-        add_candidate_url(project, "service_url", candidate_url)
+    # Lexicon authority proves where the NSID record is published, not that the
+    # same host is a project service surface. Keep the function as an adapter
+    # hook for existing integration paths, but do not synthesize URL candidates.
+    _ = (project, authority_domain, verified)
 
 
 def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
@@ -1036,37 +1035,85 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
     return guesses
 
 
-def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
-    existing_urls = {
-        normalize_url(str(url or ""))
-        for url in (
-            ([project.get("website_url")] if project.get("website_url") else [])
-            + list(project.get("service_urls", []))
-            + service_url_candidate_values(project)
-        )
-        if normalize_url(str(url or ""))
+def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]:
+    guesses = nsid_authority_service_origins(project)
+    has_nsid_evidence = bool(
+        normalize_nsid(str(project.get("primary_nsid") or ""))
+        or any(normalize_nsid(str(item or "")) for item in project.get("input_nsids", []))
+        or any(normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []))
+    )
+    if has_nsid_evidence:
+        for authority_domain in project.get("authority_domains", []):
+            guesses.update(candidate_service_origins_for_authority_domain(str(authority_domain or "")))
+    for entry in project.get("lexicon_resolution_entries", []):
+        if not isinstance(entry, dict):
+            continue
+        guesses.update(candidate_service_origins_for_authority_domain(str(entry.get("authority_domain") or "")))
+    if not guesses:
+        return set()
+    manual_service_seed_urls = [
+        canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or ""))
+        for item in project.get("manual_seeds", [])
+        if isinstance(item, dict) and str(item.get("type") or "") == "service_url"
+    ]
+    retained = {
+        normalize_url(str(project.get("website_url") or "")),
+        *(normalize_url(str(item or "")) for item in project.get("service_urls", [])),
+        *(normalize_url(str(item or "")) for item in project.get("supported_service_urls", [])),
+        *(normalize_url(str(item or "")) for item in manual_service_seed_urls),
     }
-    failed_urls = {
-        normalize_url(str(url or ""))
+    return {url for url in guesses if url and url not in retained}
+
+
+def prune_nsid_authority_service_url_guesses(project: dict[str, Any]) -> None:
+    prunable_authority_guesses = prunable_nsid_authority_service_guesses(project)
+    if not prunable_authority_guesses:
+        return
+    project["failed_service_urls"] = [
+        url
         for url in project.get("failed_service_urls", [])
-        if normalize_url(str(url or ""))
+        if normalize_url(str(url or "")) not in prunable_authority_guesses
+    ]
+    set_service_url_candidate_values(
+        project,
+        [
+            url
+            for url in service_url_candidate_values(project)
+            if normalize_url(str(url or "")) not in prunable_authority_guesses
+        ],
+    )
+
+
+def prune_stale_service_trust_evaluations(project: dict[str, Any]) -> None:
+    graph = trust_graph_core.graph(project)
+    evaluations = graph.get("evaluations", [])
+    if not evaluations:
+        return
+    active_service_urls = {
+        normalize_url(str(project.get("website_url") or "")),
+        *(normalize_url(str(item or "")) for item in project.get("service_urls", [])),
+        *(normalize_url(str(item or "")) for item in service_url_candidate_values(project)),
+        *(normalize_url(str(item or "")) for item in project.get("supported_service_urls", [])),
+        *(normalize_url(str(item or "")) for item in project.get("failed_service_urls", [])),
     }
-    probe_urls: list[str] = []
-    observed_nsids = unique_list(list(project.get("resolved_nsids", [])) + list(project.get("input_nsids", [])))
-    for raw_nsid in observed_nsids:
-        nsid = normalize_nsid(str(raw_nsid or ""))
-        if not nsid:
+    active_service_urls.discard("")
+    cleaned: list[dict[str, Any]] = []
+    changed = False
+    for item in evaluations:
+        candidate = item.get("candidate") if isinstance(item.get("candidate"), dict) else {}
+        key = trust_graph_core.node_key(candidate)
+        if key[0] == "service_url" and normalize_url(key[1]) not in active_service_urls:
+            changed = True
             continue
-        authority_domain = derive_authority_domain(nsid)
-        if not authority_domain:
-            continue
-        for candidate_url in candidate_service_origins_for_authority_domain(authority_domain):
-            normalized = normalize_url(candidate_url)
-            if not normalized or normalized in existing_urls or normalized in failed_urls:
-                continue
-            probe_urls.append(normalized)
-            existing_urls.add(normalized)
-    return unique_list(probe_urls)
+        cleaned.append(dict(item))
+    if changed:
+        graph["evaluations"] = cleaned
+        trust_graph_core.set_graph(project, graph)
+
+
+def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
+    _ = project
+    return []
 
 
 def normalize_nsid(nsid: str) -> str:
@@ -6044,6 +6091,8 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
 
 def prune_project_urls(project: dict[str, Any]) -> None:
     blocked_guesses = unverified_authority_service_guesses(project)
+    prunable_authority_guesses = prunable_nsid_authority_service_guesses(project)
+    prune_nsid_authority_service_url_guesses(project)
     for field_name in ("service_urls",):
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
@@ -6066,6 +6115,8 @@ def prune_project_urls(project: dict[str, Any]) -> None:
             continue
         normalized_candidate = normalize_url(str(url or ""))
         if normalized_candidate in blocked_guesses:
+            continue
+        if normalized_candidate in prunable_authority_guesses:
             continue
         if service_url_allowed_for_project(project, url, confirmed=False):
             normalized = normalize_service_candidate_url(url)
@@ -13568,6 +13619,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_supporting_page_service_observations(project)
     purge_guarded_service_observations(project)
     purge_guarded_service_relations(project)
+    prune_nsid_authority_service_url_guesses(project)
     pre_prune_external_lexicons = compute_external_lexicons(project)
     prune_project_lexicon_identity(project)
     introduced_url = normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
@@ -13587,6 +13639,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["investigation_log"] = cleaned_logs
     if isinstance(project.get("llm_source"), dict) and isinstance(project["llm_source"].get("evidence"), dict):
         evidence = dict(project["llm_source"]["evidence"])
+        prune_nsid_authority_service_url_guesses(evidence)
         evidence["project_key"] = project["project_key"]
         evidence["evidence_urls"] = [
             url for url in evidence.get("evidence_urls", [])
@@ -13634,6 +13687,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
 
     sync_primary_service_urls(project)
     prune_project_urls(project)
+    prune_stale_service_trust_evaluations(project)
     purge_supporting_page_service_observations(project)
     project["developer_accounts"] = [
         dict(item)

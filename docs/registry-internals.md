@@ -267,15 +267,11 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - `record_creators`
   - `authority_domains`
 - ここで candidate に留めるもの:
-  - authority domain から推定した service origin
   - lexicon description 由来の `summary_candidates` / `tagline_candidates`
 - 保守的な点:
   - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
-  - authority domain 由来 URL は
-    - まず probe する
-    - `service_probe_supports_project()` を通った時だけ candidate に残す
-    - unsupported なら候補化しない
-    - supported だった URL は `supported_service_urls` に URL 単位で保存し、後段の guess prune で消さない
+  - authority domain は NSID record の公開元としてだけ扱い、service URL候補やprobe入口は合成しません
+  - 過去に保存された authority domain 由来の service URL候補/失敗probe URL は、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
 
 ### 2. GitHub repo から取るもの
 
