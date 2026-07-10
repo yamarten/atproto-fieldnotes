@@ -665,6 +665,33 @@ project-registry repair-trust-graph --execute
 
 `audit-trust-graph` は読み取り専用です。`repair-trust-graph` は `--execute` なしではdry-runで、通常は trust edge/evaluation の再計算結果だけを保存します。unsupported confirmed identifier の候補降格は `repair-trust-graph --execute --downgrade-unsupported` を明示した場合だけ行います。
 
+## 保存payloadの縮約
+
+既存runを残したまま、current service evidence、investigationのinput/output snapshotとbundle、collector projectionを
+現行の保存budgetへ揃える場合:
+
+```bash
+project-registry cleanup-storage-payloads
+```
+
+既定はread-onlyのdry-runで、層別の変更件数、UTF-8 bytes、最大削減run、snapshotの保存済みevaluation field差分を
+JSONで報告します。bundleの完全replayを全runへ実行するcommandではありません。
+
+適用前にWeb、worker、enrich、別CLIを止め、DB backupを作り、dry-run結果を確認します。適用は一つのwrite
+transactionで行い、commit前にforeign key checkとintegrity checkを通します。
+
+```bash
+project-registry cleanup-storage-payloads --execute
+```
+
+この操作はprojectやrunを削除しません。SQLiteの空きpageを後続write用に残さず、DB file自体も縮める場合だけ、
+追加の作業領域を確保して次を使います。payload rewriteのcommit後にVACUUMするため、VACUUM失敗時もrewriteは
+rollbackされません。
+
+```bash
+project-registry cleanup-storage-payloads --execute --vacuum
+```
+
 ## 調査履歴の削除
 
 保存済み調査は既定で、完了から90日以内の全runとprojectごとの最新3 runを保持します。それより古い`investigation_runs`と対応する`collector_runs`を確認するには:

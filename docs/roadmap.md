@@ -38,7 +38,7 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 直近:
 
 1. 新規runのphase timingを代表sampleで蓄積し、長時間runの支配区間を確定する。
-2. service verificationとcollector historyの既存DB cleanupをsemantic diff付きでdry-runする。
+2. 承認済みmaintenance windowで既存DBのstorage cleanupをbackup・停止・検査付きで適用する。
 3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
 
 product briefと2026-07-10の静止DB baselineは作成済みです。baselineの計測条件、保存量、queue、未接続の
@@ -53,6 +53,7 @@ product briefと2026-07-10の静止DB baselineは作成済みです。baseline�
 - bounded real-source smokeとWeb診断情報。
 - operator correction fixtureとmanual gold setの役割分離。
 - cleanup後も必要な場合のhistory保存形式・byte-aware retention再設計。
+- 巨大runのreplayでrelation normalizeが二乗的に長時間化する経路の改善。storage cleanupとは分ける。
 
 このworkstream中は、新規collector、検索/UI拡張、job event永続化、schema v3、全面rewriteを
 優先しません。通常運用に必要なbug fixや小規模UI改善は継続できます。

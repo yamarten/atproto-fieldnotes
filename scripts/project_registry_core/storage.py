@@ -125,6 +125,59 @@ def aggregate_collector_results(results: list[CollectorResult]) -> list[Collecto
     return list(grouped.values())
 
 
+def collector_run_projection_rows(bundle: EvidenceBundle) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for ordinal, result in enumerate(aggregate_collector_results(bundle.collector_results)):
+        roots = collector_source_roots(result.source)
+        result_payload = {
+            **result.to_dict(),
+            "evidence_storage": "bundle_json",
+            "record_count": sum(1 for record in bundle.records if source_root(record.source) in roots),
+            "failure_count": sum(1 for failure in bundle.failures if source_root(failure.source) in roots),
+        }
+        rows.append({
+            "ordinal": ordinal,
+            "source": result.source,
+            "operation": result.operation,
+            "status": result.status,
+            "observed_at": result.observed_at,
+            "result_json": json.dumps(result_payload, ensure_ascii=False, sort_keys=True),
+            "records_json": "[]",
+            "failures_json": "[]",
+        })
+    return rows
+
+
+def replace_collector_run_projection(
+    conn: sqlite3.Connection,
+    run_id: str,
+    bundle: EvidenceBundle,
+) -> None:
+    conn.execute("DELETE FROM collector_runs WHERE run_id = ?", (run_id,))
+    conn.executemany(
+        """
+        INSERT INTO collector_runs(
+            run_id, ordinal, source, operation, status, observed_at,
+            result_json, records_json, failures_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                run_id,
+                row["ordinal"],
+                row["source"],
+                row["operation"],
+                row["status"],
+                row["observed_at"],
+                row["result_json"],
+                row["records_json"],
+                row["failures_json"],
+            )
+            for row in collector_run_projection_rows(bundle)
+        ],
+    )
+
+
 def evaluation_snapshot(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "owned_nsids": sorted(str(item) for item in project.get("resolved_nsids", []) if str(item)),
@@ -234,35 +287,7 @@ def save_investigation_run(
             json.dumps(bundle.to_dict(), ensure_ascii=False, sort_keys=True),
         ),
     )
-    for ordinal, result in enumerate(aggregate_collector_results(bundle.collector_results)):
-        roots = collector_source_roots(result.source)
-        record_count = sum(1 for record in bundle.records if source_root(record.source) in roots)
-        failure_count = sum(1 for failure in bundle.failures if source_root(failure.source) in roots)
-        result_payload = {
-            **result.to_dict(),
-            "evidence_storage": "bundle_json",
-            "record_count": record_count,
-            "failure_count": failure_count,
-        }
-        conn.execute(
-            """
-            INSERT INTO collector_runs(
-                run_id, ordinal, source, operation, status, observed_at,
-                result_json, records_json, failures_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                resolved_run_id,
-                ordinal,
-                result.source,
-                result.operation,
-                result.status,
-                result.observed_at,
-                json.dumps(result_payload, ensure_ascii=False, sort_keys=True),
-                "[]",
-                "[]",
-            ),
-        )
+    replace_collector_run_projection(conn, resolved_run_id, bundle)
     if metrics_payload:
         save_ms = max(0, round((time.perf_counter() - save_started) * 1000))
         metrics_payload["phases"]["run_history_save_ms"] = save_ms

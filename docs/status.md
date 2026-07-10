@@ -59,6 +59,10 @@
   - record/failure本文は`bundle_json`へ一度だけ保存
   - `collector_runs`はsource/operation別のstatus/count projectionで、本文列は新規runでは空配列
   - GitHub API snapshotを使用fieldへ縮約し、同一repoの一run内再収集をしない
+- 既存保存payloadのmaintenance
+  - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
+  - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
+  - 正本DBへの適用は未実施
 
 利用手順は[project-registry.md](project-registry.md)、保存契約は
 [project-record.md](project-record.md)、調査契約は

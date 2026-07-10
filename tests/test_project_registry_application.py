@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import storage
-from project_registry_core.evidence import EvidenceBundle
+from project_registry_core import service, storage
+from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
 
 
@@ -134,6 +135,244 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             conn.close()
 
         self.assertTrue(result["vacuumed"])
+
+    def test_storage_payload_cleanup_is_dry_run_atomic_and_idempotent(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project(
+            "proj:storage-cleanup",
+            "repo_url",
+            "https://github.com/example/app",
+        )
+        service_result = {
+            "requested_url": "https://example.com",
+            "lane": "static",
+            "links": [
+                {"url": f"https://example.com/page-{index}", "text": "Page"}
+                for index in range(300)
+            ],
+            "urls": [f"https://example.com/page-{index}" for index in range(400)],
+            "html_extract": "x" * 20_000,
+            "content_sha256": "saved-full-response-digest",
+        }
+        project["service_verification_results"] = [service_result, service_result]
+        registry.save_project(conn, project)
+
+        observed_at = "2026-07-10T00:00:00+00:00"
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at=observed_at)
+        bundle.add_record(EvidenceRecord(
+            kind="service_verification",
+            source="service_static:https://example.com",
+            classification="confirmed",
+            observed_at=observed_at,
+            value=service_result,
+        ))
+        github_record = EvidenceRecord(
+            kind="github_repo_snapshot",
+            source="github_repo:https://github.com/example/app",
+            classification="confirmed",
+            observed_at=observed_at,
+            value={
+                "repo_url": "https://github.com/example/app",
+                "repo": {
+                    "name": "app",
+                    "full_name": "example/app",
+                    "unused_api_payload": "z" * 10_000,
+                },
+                "semantic_hints": [{"nsid": "app.example.post", "path": "src/client.ts"}],
+                "readme_urls": [f"https://example.com/readme-{index}" for index in range(100)],
+                "lexicon_hints": [],
+            },
+        )
+        bundle.add_record(github_record)
+        bundle.add_record(EvidenceRecord(
+            kind=github_record.kind,
+            source=github_record.source,
+            classification=github_record.classification,
+            observed_at="2026-07-10T00:00:01+00:00",
+            value=github_record.value,
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo",
+            operation="inspect",
+            status="success",
+            observed_at=observed_at,
+            request_count=1,
+            result_count=1,
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo",
+            operation="inspect",
+            status="success",
+            observed_at=observed_at,
+            request_count=1,
+            result_count=1,
+        ))
+        run_id = storage.save_investigation_run(
+            conn,
+            project_key=project["project_key"],
+            started_at=observed_at,
+            completed_at=observed_at,
+            input_project=project,
+            output_project=project,
+            bundle=bundle,
+        )
+        collector_rows = conn.execute(
+            "SELECT ordinal, result_json FROM collector_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        for row in collector_rows:
+            result = json.loads(str(row["result_json"]))
+            result.pop("evidence_storage", None)
+            result.pop("record_count", None)
+            result.pop("failure_count", None)
+            conn.execute(
+                """
+                UPDATE collector_runs
+                SET result_json = ?, records_json = ?
+                WHERE run_id = ? AND ordinal = ?
+                """,
+                (json.dumps(result), json.dumps([github_record.to_dict()] * 2), run_id, row["ordinal"]),
+            )
+        conn.commit()
+        state_before = str(conn.execute(
+            "SELECT state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()[0])
+        run_before = tuple(conn.execute(
+            """
+            SELECT input_project_json, output_project_json, bundle_json
+            FROM investigation_runs WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone())
+        changes_before = conn.total_changes
+
+        with self.assertRaisesRegex(ValueError, "requires --execute"):
+            maintenance.cleanup_storage_payloads(conn, vacuum=True)
+        dry_run = maintenance.cleanup_storage_payloads(conn)
+
+        self.assertEqual(dry_run["mode"], "dry_run")
+        self.assertGreater(dry_run["total"]["bytes_saved"], 0)
+        self.assertEqual(dry_run["investigation_snapshots"]["evaluation_diff_run_count"], 0)
+        self.assertEqual(conn.total_changes, changes_before)
+        self.assertEqual(
+            str(conn.execute(
+                "SELECT state_json FROM projects WHERE project_key = ?",
+                (project["project_key"],),
+            ).fetchone()[0]),
+            state_before,
+        )
+        self.assertEqual(
+            tuple(conn.execute(
+                """
+                SELECT input_project_json, output_project_json, bundle_json
+                FROM investigation_runs WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()),
+            run_before,
+        )
+
+        executed = maintenance.cleanup_storage_payloads(conn, execute=True, vacuum=True)
+        stored = registry.fetch_project(conn, project["project_key"])
+        assert stored is not None
+        compact_bundle = EvidenceBundle.from_json(str(conn.execute(
+            "SELECT bundle_json FROM investigation_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()[0]))
+        compact_service = next(
+            record.value for record in compact_bundle.records
+            if record.kind == "service_verification"
+        )
+        compact_github = next(
+            record.value for record in compact_bundle.records
+            if record.kind == "github_repo_snapshot"
+        )
+        assert isinstance(compact_service, dict)
+        assert isinstance(compact_github, dict)
+        projected = conn.execute(
+            "SELECT result_json, records_json, failures_json FROM collector_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        second_dry_run = maintenance.cleanup_storage_payloads(conn)
+        conn.close()
+
+        self.assertEqual(executed["mode"], "execute")
+        self.assertTrue(executed["storage"]["vacuumed"])
+        self.assertEqual(executed["storage"]["integrity_check_before"], "ok")
+        self.assertEqual(executed["storage"]["integrity_check_after"], "ok")
+        self.assertEqual(executed["storage"]["foreign_key_violation_count_before"], 0)
+        self.assertEqual(executed["storage"]["foreign_key_violation_count_after"], 0)
+        self.assertEqual(len(stored["service_verification_results"]), 1)
+        self.assertLessEqual(len(compact_service["links"]), service.SERVICE_LINK_MAX_COUNT)
+        self.assertLessEqual(len(compact_service["urls"]), service.SERVICE_URL_MAX_COUNT)
+        self.assertLessEqual(
+            len(str(compact_service["html_extract"]).encode("utf-8")),
+            service.SERVICE_HTML_EXTRACT_MAX_BYTES,
+        )
+        self.assertEqual(compact_service["content_sha256"], "saved-full-response-digest")
+        self.assertNotIn("semantic_hints", compact_github)
+        self.assertNotIn("unused_api_payload", compact_github["repo"])
+        self.assertEqual(compact_github["semantic_hint_count"], 1)
+        self.assertEqual(
+            sum(record.kind == "github_repo_snapshot" for record in compact_bundle.records),
+            1,
+        )
+        self.assertEqual(
+            next(
+                record.observed_at for record in compact_bundle.records
+                if record.kind == "github_repo_snapshot"
+            ),
+            "2026-07-10T00:00:01+00:00",
+        )
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(json.loads(projected[0]["result_json"])["evidence_storage"], "bundle_json")
+        self.assertEqual(projected[0]["records_json"], "[]")
+        self.assertEqual(projected[0]["failures_json"], "[]")
+        self.assertEqual(second_dry_run["total"]["bytes_saved"], 0)
+        self.assertEqual(second_dry_run["collector_projection"]["changed_run_count"], 0)
+
+    def test_storage_payload_cleanup_rolls_back_on_projection_failure(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:storage-cleanup-rollback")
+        project["service_verification_results"] = [{
+            "requested_url": "https://example.com",
+            "lane": "static",
+            "html_extract": "x" * 20_000,
+        }]
+        registry.save_project(conn, project)
+        observed_at = "2026-07-10T00:00:00+00:00"
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at=observed_at)
+        storage.save_investigation_run(
+            conn,
+            project_key=project["project_key"],
+            started_at=observed_at,
+            completed_at=observed_at,
+            input_project=project,
+            output_project=project,
+            bundle=bundle,
+        )
+        conn.commit()
+        state_before = str(conn.execute(
+            "SELECT state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()[0])
+        with (
+            mock.patch.object(
+                storage,
+                "replace_collector_run_projection",
+                side_effect=RuntimeError("injected projection failure"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "injected projection failure"),
+        ):
+            maintenance.cleanup_storage_payloads(conn, execute=True)
+
+        state_after = str(conn.execute(
+            "SELECT state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()[0])
+        conn.close()
+        self.assertEqual(state_after, state_before)
 
     def test_project_services_do_not_require_cli_namespace(self) -> None:
         conn = registry.open_db()

@@ -188,18 +188,37 @@ collector history projectionとGitHub snapshot縮約も同snapshotへread-only�
 outlierの一括semantic replayは既存trust graph処理が長時間化して完走していないため未検証です。正本DBへのcleanupは
 実施していません。
 
+実装した`cleanup-storage-payloads`でcurrent state、input/output snapshot、bundle、collector projectionをまとめて
+全件dry-runした結果は次のとおりです。UTF-8 JSON payloadの合計で、SQLite file sizeやVACUUM後sizeではありません。
+
+| scope | before bytes | after bytes | saved bytes |
+| --- | ---: | ---: | ---: |
+| project current state | 257,373,596 | 93,990,388 | 163,383,208 |
+| investigation input/output | 2,001,407,211 | 1,232,656,211 | 768,751,000 |
+| investigation bundle | 701,691,851 | 370,079,800 | 331,612,051 |
+| collector projection | 1,660,002,737 | 26,488,540 | 1,633,514,197 |
+| total | 4,620,475,395 | 1,723,214,939 | 2,897,260,456 |
+
+対象は3,239 project、15,086 runです。project currentは1,889件、input/outputは計15,108 row、bundleは
+10,767 runが変更対象でした。collector rowは99,863から86,062、同一run内の意味が同じGitHub recordは最新の
+`observed_at`を保持して261,896件減る投影です。input/outputの保存済みevaluation field比較は15,086 runで差分0件、
+GitHub payload p95付近10 runの完全network-free replayは10/10不変でした。
+
+最大削減量上位5 runの完全replayは、既存relation normalize経路が各10秒で完走せず未検証です。これは全体dry-runや
+JSON投影の失敗ではありませんが、最大outlierのsemantic replayが確認済みとは扱いません。正本DBへのexecuteは
+実施していません。
+
 ## 判断
 
 確認済みの優先順位:
 
-1. current stateの`service_verification_results.html_extract/links/urls` budgetを新規runで検証する。
-2. historyの新形式を新規runで検証し、既存payload cleanupの正式reportを作る。
-3. 新規runのphase timingを蓄積し、長時間runと保存量outlierを同じproject/run単位で比較する。
-4. 新規保存budgetを検証してから、正本DB cleanupを別maintenance operationとしてdry-runする。
+1. 新規runのphase timingを蓄積し、長時間runの支配区間を確認する。
+2. storage codeを通常運用へ適用し、正本DB cleanupはwriter停止、backup、承認後の別operationにする。
+3. 最大outlierのreplay normalize性能をstorage cleanupと分けて改善する。
+4. same-site過去誤帰属のauditを正本DB maintenance windowの候補に含める。
 
 未決定:
 
-- current stateからraw fieldを完全に落とすか、bounded sampleを残すか
-- investigation runとcollector runのreplayに必要な最小payload
 - byte-aware retentionの上限と、保持する最新run数
 - cleanupを正本DBへ適用する時期
+- LLM prompt budgetを保存budgetと別にどこへ設けるか

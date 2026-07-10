@@ -5,7 +5,7 @@ import sqlite3
 from typing import Any
 
 from .. import registry as core
-from .. import storage
+from .. import storage, storage_cleanup
 
 
 DEFAULT_INVESTIGATION_RETENTION_DAYS = 90
@@ -43,6 +43,21 @@ def cleanup_app_links(conn: sqlite3.Connection, *, execute: bool = False) -> dic
 
 def cleanup_sync_notes(conn: sqlite3.Connection, *, execute: bool = False, example_limit: int = 20) -> dict[str, Any]:
     return core.cleanup_project_sync_notes(conn, execute=execute, example_limit=max(0, example_limit))
+
+
+def cleanup_storage_payloads(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    example_limit: int = 20,
+    vacuum: bool = False,
+) -> dict[str, Any]:
+    return storage_cleanup.compact_registry_storage(
+        conn,
+        execute=execute,
+        example_limit=example_limit,
+        vacuum=vacuum,
+    )
 
 
 def prune_investigation_history(

@@ -611,6 +611,22 @@ exit 99
         self.assertEqual(cleanup_args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertTrue(cleanup_args.execute)
 
+        storage_cleanup_args = parser.parse_args([
+            "cleanup-storage-payloads",
+            "--execute",
+            "--example-limit",
+            "3",
+            "--vacuum",
+        ])
+
+        self.assertEqual(
+            storage_cleanup_args.func.__module__,
+            "project_registry_core.commands.maintenance",
+        )
+        self.assertTrue(storage_cleanup_args.execute)
+        self.assertEqual(storage_cleanup_args.example_limit, 3)
+        self.assertTrue(storage_cleanup_args.vacuum)
+
         repair_args = parser.parse_args(["repair-db", "--execute"])
 
         self.assertEqual(repair_args.func.__module__, "project_registry_core.commands.maintenance")

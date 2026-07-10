@@ -63,10 +63,17 @@ maintenance series完了時に削除します。
   - initial/provider viewで同じrepoを一runに二度collectしない。
   - snapshot投影ではcollector payload 1.66 GBから26.5 MB、bundle 701.7 MBから370.5 MB相当だった。
   - GitHub payload p95付近10 runのnetwork-free semantic replayは10/10不変。最大outlier replayは未完走。
+- 既存payload cleanup command。
+  - `cleanup-storage-payloads`はrunを削除せず、current service evidence、input/output snapshot、bundle、collector
+    projectionを現行budgetへ揃える。dry-runが既定。
+  - executeは一transactionでrewriteし、commit前にforeign key/integrity checkを行う。VACUUMは明示option。
+  - 2026-07-10 clone全件では4.620 GBから1.723 GB、2.897 GB（62.7%）削減見込み。
+  - snapshot evaluation fieldは15,086 runで差分0、p95付近10 runの完全replayは10/10不変。
+  - 最大削減上位5 runの完全replayは各10秒でtimeoutし未検証。
 
 作業中:
 
-- 既存service verification / collector history cleanupの正式dry-run report。
+- 新規timingの代表sample取得と、通常運用へ適用するcheckpointの整理。
 
 未実装:
 
@@ -74,13 +81,13 @@ maintenance series完了時に削除します。
 
 DB適用:
 
-- なし。正本DBは変更していません。
+- なし。正本DBは変更していません。cleanupはclone dry-runとtemp DB executeだけです。
 
 ## 現行HEADの検証
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 325件が全件成功。
+- Python 3.10.20と3.11.15でunit test 327件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

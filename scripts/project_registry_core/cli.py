@@ -260,6 +260,28 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_sync_notes_parser.add_argument("--example-limit", type=int, default=20, help="Maximum changed-project examples. Default: 20.")
     cleanup_sync_notes_parser.set_defaults(func=maintenance_commands.cmd_cleanup_sync_notes)
 
+    cleanup_storage_parser = subparsers.add_parser(
+        "cleanup-storage-payloads",
+        help="Compact current service evidence and investigation payloads without deleting runs.",
+    )
+    cleanup_storage_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Rewrite payloads in one transaction. Without this flag, report the exact projection without writing.",
+    )
+    cleanup_storage_parser.add_argument(
+        "--example-limit",
+        type=int,
+        default=20,
+        help="Maximum largest-saving examples. Default: 20.",
+    )
+    cleanup_storage_parser.add_argument(
+        "--vacuum",
+        action="store_true",
+        help="After a successful rewrite, VACUUM the database. Requires --execute and all other processes stopped.",
+    )
+    cleanup_storage_parser.set_defaults(func=maintenance_commands.cmd_cleanup_storage_payloads)
+
     prune_history_parser = subparsers.add_parser(
         "prune-investigation-history",
         help="Delete old investigation and collector runs while retaining recent and per-project history.",

@@ -21,14 +21,16 @@
   実施していません。
 - collector historyの本文二重保存廃止、source/operation projection、GitHub snapshot縮約、同一run内repo再収集防止は
   実装済みです。既存historyは変更していません。
+- `cleanup-storage-payloads`のdry-run/execute、transaction、foreign key/integrity checkは実装済みです。
+  2026-07-10 clone全件のdry-runは完了し、正本DBへの適用はしていません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. service verification / collector history cleanup dry-runをsemantic diff付きの正式reportへする。
-2. 最大GitHub payload outlierをboundedな方法でsemantic確認するか、cleanup承認時の個別対象に分ける。
-3. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
+1. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
+2. 通常運用へ適用するstorage checkpointを整理する。正本DB cleanupは別承認とmaintenance windowが必要。
+3. 最大outlierでtimeoutするreplay normalize性能をstorage cleanupと分けてroadmap化する。
 4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
 
 ## DB操作メモ
