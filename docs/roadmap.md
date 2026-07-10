@@ -29,6 +29,33 @@
 完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
 過去の広域棚卸しで残すべき候補は、このroadmapまたは役割別notesへ移しています。
 
+### Registry maintenance
+
+registryの正しさ、運用コスト、保存量、保守性について、次のworkstreamを採用しました。詳細な順序、
+通常運用との並行方針、途中で適用できるcheckpointは
+[registry-maintenance-plan.md](notes/registry-maintenance-plan.md)を参照してください。
+
+直近:
+
+1. DB open transaction/path、Python runtime/wrapper、explicit split key、same-site判定の独立修正。
+2. 運用・開発とも使用していないWeb `--read-only` modeを、UI/API/test/docsを含めて削除する。
+3. product briefと現行HEADの再現可能なcheckを固定する。
+4. 静止DB snapshotで保存量、運用時間、調査品質のbaselineを取る。
+5. service verification/resource URL/LLM evidenceの新規増加を止めてから、既存DB cleanupをdry-runする。
+6. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
+
+後続:
+
+- exact identifier lookupのnormalized index化。
+- Semble weak matchのsuggestion化。
+- bulk enrich failure policyとLLM retry分類の見直し。
+- bounded real-source smokeとWeb診断情報。
+- operator correction fixtureとmanual gold setの役割分離。
+- cleanup後も必要な場合のhistory保存形式・byte-aware retention再設計。
+
+このworkstream中は、新規collector、検索/UI拡張、job event永続化、schema v3、全面rewriteを
+優先しません。通常運用に必要なbug fixや小規模UI改善は継続できます。
+
 ### DB-level policy marker
 
 DB-level migration/data policy markerは直近優先から外します。
@@ -68,10 +95,6 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - 保存量とretention policyを先に決める
 - v2以降のincremental schema migration runner
   - 次のschema改版が具体化した時点で、backup/transaction/validation契約と一緒に実装する
-- SQLite接続自体のread-only化
-  - 現状のWeb `--read-only`はHTTP POST/job controlを拒否するapplication-level mode
-  - 日常運用で使う必要が生じた場合にURI `mode=ro`または`PRAGMA query_only`を追加する
-
 ### 長期候補
 
 直近の運用安定化には含めません。必要性や具体的な利用場面が見えたものから再検討します。

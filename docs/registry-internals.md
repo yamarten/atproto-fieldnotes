@@ -39,6 +39,17 @@ Webのproject一覧検索は`projects` rowを起点に、`project_identifiers`�
 - `discover.py` 専用の snapshot/state テーブル群
 - collection / GitHub / Tangled / manual を別レポートへ流す独立パイプライン
 
+## source設定とpolicyの境界
+
+設計上、operatorが運用中に変更するsource URL、enabled状態、query、request budget、取得scopeはconfigへ
+置けます。一方、payloadの解釈、evidence抽出、identity/ownershipの信頼条件、classification、auto-attachや
+promotionの条件はcodeとtestを正本とします。
+
+現在は`config/sources.json`へ一部source設定を分離していますが、すべてのoperator可変値が移動済みでは
+ありません。workerの既定queryやSembleのtracked collectionなど、code内に残る値があります。この境界は
+generic plugin frameworkを実装済みという意味ではなく、source追加のたびにconfig schemaや抽象interfaceを
+増やす目標でもありません。実際に差し替える運用値だけをconfigへ出し、判定policyをconfig DSL化しません。
+
 ## 文書更新の方針
 
 実装を変えた時は、コードだけでなく対応する文書も更新します。目安は次の通りです。
@@ -104,6 +115,10 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 ### URL field の整理
 
 canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。補助pageは`resource_url_records`に残します。
+
+現行の`normalize_url()`はscheme/host/pathを正規化し、末尾slash、query、fragmentを破棄します。queryや
+fragmentだけが異なるURLは同じidentifierとして扱われます。これは実装済みの現行制約ですが、queryで
+resource identityが変わるserviceに対して妥当かは未検証です。具体例が出るまでは例外や別URL型を追加しません。
 
 ### Trust graph
 
@@ -866,12 +881,16 @@ source別 retry/backoff、TTL cache、request budget、source-local circuit brea
   - retry を含む budget は GitHub 6、Bluesky 12 request
 - LLM:
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
+    - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、
+      operatorが設定したtrusted local commandだけを使います
   - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POST
     - investigation plan
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
   - 実装済み: project data 由来の service / resource URL は同じ `request_bytes()` 系でも内部宛て block の対象です
+    - DNS検証と実fetchは別の名前解決になるため、悪意あるDNS切替まで防ぐaddress pinningではありません。
+      個人用調査toolの脅威モデルにおけるbest-effort SSRF guardとして扱います
   - 未接続: LLM endpoint 以外の内部 URL を operator が個別 allowlist する設定
 
 ### `sync-introduced`

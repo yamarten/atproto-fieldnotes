@@ -55,6 +55,16 @@
   - 直近の仮説修正や取り消しは、まだ外に出していない履歴なら `commit --amend` や rebase 相当で整える
   - 既に共有済み、または他作業が依存している履歴は無理に書き換えず、通常の追加修正コミットで扱う
 
+## 変更の受入条件
+
+- task開始時に、目的、変更対象、非対象、確認方法、文書更新先を明確にする
+- code変更は対象testだけでなく、commit前に全unit testを実行する
+- Web UI変更はPython側のAPI testとJavaScript syntax checkに加え、変更した主要導線を実browserで確認する
+- heuristic変更はunit testだけで完了扱いにせず、既知の実誤判定fixtureまたは人間によるsample reviewで意味上の差分を確認する
+- DB保存契約やcleanupは、temp DB上の実装確認と、正本DBの複製に対するdry-run/auditを分ける。正本DBへの適用は別途承認を得る
+- external source契約を変える場合は、通常testと分けてbounded smoke testの要否を判断する
+- 実施していない確認は未検証としてstatus、roadmap、notes、handoffの適切な場所へ残す
+
 ## 参照先
 
 - 利用手順:
