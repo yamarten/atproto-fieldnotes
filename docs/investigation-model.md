@@ -89,6 +89,17 @@ classification は project field の confidence と同義ではありません�
   - `success | partial | skipped | rate_limited | failed`
   - request/result 数、cursor、stop reason、retry 時刻、cache hit
 
+### Collector history projection
+
+replayに使うrecord/failure本文は`bundle_json`へ一度だけ保存します。`collector_runs`はWebと集計用のprojectionで、
+同じrunの同じ`source + operation`を一行へまとめ、worst status、request/result/cache count、record/failure countを
+`result_json`へ保存します。source別payloadを`records_json` / `failures_json`へ反復複製しません。
+
+GitHub repo collectorは同じrepoを一runで二度取得しません。snapshotの`repo`はintegrationで使うname、description、
+homepage、fork parent、updated timestamp等だけを保存します。source semantic hint本文は別のtyped relationに展開済みなので
+snapshotへ重複保存せず件数だけを残します。README URLは最大64件、JSON 16 KiB、1 URL 2 KiBです。relationと
+candidate生成はbudget適用前の全取得結果から行います。
+
 通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。
 
 主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
@@ -101,7 +112,7 @@ classification は project field の confidence と同義ではありません�
 
 - `projects` は UI、検索、merge、review が読む現在状態の正本
 - `investigation_runs` は input project snapshot、bundle、evaluation version、保存済み評価、output snapshot を保持
-- `collector_runs` は source/operation ごとの状態、対応 record、failure を順序付きで保持
+- `collector_runs` は source/operation ごとの状態とrecord/failure件数をprojectionとして保持
 - full HTML や README 本文は保存せず、bounded extract、hash、URL、repo path など判断に必要な材料だけを残す
 - raw evidence の自動削除は行わない。手動retention commandで古いrun単位に削除できる
 

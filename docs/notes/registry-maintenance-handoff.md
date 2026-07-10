@@ -19,13 +19,15 @@
   backfill、transaction commit、operator review時間の計測は行っていません。
 - service verificationのHTML/link/URL budgetとcurrent surface upsertは実装済みです。正本DB cleanupは
   実施していません。
+- collector historyの本文二重保存廃止、source/operation projection、GitHub snapshot縮約、同一run内repo再収集防止は
+  実装済みです。既存historyは変更していません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. collector historyのGitHub/service payloadへ新規保存budgetを実装する。
-2. service verification cleanup dry-runをsemantic diff付きの正式reportへする。
+1. service verification / collector history cleanup dry-runをsemantic diff付きの正式reportへする。
+2. 最大GitHub payload outlierをboundedな方法でsemantic確認するか、cleanup承認時の個別対象に分ける。
 3. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
 4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
 

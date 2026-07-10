@@ -249,6 +249,11 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `source`, `operation`, `status`, `observed_at`
 - `result_json`, `records_json`, `failures_json`
 
+新規runでは、record/failure本文の正本は`investigation_runs.bundle_json`だけです。`collector_runs`は
+`source + operation`単位にまとめたstatus/count projectionで、複数結果のstatusは最も強いproblem状態、request/result
+件数は合計を保持します。`result_json.evidence_storage = "bundle_json"`とrecord/failure countを持ち、
+`records_json` / `failures_json`は空配列です。旧runの列内payloadはそのまま読めますが、新規runへ二重保存しません。
+
 `projects.state_json`の`service_verification_results`は時系列履歴ではありません。`lane + requested_url`単位の
 最新観測を最大32 surface保持するcurrent viewです。過去runは上記history tableで確認します。
 

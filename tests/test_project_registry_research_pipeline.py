@@ -142,7 +142,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         dependencies = investigation_core.GitHubRepoCollectorDependencies(
             now=lambda: "2026-06-13T00:00:00+00:00",
             fetch_github_repo=lambda repo_url: {
-                "repo": {"full_name": "example/app", "description": "Example App"},
+                "repo": {
+                    "full_name": "example/app",
+                    "description": "Example App",
+                    "unused_api_payload": "x" * 1000,
+                },
                 "readme_text": "https://app.example.com",
                 "tree": [{"path": "lexicons/app.example.post.json"}],
                 "default_branch": "main",
@@ -151,6 +155,13 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 {"nsid": "app.example.post", "path": "lexicons/app.example.post.json", "schema": {"lexicon": 1}}
             ],
             extract_urls=lambda text: ["https://app.example.com"],
+            repo_semantic_hints=lambda repo_url, **kwargs: [{
+                "nsid": "app.example.post",
+                "path": "src/client.ts",
+                "predicate": "uses_collection",
+                "operation": "write",
+                "implementation_role": "service",
+            }],
         )
 
         bundle = investigation_core.collect_github_repo_evidence(
@@ -165,6 +176,50 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         assert isinstance(snapshot, dict)
         self.assertEqual(snapshot["readme_urls"], ["https://app.example.com"])
         self.assertEqual(snapshot["lexicon_hints"][0]["nsid"], "app.example.post")
+        self.assertEqual(snapshot["semantic_hint_count"], 1)
+        self.assertNotIn("semantic_hints", snapshot)
+        self.assertNotIn("unused_api_payload", snapshot["repo"])
+
+    def test_github_readme_url_snapshot_has_count_and_byte_budget(self) -> None:
+        values = [f"https://example.com/path-{index}" for index in range(100)] + [
+            "https://example.com/" + "x" * 3000
+        ]
+        bounded = investigation_core.bounded_github_readme_urls(values)
+        self.assertLessEqual(len(bounded), investigation_core.GITHUB_README_URL_MAX_COUNT)
+        self.assertLessEqual(
+            len(json.dumps(bounded, ensure_ascii=False).encode("utf-8")),
+            investigation_core.GITHUB_README_URL_MAX_BYTES,
+        )
+        self.assertEqual(bounded[0], values[0])
+        self.assertNotIn(values[-1], bounded)
+
+    def test_github_readme_relation_applies_candidate_beyond_snapshot_budget(self) -> None:
+        project = self.make_project("proj:readme-budget", "repo_url", "https://github.com/example/app")
+        project["name"] = "Example App"
+        urls = [f"https://noise-{index}.invalid/path" for index in range(100)] + [
+            "https://exampleapp.example.com"
+        ]
+        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+            now=lambda: "2026-07-10T00:00:00+00:00",
+            fetch_github_repo=lambda repo_url: {
+                "repo": {"name": "app", "full_name": "example/app", "description": "Example App"},
+                "readme_text": "fixture",
+                "tree": [],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lambda repo_url, **kwargs: [],
+            extract_urls=lambda text: urls,
+        )
+        bundle = investigation_core.collect_github_repo_evidence(
+            project, "https://github.com/example/app", dependencies
+        )
+        snapshot = bundle.records[0].value
+        assert isinstance(snapshot, dict)
+        self.assertNotIn("https://exampleapp.example.com", snapshot["readme_urls"])
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        self.assertIn("https://exampleapp.example.com", project["service_url_candidates"])
 
     def test_tangled_repo_collector_returns_readme_snapshot_without_mutating_project(self) -> None:
         project = self.make_project("proj:tangledreposnapshot", "repo_url", "https://tangled.org/dev.example/app")
@@ -397,6 +452,33 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(run["metrics"]["llm_requests"][0]["status"], "failed")
         self.assertGreater(run["metrics"]["llm_requests"][0]["prompt_bytes"], 0)
 
+    def test_enrich_collects_known_github_repo_once_per_run(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:single-repo-collection", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
+        repo_bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success",
+            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
+        ))
+        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+        try:
+            with (
+                mock.patch.object(registry, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(registry, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(registry, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
+                mock.patch.object(registry, "apply_github_repo_evidence"),
+                mock.patch.object(registry, "plan_investigation_queries", return_value={}),
+                mock.patch.object(registry, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(registry, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+            ):
+                registry.enrich_project(conn, project)
+        finally:
+            conn.close()
+
+        self.assertEqual(collect_repo.call_count, 1)
+        self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
+
     def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
         with self.assertRaises(ValueError):
             EvidenceBundle.from_dict({
@@ -497,7 +579,23 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             {item["field"] for item in replayed["diff"]["changes"]},
         )
 
-    def test_collector_run_keeps_github_repo_family_records(self) -> None:
+    def test_collector_result_projection_keeps_worst_source_status(self) -> None:
+        results = storage_core.aggregate_collector_results([
+            CollectorResult(
+                source="github_repo", operation="inspect", status="success",
+                observed_at="2026-07-10T00:00:00+00:00", request_count=1, result_count=1,
+            ),
+            CollectorResult(
+                source="github_repo", operation="inspect", status="failed",
+                observed_at="2026-07-10T00:00:01+00:00", request_count=1, stop_reason="timeout",
+            ),
+        ])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "failed")
+        self.assertEqual(results[0].request_count, 2)
+        self.assertEqual(results[0].result_count, 1)
+
+    def test_collector_run_projects_counts_without_copying_bundle_records(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:collector-family")
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
@@ -510,16 +608,45 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
             request_count=3, result_count=1,
         ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
+            request_count=2, result_count=1,
+        ))
         try:
             run_id = storage_core.save_investigation_run(
                 conn, project_key=project["project_key"], started_at=bundle.collected_at,
                 completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
             )
-            row = conn.execute("SELECT records_json FROM collector_runs WHERE run_id = ?", (run_id,)).fetchone()
+            rows = conn.execute(
+                "SELECT result_json, records_json, failures_json FROM collector_runs WHERE run_id = ?", (run_id,)
+            ).fetchall()
+            projected = storage_core.list_collector_run_rows(conn, run_id)
+            legacy_result = json.loads(rows[0]["result_json"])
+            legacy_result.pop("evidence_storage")
+            legacy_result.pop("record_count")
+            legacy_result.pop("failure_count")
+            conn.execute(
+                "UPDATE collector_runs SET result_json = ?, records_json = ?, failures_json = ? WHERE run_id = ?",
+                (
+                    json.dumps(legacy_result),
+                    json.dumps([{"source": "github_readme:https://github.com/example/app"}]),
+                    json.dumps([{"source": "github_repo"}]),
+                    run_id,
+                ),
+            )
+            existing_projected = storage_core.list_collector_run_rows(conn, run_id)
         finally:
             conn.close()
-        assert row is not None
-        self.assertEqual(json.loads(row["records_json"])[0]["source"].split(":", 1)[0], "github_readme")
+        self.assertEqual(len(rows), 1)
+        result = json.loads(rows[0]["result_json"])
+        self.assertEqual(result["evidence_storage"], "bundle_json")
+        self.assertEqual(result["request_count"], 5)
+        self.assertEqual(result["record_count"], 1)
+        self.assertEqual(rows[0]["records_json"], "[]")
+        self.assertEqual(rows[0]["failures_json"], "[]")
+        self.assertEqual(projected[0]["record_count"], 1)
+        self.assertEqual(existing_projected[0]["record_count"], 1)
+        self.assertEqual(existing_projected[0]["failure_count"], 1)
 
     def test_service_replay_uses_saved_probe_without_follow_up_network(self) -> None:
         project = self.make_project("proj:service-replay", "service_url", "https://example.com")

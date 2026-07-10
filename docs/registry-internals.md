@@ -320,6 +320,11 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - 同一 repo へのリンクは confirmed の補強に使います
   - 別 repo は `repo_candidate_allowed_for_project()` を満たす時だけ candidate に入れます
   - 外部 service URL は `repo_context_service_candidate_allowed()` を満たす時だけ candidate に入れます
+- 同じrepo URLがinitial/provider viewの両方に現れても、一runでは一度だけinspectします
+- 保存snapshotはGitHub API response全体ではなく、integrationで使うrepo fieldだけを保持します
+  - source semantic hintはtyped relationへ展開し、snapshotには件数だけを残します
+  - README URLは最大64件、JSON 16 KiB、1 URL 2 KiBです
+  - lexicon hintはschema replayに使うため、このcheckpointでは保持します
 
 ### 3. service URL から取るもの
 

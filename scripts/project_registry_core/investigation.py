@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import urllib.error
 import urllib.parse
@@ -25,6 +26,46 @@ def unique_strings(values: list[str]) -> list[str]:
             continue
         seen.add(value)
         output.append(value)
+    return output
+
+
+GITHUB_README_URL_MAX_COUNT = 64
+GITHUB_README_URL_MAX_BYTES = 16 * 1024
+GITHUB_README_URL_ITEM_MAX_BYTES = 2048
+
+
+def compact_github_repo_snapshot(repo: dict[str, Any]) -> dict[str, Any]:
+    parent = repo.get("parent") if isinstance(repo.get("parent"), dict) else {}
+    return {
+        "name": str(repo.get("name") or ""),
+        "full_name": str(repo.get("full_name") or ""),
+        "description": str(repo.get("description") or ""),
+        "homepage": str(repo.get("homepage") or ""),
+        "html_url": str(repo.get("html_url") or ""),
+        "updated_at": str(repo.get("updated_at") or ""),
+        "fork": bool(repo.get("fork")),
+        "parent": {
+            "html_url": str(parent.get("html_url") or ""),
+            "full_name": str(parent.get("full_name") or ""),
+        } if parent else {},
+    }
+
+
+def bounded_github_readme_urls(values: list[str]) -> list[str]:
+    output: list[str] = []
+    used_bytes = 2
+    for value in unique_strings([str(item or "") for item in values if str(item or "")]):
+        encoded_bytes = len(value.encode("utf-8"))
+        if encoded_bytes > GITHUB_README_URL_ITEM_MAX_BYTES:
+            continue
+        serialized_bytes = len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+        separator_bytes = 2 if output else 0
+        if len(output) >= GITHUB_README_URL_MAX_COUNT:
+            break
+        if used_bytes + separator_bytes + serialized_bytes > GITHUB_README_URL_MAX_BYTES:
+            continue
+        output.append(value)
+        used_bytes += separator_bytes + serialized_bytes
     return output
 
 
@@ -586,6 +627,7 @@ def collect_github_repo_evidence(
         tree=repo_tree,
     )
     semantic_hints = dependencies.repo_semantic_hints(repo_url, ref=default_branch, tree=repo_tree)
+    readme_urls = dependencies.extract_urls(readme_text)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
         project_key=str(project.get("project_key") or ""),
@@ -598,11 +640,12 @@ def collect_github_repo_evidence(
         observed_at=observed_at,
         value={
             "repo_url": repo_url,
-            "repo": repo,
+            "repo": compact_github_repo_snapshot(repo),
             "default_branch": default_branch,
             "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
-            "semantic_hints": [dict(item) for item in semantic_hints if isinstance(item, dict)],
-            "readme_urls": dependencies.extract_urls(readme_text),
+            "semantic_hint_count": len(semantic_hints),
+            "readme_urls": bounded_github_readme_urls(readme_urls),
+            "readme_url_count": len(readme_urls),
         },
     ))
     normalized_repo_url = str(repo_url).rstrip("/")
@@ -636,7 +679,7 @@ def collect_github_repo_evidence(
             method=f"source_{item.get('operation') or 'mention'}",
             context={"implementation_role": str(item.get("implementation_role") or "unknown")},
         ))
-    for url in dependencies.extract_urls(readme_text):
+    for url in readme_urls:
         parsed = urllib.parse.urlparse(url)
         object_type = "repo" if parsed.netloc in {"github.com", "tangled.org"} else "website"
         bundle.add_record(relation_record(

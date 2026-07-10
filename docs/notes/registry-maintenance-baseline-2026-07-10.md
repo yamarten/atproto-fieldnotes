@@ -176,12 +176,24 @@ read-only適用した概算は204,648,820 bytesから43,172,994 bytes（78.9%減
 surface、最大project 3,560,797 bytesから698,441 bytesです。既存HTML extract自体が旧20,000文字上限後の値なので、
 原responseに対する完全な予測ではありません。正本DBへのcleanupは未実施です。
 
+collector history projectionとGitHub snapshot縮約も同snapshotへread-only投影しました。
+
+- `collector_runs`の3 JSON payload合計: 1,660,002,737 bytesから26,491,762 bytes（98.4%減）
+- collector row: 99,863から86,062。source/operation別projectionへの集約分
+- `bundle_json`: 701,691,851 bytesから370,460,403 bytes（47.2%減）
+- bundle内GitHub record: 525,548から263,652。同一run内の同一repo再収集を除いた値
+
+この値はJSON payloadの投影であり、SQLite pageやVACUUM後file sizeの予測ではありません。GitHub payloadがp95付近の
+10 runを旧/新bundleでnetwork-free replayし、evaluationと主要project fieldは10件とも不変でした。最大payload
+outlierの一括semantic replayは既存trust graph処理が長時間化して完走していないため未検証です。正本DBへのcleanupは
+実施していません。
+
 ## 判断
 
 確認済みの優先順位:
 
 1. current stateの`service_verification_results.html_extract/links/urls` budgetを新規runで検証する。
-2. historyでは`github_repo`とservice系collector recordsの保持内容を調べ、新規増加を止める。
+2. historyの新形式を新規runで検証し、既存payload cleanupの正式reportを作る。
 3. 新規runのphase timingを蓄積し、長時間runと保存量outlierを同じproject/run単位で比較する。
 4. 新規保存budgetを検証してから、正本DB cleanupを別maintenance operationとしてdry-runする。
 

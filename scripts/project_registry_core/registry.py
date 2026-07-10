@@ -14051,8 +14051,13 @@ def enrich_project(
             ))
 
     initial_repo_urls = unique_list(source_code_url_values(project))
+    collected_github_repo_urls: set[str] = set()
+    collected_tangled_repo_urls: set[str] = set()
     for repo_url in initial_repo_urls:
         if extract_github_slug(repo_url) is not None:
+            normalized_repo_url = canonical_repo_url(repo_url)
+            if normalized_repo_url:
+                collected_github_repo_urls.add(normalized_repo_url)
             try:
                 repo_evidence = collect_github_repo_evidence(project, repo_url)
                 apply_github_repo_evidence(project, repo_evidence)
@@ -14062,7 +14067,8 @@ def enrich_project(
                 run_evidence.extend(failed_collector_bundle(
                     project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
                 ))
-        elif normalize_tangled_repo_url(repo_url):
+        elif normalized_tangled_repo_url := normalize_tangled_repo_url(repo_url):
+            collected_tangled_repo_urls.add(normalized_tangled_repo_url)
             try:
                 repo_evidence = collect_tangled_repo_evidence(project, repo_url)
                 apply_tangled_evidence(project, repo_evidence)
@@ -14144,7 +14150,11 @@ def enrich_project(
                         project, source="service_static", operation="probe", target=service_url, exc=exc,
                     ))
 
-    secondary_repo_urls = unique_list(provider_repo_url_values(project, "github"))
+    secondary_repo_urls = [
+        repo_url
+        for repo_url in unique_list(provider_repo_url_values(project, "github"))
+        if canonical_repo_url(repo_url) not in collected_github_repo_urls
+    ]
     for repo_url in secondary_repo_urls:
         try:
             repo_evidence = collect_github_repo_evidence(project, repo_url)
@@ -14155,7 +14165,11 @@ def enrich_project(
             run_evidence.extend(failed_collector_bundle(
                 project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
             ))
-    secondary_tangled_repo_urls = unique_list(provider_repo_url_values(project, "tangled"))
+    secondary_tangled_repo_urls = [
+        repo_url
+        for repo_url in unique_list(provider_repo_url_values(project, "tangled"))
+        if normalize_tangled_repo_url(repo_url) not in collected_tangled_repo_urls
+    ]
     for repo_url in secondary_tangled_repo_urls:
         try:
             repo_evidence = collect_tangled_repo_evidence(project, repo_url)

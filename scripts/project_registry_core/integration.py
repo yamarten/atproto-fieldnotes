@@ -388,6 +388,19 @@ def apply_github_repo_evidence(
     if str(project.get("project_key") or "") != bundle.project_key:
         raise ValueError("evidence project_key does not match target project")
 
+    snapshot_lexicon_ids: dict[str, list[str]] = {}
+    for record in bundle.records:
+        if record.kind != "github_repo_snapshot" or not isinstance(record.value, dict):
+            continue
+        repo_url = dependencies.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
+        if not repo_url:
+            continue
+        snapshot_lexicon_ids[repo_url] = [
+            str(item.get("nsid") or "")
+            for item in record.value.get("lexicon_hints", [])
+            if isinstance(item, dict) and str(item.get("nsid") or "")
+        ]
+
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
             classification = record.classification
@@ -427,6 +440,36 @@ def apply_github_repo_evidence(
                     observed_at=record.observed_at,
                     context={"from_relation": True},
                 )
+            if str(record.source).startswith("github_readme:") and subject.get("type") == "repo":
+                repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+                object_value = str(obj.get("value") or "")
+                if obj.get("type") == "repo":
+                    normalized_repo = dependencies.normalize_github_repo_url(object_value)
+                    if (
+                        normalized_repo
+                        and normalized_repo != repo_url
+                        and dependencies.repo_url_allowed_for_project(project, normalized_repo)
+                    ):
+                        dependencies.add_candidate_source_code_url(
+                            project,
+                            normalized_repo,
+                            record.source,
+                            reason="linked from repository README",
+                            evidence_kind="readme_link",
+                            evidence_url=repo_url or "",
+                            relation="readme_link",
+                            updated_at="",
+                        )
+                elif obj.get("type") in {"website", "service"} and repo_url:
+                    normalized_service = dependencies.normalize_service_candidate_url(object_value)
+                    if normalized_service and dependencies.repo_context_service_candidate_allowed(
+                        project,
+                        normalized_service,
+                        repo_url=repo_url,
+                        lexicon_ids=snapshot_lexicon_ids.get(repo_url, []),
+                    ):
+                        dependencies.add_candidate_url(project, "service_url", normalized_service)
+                        dependencies.add_candidate_url(project, "website_url", normalized_service)
     for record in bundle.records:
         if record.kind == "relation":
             continue

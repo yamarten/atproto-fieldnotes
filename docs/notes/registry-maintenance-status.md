@@ -56,10 +56,17 @@ maintenance series完了時に削除します。
   - repo、Bluesky profile、補助page、同一host系を優先して代表linkを残し、観測総件数とfull HTML digestを保持する。
   - current stateは`lane + requested_url`ごとの最新結果、最大32 surfaceとし、時系列はrun historyへ分離する。
   - 2026-07-10 snapshotへのread-only概算は204.6 MBから43.2 MBで、正本DB cleanupは実施していない。
+- collector history保存budget。
+  - record/failure本文は`bundle_json`へ一度だけ保存し、`collector_runs`はsource/operation別のworst status/count
+    projectionへ変更した。
+  - GitHub snapshotをintegration使用fieldへ縮約し、semantic hint本文はtyped relationだけに保持する。
+  - initial/provider viewで同じrepoを一runに二度collectしない。
+  - snapshot投影ではcollector payload 1.66 GBから26.5 MB、bundle 701.7 MBから370.5 MB相当だった。
+  - GitHub payload p95付近10 runのnetwork-free semantic replayは10/10不変。最大outlier replayは未完走。
 
 作業中:
 
-- collector historyの新規保存budget。
+- 既存service verification / collector history cleanupの正式dry-run report。
 
 未実装:
 
@@ -73,7 +80,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 321件が全件成功。
+- Python 3.10.20と3.11.15でunit test 325件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

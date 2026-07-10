@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any
 
-from .evidence import EvidenceBundle
+from .evidence import CollectorResult, EvidenceBundle
 from . import database
 from .runtime_view import sanitize_runtime_snapshot
 
@@ -92,6 +92,37 @@ def collector_source_roots(source: str) -> set[str]:
     if root.startswith("service_"):
         return {root, "service_page"}
     return {root}
+
+
+def aggregate_collector_results(results: list[CollectorResult]) -> list[CollectorResult]:
+    status_rank = {"skipped": 0, "success": 1, "partial": 2, "rate_limited": 3, "failed": 4}
+    grouped: dict[tuple[str, str], CollectorResult] = {}
+    for result in results:
+        key = (result.source, result.operation)
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = result
+            continue
+        stop_reasons = list(dict.fromkeys(
+            item for item in (current.stop_reason, result.stop_reason) if item
+        ))
+        grouped[key] = CollectorResult(
+            source=result.source,
+            operation=result.operation,
+            status=(
+                result.status
+                if status_rank[result.status] >= status_rank[current.status]
+                else current.status
+            ),
+            observed_at=max(current.observed_at, result.observed_at),
+            request_count=current.request_count + result.request_count,
+            result_count=current.result_count + result.result_count,
+            cursor=result.cursor or current.cursor,
+            stop_reason="; ".join(stop_reasons)[:500],
+            retry_at=result.retry_at or current.retry_at,
+            cache_hits=current.cache_hits + result.cache_hits,
+        )
+    return list(grouped.values())
 
 
 def evaluation_snapshot(project: dict[str, Any]) -> dict[str, Any]:
@@ -203,10 +234,16 @@ def save_investigation_run(
             json.dumps(bundle.to_dict(), ensure_ascii=False, sort_keys=True),
         ),
     )
-    for ordinal, result in enumerate(bundle.collector_results):
+    for ordinal, result in enumerate(aggregate_collector_results(bundle.collector_results)):
         roots = collector_source_roots(result.source)
-        records = [record.to_dict() for record in bundle.records if source_root(record.source) in roots]
-        failures = [failure.to_dict() for failure in bundle.failures if source_root(failure.source) in roots]
+        record_count = sum(1 for record in bundle.records if source_root(record.source) in roots)
+        failure_count = sum(1 for failure in bundle.failures if source_root(failure.source) in roots)
+        result_payload = {
+            **result.to_dict(),
+            "evidence_storage": "bundle_json",
+            "record_count": record_count,
+            "failure_count": failure_count,
+        }
         conn.execute(
             """
             INSERT INTO collector_runs(
@@ -221,9 +258,9 @@ def save_investigation_run(
                 result.operation,
                 result.status,
                 result.observed_at,
-                json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True),
-                json.dumps(records, ensure_ascii=False, sort_keys=True),
-                json.dumps(failures, ensure_ascii=False, sort_keys=True),
+                json.dumps(result_payload, ensure_ascii=False, sort_keys=True),
+                "[]",
+                "[]",
             ),
         )
     if metrics_payload:
@@ -330,12 +367,25 @@ def list_collector_run_rows(conn: sqlite3.Connection, run_id: str) -> list[dict[
     rows = conn.execute(
         "SELECT * FROM collector_runs WHERE run_id = ? ORDER BY ordinal", (run_id,)
     ).fetchall()
-    return [{
-        "source": str(row["source"]),
-        "operation": str(row["operation"]),
-        "status": str(row["status"]),
-        "observed_at": str(row["observed_at"]),
-        "result": json.loads(str(row["result_json"])),
-        "record_count": len(json.loads(str(row["records_json"]))),
-        "failure_count": len(json.loads(str(row["failures_json"]))),
-    } for row in rows]
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        result = json.loads(str(row["result_json"]))
+        bundled_evidence = result.get("evidence_storage") == "bundle_json"
+        output.append({
+            "source": str(row["source"]),
+            "operation": str(row["operation"]),
+            "status": str(row["status"]),
+            "observed_at": str(row["observed_at"]),
+            "result": result,
+            "record_count": (
+                int(result.get("record_count") or 0)
+                if bundled_evidence
+                else len(json.loads(str(row["records_json"])))
+            ),
+            "failure_count": (
+                int(result.get("failure_count") or 0)
+                if bundled_evidence
+                else len(json.loads(str(row["failures_json"])))
+            ),
+        })
+    return output

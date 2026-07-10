@@ -38,7 +38,7 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 直近:
 
 1. 新規runのphase timingを代表sampleで蓄積し、長時間runの支配区間を確定する。
-2. collector historyの新規増加を止め、service verificationと合わせて既存DB cleanupをdry-runする。
+2. service verificationとcollector historyの既存DB cleanupをsemantic diff付きでdry-runする。
 3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
 
 product briefと2026-07-10の静止DB baselineは作成済みです。baselineの計測条件、保存量、queue、未接続の
