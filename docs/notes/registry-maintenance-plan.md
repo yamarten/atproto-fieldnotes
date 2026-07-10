@@ -27,6 +27,30 @@ maintenance seriesを区切れます。
   残さない。
 - 正本DBへのcleanup、migration、repairは、コード変更のmergeとは別のmaintenance operationとして扱う。
 
+## 実行管理とcloseout gate
+
+各実行単位はこの文書の`P<phase>.<item>` IDで追跡し、進捗・commit・検証・残件は
+[registry-maintenance-status.md](registry-maintenance-status.md)の実行台帳へ1対1で記録します。
+
+状態は次だけを使います。
+
+- `完了`: itemの完了条件と必要な検証を満たした。
+- `一部完了`: 実装または検証に具体的な残件がある。一時状態であり、series closeout時には残さない。
+- `未着手`: まだ作業していない。
+- `別operation待ち`: codeとは別の承認、maintenance window、外部接続が必要。
+- `roadmapへ延期`: 今回実施しない判断と再検討条件を`docs/roadmap.md`へ移した終端状態。
+
+maintenance seriesを閉じる前に、全IDを`完了`または`roadmapへ延期`へします。正本DB操作や実外部接続を
+今回実施しない場合も、`別operation待ち`のまま曖昧に閉じず、通常運用へ適用する前提として実行するか、
+具体的な再検討条件とともにroadmapへ移します。maintenance handoffは台帳上の未終端itemだけを参照し、
+完了履歴を複製しません。
+
+文書更新時は少なくとも次を集合比較します。
+
+- planに現れるID集合とstatus台帳のID集合が一致する。
+- statusで`一部完了`、`未着手`、`別operation待ち`のID集合とhandoffのID集合が一致する。
+- statusに記録したcommit hashがrepository内で解決できる。
+
 ## 通常運用との並行方針
 
 ### 段階的に適用できる作業
@@ -59,7 +83,7 @@ codeはprocess再起動まで使われないことを明示します。
 これらは着手直前に最新実装を取り込み、対象範囲を一つの責務へ限定します。並行変更と同じ関数へ
 重なる場合、古い実装を機械的に再適用せず、その時点の実装意図を再確認します。
 
-## Phase 0: 計画と再現可能な基準を固定する
+## Phase 0 [P0]: 計画と再現可能な基準を固定する
 
 このphaseの成果物:
 
@@ -84,7 +108,7 @@ baselineで記録するもの:
 
 各項目を原則1 topic / 1 commitにします。
 
-### 1. DB open transaction
+### P1.1: DB open transaction
 
 実装対象:
 
@@ -104,7 +128,7 @@ baselineで記録するもの:
 - schema migrationなし。temp DBで完結し、早期マージ可能。
 - 既存processは再起動まで旧codeを使う。
 
-### 2. Python runtime / wrapper契約
+### P1.2: Python runtime / wrapper契約
 
 実装対象:
 
@@ -122,7 +146,7 @@ baselineで記録するもの:
 
 - DBと通常runtime stateを変更しない。早期マージ可能。
 
-### 3. DB path / create契約
+### P1.3: DB path / create契約
 
 実装対象:
 
@@ -133,7 +157,7 @@ baselineで記録するもの:
 既存の正本DBやcustom temp DBを開く導線は維持しますが、暗黙作成のfallbackは互換性のために残しません。
 DB open transaction修正と同じファイルを触るため、同じphaseで扱いますが、挙動変更とtestは別commitにします。
 
-### 4. `split-project --new-project-key`
+### P1.4: `split-project --new-project-key`
 
 採用方針:
 
@@ -152,7 +176,7 @@ DB open transaction修正と同じファイルを触るため、同じphaseで�
 
 - DB migrationなし。collision作業は自動採番で継続できる。
 
-### 5. same-site first-label fallback
+### P1.5: same-site first-label fallback
 
 実装対象:
 
@@ -170,7 +194,7 @@ DB open transaction修正と同じファイルを触るため、同じphaseで�
 - 過去データのaudit/repairはPhase 3のmaintenanceへ分ける。
 - `registry.py`の競合が起きやすいため、着手直前に最新実装を取り込む。
 
-### 6. Web `--read-only` modeの削除
+### P1.6: Web `--read-only` modeの削除
 
 削除対象:
 
@@ -203,7 +227,7 @@ deprecated option、無視するalias、settings payloadの互換fieldは残し�
 
 ## Phase 2: product brief、運用baseline、観測性
 
-### 1. product brief
+### P2.1: product brief
 
 `docs/brief.md`を新設し、次だけを置きます。
 
@@ -223,7 +247,7 @@ deprecated option、無視するalias、settings payloadの互換fieldは残し�
 
 数値未決定の間は「未決定」と明記し、仮の値を仕様にしません。
 
-### 2. 静止DBでのbaseline report
+### P2.2: 静止DBでのbaseline report
 
 通常運用中のDBへ重い集計を直接かけず、SQLiteの整合したsnapshotを使います。
 
@@ -237,7 +261,7 @@ deprecated option、無視するalias、settings payloadの互換fieldは残し�
 
 過去snapshotの容量や内訳を現行DBの値として再利用せず、このreportで現在値を確定します。
 
-### 3. phase timing
+### P2.3: phase timing
 
 enrichへcollector、integration/evaluation、LLM、saveの所要時間を追加します。既存event契約を無制限に
 増やさず、operatorが30時間の内訳を判断できる最小粒度にします。
@@ -247,7 +271,7 @@ enrichへcollector、integration/evaluation、LLM、saveの所要時間を追加
 - reportとtiming codeは随時マージ可能。
 - snapshot作成だけは通常writerとの調整が必要。
 
-### 4. bounded real-source smoke
+### P2.4: bounded real-source smoke
 
 既存sourceを1 page / 1 query / 1 itemへ制限し、dry-runまたは複製DBで次を確認します。
 
@@ -258,7 +282,7 @@ enrichへcollector、integration/evaluation、LLM、saveの所要時間を追加
 通常unit testや常時network CIには混ぜません。credentialが必要なsource、upstream failureの扱い、実行頻度を
 先に決めます。新規collectorの追加ではなく、接続済み経路の未検証範囲を狭める作業です。
 
-### 5. Web診断・scheduler・安全境界
+### P2.5: Web診断・scheduler・安全境界
 
 - request path、status、所要時間を、tokenやpayloadを含めずstderrへ残す。
 - unexpected exceptionの調査に必要なserver-side tracebackを保持する。
@@ -276,20 +300,20 @@ enrichへcollector、integration/evaluation、LLM、saveの所要時間を追加
 
 順序を固定します。
 
-### 1. 新規増加を止める
+### P3.1: 新規増加を止める
 
 - `service_verification_results.links` / `urls` / extractに件数とbyte budgetを設ける。
 - current stateには判断に使うdigest、typed relation、代表例、件数だけを残す方向へ寄せる。
 - `resource_url_records`の既存budgetが、すべての生成経路で適用されることを確認する。
 - LLM prompt/bundle生成時にも入力上限を設け、保存budgetとprompt budgetを別にする。
 
-### 2. cleanup dry-run
+### P3.2: cleanup dry-run
 
 - resource URL、service verification、重複LLM evidenceを別categoryで報告する。
 - project、role、host、path pattern、削除bytes、semantic field差分を出す。
 - `/blog`、`/about`、`/specs`等をpath名だけで一律削除しない。
 
-### 3. maintenance実行
+### P3.3: maintenance実行
 
 - writer停止。
 - backupとintegrity check。
@@ -297,7 +321,7 @@ enrichへcollector、integration/evaluation、LLM、saveの所要時間を追加
 - execute、foreign key/integrity/semantic audit。
 - Web/worker再起動。
 
-### 4. history表現の判断gate
+### P3.4: history表現の判断gate
 
 cleanup後の増加率を測り、まだ必要な場合だけ次を比較します。
 
@@ -314,19 +338,19 @@ JSON圧縮は候補ですが採用済み仕様ではありません。複数方�
 
 ## Phase 4: 保守的matchingと長時間operation
 
-### Semble weak match
+### P4.1: Semble weak match
 
 - 着手時点のcollection sync実装を取り込んだ後に再監査する。
 - exact match以外を既存projectへ直接attachせず、他syncと同じsuggestion contractへ寄せる。
 - 実データのdry-runで対象件数と誤attach例を確認する。
 
-### identifier lookup
+### P4.2: identifier lookup
 
 - exact kind/value lookupはnormalized indexを使う。
 - 採番だけの全project hydrateを既存allocatorへ置き換える。
 - fuzzy/namespace/host-family matchはexact lookupと分け、意味を変えずに段階移動する。
 
-### bulk enrich failure policy
+### P4.3: bulk enrich failure policy
 
 未決定:
 
@@ -339,7 +363,7 @@ JSON圧縮は候補ですが採用済み仕様ではありません。複数方�
 cancel resultは、checkpointをclearする前の`current_project_key`を返すか、field自体を削除します。
 常に空文字を返す互換性は維持しません。
 
-### LLM failure / retry
+### P4.4: LLM failure / retry
 
 - transport failure、endpoint incompatibility、content parse failureを分ける。
 - JSON不良で同一の長いpromptを別payloadへ自動再送しない。
@@ -349,7 +373,7 @@ cancel resultは、checkpointをclearする前の`current_project_key`を返す�
 LM Studioの約1,000秒stallは過去に動作確認済みですが、現在再発中とは確認されていません。
 根本原因追跡ではなく、再発時のtiming/log取得へ留めます。
 
-### source設定の整理
+### P4.5: source設定の整理
 
 - source URL、enabled、query、request budgetなどoperatorが変更する値だけをconfigへ置く。
 - evidence抽出、identity/trust、classification、auto-attach条件はcodeとtestへ残す。
@@ -365,9 +389,9 @@ LM Studioの約1,000秒stallは過去に動作確認済みですが、現在再�
 
 最初の作業:
 
-- existing decisionsとbundleの相関を現行snapshotで再集計するread-only export report。
-- sanitize ruleとfixtureに含めない情報を決める。
-- 少数caseで実際に退行を検出できることを確認する。
+- **P5.1**: existing decisionsとbundleの相関を現行snapshotで再集計するread-only export report。
+- **P5.2**: sanitize ruleとfixtureに含めない情報を決める。
+- **P5.3**: 少数caseで実際に退行を検出できることを確認する。
 
 過去snapshotのdecision/bundle相関数を現行値として使わず、現在のsnapshotで再集計します。自動生成した
 current stateをmanual goldの代わりにはしません。50〜100件のgold setは将来目標で、一度に作り切りません。
@@ -382,13 +406,13 @@ current stateをmanual goldの代わりにはしません。50〜100件のgold s
 
 順序:
 
-1. `registry-internals.md`の混入節を修正し、現行責務mapをnotesへ残す。
-2. 残存`cmd_*`とCLI出力処理を`commands/`へ移す。
-3. same-site/domain policyを独立moduleへ移す。
-4. service verification collectorとcurrent projectionを分離する。
-5. HTTP transportとLLM transportを正式なtest seamへする。
-6. URL/NSID/namingのpure helperを用途別moduleへ移す。
-7. source、project shape、sync、queue、enrich orchestrationを、変更頻度と依存方向に従って移す。
+1. **P6.1**: `registry-internals.md`の混入節を修正し、現行責務mapをnotesへ残す。
+2. **P6.2**: 残存`cmd_*`とCLI出力処理を`commands/`へ移す。
+3. **P6.3**: same-site/domain policyを独立moduleへ移す。
+4. **P6.4**: service verification collectorとcurrent projectionを分離する。
+5. **P6.5**: HTTP transportとLLM transportを正式なtest seamへする。
+6. **P6.6**: URL/NSID/namingのpure helperを用途別moduleへ移す。
+7. **P6.7**: source、project shape、sync、queue、enrich orchestrationを、変更頻度と依存方向に従って移す。
 
 domain helper抽出時に、`tldextract`を正式依存とするかPSL fallbackを残すかを決め、同じpolicyの二重実装を
 恒久的に維持しません。
@@ -406,7 +430,7 @@ domain helper抽出時に、`tldextract`を正式依存とするかPSL fallback�
 
 ## Phase 7: 文書closeout
 
-実装後に責務別へ反映します。
+**P7.1**として、実装後に責務別へ反映します。
 
 - `docs/brief.md`: 目的、成功指標、非目標。
 - `docs/status.md`: 実装済み、動作確認済み、未接続、未検証。
@@ -415,7 +439,7 @@ domain helper抽出時に、`tldextract`を正式依存とするかPSL fallback�
 - `docs/notes/`: baseline report、比較、migration記録、調査途中の仮説。
 - maintenance用status/handoff: 通常運用へ反映した内容を正本文書へ移し、series完了時に削除する。
 
-READMEと`project-registry.md`の重複、絶対path link、stale test数、`registry-internals.md`の節混入は、
+**P7.2**として、READMEと`project-registry.md`の重複、絶対path link、stale test数、`registry-internals.md`の節混入は、
 仕様変更と混ぜず文書auditの独立commitで直します。
 
 ## 直近のmaintenance scopeに含めないもの

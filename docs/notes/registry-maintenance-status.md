@@ -7,121 +7,91 @@
 各checkpointの適用時に、通常運用へ入った内容とその検証結果だけを`docs/status.md`へ反映します。この文書は
 maintenance series完了時に削除します。
 
-## 現在地
+## 実行台帳
 
-実装済み:
+状態とcloseout条件は[registry-maintenance-plan.md](registry-maintenance-plan.md#実行管理とcloseout-gate)を
+正本とします。`一部完了`、`未着手`、`別operation待ち`は未終端です。series closeout時には全行を
+`完了`または`roadmapへ延期`へします。
 
-- DB open transaction修正。
-  - 新規schema初期化はschema versionを書いた接続内でcommitする。
-  - 既存schemaのensureではschema versionの同値upsertを行わない。
-  - `database.open_database()`から返る接続は、open処理由来のwrite transactionを保持しない。
-- DB path / create契約。
-  - 通常CLI、Web、background workerは既存のschema version 2 DBだけを開く。
-  - missing pathや未初期化fileは空DBへfallbackせずerrorにする。
-  - 新規作成は`project-registry init-db [--db-path PATH]`だけが明示的に行う。
-- Python runtime / wrapper契約。
-  - 最低versionはPython 3.10。
-  - 公開wrapperは`.venv/bin/python`、次に`python3`を選び、import前にversionを検証する。
-  - 非対応runtimeではsyntax/import errorへ進まず、実測versionを含む短いerrorと終了code 2を返す。
-- `split-project`のexplicit key option削除。
-  - 正常利用例・test・現行call siteが無く、成立しない`--new-project-key` / `-n`を削除した。
-  - application APIからも未使用引数と到達不能な既存key検証分岐を削除した。
-  - CLI、Web、source-configからのsplitは従来どおり新しい`project_key`を自動採番する。
-- same-site first-label fallback削除。
-  - same-siteはPSLとknown/configured multi-tenant suffixを反映した`root_domain()`一致だけで判定する。
-  - 異なるregistrable domainで先頭labelだけが同じhostを、redirect、official/resource link、repo homepageの
-    強いevidenceとして扱わない。
-- Web `--read-only` mode削除。
-  - CLI option、server state、POST拒否分岐、settings API field、UI分岐、scheduler接続、専用test/docsを削除した。
-  - deprecated optionやpayload互換fieldは残していない。
-  - investigation replay、audit、dry-run、SQLite snapshot集計は別機能として維持する。
-- product brief。
-  - 一人のoperatorによる紹介判断を目的とし、通常flow、対象境界、正本、主要判断、非目標を
-    `docs/brief.md`へ分離した。
-  - 最終成果物と成功指標の数値目標は、未決定のものを実装済み仕様として扱っていない。
-- 2026-07-10静止DB baseline。
-  - 正本DBのAPFS cloneだけを集計し、4.43 GiBのうち`investigation_runs` 2.54 GiB、
-    `collector_runs` 1.58 GiB、`projects` 253 MiBであることを確認した。
-  - current stateではservice verification、historyではGitHub/service collector payloadが保存量の主因だった。
-  - phase別時間、正確なprompt量、operator review時間は現行保存形から測れないことを明示した。
-- enrich run observability。
-  - initial collection、planning、investigation collection、triage、evaluation、run history save、project saveの
-    wall timeを新規runへ保存する。
-  - planning/triage LLM requestごとにprompt/response bytes、所要時間、timeout/error分類を保存する。
-  - prompt本文、endpoint、command、API keyは保存せず、replay evaluationから非決定的なmetricsを分離する。
-  - Webのlatest run、run list、run detailへ接続した。
-- service verification保存budget。
-  - full responseから判定とrelationを作った後、HTML extract 12 KiB、links 128件/64 KiB、URLs 192件/32 KiBへ
-    保存payloadを縮約する。
-  - repo、Bluesky profile、補助page、同一host系を優先して代表linkを残し、観測総件数とfull HTML digestを保持する。
-  - current stateは`lane + requested_url`ごとの最新結果、最大32 surfaceとし、時系列はrun historyへ分離する。
-  - 2026-07-10 snapshotへのread-only概算は204.6 MBから43.2 MBで、正本DB cleanupは実施していない。
-- collector history保存budget。
-  - record/failure本文は`bundle_json`へ一度だけ保存し、`collector_runs`はsource/operation別のworst status/count
-    projectionへ変更した。
-  - GitHub snapshotをintegration使用fieldへ縮約し、semantic hint本文はtyped relationだけに保持する。
-  - initial/provider viewで同じrepoを一runに二度collectしない。
-  - snapshot投影ではcollector payload 1.66 GBから26.5 MB、bundle 701.7 MBから370.5 MB相当だった。
-  - GitHub payload p95付近10 runのnetwork-free semantic replayは10/10不変。最大outlier replayは未完走。
-- 既存payload cleanup command。
-  - `cleanup-storage-payloads`はrunを削除せず、current service evidence、input/output snapshot、bundle、collector
-    projectionを現行budgetへ揃える。dry-runが既定。
-  - executeは一transactionでrewriteし、commit前にforeign key/integrity checkを行う。VACUUMは明示option。
-  - 2026-07-10 clone全件では4.620 GBから1.723 GB、2.897 GB（62.7%）削減見込み。
-  - snapshot evaluation fieldは15,086 runで差分0、p95付近10 runの完全replayは10/10不変。
-  - 最大削減上位5 runの完全replayは各10秒でtimeoutし未検証。
-- LLM evidence prompt budget。
-  - planning/triageの可変evidenceを整形後24 KiB、文字列4 KiB、field別代表件数で制限した。
-  - listは先頭・末尾を残し、追加縮約時はfield別の観測件数と採用件数を`evidence_budget`へ入れる。
-  - 2026-07-10 clone全3,239 projectへの投影は最大24,489 bytes、budget発動41件。実LLM callは未検証。
-- CLI adapter分離。
-  - stalled/ignore/out-of-scopeのinteractive review入出力を`registry.py`から`commands/review.py`へ移した。
-  - merge-batchのinteractive action、undo、出力を`commands/merge.py`へ移した。
-  - assist-db-editの候補表示、確認、mutation adapterを`commands/assist.py`へ移した。
-  - 判定helperと保存契約は変更せず、`registry.py`から`cmd_*`と`argparse`依存を除去した。
-- domain policy分離。
-  - PSL、known/configured multi-tenant suffix、registrable domain、same-site判定とsuffix設定を
-    `domain_policy.py`へ機械的に移した。
-  - CLI/Webを含むcall siteを同時に移し、`registry.py`に旧symbolのre-exportは残していない。
-  - このcommitでは判定policyと保存形式を変更していない。
-- service verification責務整理。
-  - evidence collectorと保存budgetに加え、`lane + requested_url`単位の最新32 surfaceを保持するcurrent
-    projectionを`service.py`へ集約した。
-  - generic evidence適用は`integration.py`、既存payloadのrewriteは`storage_cleanup.py`に残し、両方が同じ
-    projection関数を利用する。保存契約は変更していない。
-- HTTP transport分離。
-  - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを`http_transport.py`へ移した。
-  - collector call siteとtest doubleを新moduleへ直結し、`registry.py`に旧symbolのre-exportは残していない。
-  - request header、timeout、redirect上限、URL正規化の契約は変更していない。実外部sourceへのsmoke testは
-    実施していない。
-- LLM transport分離。
-  - command/OpenAI互換endpoint、API style選択、response parser、timeout/error分類、request metricsを
-    `llm_transport.py`へ移した。
-  - prompt/evidence構築とproject適用は`registry.py`側に残し、transport call siteとtest doubleを新moduleへ
-    直結した。`registry.py`に旧symbolのre-exportは残していない。
-  - fake command/response/timeoutは動作確認済み。実endpointと実LLM callは未検証。
-- identifier pure helper分離。
-  - canonical URL/NSID、authority domain導出、alias token正規化を`identifiers.py`へ移した。
-  - registry/application/domain/HTTP call siteを同時に移し、URL正規化の重複実装を除去した。
-    `registry.py`に旧symbolのre-exportは残しておらず、正規化契約は変更していない。
+### Phase 0 / 1
 
-作業中:
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P0 | 完了 | `5951b42`。plan、branch status/handoff、roadmap、baselineを作成 | なし。以後のHEAD検証は本書の検証節を更新する |
+| P1.1 | 完了 | `935f77a`。schema初期化commitとread openのwriter非block test | なし |
+| P1.2 | 完了 | `99b5492`。Python 3.10最低version、公開wrapper test | なし |
+| P1.3 | 完了 | `eb05251`。明示`init-db`、missing/uninitialized DB拒否test | なし |
+| P1.4 | 完了 | `58c70f5`。未使用explicit split keyをCLI/applicationから削除 | なし |
+| P1.5 | 完了 | `33dcccb`。first-label fallback削除とconsumer回帰test | 過去DB audit/repairはP3.3で追跡 |
+| P1.6 | 完了 | `f0c3b47`。Web read-only option/state/UI/test/docsを削除 | なし |
 
-- 新規timingの代表sample取得と、通常運用へ適用するcheckpointの整理。
+### Phase 2
 
-未実装:
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P2.1 | 完了 | `61af6f6`。`docs/brief.md`を作成 | 数値目標は未決定と明記済みで、実装済み仕様にはしていない |
+| P2.2 | 一部完了 | `61af6f6`。2026-07-10 cloneでtable/field容量とoutlierを集計 | 新規timingを持つ代表10〜20 projectの所要時間、prompt/timeout分布、operator review時間を取得するか、取得しない項目をroadmapへ移す |
+| P2.3 | 完了 | `be27ef4`。7 phaseとplanning/triage request metricsを保存・API・Webへ接続 | 代表sample取得はP2.2で追跡 |
+| P2.4 | 未着手 | unit testのfake transportのみ | boundedな実source smokeを実行し、pagination/watermark/partial failure/cancel/re-runを記録するかroadmapへ延期する |
+| P2.5 | 未着手 | なし | request log、traceback、scheduler失敗、lock範囲、constant-time token比較、innerHTML、利用制約を個別に監査し、実装またはroadmap判断する |
 
-- [registry-maintenance-plan.md](registry-maintenance-plan.md)のその他のPhase 1以降。
+### Phase 3
 
-DB適用:
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P3.1 | 一部完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budget | `resource_url_records`の既存budgetが全生成経路で適用されることを監査する |
+| P3.2 | 一部完了 | `3243702`。`cleanup-storage-payloads`と2026-07-10 clone全件dry-run。4.620 GB→1.723 GB見込み | planにあるresource URL、role/host/path pattern、重複LLM evidenceのcategory別reportとの差を埋めるか、現行cleanup scopeを採用する判断を明記する |
+| P3.3 | 別operation待ち | `3243702`でtransaction、temp DB execute、FK/integrity/rollbackを確認 | 正本writer停止、backup、dry-run承認、execute、semantic audit、Web/worker再起動。same-site過去誤帰属auditも同windowで判断する。正本DBは未変更 |
+| P3.4 | 一部完了 | `229b1c3`でbundle/collector本文二重保存を解消 | cleanup適用後の増加率を測り、snapshot差分化、stub、圧縮、retention、history DB分離を採否またはroadmapへ終端する |
 
-- なし。正本DBは変更していません。cleanupはclone dry-runとtemp DB executeだけです。
+### Phase 4
+
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P4.1 | 未着手 | なし | Semble weak matchを現行実装と実データdry-runで監査し、suggestion contractへ寄せるか現状維持を決める |
+| P4.2 | 未着手 | なし | exact lookupのnormalized index利用、allocator利用、fuzzy lookup分離を実装またはroadmap判断する |
+| P4.3 | 未着手 | なし | bulk failure/cancel result policyを決め、実装・testするかroadmap判断する |
+| P4.4 | 未着手 | `3d0b598`はtransport分離のみでretry policyを変更していない | failure分類、payload fallback、timeout後retry、command/endpoint timeoutを決定・実装するかroadmap判断する |
+| P4.5 | 未着手 | source/config境界の文書化は`5951b42` | introduced既定query等の二重管理を監査し、operator可変値だけをconfig/requestへ移すか現状維持を決める |
+
+### Phase 5
+
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P5.1 | 未着手 | 既存benchmark 6 caseはmanual gold setではない | current snapshotからdecision/bundle相関をread-only exportする |
+| P5.2 | 未着手 | なし | fixture sanitize ruleと除外情報を決定・文書化する |
+| P5.3 | 未着手 | なし | 少数のoperator correction fixtureで実際に退行を検出できることを確認する |
+
+### Phase 6
+
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P6.1 | 一部完了 | `5951b42`と各抽出commitで`registry-internals.md`の実装mapを更新 | 混入節auditと、現行責務mapをnotesへ残す要件を完了するか、正本文書のmapで十分と判断してplanを閉じる |
+| P6.2 | 完了 | `5b50e10`、`e3906a3`、`9486346`。`registry.py`から`cmd_*`/`argparse`依存を除去 | なし |
+| P6.3 | 一部完了 | `32486fb`。domain policyを`domain_policy.py`へ移動、旧re-exportなし | `tldextract`を正式依存にするかvendored PSL fallbackを正本にするか決め、二重policyを解消する |
+| P6.4 | 完了 | `540b1b4`、`29888c4`。collector/budget/current projectionを`service.py`へ集約 | なし |
+| P6.5 | 完了 | `8fccfa6` HTTP、`3d0b598` LLM transport seam。旧re-exportなし | 実source/実LLM確認はP2.4で追跡 |
+| P6.6 | 一部完了 | `4e37b00`。URL/NSID/authority/alias helperを`identifiers.py`へ移動 | provider別repo URLとnaming helperを今回移すかroadmapへ延期する |
+| P6.7 | 未着手 | なし | source、project shape、sync、queue、enrich orchestrationの対象単位を決め、移動またはroadmapへ延期する |
+
+### Phase 7
+
+| ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
+|---|---|---|---|
+| P7.1 | 未着手 | なし | 全IDを終端し、通常側brief/status/roadmap/handoffへ反映してmaintenance用status/handoffを削除する |
+| P7.2 | 未着手 | なし | README/project-registry重複、絶対path、stale test数、registry-internals節を独立auditする |
+
+## DB適用
+
+- 正本DBへの適用はありません。
+- cleanupは2026-07-10 cloneのdry-runとtemp DB executeだけです。
+- P3.3を実行するまでは、branchの保存契約と正本DBの既存payloadが異なる状態です。
 
 ## 現行HEADの検証
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 332件が全件成功。
+- Python 3.10.20と3.11.15でunit test 336件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

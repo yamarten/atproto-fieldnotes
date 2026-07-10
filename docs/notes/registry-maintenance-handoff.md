@@ -8,42 +8,38 @@
 
 ## 現在地
 
-- 実行計画は[registry-maintenance-plan.md](registry-maintenance-plan.md)へ整理済みです。
-- branch固有の検証結果は[registry-maintenance-status.md](registry-maintenance-status.md)を参照してください。
-- Phase 1のDB open transaction、DB path/create、Python runtime/wrapper契約、`split-project` explicit key削除、
-  same-site first-label fallback削除、Web `--read-only` mode削除は実装・temp DB検証済みです。正本DBは
-  変更していません。
-- product briefと2026-07-10静止DB baselineは作成済みです。snapshotは`.tmp/`に置き、正本DBは変更して
-  いません。
-- 新規enrich runのphase timingとLLM request metadataは保存、API、Web表示まで接続済みです。旧runへの
-  backfill、transaction commit、operator review時間の計測は行っていません。
-- service verificationのHTML/link/URL budgetとcurrent surface upsertは実装済みです。正本DB cleanupは
-  実施していません。
-- collector historyの本文二重保存廃止、source/operation projection、GitHub snapshot縮約、同一run内repo再収集防止は
-  実装済みです。既存historyは変更していません。
-- `cleanup-storage-payloads`のdry-run/execute、transaction、foreign key/integrity checkは実装済みです。
-  2026-07-10 clone全件のdry-runは完了し、正本DBへの適用はしていません。
-- planning/triageのLLM evidenceは24 KiBとfield別件数budgetを実装済みです。clone全件のprompt生成は確認済み、
-  実LLM callは未検証です。
-- interactive review CLIは`commands/review.py`、merge-batch CLIは`commands/merge.py`へ移動済みです。
-  assist-db-editは`commands/assist.py`へ移し、`registry.py`にCLI `cmd_*`は残っていません。
-- PSL、multi-tenant suffix、registrable domain、same-site判定は`domain_policy.py`へ移動済みです。
-  CLI/Webを含むcall siteは移行済みで、`registry.py`に互換re-exportは残していません。
-- service verification evidence collectorとcurrent surface projectionは`service.py`へ集約済みです。
-- HTTP transportとoutbound URL安全性policyは`http_transport.py`へ移動済みです。実外部sourceへのsmoke testは
-  未実施です。
-- command/OpenAI互換LLM transportとrequest metricsは`llm_transport.py`へ移動済みです。fake transportは
-  確認済みですが、実endpoint/実LLM callは未検証です。
-- canonical URL/NSID、authority domain、alias tokenのpure helperは`identifiers.py`へ移動済みです。
-- 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
-  確認します。
+進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
+現在は完了12、一部完了7、未着手13、別operation待ち1です。未終端21 IDは下記の作業順にすべて含めます。
+ここへ完了項目や検証履歴を複製しません。
+
+通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
 
 ## 次に必要な作業
 
-1. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
-2. 通常運用へ適用するstorage checkpointを整理する。正本DB cleanupは別承認とmaintenance windowが必要。
-3. 最大outlierでtimeoutするreplay normalize性能をstorage cleanupと分けてroadmap化する。
-4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
+1. 現在開いている分割を閉じる。
+   - P6.1: 責務mapと混入節auditの完了条件を決める。
+   - P6.3: `tldextract`とvendored PSL fallbackの正本を一つにする。
+   - P6.6: provider別repo URL/naming helperを移すかroadmapへ延期する。
+   - P6.7: 残るorchestration分割の実施範囲を決め、移動またはroadmapへ延期する。
+2. 計測・保存scopeの部分完了を閉じる。
+   - P2.2: 代表timing/prompt/operator時間を取得するか、測らない項目をroadmapへ移す。
+   - P3.1: `resource_url_records` budgetの全生成経路を監査する。
+   - P3.2: cleanup reportとplan上のcategory/role/host/path要件との差を決着する。
+3. Webと長時間operationの未着手code auditを行う。
+   - P2.5: Web診断、scheduler、安全境界。
+   - P4.1、P4.2、P4.3、P4.4、P4.5: Semble、identifier lookup、bulk failure、LLM retry、source設定。
+4. 調査品質corpusを作る。
+   - P5.1、P5.2、P5.3: decision/bundle export、sanitize rule、operator correction fixture。
+5. 外部状態または別承認が必要な確認を分離して実行する。
+   - P2.4: bounded real-source smoke。
+   - P3.3: 正本DB cleanupとsame-site過去誤帰属audit。実行前に別承認とmaintenance windowが必要。
+   - P3.4: P3.3後の増加率に基づくhistory表現の判断gate。
+6. 全IDが終端してからcloseoutする。
+   - P7.1: 通常側正本文書へ反映し、maintenance用status/handoffを削除する。
+   - P7.2: 文書auditを独立実施する。
+
+実施しないitemは省略せず、再検討条件とともに`docs/roadmap.md`へ移して台帳を
+`roadmapへ延期`にします。`一部完了`、`未着手`、`別operation待ち`のままseriesを閉じません。
 
 ## DB操作メモ
 
