@@ -16,25 +16,31 @@
 
 ## 次に必要な作業
 
-1. 現在開いている分割を閉じる。
+1. ユーザーが確認できる間に、承認・外部状態へ依存する検証を先に行う。
+   - P2.4: worker経由のbounded real-source smokeを、複製DB・`execute=false`・1 page/query/item上限で実行する。
+   - P2.2: P2.4で経路を確認した後、複製DBで代表projectのtimingを取得できる範囲を実測する。実LLM設定が
+     無い場合は、その部分を未検証として分離する。
+   - P4.1: 同じnetwork windowでSembleを1 page / 1 itemに制限してdry-runし、weak match監査の実例を確保する。
+   - P3.3はstorage codeの確定・適用前なので、この承認windowには含めない。
+2. 現在開いている分割を閉じる。
    - P6.1: 責務mapと混入節auditの完了条件を決める。
    - P6.3: `tldextract`とvendored PSL fallbackの正本を一つにする。
    - P6.6: provider別repo URL/naming helperを移すかroadmapへ延期する。
    - P6.7: 残るorchestration分割の実施範囲を決め、移動またはroadmapへ延期する。
-2. 計測・保存scopeの部分完了を閉じる。
-   - P2.2: 代表timing/prompt/operator時間を取得するか、測らない項目をroadmapへ移す。
+3. 計測・保存scopeの残る部分完了を閉じる。
+   - P2.2: 先行実測で取得できなかったprompt/operator時間を追加取得するかroadmapへ移す。
    - P3.1: `resource_url_records` budgetの全生成経路を監査する。
    - P3.2: cleanup reportとplan上のcategory/role/host/path要件との差を決着する。
-3. Webと長時間operationの未着手code auditを行う。
+4. Webと長時間operationの未着手code auditを行う。
    - P2.5: Web診断、scheduler、安全境界。
-   - P4.1、P4.2、P4.3、P4.4、P4.5: Semble、identifier lookup、bulk failure、LLM retry、source設定。
-4. 調査品質corpusを作る。
+   - P4.1: 先行dry-runを踏まえてSembleの実装判断を閉じる。
+   - P4.2、P4.3、P4.4、P4.5: identifier lookup、bulk failure、LLM retry、source設定。
+5. 調査品質corpusを作る。
    - P5.1、P5.2、P5.3: decision/bundle export、sanitize rule、operator correction fixture。
-5. 外部状態または別承認が必要な確認を分離して実行する。
-   - P2.4: bounded real-source smoke。
+6. storage checkpoint適用後に、正本DBと観測期間が必要なoperationを行う。
    - P3.3: 正本DB cleanupとsame-site過去誤帰属audit。実行前に別承認とmaintenance windowが必要。
    - P3.4: P3.3後の増加率に基づくhistory表現の判断gate。
-6. 全IDが終端してからcloseoutする。
+7. 全IDが終端してからcloseoutする。
    - P7.1: 通常側正本文書へ反映し、maintenance用status/handoffを削除する。
    - P7.2: 文書auditを独立実施する。
 
