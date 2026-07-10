@@ -11,6 +11,34 @@ from project_registry_core import runtime_view
 
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
+    def test_open_database_initialization_survives_close_without_caller_commit(self) -> None:
+        conn = database.open_database(self.db_path)
+        try:
+            self.assertFalse(conn.in_transaction)
+        finally:
+            conn.close()
+
+        reopened = database.open_database(self.db_path)
+        try:
+            self.assertEqual(database.database_schema_version(reopened), database.SCHEMA_VERSION)
+            self.assertFalse(reopened.in_transaction)
+        finally:
+            reopened.close()
+
+    def test_opening_existing_database_does_not_hold_writer_lock(self) -> None:
+        initialized = registry.open_db()
+        initialized.close()
+
+        reader = database.open_database(self.db_path)
+        writer = sqlite3.connect(self.db_path, timeout=0)
+        try:
+            self.assertFalse(reader.in_transaction)
+            writer.execute("BEGIN IMMEDIATE")
+            writer.rollback()
+        finally:
+            writer.close()
+            reader.close()
+
     def test_opening_existing_v2_database_adds_project_alias_table(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:additivev2")

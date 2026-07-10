@@ -11,19 +11,35 @@ maintenance series完了時に削除します。
 
 実装済み:
 
-- なし。現時点の差分は計画・方針文書だけです。
+- DB open transaction修正。
+  - 新規schema初期化はschema versionを書いた接続内でcommitする。
+  - 既存schemaのensureではschema versionの同値upsertを行わない。
+  - `database.open_database()`から返る接続は、open処理由来のwrite transactionを保持しない。
 
 作業中:
 
-- registry maintenanceの計画、roadmap、branch用status/handoffの整理。
+- なし。
 
 未実装:
 
-- [registry-maintenance-plan.md](registry-maintenance-plan.md)のPhase 1以降。
+- DB pathと明示的createの契約。
+- [registry-maintenance-plan.md](registry-maintenance-plan.md)のその他のPhase 1以降。
 
 DB適用:
 
 - なし。正本DBは変更していません。
+
+## 現行HEADの検証
+
+動作確認済み:
+
+- Python 3.11.15でunit test 303件が全件成功。
+- 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
+- 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
+
+未検証:
+
+- 正本DBを使ったWeb/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
 
 ## Baseline
 

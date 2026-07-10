@@ -56,7 +56,7 @@ def enable_wal_mode(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA synchronous = NORMAL")
 
 
-def create_schema(conn: sqlite3.Connection) -> None:
+def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(
         """
@@ -156,11 +156,16 @@ def create_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+
+def create_schema(conn: sqlite3.Connection) -> None:
+    ensure_schema(conn)
     conn.execute(
         "INSERT INTO registry_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (str(SCHEMA_VERSION),),
     )
+    conn.commit()
 
 
 def project_key_alias_target(conn: sqlite3.Connection, project_key: str) -> str | None:
@@ -235,7 +240,10 @@ def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
         conn.close()
         raise SchemaMismatchError(f"unsupported registry schema version {version}: {path}")
     enable_wal_mode(conn)
-    create_schema(conn)
+    if version is None:
+        create_schema(conn)
+    else:
+        ensure_schema(conn)
     return conn
 
 
