@@ -7715,13 +7715,16 @@ def sync_semble_collections(
     evidence_only_results = list(deduped_evidence_only.values())
     evidence_only_results.sort(key=lambda item: (str(item.get("card_updated_at") or ""), str(item.get("card_created_at") or "")), reverse=True)
     scan_complete = not cancelled and all(bool(scan.get("scan_complete")) for scan in scans)
-    existing_keys = {str(project["project_key"]) for project in list_projects(conn)}
+    existing_projects = all_projects(conn)
+    existing_keys = {str(project["project_key"]) for project in existing_projects}
     imported_project_keys: list[str] = []
     skipped_old = 0
     skipped_non_seed = 0
     matched_existing = 0
     created = 0
     unmatched = 0
+    suggested_existing_matches = 0
+    suggested_entries: list[dict[str, Any]] = []
     unmatched_entries: list[dict[str, Any]] = []
     evidence_only_attached = 0
     evidence_only_unmatched = 0
@@ -7745,7 +7748,17 @@ def sync_semble_collections(
         seed_value = str(entry.get("seed_value") or "")
         if progress:
             progress(entry_index, len(eligible), {"kind": "source_item", "source": "semble", "value": seed_value})
-        project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+        project_key, _match_kind, suggested_project_key, suggested_match_kind = resolve_semble_project_key_for_seed_value(
+            conn, seed_type, seed_value, projects=existing_projects
+        )
+        if suggested_project_key:
+            suggested_existing_matches += 1
+            suggested_entries.append({
+                "seed_type": seed_type,
+                "seed_value": seed_value,
+                "suggested_project_key": suggested_project_key,
+                "suggested_match_kind": suggested_match_kind,
+            })
         is_new = project_key is None
         if is_new and not create_unmatched:
             unmatched += 1
@@ -7758,6 +7771,13 @@ def sync_semble_collections(
                     "collection_label": str(entry.get("collection_label") or ""),
                     "collection_rkey": str(entry.get("collection_rkey") or ""),
                     "card_updated_at": str(entry.get("card_updated_at") or ""),
+                    **(
+                        {
+                            "suggested_project_key": suggested_project_key,
+                            "suggested_match_kind": suggested_match_kind,
+                        }
+                        if suggested_project_key else {}
+                    ),
                 }
             )
             continue
@@ -7787,6 +7807,12 @@ def sync_semble_collections(
         imported_project_keys.append(project["project_key"])
         if execute:
             save_project(conn, project, enriched=False)
+            existing_projects = [
+                existing_project
+                for existing_project in existing_projects
+                if str(existing_project.get("project_key") or "") != str(project.get("project_key") or "")
+            ]
+            existing_projects.append(project)
         if is_new:
             created += 1
 
@@ -7799,9 +7825,24 @@ def sync_semble_collections(
         root_service_url = identifier_core.normalize_url(str(entry.get("root_service_url") or root_service_url_for_evidence(evidence_url)))
         if progress:
             progress(entry_index, len(evidence_only_results), {"kind": "source_item", "source": "semble", "value": evidence_url, "classification": "evidence_only"})
-        project_key = find_project_key_by_identifier(conn, "service_url", root_service_url) if root_service_url else None
+        project_key = None
+        suggested_project_key = None
+        suggested_match_kind = ""
+        if root_service_url:
+            project_key, _match_kind, suggested_project_key, suggested_match_kind = resolve_semble_project_key_for_seed_value(
+                conn, "service_url", root_service_url, projects=existing_projects
+            )
         if not project_key:
             evidence_only_unmatched += 1
+            if suggested_project_key:
+                suggested_existing_matches += 1
+                suggested_entries.append({
+                    "seed_type": "service_url",
+                    "seed_value": root_service_url,
+                    "evidence_url": evidence_url,
+                    "suggested_project_key": suggested_project_key,
+                    "suggested_match_kind": suggested_match_kind,
+                })
             evidence_only_entries.append(
                 {
                     "evidence_url": evidence_url,
@@ -7812,6 +7853,13 @@ def sync_semble_collections(
                     "collection_rkey": str(entry.get("collection_rkey") or ""),
                     "card_updated_at": str(entry.get("card_updated_at") or ""),
                     "attached_project_key": "",
+                    **(
+                        {
+                            "suggested_project_key": suggested_project_key,
+                            "suggested_match_kind": suggested_match_kind,
+                        }
+                        if suggested_project_key else {}
+                    ),
                 }
             )
             continue
@@ -7880,6 +7928,7 @@ def sync_semble_collections(
         "skipped_non_seed": skipped_non_seed + sum(int(scan.get("skipped_cards") or 0) for scan in scans),
         "created": created,
         "matched_existing": matched_existing,
+        "suggested_existing_matches": suggested_existing_matches,
         "unmatched": unmatched,
         "mode": "execute" if execute else "dry_run",
         "create_unmatched": create_unmatched,
@@ -7904,6 +7953,7 @@ def sync_semble_collections(
             for scan in scans
         ],
         "imported_project_keys": imported_project_keys,
+        "suggested_entries": suggested_entries[:100],
         "evidence_only_entries": evidence_only_entries[:100],
         "unmatched_entries": unmatched_entries[:100],
         "cancelled": cancelled,
@@ -14748,6 +14798,43 @@ def resolve_project_key_for_seed_value(
     if target_project_key is None and seed_type == "nsid":
         target_project_key, match_kind = find_project_key_for_nsid_seed(all_projects(conn), normalized_value)
     return target_project_key, match_kind
+
+
+def resolve_semble_project_key_for_seed_value(
+    conn: sqlite3.Connection,
+    seed_type: str,
+    seed_value: str,
+    *,
+    projects: list[dict[str, Any]] | None = None,
+) -> tuple[str | None, str, str | None, str]:
+    normalized_value = canonical_seed_value(seed_type, seed_value)
+    projects = projects if projects is not None else all_projects(conn)
+    exact_project_keys: set[str] = set()
+    weak_project_keys: set[str] = set()
+    for project in projects:
+        priority, matched = project_matches_identifier(project, seed_type, normalized_value)
+        if not matched:
+            continue
+        project_key = str(project.get("project_key") or "")
+        if not project_key:
+            continue
+        if priority == 0:
+            exact_project_keys.add(project_key)
+        else:
+            weak_project_keys.add(project_key)
+    if len(exact_project_keys) == 1:
+        return next(iter(exact_project_keys)), "exact_identifier", None, ""
+    if len(exact_project_keys) > 1:
+        return None, "", None, ""
+    if seed_type == "nsid":
+        project_key, match_kind = find_project_key_for_nsid_seed(projects, normalized_value)
+        if project_key and sync_match_is_auto_attach_safe(match_kind):
+            return project_key, match_kind, None, ""
+        if project_key:
+            return None, "", project_key, match_kind
+    if len(weak_project_keys) == 1:
+        return None, "", next(iter(weak_project_keys)), "candidate_identifier"
+    return None, "", None, ""
 
 
 def append_project_note(project: dict[str, Any], note_line: str) -> None:

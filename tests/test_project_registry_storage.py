@@ -333,6 +333,78 @@ exit 99
         self.assertNotIn("https://cred.blue/gov.glados.computer", [item["value"] for item in fetched["manual_seeds"]])
         self.assertNotIn("https://cred.blue/gov.glados.computer", fetched["service_url_candidates"])
 
+    def test_semble_candidate_service_match_is_suggestion_only(self) -> None:
+        conn = registry.open_db()
+        original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
+        try:
+            project = self.make_project("proj:candidate", "repo_url", "https://github.com/example/candidate")
+            registry.set_service_url_candidate_values(project, ["https://candidate.example"])
+            registry.save_project(conn, project)
+            registry.SEMBLE_TRACKED_COLLECTIONS = (
+                {"handle": "example.test", "rkey": "collection", "label": "apps"},
+            )
+            scan = {
+                "source_key": "example.test/collection",
+                "results": [{
+                    "seed_type": "service_url",
+                    "seed_value": "https://candidate.example",
+                    "raw_url": "https://candidate.example",
+                    "card_uri": "at://did:plc:example/network.cosmik.card/root",
+                    "card_updated_at": "2026-06-01T00:00:00Z",
+                    "card_created_at": "2026-05-30T00:00:00Z",
+                    "title": "Candidate",
+                    "description": "Candidate root",
+                    "collection_label": "apps",
+                    "collection_rkey": "collection",
+                }],
+                "evidence_only": [{
+                    "evidence_url": "https://candidate.example/detail",
+                    "root_service_url": "https://candidate.example",
+                    "reason": "semble_service_subpage",
+                    "card_uri": "at://did:plc:example/network.cosmik.card/detail",
+                    "card_updated_at": "2026-06-01T00:00:00Z",
+                    "card_created_at": "2026-05-30T00:00:00Z",
+                    "title": "Candidate detail",
+                    "description": "Candidate detail page",
+                    "collection_label": "apps",
+                    "collection_rkey": "collection",
+                }],
+                "pages": 1,
+                "fetched_cards": 2,
+                "skipped_cards": 0,
+                "ordered_desc": True,
+                "boundary_reached": False,
+                "scan_complete": True,
+                "newest_timestamp": "2026-06-01T00:00:00+00:00",
+            }
+            with mock.patch.object(registry, "fetch_semble_collection_source_sync_results", return_value=scan):
+                result = registry.sync_semble_collections(
+                    conn,
+                    execute=True,
+                    create_unmatched=False,
+                    pages=1,
+                    per_page=20,
+                    lookback_days=None,
+                    incremental=False,
+                )
+            fetched = registry.fetch_project(conn, "proj:candidate")
+        finally:
+            registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["matched_existing"], 0)
+        self.assertEqual(result["unmatched"], 1)
+        self.assertEqual(result["evidence_only_attached"], 0)
+        self.assertEqual(result["evidence_only_unmatched"], 1)
+        self.assertEqual(result["suggested_existing_matches"], 2)
+        self.assertTrue(all(item["suggested_project_key"] == "proj:candidate" for item in result["suggested_entries"]))
+        self.assertNotIn("https://candidate.example/detail", fetched["evidence_urls"])
+        self.assertNotIn(
+            "https://candidate.example",
+            [item["value"] for item in fetched["manual_seeds"]],
+        )
+
     def test_cleanup_sync_notes_removes_only_machine_generated_lines(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:syncnotes", "repo_url", "https://github.com/example/app")

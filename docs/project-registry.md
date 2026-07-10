@@ -342,7 +342,7 @@ project-registry sync-github-search \
 
 Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた場合だけ、watermark より古い card で早期停止します。`sync-collections` は既知 project の activity refresh のため、増分化後も inventory API 全件を取得します。
 `sync-collections --max-items N`は、inventory応答の先頭N件だけを照合・import対象にする検証用の上限です。API応答自体は全件取得します。応答を切り詰めたexecuteでは未処理entryを取りこぼさないようsync stateを進めません。
-Semble card の非root service URLは project seed にせず、既存root service projectがある場合だけ evidence URL として添付します。
+Semble card の非root service URLは project seed にせず、confirmed/manual root serviceが既存projectにある場合だけ evidence URL として添付します。rootがcandidateにしかない場合は自動添付せず、`suggested_entries`へ返します。
 
 ## merge
 

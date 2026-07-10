@@ -48,7 +48,7 @@ maintenance series完了時に削除します。
 
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
-| P4.1 | 一部完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)で2 cardを3,239-project cloneへdry-run。2件ともexact service match | 現行matching call pathを監査し、より広いsampleでweak attachの有無を確認して実装または現状維持を決める |
+| P4.1 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)とcode auditでcandidate serviceの自動attachを確認・修正。40-card clone dry-runでexact 37件、candidate suggestion 2件、unmatched 1件 | normalized indexと残るlookup costはP4.2で追跡 |
 | P4.2 | 未着手 | なし | exact lookupのnormalized index利用、allocator利用、fuzzy lookup分離を実装またはroadmap判断する |
 | P4.3 | 未着手 | なし | bulk failure/cancel result policyを決め、実装・testするかroadmap判断する |
 | P4.4 | 未着手 | `3d0b598`はtransport分離のみでretry policyを変更していない | failure分類、payload fallback、timeout後retry、command/endpoint timeoutを決定・実装するかroadmap判断する |
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 338件が全件成功。
+- Python 3.10.20と3.11.15でunit test 339件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -116,6 +116,8 @@ maintenance series完了時に削除します。
 - command型LLM transportが設定commandを呼ぶ回帰test。これに必要な`subprocess` import欠落も修正した。
 - 空のtemp DBを使った実workerからGitHub、Semble、Bluesky introduced、collection inventory、Tangledへの
   bounded dry-runと、設定済み実LLM endpointへの接続。collection/Tangledの再実行を含めDB件数は不変。
+- 3,239-project cloneへSemble 40 cardsをdry-runし、confirmed/manual match 37件、candidate suggestion 2件、
+  unmatched 1件を確認。協調停止した初回runと完走runのどちらもDB件数は不変。
 
 未検証:
 

@@ -84,5 +84,16 @@ dry-runでもinvestigation/projectを書き込み、source request数もこのsm
 - `https://track.social/login`はroot service `https://track.social`を持つ既存`Track`へevidence-onlyとしてmatch
 - project、sync state、investigation/collector run件数は実行前後で不変
 
-この2件ではweak誤attachを再現しませんでした。P4.1を閉じるには、現行matching call pathのcode auditと、
-より広い実データsampleまたは「exact以外をattachしない」ことの確認が必要です。
+初回2件ではweak誤attachを再現しませんでしたが、code auditで通常seedとevidence-only rootの両方が
+`service_url_candidates`にも自動matchする経路を確認しました。confirmed/manual identifierと安全なNSID namespaceだけを
+auto-attachし、candidate一致は`suggested_entries`へ返すように変更しました。
+
+修正後に2 collection × 1 page × 20 cardsを同じcloneへdry-runしました。
+
+- root seed 34件: 34件ともexisting projectへexact/manual match
+- evidence-only 6件: confirmed rootへ3件attach、candidateだけの2件はsuggestion、1件はunmatched
+- candidate suggestionは`https://squire.guide`と`https://qrsurge.com`で、修正前は自動attachされる経路だった
+- project、sync state、investigation/collector run件数は実行前後で不変
+
+最初のwide runは9/34 item後に協調停止しました。itemごとに3,239 projectを再読込する既存hotspotが見えたため、
+run内snapshotを再利用して再実行し完走しました。normalized index化とglobal duplicate analysisの残るcostはP4.2で扱います。
