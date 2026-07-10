@@ -30,6 +30,8 @@
 - PSL、multi-tenant suffix、registrable domain、same-site判定は`domain_policy.py`へ移動済みです。
   CLI/Webを含むcall siteは移行済みで、`registry.py`に互換re-exportは残していません。
 - service verification evidence collectorとcurrent surface projectionは`service.py`へ集約済みです。
+- HTTP transportとoutbound URL安全性policyは`http_transport.py`へ移動済みです。実外部sourceへのsmoke testは
+  未実施です。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 

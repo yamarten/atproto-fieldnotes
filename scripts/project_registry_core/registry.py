@@ -5,19 +5,16 @@ from __future__ import annotations
 import base64
 import copy
 import datetime as dt
-import ipaddress
 import json
 import os
 import re
 import shlex
-import socket
 import sqlite3
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from html import unescape
@@ -43,16 +40,13 @@ from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import domain_policy as domain_policy_core
+from project_registry_core import http_transport
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
 ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
-DEFAULT_HEADERS = {
-    "Accept": "application/json, text/html;q=0.9",
-    "User-Agent": "atproto-survey-bot/0.3",
-}
 GITHUB_API = "https://api.github.com"
 DNS_RESOLVER_URL = "https://dns.google/resolve"
 REQUEST_TIMEOUT_DEFAULT = 60.0
@@ -63,7 +57,6 @@ REQUEST_TIMEOUT_LEXICON_DNS = 12.0
 REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
-MAX_HTTP_REDIRECTS = 5
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
@@ -332,173 +325,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
 
 def ensure_dirs() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
-
-
-class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
-        return None
-
-
-NO_REDIRECT_OPENER = urllib.request.build_opener(NoRedirectHandler)
-
-
-def outbound_host_is_blocked(host: str) -> bool:
-    lowered = str(host or "").strip().lower().rstrip(".")
-    if not lowered:
-        return True
-    if lowered == "localhost" or lowered.endswith(".localhost"):
-        return True
-    try:
-        addresses = {info[4][0] for info in socket.getaddrinfo(lowered, None)}
-    except socket.gaierror:
-        addresses = {lowered}
-    for address in addresses:
-        try:
-            parsed = ipaddress.ip_address(address)
-        except ValueError:
-            continue
-        if (
-            parsed.is_loopback
-            or parsed.is_private
-            or parsed.is_link_local
-            or parsed.is_multicast
-            or parsed.is_unspecified
-            or parsed.is_reserved
-            or parsed in ipaddress.ip_network("100.64.0.0/10")
-        ):
-            return True
-    return False
-
-
-def normalize_outbound_fetch_url(url: str) -> str:
-    stripped = str(url or "").strip()
-    try:
-        parsed = urllib.parse.urlparse(stripped)
-    except ValueError:
-        return ""
-    if not parsed.scheme and not parsed.netloc:
-        try:
-            parsed = urllib.parse.urlparse(f"https://{stripped}")
-        except ValueError:
-            return ""
-    scheme = parsed.scheme.lower()
-    netloc = parsed.netloc.lower()
-    path = parsed.path or ""
-    return urllib.parse.urlunparse((scheme, netloc, path, "", parsed.query, ""))
-
-
-def validate_outbound_fetch_url(url: str, *, allow_blocked_hosts: bool = False) -> str:
-    normalized = normalize_outbound_fetch_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"unsupported outbound URL: {url}")
-    if not allow_blocked_hosts and outbound_host_is_blocked(parsed.hostname):
-        raise ValueError(f"blocked internal outbound URL: {normalized}")
-    return normalized
-
-
-def request_bytes(
-    url: str,
-    headers: dict[str, str] | None = None,
-    data: bytes | None = None,
-    method: str | None = None,
-    timeout: float = REQUEST_TIMEOUT_DEFAULT,
-    allow_blocked_hosts: bool = False,
-) -> tuple[int, bytes, dict[str, str]]:
-    status, body, response_headers, _final_url = request_bytes_with_final_url(
-        url,
-        headers=headers,
-        data=data,
-        method=method,
-        timeout=timeout,
-        allow_blocked_hosts=allow_blocked_hosts,
-    )
-    return status, body, response_headers
-
-
-def request_bytes_with_final_url(
-    url: str,
-    headers: dict[str, str] | None = None,
-    data: bytes | None = None,
-    method: str | None = None,
-    timeout: float = REQUEST_TIMEOUT_DEFAULT,
-    allow_blocked_hosts: bool = False,
-) -> tuple[int, bytes, dict[str, str], str]:
-    merged_headers = dict(DEFAULT_HEADERS)
-    if headers:
-        merged_headers.update(headers)
-    current_url = validate_outbound_fetch_url(url, allow_blocked_hosts=allow_blocked_hosts)
-    for _ in range(MAX_HTTP_REDIRECTS + 1):
-        req = urllib.request.Request(current_url, headers=merged_headers, data=data, method=method)
-        try:
-            response_context = NO_REDIRECT_OPENER.open(req, timeout=timeout)
-        except urllib.error.HTTPError as exc:
-            status = int(exc.code or 0)
-            if status in {301, 302, 303, 307, 308}:
-                location = exc.headers.get("Location", "") if exc.headers else ""
-                if not location:
-                    body = exc.read()
-                    exc.close()
-                    response_headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
-                    return status, body, response_headers, current_url
-                try:
-                    next_url = validate_outbound_fetch_url(
-                        urllib.parse.urljoin(current_url, location),
-                        allow_blocked_hosts=allow_blocked_hosts,
-                    )
-                finally:
-                    exc.close()
-                current_url = next_url
-                if status == 303:
-                    data = None
-                    method = "GET"
-                continue
-            raise
-        with response_context as response:
-            status = getattr(response, "status", 200)
-            body = response.read()
-            response_headers = {key.lower(): value for key, value in response.headers.items()}
-            final_url = normalize_url(str(response.geturl() or current_url))
-            return status, body, response_headers, final_url
-    raise ValueError(f"too many redirects for outbound URL: {url}")
-
-
-def request_json(url: str, headers: dict[str, str] | None = None, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> Any:
-    _, body, _ = request_bytes(url, headers=headers, timeout=timeout)
-    return json.loads(body.decode("utf-8"))
-
-
-def request_json_post(
-    url: str,
-    payload: Any,
-    headers: dict[str, str] | None = None,
-    *,
-    timeout: float = REQUEST_TIMEOUT_DEFAULT,
-) -> Any:
-    merged_headers = {"Content-Type": "application/json"}
-    if headers:
-        merged_headers.update(headers)
-    _, body, _ = request_bytes(
-        url,
-        headers=merged_headers,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        timeout=timeout,
-    )
-    return json.loads(body.decode("utf-8"))
-
-
-def request_json_authenticated(
-    url: str,
-    token: str,
-    headers: dict[str, str] | None = None,
-    *,
-    timeout: float = REQUEST_TIMEOUT_DEFAULT,
-) -> Any:
-    merged_headers = {"Authorization": f"Bearer {token}"}
-    if headers:
-        merged_headers.update(headers)
-    return request_json(url, headers=merged_headers, timeout=timeout)
 
 
 def parse_iso(value: str | None) -> dt.datetime | None:
@@ -3915,7 +3741,7 @@ def bsky_create_session() -> dict[str, Any]:
     cached = _BSKY_SESSION_CACHE.get(cache_key)
     if cached:
         return cached
-    payload = request_json_post(
+    payload = http_transport.request_json_post(
         f"{settings['host']}/xrpc/com.atproto.server.createSession",
         {"identifier": settings["identifier"], "password": settings["password"]},
     )
@@ -3941,7 +3767,7 @@ def bsky_refresh_session() -> dict[str, Any]:
     if not pds_url:
         settings = bsky_auth_settings()
         pds_url = settings["host"]
-    _, body, _ = request_bytes(
+    _, body, _ = http_transport.request_bytes(
         f"{pds_url}/xrpc/com.atproto.server.refreshSession",
         headers={"Authorization": f"Bearer {refresh_token}"},
         method="POST",
@@ -6713,7 +6539,7 @@ def import_collection_inventory_payload(
 
 
 def fetch_collection_inventory(source_url: str) -> list[dict[str, Any]]:
-    payload = request_json(source_url)
+    payload = http_transport.request_json(source_url)
     if not isinstance(payload, list):
         raise ValueError("collection inventory response must be a JSON array")
     output: list[dict[str, Any]] = []
@@ -7246,7 +7072,7 @@ def fetch_github_search_query_sync_results(
                     "page": str(page),
                 }
             )
-            payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
+            payload = http_transport.request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers)
             items = payload.get("items", [])
             fetched_pages += 1
             for raw in items:
@@ -7344,7 +7170,7 @@ def fetch_semble_collection_source_sync_results(
                     "limit": str(clamped_per_page),
                 }
             )
-            payload = request_json(
+            payload = http_transport.request_json(
                 f"{SEMBLE_API}/xrpc/network.cosmik.collection.getByAtUri?{params}"
             )
             cards = payload.get("urlCards", [])
@@ -8113,7 +7939,7 @@ def fetch_tangled_ufos_window() -> list[dict[str, Any]]:
     api_url = str(config.get("ufos_api_url") or f"{UFOS_API}/records")
     collection = str(config.get("collection") or tangled_core.TANGLED_COLLECTION)
     separator = "&" if "?" in api_url else "?"
-    payload = request_json(f"{api_url}{separator}{urllib.parse.urlencode({'collection': collection})}", timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
+    payload = http_transport.request_json(f"{api_url}{separator}{urllib.parse.urlencode({'collection': collection})}", timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
     return tangled_core.normalize_ufos_entries(payload)
 
 
@@ -8325,7 +8151,7 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
     fetch_error = ""
     final_url = normalized_url
     try:
-        status_code, body, headers, final_url = request_bytes_with_final_url(url, timeout=timeout)
+        status_code, body, headers, final_url = http_transport.request_bytes_with_final_url(url, timeout=timeout)
     except urllib.error.HTTPError as exc:
         status_code = int(exc.code or 0)
         body = exc.read()
@@ -9152,10 +8978,10 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     if slug is None:
         raise ValueError(f"not a GitHub repo URL: {repo_url}")
     headers = github_headers()
-    payload = request_json(f"{GITHUB_API}/repos/{slug}", headers=headers)
+    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}", headers=headers)
     readme_text = ""
     try:
-        readme_payload = request_json(f"{GITHUB_API}/repos/{slug}/readme", headers=headers)
+        readme_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/readme", headers=headers)
         content = readme_payload.get("content", "")
         if content:
             readme_text = base64.b64decode(content).decode("utf-8", errors="replace")
@@ -9166,7 +8992,7 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     if default_branch:
         try:
             branch_ref = urllib.parse.quote(default_branch, safe="")
-            tree_payload = request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
+            tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
             tree = tree_payload.get("tree", [])
             if isinstance(tree, list):
                 repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
@@ -9266,7 +9092,7 @@ def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> st
         f"{urllib.parse.quote(repo, safe='._-')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
     )
     try:
-        _status, body, headers = request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
+        _status, body, headers = http_transport.request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
         return decode_http_text(body, headers)
     except Exception:
         return ""
@@ -9279,7 +9105,7 @@ def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
     cached = _TANGLED_REPO_FETCH_CACHE.get(normalized)
     if isinstance(cached, dict):
         return copy.deepcopy(cached)
-    status, body, headers, final_url = request_bytes_with_final_url(normalized, timeout=REQUEST_TIMEOUT_DEFAULT)
+    status, body, headers, final_url = http_transport.request_bytes_with_final_url(normalized, timeout=REQUEST_TIMEOUT_DEFAULT)
     html = decode_http_text(body, headers) if status < 400 else ""
     owner, repo = tangled_repo_segments(normalized)
     default_branch = extract_tangled_default_branch(html)
@@ -9319,7 +9145,7 @@ def search_github_repositories(query: str, limit: int = 5, *, timeout: float = R
         return [dict(item) for item in cached]
     headers = github_headers()
     params = urllib.parse.urlencode({"q": query, "per_page": max(1, min(limit, 10)), "sort": "updated", "order": "desc"})
-    payload = request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers, timeout=timeout)
+    payload = http_transport.request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers, timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("items", [])[:limit]:
         html_url = str(item.get("html_url") or "")
@@ -9342,7 +9168,7 @@ def search_github_repositories(query: str, limit: int = 5, *, timeout: float = R
 
 def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     params = urllib.parse.urlencode({"q": query, "limit": max(1, min(limit, 10))})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.searchActors?{params}", timeout=timeout)
+    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.searchActors?{params}", timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("actors", [])[:limit]:
         results.append(
@@ -9366,7 +9192,7 @@ def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
     headers = github_headers()
     query = f"?{urllib.parse.urlencode({'ref': ref})}" if ref else ""
     encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    payload = request_json(f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=headers)
+    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=headers)
     content = str(payload.get("content") or "")
     if not content:
         return ""
@@ -9556,7 +9382,7 @@ def search_bsky_posts_payload(
     url = f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}"
     headers = {"atproto-proxy": BSKY_APPVIEW_PROXY}
     try:
-        payload = request_json_authenticated(url, bsky_access_token(), headers=headers, timeout=timeout)
+        payload = http_transport.request_json_authenticated(url, bsky_access_token(), headers=headers, timeout=timeout)
     except urllib.error.HTTPError as exc:
         body = ""
         try:
@@ -9565,7 +9391,7 @@ def search_bsky_posts_payload(
             body = ""
         if exc.code == 401 or (exc.code == 400 and ("InvalidToken" in body or "ExpiredToken" in body)):
             refreshed = bsky_refresh_session()
-            payload = request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers, timeout=timeout)
+            payload = http_transport.request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers, timeout=timeout)
         else:
             snippet = body[:300].strip()
             raise RuntimeError(f"Bluesky post search failed HTTP {exc.code}: {snippet or exc.reason}") from exc
@@ -9574,7 +9400,7 @@ def search_bsky_posts_payload(
 
 def fetch_bsky_author_feed(actor: str, limit: int = 10, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     params = urllib.parse.urlencode({"actor": actor, "limit": max(1, min(limit, 20))})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getAuthorFeed?{params}", timeout=timeout)
+    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getAuthorFeed?{params}", timeout=timeout)
     results: list[dict[str, Any]] = []
     for item in payload.get("feed", [])[:limit]:
         post = item.get("post", {}) if isinstance(item.get("post"), dict) else {}
@@ -9594,7 +9420,7 @@ def fetch_bsky_author_feed(actor: str, limit: int = 10, *, timeout: float = REQU
 
 def fetch_bsky_profile(actor: str) -> dict[str, Any]:
     params = urllib.parse.urlencode({"actor": actor})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.getProfile?{params}")
+    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.getProfile?{params}")
     return payload if isinstance(payload, dict) else {}
 
 
@@ -9613,7 +9439,7 @@ def fetch_bsky_post_by_web_url(url: str) -> dict[str, Any]:
     if not did:
         return {}
     params = urllib.parse.urlencode({"uris": f"at://{did}/app.bsky.feed.post/{rkey}"})
-    payload = request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getPosts?{params}")
+    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getPosts?{params}")
     posts = payload.get("posts", []) if isinstance(payload, dict) else []
     return posts[0] if posts else {}
 
@@ -9636,7 +9462,7 @@ def bsky_record_urls(record: dict[str, Any]) -> list[str]:
 
 def resolve_dns_txt(name: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> list[str]:
     params = urllib.parse.urlencode({"name": name, "type": "TXT"})
-    payload = request_json(f"{DNS_RESOLVER_URL}?{params}", timeout=timeout)
+    payload = http_transport.request_json(f"{DNS_RESOLVER_URL}?{params}", timeout=timeout)
     values: list[str] = []
     for answer in payload.get("Answer", []):
         data = str(answer.get("data") or "").strip()
@@ -9661,7 +9487,7 @@ def resolve_did_document_url(did: str) -> str:
 
 
 def resolve_did_document(did: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> dict[str, Any]:
-    return request_json(resolve_did_document_url(did), timeout=timeout)
+    return http_transport.request_json(resolve_did_document_url(did), timeout=timeout)
 
 
 def extract_pds_url(did_doc: dict[str, Any]) -> str:
@@ -9742,7 +9568,7 @@ def fetch_recent_record_samples(collections: list[str], *, timeout: float = REQU
     if not normalized:
         return []
     params = urllib.parse.urlencode([("collection", value) for value in normalized])
-    payload = request_json(f"{UFOS_API}/records?{params}", timeout=timeout)
+    payload = http_transport.request_json(f"{UFOS_API}/records?{params}", timeout=timeout)
     if not isinstance(payload, list):
         raise ValueError("UFOs record sample response must be a JSON array")
     samples: list[dict[str, Any]] = []
@@ -9776,7 +9602,7 @@ def fetch_collection_first_creator_did(collection: str) -> str:
     if normalized in _COLLECTION_FIRST_CREATOR_DID_CACHE:
         return str(_COLLECTION_FIRST_CREATOR_DID_CACHE[normalized] or "")
     params = urllib.parse.urlencode({"collection": normalized, "limit": 1})
-    payload = request_json(f"{BSKY_SYNC_API}/xrpc/com.atproto.sync.listReposByCollection?{params}")
+    payload = http_transport.request_json(f"{BSKY_SYNC_API}/xrpc/com.atproto.sync.listReposByCollection?{params}")
     repos = payload.get("repos", []) if isinstance(payload, dict) else []
     did = ""
     if isinstance(repos, list):
@@ -9874,7 +9700,7 @@ def fetch_lexicon_record(
             "rkey": normalized,
         }
     )
-    payload = request_json(f"{pds_url}/xrpc/com.atproto.repo.getRecord?{params}", timeout=http_timeout)
+    payload = http_transport.request_json(f"{pds_url}/xrpc/com.atproto.repo.getRecord?{params}", timeout=http_timeout)
     return {
         "did": did,
         "did_doc": did_doc,
@@ -10808,7 +10634,7 @@ def request_json_post_raw(
     merged_headers = {"Content-Type": "application/json"}
     if headers:
         merged_headers.update(headers)
-    _, body, _ = request_bytes(
+    _, body, _ = http_transport.request_bytes(
         url,
         headers=merged_headers,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -11275,7 +11101,7 @@ def list_atproto_records(pds_url: str, did: str, cursor: str = "") -> dict[str, 
     params: dict[str, Any] = {"repo": did, "collection": tangled_core.TANGLED_COLLECTION, "limit": 100}
     if cursor:
         params["cursor"] = cursor
-    payload = request_json(
+    payload = http_transport.request_json(
         f"{pds_url}/xrpc/com.atproto.repo.listRecords?{urllib.parse.urlencode(params)}",
         timeout=REQUEST_TIMEOUT_LEXICON_HTTP,
     )
@@ -11347,7 +11173,7 @@ def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) 
     observed_at = iso_now()
     bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
     try:
-        metadata = request_json(metadata_url, timeout=REQUEST_TIMEOUT_SHORT)
+        metadata = http_transport.request_json(metadata_url, timeout=REQUEST_TIMEOUT_SHORT)
         if not isinstance(metadata, dict):
             raise ValueError("OAuth client metadata must be a JSON object")
         for record in relation_core.oauth_metadata_relation_records(metadata_url, metadata, observed_at):
@@ -15482,7 +15308,7 @@ def resolve_lexicon_garden_identity_seed_candidates(url: str) -> list[dict[str, 
     if parsed.netloc.lower() != "lexicon.garden" or len(segments) < 2 or segments[0] != "identity":
         return []
     try:
-        _, body, _ = request_bytes(normalized, headers={"Accept": "text/html"})
+        _, body, _ = http_transport.request_bytes(normalized, headers={"Accept": "text/html"})
     except Exception:
         return []
     parser = HrefHTMLParser()

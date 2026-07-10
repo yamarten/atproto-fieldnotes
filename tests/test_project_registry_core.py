@@ -11,6 +11,7 @@ from unittest import mock
 
 from helpers import registry
 from project_registry_core import domain_policy
+from project_registry_core import http_transport as http_transport_core
 from project_registry_core import llm_evidence as llm_evidence_core
 
 
@@ -81,12 +82,12 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
         ):
             with self.subTest(url=url):
                 with self.assertRaises(ValueError):
-                    registry.validate_outbound_fetch_url(url)
+                    http_transport_core.validate_outbound_fetch_url(url)
 
     def test_validate_outbound_fetch_url_preserves_query_string(self) -> None:
         url = "https://api.github.com/search/repositories?q=Skyrdle+OR+farm.smol.games.skyrdle.score&per_page=5"
 
-        self.assertEqual(registry.validate_outbound_fetch_url(url), url)
+        self.assertEqual(http_transport_core.validate_outbound_fetch_url(url), url)
 
     def test_request_bytes_revalidates_redirect_targets(self) -> None:
         class RedirectOpener:
@@ -99,16 +100,16 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
                     BytesIO(b""),
                 )
 
-        original_opener = registry.NO_REDIRECT_OPENER
-        original_blocker = registry.outbound_host_is_blocked
-        registry.NO_REDIRECT_OPENER = RedirectOpener()
-        registry.outbound_host_is_blocked = lambda host: host == "127.0.0.1"
+        original_opener = http_transport_core.NO_REDIRECT_OPENER
+        original_blocker = http_transport_core.outbound_host_is_blocked
+        http_transport_core.NO_REDIRECT_OPENER = RedirectOpener()
+        http_transport_core.outbound_host_is_blocked = lambda host: host == "127.0.0.1"
         try:
             with self.assertRaises(ValueError):
-                registry.request_bytes_with_final_url("https://example.com/redirect")
+                http_transport_core.request_bytes_with_final_url("https://example.com/redirect")
         finally:
-            registry.NO_REDIRECT_OPENER = original_opener
-            registry.outbound_host_is_blocked = original_blocker
+            http_transport_core.NO_REDIRECT_OPENER = original_opener
+            http_transport_core.outbound_host_is_blocked = original_blocker
 
     def test_request_bytes_can_allow_trusted_operator_endpoint(self) -> None:
         class Response:
@@ -131,17 +132,17 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
             def open(self, req: urllib.request.Request, timeout: float = 0):
                 return Response()
 
-        original_opener = registry.NO_REDIRECT_OPENER
-        registry.NO_REDIRECT_OPENER = LocalOpener()
+        original_opener = http_transport_core.NO_REDIRECT_OPENER
+        http_transport_core.NO_REDIRECT_OPENER = LocalOpener()
         try:
             with self.assertRaises(ValueError):
-                registry.request_bytes_with_final_url("http://192.168.1.2:1234/v1/responses")
-            status, body, _headers, final_url = registry.request_bytes_with_final_url(
+                http_transport_core.request_bytes_with_final_url("http://192.168.1.2:1234/v1/responses")
+            status, body, _headers, final_url = http_transport_core.request_bytes_with_final_url(
                 "http://192.168.1.2:1234/v1/responses",
                 allow_blocked_hosts=True,
             )
         finally:
-            registry.NO_REDIRECT_OPENER = original_opener
+            http_transport_core.NO_REDIRECT_OPENER = original_opener
 
         self.assertEqual(status, 200)
         self.assertEqual(body, b"{}")
@@ -171,14 +172,14 @@ class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
                 seen_urls.append(req.full_url)
                 return Response()
 
-        original_opener = registry.NO_REDIRECT_OPENER
-        registry.NO_REDIRECT_OPENER = RecordingOpener()
+        original_opener = http_transport_core.NO_REDIRECT_OPENER
+        http_transport_core.NO_REDIRECT_OPENER = RecordingOpener()
         try:
-            registry.request_bytes_with_final_url(
+            http_transport_core.request_bytes_with_final_url(
                 "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q=Skyrdle+%7C+skyrdle.com&limit=5",
             )
         finally:
-            registry.NO_REDIRECT_OPENER = original_opener
+            http_transport_core.NO_REDIRECT_OPENER = original_opener
 
         self.assertEqual(
             seen_urls,
@@ -211,16 +212,16 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
                 "pagination": {"hasMore": False},
             }
 
-        original_request_json = registry.request_json
+        original_request_json = http_transport_core.request_json
         original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
-        registry.request_json = fake_request_json
+        http_transport_core.request_json = fake_request_json
         registry.SEMBLE_TRACKED_COLLECTIONS = (
             {"handle": "byarielm.fyi", "rkey": "rkey123", "label": "stale label"},
         )
         try:
             results = registry.fetch_semble_collection_sync_results(pages=1, per_page=20)
         finally:
-            registry.request_json = original_request_json
+            http_transport_core.request_json = original_request_json
             registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
 
         self.assertEqual(
@@ -238,7 +239,7 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
     def test_semble_service_subpage_is_evidence_only(self) -> None:
         source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
         with mock.patch.object(
-            registry,
+            http_transport_core,
             "request_json",
             return_value={
                 "uri": "at://did:plc:example/network.cosmik.collection/collection",
@@ -290,14 +291,14 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
             }
 
         source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
-        with mock.patch.object(registry, "request_json", return_value=payload(ordered=True)):
+        with mock.patch.object(http_transport_core, "request_json", return_value=payload(ordered=True)):
             ordered_scan = registry.fetch_semble_collection_source_sync_results(
                 source,
                 pages=2,
                 per_page=2,
                 cutoff=cutoff,
             )
-        with mock.patch.object(registry, "request_json", side_effect=[payload(ordered=False), {**payload(ordered=False), "urlCards": [], "pagination": {"hasMore": False}}]):
+        with mock.patch.object(http_transport_core, "request_json", side_effect=[payload(ordered=False), {**payload(ordered=False), "urlCards": [], "pagination": {"hasMore": False}}]):
             unordered_scan = registry.fetch_semble_collection_source_sync_results(
                 source,
                 pages=2,
@@ -324,7 +325,7 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
             registry,
             "bsky_access_token",
             return_value="token",
-        ), mock.patch.object(registry, "request_json_authenticated", side_effect=fake_request):
+        ), mock.patch.object(http_transport_core, "request_json_authenticated", side_effect=fake_request):
             registry.search_bsky_posts_payload(
                 "from:example.test",
                 limit=5,
@@ -351,7 +352,7 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
             seen_urls.append(url)
             return payload
 
-        with mock.patch.object(registry, "request_json", side_effect=fake_request):
+        with mock.patch.object(http_transport_core, "request_json", side_effect=fake_request):
             scan = registry.fetch_github_search_query_sync_results(
                 "atproto",
                 pages=3,

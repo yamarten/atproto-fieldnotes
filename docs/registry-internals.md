@@ -215,6 +215,9 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 - `project_registry_core/domain_policy.py`
   - vendored PSL、known/configured multi-tenant suffix、registrable domain、same-site判定
   - suffix設定の読書きもこのmoduleが所有し、`registry.py`は旧symbolをre-exportしない
+- `project_registry_core/http_transport.py`
+  - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
+  - collectorはこのmoduleをtest seamとして使い、`registry.py`は旧transport symbolをre-exportしない
 - `project_registry_core/application/`
   - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う

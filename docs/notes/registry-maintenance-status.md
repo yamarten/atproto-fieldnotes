@@ -89,6 +89,11 @@ maintenance series完了時に削除します。
     projectionを`service.py`へ集約した。
   - generic evidence適用は`integration.py`、既存payloadのrewriteは`storage_cleanup.py`に残し、両方が同じ
     projection関数を利用する。保存契約は変更していない。
+- HTTP transport分離。
+  - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを`http_transport.py`へ移した。
+  - collector call siteとtest doubleを新moduleへ直結し、`registry.py`に旧symbolのre-exportは残していない。
+  - request header、timeout、redirect上限、URL正規化の契約は変更していない。実外部sourceへのsmoke testは
+    実施していない。
 
 作業中:
 
@@ -118,6 +123,7 @@ DB適用:
 - same first-label / different registrable domainをdirect判定、redirect、official/resource link、repo homepageで
   拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
 - domain policy分離後のsuffix設定ファイル更新、cache反映、Web API追加とsame-site判定の回帰test。
+- HTTP transport分離後の内部host遮断、redirect先再検証、明示的なoperator endpoint許可、query送信の回帰test。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
