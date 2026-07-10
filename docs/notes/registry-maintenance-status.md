@@ -35,10 +35,19 @@ maintenance series完了時に削除します。
   - CLI option、server state、POST拒否分岐、settings API field、UI分岐、scheduler接続、専用test/docsを削除した。
   - deprecated optionやpayload互換fieldは残していない。
   - investigation replay、audit、dry-run、SQLite snapshot集計は別機能として維持する。
+- product brief。
+  - 一人のoperatorによる紹介判断を目的とし、通常flow、対象境界、正本、主要判断、非目標を
+    `docs/brief.md`へ分離した。
+  - 最終成果物と成功指標の数値目標は、未決定のものを実装済み仕様として扱っていない。
+- 2026-07-10静止DB baseline。
+  - 正本DBのAPFS cloneだけを集計し、4.43 GiBのうち`investigation_runs` 2.54 GiB、
+    `collector_runs` 1.58 GiB、`projects` 253 MiBであることを確認した。
+  - current stateではservice verification、historyではGitHub/service collector payloadが保存量の主因だった。
+  - phase別時間、正確なprompt量、operator review時間は現行保存形から測れないことを明示した。
 
 作業中:
 
-- なし。
+- enrich phase timingとLLM request metadata。
 
 未実装:
 
@@ -72,6 +81,7 @@ DB適用:
 
 - 正本DBを使ったCLI/Web/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
 - first-label誤判定に由来するconfirmed identifierやrelationが正本DBに何件あるか。
+- 2026-07-10 baselineのphase別時間、正確なprompt量、operator review時間。観測経路が未接続のため。
 
 ## Baseline
 

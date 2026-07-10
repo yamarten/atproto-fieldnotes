@@ -37,10 +37,13 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 
 直近:
 
-1. product briefと現行HEADの再現可能なcheckを固定する。
-2. 静止DB snapshotで保存量、運用時間、調査品質のbaselineを取る。
-3. service verification/resource URL/LLM evidenceの新規増加を止めてから、既存DB cleanupをdry-runする。
-4. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
+1. phase timingとLLM request metadataを追加し、現状測れない時間内訳を取る。
+2. service verificationとcollector historyの新規増加を止めてから、既存DB cleanupをdry-runする。
+3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
+
+product briefと2026-07-10の静止DB baselineは作成済みです。baselineの計測条件、保存量、queue、未接続の
+時間指標は[registry-maintenance-baseline-2026-07-10.md](notes/registry-maintenance-baseline-2026-07-10.md)を
+参照してください。
 
 後続:
 

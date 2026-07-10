@@ -70,6 +70,8 @@
 - 利用手順:
   - [README.md](README.md)
   - [docs/project-registry.md](docs/project-registry.md)
+- 目的・主要判断:
+  - [docs/brief.md](docs/brief.md)
 - 内部仕様:
   - [docs/status.md](docs/status.md)
   - [docs/registry-internals.md](docs/registry-internals.md)

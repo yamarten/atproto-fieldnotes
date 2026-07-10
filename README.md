@@ -164,6 +164,7 @@ DB file自体も縮める場合だけ、他processを停止して`--execute --va
 
 運用・設計向け:
 
+- [docs/brief.md](docs/brief.md): 目的、利用者、通常flow、成果物、主要判断、非目標
 - [docs/status.md](docs/status.md): 現在の通常導線、既知の制約、検証状況
 - [docs/registry-internals.md](docs/registry-internals.md)
 - [docs/investigation-model.md](docs/investigation-model.md)
