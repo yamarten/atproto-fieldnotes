@@ -27,6 +27,10 @@ maintenance series完了時に削除します。
   - 正常利用例・test・現行call siteが無く、成立しない`--new-project-key` / `-n`を削除した。
   - application APIからも未使用引数と到達不能な既存key検証分岐を削除した。
   - CLI、Web、source-configからのsplitは従来どおり新しい`project_key`を自動採番する。
+- same-site first-label fallback削除。
+  - same-siteはPSLとknown/configured multi-tenant suffixを反映した`root_domain()`一致だけで判定する。
+  - 異なるregistrable domainで先頭labelだけが同じhostを、redirect、official/resource link、repo homepageの
+    強いevidenceとして扱わない。
 
 作業中:
 
@@ -44,7 +48,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 310件が全件成功。
+- Python 3.10.20と3.11.15でunit test 315件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -53,10 +57,14 @@ DB適用:
 - 二つの公開wrapperがfake Python 3.9.18をimport前に拒否する回帰test。
 - repository-local `.venv`が無い状態で、system Python 3.14.6を使う二つの公開wrapperの`--help`。
 - `split-project` parserにexplicit key属性が無く、自動採番splitとWeb splitが成功する回帰test。
+- same first-label / different registrable domainをdirect判定、redirect、official/resource link、repo homepageで
+  拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
+- investigation benchmark 6 caseが全件成功、semantic regression 0件。
 
 未検証:
 
 - 正本DBを使ったCLI/Web/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
+- first-label誤判定に由来するconfirmed identifierやrelationが正本DBに何件あるか。
 
 ## Baseline
 

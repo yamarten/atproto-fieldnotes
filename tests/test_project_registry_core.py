@@ -627,6 +627,46 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
         self.assertEqual(registry.classify_service_probe_error(urllib.error.URLError("Connection refused")), "connection_refused")
 
 
+class ProjectRegistrySameSiteTest(unittest.TestCase):
+    def test_same_first_label_on_unrelated_registrable_domains_is_not_same_site(self) -> None:
+        self.assertFalse(registry.is_same_site_family(
+            "https://app.example.com",
+            "https://app.attacker.net",
+        ))
+
+    def test_subdomains_of_same_registrable_domain_are_same_site(self) -> None:
+        self.assertTrue(registry.is_same_site_family(
+            "https://www.example.com",
+            "https://docs.example.com/guide",
+        ))
+
+    def test_unrelated_same_label_link_is_not_classified_as_same_site(self) -> None:
+        self.assertEqual(
+            registry.classify_official_link(
+                "https://app.example.com",
+                "https://app.attacker.net/about",
+                "About this project",
+            ),
+            "other",
+        )
+
+    def test_unrelated_same_label_repo_homepage_gets_no_site_bonus(self) -> None:
+        project = registry.default_project_record(
+            "proj:samesiterepo",
+            "service_url",
+            "https://app.example.com",
+        )
+        project["website_url"] = "https://app.example.com"
+        project["service_urls"] = ["https://app.example.com"]
+
+        score = registry.github_repo_relevance(project, {
+            "url": "https://github.com/unrelated/package",
+            "homepage": "https://app.attacker.net",
+        })
+
+        self.assertEqual(score, 0)
+
+
 class ProjectRegistryServiceRedirectTest(unittest.TestCase):
     def test_redirect_metadata_marks_same_host_http_to_https(self) -> None:
         metadata = registry.service_probe_redirect_metadata("http://example.com", "https://example.com")
@@ -639,6 +679,17 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_redirect_metadata_marks_cross_host_redirect(self) -> None:
         metadata = registry.service_probe_redirect_metadata("https://example.com", "https://other.example.net")
+
+        self.assertTrue(metadata["redirected"])
+        self.assertFalse(metadata["redirect_same_host"])
+        self.assertFalse(metadata["redirect_same_site_family"])
+        self.assertTrue(metadata["redirect_cross_host"])
+
+    def test_redirect_metadata_rejects_same_label_on_unrelated_domains(self) -> None:
+        metadata = registry.service_probe_redirect_metadata(
+            "https://app.example.com",
+            "https://app.attacker.net",
+        )
 
         self.assertTrue(metadata["redirected"])
         self.assertFalse(metadata["redirect_same_host"])
@@ -1257,6 +1308,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             [
                 {"url": "https://example.com/docs", "text": "Docs"},
                 {"url": "https://external.example.net/docs", "text": "External docs"},
+                {"url": "https://example.attacker.net/docs", "text": "Same label external docs"},
             ],
             "service_page:https://example.com",
         )
@@ -1265,6 +1317,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.com/docs"]["confidence"], "confirmed")
         self.assertEqual(records["https://example.com/docs"]["role"], "docs")
         self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
+        self.assertEqual(records["https://example.attacker.net/docs"]["confidence"], "candidate")
 
     def test_first_party_link_collection_skips_same_site_content_pages_without_resource_role(self) -> None:
         project = registry.default_project_record("proj:resourcecontent", "service_url", "https://example.com")

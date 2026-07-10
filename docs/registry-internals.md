@@ -163,6 +163,10 @@ provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `reso
 
 same-siteの`/docs`、`/documentation`、`/about`、`/blog`、`/faq`、`/help`配下の情報ページと、`/login`、`/signin`、`/signup`、`/register`などの認証入口はservice identityではなく`resource_url_records`へ残します。これは補助ページをconfirmed service URLへ過剰昇格させないための暫定heuristicで、path名だけを長期的な信頼根拠とはみなしません。service follow-up probeやdeep page probeの結果はservice statusの補助evidenceには使いますが、補助ページURL自体をconfirmed service URLへ昇格しません。`/app`はapp surfaceとして使われることがあるため、この補助ページ判定だけでは落としません。`block_identifier` / `defer_identifier`されたservice rootは同一originの配下URLにもguardとして効き、confirmed service URL、supporting resource record、`operates_service` relationから除外します。
 
+same-site familyは、PSLとknown/configured multi-tenant suffixを反映した`root_domain()`が一致するhostだけです。
+同じregistrable domainのsubdomain、または同じhosted suffix上の同一tenantはsame-siteですが、異なるregistrable
+domainで先頭labelだけが同じhostはsame-siteにしません。
+
 `project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
 
 runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。

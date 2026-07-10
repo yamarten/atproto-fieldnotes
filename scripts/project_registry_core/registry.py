@@ -5634,11 +5634,9 @@ def is_same_site_family(url_a: str, url_b: str) -> bool:
     host_b = urllib.parse.urlparse(normalize_url(url_b)).netloc
     if not host_a or not host_b:
         return False
-    if root_domain(host_a) == root_domain(host_b):
-        return True
-    first_a = host_a.split(".", 1)[0]
-    first_b = host_b.split(".", 1)[0]
-    return bool(first_a and first_b and first_a == first_b)
+    root_a = root_domain(host_a)
+    root_b = root_domain(host_b)
+    return bool(root_a and root_b and root_a == root_b)
 
 
 def classify_official_link(base_url: str, url: str, text: str) -> str:
