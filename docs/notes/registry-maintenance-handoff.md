@@ -25,6 +25,8 @@
   2026-07-10 clone全件のdry-runは完了し、正本DBへの適用はしていません。
 - planning/triageのLLM evidenceは24 KiBとfield別件数budgetを実装済みです。clone全件のprompt生成は確認済み、
   実LLM callは未検証です。
+- interactive review CLIは`commands/review.py`、merge-batch CLIは`commands/merge.py`へ移動済みです。
+  assist-db-editは`commands/assist.py`へ移し、`registry.py`にCLI `cmd_*`は残っていません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 

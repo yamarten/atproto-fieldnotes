@@ -74,6 +74,11 @@ maintenance series完了時に削除します。
   - planning/triageの可変evidenceを整形後24 KiB、文字列4 KiB、field別代表件数で制限した。
   - listは先頭・末尾を残し、追加縮約時はfield別の観測件数と採用件数を`evidence_budget`へ入れる。
   - 2026-07-10 clone全3,239 projectへの投影は最大24,489 bytes、budget発動41件。実LLM callは未検証。
+- CLI adapter分離。
+  - stalled/ignore/out-of-scopeのinteractive review入出力を`registry.py`から`commands/review.py`へ移した。
+  - merge-batchのinteractive action、undo、出力を`commands/merge.py`へ移した。
+  - assist-db-editの候補表示、確認、mutation adapterを`commands/assist.py`へ移した。
+  - 判定helperと保存契約は変更せず、`registry.py`から`cmd_*`と`argparse`依存を除去した。
 
 作業中:
 
@@ -91,7 +96,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 328件が全件成功。
+- Python 3.10.20と3.11.15でunit test 332件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
