@@ -30,7 +30,7 @@ maintenance series完了時に削除します。
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
 | P2.1 | 完了 | `61af6f6`。`docs/brief.md`を作成 | 数値目標は未決定と明記済みで、実装済み仕様にはしていない |
-| P2.2 | 一部完了 | `61af6f6`の容量baselineに加え、[2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)で実LLM 2 project×planning/triageを測定 | 代表10〜20 projectのcollector/save込みend-to-endとoperator review時間を取得するか、取得しない項目をroadmapへ移す |
+| P2.2 | 完了 | `61af6f6`の容量baselineに加え、[2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)でprompt-size分位10 project、20実LLM requestを測定 | full enrich phase蓄積とoperator review時間は通常運用で測るroadmapへ分離 |
 | P2.3 | 完了 | `be27ef4`。7 phaseとplanning/triage request metricsを保存・API・Webへ接続 | 代表sample取得はP2.2で追跡 |
 | P2.4 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)でGitHub、Semble、Bluesky introduced、collection inventory、Tangledのbounded worker dry-runと実LLM接続を確認。collection/Tangledへ`max_items`を追加 | live smokeは通常接続、failure/cancelはdeterministic test、partial-result policy変更はP4.3の責務とした |
 | P2.5 | 未着手 | なし | request log、traceback、scheduler失敗、lock範囲、constant-time token比較、innerHTML、利用制約を個別に監査し、実装またはroadmap判断する |

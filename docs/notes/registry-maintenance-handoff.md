@@ -9,7 +9,7 @@
 ## 現在地
 
 進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
-現在は完了13、一部完了8、未着手11、別operation待ち1です。未終端20 IDは下記の作業順にすべて含めます。
+現在は完了14、一部完了7、未着手11、別operation待ち1です。未終端19 IDは下記の作業順にすべて含めます。
 ここへ完了項目や検証履歴を複製しません。
 
 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
@@ -17,8 +17,6 @@
 ## 次に必要な作業
 
 1. ユーザーが確認できる間に、承認・外部状態へ依存する検証を先に行う。
-   - P2.2: 複製DBで取得済みの2 project×planning/triage実測を起点に、代表10〜20 project、collector/save込み、
-     operator review時間まで今回測るか、残りをroadmapへ移すか決める。
    - P4.1: 同じnetwork windowでSembleを1 page / 1 itemに制限してdry-runし、weak match監査の実例を確保する。
    - P3.3はstorage codeの確定・適用前なので、この承認windowには含めない。
 2. 現在開いている分割を閉じる。
@@ -27,7 +25,6 @@
    - P6.6: provider別repo URL/naming helperを移すかroadmapへ延期する。
    - P6.7: 残るorchestration分割の実施範囲を決め、移動またはroadmapへ延期する。
 3. 計測・保存scopeの残る部分完了を閉じる。
-   - P2.2: 先行実測で取得できなかったprompt/operator時間を追加取得するかroadmapへ移す。
    - P3.1: `resource_url_records` budgetの全生成経路を監査する。
    - P3.2: cleanup reportとplan上のcategory/role/host/path要件との差を決着する。
 4. Webと長時間operationの未着手code auditを行う。

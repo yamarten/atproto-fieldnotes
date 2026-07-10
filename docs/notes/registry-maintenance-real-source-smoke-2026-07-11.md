@@ -39,7 +39,7 @@ failure/cancelの責務分担:
 - 固定55-byte prompt:
   - 初回接続はtool側wall timeで約94秒。application metricsを取得できなかったためcold-start参考値
   - warm runは831 ms
-- 2026-07-10 cloneの代表project:
+- 2026-07-10 cloneの初回probe:
 
 | sample | purpose | prompt bytes | response bytes | duration |
 |---|---|---:|---:|---:|
@@ -49,7 +49,32 @@ failure/cancelの責務分担:
 | payload p95 | triage | 29,598 | 2,730 | 16,632 ms |
 
 4 requestは全て`success`で、timeoutは180秒、transportはOpenAI互換Responses APIでした。代表10〜20 project、
-collector/save込みend-to-end、operator review時間は未測定です。
+collector/save込みend-to-end、operator review時間はこの時点では未測定でした。
+
+続いて、clone全3,239 projectについてplanning/triage prompt byte数をローカルで算出し、最大値の分位点から
+10 projectを選びました。本文とresponseは保存せず、request metricsだけを集計しました。
+
+| sample | planning prompt | planning duration | triage prompt | triage duration |
+|---|---:|---:|---:|---:|
+| q00 | 2,203 bytes | 8,060 ms | 6,678 bytes | 8,743 ms |
+| q10 | 2,931 bytes | 7,025 ms | 7,406 bytes | 9,283 ms |
+| q20 | 3,340 bytes | 6,631 ms | 7,815 bytes | 12,351 ms |
+| q30 | 3,650 bytes | 6,528 ms | 8,125 bytes | 11,618 ms |
+| q40 | 4,017 bytes | 7,389 ms | 8,492 bytes | 11,977 ms |
+| q50 | 4,539 bytes | 7,887 ms | 9,014 bytes | 12,599 ms |
+| q60 | 5,237 bytes | 8,612 ms | 9,712 bytes | 12,817 ms |
+| q70 | 6,183 bytes | 9,134 ms | 10,658 bytes | 14,589 ms |
+| q80 | 7,898 bytes | 10,974 ms | 12,373 bytes | 15,542 ms |
+| q90 | 25,133 bytes | 23,406 ms | 29,608 bytes | 29,228 ms |
+
+- 20/20 requestが成功し、timeout/failureは0件
+- planningは6,528〜23,406 ms、中央値7,974 ms
+- triageは8,743〜29,228 ms、中央値12,475 ms
+- 1 projectあたり2 request合計は16,308〜52,634 ms、中央値19,926 ms
+
+これはLLM request単体のbaselineであり、collector、DB save/commit、operator reviewを含みません。full enrichは
+dry-runでもinvestigation/projectを書き込み、source request数もこのsmoke用にboundedではないため今回実行しませんでした。
+新規runのphase timing蓄積と人間のreview時間はroadmapで通常運用時に測ります。
 
 ## P4.1 Semble sample
 

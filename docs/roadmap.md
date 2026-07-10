@@ -37,7 +37,8 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 
 直近:
 
-1. 新規runのphase timingを代表sampleで蓄積し、長時間runの支配区間を確定する。
+1. 新規runのphase timingを代表sampleで蓄積し、collector、LLM、save/commitを含むfull enrichの支配区間を確定する。
+   operatorが実際にqueueを判断するreview時間はapplication timingから推測せず、通常運用のsession単位で別に測る。
 2. 承認済みmaintenance windowで既存DBのstorage cleanupをbackup・停止・検査付きで適用する。
 3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
 
