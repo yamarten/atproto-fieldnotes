@@ -189,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_collections_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Use the last successful inventory watermark. Default: enabled.")
     sync_collections_parser.add_argument("--all-history", action="store_true", help="Ignore the saved watermark and initial lookback for unknown collections.")
     sync_collections_parser.add_argument("--save-path", type=Path, help="Optional path to save the fetched JSON payload.")
+    sync_collections_parser.add_argument("--max-items", type=int, help="Bound the number of fetched entries processed; a truncated run does not advance sync state.")
     sync_collections_parser.set_defaults(func=sync_commands.cmd_sync_collections)
 
     sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
@@ -206,6 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched atproto-relevant repos. Default: disabled.")
     sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
     sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
+    sync_tangled_parser.add_argument("--max-items", type=int, help="Bound the number of rolling-window entries processed; a truncated run does not advance sync state.")
     sync_tangled_parser.set_defaults(func=sync_commands.cmd_sync_tangled_repos)
 
     replay_parser = subparsers.add_parser("replay-investigation", help="Replay a saved investigation without collectors or network access.")

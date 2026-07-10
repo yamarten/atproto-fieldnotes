@@ -30,9 +30,9 @@ maintenance series完了時に削除します。
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
 | P2.1 | 完了 | `61af6f6`。`docs/brief.md`を作成 | 数値目標は未決定と明記済みで、実装済み仕様にはしていない |
-| P2.2 | 一部完了 | `61af6f6`。2026-07-10 cloneでtable/field容量とoutlierを集計 | 新規timingを持つ代表10〜20 projectの所要時間、prompt/timeout分布、operator review時間を取得するか、取得しない項目をroadmapへ移す |
+| P2.2 | 一部完了 | `61af6f6`の容量baselineに加え、[2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)で実LLM 2 project×planning/triageを測定 | 代表10〜20 projectのcollector/save込みend-to-endとoperator review時間を取得するか、取得しない項目をroadmapへ移す |
 | P2.3 | 完了 | `be27ef4`。7 phaseとplanning/triage request metricsを保存・API・Webへ接続 | 代表sample取得はP2.2で追跡 |
-| P2.4 | 未着手 | unit testのfake transportのみ | boundedな実source smokeを実行し、pagination/watermark/partial failure/cancel/re-runを記録するかroadmapへ延期する |
+| P2.4 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)でGitHub、Semble、Bluesky introduced、collection inventory、Tangledのbounded worker dry-runと実LLM接続を確認。collection/Tangledへ`max_items`を追加 | live smokeは通常接続、failure/cancelはdeterministic test、partial-result policy変更はP4.3の責務とした |
 | P2.5 | 未着手 | なし | request log、traceback、scheduler失敗、lock範囲、constant-time token比較、innerHTML、利用制約を個別に監査し、実装またはroadmap判断する |
 
 ### Phase 3
@@ -48,7 +48,7 @@ maintenance series完了時に削除します。
 
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
-| P4.1 | 未着手 | なし | Semble weak matchを現行実装と実データdry-runで監査し、suggestion contractへ寄せるか現状維持を決める |
+| P4.1 | 一部完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)で2 cardを3,239-project cloneへdry-run。2件ともexact service match | 現行matching call pathを監査し、より広いsampleでweak attachの有無を確認して実装または現状維持を決める |
 | P4.2 | 未着手 | なし | exact lookupのnormalized index利用、allocator利用、fuzzy lookup分離を実装またはroadmap判断する |
 | P4.3 | 未着手 | なし | bulk failure/cancel result policyを決め、実装・testするかroadmap判断する |
 | P4.4 | 未着手 | `3d0b598`はtransport分離のみでretry policyを変更していない | failure分類、payload fallback、timeout後retry、command/endpoint timeoutを決定・実装するかroadmap判断する |
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 336件が全件成功。
+- Python 3.10.20と3.11.15でunit test 338件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -114,6 +114,8 @@ maintenance series完了時に削除します。
   prompt/response bytes、success/timeout分類を確認した。
 - metricsがreplay evaluationとfixture exportへ混入せず、prompt/endpoint/commandが保存対象外になる回帰test。
 - command型LLM transportが設定commandを呼ぶ回帰test。これに必要な`subprocess` import欠落も修正した。
+- 空のtemp DBを使った実workerからGitHub、Semble、Bluesky introduced、collection inventory、Tangledへの
+  bounded dry-runと、設定済み実LLM endpointへの接続。collection/Tangledの再実行を含めDB件数は不変。
 
 未検証:
 

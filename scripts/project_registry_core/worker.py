@@ -58,6 +58,7 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
             conn,
             create_unmatched=bool(parameters.get("create_unmatched")),
             lookback_days=max(1, int(parameters.get("lookback_days") or 10)),
+            max_items=max(1, int(parameters["max_items"])) if parameters.get("max_items") else None,
             **common,
         )
     if source == "semble":
@@ -73,6 +74,7 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
         return sync.tangled(
             conn,
             create_unmatched=bool(parameters.get("create_unmatched")),
+            max_items=max(1, int(parameters["max_items"])) if parameters.get("max_items") else None,
             **common,
         )
     raise ValueError(f"unsupported sync source: {source}")

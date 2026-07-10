@@ -341,6 +341,7 @@ project-registry sync-github-search \
 - timestamp 境界は再取得を許す at-least-once 方式です。重複処理はあり得ますが、同一 timestamp の新規項目を落としにくくします
 
 Semble は response の `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた場合だけ、watermark より古い card で早期停止します。`sync-collections` は既知 project の activity refresh のため、増分化後も inventory API 全件を取得します。
+`sync-collections --max-items N`は、inventory応答の先頭N件だけを照合・import対象にする検証用の上限です。API応答自体は全件取得します。応答を切り詰めたexecuteでは未処理entryを取りこぼさないようsync stateを進めません。
 Semble card の非root service URLは project seed にせず、既存root service projectがある場合だけ evidence URL として添付します。
 
 ## merge
@@ -761,6 +762,8 @@ python3 -m playwright install chromium
 ### Tangled UFOsの実験的sync
 
 `sync-tangled-repos`はUFOsのrolling windowからTangled repo recordを探す補助経路です。通常の全履歴syncではなく、既定はdry-runかつunmatched project作成offです。
+
+`--max-items N`を指定すると、rolling window応答の先頭N件だけを処理します。応答自体は全件取得し、切り詰めたexecuteではsync stateを進めません。
 
 通常の`enrich`では、accepted source repo URLがTangledの場合にrepo root HTMLとREADME rawを取得し、README内URLと短いexcerptを候補evidenceへ反映します。これは完全なTangled履歴syncやrecursive tree取得ではありません。
 

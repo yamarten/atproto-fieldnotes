@@ -65,6 +65,7 @@ def cmd_sync_collections(args: argparse.Namespace) -> int:
         save_path=args.save_path,
         incremental=bool(args.incremental),
         all_history=bool(args.all_history),
+        max_items=max(1, int(args.max_items)) if args.max_items is not None else None,
     ))
     return _print(payload, execute=bool(args.execute))
 
@@ -90,6 +91,7 @@ def cmd_sync_tangled_repos(args: argparse.Namespace) -> int:
         create_unmatched=bool(args.create_unmatched),
         incremental=bool(args.incremental),
         all_history=bool(args.all_history),
+        max_items=max(1, int(args.max_items)) if args.max_items is not None else None,
     ))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

@@ -85,6 +85,7 @@ def collections(
     save_path: str | None = None,
     incremental: bool = True,
     all_history: bool = False,
+    max_items: int | None = None,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -101,6 +102,7 @@ def collections(
         save_path=save_path,
         incremental=incremental,
         all_history=all_history,
+        max_items=max_items,
         progress=progress,
         cancel_requested=cancel_requested,
     )
@@ -140,6 +142,7 @@ def tangled(
     create_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    max_items: int | None = None,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -149,6 +152,7 @@ def tangled(
         create_unmatched=create_unmatched,
         incremental=incremental,
         all_history=all_history,
+        max_items=max_items,
         progress=progress,
         cancel_requested=cancel_requested,
     )

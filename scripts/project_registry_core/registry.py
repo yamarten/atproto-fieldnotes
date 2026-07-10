@@ -6697,6 +6697,7 @@ def sync_collection_inventory(
     save_path: Path | None = None,
     incremental: bool = True,
     all_history: bool = False,
+    max_items: int | None = None,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -6704,6 +6705,9 @@ def sync_collection_inventory(
     state = read_sync_state(conn, "collections", scope)
     stored_watermark = sync_watermark_datetime(state) if incremental and not all_history else None
     payload = fetch_collection_inventory(source_url)
+    processing_limit = max(1, int(max_items)) if max_items is not None else None
+    processing_payload = payload[:processing_limit] if processing_limit is not None else payload
+    truncated = len(processing_payload) < len(payload)
     if progress:
         progress(1, 2, {"kind": "source_page", "source": "collections", "entry_count": len(payload)})
     if cancel_requested and cancel_requested():
@@ -6720,27 +6724,30 @@ def sync_collection_inventory(
         save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     projects = all_projects(conn)
     filtered_payload, filter_stats = filter_sync_collection_inventory_payload(
-        payload,
+        processing_payload,
         projects,
         lookback_days=lookback_days,
         watermark=None if all_history else stored_watermark,
         all_history=all_history,
     )
+    filter_stats["fetched_entries"] = len(payload)
+    filter_stats["processed_entries"] = len(processing_payload)
+    filter_stats["truncated"] = truncated
     payload_timestamps = [
         parsed
-        for item in payload
+        for item in processing_payload
         if (parsed := parse_iso_datetime(str(item.get("max") or item.get("min") or ""))) is not None
     ]
     newest_timestamp = max(payload_timestamps) if payload_timestamps else None
     activity_refresh = refresh_known_collection_activity(
         conn,
-        payload,
+        processing_payload,
         execute=execute,
         source=f"collection_inventory_url:{source_url}",
         inactivity_days=lookback_days,
     )
     if not filtered_payload:
-        state_updated = bool(execute and incremental and newest_timestamp is not None)
+        state_updated = bool(execute and incremental and newest_timestamp is not None and not truncated)
         if state_updated:
             write_sync_state(conn, "collections", scope, {"timestamp": newest_timestamp.isoformat()})
             conn.commit()
@@ -6779,7 +6786,13 @@ def sync_collection_inventory(
         progress(2, 2, {"kind": "source_items", "source": "collections", "entry_count": len(filtered_payload)})
     summary.update(filter_stats)
     summary.update(activity_refresh)
-    state_updated = bool(execute and incremental and newest_timestamp is not None and (create_unmatched or int(summary.get("unmatched") or 0) == 0))
+    state_updated = bool(
+        execute
+        and incremental
+        and newest_timestamp is not None
+        and not truncated
+        and (create_unmatched or int(summary.get("unmatched") or 0) == 0)
+    )
     if state_updated:
         write_sync_state(conn, "collections", scope, {"timestamp": newest_timestamp.isoformat()})
         conn.commit()
@@ -7924,15 +7937,24 @@ def sync_tangled_repos(
     create_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
+    max_items: int | None = None,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
     state = read_sync_state(conn, "tangled-repos", scope)
     watermark_before = int(state.get("watermark", {}).get("time_us") or 0) if incremental and not all_history else 0
-    entries = fetch_tangled_ufos_window()
+    observed_entries = fetch_tangled_ufos_window()
     config = dict(load_config().get("tangled_repo_discovery") or {})
-    entries = entries[:max(1, int(config.get("limit") or 100))]
+    configured_limit = max(1, int(config.get("limit") or 100))
+    requested_limit = max(1, int(max_items)) if max_items is not None else configured_limit
+    processing_limit = min(configured_limit, requested_limit)
+    entries = observed_entries[:processing_limit]
+    bounded_truncated = (
+        max_items is not None
+        and processing_limit < configured_limit
+        and len(entries) < len(observed_entries)
+    )
     newest = max((int(item.get("time_us") or 0) for item in entries), default=0)
     oldest = min((int(item.get("time_us") or 0) for item in entries), default=0)
     boundary_reached = not watermark_before or any(int(item.get("time_us") or 0) <= watermark_before for item in entries)
@@ -7985,7 +8007,13 @@ def sync_tangled_repos(
                 save_project(conn, finalize_project_shape(project), enriched=False)
         results.append({"repo_url": repo_url, "owner_did": owner_did, "outcome": outcome, "time_us": entry["time_us"]})
     state_updated = bool(
-        execute and not cancelled and incremental and newest and boundary_reached and (create_unmatched or unmatched == 0)
+        execute
+        and not cancelled
+        and incremental
+        and newest
+        and boundary_reached
+        and not bounded_truncated
+        and (create_unmatched or unmatched == 0)
     )
     if state_updated:
         write_sync_state(conn, "tangled-repos", scope, {"time_us": newest, "rolling_window_oldest_time_us": oldest})
@@ -7994,7 +8022,10 @@ def sync_tangled_repos(
     return {
         "mode": "execute" if execute else "dry_run",
         "source": "ufos_rolling_window",
+        "observed": len(observed_entries),
         "fetched": len(entries),
+        "processing_limit": processing_limit,
+        "truncated": bounded_truncated,
         "selected": len(selected),
         "matched": matched,
         "created": created,

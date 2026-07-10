@@ -435,6 +435,63 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertFalse(cancelled["state_updated"])
         self.assertFalse(result["cancelled"])
 
+    def test_collection_sync_bounds_processing_without_advancing_state(self) -> None:
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        entries = [
+            {"collection": "app.one.record", "min": now, "max": now, "count": 1},
+            {"collection": "app.two.record", "min": now, "max": now, "count": 1},
+        ]
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(registry, "fetch_collection_inventory", return_value=entries):
+                summary = registry.sync_collection_inventory(
+                    conn,
+                    source_url="https://example.test/collections.json",
+                    execute=True,
+                    create_unmatched=True,
+                    lookback_days=10,
+                    max_items=1,
+                )
+            state = registry.read_sync_state(
+                conn,
+                "collections",
+                {"source_url": "https://example.test/collections.json"},
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["fetched_entries"], 2)
+        self.assertEqual(summary["processed_entries"], 1)
+        self.assertTrue(summary["truncated"])
+        self.assertEqual(summary["created"], 1)
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"], {})
+        self.assertEqual(state["last_success_at"], "")
+
+    def test_tangled_sync_bounds_processing_without_advancing_state(self) -> None:
+        entries = [
+            {"rkey": "repo-2", "time_us": 20, "record": {}, "atproto_relevant": False, "owner_did": ""},
+            {"rkey": "repo-1", "time_us": 10, "record": {}, "atproto_relevant": False, "owner_did": ""},
+        ]
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=entries):
+                summary = registry.sync_tangled_repos(conn, execute=True, max_items=1)
+            state = registry.read_sync_state(
+                conn,
+                "tangled-repos",
+                {"source": "ufos", "collection": registry.tangled_core.TANGLED_COLLECTION},
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["observed"], 2)
+        self.assertEqual(summary["fetched"], 1)
+        self.assertTrue(summary["truncated"])
+        self.assertFalse(summary["state_updated"])
+        self.assertEqual(state["watermark"], {})
+        self.assertEqual(state["last_success_at"], "")
+
 
 if __name__ == "__main__":
     import unittest
