@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import unittest
@@ -10,6 +11,7 @@ from unittest import mock
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
+from project_registry_core import integration as integration_core
 from project_registry_core import investigation as investigation_core
 from project_registry_core import relations as relation_core
 from project_registry_core import runtime_view
@@ -533,6 +535,83 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             replayed = registry.replay_core.replay_bundle(project, bundle, registry.replay_dependencies())
         self.assertEqual(replayed["service_status"], "live")
         self.assertIn("app_shell_detected", replayed["service_status_evidence"])
+
+    def test_service_probe_evidence_applies_count_and_byte_budgets(self) -> None:
+        html = "調査" * 10000
+        links = [
+            {"url": f"https://noise-{index}.example/path", "text": "noise" * 200}
+            for index in range(500)
+        ] + [
+            {"url": "https://github.com/example/app", "text": "Source code"},
+            {"url": "https://example.com/docs", "text": "Documentation"},
+            {"url": "https://bsky.app/profile/example.com", "text": "Bluesky"},
+            {"url": "https://example.com/" + "x" * 3000, "text": "oversized"},
+        ]
+        urls = [f"https://noise-{index}.example/path" for index in range(500)] + [
+            "https://bsky.app/profile/example.com"
+        ]
+        bundle = service_core.collect_service_probe_evidence(
+            "proj:service-budget",
+            "https://example.com",
+            {
+                "status_code": 200,
+                "title": "Example",
+                "description": "Example service",
+                "html": html,
+                "links": links,
+                "urls": urls,
+            },
+            observed_at="2026-07-10T00:00:00+00:00",
+            supports_project=True,
+        )
+        result = next(record.value for record in bundle.records if record.kind == "service_verification")
+
+        self.assertLessEqual(len(result["html_extract"].encode("utf-8")), service_core.SERVICE_HTML_EXTRACT_MAX_BYTES)
+        self.assertEqual(result["content_sha256"], hashlib.sha256(html.encode("utf-8")).hexdigest())
+        self.assertGreater(result["observed_html_bytes"], len(result["html_extract"].encode("utf-8")))
+        self.assertEqual(result["observed_link_count"], len(links))
+        self.assertLessEqual(len(result["links"]), service_core.SERVICE_LINK_MAX_COUNT)
+        self.assertLessEqual(
+            len(json.dumps(result["links"], ensure_ascii=False).encode("utf-8")),
+            service_core.SERVICE_LINK_MAX_BYTES,
+        )
+        self.assertLess(len(result["links"]), result["observed_link_count"])
+        self.assertIn("https://github.com/example/app", {item["url"] for item in result["links"]})
+        self.assertIn("https://example.com/docs", {item["url"] for item in result["links"]})
+        self.assertFalse(any(
+            len(item["url"].encode("utf-8")) > service_core.SERVICE_URL_ITEM_MAX_BYTES
+            for item in result["links"]
+        ))
+        self.assertIn("https://bsky.app/profile/example.com", result["urls"])
+        self.assertEqual(result["observed_url_count"], len(urls))
+        self.assertLessEqual(
+            len(json.dumps(result["urls"], ensure_ascii=False).encode("utf-8")),
+            service_core.SERVICE_URL_MAX_BYTES,
+        )
+        self.assertTrue(any(
+            record.kind == "relation"
+            and record.value.get("predicate") == "source_repository"
+            for record in bundle.records
+        ))
+
+    def test_service_verification_current_state_keeps_latest_surface(self) -> None:
+        results: list[dict] = []
+        results = integration_core.merge_service_verification_results(results, {
+            "lane": "static", "requested_url": "https://example.com/", "title": "old"
+        })
+        results = integration_core.merge_service_verification_results(results, {
+            "lane": "static", "requested_url": "https://example.com", "title": "new"
+        })
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "new")
+
+        for index in range(40):
+            results = integration_core.merge_service_verification_results(results, {
+                "lane": "follow_up",
+                "requested_url": f"https://example.com/page-{index}",
+            })
+        self.assertEqual(len(results), integration_core.SERVICE_VERIFICATION_RESULT_MAX_COUNT)
+        self.assertEqual(results[-1]["requested_url"], "https://example.com/page-39")
 
     def test_service_integration_does_not_collect_follow_up_pages(self) -> None:
         project = self.make_project("proj:service-apply", "service_url", "https://example.com")

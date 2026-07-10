@@ -249,6 +249,9 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `source`, `operation`, `status`, `observed_at`
 - `result_json`, `records_json`, `failures_json`
 
+`projects.state_json`の`service_verification_results`は時系列履歴ではありません。`lane + requested_url`単位の
+最新観測を最大32 surface保持するcurrent viewです。過去runは上記history tableで確認します。
+
 JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
 
 新しいenrich runでは、`evaluation_json`の予約key `_run_metrics`へrun timingとLLM request metadataを保存します。

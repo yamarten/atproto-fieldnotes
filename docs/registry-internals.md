@@ -337,6 +337,15 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - same site family でも既存 `website_url` がある場合は、redirect 先を candidate に留めます
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
+- service probeの判定とrelation抽出には取得したresponse全体を使いますが、EvidenceBundleとcurrent stateへ保存する
+  raw surfaceはbounded representativeです。
+  - `html_extract`: UTF-8で最大12 KiB。全文のSHA-256と取得時byte数は別に保持
+  - `links`: 最大128件かつcompact JSON 64 KiB。1 linkのtextは512 bytes、URLは2 KiB
+  - `urls`: 最大192件かつcompact JSON 32 KiB。1 URLは2 KiB
+  - repo、Bluesky profile、docs/support/status/privacy/login等の役割を持つlink、同一host系link、その他の順で残す
+  - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
+- current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。
+  異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 - `service_probe_supports_project()` は `trust-graph-v1` の URL 相互信頼で判定します
   - service page の GitHub repo link は `service_links_repo`
   - GitHub repository metadata の homepage は `repo_links_service`

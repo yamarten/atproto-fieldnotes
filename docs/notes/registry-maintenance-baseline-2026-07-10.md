@@ -171,11 +171,16 @@ evaluation、run history save、project saveのwall timeと、LLM request bytes/
 transaction commit、token数、operator review時間は引き続き未接続です。過去15,086 runへは遡及できないため、
 このsnapshotの未計測値をbackfillしたとは扱いません。
 
+同branchでservice verificationの新規保存budgetも接続しました。2026-07-10 snapshotの保存済みpayloadへ同じ規則を
+read-only適用した概算は204,648,820 bytesから43,172,994 bytes（78.9%減）、12,458 resultから3,878 current
+surface、最大project 3,560,797 bytesから698,441 bytesです。既存HTML extract自体が旧20,000文字上限後の値なので、
+原responseに対する完全な予測ではありません。正本DBへのcleanupは未実施です。
+
 ## 判断
 
 確認済みの優先順位:
 
-1. current stateでは`service_verification_results.html_extract/links/urls`へ件数・byte budgetを設ける。
+1. current stateの`service_verification_results.html_extract/links/urls` budgetを新規runで検証する。
 2. historyでは`github_repo`とservice系collector recordsの保持内容を調べ、新規増加を止める。
 3. 新規runのphase timingを蓄積し、長時間runと保存量outlierを同じproject/run単位で比較する。
 4. 新規保存budgetを検証してから、正本DB cleanupを別maintenance operationとしてdry-runする。

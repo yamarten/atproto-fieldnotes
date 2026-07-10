@@ -17,13 +17,15 @@
   いません。
 - 新規enrich runのphase timingとLLM request metadataは保存、API、Web表示まで接続済みです。旧runへの
   backfill、transaction commit、operator review時間の計測は行っていません。
+- service verificationのHTML/link/URL budgetとcurrent surface upsertは実装済みです。正本DB cleanupは
+  実施していません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. service verificationのHTML extract、links、urlsへ件数・byte budgetを実装する。
-2. collector historyのGitHub/service payloadへ新規保存budgetを実装する。
+1. collector historyのGitHub/service payloadへ新規保存budgetを実装する。
+2. service verification cleanup dry-runをsemantic diff付きの正式reportへする。
 3. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
 4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
 

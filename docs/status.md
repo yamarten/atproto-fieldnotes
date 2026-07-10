@@ -51,6 +51,10 @@
   - source keyのinvestigation runをtarget detailへ束ね、保存snapshotは維持
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
+- bounded service verification保存
+  - current stateはsurfaceごとの最新結果を最大32件保持
+  - HTML extract、links、URLsへUTF-8/JSON byte budgetと件数上限を適用
+  - relation/evaluationは取得結果全体から先に計算し、保存payloadだけを縮約
 
 利用手順は[project-registry.md](project-registry.md)、保存契約は
 [project-record.md](project-record.md)、調査契約は

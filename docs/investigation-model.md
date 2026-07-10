@@ -82,6 +82,7 @@ classification は project field の confidence と同義ではありません�
 - `EvidenceRecord`
   - `kind`, `source`, `classification`, `observed_at`
   - JSON-compatible な `value` と query、score、repo path などの `context`
+  - service verificationのHTML/link/URLはcollector内の判定後に保存budgetを適用し、観測総数とdigestを併記する
 - `CollectorFailure`
   - `source`, `operation`, `target`, `category`, `message`, `retryable`
 - `CollectorResult`

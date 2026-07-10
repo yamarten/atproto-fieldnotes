@@ -50,10 +50,16 @@ maintenance series完了時に削除します。
   - planning/triage LLM requestごとにprompt/response bytes、所要時間、timeout/error分類を保存する。
   - prompt本文、endpoint、command、API keyは保存せず、replay evaluationから非決定的なmetricsを分離する。
   - Webのlatest run、run list、run detailへ接続した。
+- service verification保存budget。
+  - full responseから判定とrelationを作った後、HTML extract 12 KiB、links 128件/64 KiB、URLs 192件/32 KiBへ
+    保存payloadを縮約する。
+  - repo、Bluesky profile、補助page、同一host系を優先して代表linkを残し、観測総件数とfull HTML digestを保持する。
+  - current stateは`lane + requested_url`ごとの最新結果、最大32 surfaceとし、時系列はrun historyへ分離する。
+  - 2026-07-10 snapshotへのread-only概算は204.6 MBから43.2 MBで、正本DB cleanupは実施していない。
 
 作業中:
 
-- service verificationとcollector historyの新規保存budget。
+- collector historyの新規保存budget。
 
 未実装:
 
@@ -67,7 +73,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 319件が全件成功。
+- Python 3.10.20と3.11.15でunit test 321件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
