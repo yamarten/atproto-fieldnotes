@@ -4,7 +4,7 @@ import json
 import sqlite3
 from typing import Any
 
-from . import integration, investigation, service, storage
+from . import investigation, service, storage
 from .evidence import EvidenceBundle
 
 
@@ -53,7 +53,7 @@ def compact_service_verification_results(value: Any) -> list[dict[str, Any]]:
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict):
             continue
-        selected = integration.merge_service_verification_results(
+        selected = service.merge_service_verification_results(
             selected,
             compact_saved_service_verification(item),
         )

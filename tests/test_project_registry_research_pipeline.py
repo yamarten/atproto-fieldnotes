@@ -723,21 +723,21 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_service_verification_current_state_keeps_latest_surface(self) -> None:
         results: list[dict] = []
-        results = integration_core.merge_service_verification_results(results, {
+        results = service_core.merge_service_verification_results(results, {
             "lane": "static", "requested_url": "https://example.com/", "title": "old"
         })
-        results = integration_core.merge_service_verification_results(results, {
+        results = service_core.merge_service_verification_results(results, {
             "lane": "static", "requested_url": "https://example.com", "title": "new"
         })
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "new")
 
         for index in range(40):
-            results = integration_core.merge_service_verification_results(results, {
+            results = service_core.merge_service_verification_results(results, {
                 "lane": "follow_up",
                 "requested_url": f"https://example.com/page-{index}",
             })
-        self.assertEqual(len(results), integration_core.SERVICE_VERIFICATION_RESULT_MAX_COUNT)
+        self.assertEqual(len(results), service_core.SERVICE_VERIFICATION_RESULT_MAX_COUNT)
         self.assertEqual(results[-1]["requested_url"], "https://example.com/page-39")
 
     def test_service_integration_does_not_collect_follow_up_pages(self) -> None:

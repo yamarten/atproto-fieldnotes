@@ -210,6 +210,8 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - investigation run保存、network-free replay、fixture benchmark
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
+  - service verification evidenceの縮約と、`lane + requested_url`単位の最新32 surface projectionは
+    `service.py`が所有する
 - `project_registry_core/domain_policy.py`
   - vendored PSL、known/configured multi-tenant suffix、registrable domain、same-site判定
   - suffix設定の読書きもこのmoduleが所有し、`registry.py`は旧symbolをre-exportしない

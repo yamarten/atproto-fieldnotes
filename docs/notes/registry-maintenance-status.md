@@ -84,6 +84,11 @@ maintenance series完了時に削除します。
     `domain_policy.py`へ機械的に移した。
   - CLI/Webを含むcall siteを同時に移し、`registry.py`に旧symbolのre-exportは残していない。
   - このcommitでは判定policyと保存形式を変更していない。
+- service verification責務整理。
+  - evidence collectorと保存budgetに加え、`lane + requested_url`単位の最新32 surfaceを保持するcurrent
+    projectionを`service.py`へ集約した。
+  - generic evidence適用は`integration.py`、既存payloadのrewriteは`storage_cleanup.py`に残し、両方が同じ
+    projection関数を利用する。保存契約は変更していない。
 
 作業中:
 

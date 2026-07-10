@@ -31,6 +31,7 @@ SERVICE_LINK_TEXT_MAX_BYTES = 512
 SERVICE_URL_MAX_COUNT = 192
 SERVICE_URL_MAX_BYTES = 32 * 1024
 SERVICE_URL_ITEM_MAX_BYTES = 2048
+SERVICE_VERIFICATION_RESULT_MAX_COUNT = 32
 SERVICE_LINK_PRIORITY_TOKENS = (
     "source",
     "repo",
@@ -50,6 +51,31 @@ SERVICE_LINK_PRIORITY_TOKENS = (
     "signup",
     "register",
 )
+
+
+def service_verification_result_key(value: dict[str, Any]) -> tuple[str, str]:
+    lane = str(value.get("lane") or "static").strip().lower()
+    url = str(value.get("requested_url") or value.get("final_url") or "").strip().rstrip("/")
+    return lane, url
+
+
+def merge_service_verification_results(
+    existing: Any,
+    value: dict[str, Any],
+) -> list[dict[str, Any]]:
+    combined = [dict(item) for item in existing if isinstance(item, dict)] if isinstance(existing, list) else []
+    combined.append(dict(value))
+    selected: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for ordinal, item in reversed(list(enumerate(combined))):
+        key = service_verification_result_key(item)
+        resolved_key = key if key[1] else (key[0], f"__missing_url__:{ordinal}")
+        if resolved_key in seen:
+            continue
+        seen.add(resolved_key)
+        selected.append(item)
+    selected.reverse()
+    return selected[-SERVICE_VERIFICATION_RESULT_MAX_COUNT:]
 
 
 def bounded_text(value: str, limit: int = 20000) -> str:
