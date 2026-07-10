@@ -17,7 +17,8 @@
 
 ## 環境準備
 
-隔離した Python 環境を使う前提にします。
+Python 3.10以上の隔離環境を使います。公開wrapperは`.venv/bin/python`を優先し、無ければ`python3`を使います。
+選ばれたruntimeが3.10未満の場合はmoduleをimportせず、version errorで終了します。
 
 ```bash
 python3 -m venv .venv

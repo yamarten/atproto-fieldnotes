@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import json
-import unittest
 import datetime as dt
 import io
+import json
+import shutil
+import subprocess
 import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +17,39 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_public_wrappers_reject_unsupported_python_before_import(self) -> None:
+        source_root = Path(__file__).resolve().parents[1]
+        for wrapper_name in ("project-registry", "project-registry-web"):
+            with self.subTest(wrapper=wrapper_name):
+                fake_root = Path(self.tempdir.name) / wrapper_name
+                wrapper_path = fake_root / "bin" / wrapper_name
+                python_path = fake_root / ".venv" / "bin" / "python"
+                wrapper_path.parent.mkdir(parents=True)
+                python_path.parent.mkdir(parents=True)
+                shutil.copy2(source_root / "bin" / wrapper_name, wrapper_path)
+                python_path.write_text(
+                    """#!/bin/sh
+case "$2" in
+  *sys.version_info*) exit 1 ;;
+  *platform.python_version*) printf '3.9.18\\n'; exit 0 ;;
+esac
+exit 99
+""",
+                    encoding="utf-8",
+                )
+                python_path.chmod(0o755)
+
+                result = subprocess.run(
+                    [str(wrapper_path), "--help"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("requires Python 3.10 or newer (found 3.9.18)", result.stderr)
+                self.assertNotIn("SyntaxError", result.stderr)
+
     def test_init_db_parser_accepts_custom_path(self) -> None:
         args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
         self.assertEqual(args.db_path, Path("custom.db"))

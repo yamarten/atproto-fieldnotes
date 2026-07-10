@@ -26,6 +26,9 @@
 
 ## 環境準備
 
+Python 3.10以上が必要です。公開wrapperは`.venv/bin/python`を優先し、無ければ`python3`を使います。
+選ばれたruntimeが3.10未満の場合は、module import前にversion errorで終了します。
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
