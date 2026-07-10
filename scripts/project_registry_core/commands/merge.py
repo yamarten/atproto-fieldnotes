@@ -56,7 +56,6 @@ def cmd_split_project(args: argparse.Namespace) -> int:
             seed_type=args.project_type,
             identifier_type=args.identifier_type,
             value=args.value,
-            new_project_key=args.new_project_key,
             note=args.note or "",
             execute=bool(args.execute),
         )

@@ -278,7 +278,3 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - `cleanup-app-links`
   - dry-run を先に表示し、execute は明示確認を必須にする
   - Web UI には出さず CLI で扱う
-
-確認済みの小規模不具合:
-
-- `split-project --new-project-key`は新規keyを既存projectとして解決してから存在を拒否するため、明示key指定が実質使えない

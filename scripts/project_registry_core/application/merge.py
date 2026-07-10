@@ -117,7 +117,6 @@ def split_identifier(
     project_key: str | None = None,
     seed: str | None = None,
     seed_type: str | None = None,
-    new_project_key: str | None = None,
     note: str = "",
     execute: bool = False,
 ) -> dict[str, Any]:
@@ -132,15 +131,7 @@ def split_identifier(
     ).fetchone())
     if not belongs_to_source:
         raise ValueError("identifier does not currently belong to the selected source project")
-    target_key = (
-        core.resolve_project_key_input(conn, new_project_key)
-        if new_project_key
-        else core.generate_project_key({project["project_key"] for project in core.all_projects(conn)})
-    )
-    if target_key == source["project_key"]:
-        raise ValueError("new project key resolves to the same source project")
-    if core.fetch_project(conn, target_key) is not None:
-        raise ValueError(f"target project already exists: {target_key}")
+    target_key = core.generate_project_key({project["project_key"] for project in core.all_projects(conn)})
     target = core.default_project_record(target_key, identifier_type, identifier_value)
     target["tracking_state"] = source.get("tracking_state", "active")
     target["status"] = source.get("status", "draft")

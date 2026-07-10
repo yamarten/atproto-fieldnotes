@@ -17,6 +17,19 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_split_project_parser_has_no_explicit_new_key_option(self) -> None:
+        args = cli.build_parser().parse_args([
+            "split-project",
+            "--project-key",
+            "proj:source",
+            "--identifier-type",
+            "nsid",
+            "--value",
+            "app.example.post",
+        ])
+
+        self.assertFalse(hasattr(args, "new_project_key"))
+
     def test_public_wrappers_reject_unsupported_python_before_import(self) -> None:
         source_root = Path(__file__).resolve().parents[1]
         for wrapper_name in ("project-registry", "project-registry-web"):

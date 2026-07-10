@@ -616,6 +616,7 @@ project-registry split-project \
 ```
 
 実行時は `--execute` を付けます。
+切り出し先の`project_key`は自動採番されます。
 
 このコマンドは:
 

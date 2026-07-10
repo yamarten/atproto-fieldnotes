@@ -23,6 +23,10 @@ maintenance series完了時に削除します。
   - 最低versionはPython 3.10。
   - 公開wrapperは`.venv/bin/python`、次に`python3`を選び、import前にversionを検証する。
   - 非対応runtimeではsyntax/import errorへ進まず、実測versionを含む短いerrorと終了code 2を返す。
+- `split-project`のexplicit key option削除。
+  - 正常利用例・test・現行call siteが無く、成立しない`--new-project-key` / `-n`を削除した。
+  - application APIからも未使用引数と到達不能な既存key検証分岐を削除した。
+  - CLI、Web、source-configからのsplitは従来どおり新しい`project_key`を自動採番する。
 
 作業中:
 
@@ -40,7 +44,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 309件が全件成功。
+- Python 3.10.20と3.11.15でunit test 310件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -48,6 +52,7 @@ DB適用:
 - Webがmissing DBを検出し、serverをbindする前に停止する回帰test。
 - 二つの公開wrapperがfake Python 3.9.18をimport前に拒否する回帰test。
 - repository-local `.venv`が無い状態で、system Python 3.14.6を使う二つの公開wrapperの`--help`。
+- `split-project` parserにexplicit key属性が無く、自動採番splitとWeb splitが成功する回帰test。
 
 未検証:
 

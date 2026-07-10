@@ -346,7 +346,6 @@ case "$cmd" in
       "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       "--identifier-type[Identifier class to split out]:identifier type:_project_registry_seed_types" \
       '--value[Identifier value to split out into a new project]:value:' \
-      '(-n --new-project-key)'{-n,--new-project-key}'[Optional explicit key for the new project]:project key:' \
       '--note[Optional operator note]:note:' \
       '--execute[Apply the split]'
     ;;

@@ -361,7 +361,6 @@ def build_parser() -> argparse.ArgumentParser:
     split_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
     split_parser.add_argument("-i", "--identifier-type", required=True, choices=["nsid", "repo_url", "service_url"], help="Identifier class to split out.")
     split_parser.add_argument("-v", "--value", required=True, help="Identifier value to split out into a new project.")
-    split_parser.add_argument("-n", "--new-project-key", help="Optional explicit key for the new project.")
     split_parser.add_argument("--note", help="Optional operator note.")
     split_parser.add_argument("--execute", action="store_true", help="Apply the split. Without this flag, only show a dry-run summary.")
     split_parser.set_defaults(func=merge_commands.cmd_split_project)

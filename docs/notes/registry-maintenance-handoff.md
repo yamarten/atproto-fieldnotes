@@ -10,16 +10,15 @@
 
 - 実行計画は[registry-maintenance-plan.md](registry-maintenance-plan.md)へ整理済みです。
 - branch固有の検証結果は[registry-maintenance-status.md](registry-maintenance-status.md)を参照してください。
-- DB open transaction、DB path/create、Python runtime/wrapper契約は実装・temp DB検証済みです。正本DBは
-  変更していません。
+- DB open transaction、DB path/create、Python runtime/wrapper契約、`split-project` explicit key削除は
+  実装・temp DB検証済みです。正本DBは変更していません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. 使用実績を再確認したうえで、壊れている`split-project --new-project-key` optionを原則削除する。
-2. same-site first-label fallbackを削除し、主要consumerの回帰testを追加する。
-3. Web `--read-only` modeをUI/API/test/docsから削除する。audit/replay/dry-runは維持する。
+1. same-site first-label fallbackを削除し、主要consumerの回帰testを追加する。
+2. Web `--read-only` modeをUI/API/test/docsから削除する。audit/replay/dry-runは維持する。
 
 ## DB操作メモ
 
