@@ -66,7 +66,7 @@ maintenance series完了時に削除します。
 
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
-| P6.1 | 一部完了 | `5951b42`と各抽出commitで`registry-internals.md`の実装mapを更新 | 混入節auditと、現行責務mapをnotesへ残す要件を完了するか、正本文書のmapで十分と判断してplanを閉じる |
+| P6.1 | 完了 | `registry-internals.md`で現行import方向、抽出済み境界、未分離facadeを明記 | 現行仕様の正本へ置き、重複するnotes mapは作らないと判断 |
 | P6.2 | 完了 | `5b50e10`、`e3906a3`、`9486346`。`registry.py`から`cmd_*`/`argparse`依存を除去 | なし |
 | P6.3 | 一部完了 | `32486fb`。domain policyを`domain_policy.py`へ移動、旧re-exportなし | `tldextract`を正式依存にするかvendored PSL fallbackを正本にするか決め、二重policyを解消する |
 | P6.4 | 完了 | `540b1b4`、`29888c4`。collector/budget/current projectionを`service.py`へ集約 | なし |

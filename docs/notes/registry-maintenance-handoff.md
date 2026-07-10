@@ -9,7 +9,7 @@
 ## 現在地
 
 進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
-現在は完了15、一部完了6、未着手11、別operation待ち1です。未終端18 IDは下記の作業順にすべて含めます。
+現在は完了16、一部完了5、未着手11、別operation待ち1です。未終端17 IDは下記の作業順にすべて含めます。
 ここへ完了項目や検証履歴を複製しません。
 
 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
@@ -19,7 +19,6 @@
 1. 承認・外部状態へ依存するP2.2/P2.4/P4.1検証は完了した。P3.3はstorage codeの確定・適用前なので、
    次の独立したmaintenance windowで扱う。
 2. 現在開いている分割を閉じる。
-   - P6.1: 責務mapと混入節auditの完了条件を決める。
    - P6.3: `tldextract`とvendored PSL fallbackの正本を一つにする。
    - P6.6: provider別repo URL/naming helperを移すかroadmapへ延期する。
    - P6.7: 残るorchestration分割の実施範囲を決め、移動またはroadmapへ延期する。

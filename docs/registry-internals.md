@@ -250,6 +250,22 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
   - `argparse.Namespace`を受け取る`cmd_*`は残っていない
 
+現行の依存方向は完全分離後の目標図ではありません。確認済みの境界は次の通りです。
+
+- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportしないが、
+  maintenance専用のnormalized roundtrip verifierだけが遅延importして`fetch_project` / `save_project`を呼ぶ
+- `application/`はCLI/Web共通serviceとして分離済みだが、多くのserviceがdomain/storage facadeとして
+  `registry.py`をimportする。`commands/`も一部の表示・DB open helperで同じfacadeへ依存する
+- Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには
+  `registry.py`への直接依存が残る
+- `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
+  identifier/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
+- 残るsource sync、project shape/save facade、queue、enrich orchestrationの分割と上記import縮小はP6.7の対象であり、
+  現時点でapplication/databaseが巨大moduleから独立済みとは扱わない
+
+この現行責務mapは一時的な移動計画ではなく内部仕様のsnapshotなので、本書を正本とします。同内容を
+`docs/notes/`へ複製せず、将来の分割候補だけをroadmap/maintenance statusで追跡します。
+
 動作確認済み:
 
 - collector単体が入力 project を変更しないこと
