@@ -42,6 +42,7 @@ from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
+from project_registry_core import llm_evidence as llm_evidence_core
 
 try:
     import tldextract  # type: ignore
@@ -10914,7 +10915,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
     ]
     if project.get("source_code_urls"):
         candidate_repo_urls = []
-    return {
+    evidence = {
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
         "manual_seeds": project.get("manual_seeds", []),
@@ -10951,6 +10952,7 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
             if not is_bsky_post_url(url)
         ],
     }
+    return llm_evidence_core.bounded_llm_evidence(evidence)
 
 
 def load_triage_prompt_template() -> str:
@@ -10969,7 +10971,7 @@ def load_triage_prompt_template() -> str:
 
 def build_triage_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     evidence = build_llm_evidence_bundle(project)
-    evidence_json = json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True)
+    evidence_json = llm_evidence_core.evidence_json(evidence)
     template = load_triage_prompt_template()
     prompt = template.replace("{{evidence_json}}", evidence_json)
     if "For human-readable text fields, write in Japanese." not in prompt:
@@ -10998,7 +11000,7 @@ def build_investigation_prompt(project: dict[str, Any]) -> tuple[str, dict[str, 
         '  "focus_terms": ["string"],\n'
         '  "reason": "string"\n'
         "}\n\n"
-        f"Evidence:\n{json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+        f"Evidence:\n{llm_evidence_core.evidence_json(evidence)}\n"
     )
     return prompt, evidence
 

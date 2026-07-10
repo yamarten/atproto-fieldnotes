@@ -1041,6 +1041,10 @@ GitHub repo を確認した場合は `source_repo_records[].updated_at` に upst
 
 LLM は discovery の主役ではなく、整理の補助です。
 
+planning/triageのevidence JSONは24 KiB上限です。大量候補を単純に先頭だけで切らず、field別件数上限で先頭・末尾を
+代表として残した後、総byte上限まで低優先listを縮約します。縮約件数は`evidence_budget`に残します。固定prompt
+template、response、保存済みcollector payloadはこのbudgetとは別です。
+
 - `summary`
 - `tagline`
 - `features`

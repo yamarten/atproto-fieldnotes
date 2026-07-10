@@ -268,6 +268,9 @@ JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigat
 applicationで読む時はsemantic evaluationから`metrics`へ分離するため、replay diffやfixtureの
 `expected_evaluation`には含めません。旧runにはこのkeyが無く、timingは未記録として扱います。
 
+`state_json`の`llm_source.evidence`は、実際にtriageへ渡した24 KiB上限のevidenceです。縮約が発生した
+場合だけ`evidence_budget`を含み、field別の観測件数と採用件数を保持します。prompt本文そのものは保存しません。
+
 ### Merge / Splitの履歴
 
 mergeはtarget保存、source alias作成、第三projectの`separate_project`参照更新、source削除を

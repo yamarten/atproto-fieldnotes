@@ -171,6 +171,12 @@ evaluation、run history save、project saveのwall timeと、LLM request bytes/
 transaction commit、token数、operator review時間は引き続き未接続です。過去15,086 runへは遡及できないため、
 このsnapshotの未計測値をbackfillしたとは扱いません。
 
+同snapshotのcurrent projectを現行shapeへhydrateしたLLM evidenceは、prompt budget追加前で最大36,149 bytes、
+32 KiB超は1 projectでした。field別代表件数と整形後24 KiB上限を適用すると、全3,239 projectの最大は
+24,489 bytes、budget metadataを持つprojectは41件です。最大evidence projectの現行template込みpromptはtriage
+29,608 bytes、planning 25,133 bytesでした。これはnetwork/実LLMを使わないprompt生成確認であり、response品質や
+実model latencyの検証ではありません。
+
 同branchでservice verificationの新規保存budgetも接続しました。2026-07-10 snapshotの保存済みpayloadへ同じ規則を
 read-only適用した概算は204,648,820 bytesから43,172,994 bytes（78.9%減）、12,458 resultから3,878 current
 surface、最大project 3,560,797 bytesから698,441 bytesです。既存HTML extract自体が旧20,000文字上限後の値なので、
@@ -221,4 +227,3 @@ JSON投影の失敗ではありませんが、最大outlierのsemantic replayが
 
 - byte-aware retentionの上限と、保持する最新run数
 - cleanupを正本DBへ適用する時期
-- LLM prompt budgetを保存budgetと別にどこへ設けるか

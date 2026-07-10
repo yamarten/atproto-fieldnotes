@@ -63,6 +63,10 @@
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
   - 正本DBへの適用は未実施
+- bounded LLM evidence
+  - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
+  - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
+  - 最終prompt bytesはrun metricsで別に観測
 
 利用手順は[project-registry.md](project-registry.md)、保存契約は
 [project-record.md](project-record.md)、調査契約は
@@ -135,7 +139,8 @@
   - 作業中の別process更新とみられる変化により、後続snapshotでは79,509件 / unknown 62,626件も観測した
   - 後続snapshotに現行の正規化budgetをread-only適用した概算では、`resource_url_records` は4,613件相当
   - read-only dry-runでは、同一siteかつ補助ページrole不明の候補は56,864件。ただし `/blog`、`/about`、`/specs` など残すべき可能性のあるURLも混ざるため、削除対象としては未確定
-  - 既存DB cleanupとguard後の全件prompt長改善は未実施・未検証
+  - 既存DB cleanupは未適用。2026-07-10 clone全3,239 projectへの現行prompt evidence投影は最大24,489 bytes、
+    count/byte budgetが発動するprojectは41件
 - 2026-06-25の判定feedback対応
   - service follow-up/deep page URL、service URL guard、service support relation、repo/NSIDからauthority domainへの片方向根拠、repo内lexicon ownership、README URL抽出のtargeted unit test
   - 補助ページservice URLの既存DB cleanupを`repair-db --execute`で適用済み

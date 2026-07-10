@@ -10,6 +10,7 @@ from io import BytesIO
 from unittest import mock
 
 from helpers import registry
+from project_registry_core import llm_evidence as llm_evidence_core
 
 
 class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
@@ -1710,6 +1711,67 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(
             evidence["candidate_developer_accounts"],
             [{"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}],
+        )
+        self.assertNotIn("evidence_budget", evidence)
+
+    def test_llm_evidence_has_deterministic_byte_budget(self) -> None:
+        project = self.nsid_project()
+        project["candidate_developer_accounts"] = [
+            {
+                "handle": f"candidate-{index}.example.com",
+                "source": f"bsky_actor_search:candidate-{index}",
+            }
+            for index in range(500)
+        ]
+        project["summary_candidates"] = [
+            {"value": f"Summary candidate {index} " + "x" * 300, "source": "test"}
+            for index in range(100)
+        ]
+        project["summary_candidates"][0]["value"] = "x" * 10_000
+        project["tagline_candidates"] = [
+            {"value": f"Tagline candidate {index} " + "y" * 200, "source": "test"}
+            for index in range(100)
+        ]
+        project["evidence_urls"] = [
+            f"https://example.com/evidence/{index}" for index in range(500)
+        ]
+
+        evidence = registry.build_llm_evidence_bundle(project)
+        repeated = registry.build_llm_evidence_bundle(project)
+        triage_prompt, triage_evidence = registry.build_triage_prompt(project)
+        planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
+
+        self.assertEqual(evidence, repeated)
+        self.assertEqual(evidence, triage_evidence)
+        self.assertEqual(evidence, planning_evidence)
+        self.assertLessEqual(
+            llm_evidence_core.evidence_bytes(evidence),
+            llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
+        )
+        self.assertLessEqual(len(triage_prompt.encode("utf-8")), 32 * 1024)
+        self.assertLessEqual(len(planning_prompt.encode("utf-8")), 32 * 1024)
+        self.assertEqual(evidence["project_key"], project["project_key"])
+        self.assertEqual(evidence["primary_nsid"], project["primary_nsid"])
+        budget = evidence["evidence_budget"]
+        self.assertEqual(budget["max_bytes"], llm_evidence_core.LLM_EVIDENCE_MAX_BYTES)
+        self.assertEqual(
+            budget["truncated_fields"]["candidate_developer_accounts"]["observed_count"],
+            500,
+        )
+        self.assertLess(
+            budget["truncated_fields"]["candidate_developer_accounts"]["included_count"],
+            500,
+        )
+        self.assertLessEqual(
+            budget["truncated_fields"]["candidate_developer_accounts"]["included_count"],
+            llm_evidence_core.LLM_EVIDENCE_COUNT_LIMITS["candidate_developer_accounts"],
+        )
+        self.assertEqual(evidence["candidate_developer_accounts"][0]["handle"], "candidate-0.example.com")
+        self.assertEqual(evidence["candidate_developer_accounts"][-1]["handle"], "candidate-499.example.com")
+        self.assertGreater(budget["string_values_truncated"], 0)
+        self.assertLessEqual(
+            len(evidence["summary_candidates"][0]["value"].encode("utf-8")),
+            llm_evidence_core.LLM_EVIDENCE_STRING_MAX_BYTES,
         )
 
 

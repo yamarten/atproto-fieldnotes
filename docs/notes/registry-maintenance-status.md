@@ -70,6 +70,10 @@ maintenance series完了時に削除します。
   - 2026-07-10 clone全件では4.620 GBから1.723 GB、2.897 GB（62.7%）削減見込み。
   - snapshot evaluation fieldは15,086 runで差分0、p95付近10 runの完全replayは10/10不変。
   - 最大削減上位5 runの完全replayは各10秒でtimeoutし未検証。
+- LLM evidence prompt budget。
+  - planning/triageの可変evidenceを整形後24 KiB、文字列4 KiB、field別代表件数で制限した。
+  - listは先頭・末尾を残し、追加縮約時はfield別の観測件数と採用件数を`evidence_budget`へ入れる。
+  - 2026-07-10 clone全3,239 projectへの投影は最大24,489 bytes、budget発動41件。実LLM callは未検証。
 
 作業中:
 
@@ -87,7 +91,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 327件が全件成功。
+- Python 3.10.20と3.11.15でunit test 328件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

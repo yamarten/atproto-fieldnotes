@@ -60,6 +60,17 @@ endpoint、command、API keyは保存しません。token数はprovider共通に
 保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため
 非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
 
+### LLM evidence budget
+
+planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に
+適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。
+`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を
+入れます。planningとtriageは調査の異なる時点で同じbudget規則を使い、triageへ渡したevidenceは
+`llm_source.evidence`にも保存します。
+
+これはLLM入力契約であり、service HTMLやEvidenceBundleの保存budgetとは別です。prompt templateの固定文まで24 KiBに
+含める契約ではありません。実requestの最終prompt bytesはrun metricsで別に観測します。
+
 Service / ownership reviewも保存済みcurrent state、normalized relation、collector runだけを読みます。画面表示のためにnetwork collectorを再実行しません。保存根拠がない状態は`not_observed`であり、到達不能・非ownership・permissionなしの確定結果ではありません。
 
 ## Evidence classification
