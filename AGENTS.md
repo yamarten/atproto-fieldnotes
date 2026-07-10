@@ -13,7 +13,8 @@
   - `web/`: schema v2 Web API、subprocess job registry、静的UI
   - `jobs.py`: 長時間処理のrequest/event/result/cancellation契約
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
-  - `registry.py`: domain helperとcollector/evaluation orchestration
+  - `domain_policy.py`: PSL、multi-tenant suffix、same-site判定
+  - `registry.py`: collector/evaluation orchestrationと未分離のdomain以外のhelper
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない

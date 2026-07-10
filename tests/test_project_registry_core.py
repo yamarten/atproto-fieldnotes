@@ -10,6 +10,7 @@ from io import BytesIO
 from unittest import mock
 
 from helpers import registry
+from project_registry_core import domain_policy
 from project_registry_core import llm_evidence as llm_evidence_core
 
 
@@ -630,13 +631,13 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
 
 class ProjectRegistrySameSiteTest(unittest.TestCase):
     def test_same_first_label_on_unrelated_registrable_domains_is_not_same_site(self) -> None:
-        self.assertFalse(registry.is_same_site_family(
+        self.assertFalse(domain_policy.is_same_site_family(
             "https://app.example.com",
             "https://app.attacker.net",
         ))
 
     def test_subdomains_of_same_registrable_domain_are_same_site(self) -> None:
-        self.assertTrue(registry.is_same_site_family(
+        self.assertTrue(domain_policy.is_same_site_family(
             "https://www.example.com",
             "https://docs.example.com/guide",
         ))

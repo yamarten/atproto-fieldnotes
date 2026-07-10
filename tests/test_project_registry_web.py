@@ -11,7 +11,7 @@ from http import HTTPStatus
 from io import BytesIO
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import storage
+from project_registry_core import domain_policy, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, build_parser, main as web_main, restart_argv
 from project_registry_core.application import presentation
@@ -635,13 +635,13 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual([item["suffix"] for item in payload["suggested_multi_tenant_suffixes"]], ["example.com"])
 
     def test_can_add_multi_tenant_suffix_from_web_api(self) -> None:
-        original_domain_overrides_path = registry.DOMAIN_OVERRIDES_PATH
-        original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
+        original_domain_overrides_path = domain_policy.DOMAIN_OVERRIDES_PATH
+        original_suffixes = domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES
         domain_overrides_path = self.db_path.with_name("domain-overrides.json")
         domain_overrides_path.write_text('{"custom_multi_tenant_suffixes": []}\n')
         try:
-            registry.DOMAIN_OVERRIDES_PATH = domain_overrides_path
-            registry.reset_domain_config_cache()
+            domain_policy.DOMAIN_OVERRIDES_PATH = domain_overrides_path
+            domain_policy.reset_domain_config_cache()
 
             status, payload, _ = self.request(
                 "/api/domain-overrides/multi-tenant-suffixes",
@@ -655,9 +655,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.assertEqual(payload["suffix"], "example.com")
             self.assertEqual(json.loads(domain_overrides_path.read_text())["custom_multi_tenant_suffixes"], ["example.com"])
         finally:
-            registry.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
-            registry._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
-            registry.reset_domain_extractors()
+            domain_policy.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
+            domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
+            domain_policy.reset_domain_extractors()
 
     def test_merge_pair_can_include_first_creator_details_on_request(self) -> None:
         status, payload, _ = self.request(

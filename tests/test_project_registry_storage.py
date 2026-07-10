@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
-from project_registry_core import cli, database
+from project_registry_core import cli, database, domain_policy
 from project_registry_core.commands import assist as assist_commands
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import merge as merge_commands
@@ -838,29 +838,29 @@ exit 99
 
     def test_add_configured_multi_tenant_suffix_updates_domain_overrides_and_cache(self) -> None:
         original_config_path = registry.CONFIG_PATH
-        original_domain_overrides_path = registry.DOMAIN_OVERRIDES_PATH
-        original_suffixes = registry._CONFIGURED_MULTI_TENANT_SUFFIXES
+        original_domain_overrides_path = domain_policy.DOMAIN_OVERRIDES_PATH
+        original_suffixes = domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES
         try:
             sources_path = Path(self.tempdir.name) / "sources.json"
             sources_path.write_text('{"collection_inventory": {}}\n')
             domain_overrides_path = Path(self.tempdir.name) / "domain-overrides.json"
             domain_overrides_path.write_text('{"custom_multi_tenant_suffixes": ["existing.example"]}\n')
             registry.CONFIG_PATH = sources_path
-            registry.DOMAIN_OVERRIDES_PATH = domain_overrides_path
-            registry.reset_domain_config_cache()
+            domain_policy.DOMAIN_OVERRIDES_PATH = domain_overrides_path
+            domain_policy.reset_domain_config_cache()
 
-            self.assertTrue(registry.add_configured_multi_tenant_suffix("Example.COM."))
-            self.assertFalse(registry.add_configured_multi_tenant_suffix("example.com"))
+            self.assertTrue(domain_policy.add_configured_multi_tenant_suffix("Example.COM."))
+            self.assertFalse(domain_policy.add_configured_multi_tenant_suffix("example.com"))
 
             config = json.loads(domain_overrides_path.read_text())
             self.assertEqual(config["custom_multi_tenant_suffixes"], ["existing.example", "example.com"])
-            self.assertIn("example.com", registry.configured_multi_tenant_suffixes())
+            self.assertIn("example.com", domain_policy.configured_multi_tenant_suffixes())
             self.assertEqual(json.loads(sources_path.read_text()), {"collection_inventory": {}})
         finally:
             registry.CONFIG_PATH = original_config_path
-            registry.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
-            registry._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
-            registry.reset_domain_extractors()
+            domain_policy.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
+            domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
+            domain_policy.reset_domain_extractors()
 
     def test_source_config_audit_suggests_multi_tenant_project_split(self) -> None:
         conn = registry.open_db()

@@ -42,17 +42,12 @@ from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
 from project_registry_core import llm_evidence as llm_evidence_core
-
-try:
-    import tldextract  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    tldextract = None
+from project_registry_core import domain_policy as domain_policy_core
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
-DOMAIN_OVERRIDES_PATH = ROOT / "config" / "domain-overrides.json"
 ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
@@ -83,8 +78,6 @@ _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
 _GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _TANGLED_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
-_CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
-_TLD_EXTRACTORS: dict[str, Any] = {}
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
 TRACKING_STATES = {"active", "stable", "stalled", "out_of_scope", "archived", "ignore"}
 PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
@@ -113,12 +106,6 @@ def load_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text())
 
 
-def load_domain_overrides() -> dict[str, Any]:
-    if not DOMAIN_OVERRIDES_PATH.exists():
-        return {}
-    return json.loads(DOMAIN_OVERRIDES_PATH.read_text())
-
-
 def builtin_lexicon_prefixes() -> tuple[str, ...]:
     try:
         config = load_config()
@@ -129,61 +116,6 @@ def builtin_lexicon_prefixes() -> tuple[str, ...]:
     if not prefixes:
         prefixes = ["app.bsky.", "chat.bsky.", "com.atproto."]
     return tuple(prefixes)
-
-
-def configured_multi_tenant_suffixes() -> set[str]:
-    global _CONFIGURED_MULTI_TENANT_SUFFIXES
-    if _CONFIGURED_MULTI_TENANT_SUFFIXES is not None:
-        return _CONFIGURED_MULTI_TENANT_SUFFIXES
-    configured: set[str] = set()
-    try:
-        config = load_domain_overrides()
-    except Exception:
-        config = {}
-    values = config.get("custom_multi_tenant_suffixes", [])
-    if isinstance(values, list):
-        for item in values:
-            suffix = str(item or "").strip().lower().rstrip(".")
-            if suffix and "." in suffix:
-                configured.add(suffix)
-    _CONFIGURED_MULTI_TENANT_SUFFIXES = configured
-    return configured
-
-
-def reset_domain_extractors() -> None:
-    global _TLD_EXTRACTORS
-    _TLD_EXTRACTORS = {}
-
-
-def reset_domain_config_cache() -> None:
-    global _CONFIGURED_MULTI_TENANT_SUFFIXES
-    _CONFIGURED_MULTI_TENANT_SUFFIXES = None
-    reset_domain_extractors()
-
-
-def normalize_multi_tenant_suffix(value: str) -> str:
-    suffix = str(value or "").strip().lower().rstrip(".")
-    if not suffix or "." not in suffix or not re.fullmatch(r"[a-z0-9.-]+", suffix):
-        raise ValueError(f"invalid multi-tenant suffix: {value}")
-    if any(not label for label in suffix.split(".")):
-        raise ValueError(f"invalid multi-tenant suffix: {value}")
-    return suffix
-
-
-def add_configured_multi_tenant_suffix(suffix: str) -> bool:
-    normalized = normalize_multi_tenant_suffix(suffix)
-    config = load_domain_overrides()
-    values = config.get("custom_multi_tenant_suffixes", [])
-    if not isinstance(values, list):
-        raise ValueError("custom_multi_tenant_suffixes must be a JSON array")
-    existing = [normalize_multi_tenant_suffix(str(item)) for item in values]
-    if normalized in existing:
-        return False
-    config["custom_multi_tenant_suffixes"] = existing + [normalized]
-    DOMAIN_OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DOMAIN_OVERRIDES_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    reset_domain_config_cache()
-    return True
 
 
 def load_json(value: str) -> Any:
@@ -798,7 +730,7 @@ def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
         return "webApp"
     if any(path == prefix or path.startswith(f"{prefix}/") for prefix in APP_LINK_SERVICE_PATH_PREFIXES):
         return "webApp"
-    if website_url and is_same_site_family(website_url, normalized):
+    if website_url and domain_policy_core.is_same_site_family(website_url, normalized):
         website_host = urllib.parse.urlparse(normalize_url(website_url)).netloc.lower()
         host_prefix = host.split(".", 1)[0]
         if host != website_host and host_prefix not in {"www", "docs", "blog", "status", "support", "help"} and path in {"", "/"}:
@@ -973,7 +905,7 @@ def candidate_service_origins_for_authority_domain(authority_domain: str) -> lis
     if not lowered:
         return []
     candidates = [f"https://{lowered}"]
-    registrable = root_domain(lowered)
+    registrable = domain_policy_core.root_domain(lowered)
     if registrable and "." in registrable and registrable != lowered:
         candidates.append(f"https://{registrable}")
     return unique_list(candidates)
@@ -1255,7 +1187,7 @@ def pdsls_collection_reference_nsid(value: str) -> str:
 
 def is_shared_official_identity_host(host: str) -> bool:
     lowered = str(host or "").strip().lower().rstrip(".")
-    return bool(lowered and root_domain(lowered) in SHARED_OFFICIAL_IDENTITY_ROOTS)
+    return bool(lowered and domain_policy_core.root_domain(lowered) in SHARED_OFFICIAL_IDENTITY_ROOTS)
 
 
 def canonical_seed_value(seed_type: str, seed_value: str) -> str:
@@ -1306,7 +1238,7 @@ def registrable_namespace_from_namespace(namespace: str) -> str:
     if not normalized:
         return ""
     authority_domain = derive_authority_domain_from_namespace(normalized)
-    registrable = root_domain(authority_domain)
+    registrable = domain_policy_core.root_domain(authority_domain)
     if not registrable or "." not in registrable:
         return ""
     return normalize_nsid(".".join(reversed(registrable.split("."))))
@@ -1938,7 +1870,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 authority_token = normalize_alias_token(authority)
                 if authority_token:
                     tokens.add(authority_token)
-                root_token = normalize_alias_token(root_domain(authority))
+                root_token = normalize_alias_token(domain_policy_core.root_domain(authority))
                 if root_token:
                     tokens.add(root_token)
     elif seed_type in {"service_url", "repo_url"}:
@@ -1949,7 +1881,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 host_token = normalize_alias_token(host)
                 if host_token:
                     tokens.add(host_token)
-                root_token = normalize_alias_token(root_domain(host))
+                root_token = normalize_alias_token(domain_policy_core.root_domain(host))
                 if root_token:
                     tokens.add(root_token)
             path = urllib.parse.urlparse(seed_url).path.strip("/")
@@ -1971,7 +1903,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
         host_token = normalize_alias_token(host)
         if host_token:
             tokens.add(host_token)
-        root_token = normalize_alias_token(root_domain(host))
+        root_token = normalize_alias_token(domain_policy_core.root_domain(host))
         if root_token:
             tokens.add(root_token)
         for segment in host.split("."):
@@ -2023,9 +1955,9 @@ def developer_controls_authority_domain(project: dict[str, Any], authority_domai
     lowered = str(authority_domain or "").strip().lower().rstrip(".")
     if not lowered:
         return False
-    authority_root = root_domain(lowered)
+    authority_root = domain_policy_core.root_domain(lowered)
     for handle in confirmed_developer_handles(project):
-        handle_root = root_domain(handle)
+        handle_root = domain_policy_core.root_domain(handle)
         if handle == lowered or handle.endswith(f".{lowered}"):
             return True
         if authority_root and handle_root and handle_root == authority_root:
@@ -2691,174 +2623,6 @@ def find_project_key_by_identifier(conn: sqlite3.Connection, identifier_type: st
     return matches[0][1]
 
 
-def load_known_icann_tlds() -> set[str]:
-    global _KNOWN_ICANN_TLDS
-    if _KNOWN_ICANN_TLDS is not None:
-        return _KNOWN_ICANN_TLDS
-
-    known: set[str] = set()
-    for path in PUBLIC_SUFFIX_DATA_CANDIDATES:
-        if not path.exists():
-            continue
-        try:
-            in_private = False
-            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("// ===BEGIN PRIVATE DOMAINS==="):
-                    in_private = line.startswith("// ===BEGIN PRIVATE DOMAINS===")
-                    continue
-                if line.startswith("//"):
-                    continue
-                if in_private:
-                    continue
-                rule = line.lstrip("!.")
-                label = rule.rsplit(".", 1)[-1].lower()
-                if re.fullmatch(r"[a-z]{2,24}", label):
-                    known.add(label)
-            if known:
-                break
-        except Exception:
-            continue
-
-    _KNOWN_ICANN_TLDS = known
-    return known
-
-
-def load_public_suffix_rules() -> tuple[set[str], set[str], set[str]]:
-    global _PUBLIC_SUFFIX_RULES
-    if _PUBLIC_SUFFIX_RULES is not None:
-        return _PUBLIC_SUFFIX_RULES
-
-    exact: set[str] = set()
-    wildcard: set[str] = set()
-    exception: set[str] = set()
-    for path in PUBLIC_SUFFIX_DATA_CANDIDATES:
-        if not path.exists():
-            continue
-        try:
-            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("//"):
-                    continue
-                if line.startswith("!."):
-                    line = "!" + line[2:]
-                elif line.startswith("."):
-                    line = line[1:]
-                if line.startswith("!"):
-                    exception.add(line[1:].lower())
-                elif line.startswith("*."):
-                    wildcard.add(line[2:].lower())
-                else:
-                    exact.add(line.lower())
-            if exact or wildcard or exception:
-                break
-        except Exception:
-            continue
-
-    _PUBLIC_SUFFIX_RULES = (exact, wildcard, exception)
-    return _PUBLIC_SUFFIX_RULES
-
-
-def tldextract_extractor(mode: str = "local") -> Any | None:
-    if mode in _TLD_EXTRACTORS:
-        return _TLD_EXTRACTORS[mode]
-    if tldextract is None:
-        _TLD_EXTRACTORS[mode] = None
-        return None
-
-    local_sources = [path.resolve().as_uri() for path in PUBLIC_SUFFIX_DATA_CANDIDATES if path.exists()]
-    if not local_sources:
-        _TLD_EXTRACTORS[mode] = None
-        return None
-
-    kwargs: dict[str, Any] = {
-        "include_psl_private_domains": True,
-        "extra_suffixes": sorted(configured_multi_tenant_suffixes()),
-        "cache_dir": str(TLDEXTRACT_CACHE_DIR),
-        "suffix_list_urls": tuple(local_sources),
-        "fallback_to_snapshot": False,
-    }
-
-    try:
-        TLDEXTRACT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-    try:
-        extractor = tldextract.TLDExtract(**kwargs)
-    except Exception:
-        extractor = None
-    _TLD_EXTRACTORS[mode] = extractor
-    return extractor
-
-
-def extract_registrable_domain_with_tldextract(host: str, *, include_configured_suffixes: bool = True) -> str:
-    lowered = str(host or "").strip().lower().rstrip(".")
-    if not lowered:
-        return ""
-    for mode in ("local",):
-        extractor = tldextract_extractor(mode)
-        if extractor is None:
-            continue
-        try:
-            result = extractor(lowered)
-        except Exception:
-            continue
-        registrable = str(getattr(result, "top_domain_under_public_suffix", "") or "").strip().lower().rstrip(".")
-        if registrable:
-            return registrable
-    return ""
-
-
-def public_suffix(host: str) -> str:
-    lowered = str(host or "").strip().lower().rstrip(".")
-    if not lowered:
-        return ""
-    labels = [label for label in lowered.split(".") if label]
-    if not labels:
-        return ""
-
-    exact_rules, wildcard_rules, exception_rules = load_public_suffix_rules()
-    if exact_rules or wildcard_rules or exception_rules:
-        for index in range(len(labels)):
-            candidate = ".".join(labels[index:])
-            if candidate in exception_rules:
-                exception_labels = candidate.split(".")
-                if len(exception_labels) > 1:
-                    return ".".join(exception_labels[1:])
-                return candidate
-
-        best_len = 1
-        for index in range(len(labels)):
-            candidate = ".".join(labels[index:])
-            if candidate in exact_rules:
-                best_len = max(best_len, len(candidate.split(".")))
-            if index + 1 < len(labels):
-                wildcard_candidate = ".".join(labels[index + 1 :])
-                if wildcard_candidate in wildcard_rules:
-                    best_len = max(best_len, len(wildcard_candidate.split(".")) + 1)
-        return ".".join(labels[-best_len:])
-
-    if len(labels) >= 2:
-        return ".".join(labels[-2:])
-    return lowered
-
-
-def authority_domain_allowed_for_import(domain: str) -> bool:
-    lowered = str(domain or "").strip().lower().rstrip(".")
-    if not lowered or "." not in lowered:
-        return False
-    tld = lowered.rsplit(".", 1)[-1]
-    if tld in SPECIAL_USE_TLDS:
-        return False
-    if not re.fullmatch(r"[a-z]{2,24}", tld):
-        return False
-    known_tlds = load_known_icann_tlds()
-    if known_tlds and tld not in known_tlds:
-        return False
-    return True
-
-
 def find_project_key_by_collection_namespace(projects: list[dict[str, Any]], namespace: str) -> str | None:
     normalized = normalize_nsid(namespace)
     for project in projects:
@@ -2954,7 +2718,7 @@ def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[d
         for service_url in service_urls:
             normalized_service = normalize_url(str(service_url or ""))
             host = urllib.parse.urlparse(normalized_service).netloc.lower()
-            registrable_host = root_domain(host)
+            registrable_host = domain_policy_core.root_domain(host)
             if registrable_host:
                 service_host_pairs.append((registrable_host, project_key))
     return (
@@ -3000,7 +2764,7 @@ def find_project_key_for_nsid_seed(projects: list[dict[str, Any]], nsid: str) ->
         if project_key:
             return project_key, "registrable_namespace"
     authority_domain = derive_authority_domain_from_namespace(normalized)
-    service_host_key = root_domain(authority_domain)
+    service_host_key = domain_policy_core.root_domain(authority_domain)
     if service_host_key:
         project_key = service_host_lookup.get(service_host_key)
         if project_key:
@@ -4287,45 +4051,11 @@ NOISY_SERVICE_PATH_TOKENS = {
     "/packages",
 }
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".avif"}
-KNOWN_MULTI_TENANT_SUFFIXES = {
-    "vercel.app",
-    "microcosm.blue",
-    "leaflet.pub",
-    "pages.dev",
-    "netlify.app",
-    "web.app",
-    "firebaseapp.com",
-    "onrender.com",
-    "fly.dev",
-    "workers.dev",
-    "github.io",
-}
 SHARED_OFFICIAL_IDENTITY_ROOTS = {
     "bsky.app",
     "atproto.com",
     "bsky.network",
 }
-SPECIAL_USE_TLDS = {
-    "test",
-    "example",
-    "invalid",
-    "localhost",
-    "local",
-    "internal",
-    "alt",
-    "onion",
-    "home",
-    "corp",
-    "lan",
-}
-PUBLIC_SUFFIX_DATA_CANDIDATES = [
-    ROOT / "vendor" / "public_suffix_list.dat",
-]
-_KNOWN_ICANN_TLDS: set[str] | None = None
-_PUBLIC_SUFFIX_RULES: tuple[set[str], set[str], set[str]] | None = None
-TLDEXTRACT_CACHE_DIR = ROOT / "data" / "tldextract-cache"
-
-
 def sanitize_extracted_url(raw_url: str) -> str:
     value = str(raw_url or "").strip().strip("<>[]{}\"'")
     for marker in ("](", ")("):
@@ -4468,7 +4198,7 @@ def service_candidate_matches_project(project: dict[str, Any], url: str) -> bool
     identity_hosts = project_service_identity_hosts(project)
     if host in identity_hosts:
         return True
-    if root_domain(host) in {root_domain(value) for value in identity_hosts if "." in value}:
+    if domain_policy_core.root_domain(host) in {domain_policy_core.root_domain(value) for value in identity_hosts if "." in value}:
         return True
     normalized_host = host.replace("-", "").replace("_", "")
     return any(token and token in normalized_host for token in project_alias_tokens(project))
@@ -5265,8 +4995,8 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
         if lowered and not is_shared_official_identity_host(lowered):
             baseline_hosts.add(lowered)
 
-    baseline_roots = {root_domain(item) for item in baseline_hosts if item}
-    if host in baseline_hosts or root_domain(host) in baseline_roots:
+    baseline_roots = {domain_policy_core.root_domain(item) for item in baseline_hosts if item}
+    if host in baseline_hosts or domain_policy_core.root_domain(host) in baseline_roots:
         return True if not confirmed else host in manual_hosts or host in baseline_hosts
 
     alias_tokens = project_alias_tokens(project)
@@ -5538,10 +5268,10 @@ def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
     homepage = str(repo.get("homepage") or "").strip()
     if homepage:
         for service_url in project.get("service_urls", []):
-            if is_same_site_family(homepage, service_url):
+            if domain_policy_core.is_same_site_family(homepage, service_url):
                 score += 4
                 break
-        if project.get("website_url") and is_same_site_family(homepage, project["website_url"]):
+        if project.get("website_url") and domain_policy_core.is_same_site_family(homepage, project["website_url"]):
             score += 4
     return score
 
@@ -5611,45 +5341,6 @@ def extract_links(html: str, base_url: str) -> list[dict[str, str]]:
     return output
 
 
-def root_domain(host: str, *, include_configured_suffixes: bool = True) -> str:
-    lowered = str(host or "").strip().lower().rstrip(".")
-    if not lowered:
-        return ""
-    for suffix in sorted(configured_multi_tenant_suffixes() | KNOWN_MULTI_TENANT_SUFFIXES, key=len, reverse=True):
-        if lowered == suffix:
-            return suffix
-        if lowered.endswith(f".{suffix}"):
-            labels = [label for label in lowered.split(".") if label]
-            suffix_labels = [label for label in suffix.split(".") if label]
-            if len(labels) > len(suffix_labels):
-                return ".".join(labels[-(len(suffix_labels) + 1):])
-            return lowered
-    registrable = extract_registrable_domain_with_tldextract(lowered, include_configured_suffixes=include_configured_suffixes)
-    if registrable:
-        return registrable
-    suffix = public_suffix(lowered)
-    if suffix:
-        labels = [label for label in lowered.split(".") if label]
-        suffix_labels = [label for label in suffix.split(".") if label]
-        if len(labels) > len(suffix_labels):
-            return ".".join(labels[-(len(suffix_labels) + 1):])
-        return lowered
-    labels = [label for label in lowered.split(".") if label]
-    if len(labels) >= 2:
-        return ".".join(labels[-2:])
-    return lowered
-
-
-def is_same_site_family(url_a: str, url_b: str) -> bool:
-    host_a = urllib.parse.urlparse(normalize_url(url_a)).netloc
-    host_b = urllib.parse.urlparse(normalize_url(url_b)).netloc
-    if not host_a or not host_b:
-        return False
-    root_a = root_domain(host_a)
-    root_b = root_domain(host_b)
-    return bool(root_a and root_b and root_a == root_b)
-
-
 def classify_official_link(base_url: str, url: str, text: str) -> str:
     normalized = normalize_url(url)
     lowered_text = text.lower()
@@ -5665,7 +5356,7 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
         return "docs"
     if "blog" in lowered_text or ".org/blog" in lowered_url or normalized.startswith("https://blog."):
         return "blog"
-    if is_same_site_family(base_url, normalized):
+    if domain_policy_core.is_same_site_family(base_url, normalized):
         return "same_site"
     return "other"
 
@@ -5899,7 +5590,7 @@ def resource_url_record_sort_key(record: dict[str, str]) -> tuple[int, int, int,
 
 def resource_url_host_key(url: str) -> str:
     host = urllib.parse.urlparse(normalize_url(url)).netloc.lower()
-    return root_domain(host) or host
+    return domain_policy_core.root_domain(host) or host
 
 
 def select_resource_url_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -6244,7 +5935,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         relation = str(record.get("relation") or "")
         confidence = str(record.get("confidence") or "candidate")
         evidence_url = str(record.get("evidence_url") or "")
-        same_site_evidence = bool(evidence_url and project.get("website_url") and is_same_site_family(evidence_url, project["website_url"]))
+        same_site_evidence = bool(evidence_url and project.get("website_url") and domain_policy_core.is_same_site_family(evidence_url, project["website_url"]))
         if identifier_is_deferred(project, "repo_url", url):
             record = dict(record)
             record["confidence"] = "candidate"
@@ -6346,14 +6037,14 @@ def handle_matches_confirmed_service_identity(project: dict[str, Any], handle: s
     normalized_handle = str(handle or "").strip().lower()
     if not normalized_handle or "." not in normalized_handle:
         return False
-    handle_root = root_domain(normalized_handle)
+    handle_root = domain_policy_core.root_domain(normalized_handle)
     confirmed_hosts = {
         str(host or "").strip().lower()
         for host in ownership_anchor_service_hosts(project)
         if str(host or "").strip()
     }
     for host in confirmed_hosts:
-        host_root = root_domain(host)
+        host_root = domain_policy_core.root_domain(host)
         if normalized_handle == host or normalized_handle.endswith(f".{host}"):
             return True
         if handle_root and host_root and handle_root == host_root:
@@ -6854,7 +6545,7 @@ def import_collection_inventory_payload(
             continue
         registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
         authority_domain = derive_authority_domain_from_namespace(registrable_namespace)
-        if not authority_domain_allowed_for_import(authority_domain):
+        if not domain_policy_core.authority_domain_allowed_for_import(authority_domain):
             rejected_entries.append({"collection": collection_nsid, "namespace": registrable_namespace, "reason": f"rejected_authority_domain:{authority_domain}"})
             continue
         bucket = aggregated.setdefault(
@@ -6890,7 +6581,7 @@ def import_collection_inventory_payload(
     for namespace, item in aggregated.items():
         authority_domain = derive_authority_domain_from_namespace(namespace)
         registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
-        service_host_key = root_domain(authority_domain)
+        service_host_key = domain_policy_core.root_domain(authority_domain)
         match_kind = ""
         project_key, match_kind = safe_collection_member_namespace_match(
             existing_projects,
@@ -7912,7 +7603,7 @@ def resolve_github_search_project_key(
         if project_key:
             return project_key, "homepage_exact"
         host = urllib.parse.urlparse(homepage).netloc.lower()
-        host_family = root_domain(host)
+        host_family = domain_policy_core.root_domain(host)
         if host_family:
             project_key = service_host_lookup.get(host_family)
             if project_key:
@@ -8581,7 +8272,7 @@ def service_probe_redirect_metadata(requested_url: str, final_url: str) -> dict[
     final_parsed = urllib.parse.urlparse(final)
     redirected = requested != final
     same_host = requested_parsed.netloc.lower() == final_parsed.netloc.lower()
-    same_site_family = is_same_site_family(requested, final)
+    same_site_family = domain_policy_core.is_same_site_family(requested, final)
     return {
         "requested_url": requested,
         "final_url": final,
@@ -8729,13 +8420,13 @@ def repo_references_service(project: dict[str, Any], repo_url: str, service_url:
             continue
         if relation["object"]["type"] not in {"website", "service"}:
             continue
-        if is_same_site_family(relation["object"]["value"], normalized_service):
+        if domain_policy_core.is_same_site_family(relation["object"]["value"], normalized_service):
             return True
     for record in normalize_source_repo_records(project.get("source_repo_records", [])):
         if canonical_repo_url(str(record.get("url") or "")) != normalized_repo:
             continue
         evidence_url = normalize_url(str(record.get("evidence_url") or ""))
-        if evidence_url and is_same_site_family(evidence_url, normalized_service):
+        if evidence_url and domain_policy_core.is_same_site_family(evidence_url, normalized_service):
             return True
     return False
 
@@ -9341,7 +9032,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                 observed_at=iso_now(),
                 context={"link_text": text[:200]},
             )
-            if owner_matches_project(project, url) or is_same_site_family(base_url, url):
+            if owner_matches_project(project, url) or domain_policy_core.is_same_site_family(base_url, url):
                 add_candidate_source_code_url(
                     project,
                     url,
@@ -9371,7 +9062,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                     relation="linked_repo_candidate",
                 )
         elif classification == "source_like":
-            if is_same_site_family(base_url, url):
+            if domain_policy_core.is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
             else:
                 add_candidate_source_code_url(
@@ -9389,9 +9080,9 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                 url,
                 role=classification,
                 source=source,
-                confidence="confirmed" if is_same_site_family(base_url, url) else "candidate",
+                confidence="confirmed" if domain_policy_core.is_same_site_family(base_url, url) else "candidate",
             )
-            if is_same_site_family(base_url, url):
+            if domain_policy_core.is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
             record_developer_profile_url(project, url, source)
@@ -10561,9 +10252,9 @@ def authority_families(project: dict[str, Any]) -> set[str]:
     for domain in project.get("authority_domains", []):
         lowered = str(domain or "").strip().lower()
         if lowered and not is_shared_official_identity_host(lowered):
-            families.add(root_domain(lowered))
+            families.add(domain_policy_core.root_domain(lowered))
     for host in service_hosts(project):
-        families.add(root_domain(host))
+        families.add(domain_policy_core.root_domain(host))
     return families
 
 
@@ -10573,7 +10264,7 @@ def project_identity_hosts(project: dict[str, Any], *, include_candidates: bool 
         lowered = str(domain or "").strip().lower()
         if lowered and not is_shared_official_identity_host(lowered):
             hosts.add(lowered)
-            hosts.add(root_domain(lowered))
+            hosts.add(domain_policy_core.root_domain(lowered))
     for value in manual_seed_values(project, "service_url"):
         host = urllib.parse.urlparse(value).netloc.lower()
         if host:
@@ -10629,7 +10320,7 @@ def project_merge_identity_hosts(project: dict[str, Any]) -> set[str]:
 
 
 def project_merge_authority_families(project: dict[str, Any]) -> set[str]:
-    return {root_domain(host) for host in project_merge_identity_hosts(project) if root_domain(host)}
+    return {domain_policy_core.root_domain(host) for host in project_merge_identity_hosts(project) if domain_policy_core.root_domain(host)}
 
 
 def project_collection_nsids(project: dict[str, Any]) -> set[str]:
@@ -10674,7 +10365,7 @@ def project_collection_first_creator_did_map(project: dict[str, Any]) -> dict[st
 def project_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     for host in project_identity_hosts(project, include_candidates=False):
-        for value in (host, root_domain(host)):
+        for value in (host, domain_policy_core.root_domain(host)):
             token = normalize_alias_token(value)
             if token:
                 tokens.add(token)
@@ -10684,7 +10375,7 @@ def project_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
 def project_merge_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     for host in project_merge_identity_hosts(project):
-        for value in (host, root_domain(host)):
+        for value in (host, domain_policy_core.root_domain(host)):
             token = normalize_alias_token(value)
             if token:
                 tokens.add(token)
@@ -10754,7 +10445,7 @@ def lexicon_brand_tokens(project: dict[str, Any]) -> set[str]:
         combined = normalize_alias_token(host)
         if combined:
             tokens.add(combined)
-        registrable = root_domain(host)
+        registrable = domain_policy_core.root_domain(host)
         combined_registrable = normalize_alias_token(registrable)
         if combined_registrable:
             tokens.add(combined_registrable)
@@ -13008,12 +12699,12 @@ def merge_is_blocked(project_a: dict[str, Any], project_b: dict[str, Any]) -> bo
 
 
 def merge_pair_multi_tenant_suffix_suggestions(project_a: dict[str, Any], project_b: dict[str, Any]) -> list[dict[str, Any]]:
-    configured = configured_multi_tenant_suffixes() | KNOWN_MULTI_TENANT_SUFFIXES
+    configured = domain_policy_core.configured_multi_tenant_suffixes() | domain_policy_core.KNOWN_MULTI_TENANT_SUFFIXES
     source_hosts = sorted(project_merge_identity_hosts(project_a))
     target_hosts = sorted(project_merge_identity_hosts(project_b))
     suggestions: dict[str, dict[str, Any]] = {}
     for source_host in source_hosts:
-        source_root = root_domain(source_host, include_configured_suffixes=False)
+        source_root = domain_policy_core.root_domain(source_host, include_configured_suffixes=False)
         if not source_root or source_root in configured or source_root == source_host:
             continue
         source_tenant = tenant_identity_for_suffix(source_host, source_root)
@@ -13022,7 +12713,7 @@ def merge_pair_multi_tenant_suffix_suggestions(project_a: dict[str, Any], projec
         for target_host in target_hosts:
             if target_host == source_host:
                 continue
-            target_root = root_domain(target_host, include_configured_suffixes=False)
+            target_root = domain_policy_core.root_domain(target_host, include_configured_suffixes=False)
             if target_root != source_root:
                 continue
             target_tenant = tenant_identity_for_suffix(target_host, source_root)
@@ -13380,7 +13071,7 @@ def batch_moderate_overlap(
 
     host_a = project_merge_identity_hosts(project_a)
     host_b = project_merge_identity_hosts(project_b)
-    root_overlap = sorted({root_domain(host) for host in host_a} & {root_domain(host) for host in host_b})
+    root_overlap = sorted({domain_policy_core.root_domain(host) for host in host_a} & {domain_policy_core.root_domain(host) for host in host_b})
     if root_overlap and alias_overlap:
         reasons["manual_service_root_domain_and_alias"] = root_overlap
         reasons["alias_overlap"] = alias_overlap
@@ -13388,8 +13079,8 @@ def batch_moderate_overlap(
 
     website_host_a = urllib.parse.urlparse(normalize_url(str(project_a.get("website_url") or ""))).netloc.lower() if project_a.get("website_url") else ""
     website_host_b = urllib.parse.urlparse(normalize_url(str(project_b.get("website_url") or ""))).netloc.lower() if project_b.get("website_url") else ""
-    if website_host_a and website_host_b and root_domain(website_host_a) == root_domain(website_host_b) and alias_overlap:
-        reasons["website_root_domain_and_alias"] = [root_domain(website_host_a)]
+    if website_host_a and website_host_b and domain_policy_core.root_domain(website_host_a) == domain_policy_core.root_domain(website_host_b) and alias_overlap:
+        reasons["website_root_domain_and_alias"] = [domain_policy_core.root_domain(website_host_a)]
         reasons["alias_overlap"] = alias_overlap
 
     return reasons
@@ -15277,7 +14968,7 @@ def cleanup_project_sync_notes(conn: sqlite3.Connection, *, execute: bool = Fals
 
 def tenant_identity_for_suffix(host: str, suffix: str) -> str:
     lowered = str(host or "").strip().lower().rstrip(".")
-    normalized_suffix = normalize_multi_tenant_suffix(suffix)
+    normalized_suffix = domain_policy_core.normalize_multi_tenant_suffix(suffix)
     if not lowered.endswith(f".{normalized_suffix}"):
         return ""
     prefix_labels = lowered[: -(len(normalized_suffix) + 1)].split(".")
@@ -15437,7 +15128,7 @@ def split_project_tenant_group(
 
 def build_source_config_split_suggestions(conn: sqlite3.Connection, suffixes: list[str] | None = None) -> list[dict[str, Any]]:
     normalized_suffixes = sorted(
-        {normalize_multi_tenant_suffix(item) for item in (suffixes or sorted(configured_multi_tenant_suffixes()))}
+        {domain_policy_core.normalize_multi_tenant_suffix(item) for item in (suffixes or sorted(domain_policy_core.configured_multi_tenant_suffixes()))}
     )
     projects = [ensure_project_shape(project) for project in list_projects(conn)]
     suggestions: list[dict[str, Any]] = []

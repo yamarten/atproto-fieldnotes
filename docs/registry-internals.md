@@ -210,6 +210,9 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - investigation run保存、network-free replay、fixture benchmark
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
+- `project_registry_core/domain_policy.py`
+  - vendored PSL、known/configured multi-tenant suffix、registrable domain、same-site判定
+  - suffix設定の読書きもこのmoduleが所有し、`registry.py`は旧symbolをre-exportしない
 - `project_registry_core/application/`
   - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
@@ -232,7 +235,7 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 - `project_registry_core/worker.py`
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
-  - domain helperとcollector/evaluation orchestration
+  - collector/evaluation orchestrationと未分離の補助処理
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
   - `argparse.Namespace`を受け取る`cmd_*`は残っていない
 

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from project_registry_core import database
+from project_registry_core import domain_policy
 from project_registry_core import registry as core
 from project_registry_core.application import decisions, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
@@ -470,12 +471,12 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             self.send_json(result)
             return
         if path == "/api/domain-overrides/multi-tenant-suffixes":
-            suffix = core.normalize_multi_tenant_suffix(str(payload.get("suffix") or ""))
-            added = core.add_configured_multi_tenant_suffix(suffix)
+            suffix = domain_policy.normalize_multi_tenant_suffix(str(payload.get("suffix") or ""))
+            added = domain_policy.add_configured_multi_tenant_suffix(suffix)
             self.send_json({
                 "suffix": suffix,
                 "added": added,
-                "custom_multi_tenant_suffixes": sorted(core.configured_multi_tenant_suffixes()),
+                "custom_multi_tenant_suffixes": sorted(domain_policy.configured_multi_tenant_suffixes()),
             })
             return
         if not path.startswith("/api/projects/"):

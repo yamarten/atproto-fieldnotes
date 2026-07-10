@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import registry as core
 from .. import database
+from .. import domain_policy
 from ..application import maintenance as services
 
 
@@ -104,15 +105,15 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
     interactive = bool(args.interactive)
     if interactive and (not sys.stdin.isatty() or not sys.stdout.isatty()):
         raise ValueError("default interactive mode requires a TTY; use --no-interactive for JSON dry-run output")
-    requested_suffix = core.normalize_multi_tenant_suffix(args.domain) if args.domain else ""
+    requested_suffix = domain_policy.normalize_multi_tenant_suffix(args.domain) if args.domain else ""
     added_suffix = False
-    if requested_suffix and requested_suffix not in core.configured_multi_tenant_suffixes():
+    if requested_suffix and requested_suffix not in domain_policy.configured_multi_tenant_suffixes():
         should_add = bool(args.execute)
         if interactive and not should_add:
             should_add = core.prompt_for_confirmation(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]")
         if should_add:
-            added_suffix = core.add_configured_multi_tenant_suffix(requested_suffix)
-    suffixes = [requested_suffix] if requested_suffix else sorted(core.configured_multi_tenant_suffixes())
+            added_suffix = domain_policy.add_configured_multi_tenant_suffix(requested_suffix)
+    suffixes = [requested_suffix] if requested_suffix else sorted(domain_policy.configured_multi_tenant_suffixes())
     conn = core.open_db()
     try:
         suggestions = core.build_source_config_split_suggestions(conn, suffixes=suffixes)

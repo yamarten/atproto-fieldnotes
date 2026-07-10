@@ -79,6 +79,11 @@ maintenance series完了時に削除します。
   - merge-batchのinteractive action、undo、出力を`commands/merge.py`へ移した。
   - assist-db-editの候補表示、確認、mutation adapterを`commands/assist.py`へ移した。
   - 判定helperと保存契約は変更せず、`registry.py`から`cmd_*`と`argparse`依存を除去した。
+- domain policy分離。
+  - PSL、known/configured multi-tenant suffix、registrable domain、same-site判定とsuffix設定を
+    `domain_policy.py`へ機械的に移した。
+  - CLI/Webを含むcall siteを同時に移し、`registry.py`に旧symbolのre-exportは残していない。
+  - このcommitでは判定policyと保存形式を変更していない。
 
 作業中:
 
@@ -107,6 +112,7 @@ DB適用:
 - `split-project` parserにexplicit key属性が無く、自動採番splitとWeb splitが成功する回帰test。
 - same first-label / different registrable domainをdirect判定、redirect、official/resource link、repo homepageで
   拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
+- domain policy分離後のsuffix設定ファイル更新、cache反映、Web API追加とsame-site判定の回帰test。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
