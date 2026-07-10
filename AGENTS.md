@@ -15,6 +15,7 @@
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
   - `domain_policy.py`: PSL、multi-tenant suffix、same-site判定
   - `http_transport.py`: outbound URL検証、redirect制御、JSON HTTP transport
+  - `llm_transport.py`: command/OpenAI互換LLM transport、response parser、request metrics
   - `service.py`: service verification evidence collectorとcurrent projection
   - `registry.py`: collector/evaluation orchestrationと未分離のdomain以外のhelper
 - 調査結果の正本は SQLite DB `data/survey.db`

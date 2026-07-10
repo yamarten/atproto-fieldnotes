@@ -13,6 +13,7 @@ from project_registry_core.evidence import CollectorFailure, CollectorResult, Ev
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import integration as integration_core
 from project_registry_core import investigation as investigation_core
+from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import relations as relation_core
 from project_registry_core import runtime_view
 from project_registry_core import service as service_core
@@ -40,7 +41,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_llm_metrics_record_sizes_without_prompt_or_endpoint(self) -> None:
         requests: list[dict] = []
         with mock.patch.object(
-            registry,
+            llm_transport_core,
             "run_local_llm",
             return_value=(
                 {"name": "例"},
@@ -53,7 +54,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 },
             ),
         ):
-            payload, _ = registry.run_llm_with_metrics("調査", purpose="triage", requests=requests)
+            payload, _ = llm_transport_core.run_llm_with_metrics("調査", purpose="triage", requests=requests)
 
         self.assertEqual(payload, {"name": "例"})
         self.assertEqual(requests[0]["status"], "success")
@@ -65,9 +66,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_llm_metrics_separate_timeout_failure(self) -> None:
         requests: list[dict] = []
-        with mock.patch.object(registry, "run_local_llm", side_effect=TimeoutError("timed out")):
+        with mock.patch.object(llm_transport_core, "run_local_llm", side_effect=TimeoutError("timed out")):
             with self.assertRaises(TimeoutError):
-                registry.run_llm_with_metrics("prompt", purpose="planning", requests=requests)
+                llm_transport_core.run_llm_with_metrics("prompt", purpose="planning", requests=requests)
         self.assertEqual(requests[0]["status"], "failed")
         self.assertEqual(requests[0]["error_category"], "timeout")
 
@@ -79,10 +80,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             stderr="",
         )
         with (
-            mock.patch.dict(registry.os.environ, {"ATPROTO_SURVEY_LLM_COMMAND": "fixture-llm"}),
-            mock.patch.object(registry.subprocess, "run", return_value=completed) as run,
+            mock.patch.dict(llm_transport_core.os.environ, {"ATPROTO_SURVEY_LLM_COMMAND": "fixture-llm"}),
+            mock.patch.object(llm_transport_core.subprocess, "run", return_value=completed) as run,
         ):
-            payload, meta = registry.run_local_llm("prompt")
+            payload, meta = llm_transport_core.run_local_llm("prompt")
 
         self.assertEqual(payload, {"name": "Fixture"})
         self.assertEqual(meta["transport"], "command")
@@ -413,7 +414,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                         collected_at="2026-06-13T00:00:00+00:00",
                     ),
                 ),
-                mock.patch.object(registry, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
                 enriched = registry.enrich_project(conn, project)
             registry.save_project(conn, enriched, enriched=True)
@@ -470,7 +471,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 mock.patch.object(registry, "apply_github_repo_evidence"),
                 mock.patch.object(registry, "plan_investigation_queries", return_value={}),
                 mock.patch.object(registry, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(registry, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
                 registry.enrich_project(conn, project)
         finally:

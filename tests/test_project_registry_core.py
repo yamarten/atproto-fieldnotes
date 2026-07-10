@@ -13,6 +13,7 @@ from helpers import registry
 from project_registry_core import domain_policy
 from project_registry_core import http_transport as http_transport_core
 from project_registry_core import llm_evidence as llm_evidence_core
+from project_registry_core import llm_transport as llm_transport_core
 
 
 class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
@@ -1781,26 +1782,26 @@ class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_parse_chat_completion_message_content(self) -> None:
         payload = {"choices": [{"message": {"content": "chat text"}}]}
 
-        self.assertEqual(registry.parse_openai_compatible_response(payload), "chat text")
+        self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), "chat text")
 
     def test_parse_responses_output_text(self) -> None:
         payload = {"output_text": "responses text"}
 
-        self.assertEqual(registry.parse_openai_compatible_response(payload), "responses text")
+        self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), "responses text")
 
     def test_parse_responses_output_content_text(self) -> None:
         payload = {"output": [{"content": [{"type": "output_text", "text": "nested text"}]}]}
 
-        self.assertEqual(registry.parse_openai_compatible_response(payload), "nested text")
+        self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), "nested text")
 
     def test_parse_completion_text(self) -> None:
         payload = {"choices": [{"text": "completion text"}]}
 
-        self.assertEqual(registry.parse_openai_compatible_response(payload), "completion text")
+        self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), "completion text")
 
     def test_parse_empty_response_raises(self) -> None:
         with self.assertRaises(ValueError):
-            registry.parse_openai_compatible_response({"output": [{"content": []}]})
+            llm_transport_core.parse_openai_compatible_response({"output": [{"content": []}]})
 
 
 class ProjectRegistryMergeScoringTest(unittest.TestCase):

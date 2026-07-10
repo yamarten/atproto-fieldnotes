@@ -94,6 +94,12 @@ maintenance series完了時に削除します。
   - collector call siteとtest doubleを新moduleへ直結し、`registry.py`に旧symbolのre-exportは残していない。
   - request header、timeout、redirect上限、URL正規化の契約は変更していない。実外部sourceへのsmoke testは
     実施していない。
+- LLM transport分離。
+  - command/OpenAI互換endpoint、API style選択、response parser、timeout/error分類、request metricsを
+    `llm_transport.py`へ移した。
+  - prompt/evidence構築とproject適用は`registry.py`側に残し、transport call siteとtest doubleを新moduleへ
+    直結した。`registry.py`に旧symbolのre-exportは残していない。
+  - fake command/response/timeoutは動作確認済み。実endpointと実LLM callは未検証。
 
 作業中:
 
@@ -124,6 +130,7 @@ DB適用:
   拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
 - domain policy分離後のsuffix設定ファイル更新、cache反映、Web API追加とsame-site判定の回帰test。
 - HTTP transport分離後の内部host遮断、redirect先再検証、明示的なoperator endpoint許可、query送信の回帰test。
+- LLM transport分離後のcommand呼出し、OpenAI互換response shape、metrics、timeout分類の回帰test。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
