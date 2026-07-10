@@ -251,6 +251,10 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
 
+新しいenrich runでは、`evaluation_json`の予約key `_run_metrics`へrun timingとLLM request metadataを保存します。
+applicationで読む時はsemantic evaluationから`metrics`へ分離するため、replay diffやfixtureの
+`expected_evaluation`には含めません。旧runにはこのkeyが無く、timingは未記録として扱います。
+
 ### Merge / Splitの履歴
 
 mergeはtarget保存、source alias作成、第三projectの`separate_project`参照更新、source削除を

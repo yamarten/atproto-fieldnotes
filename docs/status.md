@@ -23,6 +23,7 @@
   - identifier、relation、collector failure、developer accountのreview action
   - project nameとnotesのpreview付き編集
   - bounded investigation run viewerとread-only replay
+    - 新規enrich runのphase別wall timeとLLM request size/statusを表示
   - service verification比較、ownership、OAuth、URL aliasの確認
   - 保存済みstateに対するExplain
   - source/targetの主要属性とidentifierを並べるmerge review
@@ -86,6 +87,7 @@
 
 - identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
 - job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
+- enrich run timingはproject SQL書込みまでで、transaction commit、process job全体、operator review時間を含まない
 
 ## 動作確認状況
 

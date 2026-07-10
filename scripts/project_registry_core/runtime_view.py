@@ -12,6 +12,7 @@ RUNTIME_RELATION_ROWS = "_registry_relation_rows_v2"
 RUNTIME_RELATION_BASELINE = "_registry_relation_baseline_v2"
 RUNTIME_DECISION_ROWS = "_registry_decision_rows_v2"
 RUNTIME_DECISION_BASELINE = "_registry_decision_baseline_v2"
+RUNTIME_INVESTIGATION_RUN_ID = "_registry_investigation_run_id_v2"
 RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_VIEW_MARKER,
     RUNTIME_IDENTIFIER_ROWS,
@@ -20,6 +21,7 @@ RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_RELATION_BASELINE,
     RUNTIME_DECISION_ROWS,
     RUNTIME_DECISION_BASELINE,
+    RUNTIME_INVESTIGATION_RUN_ID,
 }
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 

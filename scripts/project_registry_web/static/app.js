@@ -129,6 +129,12 @@ function formatDuration(seconds) {
   return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
 }
 
+function formatMilliseconds(milliseconds) {
+  if (milliseconds === null || milliseconds === undefined || !Number.isFinite(Number(milliseconds))) return "";
+  const value = Math.max(0, Math.round(Number(milliseconds)));
+  return value < 1000 ? `${value}ms` : formatDuration(value / 1000);
+}
+
 async function api(path, options = {}) {
   const headers = {"X-Project-Registry-Token": token, ...(options.headers || {})};
   if (options.body) headers["Content-Type"] = "application/json";
@@ -558,9 +564,25 @@ function renderDecisions(decisions) {
 
 function renderInvestigation(run) {
   if (!run) return `<p class="muted">No saved investigation run.</p>`;
-  return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(formatTimestamp(run.completed_at))}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
+  return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(formatTimestamp(run.completed_at))}</dd><dt>Duration</dt><dd>${esc(formatMilliseconds(run.metrics?.total_ms) || "Not recorded")}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
     <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.source)}</strong></div><div class="muted">${esc(item.operation)} · ${esc(item.request_count || 0)} requests · ${esc(item.result_count || 0)} results${item.stop_reason ? ` · ${esc(item.stop_reason)}` : ""}</div></div>`).join("") || `<p class="muted">No collector summaries.</p>`}</div>
     ${run.failures?.length ? `<details><summary>Failures</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(item.source)} ${esc(item.operation)}</div><div class="muted">${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
+}
+
+function renderRunMetrics(metrics) {
+  if (!metrics?.version) return `<p class="muted">Timing was not recorded for this run.</p>`;
+  const phaseLabels = {
+    initial_collection_ms: "Initial collection + integration",
+    planning_ms: "Investigation planning",
+    investigation_collection_ms: "Investigation collection + integration",
+    triage_ms: "LLM triage + application",
+    evaluation_ms: "Final evaluation",
+    run_history_save_ms: "Run history serialization + SQL",
+    project_save_ms: "Project serialization + SQL",
+  };
+  const phases = Object.entries(phaseLabels).filter(([key]) => metrics.phases?.[key] !== undefined);
+  const requests = list(metrics.llm_requests);
+  return `<dl class="kv"><dt>Total</dt><dd>${esc(formatMilliseconds(metrics.total_ms))}</dd>${phases.map(([key, label]) => `<dt>${esc(label)}</dt><dd>${esc(formatMilliseconds(metrics.phases[key]))}</dd>`).join("")}</dl>${requests.length ? `<details><summary>LLM requests (${requests.length})</summary>${requests.map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.purpose)}</strong> · ${esc(formatMilliseconds(item.duration_ms))}</div><div class="muted">${esc(item.prompt_bytes || 0)} prompt bytes · ${esc(item.response_bytes || 0)} response bytes · timeout ${esc(item.timeout_seconds)}s${item.error_category ? ` · ${esc(item.error_category)}` : ""}${item.model ? ` · ${esc(item.model)}` : ""}</div></div>`).join("")}</details>` : `<p class="muted">No LLM request was observed.</p>`}`;
 }
 
 function renderServiceOwnership(data) {
@@ -624,7 +646,7 @@ async function loadInvestigationHistory(projectKey) {
   target.innerHTML = `<p class="muted">Loading runs...</p>`;
   try {
     const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/investigation-runs?limit=50`);
-    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.problem_count ? "problems" : "complete", run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
+    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.problem_count ? "problems" : "complete", run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors${run.total_ms ? ` · ${esc(formatMilliseconds(run.total_ms))}` : ""}</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
     target.querySelectorAll("[data-investigation-run]").forEach((button) => button.onclick = () => loadInvestigationRun(button.dataset.investigationRun));
   } catch (error) { status(error.message, true); }
 }
@@ -634,7 +656,7 @@ async function loadInvestigationRun(runId) {
   target.innerHTML = `<p class="muted">Loading run...</p>`;
   try {
     const run = await api(`/api/investigation-runs/${encodeURIComponent(runId)}?evidence_limit=100`);
-    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
+    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Timing", renderRunMetrics(run.metrics))}${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
     $("replay-investigation-run").onclick = async () => {
       try {
         const replay = await api(`/api/investigation-runs/${encodeURIComponent(runId)}/replay`);

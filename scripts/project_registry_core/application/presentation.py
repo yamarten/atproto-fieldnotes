@@ -367,6 +367,7 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
         "completed_at": run["completed_at"],
         "evaluation_version": run["evaluation_version"],
         "evaluation": run["evaluation"],
+        "metrics": run["metrics"],
         "record_count": len(bundle.records),
         "failure_count": len(bundle.failures),
         "collectors": [
@@ -410,6 +411,7 @@ def investigation_run_detail(
         "completed_at": run["completed_at"],
         "evidence_schema_version": run["evidence_schema_version"],
         "evaluation_version": run["evaluation_version"],
+        "metrics": run["metrics"],
         "collectors": storage.list_collector_run_rows(conn, run_id),
         "record_count": len(records),
         "records": records[:limit],

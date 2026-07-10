@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 import uuid
 from typing import Any
 
@@ -11,6 +12,32 @@ from .runtime_view import sanitize_runtime_snapshot
 
 
 EVALUATION_VERSION = "investigation-evaluation-v2"
+RUN_METRICS_KEY = "_run_metrics"
+RUN_METRICS_VERSION = 1
+RUN_PHASE_NAMES = {
+    "initial_collection_ms",
+    "planning_ms",
+    "investigation_collection_ms",
+    "triage_ms",
+    "evaluation_ms",
+    "run_history_save_ms",
+    "project_save_ms",
+}
+LLM_REQUEST_FIELDS = {
+    "purpose",
+    "status",
+    "error_category",
+    "duration_ms",
+    "prompt_chars",
+    "prompt_bytes",
+    "response_bytes",
+    "timeout_seconds",
+    "transport",
+    "model",
+    "api_style",
+    "reasoning_effort",
+    "prompt_version",
+}
 
 
 def ensure_investigation_tables(conn: sqlite3.Connection) -> None:
@@ -82,6 +109,56 @@ def evaluation_snapshot(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    phases = {
+        key: max(0, int(raw_value or 0))
+        for key, raw_value in dict(value.get("phases") or {}).items()
+        if key in RUN_PHASE_NAMES
+    }
+    requests: list[dict[str, Any]] = []
+    for item in list(value.get("llm_requests") or [])[:4]:
+        if not isinstance(item, dict):
+            continue
+        requests.append({key: item[key] for key in LLM_REQUEST_FIELDS if key in item})
+    return {
+        "version": RUN_METRICS_VERSION,
+        "total_ms": max(0, int(value.get("total_ms") or 0)),
+        "phases": phases,
+        "llm_requests": requests,
+    }
+
+
+def update_run_metrics_phase(
+    conn: sqlite3.Connection,
+    run_id: str,
+    *,
+    phase: str,
+    duration_ms: int,
+) -> None:
+    if phase not in RUN_PHASE_NAMES:
+        raise ValueError(f"unknown investigation run phase: {phase}")
+    row = conn.execute(
+        "SELECT evaluation_json FROM investigation_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"investigation run not found: {run_id}")
+    evaluation_payload = json.loads(str(row["evaluation_json"]))
+    metrics_payload = normalize_run_metrics(evaluation_payload.get(RUN_METRICS_KEY))
+    if not metrics_payload:
+        return
+    previous_ms = int(metrics_payload["phases"].get(phase, 0) or 0)
+    resolved_ms = max(0, int(duration_ms or 0))
+    metrics_payload["phases"][phase] = resolved_ms
+    metrics_payload["total_ms"] = max(0, int(metrics_payload["total_ms"]) - previous_ms + resolved_ms)
+    evaluation_payload[RUN_METRICS_KEY] = metrics_payload
+    conn.execute(
+        "UPDATE investigation_runs SET evaluation_json = ? WHERE run_id = ?",
+        (json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True), run_id),
+    )
+
+
 def save_investigation_run(
     conn: sqlite3.Connection,
     *,
@@ -92,15 +169,20 @@ def save_investigation_run(
     output_project: dict[str, Any],
     bundle: EvidenceBundle,
     evaluation: dict[str, Any] | None = None,
+    run_metrics: dict[str, Any] | None = None,
     evaluation_version: str = EVALUATION_VERSION,
     run_id: str | None = None,
 ) -> str:
+    save_started = time.perf_counter()
     ensure_investigation_tables(conn)
     if bundle.records or bundle.failures:
         if not bundle.collector_results:
             raise ValueError("investigation bundles with collector output require explicit collector_results")
     resolved_run_id = run_id or f"inv:{uuid.uuid4().hex}"
-    evaluation_payload = evaluation or evaluation_snapshot(output_project)
+    evaluation_payload = dict(evaluation or evaluation_snapshot(output_project))
+    metrics_payload = normalize_run_metrics(run_metrics)
+    if metrics_payload:
+        evaluation_payload[RUN_METRICS_KEY] = metrics_payload
     conn.execute(
         """
         INSERT INTO investigation_runs(
@@ -144,6 +226,15 @@ def save_investigation_run(
                 json.dumps(failures, ensure_ascii=False, sort_keys=True),
             ),
         )
+    if metrics_payload:
+        save_ms = max(0, round((time.perf_counter() - save_started) * 1000))
+        metrics_payload["phases"]["run_history_save_ms"] = save_ms
+        metrics_payload["total_ms"] = int(metrics_payload["total_ms"]) + save_ms
+        evaluation_payload[RUN_METRICS_KEY] = metrics_payload
+        conn.execute(
+            "UPDATE investigation_runs SET evaluation_json = ? WHERE run_id = ?",
+            (json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True), resolved_run_id),
+        )
     return resolved_run_id
 
 
@@ -152,6 +243,8 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
     row = conn.execute("SELECT * FROM investigation_runs WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         return None
+    evaluation = json.loads(str(row["evaluation_json"]))
+    metrics = normalize_run_metrics(evaluation.pop(RUN_METRICS_KEY, None))
     return {
         "run_id": str(row["run_id"]),
         "project_key": str(row["project_key"]),
@@ -161,7 +254,8 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
         "evaluation_version": str(row["evaluation_version"]),
         "input_project": json.loads(str(row["input_project_json"])),
         "output_project": json.loads(str(row["output_project_json"])),
-        "evaluation": json.loads(str(row["evaluation_json"])),
+        "evaluation": evaluation,
+        "metrics": metrics,
         "bundle": EvidenceBundle.from_json(str(row["bundle_json"])),
     }
 
@@ -206,6 +300,7 @@ def list_investigation_run_summaries(
         f"""
         SELECT r.run_id, r.project_key, r.started_at, r.completed_at,
                r.evidence_schema_version, r.evaluation_version,
+               json_extract(r.evaluation_json, '$._run_metrics.total_ms') AS total_ms,
                COUNT(c.ordinal) AS collector_count,
                SUM(CASE WHEN c.status IN ('failed', 'partial', 'rate_limited') THEN 1 ELSE 0 END) AS problem_count
         FROM investigation_runs r
@@ -224,6 +319,7 @@ def list_investigation_run_summaries(
         "completed_at": str(row["completed_at"]),
         "evidence_schema_version": int(row["evidence_schema_version"]),
         "evaluation_version": str(row["evaluation_version"]),
+        "total_ms": int(row["total_ms"] or 0),
         "collector_count": int(row["collector_count"] or 0),
         "problem_count": int(row["problem_count"] or 0),
     } for row in rows]

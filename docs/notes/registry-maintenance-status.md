@@ -44,10 +44,16 @@ maintenance series完了時に削除します。
     `collector_runs` 1.58 GiB、`projects` 253 MiBであることを確認した。
   - current stateではservice verification、historyではGitHub/service collector payloadが保存量の主因だった。
   - phase別時間、正確なprompt量、operator review時間は現行保存形から測れないことを明示した。
+- enrich run observability。
+  - initial collection、planning、investigation collection、triage、evaluation、run history save、project saveの
+    wall timeを新規runへ保存する。
+  - planning/triage LLM requestごとにprompt/response bytes、所要時間、timeout/error分類を保存する。
+  - prompt本文、endpoint、command、API keyは保存せず、replay evaluationから非決定的なmetricsを分離する。
+  - Webのlatest run、run list、run detailへ接続した。
 
 作業中:
 
-- enrich phase timingとLLM request metadata。
+- service verificationとcollector historyの新規保存budget。
 
 未実装:
 
@@ -61,7 +67,7 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 315件が全件成功。
+- Python 3.10.20と3.11.15でunit test 319件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -76,12 +82,17 @@ DB適用:
 - JavaScript syntax checkが成功。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
   通常表示されることを確認した。操作実行と正本DB更新は行っていない。
+- timing付きrunを持つtemp DBの実browserで、latest duration、run list duration、7 phase、planning/triage別の
+  prompt/response bytes、success/timeout分類を確認した。
+- metricsがreplay evaluationとfixture exportへ混入せず、prompt/endpoint/commandが保存対象外になる回帰test。
+- command型LLM transportが設定commandを呼ぶ回帰test。これに必要な`subprocess` import欠落も修正した。
 
 未検証:
 
 - 正本DBを使ったCLI/Web/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
 - first-label誤判定に由来するconfirmed identifierやrelationが正本DBに何件あるか。
-- 2026-07-10 baselineのphase別時間、正確なprompt量、operator review時間。観測経路が未接続のため。
+- 2026-07-10 baseline以前のphase別時間。過去runへ遡及できないため。
+- transaction commit、provider token数、operator review時間。観測経路が未接続のため。
 
 ## Baseline
 

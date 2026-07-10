@@ -15,14 +15,16 @@
   変更していません。
 - product briefと2026-07-10静止DB baselineは作成済みです。snapshotは`.tmp/`に置き、正本DBは変更して
   いません。
+- 新規enrich runのphase timingとLLM request metadataは保存、API、Web表示まで接続済みです。旧runへの
+  backfill、transaction commit、operator review時間の計測は行っていません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. enrichへcollector、integration/evaluation、LLM、saveの最小phase timingを追加する。
-2. LLM requestのprompt量、応答時間、timeout分類を保存またはeventへ接続する。
-3. service verificationとcollector historyの新規保存budgetを実装する。
+1. service verificationのHTML extract、links、urlsへ件数・byte budgetを実装する。
+2. collector historyのGitHub/service payloadへ新規保存budgetを実装する。
+3. 新規timingを代表sampleで取得し、長時間runの支配区間を確認する。
 4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
 
 ## DB操作メモ

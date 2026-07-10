@@ -35,6 +35,58 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         values.update(overrides)
         return investigation_core.SearchCollectorDependencies(**values)
 
+    def test_llm_metrics_record_sizes_without_prompt_or_endpoint(self) -> None:
+        requests: list[dict] = []
+        with mock.patch.object(
+            registry,
+            "run_local_llm",
+            return_value=(
+                {"name": "例"},
+                {
+                    "transport": "openai_compatible_endpoint",
+                    "endpoint": "https://secret.example/v1",
+                    "model": "fixture",
+                    "api_style": "chat",
+                    "prompt_version": "fixture-v1",
+                },
+            ),
+        ):
+            payload, _ = registry.run_llm_with_metrics("調査", purpose="triage", requests=requests)
+
+        self.assertEqual(payload, {"name": "例"})
+        self.assertEqual(requests[0]["status"], "success")
+        self.assertEqual(requests[0]["prompt_chars"], 2)
+        self.assertEqual(requests[0]["prompt_bytes"], 6)
+        self.assertGreater(requests[0]["response_bytes"], 0)
+        self.assertNotIn("prompt", requests[0])
+        self.assertNotIn("endpoint", requests[0])
+
+    def test_llm_metrics_separate_timeout_failure(self) -> None:
+        requests: list[dict] = []
+        with mock.patch.object(registry, "run_local_llm", side_effect=TimeoutError("timed out")):
+            with self.assertRaises(TimeoutError):
+                registry.run_llm_with_metrics("prompt", purpose="planning", requests=requests)
+        self.assertEqual(requests[0]["status"], "failed")
+        self.assertEqual(requests[0]["error_category"], "timeout")
+
+    def test_command_llm_transport_invokes_configured_command(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args="fixture-llm",
+            returncode=0,
+            stdout='{"name":"Fixture"}',
+            stderr="",
+        )
+        with (
+            mock.patch.dict(registry.os.environ, {"ATPROTO_SURVEY_LLM_COMMAND": "fixture-llm"}),
+            mock.patch.object(registry.subprocess, "run", return_value=completed) as run,
+        ):
+            payload, meta = registry.run_local_llm("prompt")
+
+        self.assertEqual(payload, {"name": "Fixture"})
+        self.assertEqual(meta["transport"], "command")
+        self.assertEqual(run.call_args.kwargs["input"], "prompt")
+        self.assertTrue(run.call_args.kwargs["shell"])
+
     def test_search_collector_returns_evidence_without_mutating_project(self) -> None:
         project = self.make_project("proj:researchbundle")
         project["name"] = "Example App"
@@ -316,6 +368,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIsNotNone(fetched)
         assert fetched is not None
         self.assertEqual(fetched["project_key"], "proj:researchenrich")
+        self.assertNotIn(runtime_view.RUNTIME_INVESTIGATION_RUN_ID, fetched)
         self.assertIn("LLM unavailable", "\n".join(fetched["last_run_errors"]))
         self.assertTrue(fetched["last_enriched_at"])
         conn = registry.open_db()
@@ -324,6 +377,23 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         finally:
             conn.close()
         self.assertIsNotNone(run)
+        assert run is not None
+        self.assertEqual(run["metrics"]["version"], 1)
+        self.assertEqual(
+            set(run["metrics"]["phases"]),
+            {
+                "initial_collection_ms",
+                "planning_ms",
+                "investigation_collection_ms",
+                "triage_ms",
+                "evaluation_ms",
+                "run_history_save_ms",
+                "project_save_ms",
+            },
+        )
+        self.assertEqual(run["metrics"]["llm_requests"][0]["purpose"], "triage")
+        self.assertEqual(run["metrics"]["llm_requests"][0]["status"], "failed")
+        self.assertGreater(run["metrics"]["llm_requests"][0]["prompt_bytes"], 0)
 
     def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
         with self.assertRaises(ValueError):
@@ -374,6 +444,56 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
         )
         self.assertEqual(replayed["evaluation"]["atproto_contribution_level"], "substantial")
+
+    def test_investigation_storage_keeps_run_metrics_out_of_replay_evaluation(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:runmetrics")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn,
+                project_key=project["project_key"],
+                started_at=bundle.collected_at,
+                completed_at=bundle.collected_at,
+                input_project=project,
+                output_project=project,
+                bundle=bundle,
+                run_metrics={
+                    "total_ms": 120,
+                    "phases": {"initial_collection_ms": 80, "unknown_ms": 999},
+                    "llm_requests": [{
+                        "purpose": "triage",
+                        "status": "timeout",
+                        "duration_ms": 40,
+                        "prompt_bytes": 1234,
+                        "secret": "must not persist",
+                    }],
+                },
+            )
+            conn.commit()
+            run = storage_core.load_investigation_run(conn, run_id)
+            summary = storage_core.list_investigation_run_summaries(conn, project_key=project["project_key"])[0]
+            raw = json.loads(conn.execute(
+                "SELECT evaluation_json FROM investigation_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()[0])
+        finally:
+            conn.close()
+
+        assert run is not None
+        self.assertNotIn(storage_core.RUN_METRICS_KEY, run["evaluation"])
+        self.assertGreaterEqual(run["metrics"]["total_ms"], 120)
+        self.assertIn("run_history_save_ms", run["metrics"]["phases"])
+        self.assertNotIn("unknown_ms", run["metrics"]["phases"])
+        self.assertNotIn("secret", run["metrics"]["llm_requests"][0])
+        self.assertEqual(summary["total_ms"], run["metrics"]["total_ms"])
+        self.assertIn(storage_core.RUN_METRICS_KEY, raw)
+        replayed = registry.replay_core.replay_and_diff(
+            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
+        )
+        self.assertNotIn(
+            storage_core.RUN_METRICS_KEY,
+            {item["field"] for item in replayed["diff"]["changes"]},
+        )
 
     def test_collector_run_keeps_github_repo_family_records(self) -> None:
         conn = registry.open_db()

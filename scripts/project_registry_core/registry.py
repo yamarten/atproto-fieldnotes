@@ -13,7 +13,9 @@ import re
 import shlex
 import socket
 import sqlite3
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -3013,6 +3015,8 @@ def save_project(
     preserve_timestamps: bool = False,
     commit: bool = True,
 ) -> None:
+    project_save_started = time.perf_counter()
+    investigation_run_id = str(project.get(runtime_view.RUNTIME_INVESTIGATION_RUN_ID) or "")
     now = iso_now()
     preserve_normalized_rows = runtime_view.normalized_children_unchanged(project)
     preserved_runtime_rows = {
@@ -3154,6 +3158,13 @@ def save_project(
         project.update(preserved_runtime_rows)
         runtime_view.refresh_baselines(project)
     registry_database.replace_project_children(conn, project)
+    if investigation_run_id:
+        investigation_storage.update_run_metrics_phase(
+            conn,
+            investigation_run_id,
+            phase="project_save_ms",
+            duration_ms=max(0, round((time.perf_counter() - project_save_started) * 1000)),
+        )
     if commit:
         conn.commit()
 
@@ -11137,6 +11148,68 @@ def normalize_llm_reasoning_effort(value: str | None) -> str:
     return ""
 
 
+def llm_timeout_seconds() -> float:
+    if os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip():
+        return 300.0
+    try:
+        return max(0.0, float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300"))
+    except ValueError:
+        return 300.0
+
+
+def classify_llm_request_error(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "atproto_survey_llm_command or atproto_survey_llm_endpoint is required" in message:
+        return "unconfigured"
+    if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) or "timed out" in message or "timeout" in message:
+        return "timeout"
+    if "http 429" in message:
+        return "rate_limited"
+    if "http " in message:
+        return "http_error"
+    if isinstance(exc, json.JSONDecodeError) or "json" in message:
+        return "invalid_response"
+    return "request_error"
+
+
+def run_llm_with_metrics(
+    prompt: str,
+    *,
+    purpose: str,
+    requests: list[dict[str, Any]],
+    **kwargs: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    started = time.perf_counter()
+    request_metrics: dict[str, Any] = {
+        "purpose": purpose,
+        "status": "failed",
+        "error_category": "request_error",
+        "prompt_chars": len(prompt),
+        "prompt_bytes": len(prompt.encode("utf-8")),
+        "response_bytes": 0,
+        "timeout_seconds": llm_timeout_seconds(),
+    }
+    try:
+        payload, meta = run_local_llm(prompt, **kwargs)
+        request_metrics.update({
+            "status": "success",
+            "error_category": "",
+            "response_bytes": len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+            "transport": str(meta.get("transport") or ""),
+            "model": str(meta.get("model") or ""),
+            "api_style": str(meta.get("api_style") or ""),
+            "reasoning_effort": str(meta.get("reasoning_effort") or ""),
+            "prompt_version": str(meta.get("prompt_version") or ""),
+        })
+        return payload, meta
+    except Exception as exc:
+        request_metrics["error_category"] = classify_llm_request_error(exc)
+        raise
+    finally:
+        request_metrics["duration_ms"] = max(0, round((time.perf_counter() - started) * 1000))
+        requests.append(request_metrics)
+
+
 def run_local_llm_via_endpoint(
     prompt: str,
     endpoint: str,
@@ -11346,12 +11419,13 @@ def plan_investigation_queries(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_runner: Callable[..., tuple[dict[str, Any], dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     return investigation_core.plan_investigation_queries(
         project,
         investigation_core.PlanningDependencies(
             build_prompt=build_investigation_prompt,
-            run_llm=run_local_llm,
+            run_llm=llm_runner or run_local_llm,
             note_failure=note_failure,
         ),
         llm_endpoint=llm_endpoint,
@@ -13924,6 +13998,10 @@ def enrich_project(
     llm_api_style: str | None = None,
     deep_investigation: bool = False,
 ) -> dict[str, Any]:
+    run_clock_started = time.perf_counter()
+    phase_started = run_clock_started
+    phase_timings: dict[str, int] = {}
+    llm_requests: list[dict[str, Any]] = []
     project = ensure_project_shape(project)
     run_started_at = iso_now()
     run_input_project = copy.deepcopy(project)
@@ -14110,6 +14188,8 @@ def enrich_project(
         )
 
     project = finalize_project_shape(project)
+    phase_timings["initial_collection_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
+    phase_started = time.perf_counter()
 
     investigation_plan = plan_investigation_queries(
         project,
@@ -14118,6 +14198,9 @@ def enrich_project(
         llm_api_key=llm_api_key,
         llm_reasoning_effort=llm_reasoning_effort,
         llm_api_style=llm_api_style,
+        llm_runner=lambda prompt, **kwargs: run_llm_with_metrics(
+            prompt, purpose="planning", requests=llm_requests, **kwargs
+        ),
     )
     add_investigation_log(
         project,
@@ -14127,6 +14210,8 @@ def enrich_project(
         post_search_queries=clean_string_list(investigation_plan.get("post_search_queries"), limit=6),
         at=iso_now(),
     )
+    phase_timings["planning_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
+    phase_started = time.perf_counter()
     investigation_evidence = collect_investigation_evidence(project, investigation_plan)
     apply_investigation_evidence(project, investigation_evidence)
     run_evidence.extend(investigation_evidence)
@@ -14143,10 +14228,16 @@ def enrich_project(
             apply_tangled_evidence(project, tangled_evidence)
             run_evidence.extend(tangled_evidence)
 
+    phase_timings["investigation_collection_ms"] = max(
+        0, round((time.perf_counter() - phase_started) * 1000)
+    )
+    phase_started = time.perf_counter()
     try:
         prompt, evidence = build_triage_prompt(project)
-        payload, meta = run_local_llm(
+        payload, meta = run_llm_with_metrics(
             prompt,
+            purpose="triage",
+            requests=llm_requests,
             llm_endpoint=llm_endpoint,
             llm_model=llm_model,
             llm_api_key=llm_api_key,
@@ -14157,13 +14248,16 @@ def enrich_project(
     except Exception as exc:
         note_failure(project, f"LLM review failed: {exc}")
 
+    phase_timings["triage_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
+    phase_started = time.perf_counter()
     project = finalize_project_shape(project)
     project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = compute_merge_recommendation(project)
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
     project = apply_promotion_state(project)
     project = record_promotion_transition(project, previous_status)
-    investigation_storage.save_investigation_run(
+    phase_timings["evaluation_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
+    run_id = investigation_storage.save_investigation_run(
         conn,
         project_key=str(project.get("project_key") or ""),
         started_at=run_started_at,
@@ -14171,7 +14265,13 @@ def enrich_project(
         input_project=run_input_project,
         output_project=project,
         bundle=run_evidence,
+        run_metrics={
+            "total_ms": max(0, round((time.perf_counter() - run_clock_started) * 1000)),
+            "phases": phase_timings,
+            "llm_requests": llm_requests,
+        },
     )
+    project[runtime_view.RUNTIME_INVESTIGATION_RUN_ID] = run_id
     return project
 
 

@@ -37,7 +37,7 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 
 直近:
 
-1. phase timingとLLM request metadataを追加し、現状測れない時間内訳を取る。
+1. 新規runのphase timingを代表sampleで蓄積し、長時間runの支配区間を確定する。
 2. service verificationとcollector historyの新規増加を止めてから、既存DB cleanupをdry-runする。
 3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
 

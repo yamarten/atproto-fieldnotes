@@ -166,13 +166,18 @@ signal件数の合計とqueue件数は一致しません。
 これらは推測値で埋めず、phase timing、LLM request metadata、operator session計測または固定sampleを接続してから
 成功指標のbaselineにします。
 
+baseline取得後のmaintenance branchでは、新規enrich runについてcollection + integration、planning、triage、
+evaluation、run history save、project saveのwall timeと、LLM request bytes/status/timeout分類を接続しました。
+transaction commit、token数、operator review時間は引き続き未接続です。過去15,086 runへは遡及できないため、
+このsnapshotの未計測値をbackfillしたとは扱いません。
+
 ## 判断
 
 確認済みの優先順位:
 
 1. current stateでは`service_verification_results.html_extract/links/urls`へ件数・byte budgetを設ける。
 2. historyでは`github_repo`とservice系collector recordsの保持内容を調べ、新規増加を止める。
-3. phase timingを追加し、長時間runと保存量outlierを同じproject/run単位で比較できるようにする。
+3. 新規runのphase timingを蓄積し、長時間runと保存量outlierを同じproject/run単位で比較する。
 4. 新規保存budgetを検証してから、正本DB cleanupを別maintenance operationとしてdry-runする。
 
 未決定:

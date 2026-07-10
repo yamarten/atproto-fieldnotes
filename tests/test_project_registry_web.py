@@ -201,6 +201,18 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             input_project=project,
             output_project=project,
             bundle=bundle,
+            run_metrics={
+                "total_ms": 1200,
+                "phases": {"initial_collection_ms": 800, "evaluation_ms": 400},
+                "llm_requests": [{
+                    "purpose": "triage",
+                    "status": "success",
+                    "duration_ms": 300,
+                    "prompt_bytes": 2048,
+                    "response_bytes": 512,
+                    "timeout_seconds": 300,
+                }],
+            },
         )
         conn.commit()
         conn.close()
@@ -283,6 +295,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, script, content_type = self.request_text("/app.js")
         self.assertEqual(status, 200)
         self.assertIn("Latest Investigation", script)
+        self.assertIn("Run history serialization + SQL", script)
+        self.assertIn("Project serialization + SQL", script)
         self.assertIn("Start enrich job", script)
         self.assertIn("Reload server", script)
 
@@ -659,6 +673,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(runs["count"], 1)
         self.assertNotIn("bundle", runs["items"][0])
+        self.assertGreaterEqual(runs["items"][0]["total_ms"], 1200)
         run_id = runs["items"][0]["run_id"]
 
         status, detail, _ = self.request(f"/api/investigation-runs/{run_id}?evidence_limit=1")
@@ -666,6 +681,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(detail["collector_count"] if "collector_count" in detail else len(detail["collectors"]), 2)
         self.assertEqual(detail["failure_count"], 1)
         self.assertLessEqual(len(detail["records"]), 1)
+        self.assertGreaterEqual(detail["metrics"]["total_ms"], 1200)
+        self.assertEqual(detail["metrics"]["llm_requests"][0]["prompt_bytes"], 2048)
 
         status, replay, _ = self.request(f"/api/investigation-runs/{run_id}/replay")
         self.assertEqual(status, 200)

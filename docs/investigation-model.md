@@ -36,6 +36,30 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
 
 Web detailはproject単位のinvestigation run summaryをSQLite rowから一覧し、選択したrunだけbundleをdecodeします。run detailのevidence/failureは上限付きで、raw HTMLやREADME全文を保存・表示しません。Replayは保存runを現行ruleで要求時に再評価するread-only処理で、結果をDBへ永続化しません。
 
+### Run observability
+
+新規enrich runは、次のwall timeをmillisecondで保存します。
+
+- initial collection + integration
+- investigation planning
+- investigation collection + integration
+- LLM triage + application
+- final evaluation
+- investigation run historyのserialization + SQL
+- current projectのnormalization、serialization + SQL
+
+collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと
+見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、
+process job全体、複数projectの待ち時間、operator review時間ではありません。
+
+planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、
+response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、
+endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は
+明示的なtimeout例外または既存clientが返すtimeout errorから分類し、HTTP errorやinvalid responseと分けます。
+
+保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため
+非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
+
 Service / ownership reviewも保存済みcurrent state、normalized relation、collector runだけを読みます。画面表示のためにnetwork collectorを再実行しません。保存根拠がない状態は`not_observed`であり、到達不能・非ownership・permissionなしの確定結果ではありません。
 
 ## Evidence classification
