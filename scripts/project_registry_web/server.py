@@ -107,17 +107,16 @@ def _date(value: str) -> str:
 class RegistryWebServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, address: tuple[str, int], *, token: str, db_path: Path, read_only: bool = False):
+    def __init__(self, address: tuple[str, int], *, token: str, db_path: Path):
         super().__init__(address, RegistryWebHandler)
         self.token = token
         self.db_path = Path(db_path).expanduser().resolve()
-        self.read_only = bool(read_only)
         self.instance_id = uuid.uuid4().hex
         self.build_info = build_information()
         self.reload_lock = threading.Lock()
         self.reload_requested = False
         self.mutation_lock = threading.Lock()
-        self.jobs = JobManager(self.db_path, enable_scheduler=not self.read_only)
+        self.jobs = JobManager(self.db_path)
 
     def open_db(self) -> sqlite3.Connection:
         return database.open_database(self.db_path, create=False)
@@ -168,9 +167,6 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             return
         if not self.authorized():
             self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
-            return
-        if bool(getattr(self.server, "read_only", False)):
-            self.send_error_json("read_only", "Web server is running in read-only mode", HTTPStatus.FORBIDDEN)
             return
         lock = getattr(self.server, "mutation_lock", None)
         if lock is None:
@@ -226,7 +222,6 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "server_instance_id": str(getattr(self.server, "instance_id", "")),
                 "db_path": str(self.server.db_path),
                 "token_required": True,
-                "read_only": bool(getattr(self.server, "read_only", False)),
                 "tracking_states": sorted(core.TRACKING_STATES),
                 "operations_connected": True,
                 "build": dict(getattr(self.server, "build_info", {}) or {}),
@@ -738,7 +733,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", help="Shared API token. ATPROTO_SURVEY_WEB_TOKEN is also supported.")
     parser.add_argument("--reload", action="store_true", help="Restart when Web implementation files change.")
     parser.add_argument("--reload-interval", type=float, default=1.0, help="Reload polling interval in seconds.")
-    parser.add_argument("--read-only", action="store_true", help="Disable all Web API POST operations.")
     return parser
 
 
@@ -773,9 +767,7 @@ def main() -> int:
     except (FileNotFoundError, database.SchemaMismatchError, sqlite3.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    server = RegistryWebServer(
-        (str(args.host), int(args.port)), token=token, db_path=db_path, read_only=bool(args.read_only)
-    )
+    server = RegistryWebServer((str(args.host), int(args.port)), token=token, db_path=db_path)
     if args.reload:
         scripts_root = Path(__file__).resolve().parents[1]
         watch_roots = [scripts_root / "project_registry_web", scripts_root / "project_registry_core"]

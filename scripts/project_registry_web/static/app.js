@@ -431,7 +431,6 @@ async function loadDetail(key, {updateUrl = true} = {}) {
 function profileValue(profile, key) { return profile?.core?.[key] ?? profile?.[key] ?? ""; }
 function section(title, body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 function actionButton(label, action, data = {}, style = "small") {
-  if (state.server?.read_only) return "";
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
   return `<button class="${style}" data-action="${action}" ${attrs}>${esc(label)}</button>`;
 }
@@ -463,7 +462,7 @@ function renderDetail(data) {
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(formatTimestamp(project.last_seen_at))}</dd><dt>Last enriched</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "Never")}</dd></dl>${state.server?.read_only ? "" : `<div class="actions"><button id="edit-profile">Edit</button></div>`}`)}
+    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>Last seen</dt><dd>${esc(formatTimestamp(project.last_seen_at))}</dd><dt>Last enriched</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "Never")}</dd></dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
@@ -476,7 +475,7 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      ${state.server?.read_only ? `<p class="notice">Read-only mode. Changes and background job controls are disabled.</p>${reviewSkipAction ? `<div class="actions">${reviewSkipAction}</div>` : ""}` : `<div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : promotionDeferAction}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>`}
+      <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : promotionDeferAction}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -605,7 +604,7 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
       : `<p class="muted">No merge candidate found.</p>`;
     document.querySelectorAll("[data-view-project]").forEach((button) => button.onclick = () => loadDetail(button.dataset.viewProject));
     document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge));
-    if (recommendation.auto_merge_ready && !state.server?.read_only) {
+    if (recommendation.auto_merge_ready) {
       $("merge-analysis-action").innerHTML = actionButton("Apply merge recommendation", "merge-recommendation", {other:recommendation.target_project_key}, "danger");
       bindDetailActions(projectKey);
     }
@@ -662,7 +661,7 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
         <div class="muted">Target tenants: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
         <div class="muted">Hosts: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
       </div>
-      ${state.server?.read_only ? "" : `<div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">Add suffix</button></div>`}
+      <div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">Add suffix</button></div>
     </div>
   `).join(""));
 }
@@ -787,8 +786,8 @@ async function loadMergeDetail(source, target, options = {}) {
     const firstCreatorBody = data.first_creator_details_included
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view.</p>`
       : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">Load first-creator details</button></div>`;
-    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button>${state.server?.read_only ? "" : `<button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button>`}</div>`;
-    $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${state.server?.read_only ? `<p class="notice">Read-only mode.</p>` : ""}${mergeActions}<div class="detail-footer">${backToListButton()}</div>`;
+    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
+    $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}</div>`;
     bindBackToListButtons();
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
@@ -831,14 +830,14 @@ function renderNewSeed() {
     const value = $("seed-value").value.trim();
     try {
       const data = await api(`/api/seeds/preview?seed=${encodeURIComponent(value)}`);
-      $("seed-preview").innerHTML = section("Preview", json(data)) + (data.can_create && !state.server?.read_only ? `<button id="create-seed" class="primary">Create project</button>` : data.can_create ? `<p class="notice">Read-only mode. Preview only.</p>` : `<p class="notice">This seed already belongs to ${esc(data.exact_project_key)}.</p>`);
+      $("seed-preview").innerHTML = section("Preview", json(data)) + (data.can_create ? `<button id="create-seed" class="primary">Create project</button>` : `<p class="notice">This seed already belongs to ${esc(data.exact_project_key)}.</p>`);
       $("create-seed")?.addEventListener("click", () => confirmMutation("Create project", `Create a project for ${value}?`, "/api/seeds", {seed:value}, false));
     } catch (error) { status(error.message, true); }
   };
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">${state.server?.read_only ? "Read-only mode. Job controls are disabled." : "Operations run in a separate process. Only one job runs at a time. Enrich stops between projects, sync at source page/item boundaries, and review between candidates."}</p><div class="operation-grid">
+  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Operations run in a separate process. Only one job runs at a time. Enrich stops between projects, sync at source page/item boundaries, and review between candidates.</p><div class="operation-grid">
     <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
       <label>Target<select id="enrich-target"><option value="all">Active projects</option><option value="project">One project</option></select></label>
       <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
@@ -881,9 +880,6 @@ function renderOperations() {
   $("start-review").onclick = startReviewJob;
   updateSyncControls();
   updateReviewControls();
-  if (state.server?.read_only) {
-    ["start-enrich", "start-sync", "start-review"].forEach((id) => { if ($(id)) $(id).disabled = true; });
-  }
   loadJobs();
 }
 
@@ -999,9 +995,9 @@ function renderJobs(items) {
       ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
       <div class="actions">
-        ${job.can_cancel && !state.server?.read_only ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
-        ${job.can_resume && !state.server?.read_only ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
-        ${plan?.candidates?.length && !state.server?.read_only ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">Review ${esc(plan.candidates.length)} candidates</button>` : ""}
+        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
+        ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
+        ${plan?.candidates?.length ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">Review ${esc(plan.candidates.length)} candidates</button>` : ""}
       </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
         <summary>Details</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">Refresh details</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
       </details></article>`;
@@ -1015,7 +1011,7 @@ function renderReviewPlan(job) {
 
 function renderCheckpoints(items) {
   if (!items.length) return `<p class="muted">No enrich checkpoints found.</p>`;
-  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume && !state.server?.read_only ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
+  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
 }
 
 function scheduleWeekdayOptions(selected) {
@@ -1055,9 +1051,9 @@ function renderSchedules(data) {
       </div>
       <p class="muted">Next: ${esc(formatTimestamp(item.next_due_at))}</p>
       ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
-      <div class="actions">${state.server?.read_only ? "" : `<button class="small primary" data-schedule-run="${esc(item.preset_id)}">Run now</button>`}</div>
+      <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">Run now</button></div>
     </article>`;
-  }).join("")}</div>${state.server?.read_only ? "" : `<div class="actions"><button id="save-schedules" class="primary">Save schedules</button></div>`}`;
+  }).join("")}</div><div class="actions"><button id="save-schedules" class="primary">Save schedules</button></div>`;
 }
 
 function collectScheduleUpdates() {
@@ -1193,8 +1189,8 @@ async function renderSettings() {
     <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
     <label>Time zone<input id="setting-time-zone" value="${esc(state.settings.timeZone || defaults.timeZone)}" placeholder="Asia/Tokyo or +09:00"></label>
     <label class="settings-toggle"><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
-  </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button>${state.server?.read_only ? "" : `<button id="reload-server" class="danger">Reload server</button>`}</div>
-  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Commit</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? " (dirty)" : ""}</code>` : "Unavailable outside a Git checkout"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>Mode</dt><dd>${state.server?.read_only ? "Read-only" : "Read/write"}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
+  </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button><button id="reload-server" class="danger">Reload server</button></div>
+  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Commit</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? " (dirty)" : ""}</code>` : "Unavailable outside a Git checkout"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {

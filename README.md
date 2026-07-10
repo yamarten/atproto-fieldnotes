@@ -92,8 +92,6 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
-閲覧専用で起動する場合は`--read-only`を付けます。このmodeでは全てのWeb書込みとjob controlを拒否します。
-
 project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。enrich、設定済みsourceのsync、tracking classification reviewは別processのbackground jobとしてWebから開始・監視できます。enrich bulkだけは中断とcheckpoint再開に対応し、sync/reviewの停止は現在のoperation完了後に反映されます。
 
 ## 環境変数

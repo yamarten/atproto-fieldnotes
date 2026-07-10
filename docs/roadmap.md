@@ -37,12 +37,10 @@ registryの正しさ、運用コスト、保存量、保守性について、次
 
 直近:
 
-1. DB open transaction/path、Python runtime/wrapper、explicit split key、same-site判定の独立修正。
-2. 運用・開発とも使用していないWeb `--read-only` modeを、UI/API/test/docsを含めて削除する。
-3. product briefと現行HEADの再現可能なcheckを固定する。
-4. 静止DB snapshotで保存量、運用時間、調査品質のbaselineを取る。
-5. service verification/resource URL/LLM evidenceの新規増加を止めてから、既存DB cleanupをdry-runする。
-6. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
+1. product briefと現行HEADの再現可能なcheckを固定する。
+2. 静止DB snapshotで保存量、運用時間、調査品質のbaselineを取る。
+3. service verification/resource URL/LLM evidenceの新規増加を止めてから、既存DB cleanupをdry-runする。
+4. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
 
 後続:
 

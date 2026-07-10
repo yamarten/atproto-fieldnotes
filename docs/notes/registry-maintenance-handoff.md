@@ -10,15 +10,18 @@
 
 - 実行計画は[registry-maintenance-plan.md](registry-maintenance-plan.md)へ整理済みです。
 - branch固有の検証結果は[registry-maintenance-status.md](registry-maintenance-status.md)を参照してください。
-- DB open transaction、DB path/create、Python runtime/wrapper契約、`split-project` explicit key削除、
-  same-site first-label fallback削除は実装・temp DB検証済みです。正本DBは変更していません。
+- Phase 1のDB open transaction、DB path/create、Python runtime/wrapper契約、`split-project` explicit key削除、
+  same-site first-label fallback削除、Web `--read-only` mode削除は実装・temp DB検証済みです。正本DBは
+  変更していません。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 
 ## 次に必要な作業
 
-1. Web `--read-only` modeをUI/API/test/docsから削除する。audit/replay/dry-runは維持する。
-2. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
+1. Phase 1 correctness checkpointを通常運用へ適用できる単位として確認する。
+2. `docs/brief.md`へ目的、通常flow、成果物、成功指標、非目標を整理する。
+3. 静止DB snapshotで保存量・運用時間・調査品質のbaseline reportを作る。
+4. same-site過去誤帰属の正本DB auditは、保存量cleanupと同じmaintenance windowで行う。
 
 ## DB操作メモ
 

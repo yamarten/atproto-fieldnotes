@@ -185,13 +185,7 @@ project-registry init-db --db-path data/survey.dev.db
 project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
 ```
 
-DBを閲覧専用で開く場合:
-
-```bash
-project-registry-web --db-path data/survey.db --token "$ATPROTO_SURVEY_WEB_TOKEN" --read-only
-```
-
-read-only modeでは全てのWeb POST APIを拒否し、画面上のmutationとjob controlも無効になります。project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。tokenとUI設定はURLへ保存しません。
+project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。tokenとUI設定はURLへ保存しません。
 
 `--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
 Settingsの`Reload server`は同じcommand-line argumentでserver processを手動再起動します。SQLiteは変更せず、

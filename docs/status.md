@@ -84,7 +84,6 @@
 
 安全上の制約:
 
-- Webの`--read-only`はPOSTとjob controlを拒否するapplication-level modeであり、SQLiteをOS/URI levelのread-onlyでは開かない
 - identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
 - job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
 

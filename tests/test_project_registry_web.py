@@ -13,7 +13,7 @@ from io import BytesIO
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, main as web_main, restart_argv
+from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, build_parser, main as web_main, restart_argv
 from project_registry_core.application import presentation
 
 
@@ -108,7 +108,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             db_path=self.db_path,
             open_db=lambda: registry.open_db(),
             jobs=FakeJobManager(),
-            read_only=False,
             mutation_lock=threading.Lock(),
         )
 
@@ -308,7 +307,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["enrich"])
         self.assertTrue(settings["operation_capabilities"]["sync"])
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
-        self.assertFalse(settings["read_only"])
+        self.assertNotIn("read_only", settings)
+        self.assertNotIn("--read-only", build_parser().format_help())
+        self.assertNotIn("read_only", script)
 
     def test_build_information_only_reads_git_checkout(self) -> None:
         root = self.db_path.parent / "source"
@@ -367,8 +368,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
     def test_restart_argv_preserves_arguments_but_uses_package_entrypoint(self) -> None:
         self.assertEqual(
-            restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--read-only"]),
-            [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--read-only"],
+            restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--reload"]),
+            [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--reload"],
         )
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
@@ -750,7 +751,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
 
-    def test_stale_revision_and_read_only_reject_writes(self) -> None:
+    def test_stale_revision_rejects_write(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
         stale_revision = detail["revision"]
@@ -770,13 +771,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(payload["error"]["code"], "stale_project")
-
-        self.server.read_only = True
-        status, payload, _ = self.request(
-            "/api/jobs/enrich", method="POST", payload={"all_projects": True}
-        )
-        self.assertEqual(status, 403)
-        self.assertEqual(payload["error"]["code"], "read_only")
 
     def test_project_mutations_pass_through_server_lock(self) -> None:
         lock = TrackingLock()
@@ -1043,16 +1037,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(stale["error"]["code"], "stale_project")
-
-        self.server.read_only = True
-        status, error, _ = self.request(
-            "/api/projects/proj:111111111111/profile",
-            method="POST",
-            payload={"expected_revision": applied["detail"]["revision"], "name": "Blocked", "notes": ""},
-            include_revision=False,
-        )
-        self.assertEqual(status, 403)
-        self.assertEqual(error["error"]["code"], "read_only")
 
     def test_seed_preview_create_and_queue_endpoints(self) -> None:
         status, preview, _ = self.request("/api/seeds/preview?seed=https%3A%2F%2Fnew.example")

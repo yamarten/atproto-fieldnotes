@@ -31,6 +31,10 @@ maintenance series完了時に削除します。
   - same-siteはPSLとknown/configured multi-tenant suffixを反映した`root_domain()`一致だけで判定する。
   - 異なるregistrable domainで先頭labelだけが同じhostを、redirect、official/resource link、repo homepageの
     強いevidenceとして扱わない。
+- Web `--read-only` mode削除。
+  - CLI option、server state、POST拒否分岐、settings API field、UI分岐、scheduler接続、専用test/docsを削除した。
+  - deprecated optionやpayload互換fieldは残していない。
+  - investigation replay、audit、dry-run、SQLite snapshot集計は別機能として維持する。
 
 作業中:
 
@@ -60,6 +64,9 @@ DB適用:
 - same first-label / different registrable domainをdirect判定、redirect、official/resource link、repo homepageで
   拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
+- JavaScript syntax checkが成功。
+- temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
+  通常表示されることを確認した。操作実行と正本DB更新は行っていない。
 
 未検証:
 

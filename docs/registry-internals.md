@@ -225,7 +225,7 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - JSON responseはDB schema versionと独立した`api_version: 2`を持つ
   - presenterがidentifier family、relation summary、investigation summary、project revisionを生成する
   - mutationは`expected_revision`を必須とし、stale detailを`409 stale_project`で拒否する
-  - server内のmutationはlockで直列化し、`--read-only`では全POSTを拒否する
+  - server内のmutationはlockで直列化する
 - `project_registry_core/worker.py`
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
