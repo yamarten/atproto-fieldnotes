@@ -68,7 +68,7 @@ maintenance series完了時に削除します。
 |---|---|---|---|
 | P6.1 | 完了 | `registry-internals.md`で現行import方向、抽出済み境界、未分離facadeを明記 | 現行仕様の正本へ置き、重複するnotes mapは作らないと判断 |
 | P6.2 | 完了 | `5b50e10`、`e3906a3`、`9486346`。`registry.py`から`cmd_*`/`argparse`依存を除去 | なし |
-| P6.3 | 一部完了 | `32486fb`。domain policyを`domain_policy.py`へ移動、旧re-exportなし | `tldextract`を正式依存にするかvendored PSL fallbackを正本にするか決め、二重policyを解消する |
+| P6.3 | 完了 | `32486fb`のmodule分離に加え、requirements/documentationどおり`tldextract + vendored PSL`を正本化 | 自作PSL fallbackを削除し、依存/PSL欠落は明示失敗する |
 | P6.4 | 完了 | `540b1b4`、`29888c4`。collector/budget/current projectionを`service.py`へ集約 | なし |
 | P6.5 | 完了 | `8fccfa6` HTTP、`3d0b598` LLM transport seam。旧re-exportなし | 実source/実LLM確認はP2.4で追跡 |
 | P6.6 | 一部完了 | `4e37b00`。URL/NSID/authority/alias helperを`identifiers.py`へ移動 | provider別repo URLとnaming helperを今回移すかroadmapへ延期する |
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- Python 3.10.20と3.11.15でunit test 339件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 340件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

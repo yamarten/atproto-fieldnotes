@@ -6,12 +6,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
-from . import identifiers
+import tldextract
 
-try:
-    import tldextract  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    tldextract = None
+from . import identifiers
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,7 +44,6 @@ SPECIAL_USE_TLDS = {
 _CONFIGURED_MULTI_TENANT_SUFFIXES: set[str] | None = None
 _TLD_EXTRACTORS: dict[str, Any] = {}
 _KNOWN_ICANN_TLDS: set[str] | None = None
-_PUBLIC_SUFFIX_RULES: tuple[set[str], set[str], set[str]] | None = None
 
 
 def load_domain_overrides() -> dict[str, Any]:
@@ -145,53 +141,16 @@ def load_known_icann_tlds() -> set[str]:
     return known
 
 
-def load_public_suffix_rules() -> tuple[set[str], set[str], set[str]]:
-    global _PUBLIC_SUFFIX_RULES
-    if _PUBLIC_SUFFIX_RULES is not None:
-        return _PUBLIC_SUFFIX_RULES
-    exact: set[str] = set()
-    wildcard: set[str] = set()
-    exception: set[str] = set()
-    for path in PUBLIC_SUFFIX_DATA_CANDIDATES:
-        if not path.exists():
-            continue
-        try:
-            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("//"):
-                    continue
-                if line.startswith("!."):
-                    line = "!" + line[2:]
-                elif line.startswith("."):
-                    line = line[1:]
-                if line.startswith("!"):
-                    exception.add(line[1:].lower())
-                elif line.startswith("*."):
-                    wildcard.add(line[2:].lower())
-                else:
-                    exact.add(line.lower())
-            if exact or wildcard or exception:
-                break
-        except Exception:
-            continue
-    _PUBLIC_SUFFIX_RULES = (exact, wildcard, exception)
-    return _PUBLIC_SUFFIX_RULES
-
-
-def tldextract_extractor(mode: str = "local") -> Any | None:
+def tldextract_extractor(mode: str = "local") -> Any:
     if mode in _TLD_EXTRACTORS:
         return _TLD_EXTRACTORS[mode]
-    if tldextract is None:
-        _TLD_EXTRACTORS[mode] = None
-        return None
     local_sources = [
         path.resolve().as_uri()
         for path in PUBLIC_SUFFIX_DATA_CANDIDATES
         if path.exists()
     ]
     if not local_sources:
-        _TLD_EXTRACTORS[mode] = None
-        return None
+        raise RuntimeError("vendored public suffix list is missing")
     kwargs: dict[str, Any] = {
         "include_psl_private_domains": True,
         "extra_suffixes": sorted(configured_multi_tenant_suffixes()),
@@ -199,14 +158,8 @@ def tldextract_extractor(mode: str = "local") -> Any | None:
         "suffix_list_urls": tuple(local_sources),
         "fallback_to_snapshot": False,
     }
-    try:
-        TLDEXTRACT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    try:
-        extractor = tldextract.TLDExtract(**kwargs)
-    except Exception:
-        extractor = None
+    TLDEXTRACT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    extractor = tldextract.TLDExtract(**kwargs)
     _TLD_EXTRACTORS[mode] = extractor
     return extractor
 
@@ -219,51 +172,10 @@ def extract_registrable_domain_with_tldextract(
     lowered = str(host or "").strip().lower().rstrip(".")
     if not lowered:
         return ""
-    for mode in ("local",):
-        extractor = tldextract_extractor(mode)
-        if extractor is None:
-            continue
-        try:
-            result = extractor(lowered)
-        except Exception:
-            continue
-        registrable = str(
-            getattr(result, "top_domain_under_public_suffix", "") or ""
-        ).strip().lower().rstrip(".")
-        if registrable:
-            return registrable
-    return ""
-
-
-def public_suffix(host: str) -> str:
-    lowered = str(host or "").strip().lower().rstrip(".")
-    if not lowered:
-        return ""
-    labels = [label for label in lowered.split(".") if label]
-    if not labels:
-        return ""
-    exact_rules, wildcard_rules, exception_rules = load_public_suffix_rules()
-    if exact_rules or wildcard_rules or exception_rules:
-        for index in range(len(labels)):
-            candidate = ".".join(labels[index:])
-            if candidate in exception_rules:
-                exception_labels = candidate.split(".")
-                if len(exception_labels) > 1:
-                    return ".".join(exception_labels[1:])
-                return candidate
-        best_len = 1
-        for index in range(len(labels)):
-            candidate = ".".join(labels[index:])
-            if candidate in exact_rules:
-                best_len = max(best_len, len(candidate.split(".")))
-            if index + 1 < len(labels):
-                wildcard_candidate = ".".join(labels[index + 1:])
-                if wildcard_candidate in wildcard_rules:
-                    best_len = max(best_len, len(wildcard_candidate.split(".")) + 1)
-        return ".".join(labels[-best_len:])
-    if len(labels) >= 2:
-        return ".".join(labels[-2:])
-    return lowered
+    result = tldextract_extractor("local")(lowered)
+    return str(
+        getattr(result, "top_domain_under_public_suffix", "") or ""
+    ).strip().lower().rstrip(".")
 
 
 def authority_domain_allowed_for_import(domain: str) -> bool:
@@ -301,13 +213,6 @@ def root_domain(host: str, *, include_configured_suffixes: bool = True) -> str:
     )
     if registrable:
         return registrable
-    suffix = public_suffix(lowered)
-    if suffix:
-        labels = [label for label in lowered.split(".") if label]
-        suffix_labels = [label for label in suffix.split(".") if label]
-        if len(labels) > len(suffix_labels):
-            return ".".join(labels[-(len(suffix_labels) + 1):])
-        return lowered
     labels = [label for label in lowered.split(".") if label]
     if len(labels) >= 2:
         return ".".join(labels[-2:])

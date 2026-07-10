@@ -655,6 +655,10 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
 
 
 class ProjectRegistrySameSiteTest(unittest.TestCase):
+    def test_registrable_domain_uses_vendored_psl_rules(self) -> None:
+        self.assertEqual(domain_policy.root_domain("api.example.co.uk"), "example.co.uk")
+        self.assertEqual(domain_policy.root_domain("www.city.kawasaki.jp"), "city.kawasaki.jp")
+
     def test_same_first_label_on_unrelated_registrable_domains_is_not_same_site(self) -> None:
         self.assertFalse(domain_policy.is_same_site_family(
             "https://app.example.com",

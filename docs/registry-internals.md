@@ -213,7 +213,8 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - service verification evidenceの縮約と、`lane + requested_url`単位の最新32 surface projectionは
     `service.py`が所有する
 - `project_registry_core/domain_policy.py`
-  - vendored PSL、known/configured multi-tenant suffix、registrable domain、same-site判定
+  - 正式依存`tldextract`へvendored PSLだけを入力し、known/configured multi-tenant suffix、registrable domain、
+    same-site判定を所有する。依存またはvendored PSL欠落時に別の自作policyへfallbackしない
   - suffix設定の読書きもこのmoduleが所有し、`registry.py`は旧symbolをre-exportしない
 - `project_registry_core/http_transport.py`
   - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
