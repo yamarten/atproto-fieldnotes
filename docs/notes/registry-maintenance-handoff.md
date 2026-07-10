@@ -34,6 +34,7 @@
   未実施です。
 - command/OpenAI互換LLM transportとrequest metricsは`llm_transport.py`へ移動済みです。fake transportは
   確認済みですが、実endpoint/実LLM callは未検証です。
+- canonical URL/NSID、authority domain、alias tokenのpure helperは`identifiers.py`へ移動済みです。
 - 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前に最新実装との差分を
   確認します。
 

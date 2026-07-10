@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from . import identifiers
+
 
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/html;q=0.9",
@@ -76,19 +78,6 @@ def normalize_outbound_fetch_url(url: str) -> str:
     netloc = parsed.netloc.lower()
     path = parsed.path or ""
     return urllib.parse.urlunparse((scheme, netloc, path, "", parsed.query, ""))
-
-
-def normalize_response_url(url: str) -> str:
-    try:
-        parsed = urllib.parse.urlparse(str(url or "").strip())
-    except ValueError:
-        return ""
-    scheme = (parsed.scheme or "https").lower()
-    host = parsed.netloc.lower()
-    if scheme in {"http", "https"} and not host:
-        return ""
-    path = parsed.path.rstrip("/")
-    return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
 
 
 def validate_outbound_fetch_url(url: str, *, allow_blocked_hosts: bool = False) -> str:
@@ -162,7 +151,7 @@ def request_bytes_with_final_url(
             status = getattr(response, "status", 200)
             body = response.read()
             response_headers = {key.lower(): value for key, value in response.headers.items()}
-            final_url = normalize_response_url(str(response.geturl() or current_url))
+            final_url = identifiers.normalize_url(str(response.geturl() or current_url))
             return status, body, response_headers, final_url
     raise ValueError(f"too many redirects for outbound URL: {url}")
 

@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any, Iterable
 
 from .. import registry as core
+from .. import identifiers
 
 
 def add_seed(
@@ -153,7 +154,7 @@ def set_tracking_state_batch(
     execute: bool = False,
 ) -> dict[str, Any]:
     normalized_record_did = str(record_did or "").strip()
-    normalized_nsid_prefix = core.normalize_nsid(str(nsid_prefix or "").strip()) if nsid_prefix else ""
+    normalized_nsid_prefix = identifiers.normalize_nsid(str(nsid_prefix or "").strip()) if nsid_prefix else ""
     target_state = str(tracking_state or "").strip().lower()
     if target_state not in core.TRACKING_STATES:
         raise ValueError(f"invalid tracking_state: {tracking_state}")

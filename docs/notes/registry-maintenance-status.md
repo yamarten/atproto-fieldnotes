@@ -100,6 +100,10 @@ maintenance series完了時に削除します。
   - prompt/evidence構築とproject適用は`registry.py`側に残し、transport call siteとtest doubleを新moduleへ
     直結した。`registry.py`に旧symbolのre-exportは残していない。
   - fake command/response/timeoutは動作確認済み。実endpointと実LLM callは未検証。
+- identifier pure helper分離。
+  - canonical URL/NSID、authority domain導出、alias token正規化を`identifiers.py`へ移した。
+  - registry/application/domain/HTTP call siteを同時に移し、URL正規化の重複実装を除去した。
+    `registry.py`に旧symbolのre-exportは残しておらず、正規化契約は変更していない。
 
 作業中:
 
@@ -131,6 +135,7 @@ DB適用:
 - domain policy分離後のsuffix設定ファイル更新、cache反映、Web API追加とsame-site判定の回帰test。
 - HTTP transport分離後の内部host遮断、redirect先再検証、明示的なoperator endpoint許可、query送信の回帰test。
 - LLM transport分離後のcommand呼出し、OpenAI互換response shape、metrics、timeout分類の回帰test。
+- URL/NSID/authority/alias helperのdirect回帰testと、既存consumer test。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が

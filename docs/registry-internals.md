@@ -218,6 +218,9 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 - `project_registry_core/http_transport.py`
   - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
   - collectorはこのmoduleをtest seamとして使い、`registry.py`は旧transport symbolをre-exportしない
+- `project_registry_core/identifiers.py`
+  - canonical URL/NSID、authority domain導出、generic値を除外するalias token正規化を所有する
+  - domain/HTTP transportも同じURL正規化を使い、`registry.py`は旧symbolをre-exportしない
 - `project_registry_core/llm_transport.py`
   - command/OpenAI互換endpointの呼出し、response parser、timeout/error分類、request metricsを所有する
   - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える

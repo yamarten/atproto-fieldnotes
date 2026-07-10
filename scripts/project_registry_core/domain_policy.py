@@ -6,6 +6,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
+from . import identifiers
+
 try:
     import tldextract  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -318,19 +320,7 @@ def is_same_site_family(
     *,
     normalize_url: Callable[[str], str] | None = None,
 ) -> bool:
-    def default_normalizer(value: str) -> str:
-        try:
-            parsed = urllib.parse.urlparse(str(value or "").strip())
-        except ValueError:
-            return ""
-        scheme = (parsed.scheme or "https").lower()
-        host = parsed.netloc.lower()
-        if scheme in {"http", "https"} and not host:
-            return ""
-        path = parsed.path.rstrip("/")
-        return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
-
-    normalizer = normalize_url or default_normalizer
+    normalizer = normalize_url or identifiers.normalize_url
     host_a = urllib.parse.urlparse(normalizer(url_a)).netloc
     host_b = urllib.parse.urlparse(normalizer(url_b)).netloc
     if not host_a or not host_b:

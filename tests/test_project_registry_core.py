@@ -12,8 +12,31 @@ from unittest import mock
 from helpers import registry
 from project_registry_core import domain_policy
 from project_registry_core import http_transport as http_transport_core
+from project_registry_core import identifiers as identifier_core
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import llm_transport as llm_transport_core
+
+
+class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
+    def test_normalize_url_preserves_path_but_drops_query_and_fragment(self) -> None:
+        self.assertEqual(
+            identifier_core.normalize_url("HTTPS://Example.COM/docs/?page=1#intro"),
+            "https://example.com/docs",
+        )
+
+    def test_normalize_nsid_accepts_at_uri_and_fragment(self) -> None:
+        self.assertEqual(
+            identifier_core.normalize_nsid("at://com.example.app/#main"),
+            "com.example.app",
+        )
+
+    def test_authority_domain_derivation_keeps_collection_and_namespace_contracts(self) -> None:
+        self.assertEqual(identifier_core.derive_authority_domain("com.example.app"), "example.com")
+        self.assertEqual(identifier_core.derive_authority_domain_from_namespace("com.example"), "example.com")
+
+    def test_alias_token_rejects_generic_values(self) -> None:
+        self.assertEqual(identifier_core.normalize_alias_token("Example App"), "exampleapp")
+        self.assertEqual(identifier_core.normalize_alias_token("Bluesky"), "")
 
 
 class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
