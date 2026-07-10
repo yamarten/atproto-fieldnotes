@@ -2125,9 +2125,16 @@ def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
     ]
 
 
+def initialize_db(path: Path | None = None) -> sqlite3.Connection:
+    target_path = Path(path) if path is not None else DB_PATH
+    conn = registry_database.open_database(target_path, create=True)
+    investigation_storage.ensure_investigation_tables(conn)
+    conn.commit()
+    return conn
+
+
 def open_db() -> sqlite3.Connection:
-    ensure_dirs()
-    conn = registry_database.open_database(DB_PATH)
+    conn = registry_database.open_database(DB_PATH, create=False)
     investigation_storage.ensure_investigation_tables(conn)
     conn.commit()
     return conn

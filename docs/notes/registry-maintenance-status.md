@@ -15,6 +15,10 @@ maintenance series完了時に削除します。
   - 新規schema初期化はschema versionを書いた接続内でcommitする。
   - 既存schemaのensureではschema versionの同値upsertを行わない。
   - `database.open_database()`から返る接続は、open処理由来のwrite transactionを保持しない。
+- DB path / create契約。
+  - 通常CLI、Web、background workerは既存のschema version 2 DBだけを開く。
+  - missing pathや未初期化fileは空DBへfallbackせずerrorにする。
+  - 新規作成は`project-registry init-db [--db-path PATH]`だけが明示的に行う。
 
 作業中:
 
@@ -22,7 +26,6 @@ maintenance series完了時に削除します。
 
 未実装:
 
-- DB pathと明示的createの契約。
 - [registry-maintenance-plan.md](registry-maintenance-plan.md)のその他のPhase 1以降。
 
 DB適用:
@@ -33,13 +36,16 @@ DB適用:
 
 動作確認済み:
 
-- Python 3.11.15でunit test 303件が全件成功。
+- Python 3.11.15でunit test 308件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
+- missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
+- custom pathを`init-db`で作成し、schema versionとinvestigation tableを確認する回帰test。
+- Webがmissing DBを検出し、serverをbindする前に停止する回帰test。
 
 未検証:
 
-- 正本DBを使ったWeb/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
+- 正本DBを使ったCLI/Web/workerの再起動。今回の変更はtemp DBだけで確認し、正本DBは開いていません。
 
 ## Baseline
 

@@ -23,6 +23,8 @@ class TempRegistryDbTestCase(unittest.TestCase):
         self.original_db_path = registry.DB_PATH
         self.db_path = Path(self.tempdir.name) / "survey.db"
         registry.DB_PATH = self.db_path
+        conn = registry.initialize_db(self.db_path)
+        conn.close()
 
     def tearDown(self) -> None:
         registry.DB_PATH = self.original_db_path

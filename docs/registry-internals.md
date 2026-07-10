@@ -16,6 +16,11 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
+新規DBの作成は`project-registry init-db [--db-path PATH]`だけが明示的に行います。通常CLI、Web、background
+workerは既存のschema version 2 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。
+新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを
+同値upsertせず、open処理由来のwrite transactionを保持しません。
+
 旧schemaは通常起動で自動変換せず、現行CLIにも旧DBを開く・変換する入口はありません。
 
 `repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。

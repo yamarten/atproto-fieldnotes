@@ -222,8 +222,12 @@ def register_project_key_alias(
     )
 
 
-def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
+def open_database(path: Path, *, create: bool = False) -> sqlite3.Connection:
     path = Path(path)
+    if not path.exists() and not create:
+        raise FileNotFoundError(
+            f"registry database not found: {path}; run project-registry init-db first"
+        )
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
@@ -236,6 +240,11 @@ def open_database(path: Path, *, create: bool = True) -> sqlite3.Connection:
     if version is None and has_projects:
         conn.close()
         raise SchemaMismatchError(f"unsupported legacy registry database schema: {path}")
+    if version is None and not create:
+        conn.close()
+        raise SchemaMismatchError(
+            f"registry database is not initialized: {path}; run project-registry init-db first"
+        )
     if version not in {None, SCHEMA_VERSION}:
         conn.close()
         raise SchemaMismatchError(f"unsupported registry schema version {version}: {path}")

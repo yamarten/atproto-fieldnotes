@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .. import registry as core
+from .. import database
 from ..application import maintenance as services
 
 
@@ -14,6 +16,20 @@ def _with_db(call):
         return call(conn)
     finally:
         conn.close()
+
+
+def cmd_init_db(args: argparse.Namespace) -> int:
+    path = Path(args.db_path).expanduser() if args.db_path else core.DB_PATH
+    conn = core.initialize_db(path)
+    try:
+        payload = {
+            "db_path": str(path.resolve()),
+            "schema_version": database.database_schema_version(conn),
+        }
+    finally:
+        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return 0
 
 
 def cmd_repair_db(args: argparse.Namespace) -> int:

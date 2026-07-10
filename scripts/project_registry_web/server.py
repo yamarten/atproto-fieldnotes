@@ -120,7 +120,7 @@ class RegistryWebServer(ThreadingHTTPServer):
         self.jobs = JobManager(self.db_path, enable_scheduler=not self.read_only)
 
     def open_db(self) -> sqlite3.Connection:
-        return database.open_database(self.db_path)
+        return database.open_database(self.db_path, create=False)
 
     def server_close(self) -> None:
         jobs = getattr(self, "jobs", None)
@@ -767,6 +767,12 @@ def main() -> int:
         print("error: --token or ATPROTO_SURVEY_WEB_TOKEN is required", file=sys.stderr)
         return 2
     db_path = Path(args.db_path).expanduser() if args.db_path else core.DB_PATH
+    try:
+        with contextlib.closing(database.open_database(db_path, create=False)):
+            pass
+    except (FileNotFoundError, database.SchemaMismatchError, sqlite3.Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     server = RegistryWebServer(
         (str(args.host), int(args.port)), token=token, db_path=db_path, read_only=bool(args.read_only)
     )

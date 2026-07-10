@@ -215,7 +215,7 @@ def run_payload(payload: dict[str, Any]) -> int:
 
     if request.operation not in {"enrich", "sync", "review"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
-    conn = database.open_database(db_path)
+    conn = database.open_database(db_path, create=False)
     try:
         with contextlib.redirect_stdout(sys.stderr):
             if request.operation == "enrich":

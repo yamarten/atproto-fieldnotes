@@ -12,24 +12,41 @@ from project_registry_core import runtime_view
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
     def test_open_database_initialization_survives_close_without_caller_commit(self) -> None:
-        conn = database.open_database(self.db_path)
+        fresh_path = Path(self.tempdir.name) / "fresh.db"
+        conn = database.open_database(fresh_path, create=True)
         try:
             self.assertFalse(conn.in_transaction)
         finally:
             conn.close()
 
-        reopened = database.open_database(self.db_path)
+        reopened = database.open_database(fresh_path, create=False)
         try:
             self.assertEqual(database.database_schema_version(reopened), database.SCHEMA_VERSION)
             self.assertFalse(reopened.in_transaction)
         finally:
             reopened.close()
 
+    def test_open_database_create_false_does_not_create_missing_path(self) -> None:
+        missing_path = Path(self.tempdir.name) / "missing" / "survey.db"
+
+        with self.assertRaisesRegex(FileNotFoundError, "registry database not found"):
+            database.open_database(missing_path, create=False)
+
+        self.assertFalse(missing_path.exists())
+        self.assertFalse(missing_path.parent.exists())
+
+    def test_open_database_create_false_rejects_uninitialized_file(self) -> None:
+        empty_path = Path(self.tempdir.name) / "empty.db"
+        empty_path.touch()
+
+        with self.assertRaisesRegex(database.SchemaMismatchError, "not initialized"):
+            database.open_database(empty_path, create=False)
+
     def test_opening_existing_database_does_not_hold_writer_lock(self) -> None:
         initialized = registry.open_db()
         initialized.close()
 
-        reader = database.open_database(self.db_path)
+        reader = database.open_database(self.db_path, create=False)
         writer = sqlite3.connect(self.db_path, timeout=0)
         try:
             self.assertFalse(reader.in_transaction)

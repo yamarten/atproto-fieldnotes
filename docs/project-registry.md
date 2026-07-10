@@ -35,6 +35,22 @@ export PATH="$PWD/bin:$PATH"
 
 この文書では公開CLI入口を`project-registry`と表記します。実体は[bin/project-registry](../bin/project-registry)だけです。PATHを変更しない場合は`bin/project-registry`と実行してください。
 
+新しいDBを作る場合だけ、最初に明示的な初期化commandを実行します。
+
+```bash
+project-registry init-db
+```
+
+既定pathは`data/survey.db`です。別pathを作る場合は次のように指定します。
+
+```bash
+project-registry init-db --db-path data/survey.dev.db
+```
+
+`add-seed`、`show`などの通常command、Web、background workerはDBを暗黙作成しません。pathが存在しない、
+またはschema version 2として初期化されていない場合はerrorで停止します。`init-db`は旧schemaのmigrationや
+上書きを行いません。
+
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 
 PSL に載っていない hosted suffix を追加したい場合は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。初期形は [config/domain-overrides.example.json](../config/domain-overrides.example.json) です。discovery source の設定は `config/sources.json` に残します。
@@ -162,6 +178,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 別のDBを参照する場合:
 
 ```bash
+project-registry init-db --db-path data/survey.dev.db
 project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
 ```
 

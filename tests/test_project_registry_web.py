@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import sys
@@ -12,7 +13,7 @@ from io import BytesIO
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, restart_argv
+from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, main as web_main, restart_argv
 from project_registry_core.application import presentation
 
 
@@ -110,6 +111,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             read_only=False,
             mutation_lock=threading.Lock(),
         )
+
+    def test_main_rejects_missing_database_before_starting_server(self) -> None:
+        missing_path = self.db_path.parent / "missing" / "survey.db"
+        stderr = io.StringIO()
+        with (
+            mock.patch("project_registry_web.server.sys.argv", [
+                "project-registry-web",
+                "--token",
+                self.token,
+                "--db-path",
+                str(missing_path),
+            ]),
+            mock.patch("project_registry_web.server.RegistryWebServer") as server_class,
+            mock.patch("project_registry_web.server.sys.stderr", stderr),
+        ):
+            result = web_main()
+
+        self.assertEqual(result, 2)
+        self.assertIn("registry database not found", stderr.getvalue())
+        self.assertFalse(missing_path.exists())
+        server_class.assert_not_called()
 
     def seed_fixture(self) -> None:
         conn = registry.open_db()

@@ -8,12 +8,35 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import cli
+from helpers import TempRegistryDbTestCase, captured_stdout, registry
+from project_registry_core import cli, database
+from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_init_db_parser_accepts_custom_path(self) -> None:
+        args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
+        self.assertEqual(args.db_path, Path("custom.db"))
+
+    def test_init_db_command_explicitly_creates_custom_database(self) -> None:
+        custom_path = Path(self.tempdir.name) / "custom" / "survey.db"
+        args = cli.build_parser().parse_args(["init-db", "--db-path", str(custom_path)])
+
+        with captured_stdout() as output:
+            result = maintenance_commands.cmd_init_db(args)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.getvalue())["db_path"], str(custom_path.resolve()))
+        conn = database.open_database(custom_path, create=False)
+        try:
+            self.assertEqual(database.database_schema_version(conn), database.SCHEMA_VERSION)
+            self.assertIsNotNone(conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'investigation_runs'"
+            ).fetchone())
+        finally:
+            conn.close()
+
     def test_open_db_uses_busy_timeout_and_wal(self) -> None:
         conn = registry.open_db()
         try:

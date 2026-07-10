@@ -73,6 +73,15 @@ project-registry-web --host <TAB>
 
 公開command入口は`bin/project-registry`と`bin/project-registry-web`です。利用手順と生成commandは`project-registry` / `project-registry-web`に統一し、PATHには`bin/`だけを足す前提です。
 
+新しいDBを作る場合だけ、通常commandやWebを起動する前に明示的に初期化します。
+
+```bash
+project-registry init-db
+```
+
+通常command、Web、background workerはDBを暗黙作成しません。既存DBが無い、またはschema version 2として
+初期化されていない場合はerrorで停止します。別pathを初期化する場合は`init-db --db-path PATH`を使います。
+
 ## Web UI
 
 schema v2対応のローカルWeb UIを起動できます。
