@@ -56,6 +56,17 @@ product briefと2026-07-10の静止DB baselineは作成済みです。baseline�
 - cleanup後も必要な場合のhistory保存形式・byte-aware retention再設計。
 - 巨大runのreplayでrelation normalizeが二乗的に長時間化する経路の改善。storage cleanupとは分ける。
 
+`registry.py`のstateful orchestration分割は、次の契約を先に確定してから再開します。単なる行数削減を目的に
+facadeを別fileへ移すだけの変更は行いません。
+
+- source sync / lookup: P4.2でnormalized exact lookup、allocator、duplicate analysisの呼出し境界を決めた後
+- enrich orchestration: P4.3のbulk failure/cancel resultとP4.4のLLM retry契約を確定した後
+- project state / save facade: P3.3の正本cleanup適用後にschema v2 current/history契約を実データで再検証した後
+- queue builder: 新しいqueue policyまたは複数consumerが生じ、application wrapperだけでは依存縮小にならない時
+
+再開時はapplication/Web/databaseから`registry.py`へのimport本数が実際に減る単位を受入条件にし、旧symbolの
+re-exportは置きません。
+
 このworkstream中は、新規collector、検索/UI拡張、job event永続化、schema v3、全面rewriteを
 優先しません。通常運用に必要なbug fixや小規模UI改善は継続できます。
 

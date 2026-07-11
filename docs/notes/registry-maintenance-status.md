@@ -72,7 +72,7 @@ maintenance series完了時に削除します。
 | P6.4 | 完了 | `540b1b4`、`29888c4`。collector/budget/current projectionを`service.py`へ集約 | なし |
 | P6.5 | 完了 | `8fccfa6` HTTP、`3d0b598` LLM transport seam。旧re-exportなし | 実source/実LLM確認はP2.4で追跡 |
 | P6.6 | 完了 | `4e37b00`の`identifiers.py`に加え、provider repo URLを`repo_urls.py`、pure name helperを`naming.py`へ移動 | call siteを同時更新し、`registry.py`に旧symbolをre-exportしていない |
-| P6.7 | 未着手 | なし | source、project shape、sync、queue、enrich orchestrationの対象単位を決め、移動またはroadmapへ延期する |
+| P6.7 | roadmapへ延期 | 現行import方向とstateful clusterを監査 | source sync=P4.2後、enrich=P4.3/P4.4後、project save=P3.3後、queue=新policy/consumer発生時という再開条件をroadmapへ固定 |
 
 ### Phase 7
 
