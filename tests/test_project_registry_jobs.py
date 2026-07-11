@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
+from project_registry_core import source_sync
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
@@ -440,13 +441,13 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         seen: list[tuple[int, int, dict]] = []
         conn = registry.open_db()
         try:
-            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=entries):
-                result = registry.sync_tangled_repos(
+            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=entries):
+                result = source_sync.sync_tangled_repos(
                     conn,
                     progress=lambda current, total, item: seen.append((current, total, item)),
                     cancel_requested=lambda: False,
                 )
-                cancelled = registry.sync_tangled_repos(conn, cancel_requested=lambda: True)
+                cancelled = source_sync.sync_tangled_repos(conn, cancel_requested=lambda: True)
         finally:
             conn.close()
         self.assertEqual((seen[0][0], seen[0][1]), (1, 1))
@@ -463,8 +464,8 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         ]
         conn = registry.open_db()
         try:
-            with mock.patch.object(registry, "fetch_collection_inventory", return_value=entries):
-                summary = registry.sync_collection_inventory(
+            with mock.patch.object(source_sync, "fetch_collection_inventory", return_value=entries):
+                summary = source_sync.sync_collection_inventory(
                     conn,
                     source_url="https://example.test/collections.json",
                     execute=True,
@@ -495,8 +496,8 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         ]
         conn = registry.open_db()
         try:
-            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=entries):
-                summary = registry.sync_tangled_repos(conn, execute=True, max_items=1)
+            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=entries):
+                summary = source_sync.sync_tangled_repos(conn, execute=True, max_items=1)
             state = registry.read_sync_state(
                 conn,
                 "tangled-repos",

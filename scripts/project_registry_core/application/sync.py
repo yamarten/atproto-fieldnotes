@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable, Sequence
 
-from .. import registry as core
+from .. import source_sync as core
 
 
 def _source_config(name: str) -> dict[str, Any]:
@@ -22,7 +22,7 @@ def _positive_int(value: int | None, config: dict[str, Any], key: str, default: 
 
 
 def import_seed_list(conn: sqlite3.Connection, *, path: str, execute: bool = False) -> dict[str, Any]:
-    return core.import_text_seed_list(conn, path, execute=execute)
+    return core.import_seed_list(conn, path, execute=execute)
 
 
 def introduced(

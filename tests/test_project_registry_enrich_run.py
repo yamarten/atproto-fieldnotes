@@ -74,7 +74,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(enrichment.core, "enrich_project", side_effect=cancel_after_first):
+            with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=cancel_after_first):
                 result = enrichment.run(
                     conn,
                     self.request(checkpoint_path),
@@ -102,7 +102,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(enrichment.core, "enrich_project", side_effect=finish_remaining):
+            with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=finish_remaining):
                 resumed = enrichment.run(conn, self.request(checkpoint_path, resume_run="test-run"))
         finally:
             conn.close()
@@ -131,7 +131,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         def fake_enrich(conn, project, **kwargs):  # type: ignore[no-untyped-def]
             return dict(project, name="CLI Adapter Test")
 
-        with mock.patch.object(enrichment.core, "enrich_project", side_effect=fake_enrich):
+        with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=fake_enrich):
             with captured_stdout() as stdout:
                 result = enrichment_commands.cmd_enrich(args)
 
@@ -159,7 +159,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         events = []
         conn = registry.open_db()
         try:
-            with mock.patch.object(enrichment.core, "enrich_project", side_effect=fail_one):
+            with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=fail_one):
                 result = enrichment.run(conn, self.request(checkpoint_path), emit=events.append)
         finally:
             conn.close()
@@ -183,7 +183,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(enrichment.core, "enrich_project", side_effect=succeed):
+            with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=succeed):
                 resumed = enrichment.run(conn, self.request(checkpoint_path, resume_run="test-run"))
         finally:
             conn.close()
@@ -212,7 +212,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(enrichment.core, "enrich_project", side_effect=fail):
+            with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=fail):
                 result = enrichment.run(conn, request)
         finally:
             conn.close()

@@ -10,7 +10,7 @@ from io import BytesIO
 from unittest import mock
 
 from helpers import registry
-from project_registry_core import domain_policy
+from project_registry_core import domain_policy, source_sync
 from project_registry_core import http_transport as http_transport_core
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import llm_evidence as llm_evidence_core
@@ -254,16 +254,16 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
             }
 
         original_request_json = http_transport_core.request_json
-        original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
+        original_tracked_collections = source_sync.SEMBLE_TRACKED_COLLECTIONS
         http_transport_core.request_json = fake_request_json
-        registry.SEMBLE_TRACKED_COLLECTIONS = (
+        source_sync.SEMBLE_TRACKED_COLLECTIONS = (
             {"handle": "byarielm.fyi", "rkey": "rkey123", "label": "stale label"},
         )
         try:
-            results = registry.fetch_semble_collection_sync_results(pages=1, per_page=20)
+            results = source_sync.fetch_semble_collection_sync_results(pages=1, per_page=20)
         finally:
             http_transport_core.request_json = original_request_json
-            registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
+            source_sync.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
 
         self.assertEqual(
             seen_urls,
@@ -297,7 +297,7 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
                 "pagination": {"hasMore": False},
             },
         ):
-            scan = registry.fetch_semble_collection_source_sync_results(
+            scan = source_sync.fetch_semble_collection_source_sync_results(
                 source,
                 pages=1,
                 per_page=20,
@@ -333,14 +333,14 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
 
         source = {"handle": "example.test", "rkey": "collection", "label": "apps"}
         with mock.patch.object(http_transport_core, "request_json", return_value=payload(ordered=True)):
-            ordered_scan = registry.fetch_semble_collection_source_sync_results(
+            ordered_scan = source_sync.fetch_semble_collection_source_sync_results(
                 source,
                 pages=2,
                 per_page=2,
                 cutoff=cutoff,
             )
         with mock.patch.object(http_transport_core, "request_json", side_effect=[payload(ordered=False), {**payload(ordered=False), "urlCards": [], "pagination": {"hasMore": False}}]):
-            unordered_scan = registry.fetch_semble_collection_source_sync_results(
+            unordered_scan = source_sync.fetch_semble_collection_source_sync_results(
                 source,
                 pages=2,
                 per_page=2,
@@ -394,7 +394,7 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
             return payload
 
         with mock.patch.object(http_transport_core, "request_json", side_effect=fake_request):
-            scan = registry.fetch_github_search_query_sync_results(
+            scan = source_sync.fetch_github_search_query_sync_results(
                 "atproto",
                 pages=3,
                 per_page=3,
@@ -420,7 +420,7 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
             }
         ]
 
-        filtered, stats = registry.filter_sync_collection_inventory_payload(payload, [], lookback_days=7)
+        filtered, stats = source_sync.filter_sync_collection_inventory_payload(payload, [], lookback_days=7)
 
         self.assertEqual(filtered, payload)
         self.assertEqual(stats["cutoff_source"], "lookback")

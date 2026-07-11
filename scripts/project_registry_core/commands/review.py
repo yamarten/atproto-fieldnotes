@@ -7,9 +7,9 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from .. import registry as core
-from .. import runtime_view
+from .. import registry as core, runtime_view
 from ..application import review as services
+from . import queue_interaction
 
 
 def _print(payload: dict[str, Any]) -> int:
@@ -286,7 +286,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
             limit=max(1, int(args.limit)) if args.limit is not None else 50,
         )
     try:
-        return core.output_project_queue(
+        return queue_interaction.output_project_queue(
             conn,
             queue_name="review",
             queue=queue,
@@ -314,7 +314,7 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
         include_personal_tools=include_personal_tools,
     )
     try:
-        return core.output_project_queue(
+        return queue_interaction.output_project_queue(
             conn,
             queue_name="promotion",
             queue=queue,

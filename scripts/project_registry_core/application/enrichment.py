@@ -9,7 +9,7 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
-from .. import registry as core
+from .. import enrichment_pipeline, registry as core
 from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
 
 
@@ -359,7 +359,7 @@ def run(
             _mark_started(checkpoint, project_key)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
         try:
-            enriched = core.enrich_project(
+            enriched = enrichment_pipeline.enrich_project(
                 conn,
                 project,
                 llm_endpoint=options.llm_endpoint or None,

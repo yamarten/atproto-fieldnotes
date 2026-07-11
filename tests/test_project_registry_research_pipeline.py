@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import integration as integration_core
@@ -511,11 +512,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:researchenrich")
             with (
-                mock.patch.object(registry, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(registry, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(registry, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
                 mock.patch.object(
-                    registry,
+                    enrichment_pipeline,
                     "collect_investigation_evidence",
                     return_value=EvidenceBundle(
                         project_key=project["project_key"],
@@ -524,7 +525,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 ),
                 mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
-                enriched = registry.enrich_project(conn, project)
+                enriched = enrichment_pipeline.enrich_project(conn, project)
             registry.save_project(conn, enriched, enriched=True)
             conn.commit()
             fetched = registry.fetch_project(conn, project["project_key"])
@@ -573,15 +574,15 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
         try:
             with (
-                mock.patch.object(registry, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(registry, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(registry, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
-                mock.patch.object(registry, "apply_github_repo_evidence"),
-                mock.patch.object(registry, "plan_investigation_queries", return_value={}),
-                mock.patch.object(registry, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
                 mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
-                registry.enrich_project(conn, project)
+                enrichment_pipeline.enrich_project(conn, project)
         finally:
             conn.close()
 
@@ -1148,12 +1149,12 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         registry.write_sync_state(conn, "tangled-repos", scope, {"time_us": 100})
         conn.commit()
         try:
-            with mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=[{
+            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=[{
                 "owner_did": "", "rkey": "one", "time_us": 200,
                 "record": {"name": "Example", "description": "atproto repo"},
                 "atproto_relevant": True,
             }]):
-                summary = registry.sync_tangled_repos(conn, execute=True, create_unmatched=False)
+                summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=False)
             state = registry.read_sync_state(conn, "tangled-repos", scope)
         finally:
             conn.close()
@@ -1165,7 +1166,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             with (
-                mock.patch.object(registry, "fetch_tangled_ufos_window", return_value=[{
+                mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=[{
                     "owner_did": "did:plc:example",
                     "rkey": "example-repo",
                     "time_us": 200,
@@ -1174,7 +1175,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 }]),
                 mock.patch.object(registry, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
             ):
-                summary = registry.sync_tangled_repos(conn, execute=True, create_unmatched=True)
+                summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
             projects = registry.all_projects(conn)
         finally:
             conn.close()
@@ -1233,8 +1234,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(parser.parse_args(["sync-tangled-repos"]).command, "sync-tangled-repos")
         self.assertEqual(parser.parse_args(["verify-service", "-p", "proj:test", "--lane", "browser"]).lane, "browser")
         self.assertEqual(parser.parse_args(["replay-investigation", "--run-id", "inv:test"]).run_id, "inv:test")
+        self.assertTrue(callable(enrichment_pipeline.enrich_project))
         for name in (
-            "enrich_project",
             "collect_investigation_evidence",
             "apply_investigation_evidence",
             "collect_github_repo_evidence",

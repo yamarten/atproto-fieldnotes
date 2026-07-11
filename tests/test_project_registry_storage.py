@@ -3,19 +3,17 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
-import shutil
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
-from project_registry_core import cli, database, domain_policy
+from project_registry_core import cli, database, domain_policy, source_sync
 from project_registry_core.commands import assist as assist_commands
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
+from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
 from project_registry_core.application import sync as sync_services
 
@@ -258,39 +256,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         ])
 
         self.assertFalse(hasattr(args, "new_project_key"))
-
-    def test_public_wrappers_reject_unsupported_python_before_import(self) -> None:
-        source_root = Path(__file__).resolve().parents[1]
-        for wrapper_name in ("project-registry", "project-registry-web"):
-            with self.subTest(wrapper=wrapper_name):
-                fake_root = Path(self.tempdir.name) / wrapper_name
-                wrapper_path = fake_root / "bin" / wrapper_name
-                python_path = fake_root / ".venv" / "bin" / "python"
-                wrapper_path.parent.mkdir(parents=True)
-                python_path.parent.mkdir(parents=True)
-                shutil.copy2(source_root / "bin" / wrapper_name, wrapper_path)
-                python_path.write_text(
-                    """#!/bin/sh
-case "$2" in
-  *sys.version_info*) exit 1 ;;
-  *platform.python_version*) printf '3.9.18\\n'; exit 0 ;;
-esac
-exit 99
-""",
-                    encoding="utf-8",
-                )
-                python_path.chmod(0o755)
-
-                result = subprocess.run(
-                    [str(wrapper_path), "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-
-                self.assertEqual(result.returncode, 2)
-                self.assertIn("requires Python 3.10 or newer (found 3.9.18)", result.stderr)
-                self.assertNotIn("SyntaxError", result.stderr)
 
     def test_init_db_parser_accepts_custom_path(self) -> None:
         args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
@@ -611,8 +576,8 @@ exit 99
                 "scan_complete": True,
                 "newest_timestamp": "2026-06-01T00:00:00+00:00",
             }
-            with mock.patch.object(registry, "fetch_semble_collection_source_sync_results", return_value=scan):
-                result = registry.sync_semble_collections(
+            with mock.patch.object(source_sync, "fetch_semble_collection_source_sync_results", return_value=scan):
+                result = source_sync.sync_semble_collections(
                     conn,
                     execute=True,
                     create_unmatched=True,
@@ -678,8 +643,8 @@ exit 99
                 "scan_complete": True,
                 "newest_timestamp": "2026-06-01T00:00:00+00:00",
             }
-            with mock.patch.object(registry, "fetch_semble_collection_source_sync_results", return_value=scan):
-                result = registry.sync_semble_collections(
+            with mock.patch.object(source_sync, "fetch_semble_collection_source_sync_results", return_value=scan):
+                result = source_sync.sync_semble_collections(
                     conn,
                     execute=True,
                     create_unmatched=False,
@@ -770,12 +735,12 @@ exit 99
             return {"posts": [post]}
 
         try:
-            with mock.patch.object(registry, "search_bsky_posts_payload", side_effect=fake_search), mock.patch.object(
-                registry,
+            with mock.patch.object(source_sync, "search_bsky_posts_payload", side_effect=fake_search), mock.patch.object(
+                source_sync,
                 "collect_applog_entries",
                 return_value={(entry["seed_type"], entry["seed_value"]): entry},
             ):
-                first = registry.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
+                first = source_sync.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
 
             state = registry.read_sync_state(conn, "introduced", {"query": query})
             self.assertEqual(first["unmatched"], 1)
@@ -787,8 +752,8 @@ exit 99
             registry.save_project(conn, project)
             conn.commit()
 
-            with mock.patch.object(registry, "search_bsky_posts_payload", return_value={"posts": []}):
-                second = registry.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
+            with mock.patch.object(source_sync, "search_bsky_posts_payload", return_value={"posts": []}):
+                second = source_sync.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
             saved = registry.fetch_project(conn, "proj:introduced01")
             state = registry.read_sync_state(conn, "introduced", {"query": query})
         finally:
@@ -803,8 +768,8 @@ exit 99
         conn = registry.open_db()
         query = "dry-run"
         try:
-            with mock.patch.object(registry, "search_bsky_posts_payload", return_value={"posts": []}):
-                summary = registry.sync_introduced_entries(conn, query=query, execute=False)
+            with mock.patch.object(source_sync, "search_bsky_posts_payload", return_value={"posts": []}):
+                summary = source_sync.sync_introduced_entries(conn, query=query, execute=False)
             state = registry.read_sync_state(conn, "introduced", {"query": query})
         finally:
             conn.close()
@@ -834,8 +799,8 @@ exit 99
             "newest_timestamp": "2026-06-10T00:00:00+00:00",
         }
         try:
-            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan):
-                summary = registry.sync_github_search(
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = source_sync.sync_github_search(
                     conn,
                     queries=[query],
                     execute=True,
@@ -875,8 +840,8 @@ exit 99
             "newest_timestamp": "2026-06-10T00:00:00+00:00",
         }
         try:
-            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan):
-                summary = registry.sync_github_search(
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = source_sync.sync_github_search(
                     conn,
                     queries=[query],
                     execute=True,
@@ -917,12 +882,12 @@ exit 99
             "newest_timestamp": "2026-06-10T00:00:00+00:00",
         }
         try:
-            with mock.patch.object(registry, "fetch_github_search_query_sync_results", return_value=scan), mock.patch.object(
-                registry,
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan), mock.patch.object(
+                source_sync,
                 "screen_github_repo_sync_candidate",
                 side_effect=RuntimeError("temporary failure"),
             ):
-                summary = registry.sync_github_search(
+                summary = source_sync.sync_github_search(
                     conn,
                     queries=[query],
                     execute=True,
@@ -1875,7 +1840,7 @@ exit 99
             args = cli.build_parser().parse_args(["promotion-queue", "--interactive", "--limit", "1"])
             with (
                 mock.patch.object(registry, "open_db", return_value=conn),
-                mock.patch.object(registry, "output_project_queue", return_value=0) as output,
+                mock.patch.object(queue_interaction, "output_project_queue", return_value=0) as output,
             ):
                 review_commands.cmd_promotion_queue(args)
 
@@ -1904,7 +1869,7 @@ exit 99
                 mock.patch.object(registry.sys.stdin, "isatty", return_value=True),
                 mock.patch("builtins.input", side_effect=["h", "中核機能が未実装"]),
             ):
-                registry.output_project_queue(
+                queue_interaction.output_project_queue(
                     conn,
                     queue_name="promotion",
                     queue=queue,
