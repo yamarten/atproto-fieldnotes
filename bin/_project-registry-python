@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+COMMAND_NAME=$1
+shift
+
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+  PYTHON="$ROOT_DIR/.venv/bin/python"
+else
+  COMMON_GIT_DIR=$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  COMMON_ROOT=$(dirname -- "${COMMON_GIT_DIR:-$ROOT_DIR/.git}")
+  if [ -n "$COMMON_GIT_DIR" ] && [ -x "$COMMON_ROOT/.venv/bin/python" ]; then
+    PYTHON="$COMMON_ROOT/.venv/bin/python"
+  else
+    PYTHON=python3
+  fi
+fi
+
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  VERSION=$("$PYTHON" -c 'import platform; print(platform.python_version())' 2>/dev/null || printf 'unknown')
+  printf '%s\n' "error: $COMMAND_NAME requires Python 3.10 or newer (found $VERSION)" >&2
+  exit 2
+fi
+
+if ! "$PYTHON" -c 'import tldextract' >/dev/null 2>&1; then
+  printf '%s\n' "error: $COMMAND_NAME requires dependencies from requirements.txt" >&2
+  printf '%s\n' 'create .venv and run: .venv/bin/pip install -r requirements.txt' >&2
+  exit 2
+fi
+
+exec "$PYTHON" "$@"

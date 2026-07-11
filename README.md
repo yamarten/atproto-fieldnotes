@@ -44,8 +44,11 @@ project-registry audit-source-config example.com
 テストは標準ライブラリの `unittest` で実行します。外部 API、実 DB、実 LLM endpoint には触れず、必要な SQLite DB は temp directory に作ります。
 
 ```bash
-python3 -m unittest discover -s tests -v
+bin/project-registry-test
 ```
+
+このwrapperは現在のcheckoutの`.venv`を優先し、worktreeではGit共通directoryにある本家checkoutの
+`.venv`も利用します。利用可能な環境がなければ、必要なsetup手順を表示して終了します。
 
 ## zsh補完
 

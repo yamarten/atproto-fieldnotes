@@ -3,14 +3,4 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
-if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
-  PYTHON="$ROOT_DIR/.venv/bin/python"
-else
-  PYTHON=python3
-fi
-if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  VERSION=$("$PYTHON" -c 'import platform; print(platform.python_version())' 2>/dev/null || printf 'unknown')
-  printf '%s\n' "error: project-registry-web requires Python 3.10 or newer (found $VERSION)" >&2
-  exit 2
-fi
-exec "$PYTHON" -m project_registry_web "$@"
+exec "$ROOT_DIR/bin/_project-registry-python" project-registry-web -m project_registry_web "$@"

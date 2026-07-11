@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+exec "$ROOT_DIR/bin/_project-registry-python" project-registry-test \
+  -m unittest discover -s "$ROOT_DIR/tests" -v "$@"
