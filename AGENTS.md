@@ -10,17 +10,12 @@
 - 主実装は `scripts/project_registry_core/`
   - `application/`: CLIとWebで共有するquery/mutation service
   - `commands/`: `argparse`と出力を担当するCLI adapter
-  - `web/`: schema v2 Web API、subprocess job registry、静的UI
   - `jobs.py`: 長時間処理のrequest/event/result/cancellation契約
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
-  - `domain_policy.py`: PSL、multi-tenant suffix、same-site判定
-  - `http_transport.py`: outbound URL検証、redirect制御、JSON HTTP transport
-  - `identifiers.py`: URL/NSID正規化、authority domain、alias tokenのpure helper
-  - `repo_urls.py`: provider別repository URLの正規化、provider/owner判定
-  - `naming.py`: title/name candidate/source labelのpure helper
-  - `llm_transport.py`: command/OpenAI互換LLM transport、response parser、request metrics
-  - `service.py`: service verification evidence collectorとcurrent projection
   - `registry.py`: collector/evaluation orchestrationと未分離のstateful helper
+- Web実装は`scripts/project_registry_web/`
+  - schema v2 Web API、subprocess job registry、静的UI
+- `project_registry_core`直下の共有moduleと依存方向は`docs/registry-internals.md`を正本にする
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない

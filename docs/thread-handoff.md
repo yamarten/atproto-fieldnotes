@@ -6,21 +6,23 @@
 
 ## 現在地
 
-- 日常運用安定化の8項目は実装済みです。
-- Web server reloadのpackage entrypoint修正まで`master`へ反映済みです。
-- 判定feedback対応は実装・DB適用とも進行済みです。現在の確認済み範囲は[status.md](status.md)、trust graphの現行仕様は[registry-internals.md](registry-internals.md)、将来作業は[roadmap.md](roadmap.md)を参照してください。
+- 未完了のmigrationやmaintenance window待ちはありません。
+- 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - `proj:29a36771674f`など、複数project collisionの個別split/merge判断を行う。
+- 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ
 
 次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認してください。
 
-この作業を理由に専用worktreeを維持する必要はありません。次スレッドはmain worktreeから開始して構いません。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、必要ならその時点で新しいbackupまたは複製を用意して実行してください。
+2026-07-11 cleanup適用前backupは`data/survey.db.backup-20260711-170101`です。VACUUMは未実施で、SQLite内のfree pageは
+後続writeが再利用します。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、必要なら
+その時点で新しいbackupまたは複製を用意して実行してください。
 
 ## 未検証・未接続
 

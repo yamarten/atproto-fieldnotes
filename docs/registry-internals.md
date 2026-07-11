@@ -57,51 +57,6 @@ network request前に拒否します。この境界はgeneric plugin framework�
 たびにconfig schemaや抽象interfaceを増やす目標でもありません。builtin lexicon prefix、payload解釈、evidence抽出、
 matching/classification/auto-attachはcodeとtestのままで、config DSL化しません。
 
-## 文書更新の方針
-
-実装を変えた時は、コードだけでなく対応する文書も更新します。目安は次の通りです。
-
-- 利用者向けの操作や出力が変わる時
-  - `README.md`
-  - `docs/project-registry.md`
-- 内部の判定基準、保存構造、heuristic、運用前提が変わる時
-  - `docs/registry-internals.md`
-- 調査 pipeline の恒久的な責務境界や evidence 契約が変わる時
-  - `docs/investigation-model.md`
-- 長時間処理のprogress、中断、checkpoint、worker境界が変わる時
-  - `docs/background-jobs.md`
-- その場限りではないが、まだ安定していない残件や次の論点を残したい時
-  - `docs/thread-handoff.md`
-- 中長期の計画や、まだ着手していない改善案を整理したい時
-  - `docs/roadmap.md`
-- 現行仕様へ確定する前の比較、保証関係、運用案を詳しく残したい時
-  - `docs/notes/`
-- データモデルの見方や field の意味が変わる時
-  - `docs/project-record.md`
-
-特に次の変更では、利用者向け文書と内部文書の両方を見る前提です。
-
-- DB schema / storage layout の変更
-- CLI command / option / interactive flow の変更
-- sync / enrich / merge / review 系の判定ロジック変更
-- queue の signal や promotion / stalled 判定の変更
-
-## テスト方針
-
-テストは `unittest` を正本にし、次で実行します。
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-heuristic を変更する時は、該当する core/storage テストを追加または更新します。
-
-- name / URL / service status / LLM response parser / merge scoring のような DB 非依存の判定は `tests/test_project_registry_core.py`
-- `profile_json` / `state_json` / normalized child tables 分割、`save_project` / `fetch_project` / `repair-db` 相当の保存構造は `tests/test_project_registry_storage.py`
-- Web APIの認証、schema v2 payload、normalized mutation、static asset、error shapeは `tests/test_project_registry_web.py`
-
-外部 API、実 DB `data/survey.db`、実 LLM endpoint は通常テストから切り離します。必要な SQLite DB は temp directory に作ります。
-
 ## project record の最小コア
 
 優先して埋める項目:
@@ -117,7 +72,7 @@ heuristic を変更する時は、該当する core/storage テストを追加�
 - `tracking_state`
 - `tracking_note`
 
-詳細な field 一覧は [docs/project-record.md](project-record.md) を参照してください。
+詳細な field 一覧は [project-record.md](project-record.md) を参照してください。
 
 ### URL field の整理
 
@@ -276,11 +231,11 @@ collection namespace、registrable namespace、service host familyなどのfuzzy
   `registry.py`への直接依存が残る
 - `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
   identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
-- 残るsource sync、project shape/save facade、queue、enrich orchestrationの分割と上記import縮小はP6.7の対象であり、
+- 残るsource sync、project shape/save facade、queue、enrich orchestrationの分割はroadmapで追跡し、
   現時点でapplication/databaseが巨大moduleから独立済みとは扱わない
 
 この現行責務mapは一時的な移動計画ではなく内部仕様のsnapshotなので、本書を正本とします。同内容を
-`docs/notes/`へ複製せず、将来の分割候補だけをroadmap/maintenance statusで追跡します。
+`docs/notes/`へ複製せず、将来の分割候補だけをroadmapで追跡します。
 
 動作確認済み:
 
@@ -772,10 +727,30 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   2. `homepage_exact`
   3. `homepage_family`
 - 自動 attach するのは 1 と 2 だけです
+- 3 は suggestion に落とします
+- unmatched を `--screen-unmatched` する場合:
+  - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
+  - lexicon hint、lexiconらしいpath、derived NSID、lexicon schema sample、repo homepage、service candidate、atproto keyword hitのいずれかがあれば通します
+  - 何も無ければ `screened_out_entries` に落とし、projectを作りません
 - `--screen-unmatched` を付けた場合、fork repo は追加で厳しく見ます
   - GitHub 上で `fork=true`
   - かつ homepage / service candidate / owned lexicon surface のいずれも見えない
   - この条件なら `github_fork_without_independent_surface` で新規 project 候補から落とします
+
+### `sync-semble-collections`
+
+- 対象は`config/sources.json`のtracked Semble collectionです
+- 現行XRPC APIから`urlCards`を取得し、card URLを`nsid`、`repo_url`、root `service_url`のseedと、非rootのevidence-onlyへ分類します
+- 非root service URLは既存root projectがある場合だけ`evidence_urls`へ添付し、単独projectを作りません
+- collectionごとに`card_updated_at` watermarkを保存し、updatedAt降順を確認できたresponseだけ早期停止します
+- 既存project解決はexact identifierを先に使い、NSIDのnamespace/family一致は安全判定後の候補に留めます
+
+### sync state の更新条件
+
+- `sync_state`はsourceごとの運用checkpointで、project recordではありません
+- introducedはquery、collectionsはinventory URL、GitHubはquery、Sembleはtracked collectionごとにwatermarkを持ちます
+- successful executeかつ走査完了時だけ更新し、dry-run、例外、page上限到達、未一致を残す`--no-create-unmatched`では更新しません
+- 境界timestampと同時刻の項目は次回も処理します。exactly-onceではなくat-least-onceです
 
 ### `sync-tangled-repos`
 
@@ -818,106 +793,6 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 意図は、collection/lexicon project が後から service 本体の editorial 情報を上書きしないようにすることです。
 
 ただし、既に保存済みの微妙な `tagline` / `summary` を自動で書き直す仕組みではありません。`proj:f4cead1df6f7` のような既存レコードは、LLM 再 `enrich` または手動修正がまだ必要です。
-
-## 将来的にやるべきこと
-
-### 1. service 判定の後半強化
-
-未実装の候補は、優先ページごとの signal 細分化、認証後の利用可能性、複数 surface の統合です。
-anonymous browser 検証は opt-in CLI と review queue に接続済みです。現行実装との境界は
-[service-verification.md](notes/service-verification.md) に整理しています。
-
-### 2. editorial quality の洗い替え
-
-- merge 時の主従は改善済みだが、既存 `tagline` / `summary` の品質問題は残る
-- 直したい方向:
-  - `service project` と `lexicon project` で prompt を分ける
-  - `resource_url_records` や repo README を優先 evidence として使う
-  - `tagline_is_provisional` が長く残っている project を review queue へ送る
-
-### 3. rate limit / partial failure 耐性
-
-source別 retry/backoff、TTL cache、request budget、source-local circuit breaker は接続済みです。
-未接続なのは複数projectを跨ぐ永続circuit breaker、session/PDSを含む全collectorへの統一適用、
-実運用値の調整です。現状と残件は [collector-reliability.md](notes/collector-reliability.md) を参照してください。
-
-### 4. sync コマンドの整理
-
-- `sync-collections`
-  - fetch 全件はまだ残っている
-  - API 側に差分 query が無いので、必要なら snapshot 比較を更に強化する
-- `sync-github-search`
-  - broad query の tuning
-  - `screen_unmatched` の精度向上
-- `sync-semble-collections`
-  - 現状は固定 2 collection 埋め込み
-  - 運用が固まったら config 化する余地がある
-
-### 5. DB 編集 UX
-
-- `assist-db-edit` は自然文から command 提案まで対応した
-- 将来的には:
-  - `split-project`
-  - seed 追加
-  - `review-stalled` の承認反映
-  のような操作も対話的に扱いたい
-
-### 6. 内部 shape の最終整理
-
-- schema v2ではidentifier、relation、decisionを専用tableへ保存する
-- collector/evaluation間のflat project dictは`runtime_view.py`で組み立てる明示的な非永続viewになった
-- 長期的にはtyped aggregateまたは用途別viewへ寄せ、全project hydrateを減らし、normalized tableを直接queryする検索・collision監査を増やす
-- 3 は suggestion に落とします
-- unmatched を `--screen-unmatched` する場合:
-  - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
-  - 次のどれかがあれば通します
-    - lexicon hint
-    - lexicon らしい path
-    - derived NSID
-    - lexicon schema sample
-    - repo homepage
-    - service candidate
-    - atproto keyword hit
-  - 何も無ければ `screened_out_entries` に落とし、project を作りません
-
-### `sync-semble-collections`
-
-- 対象はコード内で固定した tracked Semble collection だけです
-- 実装済み:
-  - Semble の現行 XRPC API `https://api.semble.so/xrpc/network.cosmik.collection.getByAtUri` を使います
-  - `handle`, `recordKey`, `page`, `limit` を query parameter として渡し、返却 payload の `urlCards` を取り込みます
-  - collection label は Semble payload の `name` があればそれを優先し、無ければ tracked collection の local label を使います
-- 動作確認済み:
-  - 2026-06-07 時点で旧 `/api/collections/at/{handle}/{rkey}` は Semble live API で 404
-  - 同日時点で現行 XRPC API は tracked 2 collection について 200 を返し、`sync-semble-collections --pages 1 --per-page 1 --all-history --no-create-unmatched` の dry-run が成功
-- 各 card URL は Semble 専用分類を通し、project seed と evidence-only を分けます
-  - `nsid`
-  - `repo_url`
-  - root `service_url`
-- 非root `service_url` は Semble 上のコンテンツ/対象別ページである可能性が高いため、project seed にはしません
-  - 既存 root `service_url` project があれば `evidence_urls` にだけ添付します
-  - 既存 project が無ければ project は作らず、sync 結果の `evidence_only_entries` に出します
-- tracked collection ごとに `card_updated_at` watermark を保存します
-- `sorting.sortBy=updatedAt` / `sortOrder=desc` を確認できた response だけ、古い card 到達で早期停止します
-- watermark が無い初回は `lookback_days` を使います
-- 既存 project 解決は `resolve_project_key_for_seed_value()` を使います
-  - `repo_url` / `service_url` は exact identifier match
-  - `nsid` は `find_project_key_for_nsid_seed()` で namespace / registrable namespace / service host family まで見ます
-- 注意:
-  - Semble は補助導線なので、曖昧な service subpage は seed より evidence-only へ寄せます
-
-### sync state の更新条件
-
-- `sync_state` は project record ではなく source ごとの運用 checkpoint です
-- scope:
-  - introduced: search query
-  - collections: inventory source URL
-  - GitHub: query set。watermark は query ごと
-  - Semble: tracked collection set。watermark は collection ごと
-- successful execute かつ走査完了時だけ更新します
-- dry-run、例外終了、ページ上限到達では更新しません
-- `--no-create-unmatched` で未一致が残った場合は、その候補を次回も出すため更新しません
-- 境界 timestamp と同時刻の項目は次回も処理対象にします。exactly-once ではなく at-least-once です
 
 ## 外部アクセス
 

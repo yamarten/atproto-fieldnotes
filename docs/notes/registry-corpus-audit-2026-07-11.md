@@ -3,6 +3,12 @@
 調査品質corpusを作るための時点付き集計メモです。現行仕様の正本ではありません。2026-07-10のimmutable DB
 snapshotをread-onlyで集計し、正本DBは変更していません。
 
+## このnoteの寿命
+
+- 使いどき: operator correction fixtureやmanual gold setを追加する時に、decision分布、bundle相関、sanitize境界を確認する
+- 消しどき: fixture manifestまたはmanual gold文書が各caseの由来、採否、sanitize確認を直接保持し、この集計を参照せずcorpusを更新できるようになった時
+- 後継corpusへ移した判断はinvestigation modelへ反映し、この時点集計だけを履歴目的で残さない
+
 ## Decision / bundle相関
 
 集計基準時刻は2026-07-11T00:00:00+00:00です。未clearかつ未expireのdecisionだけをactiveとしました。

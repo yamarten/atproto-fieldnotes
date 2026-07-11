@@ -128,61 +128,21 @@
 
 ## 動作確認状況
 
-2026-06-18から2026-06-20の変更時点で確認済み:
+2026-07-11時点で確認済み:
 
-- unit test 224件
-- JavaScript syntax check
-- temp SQLiteでmigration、normalized row roundtrip、review、profile編集、履歴cleanup
-- fake workerと実workerによるbackground operation protocol
-- in-app Browserによるdesktop/mobileの主要Web導線
-- 2540 projectの通常DBでdetail初期表示と非同期merge解析
-  - 対象projectの初期detailは変更前6.13秒、変更後0.002秒
-  - merge解析は後続requestで1.21秒
-- 2026-06-18の通常DB migration report
-  - project 2575件、identifier 16554件、decision 116件、relation 0件
-  - integrity `ok`、block衝突、根拠不明legacy confirmed、normalized roundtrip diffはいずれも0
-- 2026-06-21の移行後通常DB read-only audit
-  - integrity `ok`、foreign key違反0件
-  - 当時のv1由来identifier 14950件は全件`v1-quarantine-1`
-  - 根拠不明legacy confirmed、active block衝突、policy欠落はいずれも0
-- 2026-07-01のmigration provenance cleanup
-  - `project_identifiers` 14022行の移行専用metadataを削除
-  - 削除後のv1 migration metadata件数0、SQLite integrity `ok`、foreign key違反0件
-- 2026-07-01のresource URL record cleanup
-  - active `projects.state_json` の `resource_url_records[].confidence = "legacy"` を `candidate` へ吸収
-  - 変換後のactive `confidence = "legacy"` 件数0、SQLite integrity `ok`
-  - investigation history側の過去bundleは履歴として残している
-- 2026-07-02のresource URL過収集guard
-  - 同一siteリンクでも、repo候補またはdocs/blog/support/status/privacy/terms等の補助ページroleを判定できないURLは `resource_url_records` に保存しない
-  - `resource_url_records` はURL+role単位へmergeし、project全体最大32件、role別、host+role別のbudgetで代表選抜する
-  - 対象unit test `ProjectRegistryResourceUrlRecordTest` は23件OK、`test_project_registry_core.py` 全体は113件OK
-  - active DBでは `resource_url_records` 79,505件中 `role="unknown"` が62,625件あり、最大caseはLongformの13,947件であることをread-only確認済み
-  - 作業中の別process更新とみられる変化により、後続snapshotでは79,509件 / unknown 62,626件も観測した
-  - 後続snapshotに現行の正規化budgetをread-only適用した概算では、`resource_url_records` は4,613件相当
-  - read-only dry-runでは、同一siteかつ補助ページrole不明の候補は56,864件。ただし `/blog`、`/about`、`/specs` など残すべき可能性のあるURLも混ざるため、削除対象としては未確定
-  - 既存DB cleanupは未適用。2026-07-10 clone全3,239 projectへの現行prompt evidence投影は最大24,489 bytes、
-    count/byte budgetが発動するprojectは41件
-- 2026-06-25の判定feedback対応
-  - service follow-up/deep page URL、service URL guard、service support relation、repo/NSIDからauthority domainへの片方向根拠、repo内lexicon ownership、README URL抽出のtargeted unit test
-  - 補助ページservice URLの既存DB cleanupを`repair-db --execute`で適用済み
-  - 適用前backup `data/survey.db.backup-20260625-judgement-feedback` は2026-06-30に削除済み
-  - `proj:bbd470871ccc`の`https://leaflet.pub`は片方向根拠だけでconfirmed service URLになっていたため、`defer-identifier`でdefer済み
-  - 追加backup `data/survey.db.backup-20260625-one-way-service-trust` は2026-06-30に削除済み
-  - `defines_schema`はaccepted repoとaccepted NSIDが揃う場合だけ保存し、repo内lexicon JSONだけの既存relation 444件を`mentions_collection`へdowngrade済み
-  - 追加backup `data/survey.db.backup-20260625-defines-schema-policy` は2026-06-30に削除済み
-  - service pageのNSID直接言及だけではconfirmed service URLへ昇格しない
-  - 旧NSID直接言及ruleだけでconfirmedになった可能性があるservice URLを既存DBで確認済み
-    - 2026-06-26 read-only preliminary count: confirmed service URL pairは652、当時supported判定の`operates_service`を持つものは544、そのうちmanual seedではない上限候補は56
-    - 保存済みprobe本文をprojectのNSIDと照合した直接NSID言及候補3件はuser確認済み。`atplan`と`Tree Appreciation`はOK、`atjam`のround個別ページはproject紐付け対象として外した
-    - 2026-06-27: 候補projectを順次enrichし、35/36 projectは完了。先に`.envrc`なしで実行した3件は`.envrc`ありで再実行し、`last_run_errors`が空になることを確認済み
-    - `proj:3b0767e1cad9`は通常enrichが240秒timeout、個別再実行も600秒timeout
-    - 最終user review: `https://granary-demo.appspot.com`は正しいが不要、`https://granary.readthedocs.io`はGitHub側linkで確認済み。旧NSID直接言及rule由来の追加manual review対象は残っていない
-  - `.venv/bin/python`で全unit test 245件
+- Python 3.10 / 3.11で全unit test 371件
+- JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
+- investigation replay benchmark 9 case、semantic regression 0件
+- GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
+  [bounded real-source smoke](notes/registry-maintenance-real-source-smoke-2026-07-11.md)
+- 正本DB maintenance後のforeign key違反0、integrity `ok`
+- storage cleanup、identifier backfill、same-site evidence repairの再dry-run変更0件
+- 3,239 projectから作ったhandle/DIDを含む12,849 exact lookupで、従来判定との差分0
 
 未検証:
 
-- Web workerから実外部sync sourceへ接続するend-to-end実行
 - 長時間運用時の実API retry/cache/budget値
+- cleanup後30日または新規1,000 runs時点の保存量増加率
 - `proj:29a36771674f`など、複数projectを跨いで残るidentifier collisionの個別分離・merge判断
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の

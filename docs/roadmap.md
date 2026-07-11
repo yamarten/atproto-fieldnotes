@@ -8,10 +8,10 @@
 
 ## 目的の優先順位
 
-1. 紹介するかどうかを安定して判断できる
-2. 紹介文を作るための核データを保てる
+1. 深掘りする価値がある候補を、背景と根拠とともに提示できる
+2. 追加調査と短い紹介文の出発点になる核データを保てる
 3. 運用上必要な review / merge / evidence を保てる
-4. 将来 app record を生成したくなった時に、必要情報が足りない状態を避ける
+4. 公開手段の第一候補である app record export に、紹介用の情報を再利用できる状態を保つ
 
 ## 非目的
 
@@ -23,61 +23,45 @@
 
 紹介フローを主導に置き、その延長で app export 可能性を確保する、という順序を維持します。
 
-## 直近の実装順
+## 保存量と履歴
 
-ここでは、通常運用開始後に順番を決めて進める未完了作業だけを扱います。
-完了済みの日常運用安定化8項目はstatusとGit履歴へ移し、この文書では管理しません。
-過去の広域棚卸しで残すべき候補は、このroadmapまたは役割別notesへ移しています。
+- 2026-08-10到達または新規1,000 investigation runsの早い方で`cleanup-storage-payloads` dry-runを再計測する
+- 論理payload 3 GiB超、または30日換算の増加が512 MiB超なら、次の方式を一つずつ比較する
+  - input/output差分化または片側廃止。replay fixtureの同値を受入条件にする
+  - no-change run stub。weekly bytesの30%以上が意味上no-changeと確認できた場合だけ検討する
+  - JSON圧縮。圧縮率とread/replay costを測り、SQLite上の直接監査を失う影響と比較する
+  - byte-aware retention。merge済みaliasをcanonical project単位で数え、alias単位の保持に依存しない
+- DBのallocated bytesが10 GiBを超えるか、current DB maintenanceとの競合が実測された場合にhistory DB分離を検討する
+- 最大payload runでrelation normalizeが二乗的に長時間化する経路を、storage cleanupとは分けて改善する
 
-### Registry maintenance
+比較基準は[2026-07-10 baseline](notes/registry-maintenance-baseline-2026-07-10.md)を参照してください。
 
-registryの正しさ、運用コスト、保存量、保守性について、次のworkstreamを採用しました。詳細な順序、
-通常運用との並行方針、途中で適用できるcheckpointは
-[registry-maintenance-plan.md](notes/registry-maintenance-plan.md)を参照してください。
+## 内部構造
 
-直近:
+### DID exact lookupのcandidate hydration除去
 
-1. 新規runのphase timingを代表sampleで蓄積し、collector、LLM、save/commitを含むfull enrichの支配区間を確定する。
-   operatorが実際にqueueを判断するreview時間はapplication timingから推測せず、通常運用のsession単位で別に測る。
-2. 承認済みmaintenance windowで既存DBのstorage cleanupをbackup・停止・検査付きで適用する。
-3. 修正済みhotspotから`registry.py`を段階分割し、旧内部APIの互換層を恒久的に残さない。
+現在のDID exact lookupはnormalized indexで候補を絞った後、候補projectだけをhydrateし、current payloadに存在しない
+normalized-only candidate DIDを除外します。全project scanではありませんが、normalized tableだけで判定できない暫定境界です。
 
-product briefと2026-07-10の静止DB baselineは作成済みです。baselineの計測条件、保存量、queue、未接続の
-時間指標は[registry-maintenance-baseline-2026-07-10.md](notes/registry-maintenance-baseline-2026-07-10.md)を
-参照してください。
+次を満たした時にcandidate hydrationを削除します。
 
-後続:
+- normalized-only `developer_did`を、有効な独立identifierとして扱うかstale rowとして除去するかを保存契約で決める
+- current payloadから表現できない有効rowを失わないrepairまたは表現を用意する
+- 既知の5 DID collisionを含む実DB auditで、index-only判定と期待projectの差分が0になる
+- `find_project_key_by_identifier(..., "did", ...)`がproject hydrateを呼ばない回帰testを追加する
 
-- exact identifier lookupのnormalized index化。
-- Semble weak matchのsuggestion化。
-- bulk enrich failure policyとLLM retry分類の見直し。
-- bounded real-source smokeとWeb診断情報。
-- manual gold setを50〜100件へ育て、confirmed precision、merge/split、紹介可否、operator確認時間を人が採点する。
-  3件のoperator correction実行fixtureは追加済みだが、manual goldの代替にはしない。
-- history保存形式・byte-aware retention再設計は、2026-07-11 cleanup直後のbaselineから条件付きで再開する。
-  - baseline: 15,086 runs、論理payload 1,555,811,509 bytes、allocated 1,674,387,456 bytes、SQLite内reusable 3,086,471,168 bytes
-  - 30日経過または新規1,000 runsの早い方で`cleanup-storage-payloads` dry-runを再計測する
-  - 論理payload 3 GiB超、または30日換算の増加が512 MiB超なら、次の方式を一つずつ比較する
-  - input/output差分化・片側廃止: replayで両snapshotが必要なため現時点では不採用。再開時はreplay fixtureの同値を受入条件にする
-  - no-change run stub: no-changeの意味をcollector failure/cancelと区別できていないため現時点では不採用。weekly bytesの30%以上が意味上no-changeと確認できた場合に再検討する
-  - JSON圧縮: SQLite上の直接監査と部分更新を失うため現時点では不採用。上記byte gate到達時に圧縮率とread/replay costを測る
-  - byte-aware retention: 既存90日+projectごと最新3 runを維持する。導入時はmerge済みaliasをcanonical project単位で数え、alias単位の偶然の保持に依存しない
-  - history DB分離: backup、復旧、writer contentionを増やすため現時点では不採用。allocated historyが10 GiB超、またはcurrent DB maintenanceとの競合が実測された場合だけ再検討する
-- 巨大runのreplayでrelation normalizeが二乗的に長時間化する経路の改善。storage cleanupとは分ける。
+### `registry.py`のstateful orchestration分割
 
-`registry.py`のstateful orchestration分割は、次の契約を先に確定してから再開します。単なる行数削減を目的に
-facadeを別fileへ移すだけの変更は行いません。
+単なる行数削減を目的にfacadeを別fileへ移さず、次の依存を実際に減らせる単位で再開します。
 
-- source sync / lookup: P4.2でnormalized exact lookup、allocator、duplicate analysisの呼出し境界を決めた後
-- enrich orchestration: P4.3のbulk failure/cancel resultとP4.4のLLM retry契約を確定した後
-- project state / save facade: P3.3の正本cleanup適用後にschema v2 current/history契約を実データで再検証した後
+- source sync / lookup: normalized exact lookup、allocator、duplicate analysisの境界から分離する
+- enrich orchestration: bulk failure/cancel resultとLLM retry契約を保ったまま分離する
+- project state / save facade: schema v2 current/history契約とnormalized child roundtripを保ったまま分離する
 - queue builder: 新しいqueue policyまたは複数consumerが生じ、application wrapperだけでは依存縮小にならない時
 
-再開時はapplication/Web/databaseから`registry.py`へのimport本数が実際に減る単位を受入条件にし、旧symbolの
-re-exportは置きません。
+application/Web/databaseから`registry.py`へのimport本数が実際に減ることを受入条件にし、旧symbolのre-exportは置きません。
 
-このworkstream中は、新規collector、検索/UI拡張、job event永続化、schema v3、全面rewriteを
-優先しません。通常運用に必要なbug fixや小規模UI改善は継続できます。
+## データpolicyとmigration
 
 ### DB-level policy marker
 
@@ -89,7 +73,8 @@ DB-level migration/data policy markerは直近優先から外します。
 - 実装する場合は、open時の自動付与ではなく、markerなし既存v2のread-only audit合格後にだけadditiveに付与する
 
 process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
-### 必要が生じた時に検討するもの
+
+## 必要が生じた時に検討するもの
 
 現状の運用を妨げてはいませんが、具体的な不便や保守上の問題が出た場合に検討します。
 
@@ -108,7 +93,8 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - static JS / CSS / route table分割
   - 編集衝突が増えた時、または責務を追いにくくなった時点で分割する
 - app record / app lexicon export
-  - 今すぐ完全互換を目標にしないが、紹介用profileとconfirmed identifierからread-only export reportを作れる状態は将来候補として残す
+  - 公開手段の第一候補とするが、実装時期やapp lexiconとの完全互換はまだ確定しない
+  - 紹介用profileとconfirmed identifierからread-only export reportを作れる状態を将来候補として残す
   - exportのために不確かな`profile_json.app`を埋めず、まず不足fieldと根拠不足をvalidation reportとして出す
 - security / safety整理
   - LAN、他利用者なし、必要に応じてTailscale越しという公開範囲は維持する
@@ -118,7 +104,18 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - 保存量とretention policyを先に決める
 - v2以降のincremental schema migration runner
   - 次のschema改版が具体化した時点で、backup/transaction/validation契約と一緒に実装する
-### 長期候補
+- service verificationの後半強化
+  - 認証後の利用可能性や複数surface統合が実際の誤判定原因になった時に、signalと匿名browser laneを拡張する
+- editorial qualityの洗い替え
+  - provisional taglineやservice/lexicon間のsummary競合がqueueで継続的に観測された場合に、prompt分離とreview導線を検討する
+- syncの追加tuning
+  - collection全件取得、GitHub broad query、screen-unmatched精度が実測のrequest量・誤候補で問題になったsourceだけを対象にする
+- DB編集支援の拡張
+  - `assist-db-edit`でsplit、seed追加、stalled反映を扱うのは、定型操作の手動command作成が繰り返し負担になった場合だけにする
+- typed aggregate / 用途別view
+  - normalized tableの直接queryを増やした後もflat runtime viewが主要な性能・保守問題として残る場合に再検討する
+
+## 長期候補
 
 直近の運用安定化には含めません。必要性や具体的な利用場面が見えたものから再検討します。
 
@@ -132,23 +129,19 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - source health dashboard
 - plugin-style collector configuration
 
-## 将来の論点
-
-### 調査 pipeline の残件
+## 調査 pipeline の残件
 
 次の優先候補だけを roadmap として残します。接続済み範囲と恒久的な契約は
 [investigation-model.md](investigation-model.md) を正本とします。
 
-- 既存DBのdefer/block/manual correctionから、実際の誤判定fixture候補を抽出する
+- 追加済み3件のoperator correction fixtureを起点に、manual gold set用の実誤判定caseを増やす
 - OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
 - Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
 - UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める
 - browser service verificationの実Playwright smoke testと複数surface統合を追加する
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
-- fixture export時のsanitize運用を実データ追加前に固定する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
 - LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
-- `resource_url_records` の既存DB cleanup dry-runを追加し、role不明の同一site content URLを削除してよい範囲を確認する
 
 未決定:
 
@@ -163,7 +156,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - collector failure policy: [collector-reliability.md](notes/collector-reliability.md)
 - LLM model comparison: [llm-model-evaluation.md](notes/llm-model-evaluation.md)
 
-### ステータス系
+## ステータス系
 
 現行の canonical は `service_status` です。
 
@@ -182,7 +175,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 
 現時点では分けません。必要になった時点で `app.status` を追加します。
 
-### app metadata の拡張
+## app metadata の拡張
 
 `app` は今は低優先度です。確かな情報だけを入れ、空 object を許します。
 
@@ -207,7 +200,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 
 次は必要になった時だけ増やします。
 
-### 境界項目の再評価
+## 境界項目の再評価
 
 現時点では evidence として扱っているが、将来 app metadata に昇格するかもしれない項目です。
 ただし今は、紹介判断や要約補助に使う材料としての意味が強く、app 側へ急いで寄せる必要はありません。
@@ -221,7 +214,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 `technical_interest_level`、owned surface、独自データモデルの有無を加味して、
 紹介スコープ外と技術調査対象を分離します。
 
-### service URL と補助ページの分類
+## service URL と補助ページの分類
 
 現行の補助ページ判定は、confirmed service URLへの過剰昇格を防ぐための暫定heuristicです。
 path名の名指しだけでは信頼性が低いため、将来的には次の材料を組み合わせて分類します。
@@ -233,7 +226,7 @@ path名の名指しだけでは信頼性が低いため、将来的には次の�
 
 非目標として、pathがあるURLを一律に落とすことや、`/about`などの名前だけで恒久的に分類を確定することは避けます。
 
-### atproto寄与度の独立評価
+## atproto寄与度の独立評価
 
 現行の level、score、evidence と rule-based v1 は [registry-internals.md](registry-internals.md) を正本とします。
 未接続の候補は次です。
@@ -242,7 +235,7 @@ path名の名指しだけでは信頼性が低いため、将来的には次の�
 - docs / README を材料にした「主要機能か追加機能か」の細分化
 - LLM による曖昧ケースの補助分類
 
-### Web UI 詳細検索
+## Web UI 詳細検索
 
 Web UIのschema v2検索は接続済みです。検索拡張候補は次です。
 
@@ -257,7 +250,7 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - offset / cursor pagination
 - raw JSON 任意パス検索
 
-### Web UI: 次の接続候補
+## Web UI: 次の接続候補
 
 未接続 / 将来候補:
 

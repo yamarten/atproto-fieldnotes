@@ -2,7 +2,7 @@
 
 手動で見つけたseedを登録し、project recordとして追跡するための操作ガイドです。
 
-内部実装や昇格ロジック、`enrich` / `sync` / `merge` / `review-stalled` の判定材料、外部アクセス量の詳細は [docs/registry-internals.md](registry-internals.md) に分けています。
+内部実装や昇格ロジック、`enrich` / `sync` / `merge` / `review-stalled` の判定材料、外部アクセス量の詳細は [registry-internals.md](registry-internals.md) に分けています。
 
 ## 扱うseed
 

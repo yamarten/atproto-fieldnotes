@@ -2,10 +2,18 @@
 
 この文書は、保存量削減と観測性改善の判断材料にする作業用snapshotです。現行仕様や通常運用の正本では
 ありません。計測対象は2026-07-10時点の正本DBの複製で、review対象commit `713c162`の値ではありません。
+このsnapshotを基準にしたcleanupは2026-07-11に正本DBへ適用済みです。現在の実装・適用状態は
+[status.md](../status.md)、次回計測条件は[roadmap.md](../roadmap.md)を参照してください。
+
+## このnoteの寿命
+
+- 使いどき: 2026-08-10到達または新規1,000 investigation runs時の保存量再計測で、cleanup前後と増加率を比較する
+- 消しどき: 後継の比較reportが計測条件、2026-07-10 baseline、cleanup後baseline、増加率を引き継ぎ、roadmapの再検討判断が更新された時
+- 役目を終えた後はbaseline reportを系列で残さず、必要な結論だけをstatus/roadmapへ反映して削除する
 
 ## 計測条件
 
-- source: `data/survey.db`
+- source: main checkoutの`data/survey.db`
 - snapshot: APFS cloneを`.tmp/registry-baseline-2026-07-10-apfs.db`へ作成
 - logical file size: 4,760,858,624 bytes（4.43 GiB）
 - schema version: 2
@@ -166,7 +174,7 @@ signal件数の合計とqueue件数は一致しません。
 これらは推測値で埋めず、phase timing、LLM request metadata、operator session計測または固定sampleを接続してから
 成功指標のbaselineにします。
 
-baseline取得後のmaintenance branchでは、新規enrich runについてcollection + integration、planning、triage、
+baseline取得後の実装では、新規enrich runについてcollection + integration、planning、triage、
 evaluation、run history save、project saveのwall timeと、LLM request bytes/status/timeout分類を接続しました。
 transaction commit、token数、operator review時間は引き続き未接続です。過去15,086 runへは遡及できないため、
 このsnapshotの未計測値をbackfillしたとは扱いません。
@@ -240,9 +248,9 @@ resource URLの削除record内訳はrole別で`unknown` 408,274、`docs` 69,950�
 project/role/host+role budgetで代表外になったrecordの監査内訳です。host/path上位50とlargest savings 10件はcommandの
 `payload_categories.resource_urls`で取得できます。
 
-正本DBは変更していません。上記はP3.3の承認対象となる現行dry-run見込みです。
+この計測時点では正本DBを変更していません。上記は後続の正本適用前に確認したdry-run見込みです。
 
-## 判断
+## 当時の判断
 
 確認済みの優先順位:
 

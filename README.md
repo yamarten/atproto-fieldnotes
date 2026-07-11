@@ -149,23 +149,9 @@ project-registry enrich --all --new-only --llm-reasoning-effort high
 
 旧DB schemaは現行導線の対象外です。
 
-既存のservice evidenceと調査payloadは、runを削除せずに新しい保存budgetへ縮約できます。既定はdry-runです。
-
-```bash
-project-registry cleanup-storage-payloads
-```
-
-適用は正本DBのbackupを取り、Web、worker、別CLIを停止したmaintenance windowでだけ行います。詳細は
-[docs/project-registry.md](docs/project-registry.md)を参照してください。
-
-古い調査履歴は自動削除しません。既定で90日以内の全runとprojectごとの最新3 runを残し、それより古いrunをdry-run確認・手動削除できます。
-
-```bash
-project-registry prune-investigation-history
-project-registry prune-investigation-history --execute
-```
-
-DB file自体も縮める場合だけ、他processを停止して`--execute --vacuum`を使います。詳細は[docs/project-registry.md](docs/project-registry.md)を参照してください。
+保存payloadの縮約、identifier backfill、same-site evidence修復、履歴retention、VACUUMを含むmaintenance手順は
+[利用手順](docs/project-registry.md#保存payloadの縮約)を正本とします。正本DBへ適用する操作はbackupを取り、
+Web、worker、別CLIを停止したmaintenance windowでだけ行います。
 
 ## 文書
 
@@ -187,6 +173,6 @@ DB file自体も縮める場合だけ、他processを停止して`--execute --va
 
 実装:
 
-- [scripts/project_registry_core/](scripts/project_registry_core)
+- [scripts/project_registry_core/](scripts/project_registry_core/)
 - [bin/project-registry](bin/project-registry)
 - [prompts/project-triage.md](prompts/project-triage.md)

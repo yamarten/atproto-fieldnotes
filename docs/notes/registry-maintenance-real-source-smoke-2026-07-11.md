@@ -1,6 +1,13 @@
 # Registry Maintenance Real-source Smoke 2026-07-11
 
-P2.2、P2.4、P4.1の判断材料として行ったbounded smokeの記録です。実装済み通常仕様の正本ではありません。
+2026-07-11時点のexternal source/LLM契約を実接続で確認したbounded smokeの記録です。実装済み通常仕様の
+正本ではありません。節名のP番号は実施時の作業項目を示す履歴ラベルです。
+
+## このnoteの寿命
+
+- 使いどき: source endpoint、認証、pagination、watermark、request budget、LLM transportを変更した時に、再実行範囲と過去の成功条件を決める
+- 消しどき: 同じsource群を新しい契約で再検証したdated reportが作られ、statusの検証導線が後継reportへ移った時
+- 一部sourceだけを再検証した場合は、このnote全体を残さず、未更新sourceの確認結果を後継reportへ明示的に引き継ぐ
 
 ## 安全条件
 
