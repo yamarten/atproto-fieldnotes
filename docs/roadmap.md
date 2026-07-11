@@ -50,16 +50,24 @@ normalized-only candidate DIDを除外します。全project scanではありま
 - 既知の5 DID collisionを含む実DB auditで、index-only判定と期待projectの差分が0になる
 - `find_project_key_by_identifier(..., "did", ...)`がproject hydrateを呼ばない回帰testを追加する
 
-### `registry.py`のstateful orchestration分割
+### project state / save境界
 
-単なる行数削減を目的にfacadeを別fileへ移さず、次の依存を実際に減らせる単位で再開します。
+`registry.py`に残るproject shape、identifier guard、fetch/list/save、normalized lookup、project key allocationを、
+schema v2のcurrent/history契約を崩さない単位で分離します。
 
-- source sync / lookup: normalized exact lookup、allocator、duplicate analysisの境界から分離する
-- enrich orchestration: bulk failure/cancel resultとLLM retry契約を保ったまま分離する
-- project state / save facade: schema v2 current/history契約とnormalized child roundtripを保ったまま分離する
-- queue builder: 新しいqueue policyまたは複数consumerが生じ、application wrapperだけでは依存縮小にならない時
+- `source_sync.py`と`enrichment_pipeline.py`が利用するstate/save helperを新しい正本moduleへ移す
+- normalized child roundtrip、merge alias、operator decisionを含むtemp DB testを受入条件にする
+- application/Webから`registry.py`への直接importと、新moduleから`registry.py`へ戻る依存を実際に減らす
+- 旧内部symbolのre-exportは置かず、呼出元とtestを同時に更新する
 
-application/Web/databaseから`registry.py`へのimport本数が実際に減ることを受入条件にし、旧symbolのre-exportは置きません。
+単に同じ関数群をfacade越しに呼ぶだけの変更や、平置きmoduleを見た目のためにsubdirectoryへ移す変更は行いません。
+
+### queue policyの再設計と分割
+
+現行queueには紹介準備やmanual reviewのsignalが混在しています。briefで主成果物を「深掘りする価値の判断」と
+定めたため、次にqueue policyを変更する時は、atprotoの利用深度、serviceの利用可否、技術的新規性を独立して
+確認できるsignalと並び順を先に決めます。その契約とsample reviewを用意してからqueue builderを分離し、file移動
+だけを先行させません。
 
 ## データpolicyとmigration
 

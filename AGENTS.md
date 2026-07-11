@@ -12,10 +12,9 @@
   - `commands/`: `argparse`と出力を担当するCLI adapter
   - `jobs.py`: 長時間処理のrequest/event/result/cancellation契約
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
-  - `registry.py`: collector/evaluation orchestrationと未分離のstateful helper
 - Web実装は`scripts/project_registry_web/`
   - schema v2 Web API、subprocess job registry、静的UI
-- `project_registry_core`直下の共有moduleと依存方向は`docs/registry-internals.md`を正本にする
+- 詳細なmodule構成と依存方向は`docs/registry-internals.md`を正本にする
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない
@@ -60,7 +59,7 @@
 ## 変更の受入条件
 
 - task開始時に、目的、変更対象、非対象、確認方法、文書更新先を明確にする
-- code変更は対象testだけでなく、commit前に全unit testを実行する
+- code変更は対象testだけでなく、commit前に`bin/project-registry-test`で全unit testを実行する
 - Web UI変更はPython側のAPI testとJavaScript syntax checkに加え、変更した主要導線を実browserで確認する
 - heuristic変更はunit testだけで完了扱いにせず、既知の実誤判定fixtureまたは人間によるsample reviewで意味上の差分を確認する
 - DB保存契約やcleanupは、temp DB上の実装確認と、正本DBの複製に対するdry-run/auditを分ける。正本DBへの適用は別途承認を得る

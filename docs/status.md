@@ -16,6 +16,12 @@
 - 公開command入口
   - `bin/project-registry`
   - `bin/project-registry-web`
+  - CLI/Web/test wrapperは現在checkoutのvenvを優先し、worktreeではGit共通checkoutのvenvも利用
+- 内部実行境界
+  - source sync本体は`source_sync.py`
+  - 1 projectのenrich本体は`enrichment_pipeline.py`
+  - interactive queue入出力は`commands/queue_interaction.py`
+  - project state、保存、lookup、merge/queue policyは`registry.py`に残る
 - Web UIの日常運用
   - normalized tableを直接使うproject検索と構造化filter
     - 自由入力検索は `project_key`、`name`、`website_url`、identifier value、relation subject/object/locator、decision target/note の大小文字を無視した部分一致
@@ -128,9 +134,9 @@
 
 ## 動作確認状況
 
-2026-07-11時点で確認済み:
+2026-07-12時点で確認済み:
 
-- Python 3.10 / 3.11で全unit test 371件
+- Python 3.10 / 3.11で全unit test 372件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

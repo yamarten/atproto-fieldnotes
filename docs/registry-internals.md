@@ -10,6 +10,17 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 - 他ユーザーや共有 DB の存在は考慮しない
 - 同時編集の懸念は、自分の別プロセスや GUI 操作による衝突だけを想定する
 
+## 実装の依存境界
+
+- `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する
+- `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
+- `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
+- `registry.py`はproject shape、normalized lookup、保存、merge/queue policyなどのstateful helperを引き続き持つ
+
+`source_sync.py`と`enrichment_pipeline.py`は、project stateや保存を重複実装せず`registry.py`の既存helperを明示的に
+利用します。この依存を狭める次の分割条件は[roadmap.md](roadmap.md)に置きます。既存内部symbolを維持するための
+re-exportは置きません。
+
 ## データの持ち方
 
 現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
