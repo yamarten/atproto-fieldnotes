@@ -6,6 +6,21 @@ from typing import Any, Callable, Sequence
 from .. import registry as core
 
 
+def _source_config(name: str) -> dict[str, Any]:
+    config = core.load_config()
+    value = config.get(name, {}) if isinstance(config, dict) else {}
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _require_enabled(name: str, config: dict[str, Any]) -> None:
+    if config.get("enabled") is False:
+        raise ValueError(f"source is disabled in config/sources.json: {name}")
+
+
+def _positive_int(value: int | None, config: dict[str, Any], key: str, default: int) -> int:
+    return max(1, int(value if value is not None else config.get(key) or default))
+
+
 def import_seed_list(conn: sqlite3.Connection, *, path: str, execute: bool = False) -> dict[str, Any]:
     return core.import_text_seed_list(conn, path, execute=execute)
 
@@ -13,23 +28,28 @@ def import_seed_list(conn: sqlite3.Connection, *, path: str, execute: bool = Fal
 def introduced(
     conn: sqlite3.Connection,
     *,
-    query: str,
+    query: str = "",
     execute: bool = False,
-    limit: int = 10,
-    max_pages: int = 100,
-    lookback_days: int = 7,
+    limit: int | None = None,
+    max_pages: int | None = None,
+    lookback_days: int | None = None,
     incremental: bool = True,
     all_history: bool = False,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    config = _source_config("introduced_search")
+    _require_enabled("introduced_search", config)
+    resolved_query = str(query or config.get("query") or "").strip()
+    if not resolved_query:
+        raise ValueError("introduced search query is not configured")
     return core.sync_introduced_entries(
         conn,
-        query=query,
+        query=resolved_query,
         execute=execute,
-        limit=limit,
-        max_pages=max_pages,
-        lookback_days=lookback_days,
+        limit=_positive_int(limit, config, "limit", 10),
+        max_pages=_positive_int(max_pages, config, "max_pages", 100),
+        lookback_days=_positive_int(lookback_days, config, "lookback_days", 7),
         incremental=incremental,
         all_history=all_history,
         progress=progress,
@@ -45,20 +65,20 @@ def github(
     create_unmatched: bool = True,
     pages: int | None = None,
     per_page: int | None = None,
-    lookback_days: int = 10,
+    lookback_days: int | None = None,
     screen_unmatched: bool = False,
     incremental: bool = True,
     all_history: bool = False,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    config = core.load_config()
-    search_cfg = config.get("github_repo_search", {}) if isinstance(config.get("github_repo_search", {}), dict) else {}
+    search_cfg = _source_config("github_repo_search")
+    _require_enabled("github_repo_search", search_cfg)
     resolved_queries = core.clean_string_list(queries or search_cfg.get("queries") or [], limit=12)
     if not resolved_queries:
         raise ValueError("github repo search queries are not configured")
-    resolved_per_page = int(per_page or search_cfg.get("per_page") or 50)
-    resolved_pages = int(pages or search_cfg.get("pages") or core.default_github_search_pages(resolved_per_page))
+    resolved_per_page = _positive_int(per_page, search_cfg, "per_page", 50)
+    resolved_pages = _positive_int(pages, search_cfg, "pages", core.default_github_search_pages(resolved_per_page))
     return core.sync_github_search(
         conn,
         queries=resolved_queries,
@@ -66,7 +86,7 @@ def github(
         create_unmatched=create_unmatched,
         pages=resolved_pages,
         per_page=resolved_per_page,
-        lookback_days=lookback_days,
+        lookback_days=_positive_int(lookback_days, search_cfg, "lookback_days", 10),
         screen_unmatched=screen_unmatched,
         incremental=incremental,
         all_history=all_history,
@@ -81,7 +101,7 @@ def collections(
     source_url: str = "",
     execute: bool = False,
     create_unmatched: bool = True,
-    lookback_days: int = 10,
+    lookback_days: int | None = None,
     save_path: str | None = None,
     incremental: bool = True,
     all_history: bool = False,
@@ -89,8 +109,9 @@ def collections(
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    config = core.load_config()
-    resolved_url = source_url or str(config.get("collection_inventory", {}).get("url") or "")
+    config = _source_config("collection_inventory")
+    _require_enabled("collection_inventory", config)
+    resolved_url = source_url or str(config.get("url") or "")
     if not resolved_url:
         raise ValueError("collection inventory source URL is not configured")
     return core.sync_collection_inventory(
@@ -98,7 +119,7 @@ def collections(
         source_url=resolved_url,
         execute=execute,
         create_unmatched=create_unmatched,
-        lookback_days=lookback_days,
+        lookback_days=_positive_int(lookback_days, config, "lookback_days", 10),
         save_path=save_path,
         incremental=incremental,
         all_history=all_history,
@@ -113,21 +134,32 @@ def semble(
     *,
     execute: bool = False,
     create_unmatched: bool = True,
-    pages: int = 100,
-    per_page: int = 20,
-    lookback_days: int = 14,
+    pages: int | None = None,
+    per_page: int | None = None,
+    lookback_days: int | None = None,
     incremental: bool = True,
     all_history: bool = False,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    config = _source_config("semble_collections")
+    _require_enabled("semble_collections", config)
+    api_url = str(config.get("api_url") or "").strip()
+    raw_sources = config.get("tracked_collections")
+    tracked_collections = [
+        {**dict(item), "api_url": api_url}
+        for item in raw_sources if isinstance(item, dict)
+    ] if isinstance(raw_sources, list) else []
+    if not api_url or not tracked_collections:
+        raise ValueError("Semble API URL and tracked collections are not configured")
     return core.sync_semble_collections(
         conn,
         execute=execute,
         create_unmatched=create_unmatched,
-        pages=pages,
-        per_page=per_page,
-        lookback_days=lookback_days,
+        pages=_positive_int(pages, config, "pages", 100),
+        per_page=_positive_int(per_page, config, "per_page", 20),
+        lookback_days=_positive_int(lookback_days, config, "lookback_days", 14),
+        tracked_collections=tracked_collections,
         incremental=incremental,
         all_history=all_history,
         progress=progress,
@@ -146,6 +178,8 @@ def tangled(
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    config = _source_config("tangled_repo_discovery")
+    _require_enabled("tangled_repo_discovery", config)
     return core.sync_tangled_repos(
         conn,
         execute=execute,

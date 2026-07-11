@@ -50,10 +50,12 @@ Webのproject一覧検索は`projects` rowを起点に、`project_identifiers`�
 置けます。一方、payloadの解釈、evidence抽出、identity/ownershipの信頼条件、classification、auto-attachや
 promotionの条件はcodeとtestを正本とします。
 
-現在は`config/sources.json`へ一部source設定を分離していますが、すべてのoperator可変値が移動済みでは
-ありません。workerの既定queryやSembleのtracked collectionなど、code内に残る値があります。この境界は
-generic plugin frameworkを実装済みという意味ではなく、source追加のたびにconfig schemaや抽象interfaceを
-増やす目標でもありません。実際に差し替える運用値だけをconfigへ出し、判定policyをconfig DSL化しません。
+通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。
+sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等のrequest budgetを持ち、
+application sync serviceが解決します。CLI/Web/workerから明示された値はそのrunだけ上書きします。disabled sourceは
+network request前に拒否します。この境界はgeneric plugin frameworkを実装済みという意味ではなく、source追加の
+たびにconfig schemaや抽象interfaceを増やす目標でもありません。builtin lexicon prefix、payload解釈、evidence抽出、
+matching/classification/auto-attachはcodeとtestのままで、config DSL化しません。
 
 ## 文書更新の方針
 

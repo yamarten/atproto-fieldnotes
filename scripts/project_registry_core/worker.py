@@ -37,10 +37,10 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
     if source == "introduced":
         return sync.introduced(
             conn,
-            query=str(parameters.get("query") or "from:yamarten.bsky.social #ATプロトーク"),
-            limit=max(1, int(parameters.get("limit") or 10)),
-            max_pages=max(1, int(parameters.get("max_pages") or 100)),
-            lookback_days=max(1, int(parameters.get("lookback_days") or 7)),
+            query=str(parameters.get("query") or ""),
+            limit=max(1, int(parameters["limit"])) if parameters.get("limit") else None,
+            max_pages=max(1, int(parameters["max_pages"])) if parameters.get("max_pages") else None,
+            lookback_days=max(1, int(parameters["lookback_days"])) if parameters.get("lookback_days") else None,
             **common,
         )
     if source == "github":
@@ -49,7 +49,7 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
             create_unmatched=bool(parameters.get("create_unmatched")),
             pages=int(parameters["pages"]) if parameters.get("pages") else None,
             per_page=int(parameters["per_page"]) if parameters.get("per_page") else None,
-            lookback_days=max(1, int(parameters.get("lookback_days") or 10)),
+            lookback_days=max(1, int(parameters["lookback_days"])) if parameters.get("lookback_days") else None,
             screen_unmatched=bool(parameters.get("screen_unmatched")),
             **common,
         )
@@ -57,7 +57,7 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
         return sync.collections(
             conn,
             create_unmatched=bool(parameters.get("create_unmatched")),
-            lookback_days=max(1, int(parameters.get("lookback_days") or 10)),
+            lookback_days=max(1, int(parameters["lookback_days"])) if parameters.get("lookback_days") else None,
             max_items=max(1, int(parameters["max_items"])) if parameters.get("max_items") else None,
             **common,
         )
@@ -65,9 +65,9 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
         return sync.semble(
             conn,
             create_unmatched=bool(parameters.get("create_unmatched")),
-            pages=max(1, int(parameters.get("pages") or 100)),
-            per_page=max(1, int(parameters.get("per_page") or 20)),
-            lookback_days=max(1, int(parameters.get("lookback_days") or 14)),
+            pages=max(1, int(parameters["pages"])) if parameters.get("pages") else None,
+            per_page=max(1, int(parameters["per_page"])) if parameters.get("per_page") else None,
+            lookback_days=max(1, int(parameters["lookback_days"])) if parameters.get("lookback_days") else None,
             **common,
         )
     if source == "tangled":

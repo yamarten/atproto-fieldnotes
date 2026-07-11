@@ -52,7 +52,7 @@ maintenance series完了時に削除します。
 | P4.2 | 一部完了 | `Index normalized identifiers for source matching` checkpoint。NSID/service/repository/domain exact lookupをnormalized indexへ移し、split採番だけの全hydrateをallocatorへ置換。3,239-project cloneの10,605 lookupで旧判定との差分0 | 過去rowにaccount metadata由来`handle` 1,368値 / `did` 5値の派生行が不足。P3.3で全row再投影後にこの2種のpayload scan fallbackを削除して終端する |
 | P4.3 | 完了 | `Make bulk enrich failures resumable` checkpoint。bulk既定continue、failed result/checkpoint、失敗一覧、resume再試行、`--fail-fast`、cancel payload整理を実装 | 単体はstructured failed、bulkは後続を続行しても成功扱いしない回帰testを追加 |
 | P4.4 | 完了 | `Stop unsafe LLM request fallbacks` checkpoint。endpoint incompatibilityだけをfallback対象にし、timeout/transport/429/5xx/invalid response再送を停止。command/endpoint timeoutを共通化 | deterministic testでrequest回数と分類を確認。P2.4の実LLM成功経路は確認済みで、意図的なlive failure smokeは未実施 |
-| P4.5 | 未着手 | source/config境界の文書化は`5951b42` | introduced既定query等の二重管理を監査し、operator可変値だけをconfig/requestへ移すか現状維持を決める |
+| P4.5 | 完了 | `Centralize operator source settings` checkpoint。introduced query、enabled、Semble API/scope、各request budgetをconfig + application解決へ集約 | builtin lexicon prefix等のpolicyはcode/testへ戻し、worker/CLIの既定値重複を削除。既存値のP2.4実接続は確認済み、今回のroutingはdeterministic testで確認 |
 
 ### Phase 5
 
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 361件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 365件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

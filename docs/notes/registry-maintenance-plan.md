@@ -396,6 +396,11 @@ endpoint incompatible、invalid response、rate limit、その他HTTP errorに�
 - worker内のintroduced既定queryをconfigまたは明示requestへ移し、CLIとworkerの二重管理をなくす。
 - generic plugin frameworkや、判定ロジックを記述するconfig DSLは作らない。
 
+決定: `config/sources.json`を通常導線のoperator設定正本とし、introduced query、source enabled、
+collection/GitHub/Semble/TangledのURL・scope・request budgetをapplication serviceで解決する。CLI/Web/workerの
+明示requestはそのrunだけoverrideする。builtin lexicon prefix、evidence抽出、matching、classification、
+auto-attach条件はcode/testへ置き、configから削除する。source plugin APIやpolicy DSLは追加しない。
+
 ## Phase 5: 調査品質corpus
 
 役割を分けます。

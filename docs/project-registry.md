@@ -262,6 +262,11 @@ project-registry sync-introduced --execute
 project-registry sync-introduced --query 'from:yamarten.bsky.social #ATプロトーク'
 ```
 
+通常のquery、source URL、tracked collection、pages/per-page/limit/lookback budget、enabled状態は
+`config/sources.json`から読みます。各CLI optionはそのrunだけ設定を上書きします。`enabled: false`のsourceは
+CLI/Web/workerのいずれからもnetwork request前に拒否されます。matching、classification、auto-attach等の
+判定policyはこのconfigでは変更できません。
+
 このコマンドは seed を追加しません。既存 project に一致したものだけ `introduced_url` を更新します。既定は増分同期で、初回は直近 7 日、以後は query ごとの前回成功地点から検索します。一致しなかった URL は `unmatched_entries` に出し、sync state に保留して次回も再照合します。
 
 ```bash

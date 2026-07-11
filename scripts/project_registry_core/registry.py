@@ -59,6 +59,7 @@ REQUEST_TIMEOUT_SERVICE_CANDIDATE = 15.0
 REQUEST_TIMEOUT_LEXICON_DNS = 12.0
 REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
+BUILTIN_LEXICON_PREFIXES = ("app.bsky.", "chat.bsky.", "com.atproto.")
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
@@ -102,15 +103,7 @@ def load_config() -> dict[str, Any]:
 
 
 def builtin_lexicon_prefixes() -> tuple[str, ...]:
-    try:
-        config = load_config()
-    except Exception:
-        config = {}
-    raw = (((config.get("collection_inventory") or {}) if isinstance(config, dict) else {}).get("builtin_prefixes") or [])
-    prefixes = [str(item or "").strip() for item in raw if str(item or "").strip()]
-    if not prefixes:
-        prefixes = ["app.bsky.", "chat.bsky.", "com.atproto."]
-    return tuple(prefixes)
+    return BUILTIN_LEXICON_PREFIXES
 
 
 def load_json(value: str) -> Any:
@@ -6987,6 +6980,7 @@ def fetch_semble_collection_source_sync_results(
     handle = str(source.get("handle") or "").strip()
     rkey = str(source.get("rkey") or "").strip()
     label = str(source.get("label") or rkey).strip()
+    api_url = str(source.get("api_url") or SEMBLE_API).rstrip("/")
     reached_cutoff = False
     exhausted = False
     fetched_pages = 0
@@ -7006,7 +7000,7 @@ def fetch_semble_collection_source_sync_results(
                 }
             )
             payload = http_transport.request_json(
-                f"{SEMBLE_API}/xrpc/network.cosmik.collection.getByAtUri?{params}"
+                f"{api_url}/xrpc/network.cosmik.collection.getByAtUri?{params}"
             )
             cards = payload.get("urlCards", [])
             if not isinstance(cards, list):
@@ -7518,15 +7512,17 @@ def sync_semble_collections(
     pages: int,
     per_page: int,
     lookback_days: int | None,
+    tracked_collections: Sequence[dict[str, Any]] | None = None,
     incremental: bool = True,
     all_history: bool = False,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    sources = tuple(tracked_collections or SEMBLE_TRACKED_COLLECTIONS)
     scope = {
         "collections": sorted(
             f"{str(source.get('handle') or '').strip()}/{str(source.get('rkey') or '').strip()}"
-            for source in SEMBLE_TRACKED_COLLECTIONS
+            for source in sources
         )
     }
     state = read_sync_state(conn, "semble-collections", scope)
@@ -7542,7 +7538,7 @@ def sync_semble_collections(
     scans: list[dict[str, Any]] = []
     next_watermarks = dict(stored_watermarks)
     cancelled = False
-    for source_index, source in enumerate(SEMBLE_TRACKED_COLLECTIONS, 1):
+    for source_index, source in enumerate(sources, 1):
         if cancel_requested and cancel_requested():
             cancelled = True
             break
@@ -7552,7 +7548,7 @@ def sync_semble_collections(
         scan = fetch_semble_collection_source_sync_results(source, pages=pages, per_page=per_page, cutoff=cutoff)
         if progress:
             evidence_count = len(scan.get("evidence_only", [])) if isinstance(scan.get("evidence_only", []), list) else 0
-            progress(source_index, len(SEMBLE_TRACKED_COLLECTIONS), {"kind": "source_collection", "source": "semble", "value": source_key, "item_count": len(scan["results"]) + evidence_count})
+            progress(source_index, len(sources), {"kind": "source_collection", "source": "semble", "value": source_key, "item_count": len(scan["results"]) + evidence_count})
         scans.append(scan)
         for entry in scan["results"]:
             key = (str(entry.get("seed_type") or ""), str(entry.get("seed_value") or ""))
@@ -7776,7 +7772,7 @@ def sync_semble_collections(
                 "rkey": str(source.get("rkey") or ""),
                 "label": str(source.get("label") or ""),
             }
-            for source in SEMBLE_TRACKED_COLLECTIONS
+            for source in sources
         ],
         "fetched_cards": sum(int(scan.get("fetched_cards") or 0) for scan in scans),
         "eligible_cards": len(eligible),

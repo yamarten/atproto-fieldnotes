@@ -39,6 +39,9 @@
   - Operationsからallowlist済みjob presetを手動または定期発火
     - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`
     - presetごとに毎週または第N週の曜日、時刻、time zoneを設定可能
+- external source設定
+  - introduced/collection/GitHub/Semble/Tangledのenabled、URL、query、scope、request budgetは`config/sources.json`が正本
+  - application serviceでCLI/Web/worker共通に解決し、matching/classification policyはcode/testに固定
 - Web serverの手動reload
   - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動
   - active background jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続

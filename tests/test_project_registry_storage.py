@@ -16,6 +16,7 @@ from project_registry_core.commands import assist as assist_commands
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
+from project_registry_core.application import sync as sync_services
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
@@ -216,9 +217,83 @@ exit 99
             self.assertFalse(parser.parse_args([command, "--no-incremental"]).incremental)
 
         introduced = parser.parse_args(["sync-introduced"])
-        self.assertEqual(introduced.lookback_days, 7)
-        self.assertEqual(introduced.limit, 10)
-        self.assertEqual(parser.parse_args(["sync-semble-collections"]).pages, 100)
+        self.assertIsNone(introduced.query)
+        self.assertIsNone(introduced.lookback_days)
+        self.assertIsNone(introduced.limit)
+        self.assertIsNone(parser.parse_args(["sync-semble-collections"]).pages)
+
+        config = registry.load_config()
+        self.assertEqual(config["introduced_search"]["lookback_days"], 7)
+        self.assertEqual(config["introduced_search"]["limit"], 10)
+        self.assertEqual(config["semble_collections"]["pages"], 100)
+
+    def test_sync_service_resolves_introduced_defaults_from_config(self) -> None:
+        config = {
+            "introduced_search": {
+                "enabled": True,
+                "query": "from:operator.example #topic",
+                "limit": 8,
+                "max_pages": 9,
+                "lookback_days": 6,
+            }
+        }
+        conn = registry.open_db()
+        try:
+            with (
+                mock.patch.object(sync_services.core, "load_config", return_value=config),
+                mock.patch.object(sync_services.core, "sync_introduced_entries", return_value={}) as sync,
+            ):
+                sync_services.introduced(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(sync.call_args.kwargs["query"], "from:operator.example #topic")
+        self.assertEqual(sync.call_args.kwargs["limit"], 8)
+        self.assertEqual(sync.call_args.kwargs["max_pages"], 9)
+        self.assertEqual(sync.call_args.kwargs["lookback_days"], 6)
+
+    def test_disabled_source_is_rejected_before_sync(self) -> None:
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(
+                sync_services.core,
+                "load_config",
+                return_value={"github_repo_search": {"enabled": False}},
+            ):
+                with self.assertRaisesRegex(ValueError, "source is disabled"):
+                    sync_services.github(conn)
+        finally:
+            conn.close()
+
+    def test_semble_scope_and_api_are_resolved_from_config(self) -> None:
+        config = {
+            "semble_collections": {
+                "enabled": True,
+                "api_url": "https://semble.example",
+                "pages": 3,
+                "per_page": 4,
+                "lookback_days": 5,
+                "tracked_collections": [{"handle": "operator.example", "rkey": "abc", "label": "test"}],
+            }
+        }
+        conn = registry.open_db()
+        try:
+            with (
+                mock.patch.object(sync_services.core, "load_config", return_value=config),
+                mock.patch.object(sync_services.core, "sync_semble_collections", return_value={}) as sync,
+            ):
+                sync_services.semble(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(sync.call_args.kwargs["pages"], 3)
+        self.assertEqual(sync.call_args.kwargs["per_page"], 4)
+        self.assertEqual(sync.call_args.kwargs["lookback_days"], 5)
+        self.assertEqual(sync.call_args.kwargs["tracked_collections"][0]["api_url"], "https://semble.example")
+
+    def test_builtin_lexicon_policy_does_not_come_from_source_config(self) -> None:
+        with mock.patch.object(registry, "load_config", return_value={"collection_inventory": {"builtin_prefixes": ["evil."]}}):
+            self.assertEqual(registry.builtin_lexicon_prefixes(), ("app.bsky.", "chat.bsky.", "com.atproto."))
 
     def test_collection_import_attaches_by_member_parent_namespace(self) -> None:
         conn = registry.open_db()
