@@ -214,6 +214,34 @@ GitHub payload p95付近10 runの完全network-free replayは10/10不変でし�
 JSON投影の失敗ではありませんが、最大outlierのsemantic replayが確認済みとは扱いません。正本DBへのexecuteは
 実施していません。
 
+### P3.2 category report拡張後の再計測
+
+2026-07-11に同じimmutable cloneへ、resource URLと旧LLM evidenceのcleanupおよびcategory reportを追加した実装を
+全件dry-runしました。
+
+| scope | before bytes | after bytes | saved bytes |
+| --- | ---: | ---: | ---: |
+| project current state | 257,373,596 | 91,963,114 | 165,410,482 |
+| investigation input/output | 2,001,407,211 | 1,067,280,055 | 934,127,156 |
+| investigation bundle | 701,691,851 | 370,079,800 | 331,612,051 |
+| collector projection | 1,660,002,737 | 26,488,540 | 1,633,514,197 |
+| total | 4,620,475,395 | 1,555,811,509 | 3,064,663,886 |
+
+追加categoryの投影:
+
+- resource URL: 546,298→43,295 records、116,240,032→7,905,001 bytes（108,335,031 bytes減）
+- LLM evidence: 190,859,626→131,791,227 bytes（59,068,399 bytes減）
+- service verification: 1,303,760,672→371,622,626 bytes（932,138,046 bytes減）
+- snapshot evaluation field差分: 15,086 run中0件
+
+resource URLの削除record内訳はrole別で`unknown` 408,274、`docs` 69,950、`blog` 18,438、その他6,341です。
+先頭path patternの上位は`/post` 106,798、`/blog` 40,984、`/docs` 24,296、`/` 12,551、`/guides` 12,541、
+`/books` 12,278、`/specs` 11,166でした。これはpath名による削除listではなく、URL+role mergeと
+project/role/host+role budgetで代表外になったrecordの監査内訳です。host/path上位50とlargest savings 10件はcommandの
+`payload_categories.resource_urls`で取得できます。
+
+正本DBは変更していません。上記はP3.3の承認対象となる現行dry-run見込みです。
+
 ## 判断
 
 確認済みの優先順位:

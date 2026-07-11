@@ -54,6 +54,7 @@ def cleanup_storage_payloads(
 ) -> dict[str, Any]:
     return storage_cleanup.compact_registry_storage(
         conn,
+        normalize_resource_url_records=core.normalize_resource_url_records,
         execute=execute,
         example_limit=example_limit,
         vacuum=vacuum,

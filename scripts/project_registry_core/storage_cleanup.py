@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import urllib.parse
+from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
-from . import investigation, service, storage
+from . import identifiers, investigation, llm_evidence, service, storage
 from .evidence import EvidenceBundle
 
 
@@ -60,26 +63,137 @@ def compact_service_verification_results(value: Any) -> list[dict[str, Any]]:
     return selected
 
 
-def compact_flat_project_snapshot(value: dict[str, Any]) -> dict[str, Any]:
+def compact_llm_evidence(value: dict[str, Any]) -> dict[str, Any]:
+    current = dict(value)
+    for _attempt in range(8):
+        compacted = llm_evidence.bounded_llm_evidence(current)
+        if compacted == current:
+            return compacted
+        current = compacted
+    raise ValueError("LLM evidence cleanup did not converge")
+
+
+def compact_flat_project_snapshot(
+    value: dict[str, Any],
+    normalize_resource_url_records: Callable[[list[Any]], list[dict[str, str]]],
+) -> dict[str, Any]:
     result = dict(value)
     if "service_verification_results" in result:
         result["service_verification_results"] = compact_service_verification_results(
             result.get("service_verification_results")
         )
+    if "resource_url_records" in result:
+        result["resource_url_records"] = normalize_resource_url_records(
+            list(result.get("resource_url_records") or [])
+        )
+    llm_source = result.get("llm_source")
+    if isinstance(llm_source, dict) and isinstance(llm_source.get("evidence"), dict):
+        result["llm_source"] = dict(
+            llm_source,
+            evidence=compact_llm_evidence(dict(llm_source["evidence"])),
+        )
     return result
 
 
-def compact_grouped_project_state(value: dict[str, Any]) -> dict[str, Any]:
+def compact_grouped_project_state(
+    value: dict[str, Any],
+    normalize_resource_url_records: Callable[[list[Any]], list[dict[str, str]]],
+) -> dict[str, Any]:
     result = dict(value)
     for group_name, raw_group in value.items():
-        if not isinstance(raw_group, dict) or "service_verification_results" not in raw_group:
+        if not isinstance(raw_group, dict):
             continue
-        group = dict(raw_group)
-        group["service_verification_results"] = compact_service_verification_results(
-            group.get("service_verification_results")
+        result[group_name] = compact_flat_project_snapshot(
+            raw_group,
+            normalize_resource_url_records,
         )
-        result[group_name] = group
     return result
+
+
+def _empty_category_stats() -> dict[str, int]:
+    return {
+        "container_count": 0,
+        "changed_container_count": 0,
+        "item_count_before": 0,
+        "item_count_after": 0,
+        "bytes_before": 0,
+        "bytes_after": 0,
+        "bytes_saved": 0,
+    }
+
+
+def _category_values(value: dict[str, Any], category: str) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    containers = [("root", value)] + [
+        (str(key), item)
+        for key, item in value.items()
+        if isinstance(item, dict)
+    ]
+    for location, container in containers:
+        if category in {"resource_url_records", "service_verification_results"}:
+            if category in container:
+                values[location] = container.get(category)
+            continue
+        if category == "llm_evidence":
+            llm_source = container.get("llm_source")
+            if isinstance(llm_source, dict) and isinstance(llm_source.get("evidence"), dict):
+                values[location] = llm_source["evidence"]
+    return values
+
+
+def _record_category_change(
+    stats: dict[str, int],
+    before: Any,
+    after: Any,
+) -> int:
+    before_text = json_text(before)
+    after_text = json_text(after)
+    before_bytes = utf8_bytes(before_text)
+    after_bytes = utf8_bytes(after_text)
+    stats["container_count"] += 1
+    stats["changed_container_count"] += int(before_text != after_text)
+    stats["item_count_before"] += len(before) if isinstance(before, list) else int(bool(before))
+    stats["item_count_after"] += len(after) if isinstance(after, list) else int(bool(after))
+    stats["bytes_before"] += before_bytes
+    stats["bytes_after"] += after_bytes
+    stats["bytes_saved"] += before_bytes - after_bytes
+    return before_bytes - after_bytes
+
+
+def _resource_record_key(value: Any) -> tuple[str, str]:
+    if not isinstance(value, dict):
+        return ("", "unknown")
+    return (
+        identifiers.normalize_url(str(value.get("url") or "")),
+        str(value.get("role") or "unknown"),
+    )
+
+
+def _resource_path_pattern(url: str) -> str:
+    path = urllib.parse.urlparse(identifiers.normalize_url(url)).path.strip("/").lower()
+    return f"/{path.split('/', 1)[0]}" if path else "/"
+
+
+def _record_removed_resource_dimensions(
+    before: Any,
+    after: Any,
+    *,
+    by_role: Counter[str],
+    by_host: Counter[str],
+    by_path_pattern: Counter[str],
+) -> None:
+    before_items = [item for item in before if isinstance(item, dict)] if isinstance(before, list) else []
+    after_counts = Counter(_resource_record_key(item) for item in after if isinstance(item, dict)) if isinstance(after, list) else Counter()
+    for item in before_items:
+        key = _resource_record_key(item)
+        if after_counts[key] > 0:
+            after_counts[key] -= 1
+            continue
+        url, role = key
+        host = urllib.parse.urlparse(url).netloc.lower() or "(invalid)"
+        by_role[role] += 1
+        by_host[host] += 1
+        by_path_pattern[_resource_path_pattern(url)] += 1
 
 
 def compact_evidence_bundle(bundle: EvidenceBundle) -> tuple[EvidenceBundle, dict[str, int]]:
@@ -183,6 +297,7 @@ def _add_example(
 def compact_registry_storage(
     conn: sqlite3.Connection,
     *,
+    normalize_resource_url_records: Callable[[list[Any]], list[dict[str, str]]],
     execute: bool = False,
     example_limit: int = 20,
     vacuum: bool = False,
@@ -222,6 +337,15 @@ def compact_registry_storage(
         "service_records_changed": 0,
         "github_snapshots_changed": 0,
     }
+    category_stats = {
+        "resource_urls": _empty_category_stats(),
+        "service_verification": _empty_category_stats(),
+        "llm_evidence": _empty_category_stats(),
+    }
+    removed_resource_by_role: Counter[str] = Counter()
+    removed_resource_by_host: Counter[str] = Counter()
+    removed_resource_by_path_pattern: Counter[str] = Counter()
+    resource_examples: list[dict[str, Any]] = []
     examples: list[dict[str, Any]] = []
     collector_before = {
         str(row["run_id"]): {
@@ -278,7 +402,39 @@ def compact_registry_storage(
                 project_key = str(row["project_key"])
                 before = str(row["state_json"])
                 state = json.loads(before)
-                after = json_text(compact_grouped_project_state(state), sort_keys=False)
+                compact_state = compact_grouped_project_state(state, normalize_resource_url_records)
+                for category, stats_key in (
+                    ("resource_url_records", "resource_urls"),
+                    ("service_verification_results", "service_verification"),
+                    ("llm_evidence", "llm_evidence"),
+                ):
+                    before_values = _category_values(state, category)
+                    after_values = _category_values(compact_state, category)
+                    for location in sorted(set(before_values) | set(after_values)):
+                        before_value = before_values.get(location, [] if category != "llm_evidence" else {})
+                        after_value = after_values.get(location, [] if category != "llm_evidence" else {})
+                        category_saved = _record_category_change(
+                            category_stats[stats_key], before_value, after_value
+                        )
+                        if category == "resource_url_records":
+                            _record_removed_resource_dimensions(
+                                before_value,
+                                after_value,
+                                by_role=removed_resource_by_role,
+                                by_host=removed_resource_by_host,
+                                by_path_pattern=removed_resource_by_path_pattern,
+                            )
+                            _add_example(
+                                resource_examples,
+                                {
+                                    "scope": "project_current",
+                                    "key": project_key,
+                                    "location": location,
+                                    "bytes_saved": category_saved,
+                                },
+                                limit=example_limit,
+                            )
+                after = json_text(compact_state, sort_keys=False)
                 saved = _record_size(project_stats, before, after)
                 _add_example(
                     examples,
@@ -306,8 +462,43 @@ def compact_registry_storage(
                 bundle_before = str(row["bundle_json"])
                 input_value = json.loads(input_before)
                 output_value = json.loads(output_before)
-                input_compact = compact_flat_project_snapshot(input_value)
-                output_compact = compact_flat_project_snapshot(output_value)
+                input_compact = compact_flat_project_snapshot(input_value, normalize_resource_url_records)
+                output_compact = compact_flat_project_snapshot(output_value, normalize_resource_url_records)
+                for snapshot_name, before_value, after_value in (
+                    ("input", input_value, input_compact),
+                    ("output", output_value, output_compact),
+                ):
+                    for category, stats_key in (
+                        ("resource_url_records", "resource_urls"),
+                        ("service_verification_results", "service_verification"),
+                        ("llm_evidence", "llm_evidence"),
+                    ):
+                        before_values = _category_values(before_value, category)
+                        after_values = _category_values(after_value, category)
+                        for location in sorted(set(before_values) | set(after_values)):
+                            raw_category = before_values.get(location, [] if category != "llm_evidence" else {})
+                            compact_category = after_values.get(location, [] if category != "llm_evidence" else {})
+                            category_saved = _record_category_change(
+                                category_stats[stats_key], raw_category, compact_category
+                            )
+                            if category == "resource_url_records":
+                                _record_removed_resource_dimensions(
+                                    raw_category,
+                                    compact_category,
+                                    by_role=removed_resource_by_role,
+                                    by_host=removed_resource_by_host,
+                                    by_path_pattern=removed_resource_by_path_pattern,
+                                )
+                                _add_example(
+                                    resource_examples,
+                                    {
+                                        "scope": f"investigation_{snapshot_name}",
+                                        "key": run_id,
+                                        "location": location,
+                                        "bytes_saved": category_saved,
+                                    },
+                                    limit=example_limit,
+                                )
                 input_after = json_text(input_compact)
                 output_after = json_text(output_compact)
                 input_saved = _record_size(input_stats, input_before, input_after)
@@ -427,6 +618,17 @@ def compact_registry_storage(
         },
         "investigation_bundles": {**bundle_stats, **bundle_metrics},
         "collector_projection": collector_stats,
+        "payload_categories": {
+            "resource_urls": {
+                **category_stats["resource_urls"],
+                "removed_by_role": dict(removed_resource_by_role.most_common()),
+                "removed_by_host": dict(removed_resource_by_host.most_common(50)),
+                "removed_by_path_pattern": dict(removed_resource_by_path_pattern.most_common(50)),
+                "largest_savings": resource_examples,
+            },
+            "service_verification": category_stats["service_verification"],
+            "llm_evidence": category_stats["llm_evidence"],
+        },
         "total": {
             "bytes_before": total_before,
             "bytes_after": total_after,

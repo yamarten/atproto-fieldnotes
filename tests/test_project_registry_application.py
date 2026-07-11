@@ -332,6 +332,74 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(second_dry_run["total"]["bytes_saved"], 0)
         self.assertEqual(second_dry_run["collector_projection"]["changed_run_count"], 0)
 
+    def test_storage_payload_cleanup_reports_resource_and_llm_categories(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project(
+            "proj:storage-categories",
+            "service_url",
+            "https://example.com",
+        )
+        registry.save_project(conn, project)
+        oversized_resources = [
+            {
+                "url": f"https://example.com/docs/page-{index}",
+                "role": "docs",
+                "source": "legacy_resource_urls",
+                "confidence": "candidate",
+            }
+            for index in range(20)
+        ]
+        oversized_llm_evidence = {
+            "resource_url_records": oversized_resources,
+            "summary_candidates": [{"value": "x" * 10_000, "source": "legacy"}],
+        }
+        state_row = conn.execute(
+            "SELECT state_json FROM projects WHERE project_key = ?",
+            (project["project_key"],),
+        ).fetchone()
+        state = json.loads(str(state_row[0]))
+        state.setdefault("evidence", {})["resource_url_records"] = oversized_resources
+        state["evidence"]["llm_source"] = {"evidence": oversized_llm_evidence}
+        conn.execute(
+            "UPDATE projects SET state_json = ? WHERE project_key = ?",
+            (json.dumps(state), project["project_key"]),
+        )
+        raw_snapshot = dict(project)
+        raw_snapshot["resource_url_records"] = oversized_resources
+        raw_snapshot["llm_source"] = {"evidence": oversized_llm_evidence}
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-11T00:00:00+00:00")
+        storage.save_investigation_run(
+            conn,
+            project_key=project["project_key"],
+            started_at=bundle.collected_at,
+            completed_at=bundle.collected_at,
+            input_project=raw_snapshot,
+            output_project=raw_snapshot,
+            bundle=bundle,
+        )
+        conn.commit()
+        try:
+            dry_run = maintenance.cleanup_storage_payloads(conn)
+            executed = maintenance.cleanup_storage_payloads(conn, execute=True)
+            second = maintenance.cleanup_storage_payloads(conn)
+            saved_state = json.loads(str(conn.execute(
+                "SELECT state_json FROM projects WHERE project_key = ?",
+                (project["project_key"],),
+            ).fetchone()[0]))
+        finally:
+            conn.close()
+
+        resource_stats = dry_run["payload_categories"]["resource_urls"]
+        self.assertGreater(resource_stats["bytes_saved"], 0)
+        self.assertEqual(resource_stats["removed_by_role"]["docs"], 48)
+        self.assertEqual(resource_stats["removed_by_host"]["example.com"], 48)
+        self.assertEqual(resource_stats["removed_by_path_pattern"]["/docs"], 48)
+        self.assertGreater(dry_run["payload_categories"]["llm_evidence"]["bytes_saved"], 0)
+        self.assertEqual(executed["investigation_snapshots"]["evaluation_diff_run_count"], 0)
+        self.assertEqual(len(saved_state["evidence"]["resource_url_records"]), 4)
+        self.assertEqual(second["payload_categories"]["resource_urls"]["bytes_saved"], 0)
+        self.assertEqual(second["payload_categories"]["llm_evidence"]["bytes_saved"], 0)
+
     def test_storage_payload_cleanup_rolls_back_on_projection_failure(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:storage-cleanup-rollback")

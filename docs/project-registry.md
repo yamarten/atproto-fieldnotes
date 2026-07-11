@@ -676,7 +676,9 @@ project-registry cleanup-storage-payloads
 ```
 
 既定はread-onlyのdry-runで、層別の変更件数、UTF-8 bytes、最大削減run、snapshotの保存済みevaluation field差分を
-JSONで報告します。bundleの完全replayを全runへ実行するcommandではありません。
+JSONで報告します。`payload_categories`ではresource URL、service verification、LLM evidenceを分け、resource URLは
+削除対象のrole、host、先頭path patternと最大削減project/runも報告します。path名だけで削除せず、現行の
+project/role/host+role代表budgetを既存payloadへ再適用します。bundleの完全replayを全runへ実行するcommandではありません。
 
 適用前にWeb、worker、enrich、別CLIを止め、DB backupを作り、dry-run結果を確認します。適用は一つのwrite
 transactionで行い、commit前にforeign key checkとintegrity checkを通します。
