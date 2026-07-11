@@ -2446,8 +2446,10 @@ def indexed_identifier_matches(
                 priority = 0
         elif identifier_type == "did" and role in {"seed", "manual_seed", "brand_did", "developer_did"}:
             priority = 0
-        elif identifier_type == "handle" and role in {"seed", "manual_seed", "developer_handle", "project_handle"}:
+        elif identifier_type == "handle" and role in {"seed", "manual_seed", "developer_handle"}:
             priority = 0
+        elif identifier_type == "handle" and role == "project_handle":
+            priority = 1
         elif identifier_type == "domain" and role in {"seed", "manual_seed", "authority_domain"}:
             priority = 0
         elif identifier_type == "service_url_candidate" and classification == "candidate":
@@ -2469,19 +2471,7 @@ def indexed_identifier_matches(
 
 
 def find_project_key_by_identifier(conn: sqlite3.Connection, identifier_type: str, identifier_value: str) -> str | None:
-    if identifier_type not in {"did", "handle"}:
-        matches = indexed_identifier_matches(conn, identifier_type, identifier_value)
-        return matches[0][1] if matches else None
-
-    # Older schema-v2 rows do not consistently contain the did/handle rows
-    # derived from account metadata. P3.3 will re-project them; until then these
-    # two selectors retain the payload scan so lookup meaning does not change.
-    matches: list[tuple[int, str]] = []
-    for project in all_projects(conn):
-        priority, matched = project_matches_identifier(project, identifier_type, identifier_value)
-        if matched:
-            matches.append((priority, str(project["project_key"])))
-    matches.sort()
+    matches = indexed_identifier_matches(conn, identifier_type, identifier_value)
     return matches[0][1] if matches else None
 
 

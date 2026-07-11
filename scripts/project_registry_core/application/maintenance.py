@@ -4,14 +4,83 @@ import datetime as dt
 import sqlite3
 from typing import Any
 
+from .. import database
 from .. import registry as core
-from .. import storage, storage_cleanup
+from .. import runtime_view, storage, storage_cleanup
 
 
 DEFAULT_INVESTIGATION_RETENTION_DAYS = 90
 DEFAULT_INVESTIGATION_KEEP_LATEST = 3
 def repair_database(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
     return core.audit_and_repair_identifiers(conn, execute=execute)
+
+
+def backfill_derived_identifiers(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    example_limit: int = 20,
+) -> dict[str, Any]:
+    rows = conn.execute(
+        "SELECT * FROM projects ORDER BY project_key"
+    ).fetchall()
+    changes: list[tuple[str, list[Any], list[Any]]] = []
+    added_by_kind: dict[str, int] = {}
+    examples: list[dict[str, Any]] = []
+    before_count = 0
+    after_count = 0
+    for row in rows:
+        project = core.project_from_row(conn, row)
+        existing = database.project_identifiers(project)
+        proposed = runtime_view.identifiers_with_missing_derived_rows(project)
+        before_count += len(existing)
+        after_count += len(proposed)
+        if proposed == existing:
+            continue
+        project_key = str(project["project_key"])
+        changes.append((project_key, existing, proposed))
+        existing_keys = {(item.kind, item.value, item.role) for item in existing}
+        added = [
+            item for item in proposed
+            if (item.kind, item.value, item.role) not in existing_keys
+        ]
+        for item in added:
+            added_by_kind[item.kind] = added_by_kind.get(item.kind, 0) + 1
+        if len(examples) < max(0, example_limit):
+            examples.append({
+                "project_key": project_key,
+                "added": [
+                    {"kind": item.kind, "value": item.value, "role": item.role}
+                    for item in added
+                ],
+            })
+
+    if execute and changes:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for project_key, _existing, proposed in changes:
+                database.replace_identifier_rows(conn, project_key, proposed)
+            foreign_key_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if foreign_key_issues:
+                raise RuntimeError(f"foreign key check failed: {len(foreign_key_issues)} issue(s)")
+            integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
+            if integrity != "ok":
+                raise RuntimeError(f"integrity check failed: {integrity}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": len(changes),
+        "identifier_row_count_before": before_count,
+        "identifier_row_count_after": after_count,
+        "added_identifier_count": after_count - before_count,
+        "added_by_kind": dict(sorted(added_by_kind.items())),
+        "changed_project_examples": examples,
+    }
 
 
 def audit_urls(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:

@@ -241,6 +241,14 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)
 
+    backfill_identifiers_parser = subparsers.add_parser(
+        "backfill-derived-identifiers",
+        help="Add normalized identifier rows derivable from current project payloads.",
+    )
+    backfill_identifiers_parser.add_argument("--execute", action="store_true", help="Insert missing derived rows. Without this flag, show a dry-run summary only.")
+    backfill_identifiers_parser.add_argument("--example-limit", type=int, default=20, help="Maximum changed-project examples. Default: 20.")
+    backfill_identifiers_parser.set_defaults(func=maintenance_commands.cmd_backfill_derived_identifiers)
+
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
     audit_url_parser.set_defaults(func=maintenance_commands.cmd_audit_url_fields)

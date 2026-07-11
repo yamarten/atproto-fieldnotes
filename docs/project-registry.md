@@ -676,6 +676,17 @@ project-registry repair-db
 project-registry repair-db --execute
 ```
 
+schema v2導入後に追加されたidentifier投影を既存projectへ補完する場合は、保存済みの手動行を保持したまま、
+current payloadから導出できる不足行だけを追加します。
+
+```bash
+project-registry backfill-derived-identifiers
+project-registry backfill-derived-identifiers --execute
+```
+
+既定はdry-runです。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。実行は一つの
+transactionで行い、commit前にforeign key checkとintegrity checkを通します。
+
 trust graph による confirmed identifier 判定を点検する場合:
 
 ```bash

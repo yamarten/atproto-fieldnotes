@@ -39,6 +39,16 @@ def cmd_repair_db(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill_derived_identifiers(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.backfill_derived_identifiers(
+        conn,
+        execute=bool(args.execute),
+        example_limit=int(args.example_limit),
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
 def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.audit_urls(conn, example_limit=int(args.example_limit)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

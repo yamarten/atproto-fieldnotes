@@ -73,6 +73,8 @@
 - 既存保存payloadのmaintenance
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
+  - `backfill-derived-identifiers`は保存済みidentifierを保持し、current payloadから導出できる不足行だけを補完
+  - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
   - 正本DBへの適用は未実施
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限

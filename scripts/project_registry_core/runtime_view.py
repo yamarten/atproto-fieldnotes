@@ -379,6 +379,20 @@ def project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
     return output
 
 
+def identifiers_with_missing_derived_rows(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
+    """Preserve stored rows and append identifiers derivable from the current payload."""
+    existing = project_identifiers(project)
+    output = list(existing)
+    emitted = {_identifier_key(item) for item in existing}
+    for item in _derive_project_identifiers(project):
+        key = _identifier_key(item)
+        if key in emitted:
+            continue
+        output.append(item)
+        emitted.add(key)
+    return output
+
+
 def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
     output: list[ProjectDecision] = []
     for item in project.get("blocked_identifiers", []):

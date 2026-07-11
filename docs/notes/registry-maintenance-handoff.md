@@ -9,18 +9,17 @@
 ## 現在地
 
 進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
-現在は完了27、roadmapへ延期1、一部完了2、未着手2、別operation待ち1です。未終端5 IDは下記の作業順にすべて含めます。
+現在は完了28、roadmapへ延期1、一部完了1、未着手2、別operation待ち1です。未終端4 IDは下記の作業順にすべて含めます。
 ここへ完了項目や検証履歴を複製しません。
 
 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
 
 ## 次に必要な作業
 
-1. 承認・外部状態へ依存するP2.2/P2.4/P4.1検証は完了した。P3.3はstorage codeの確定・適用前なので、
-   次の独立したmaintenance windowで扱う。
-2. storage checkpoint適用後に、正本DBと観測期間が必要なoperationを行う。
-   - P3.3: 正本DB cleanup、normalized row再投影、same-site過去誤帰属audit。実行前に別承認とmaintenance windowが必要。
-   - P4.2: 再投影後に`handle` / `did` exact lookupのpayload scan fallbackを削除して終端する。
+1. P3.3のstorage cleanupと保持的identifier backfillは実装・複製DB検証まで完了した。正本DBを変更する
+   maintenance windowだけを別承認で扱う。
+2. 正本DBと観測期間が必要なoperationを行う。
+   - P3.3: writer停止、backup、正本DB cleanup、identifier backfill、same-site過去誤帰属audit、semantic audit、再起動。
    - P3.4: P3.3後の増加率に基づくhistory表現の判断gate。
 3. 全IDが終端してからcloseoutする。
    - P7.1: 通常側正本文書へ反映し、maintenance用status/handoffを削除する。

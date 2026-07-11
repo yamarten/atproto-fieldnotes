@@ -16,10 +16,56 @@ from project_registry_core.commands import assist as assist_commands
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
+from project_registry_core.application import maintenance as maintenance_services
 from project_registry_core.application import sync as sync_services
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_backfill_derived_identifiers_is_dry_run_by_default_and_preserves_stored_rows(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:identifierbackfill", "nsid", "app.example.backfill")
+            registry.apply_seed_to_project(project, "nsid", "app.example.backfill")
+            project["developer_accounts"] = [{"handle": "Dev.Example.COM.", "did": "did:plc:developer"}]
+            registry.save_project(conn, project)
+            conn.execute(
+                "DELETE FROM project_identifiers WHERE project_key = ? AND kind IN ('handle', 'did')",
+                (project["project_key"],),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (project["project_key"], 99, "external_id", "manual-1", "operator", "confirmed", 0, "", "{}", ""),
+            )
+            conn.commit()
+
+            dry_run = maintenance_services.backfill_derived_identifiers(conn)
+            self.assertEqual(dry_run["mode"], "dry_run")
+            self.assertEqual(dry_run["changed_project_count"], 1)
+            self.assertEqual(dry_run["added_by_kind"], {"did": 1, "handle": 1})
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_identifiers WHERE project_key = ? AND kind IN ('handle', 'did')",
+                    (project["project_key"],),
+                ).fetchone()[0],
+                0,
+            )
+
+            executed = maintenance_services.backfill_derived_identifiers(conn, execute=True)
+            self.assertEqual(executed["mode"], "execute")
+            rows = conn.execute(
+                "SELECT kind, value, role FROM project_identifiers WHERE project_key = ? ORDER BY ordinal",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertIn(("external_id", "manual-1", "operator"), [tuple(row) for row in rows])
+            self.assertIn(("handle", "dev.example.com", "developer_handle"), [tuple(row) for row in rows])
+            self.assertIn(("did", "did:plc:developer", "developer_did"), [tuple(row) for row in rows])
+            self.assertEqual(
+                maintenance_services.backfill_derived_identifiers(conn)["changed_project_count"],
+                0,
+            )
+        finally:
+            conn.close()
+
     def test_exact_identifier_lookup_uses_normalized_rows_without_project_hydration(self) -> None:
         conn = registry.open_db()
         try:
@@ -53,8 +99,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 self.assertEqual(registry.find_project_key_by_identifier(conn, "tangled_repo_url", tangled_url), project["project_key"])
                 self.assertEqual(registry.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."), project["project_key"])
 
-            self.assertEqual(registry.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])
-            self.assertEqual(registry.find_project_key_by_identifier(conn, "did", "did:plc:developer"), project["project_key"])
+            with mock.patch.object(registry, "all_projects", side_effect=AssertionError("payload scan")):
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "did", "did:plc:developer"), project["project_key"])
 
             plan = conn.execute(
                 "EXPLAIN QUERY PLAN SELECT project_key FROM project_identifiers INDEXED BY idx_project_identifiers_lookup WHERE kind = ? AND value = ?",
@@ -92,6 +139,27 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     projects=[candidate, confirmed],
                 )
             self.assertEqual(resolved, (confirmed["project_key"], "exact_identifier", None, ""))
+        finally:
+            conn.close()
+
+    def test_indexed_handle_lookup_prefers_developer_account_over_project_handle(self) -> None:
+        conn = registry.open_db()
+        try:
+            project_handle = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.handle.project")
+            project_handle["bluesky_handles"] = ["shared.example.com"]
+            developer_handle = self.make_project("proj:zzzzzzzzzzzz", "nsid", "app.handle.developer")
+            developer_handle["developer_accounts"] = [{"handle": "shared.example.com"}]
+            registry.save_project(conn, project_handle)
+            registry.save_project(conn, developer_handle)
+
+            self.assertEqual(
+                registry.indexed_identifier_matches(conn, "handle", "SHARED.EXAMPLE.COM."),
+                [(0, developer_handle["project_key"]), (1, project_handle["project_key"])],
+            )
+            self.assertEqual(
+                registry.find_project_key_by_identifier(conn, "handle", "shared.example.com"),
+                developer_handle["project_key"],
+            )
         finally:
             conn.close()
 
