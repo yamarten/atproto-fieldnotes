@@ -1130,7 +1130,11 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
 - `unusual_architecture`
 - `implementation_reference`
 
-endpoint 方式の timeout は `ATPROTO_SURVEY_LLM_TIMEOUT` で指定し、既定は `300` 秒です。
+command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で指定し、既定は`300`秒です。
+auto API styleの別payload/endpoint試行は、HTTP 400/404/405/415/422/501でendpointがrequestを拒否した場合だけ
+行います。timeout、接続失敗、rate limit、server error、response envelope/content JSON不良では、serverが
+処理中または既に生成済みの可能性がある同じpromptを再送しません。明示`chat`はcompletion endpointへ
+fallbackしません。
 
 ## merge
 

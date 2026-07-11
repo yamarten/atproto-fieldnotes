@@ -383,6 +383,12 @@ checkpoint/result/job statusとCLI終了コードはfailed/1とし、成功扱�
 LM Studioの約1,000秒stallは過去に動作確認済みですが、現在再発中とは確認されていません。
 根本原因追跡ではなく、再発時のtiming/log取得へ留めます。
 
+決定: auto styleのfallbackはHTTP 400/404/405/415/422/501でrequestがendpointに拒否された場合だけ行う。
+timeout、transport failure、429/5xx、response envelope/content JSON不良では同じpromptを再送しない。
+明示`chat`はcompletion endpointへfallbackしない。command/endpointは共通の
+`ATPROTO_SURVEY_LLM_TIMEOUT`を1 attemptの上限として使い、metricsの分類をtimeout、transport failure、
+endpoint incompatible、invalid response、rate limit、その他HTTP errorに分ける。
+
 ### P4.5: source設定の整理
 
 - source URL、enabled、query、request budgetなどoperatorが変更する値だけをconfigへ置く。

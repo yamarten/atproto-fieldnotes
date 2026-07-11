@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -107,7 +108,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             stderr="",
         )
         with (
-            mock.patch.dict(llm_transport_core.os.environ, {"ATPROTO_SURVEY_LLM_COMMAND": "fixture-llm"}),
+            mock.patch.dict(llm_transport_core.os.environ, {
+                "ATPROTO_SURVEY_LLM_COMMAND": "fixture-llm",
+                "ATPROTO_SURVEY_LLM_TIMEOUT": "12",
+            }),
             mock.patch.object(llm_transport_core.subprocess, "run", return_value=completed) as run,
         ):
             payload, meta = llm_transport_core.run_local_llm("prompt")
@@ -116,6 +120,83 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(meta["transport"], "command")
         self.assertEqual(run.call_args.kwargs["input"], "prompt")
         self.assertTrue(run.call_args.kwargs["shell"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 12.0)
+
+    def test_endpoint_retries_only_rejected_compatible_payload(self) -> None:
+        rejected = urllib.error.HTTPError(
+            "https://llm.example/v1/chat/completions", 400, "unsupported response_format", {}, None
+        )
+        accepted = ({"choices": [{"message": {"content": '{"name":"Fixture"}'}}]}, "")
+        with mock.patch.object(
+            llm_transport_core,
+            "request_json_post_raw",
+            side_effect=[rejected, accepted],
+        ) as request:
+            payload, meta = llm_transport_core.run_local_llm_via_endpoint(
+                "prompt", "https://llm.example/v1", "fixture", "", api_style="chat"
+            )
+
+        self.assertEqual(payload, {"name": "Fixture"})
+        self.assertEqual(meta["api_style"], "chat")
+        self.assertEqual(request.call_count, 2)
+        first_payload = request.call_args_list[0].args[1]
+        second_payload = request.call_args_list[1].args[1]
+        self.assertIn("response_format", first_payload)
+        self.assertNotIn("response_format", second_payload)
+
+    def test_endpoint_timeout_is_not_retried(self) -> None:
+        with mock.patch.object(
+            llm_transport_core,
+            "request_json_post_raw",
+            side_effect=TimeoutError("model timed out"),
+        ) as request:
+            with self.assertRaises(TimeoutError):
+                llm_transport_core.run_local_llm_via_endpoint(
+                    "prompt", "https://llm.example/v1", "fixture", "", api_style="auto"
+                )
+        self.assertEqual(request.call_count, 1)
+
+    def test_endpoint_invalid_model_content_is_not_retried(self) -> None:
+        response = ({"choices": [{"message": {"content": "not-json"}}]}, "")
+        with mock.patch.object(
+            llm_transport_core,
+            "request_json_post_raw",
+            return_value=response,
+        ) as request:
+            with self.assertRaises(llm_transport_core.LLMResponseError) as raised:
+                llm_transport_core.run_local_llm_via_endpoint(
+                    "prompt", "https://llm.example/v1", "fixture", "", api_style="auto"
+                )
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(llm_transport_core.classify_llm_request_error(raised.exception), "invalid_response")
+
+    def test_endpoint_transport_failure_and_rate_limit_are_not_retried(self) -> None:
+        with mock.patch.object(
+            llm_transport_core,
+            "request_json_post_raw",
+            side_effect=OSError("connection refused"),
+        ) as request:
+            with self.assertRaises(llm_transport_core.LLMTransportError) as transport_error:
+                llm_transport_core.run_local_llm_via_endpoint(
+                    "prompt", "https://llm.example/v1", "fixture", "", api_style="auto"
+                )
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(llm_transport_core.classify_llm_request_error(transport_error.exception), "transport_failure")
+
+        limited = urllib.error.HTTPError(
+            "https://llm.example/v1/chat/completions", 429, "rate limited", {}, None
+        )
+        with mock.patch.object(
+            llm_transport_core,
+            "request_json_post_raw",
+            side_effect=limited,
+        ) as request:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 429") as rate_error:
+                llm_transport_core.run_local_llm_via_endpoint(
+                    "prompt", "https://llm.example/v1", "fixture", "", api_style="auto"
+                )
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(llm_transport_core.classify_llm_request_error(rate_error.exception), "rate_limited")
 
     def test_search_collector_returns_evidence_without_mutating_project(self) -> None:
         project = self.make_project("proj:researchbundle")

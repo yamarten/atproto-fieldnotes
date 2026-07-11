@@ -9,7 +9,7 @@
 ## 現在地
 
 進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
-現在は完了22、roadmapへ延期1、一部完了2、未着手7、別operation待ち1です。未終端10 IDは下記の作業順にすべて含めます。
+現在は完了23、roadmapへ延期1、一部完了2、未着手6、別operation待ち1です。未終端9 IDは下記の作業順にすべて含めます。
 ここへ完了項目や検証履歴を複製しません。
 
 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
@@ -19,7 +19,7 @@
 1. 承認・外部状態へ依存するP2.2/P2.4/P4.1検証は完了した。P3.3はstorage codeの確定・適用前なので、
    次の独立したmaintenance windowで扱う。
 2. 長時間operationの未着手code auditを行う。
-   - P4.4、P4.5: LLM retry、source設定。
+   - P4.5: source設定。
 3. 調査品質corpusを作る。
    - P5.1、P5.2、P5.3: decision/bundle export、sanitize rule、operator correction fixture。
 4. storage checkpoint適用後に、正本DBと観測期間が必要なoperationを行う。

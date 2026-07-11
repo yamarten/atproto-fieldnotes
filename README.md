@@ -105,6 +105,7 @@ command方式:
 ```bash
 export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 ```
 

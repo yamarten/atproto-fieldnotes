@@ -55,7 +55,8 @@ process job全体、複数projectの待ち時間、operator review時間では�
 planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、
 response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、
 endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は
-明示的なtimeout例外または既存clientが返すtimeout errorから分類し、HTTP errorやinvalid responseと分けます。
+明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、
+rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 
 保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため
 非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。

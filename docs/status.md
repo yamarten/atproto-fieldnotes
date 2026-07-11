@@ -75,6 +75,9 @@
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
   - 最終prompt bytesはrun metricsで別に観測
+- LLM transport failure境界
+  - command/endpointは共通の1 attempt timeoutを使用
+  - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
 
 利用手順は[project-registry.md](project-registry.md)、保存契約は
 [project-record.md](project-record.md)、調査契約は

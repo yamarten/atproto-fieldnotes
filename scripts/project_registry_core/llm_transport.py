@@ -15,6 +15,19 @@ from . import http_transport
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LLM_PROMPT_VERSION = "project-triage-v1"
+ENDPOINT_INCOMPATIBLE_HTTP_STATUSES = {400, 404, 405, 415, 422, 501}
+
+
+class LLMTransportError(RuntimeError):
+    pass
+
+
+class LLMEndpointIncompatibleError(RuntimeError):
+    pass
+
+
+class LLMResponseError(ValueError):
+    pass
 
 
 def iso_now() -> str:
@@ -56,7 +69,7 @@ def llm_endpoint_candidates(endpoint: str, api_style: str = "auto") -> list[tupl
 
     ordered_styles = {
         "responses": ["responses"],
-        "chat": ["chat", "completions"],
+        "chat": ["chat"],
         "completions": ["completions"],
         "auto": ["chat", "responses", "completions"],
     }[style]
@@ -167,10 +180,8 @@ def normalize_llm_reasoning_effort(value: str | None) -> str:
 
 
 def llm_timeout_seconds() -> float:
-    if os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip():
-        return 300.0
     try:
-        return max(0.0, float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300"))
+        return max(0.1, float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300"))
     except ValueError:
         return 300.0
 
@@ -181,6 +192,12 @@ def classify_llm_request_error(exc: Exception) -> str:
         return "unconfigured"
     if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) or "timed out" in message or "timeout" in message:
         return "timeout"
+    if isinstance(exc, LLMEndpointIncompatibleError):
+        return "endpoint_incompatible"
+    if isinstance(exc, LLMResponseError):
+        return "invalid_response"
+    if isinstance(exc, LLMTransportError):
+        return "transport_failure"
     if "http 429" in message:
         return "rate_limited"
     if "http " in message:
@@ -239,7 +256,7 @@ def run_local_llm_via_endpoint(
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    llm_timeout = float(os.getenv("ATPROTO_SURVEY_LLM_TIMEOUT", "300").strip() or "300")
+    llm_timeout = llm_timeout_seconds()
     normalized_effort = normalize_llm_reasoning_effort(reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
     normalized_style = normalize_llm_api_style(api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto"))
     effective_style = "responses" if normalized_style == "auto" and normalized_effort else normalized_style
@@ -293,6 +310,25 @@ def run_local_llm_via_endpoint(
                     timeout=llm_timeout,
                     allow_blocked_hosts=True,
                 )
+            except urllib.error.HTTPError as exc:
+                body = ""
+                try:
+                    body = exc.read().decode("utf-8", errors="replace")
+                except Exception:
+                    body = ""
+                detail = f"{url} -> HTTP {exc.code}: {body[:300].strip() or exc.reason}"
+                if int(exc.code) in ENDPOINT_INCOMPATIBLE_HTTP_STATUSES:
+                    errors.append(detail)
+                    continue
+                raise RuntimeError(detail) from exc
+            except (TimeoutError, subprocess.TimeoutExpired):
+                raise
+            except json.JSONDecodeError as exc:
+                raise LLMResponseError(f"{url} returned invalid JSON: {exc}") from exc
+            except Exception as exc:
+                raise LLMTransportError(f"{url} request failed: {exc}") from exc
+
+            try:
                 raw_content = (
                     parse_openai_compatible_response(response_payload)
                     if endpoint_kind in {"chat", "responses"}
@@ -300,30 +336,23 @@ def run_local_llm_via_endpoint(
                 )
                 content = strip_json_fence(raw_content)
                 parsed = json.loads(content)
-                meta = {
-                    "transport": "openai_compatible_endpoint",
-                    "endpoint": endpoint,
-                    "resolved_endpoint": url,
-                    "api_style": endpoint_kind,
-                    "requested_api_style": normalized_style,
-                    "model": model or "local-model",
-                    "reasoning_effort": normalized_effort,
-                    "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
-                    "generated_at": iso_now(),
-                }
-                return parsed, meta
-            except urllib.error.HTTPError as exc:
-                body = ""
-                try:
-                    body = exc.read().decode("utf-8", errors="replace")
-                except Exception:
-                    body = ""
-                errors.append(f"{url} -> HTTP {exc.code}: {body[:300].strip() or exc.reason}")
             except Exception as exc:
-                errors.append(f"{url} -> {exc}")
+                raise LLMResponseError(f"{url} returned unusable model content: {exc}") from exc
+            meta = {
+                "transport": "openai_compatible_endpoint",
+                "endpoint": endpoint,
+                "resolved_endpoint": url,
+                "api_style": endpoint_kind,
+                "requested_api_style": normalized_style,
+                "model": model or "local-model",
+                "reasoning_effort": normalized_effort,
+                "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
+                "generated_at": iso_now(),
+            }
+            return parsed, meta
 
     joined_errors = " | ".join(errors[:6]) if errors else "unknown endpoint failure"
-    raise RuntimeError(joined_errors)
+    raise LLMEndpointIncompatibleError(joined_errors)
 
 
 def run_local_llm(
@@ -349,14 +378,17 @@ def run_local_llm(
             capture_output=True,
             shell=True,
             cwd=str(ROOT),
-            timeout=300,
+            timeout=llm_timeout_seconds(),
             env=env,
         )
         if completed.returncode != 0:
             stderr = completed.stderr.strip()
-            raise RuntimeError(f"LLM command failed with exit code {completed.returncode}: {stderr or 'no stderr'}")
+            raise LLMTransportError(f"LLM command failed with exit code {completed.returncode}: {stderr or 'no stderr'}")
         stdout = strip_json_fence(completed.stdout)
-        payload = json.loads(stdout)
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise LLMResponseError(f"LLM command returned invalid JSON: {exc}") from exc
         meta = {
             "transport": "command",
             "command": command,
