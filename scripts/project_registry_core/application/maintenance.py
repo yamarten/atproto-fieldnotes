@@ -114,6 +114,19 @@ def cleanup_sync_notes(conn: sqlite3.Connection, *, execute: bool = False, examp
     return core.cleanup_project_sync_notes(conn, execute=execute, example_limit=max(0, example_limit))
 
 
+def repair_same_site_evidence(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    example_limit: int = 20,
+) -> dict[str, Any]:
+    return core.repair_same_site_evidence(
+        conn,
+        execute=execute,
+        example_limit=max(0, example_limit),
+    )
+
+
 def cleanup_storage_payloads(
     conn: sqlite3.Connection,
     *,

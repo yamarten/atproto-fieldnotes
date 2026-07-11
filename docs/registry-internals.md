@@ -1316,6 +1316,10 @@ schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`�
 追加します。既定はdry-runです。`--execute`時は単一transaction内でidentifier tableを更新し、foreign key checkと
 integrity checkに失敗した場合はrollbackします。payload、relation、decisionは変更しません。
 
+`repair-same-site-evidence`は保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定し、
+staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正します。観測URL、service status、
+confirmed/candidate identifier、investigation snapshotは自動変更しません。
+
 ## review-stalled
 
 `review-stalled` は `active -> stalled` の候補だけではなく、

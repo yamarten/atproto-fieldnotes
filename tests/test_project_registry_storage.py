@@ -21,6 +21,42 @@ from project_registry_core.application import sync as sync_services
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_repair_same_site_evidence_recomputes_stale_redirect_flags_only(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:samesiterepair", "service_url", "https://pages.dev")
+            project["service_urls"] = ["https://pages.dev"]
+            project["service_status"] = "live"
+            project["service_status_evidence"] = ["http_200", "redirect_same_site_family"]
+            project["service_verification_results"] = [{
+                "requested_url": "https://pages.dev",
+                "final_url": "https://pages.cloudflare.com",
+                "redirected": True,
+                "redirect_same_site_family": True,
+                "service_status_evidence": ["http_200", "redirect_same_site_family"],
+            }]
+            registry.save_project(conn, project)
+
+            dry_run = maintenance_services.repair_same_site_evidence(conn)
+            self.assertEqual(dry_run["changed_project_count"], 1)
+            unchanged = registry.fetch_project(conn, project["project_key"])
+            assert unchanged is not None
+            self.assertTrue(unchanged["service_verification_results"][0]["redirect_same_site_family"])
+
+            executed = maintenance_services.repair_same_site_evidence(conn, execute=True)
+            self.assertEqual(executed["repaired_result_count"], 1)
+            self.assertEqual(executed["aggregate_evidence_change_count"], 1)
+            repaired = registry.fetch_project(conn, project["project_key"])
+            assert repaired is not None
+            self.assertFalse(repaired["service_verification_results"][0]["redirect_same_site_family"])
+            self.assertNotIn("redirect_same_site_family", repaired["service_verification_results"][0]["service_status_evidence"])
+            self.assertEqual(repaired["service_status_evidence"], ["http_200"])
+            self.assertEqual(repaired["service_urls"], ["https://pages.dev"])
+            self.assertEqual(repaired["service_status"], "live")
+            self.assertEqual(maintenance_services.repair_same_site_evidence(conn)["changed_project_count"], 0)
+        finally:
+            conn.close()
+
     def test_backfill_derived_identifiers_is_dry_run_by_default_and_preserves_stored_rows(self) -> None:
         conn = registry.open_db()
         try:
@@ -160,6 +196,32 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 registry.find_project_key_by_identifier(conn, "handle", "shared.example.com"),
                 developer_handle["project_key"],
             )
+        finally:
+            conn.close()
+
+    def test_indexed_did_lookup_filters_normalized_rows_absent_from_current_payload(self) -> None:
+        conn = registry.open_db()
+        try:
+            stale = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.did.stale")
+            current = self.make_project("proj:zzzzzzzzzzzz", "nsid", "app.did.current")
+            current["candidate_developer_accounts"] = [{"did": "did:plc:shared"}]
+            registry.save_project(conn, stale)
+            registry.save_project(conn, current)
+            conn.execute(
+                "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (stale["project_key"], 99, "did", "did:plc:shared", "developer_did", "candidate", 0, "", "{}", ""),
+            )
+            conn.commit()
+
+            with mock.patch.object(registry, "all_projects", side_effect=AssertionError("full payload scan")):
+                self.assertEqual(
+                    registry.indexed_identifier_matches(conn, "did", "did:plc:shared"),
+                    [(0, current["project_key"])],
+                )
+                self.assertEqual(
+                    registry.find_project_key_by_identifier(conn, "did", "did:plc:shared"),
+                    current["project_key"],
+                )
         finally:
             conn.close()
 

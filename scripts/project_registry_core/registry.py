@@ -2458,7 +2458,7 @@ def indexed_identifier_matches(
             project_key = str(row["project_key"])
             matches[project_key] = min(priority, matches.get(project_key, priority))
     ordered = sorted(((priority, project_key) for project_key, priority in matches.items()))
-    if identifier_type == "service_url_candidate":
+    if identifier_type in {"service_url_candidate", "did"}:
         ordered = [
             (priority, project_key)
             for priority, project_key in ordered
@@ -14351,6 +14351,95 @@ def cleanup_project_sync_notes(conn: sqlite3.Connection, *, execute: bool = Fals
         "removed_line_count": removed_line_count,
         "prefixes": list(SYNC_PROVENANCE_NOTE_PREFIXES),
         "examples": examples,
+    }
+
+
+def repair_same_site_evidence(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    example_limit: int = 20,
+) -> dict[str, Any]:
+    rows = conn.execute("SELECT * FROM projects ORDER BY project_key").fetchall()
+    changes: list[dict[str, Any]] = []
+    repaired_result_count = 0
+    aggregate_evidence_change_count = 0
+    projects_to_save: list[dict[str, Any]] = []
+    for row in rows:
+        project = project_from_row(conn, row)
+        project_repairs = 0
+        for field in ("service_verification_results", "investigation_log"):
+            for item in project.get(field, []):
+                if not isinstance(item, dict) or "redirect_same_site_family" not in item:
+                    continue
+                requested = identifier_core.normalize_url(str(
+                    item.get("requested_url") or item.get("service_url") or item.get("url") or ""
+                ))
+                final = identifier_core.normalize_url(str(item.get("final_url") or ""))
+                if not requested or not final:
+                    continue
+                corrected = bool(
+                    requested != final
+                    and domain_policy_core.is_same_site_family(requested, final)
+                )
+                if bool(item.get("redirect_same_site_family")) == corrected:
+                    continue
+                item["redirect_same_site_family"] = corrected
+                evidence = [str(value) for value in item.get("service_status_evidence", []) if str(value)]
+                item["service_status_evidence"] = (
+                    unique_list(evidence + ["redirect_same_site_family"])
+                    if corrected
+                    else [value for value in evidence if value != "redirect_same_site_family"]
+                )
+                project_repairs += 1
+
+        aggregate_before = list(project.get("service_status_evidence", []))
+        has_current_same_site = any(
+            isinstance(item, dict) and item.get("redirect_same_site_family") is True
+            for field in ("service_verification_results", "investigation_log")
+            for item in project.get(field, [])
+        )
+        project["service_status_evidence"] = list(aggregate_before)
+        if project_repairs and not has_current_same_site:
+            project["service_status_evidence"] = [
+                value for value in aggregate_before if value != "redirect_same_site_family"
+            ]
+        aggregate_changed = project["service_status_evidence"] != aggregate_before
+        if not project_repairs and not aggregate_changed:
+            continue
+        repaired_result_count += project_repairs
+        aggregate_evidence_change_count += int(aggregate_changed)
+        projects_to_save.append(project)
+        if len(changes) < max(0, example_limit):
+            changes.append({
+                "project_key": str(project["project_key"]),
+                "repaired_result_count": project_repairs,
+                "aggregate_evidence_changed": aggregate_changed,
+            })
+
+    if execute and projects_to_save:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for project in projects_to_save:
+                save_project(conn, project, enriched=False, preserve_timestamps=True)
+            foreign_key_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if foreign_key_issues:
+                raise RuntimeError(f"foreign key check failed: {len(foreign_key_issues)} issue(s)")
+            integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
+            if integrity != "ok":
+                raise RuntimeError(f"integrity check failed: {integrity}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "project_count": len(rows),
+        "changed_project_count": len(projects_to_save),
+        "repaired_result_count": repaired_result_count,
+        "aggregate_evidence_change_count": aggregate_evidence_change_count,
+        "changed_project_examples": changes,
     }
 
 

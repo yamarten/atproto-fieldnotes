@@ -74,8 +74,10 @@
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
   - `backfill-derived-identifiers`は保存済みidentifierを保持し、current payloadから導出できる不足行だけを補完
+  - `repair-same-site-evidence`はcurrent probeのredirect same-site派生判定だけを現行domain policyで修復
   - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
-  - 正本DBへの適用は未実施
+  - 2026-07-11に正本DBへ適用済み。payload 3,064,663,886 bytes削減、identifier 5,681行補完、same-site stale probe 29件修復
+  - VACUUMは未実施で、解放pageは後続writeが再利用する
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示

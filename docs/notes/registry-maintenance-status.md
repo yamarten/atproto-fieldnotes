@@ -41,7 +41,7 @@ maintenance series完了時に削除します。
 |---|---|---|---|
 | P3.1 | 完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budgetに加え、resource URLのadd/移送/patch/guard/hydrate/merge/save経路を監査 | collector project patchにも即時budgetを追加し、raw save/merge/patch回帰testで確認 |
 | P3.2 | 完了 | `3243702`のcleanupにresource URL/旧LLM evidence縮約とcategory別bytes、role/host/path reportを追加。同じclone全件dry-runで4.620 GB→1.556 GB見込み | snapshot evaluation差分0。path名一律削除はせず現行代表budgetを再利用。正本適用はP3.3 |
-| P3.3 | 別operation待ち | `3243702`のstorage cleanupに加え、不足identifierだけを保持的に補う`backfill-derived-identifiers`を実装。temp DBでdry-run/execute/idempotency、cloneで3,239 project・5,681行追加、10,605 lookup差分0を確認 | 正本writer停止、backup、両commandのdry-run承認、execute、semantic audit、Web/worker再起動。same-site過去誤帰属auditも同windowで判断する。正本DBは未変更 |
+| P3.3 | 完了 | 2026-07-11にwriter停止とbackup後、正本へstorage cleanup、identifier backfill、same-site evidence repairを適用。payload 4,620,475,395→1,555,811,509 bytes、identifier 23,944→29,625行、stale probe 29件/17 projectを修復 | FK違反0、integrity ok、全command再dry-run 0件、handle/DID込み12,849 lookup差分0、same-site current mismatch 0。VACUUMは未実施 |
 | P3.4 | 一部完了 | `229b1c3`でbundle/collector本文二重保存を解消 | cleanup適用後の増加率を測り、snapshot差分化、stub、圧縮、retention、history DB分離を採否またはroadmapへ終端する |
 
 ### Phase 4
@@ -49,7 +49,7 @@ maintenance series完了時に削除します。
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
 | P4.1 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)とcode auditでcandidate serviceの自動attachを確認・修正。40-card clone dry-runでexact 37件、candidate suggestion 2件、unmatched 1件 | normalized indexと残るlookup costはP4.2で追跡 |
-| P4.2 | 完了 | `Index normalized identifiers for source matching` checkpointとidentifier backfill checkpoint。全exact lookupをnormalized indexへ移し、split採番だけの全hydrateをallocatorへ置換。handle優先度を含む回帰testと3,239-project cloneの10,605 lookup差分0を確認 | branchを通常運用へ入れる前にP3.3で正本のidentifier backfillを適用する |
+| P4.2 | 完了 | `Index normalized identifiers for source matching`と`f31fa48`。全exact lookupをnormalized indexへ移し、split採番だけの全hydrateをallocatorへ置換。DIDは索引候補だけをhydrateしてnormalized-only stale rowを除外 | 正本backfill後、handle/DID込み12,849 lookupで旧判定との差分0 |
 | P4.3 | 完了 | `Make bulk enrich failures resumable` checkpoint。bulk既定continue、failed result/checkpoint、失敗一覧、resume再試行、`--fail-fast`、cancel payload整理を実装 | 単体はstructured failed、bulkは後続を続行しても成功扱いしない回帰testを追加 |
 | P4.4 | 完了 | `Stop unsafe LLM request fallbacks` checkpoint。endpoint incompatibilityだけをfallback対象にし、timeout/transport/429/5xx/invalid response再送を停止。command/endpoint timeoutを共通化 | deterministic testでrequest回数と分類を確認。P2.4の実LLM成功経路は確認済みで、意図的なlive failure smokeは未実施 |
 | P4.5 | 完了 | `Centralize operator source settings` checkpoint。introduced query、enabled、Semble API/scope、各request budgetをconfig + application解決へ集約 | builtin lexicon prefix等のpolicyはcode/testへ戻し、worker/CLIの既定値重複を削除。既存値のP2.4実接続は確認済み、今回のroutingはdeterministic testで確認 |

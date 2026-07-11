@@ -272,6 +272,14 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_sync_notes_parser.add_argument("--example-limit", type=int, default=20, help="Maximum changed-project examples. Default: 20.")
     cleanup_sync_notes_parser.set_defaults(func=maintenance_commands.cmd_cleanup_sync_notes)
 
+    repair_same_site_parser = subparsers.add_parser(
+        "repair-same-site-evidence",
+        help="Re-evaluate stored redirect same-site evidence with the current domain policy.",
+    )
+    repair_same_site_parser.add_argument("--execute", action="store_true", help="Apply current-policy evidence repairs. Without this flag, show a dry-run summary only.")
+    repair_same_site_parser.add_argument("--example-limit", type=int, default=20, help="Maximum changed-project examples. Default: 20.")
+    repair_same_site_parser.set_defaults(func=maintenance_commands.cmd_repair_same_site_evidence)
+
     cleanup_storage_parser = subparsers.add_parser(
         "cleanup-storage-payloads",
         help="Compact current service evidence and investigation payloads without deleting runs.",

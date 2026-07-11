@@ -687,6 +687,16 @@ project-registry backfill-derived-identifiers --execute
 既定はdry-runです。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。実行は一つの
 transactionで行い、commit前にforeign key checkとintegrity checkを通します。
 
+保存済みservice probeのsame-site redirect判定を現在のdomain policyで再評価する場合:
+
+```bash
+project-registry repair-same-site-evidence
+project-registry repair-same-site-evidence --execute
+```
+
+このcommandはcurrent probeと集約evidenceの`redirect_same_site_family`だけを修正し、service URL、status、
+investigation snapshotは変更しません。既定はdry-runです。
+
 trust graph による confirmed identifier 判定を点検する場合:
 
 ```bash
