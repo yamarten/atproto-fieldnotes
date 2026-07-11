@@ -15,6 +15,8 @@ from project_registry_core import http_transport as http_transport_core
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import llm_transport as llm_transport_core
+from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import naming as naming_core
 
 
 class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
@@ -67,7 +69,7 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
         self.assertEqual(registry.detect_seed_type("https://codeberg.org/cartes/web"), "repo_url")
         self.assertEqual(registry.canonical_seed_value("repo_url", "https://codeberg.org/cartes/web/src/branch/main"), "https://codeberg.org/cartes/web")
         self.assertEqual(shaped["source_code_urls"], ["https://codeberg.org/cartes/web"])
-        self.assertEqual(registry.infer_repo_provider(shaped["source_code_urls"][0]), "codeberg.org")
+        self.assertEqual(repo_url_core.infer_repo_provider(shaped["source_code_urls"][0]), "codeberg.org")
 
     def test_sourcehut_repo_seed_is_generic_repo_url(self) -> None:
         project = registry.default_project_record("proj:sourcehut", "repo_url", "https://git.sr.ht/~example/app/tree/main")
@@ -76,7 +78,22 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
 
         self.assertEqual(registry.detect_seed_type("https://git.sr.ht/~example/app"), "repo_url")
         self.assertEqual(shaped["source_code_urls"], ["https://git.sr.ht/~example/app"])
-        self.assertEqual(registry.infer_repo_provider(shaped["source_code_urls"][0]), "git.sr.ht")
+        self.assertEqual(repo_url_core.infer_repo_provider(shaped["source_code_urls"][0]), "git.sr.ht")
+
+    def test_provider_repo_url_helpers_are_canonical_and_strict(self) -> None:
+        self.assertEqual(
+            repo_url_core.normalize_github_repo_url("https://github.com/example/project/issues/1"),
+            "https://github.com/example/project",
+        )
+        self.assertEqual(
+            repo_url_core.normalize_tangled_repo_url("https://tangled.sh/@dev.example/project/tree/main"),
+            "https://tangled.org/dev.example/project",
+        )
+        self.assertEqual(
+            repo_url_core.normalize_forge_repo_url("https://codeberg.org/example/project/src/branch/main"),
+            "https://codeberg.org/example/project",
+        )
+        self.assertIsNone(repo_url_core.normalize_forge_repo_url("https://codeberg.org/explore/repos"))
 
     def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
         project = registry.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
@@ -410,6 +427,13 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
 
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
+    def test_pure_naming_helpers_normalize_titles_and_sources(self) -> None:
+        self.assertEqual(naming_core.clean_title("Example — ATProto client"), "Example")
+        self.assertEqual(naming_core.normalize_name_candidate("https://example.com/app"), "example.com")
+        self.assertEqual(naming_core.service_seed_name_hint("https://github.com/example/project"), "project")
+        self.assertTrue(naming_core.source_is_repo("github_repo_name:https://github.com/example/project"))
+        self.assertEqual(naming_core.source_url("service_title:https://example.com"), "https://example.com")
+
     def project_with_candidates(self, candidates: list[dict[str, str]], *, name: str = "") -> dict:
         project = registry.default_project_record("proj:aaaaaaaaaaaa", "nsid", "app.example.post")
         project["name"] = name

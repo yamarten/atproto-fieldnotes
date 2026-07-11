@@ -16,9 +16,11 @@
   - `domain_policy.py`: PSL、multi-tenant suffix、same-site判定
   - `http_transport.py`: outbound URL検証、redirect制御、JSON HTTP transport
   - `identifiers.py`: URL/NSID正規化、authority domain、alias tokenのpure helper
+  - `repo_urls.py`: provider別repository URLの正規化、provider/owner判定
+  - `naming.py`: title/name candidate/source labelのpure helper
   - `llm_transport.py`: command/OpenAI互換LLM transport、response parser、request metrics
   - `service.py`: service verification evidence collectorとcurrent projection
-  - `registry.py`: collector/evaluation orchestrationと未分離のdomain以外のhelper
+  - `registry.py`: collector/evaluation orchestrationと未分離のstateful helper
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない

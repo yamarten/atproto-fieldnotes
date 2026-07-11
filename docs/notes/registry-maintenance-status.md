@@ -71,7 +71,7 @@ maintenance series完了時に削除します。
 | P6.3 | 完了 | `32486fb`のmodule分離に加え、requirements/documentationどおり`tldextract + vendored PSL`を正本化 | 自作PSL fallbackを削除し、依存/PSL欠落は明示失敗する |
 | P6.4 | 完了 | `540b1b4`、`29888c4`。collector/budget/current projectionを`service.py`へ集約 | なし |
 | P6.5 | 完了 | `8fccfa6` HTTP、`3d0b598` LLM transport seam。旧re-exportなし | 実source/実LLM確認はP2.4で追跡 |
-| P6.6 | 一部完了 | `4e37b00`。URL/NSID/authority/alias helperを`identifiers.py`へ移動 | provider別repo URLとnaming helperを今回移すかroadmapへ延期する |
+| P6.6 | 完了 | `4e37b00`の`identifiers.py`に加え、provider repo URLを`repo_urls.py`、pure name helperを`naming.py`へ移動 | call siteを同時更新し、`registry.py`に旧symbolをre-exportしていない |
 | P6.7 | 未着手 | なし | source、project shape、sync、queue、enrich orchestrationの対象単位を決め、移動またはroadmapへ延期する |
 
 ### Phase 7
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 340件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 342件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

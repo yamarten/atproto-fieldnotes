@@ -220,8 +220,14 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
   - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
   - collectorはこのmoduleをtest seamとして使い、`registry.py`は旧transport symbolをre-exportしない
 - `project_registry_core/identifiers.py`
-  - canonical URL/NSID、authority domain導出、generic値を除外するalias token正規化を所有する
+  - canonical URL/NSID、抽出URLの句読点除去、authority domain導出、generic値を除外するalias token正規化を所有する
   - domain/HTTP transportも同じURL正規化を使い、`registry.py`は旧symbolをre-exportしない
+- `project_registry_core/repo_urls.py`
+  - GitHub、Tangled、Codeberg、GitLab、SourceHutのrepo URL正規化とprovider/owner判定を所有する
+  - `registry.py`はconsumerとしてmoduleを呼び、旧repo helper symbolをre-exportしない
+- `project_registry_core/naming.py`
+  - HTML titleの短縮、name candidate正規化、service/repo source labelのpure helperを所有する
+  - project固有のcandidate採否・score・mutationは`registry.py`に残す
 - `project_registry_core/llm_transport.py`
   - command/OpenAI互換endpointの呼出し、response parser、timeout/error分類、request metricsを所有する
   - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える
@@ -260,7 +266,7 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 - Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには
   `registry.py`への直接依存が残る
 - `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
-  identifier/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
+  identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
 - 残るsource sync、project shape/save facade、queue、enrich orchestrationの分割と上記import縮小はP6.7の対象であり、
   現時点でapplication/databaseが巨大moduleから独立済みとは扱わない
 

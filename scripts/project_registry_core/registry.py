@@ -42,6 +42,8 @@ from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
+from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import naming as naming_core
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -534,7 +536,7 @@ def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
         return ""
     if app_link_role_from_resource_url(normalized):
         return ""
-    if canonical_repo_url(normalized):
+    if repo_url_core.canonical_repo_url(normalized):
         return ""
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
@@ -558,9 +560,9 @@ def build_project_app_links(project: dict[str, Any], *, include_existing: bool =
     if website_url:
         append_or_merge_app_link(links, {"uri": website_url, "role": "website", "official": True})
 
-    source_code_url = canonical_repo_url(str(project.get("source_code_url") or ""))
+    source_code_url = repo_url_core.canonical_repo_url(str(project.get("source_code_url") or ""))
     if not source_code_url:
-        source_code_urls = normalize_repo_collection(project.get("source_code_urls", []))
+        source_code_urls = repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
         if source_code_urls:
             source_code_url = source_code_urls[0]
     if source_code_url:
@@ -984,7 +986,7 @@ def canonical_seed_value(seed_type: str, seed_value: str) -> str:
         extracted = extract_collection_nsid(seed_value)
         return extracted or identifier_core.normalize_nsid(seed_value)
     if seed_type == "repo_url":
-        return canonical_repo_url(seed_value)
+        return repo_url_core.canonical_repo_url(seed_value)
     if seed_type in {"handle", "domain"}:
         return str(seed_value or "").strip().lower().rstrip(".")
     if seed_type.endswith("_url"):
@@ -1040,7 +1042,7 @@ def detect_seed_type(seed: str, explicit_type: str | None = None) -> str:
         return "nsid"
     parsed = urllib.parse.urlparse(seed)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
-        if is_supported_repo_url(seed):
+        if repo_url_core.is_supported_repo_url(seed):
             return "repo_url"
         return "service_url"
     if seed.startswith("did:"):
@@ -1198,7 +1200,7 @@ def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
     if identifier_type == "service_url":
         return identifier_core.normalize_url(value)
     if identifier_type == "repo_url":
-        return canonical_repo_url(value)
+        return repo_url_core.canonical_repo_url(value)
     if identifier_type == "nsid":
         return identifier_core.normalize_nsid(value)
     if identifier_type in {"handle", "domain"}:
@@ -1495,11 +1497,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     ]
     defaults["url_aliases"] = [dict(item) for item in defaults.get("url_aliases", []) if isinstance(item, dict)]
     defaults["manual_seeds"] = unique_manual_seeds(defaults.get("manual_seeds", []))
-    defaults["source_code_url"] = canonical_repo_url(str(defaults.get("source_code_url") or ""))
-    defaults["source_code_urls"] = normalize_repo_collection(defaults.get("source_code_urls", []))
+    defaults["source_code_url"] = repo_url_core.canonical_repo_url(str(defaults.get("source_code_url") or ""))
+    defaults["source_code_urls"] = repo_url_core.normalize_repo_collection(defaults.get("source_code_urls", []))
     if defaults["source_code_url"] and defaults["source_code_url"] not in defaults["source_code_urls"]:
         defaults["source_code_urls"] = [defaults["source_code_url"], *defaults["source_code_urls"]]
-    defaults["candidate_source_code_urls"] = normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
+    defaults["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
     sync_source_repo_provider_views(defaults)
     set_service_url_candidate_values(defaults, service_url_candidate_values(defaults))
@@ -1663,7 +1665,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 if root_token:
                     tokens.add(root_token)
     elif seed_type in {"service_url", "repo_url"}:
-        seed_url = identifier_core.normalize_url(seed_value) or canonical_repo_url(seed_value)
+        seed_url = identifier_core.normalize_url(seed_value) or repo_url_core.canonical_repo_url(seed_value)
         if seed_url:
             host = urllib.parse.urlparse(seed_url).netloc.lower()
             if host:
@@ -1679,7 +1681,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 if token:
                     tokens.add(token)
     for url in manual_seed_values(project, "repo_url") + project.get("source_code_urls", []) + project.get("candidate_source_code_urls", []):
-        repo_url = canonical_repo_url(str(url or ""))
+        repo_url = repo_url_core.canonical_repo_url(str(url or ""))
         if not repo_url:
             continue
         parsed = urllib.parse.urlparse(repo_url)
@@ -1956,7 +1958,7 @@ def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set
         return {record["url"] for record in normalize_resource_url_records(value if isinstance(value, list) else [])}
     values = value if isinstance(value, list) else ([value] if value else [])
     if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls"}:
-        return {normalized for item in values if (normalized := canonical_repo_url(str(item)))}
+        return {normalized for item in values if (normalized := repo_url_core.canonical_repo_url(str(item)))}
     return {normalized for item in values if (normalized := identifier_core.normalize_url(str(item)))}
 
 
@@ -2602,8 +2604,8 @@ def save_project(
     project["service_status"] = normalize_service_status(project.get("service_status"))
     project["service_status_confidence"] = normalize_service_status_confidence(project.get("service_status_confidence"))
     project["service_status_evidence"] = unique_list([str(item).strip() for item in project.get("service_status_evidence", []) if str(item).strip()])
-    project["source_code_urls"] = normalize_repo_collection(project.get("source_code_urls", []))
-    project["candidate_source_code_urls"] = normalize_repo_collection(project.get("candidate_source_code_urls", []))
+    project["source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
+    project["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     sync_source_repo_provider_views(project)
     project["bluesky_handles"] = unique_list(project.get("bluesky_handles", []))
@@ -2776,13 +2778,13 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             project["authority_domains"] = add_unique(project.get("authority_domains", []), authority_domain)
             add_authority_service_candidates(project, authority_domain)
     elif seed_type == "repo_url":
-        normalized = canonical_repo_url(seed_value)
+        normalized = repo_url_core.canonical_repo_url(seed_value)
         if not normalized:
             normalized = identifier_core.normalize_url(seed_value)
             add_candidate_url(project, "service_url", normalized)
             add_candidate_url(project, "website_url", normalized)
             project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
-            add_name_candidate(project, service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
+            add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
             return
         project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
@@ -2810,7 +2812,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         add_candidate_url(project, "service_url", normalized)
         add_candidate_url(project, "website_url", normalized)
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
-        add_name_candidate(project, service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
+        add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
 
 def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
@@ -3116,16 +3118,16 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if identifier_core.normalize_url(str(url or "")) not in blocked_services]
 
     if blocked_repos:
-        if canonical_repo_url(str(project.get("source_code_url") or "")) in blocked_repos:
+        if repo_url_core.canonical_repo_url(str(project.get("source_code_url") or "")) in blocked_repos:
             project["source_code_url"] = ""
-        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
-        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
-            if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) not in blocked_repos
+            if isinstance(item, dict) and repo_url_core.canonical_repo_url(str(item.get("url") or "")) not in blocked_repos
         ]
-        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
         sync_source_repo_provider_views(project)
 
     if blocked_nsids:
@@ -3179,16 +3181,16 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
         project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if identifier_core.normalize_url(str(url or "")) != normalized]
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if identifier_core.normalize_url(str(url or "")) != normalized]
     elif identifier_type == "repo_url":
-        if canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
+        if repo_url_core.canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
             project["source_code_url"] = ""
-        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
-        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
+        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
-            if isinstance(item, dict) and canonical_repo_url(str(item.get("url") or "")) != normalized
+            if isinstance(item, dict) and repo_url_core.canonical_repo_url(str(item.get("url") or "")) != normalized
         ]
-        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if canonical_repo_url(str(url or "")) != normalized]
+        project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
         sync_source_repo_provider_views(project)
     elif identifier_type == "nsid":
         if identifier_core.normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
@@ -3279,7 +3281,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         stored_payload = project_from_row_payload(row)
         raw = project_from_row(conn, row)
         original = ensure_project_shape(raw)
-        original_repo_urls = set(normalize_repo_collection(source_code_url_values(original)))
+        original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
         collection_member_seed_repairs += add_collection_observation_member_seeds(
@@ -3760,17 +3762,6 @@ def bsky_authenticated_app_url(path: str) -> str:
     return f"{base.rstrip('/')}/xrpc/{path.lstrip('/')}"
 
 
-def extract_github_slug(repo_url: str) -> str | None:
-    normalized = identifier_core.normalize_url(sanitize_extracted_url(repo_url))
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc != "github.com":
-        return None
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if len(segments) < 2:
-        return None
-    return f"{segments[0]}/{segments[1]}"
-
-
 def extract_title(html: str) -> str:
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     return unescape(re.sub(r"\s+", " ", match.group(1)).strip()) if match else ""
@@ -3788,9 +3779,6 @@ def extract_meta_description(html: str) -> str:
     return ""
 
 
-STRICT_GITHUB_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-KNOWN_FORGE_REPO_HOSTS = {"codeberg.org", "gitlab.com"}
-KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX = {"git.sr.ht"}
 NOISY_SERVICE_HOSTS = {
     "img.shields.io",
     "shields.io",
@@ -3845,20 +3833,6 @@ SHARED_OFFICIAL_IDENTITY_ROOTS = {
     "atproto.com",
     "bsky.network",
 }
-def sanitize_extracted_url(raw_url: str) -> str:
-    value = str(raw_url or "").strip().strip("<>[]{}\"'")
-    for marker in ("](", ")("):
-        if marker in value:
-            value = value.split(marker, 1)[0].rstrip()
-    while value.endswith(("**", "__")):
-        value = value[:-2].rstrip()
-    while value.count("(") < value.count(")") and value.endswith(")"):
-        value = value[:-1].rstrip()
-    while value.endswith((".", ",", ";", ":", "!", "?", "]", "}", ">")):
-        value = value[:-1].rstrip()
-    return value
-
-
 def has_noisy_service_host(host: str) -> bool:
     lowered = host.lower()
     if lowered in NOISY_SERVICE_HOSTS:
@@ -3877,7 +3851,7 @@ DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
 
 
 def extract_bluesky_profile_subject(url: str) -> dict[str, str]:
-    normalized = identifier_core.normalize_url(sanitize_extracted_url(url))
+    normalized = identifier_core.normalize_url(identifier_core.sanitize_extracted_url(url))
     parsed = urllib.parse.urlparse(normalized)
     if parsed.netloc != "bsky.app":
         return {}
@@ -3905,7 +3879,7 @@ def is_bluesky_profile_url(url: str) -> bool:
 
 
 def is_explicitly_non_project_service_url(url: str) -> bool:
-    normalized = identifier_core.normalize_url(sanitize_extracted_url(url))
+    normalized = identifier_core.normalize_url(identifier_core.sanitize_extracted_url(url))
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
     path = parsed.path.lower()
@@ -3925,7 +3899,7 @@ def is_explicitly_non_project_service_url(url: str) -> bool:
 
 
 def normalize_service_candidate_url(url: str) -> str | None:
-    cleaned = sanitize_extracted_url(url)
+    cleaned = identifier_core.sanitize_extracted_url(url)
     if not cleaned:
         return None
     parsed = urllib.parse.urlparse(cleaned)
@@ -3949,7 +3923,7 @@ def normalize_service_candidate_url(url: str) -> str | None:
 
 
 def normalize_confirmed_service_url(url: str) -> str | None:
-    cleaned = sanitize_extracted_url(url)
+    cleaned = identifier_core.sanitize_extracted_url(url)
     if not cleaned:
         return None
     parsed = urllib.parse.urlparse(cleaned)
@@ -4026,13 +4000,13 @@ def extract_urls(html: str) -> list[str]:
     pattern = r'https?://[^\s"\'<>]+'
     output: list[str] = []
     for raw in re.findall(pattern, html):
-        cleaned = sanitize_extracted_url(raw)
+        cleaned = identifier_core.sanitize_extracted_url(raw)
         parsed = urllib.parse.urlparse(cleaned)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             continue
         output.append(identifier_core.normalize_url(cleaned))
     for raw in re.findall(r'\]\((https?://[^)\s]+)\)', html):
-        cleaned = sanitize_extracted_url(raw)
+        cleaned = identifier_core.sanitize_extracted_url(raw)
         parsed = urllib.parse.urlparse(cleaned)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             continue
@@ -4053,84 +4027,11 @@ class HrefHTMLParser(HTMLParser):
             self.hrefs.append(str(href))
 
 
-def clean_title(title: str) -> str:
-    text = str(title or "").strip()
-    if not text:
-        return ""
-    # Treat pipe as a strong separator, and only trim dash/colon subtitles when
-    # they are presented as a spaced title separator rather than part of a name.
-    text = re.sub(r"\s*\|\s*.*$", "", text)
-    text = re.sub(r"\s+[—–\-]\s+.*$", "", text)
-    text = re.sub(r"[:：]\s+.*$", "", text)
-    text = re.sub(r"\s+[·•]\s+.*$", "", text)
-    text = re.sub(r"\s+>>\s+.*$", "", text)
-    text = re.sub(r"\s+//\s+.*$", "", text)
-    return text.strip()
-
-
-GENERIC_PLATFORM_HOSTS = {
-    "github.com",
-    "gist.github.com",
-    "tangled.org",
-    "tangled.sh",
-}
-
-
-def service_seed_name_hint(url: str) -> str:
-    normalized = identifier_core.normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower()
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if host in GENERIC_PLATFORM_HOSTS and segments:
-        return segments[-1]
-    return host or normalized
-
-
-def normalize_name_candidate(value: str) -> str:
-    text = clean_title(str(value or "").strip())
-    if not text:
-        return ""
-    text = re.sub(r"\s+", " ", text).strip(" -_:|")
-    if not text:
-        return ""
-    if text.startswith("http://") or text.startswith("https://"):
-        normalized_url = identifier_core.normalize_url(text)
-        if normalized_url:
-            return urllib.parse.urlparse(normalized_url).netloc.lower()
-    if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", text.lower()):
-        return text.lower()
-    return text[:80].strip()
-
-
 def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None:
-    normalized = normalize_name_candidate(value)
+    normalized = naming_core.normalize_name_candidate(value)
     if not normalized:
         return
     add_candidate_text(project, "name", normalized, source)
-
-
-def name_source_is_repo(source: str) -> bool:
-    return (
-        source.startswith("seed:repo_url:")
-        or source.startswith("github_repo_name:")
-        or source.startswith("repo_name:")
-    )
-
-
-def name_source_is_service_or_discovery(source: str) -> bool:
-    return (
-        source.startswith("service_title:")
-        or source.startswith("resource_title:")
-        or source == "llm_output"
-        or source.startswith("lexicon_name:")
-    )
-
-
-def name_source_url(source: str) -> str:
-    for prefix in ("service_title:", "resource_title:"):
-        if source.startswith(prefix):
-            return identifier_core.normalize_url(source[len(prefix) :])
-    return ""
 
 
 def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
@@ -4165,21 +4066,21 @@ def nsid_seed_name_tokens(project: dict[str, Any]) -> set[str]:
 
 
 def name_value_matches_nsid_seed(project: dict[str, Any], value: str) -> bool:
-    compact = identifier_core.normalize_alias_token(clean_title(value))
+    compact = identifier_core.normalize_alias_token(naming_core.clean_title(value))
     if not compact:
         return False
     return any(token in compact for token in nsid_seed_name_tokens(project))
 
 
 def unsupported_nsid_authority_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
-    source_url = name_source_url(source)
+    source_url = naming_core.source_url(source)
     if not source_url or source_url not in nsid_authority_service_origins(project):
         return False
     return not name_value_matches_nsid_seed(project, value)
 
 
 def value_matches_unsupported_nsid_authority_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = normalize_name_candidate(value)
+    normalized_value = naming_core.normalize_name_candidate(value)
     if not normalized_value:
         return False
     for item in project.get("name_candidates", []):
@@ -4189,27 +4090,27 @@ def value_matches_unsupported_nsid_authority_title(project: dict[str, Any], valu
         raw_value = str(item.get("value") or "")
         if not unsupported_nsid_authority_title_candidate(project, raw_value, source):
             continue
-        if normalize_name_candidate(raw_value) == normalized_value:
+        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
             return True
     return False
 
 
 def generic_error_page_title_candidate(value: str, source: str) -> bool:
-    lowered = normalize_name_candidate(value).lower()
+    lowered = naming_core.normalize_name_candidate(value).lower()
     if lowered in GENERIC_ERROR_PAGE_TITLE_VALUES:
         return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
     return bool(re.fullmatch(r"(?:[45]\d\d\s+)?(?:error|not found|forbidden|unauthorized)", lowered))
 
 
 def generic_navigation_page_title_candidate(value: str, source: str) -> bool:
-    lowered = normalize_name_candidate(value).lower()
+    lowered = naming_core.normalize_name_candidate(value).lower()
     if lowered not in GENERIC_NAVIGATION_PAGE_TITLE_VALUES:
         return False
     return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
 
 
 def value_matches_generic_navigation_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = normalize_name_candidate(value)
+    normalized_value = naming_core.normalize_name_candidate(value)
     if not normalized_value:
         return False
     for item in project.get("name_candidates", []):
@@ -4219,7 +4120,7 @@ def value_matches_generic_navigation_title(project: dict[str, Any], value: str) 
         raw_value = str(item.get("value") or "")
         if not generic_navigation_page_title_candidate(raw_value, source):
             continue
-        if normalize_name_candidate(raw_value) == normalized_value:
+        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
             return True
     return False
 
@@ -4227,7 +4128,7 @@ def value_matches_generic_navigation_title(project: dict[str, Any], value: str) 
 def title_identity_parts(value: str) -> set[str]:
     parts = {
         identifier_core.normalize_alias_token(part)
-        for part in re.split(r"[\s./:_-]+", clean_title(value))
+        for part in re.split(r"[\s./:_-]+", naming_core.clean_title(value))
         if part.strip()
     }
     return {token for token in parts if token and len(token) >= 4}
@@ -4269,7 +4170,7 @@ def weak_service_page_title_candidate(project: dict[str, Any], value: str, sourc
 
 
 def value_matches_weak_service_page_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = normalize_name_candidate(value)
+    normalized_value = naming_core.normalize_name_candidate(value)
     if not normalized_value:
         return False
     for item in project.get("name_candidates", []):
@@ -4279,15 +4180,15 @@ def value_matches_weak_service_page_title(project: dict[str, Any], value: str) -
         raw_value = str(item.get("value") or "")
         if not weak_service_page_title_candidate(project, raw_value, source):
             continue
-        if normalize_name_candidate(raw_value) == normalized_value:
+        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
             return True
     return False
 
 
 def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
-    normalized = normalize_name_candidate(value).lower()
+    normalized = naming_core.normalize_name_candidate(value).lower()
     aliases = GENERIC_PLATFORM_NAME_ALIASES.get(normalized, {normalized})
-    source_url = name_source_url(source)
+    source_url = naming_core.source_url(source)
     if not source_url:
         return False
     parsed = urllib.parse.urlparse(source_url)
@@ -4299,15 +4200,15 @@ def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
 
 
 def generic_platform_name_candidate(project: dict[str, Any], value: str, source: str) -> bool:
-    normalized = normalize_name_candidate(value).lower()
+    normalized = naming_core.normalize_name_candidate(value).lower()
     if normalized not in GENERIC_PLATFORM_NAME_VALUES:
         return False
-    if not name_source_is_service_or_discovery(source):
+    if not naming_core.source_is_service_or_discovery(source):
         return False
     if generic_platform_name_supported_by_source(value, source):
         return False
     repo_names = {
-        normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
+        naming_core.normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
         for url in source_code_url_values(project)
         if urllib.parse.urlparse(identifier_core.normalize_url(str(url or ""))).path.rstrip("/")
     }
@@ -4317,7 +4218,7 @@ def generic_platform_name_candidate(project: dict[str, Any], value: str, source:
 def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    current_name = normalize_name_candidate(clean_title(str(project.get("name") or "")))
+    current_name = naming_core.normalize_name_candidate(naming_core.clean_title(str(project.get("name") or "")))
     if (
         current_name
         and not weak_nsid_derived_name(project, current_name)
@@ -4334,8 +4235,8 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
         source = str(item.get("source") or "").strip()
         raw_value = str(item.get("value") or "")
         if source.startswith("service_title:") or source.startswith("resource_title:"):
-            raw_value = clean_title(raw_value)
-        value = normalize_name_candidate(raw_value)
+            raw_value = naming_core.clean_title(raw_value)
+        value = naming_core.normalize_name_candidate(raw_value)
         if not value or not source:
             continue
         if not source.startswith("lexicon_name:") and weak_nsid_derived_name(project, value):
@@ -4365,7 +4266,7 @@ def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def weak_nsid_derived_name(project: dict[str, Any], value: str) -> bool:
-    text = normalize_name_candidate(value)
+    text = naming_core.normalize_name_candidate(value)
     if not text:
         return False
     lowered = text.lower()
@@ -4386,7 +4287,7 @@ def weak_nsid_derived_name(project: dict[str, Any], value: str) -> bool:
 
 
 def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> tuple[int, int, int, int, str]:
-    value = normalize_name_candidate(str(candidate.get("value") or ""))
+    value = naming_core.normalize_name_candidate(str(candidate.get("value") or ""))
     source = str(candidate.get("source") or "")
     lowered = value.lower()
     normalized_token = identifier_core.normalize_alias_token(value)
@@ -4397,7 +4298,7 @@ def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> 
         source_rank = 80
     elif source.startswith("resource_title:"):
         source_rank = 70
-    elif name_source_is_repo(source):
+    elif naming_core.source_is_repo(source):
         source_rank = 60
     elif source == "existing_name":
         source_rank = 50
@@ -4417,9 +4318,9 @@ def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> 
         quality -= 8
     if normalized_token in GENERIC_NSID_NAME_TOKENS:
         quality -= 12
-    if lowered in GENERIC_PLATFORM_NAME_VALUES and not name_source_is_repo(source):
+    if lowered in GENERIC_PLATFORM_NAME_VALUES and not naming_core.source_is_repo(source):
         quality -= 30
-    if name_source_is_repo(source) and ("-" in value or "_" in value):
+    if naming_core.source_is_repo(source) and ("-" in value or "_" in value):
         quality += 8
 
     identity_bonus = 0
@@ -4441,7 +4342,7 @@ def choose_best_project_name(project: dict[str, Any]) -> str:
     if not candidates:
         return ""
     best = max(candidates, key=lambda item: name_candidate_score(project, item))
-    return normalize_name_candidate(str(best.get("value") or ""))
+    return naming_core.normalize_name_candidate(str(best.get("value") or ""))
 
 
 def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
@@ -4492,7 +4393,7 @@ def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
         parsed = urllib.parse.urlparse(normalized)
         host = parsed.netloc.lower()
         segments = [segment for segment in parsed.path.split("/") if segment]
-        if host in GENERIC_PLATFORM_HOSTS and segments:
+        if host in naming_core.GENERIC_PLATFORM_HOSTS and segments:
             ignored.add(host)
     return ignored
 
@@ -4624,67 +4525,6 @@ def merge_feature_list(current: list[str], new_values: list[str]) -> list[str]:
     return current_values
 
 
-def normalize_github_repo_url(url: str) -> str | None:
-    cleaned = sanitize_extracted_url(url)
-    slug = extract_github_slug(cleaned)
-    if slug is None:
-        return None
-    owner, repo = slug.split("/", 1)
-    if not STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
-        return None
-    return f"https://github.com/{owner}/{repo}"
-
-
-def normalize_tangled_repo_url(url: str) -> str | None:
-    normalized = identifier_core.normalize_url(sanitize_extracted_url(url))
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc not in {"tangled.org", "tangled.sh"}:
-        return None
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if not segments:
-        return None
-    if segments[0].startswith("@"):
-        segments = [segments[0].lstrip("@"), *segments[1:]]
-    if len(segments) < 2:
-        return None
-    owner, repo = segments[0], segments[1]
-    if any(segment in {"issues", "pulls", "pull", "brand", "search", "about", "blob", "tree"} for segment in (owner, repo)):
-        return None
-    owner_is_valid = bool(STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or owner.startswith("did:plc:"))
-    if not owner_is_valid or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
-        return None
-    return f"https://tangled.org/{owner}/{repo}"
-
-
-def normalize_forge_repo_url(url: str) -> str | None:
-    normalized = identifier_core.normalize_url(sanitize_extracted_url(url))
-    parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower()
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if host in KNOWN_FORGE_REPO_HOSTS:
-        if len(segments) < 2:
-            return None
-        owner, repo = segments[0], segments[1]
-        if any(segment in {"issues", "pulls", "pull", "search", "about", "src", "tree", "blob", "-", "explore"} for segment in (owner, repo)):
-            return None
-        if not STRICT_GITHUB_SEGMENT_RE.fullmatch(owner) or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
-            return None
-        return f"https://{host}/{owner}/{repo}"
-    if host in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
-        if len(segments) < 2:
-            return None
-        owner, repo = segments[0], segments[1]
-        owner_valid = owner.startswith("~") and STRICT_GITHUB_SEGMENT_RE.fullmatch(owner[1:])
-        if not owner_valid or not STRICT_GITHUB_SEGMENT_RE.fullmatch(repo):
-            return None
-        return f"https://{host}/{owner}/{repo}"
-    return None
-
-
-def is_supported_repo_url(url: str) -> bool:
-    return bool(normalize_github_repo_url(url) or normalize_tangled_repo_url(url) or normalize_forge_repo_url(url))
-
-
 def manual_service_hosts(project: dict[str, Any]) -> set[str]:
     hosts: set[str] = set()
     for seed in project.get("manual_seeds", []):
@@ -4702,13 +4542,13 @@ def manual_service_hosts(project: dict[str, Any]) -> set[str]:
 def manual_repo_urls(project: dict[str, Any]) -> set[str]:
     urls: set[str] = set()
     if str(project.get("seed_type") or "") == "repo_url":
-        seed_url = canonical_repo_url(str(project.get("seed_value") or ""))
+        seed_url = repo_url_core.canonical_repo_url(str(project.get("seed_value") or ""))
         if seed_url:
             urls.add(seed_url)
     for seed in project.get("manual_seeds", []):
         if str(seed.get("type") or "") != "repo_url":
             continue
-        value = canonical_repo_url(str(seed.get("value") or "").strip())
+        value = repo_url_core.canonical_repo_url(str(seed.get("value") or "").strip())
         if value:
             urls.add(value)
     return urls
@@ -4798,14 +4638,14 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
 
 
 def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
-    normalized = canonical_repo_url(url)
+    normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
     if normalized == "https://github.com/notjuliet/pdsls" and not project_explicitly_targets_pdsls(project):
         return False
     if normalized in manual_repo_urls(project):
         return True
-    if not is_supported_repo_url(normalized):
+    if not repo_url_core.is_supported_repo_url(normalized):
         return False
     parsed = urllib.parse.urlparse(normalized)
     segments = [segment for segment in parsed.path.split("/") if segment]
@@ -4822,17 +4662,17 @@ def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
     owners: set[str] = set()
     trusted_urls = set(manual_repo_urls(project)) | set(project.get("source_code_urls", []))
     for url in trusted_urls:
-        owner = repo_owner_identity(str(url or ""))
+        owner = repo_url_core.repo_owner_identity(str(url or ""))
         if owner:
             owners.add(owner)
     return owners
 
 
 def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> bool:
-    normalized = canonical_repo_url(url)
+    normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
-    owner = repo_owner_identity(normalized)
+    owner = repo_url_core.repo_owner_identity(normalized)
     developer_handles = {
         str(item.get("handle") or "").strip().lower().removeprefix("@")
         for item in project.get("developer_accounts", [])
@@ -4851,29 +4691,6 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> boo
     return True
 
 
-def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -> list[str]:
-    normalized_urls: list[str] = []
-    for url in urls:
-        parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
-        if provider == "github" or parsed.netloc == "github.com":
-            normalized = normalize_github_repo_url(url)
-            if normalized:
-                normalized_urls.append(normalized)
-            continue
-        if provider == "tangled" or parsed.netloc == "tangled.org":
-            normalized = normalize_tangled_repo_url(url)
-            if normalized:
-                normalized_urls.append(normalized)
-            continue
-        if parsed.netloc in KNOWN_FORGE_REPO_HOSTS or parsed.netloc in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
-            normalized = normalize_forge_repo_url(url)
-            if normalized:
-                normalized_urls.append(normalized)
-            continue
-        normalized_urls.append(identifier_core.normalize_url(url))
-    return unique_list(normalized_urls)
-
-
 def source_code_url_values(project: dict[str, Any]) -> list[str]:
     urls = list(project.get("source_code_urls", []))
     urls += [
@@ -4881,15 +4698,15 @@ def source_code_url_values(project: dict[str, Any]) -> list[str]:
         for record in normalize_source_repo_records(project.get("source_repo_records", []))
         if str(record.get("confidence") or "") == "confirmed"
     ]
-    return normalize_repo_collection(urls)
+    return repo_url_core.normalize_repo_collection(urls)
 
 
 def provider_repo_url_values(project: dict[str, Any], provider: str) -> list[str]:
-    return normalize_repo_collection(
+    return repo_url_core.normalize_repo_collection(
         [
             url
             for url in source_code_url_values(project)
-            if infer_repo_provider(url) == provider
+            if repo_url_core.infer_repo_provider(url) == provider
         ],
         provider=provider,
     )
@@ -4903,10 +4720,10 @@ def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[st
     output: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str, str, str]] = set()
     for record in records:
-        url = canonical_repo_url(str(record.get("url") or ""))
+        url = repo_url_core.canonical_repo_url(str(record.get("url") or ""))
         if not url:
             continue
-        provider = str(record.get("provider") or infer_repo_provider(url))
+        provider = str(record.get("provider") or repo_url_core.infer_repo_provider(url))
         confidence = str(record.get("confidence") or "candidate")
         relation = str(record.get("relation") or "candidate_repo")
         source = str(record.get("source") or "")
@@ -4933,44 +4750,8 @@ def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[st
     return output
 
 
-def infer_repo_provider(url: str) -> str:
-    parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
-    if parsed.netloc == "github.com":
-        return "github"
-    if parsed.netloc in {"tangled.org", "tangled.sh"}:
-        return "tangled"
-    return parsed.netloc or "unknown"
-
-
-def canonical_repo_url(url: str) -> str:
-    provider = infer_repo_provider(url)
-    if provider == "github":
-        normalized = normalize_github_repo_url(url)
-        return normalized or identifier_core.normalize_url(url)
-    if provider == "tangled":
-        normalized = normalize_tangled_repo_url(url)
-        return normalized or identifier_core.normalize_url(url)
-    if provider in KNOWN_FORGE_REPO_HOSTS or provider in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
-        normalized = normalize_forge_repo_url(url)
-        return normalized or identifier_core.normalize_url(url)
-    return identifier_core.normalize_url(url)
-
-
-def repo_owner_identity(url: str) -> str:
-    normalized = identifier_core.normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if parsed.netloc == "github.com" and len(segments) >= 1:
-        return segments[0].lower()
-    if parsed.netloc == "tangled.org" and len(segments) >= 1:
-        return segments[0].lower()
-    if parsed.netloc in KNOWN_FORGE_REPO_HOSTS | KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX and len(segments) >= 1:
-        return segments[0].lower().removeprefix("~")
-    return ""
-
-
 def owner_matches_project(project: dict[str, Any], url: str) -> bool:
-    owner = repo_owner_identity(url)
+    owner = repo_url_core.repo_owner_identity(url)
     if not owner:
         return False
     known_tokens: set[str] = set()
@@ -5051,7 +4832,7 @@ def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
             continue
         if any(needle in haystack for haystack in haystacks):
             score += 3
-    owner = repo_owner_identity(str(repo.get("url") or ""))
+    owner = repo_url_core.repo_owner_identity(str(repo.get("url") or ""))
     if owner and owner_matches_project(project, str(repo.get("url") or "")):
         score += 3
     homepage = str(repo.get("homepage") or "").strip()
@@ -5136,7 +4917,7 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
     lowered_url = normalized.lower()
     if is_bluesky_profile_url(normalized):
         return "bluesky_profile"
-    if is_supported_repo_url(normalized):
+    if repo_url_core.is_supported_repo_url(normalized):
         if any(token in lowered_text for token in ["source", "view source", "repo", "repository", "monorepo"]):
             return "source_repo"
     if any(token in lowered_text for token in ["source", "view source", "monorepo"]):
@@ -5199,7 +4980,7 @@ def add_candidate_source_code_url(
     relation: str = "candidate_repo",
     updated_at: str = "",
 ) -> None:
-    normalized = canonical_repo_url(url)
+    normalized = repo_url_core.canonical_repo_url(url)
     if identifier_is_blocked(project, "repo_url", normalized):
         return
     if not repo_candidate_allowed_for_project(project, normalized):
@@ -5209,7 +4990,7 @@ def add_candidate_source_code_url(
     project["candidate_source_code_urls"] = add_unique(project.get("candidate_source_code_urls", []), normalized)
     record = {
         "url": normalized,
-        "provider": infer_repo_provider(normalized),
+        "provider": repo_url_core.infer_repo_provider(normalized),
         "confidence": "candidate",
         "relation": relation,
         "source": source,
@@ -5253,12 +5034,12 @@ def confirm_source_code_url(
     evidence_url: str = "",
     updated_at: str = "",
 ) -> None:
-    normalized = canonical_repo_url(url)
+    normalized = repo_url_core.canonical_repo_url(url)
     if identifier_is_blocked(project, "repo_url", normalized) or identifier_is_deferred(project, "repo_url", normalized):
         return
     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
-    provider = infer_repo_provider(normalized)
+    provider = repo_url_core.infer_repo_provider(normalized)
     record = {
         "url": normalized,
         "provider": provider,
@@ -5749,12 +5530,12 @@ def prune_project_urls(project: dict[str, Any]) -> None:
 
     project["source_code_urls"] = [
         url
-        for url in normalize_repo_collection(unique_list(project.get("source_code_urls", []) + sorted(active_manual_repos)))
+        for url in repo_url_core.normalize_repo_collection(unique_list(project.get("source_code_urls", []) + sorted(active_manual_repos)))
         if repo_url_allowed_for_project(project, url) and (url in active_manual_repos or url in kept_confirmed)
     ]
     project["candidate_source_code_urls"] = [
         url
-        for url in normalize_repo_collection(project.get("candidate_source_code_urls", []))
+        for url in repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", []))
         if repo_candidate_allowed_for_project(project, url) and url not in project["source_code_urls"]
     ]
     project["candidate_source_code_urls"] = unique_list(project["candidate_source_code_urls"] + sorted(kept_candidates - set(project["source_code_urls"])))
@@ -5976,10 +5757,10 @@ def applog_seed_from_url(url: str) -> tuple[str, str] | None:
         return None
     segments = [segment for segment in parsed.path.split("/") if segment]
     if parsed.netloc == "github.com" and len(segments) == 2:
-        normalized = normalize_github_repo_url(url)
+        normalized = repo_url_core.normalize_github_repo_url(url)
         return ("repo_url", normalized) if normalized else None
     if parsed.netloc == "tangled.org" and len(segments) == 2:
-        normalized = normalize_tangled_repo_url(url)
+        normalized = repo_url_core.normalize_tangled_repo_url(url)
         return ("repo_url", normalized) if normalized else None
     blocked_hosts = {
         "bsky.app",
@@ -6078,7 +5859,7 @@ def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: s
 
 
 def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) -> str:
-    normalized = canonical_repo_url(repo_url)
+    normalized = repo_url_core.canonical_repo_url(repo_url)
     if not normalized or identifier_is_deferred(project, "repo_url", normalized):
         return ""
     add_manual_seed(project, "repo_url", normalized, source=source)
@@ -6088,7 +5869,7 @@ def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) ->
         sync_source_repo_provider_views(project)
     project["candidate_source_code_urls"] = [
         item for item in project.get("candidate_source_code_urls", [])
-        if canonical_repo_url(str(item or "")) != normalized
+        if repo_url_core.canonical_repo_url(str(item or "")) != normalized
     ]
     return normalized
 
@@ -7053,7 +6834,7 @@ def fetch_github_search_query_sync_results(
             fetched_pages += 1
             for raw in items:
                 html_url = str(raw.get("html_url") or "")
-                normalized_repo = normalize_github_repo_url(html_url)
+                normalized_repo = repo_url_core.normalize_github_repo_url(html_url)
                 if not normalized_repo:
                     continue
                 updated_at = str(raw.get("updated_at") or "")
@@ -7351,7 +7132,7 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
 
     fork = bool(repo.get("fork"))
     fork_parent = repo.get("parent", {}) if isinstance(repo.get("parent", {}), dict) else {}
-    fork_parent_url = normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
+    fork_parent_url = repo_url_core.normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
     fork_parent_full_name = str(fork_parent.get("full_name") or "")
     fork_independent_signals = unique_list(
         (["repo_homepage"] if homepage else [])
@@ -8278,7 +8059,7 @@ def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:
 
 
 def repo_references_service(project: dict[str, Any], repo_url: str, service_url: str) -> bool:
-    normalized_repo = canonical_repo_url(repo_url)
+    normalized_repo = repo_url_core.canonical_repo_url(repo_url)
     normalized_service = identifier_core.normalize_url(service_url)
     if not normalized_repo or not normalized_service:
         return False
@@ -8286,14 +8067,14 @@ def repo_references_service(project: dict[str, Any], repo_url: str, service_url:
         relation = item["relation"]
         if relation["predicate"] != "source_repository":
             continue
-        if relation["subject"]["type"] != "repo" or canonical_repo_url(relation["subject"]["value"]) != normalized_repo:
+        if relation["subject"]["type"] != "repo" or repo_url_core.canonical_repo_url(relation["subject"]["value"]) != normalized_repo:
             continue
         if relation["object"]["type"] not in {"website", "service"}:
             continue
         if domain_policy_core.is_same_site_family(relation["object"]["value"], normalized_service):
             return True
     for record in normalize_source_repo_records(project.get("source_repo_records", [])):
-        if canonical_repo_url(str(record.get("url") or "")) != normalized_repo:
+        if repo_url_core.canonical_repo_url(str(record.get("url") or "")) != normalized_repo:
             continue
         evidence_url = identifier_core.normalize_url(str(record.get("evidence_url") or ""))
         if evidence_url and domain_policy_core.is_same_site_family(evidence_url, normalized_service):
@@ -8305,7 +8086,7 @@ def normalize_trust_node_value(kind: str, value: str) -> str:
     if kind == "service_url":
         return normalize_confirmed_service_url(value) or ""
     if kind == "repo_url":
-        return canonical_repo_url(value)
+        return repo_url_core.canonical_repo_url(value)
     if kind == "collection":
         return identifier_core.normalize_nsid(value)
     if kind == "domain":
@@ -8367,7 +8148,7 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
         if seed_type == "service_url":
             return True
         if seed_type == "repo_url":
-            normalized = canonical_repo_url(seed_value)
+            normalized = repo_url_core.canonical_repo_url(seed_value)
             return bool(normalized and normalized in set(source_code_url_values(project)))
         return True
 
@@ -8666,7 +8447,7 @@ def confirm_source_code_url_with_trust(
     evidence_url: str = "",
     updated_at: str = "",
 ) -> bool:
-    normalized = canonical_repo_url(url)
+    normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
     evaluation = trust_auto_confirm_identifier(project, "repo_url", normalized)
@@ -8692,14 +8473,14 @@ def accepted_repo_schema_relation(project: dict[str, Any], relation: dict[str, A
     obj = relation.get("object") or {}
     if subject.get("type") != "repo" or obj.get("type") != "nsid":
         return True
-    repo_url = canonical_repo_url(str(subject.get("value") or ""))
+    repo_url = repo_url_core.canonical_repo_url(str(subject.get("value") or ""))
     nsid = identifier_core.normalize_nsid(str(obj.get("value") or ""))
     if not repo_url or not nsid:
         return False
     accepted_repos = set(manual_repo_urls(project)) | {
-        canonical_repo_url(str(item or ""))
+        repo_url_core.canonical_repo_url(str(item or ""))
         for item in list(project.get("source_code_urls", [])) + [str(project.get("source_code_url") or "")]
-        if canonical_repo_url(str(item or ""))
+        if repo_url_core.canonical_repo_url(str(item or ""))
     }
     return repo_url in accepted_repos and project_owned_lexicon_nsid(project, nsid)
 
@@ -8741,8 +8522,8 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
         url = identifier_core.normalize_url(str(link.get("url") or ""))
         if not url:
             continue
-        repo_url = canonical_repo_url(url)
-        if normalize_github_repo_url(url) and repo_url:
+        repo_url = repo_url_core.canonical_repo_url(url)
+        if repo_url_core.normalize_github_repo_url(url) and repo_url:
             record_trust_edge(
                 project,
                 "service_url",
@@ -8957,7 +8738,7 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
         elif classification == "bluesky_profile":
             record_developer_profile_url(project, url, source)
         elif classification == "same_site":
-            if (normalize_github_repo_url(url) or normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
+            if (repo_url_core.normalize_github_repo_url(url) or repo_url_core.normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 record_trust_edge(
                     project,
                     "service_url",
@@ -9018,7 +8799,7 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     cached = _GITHUB_REPO_FETCH_CACHE.get(repo_url)
     if isinstance(cached, dict):
         return copy.deepcopy(cached)
-    slug = extract_github_slug(repo_url)
+    slug = repo_url_core.extract_github_slug(repo_url)
     if slug is None:
         raise ValueError(f"not a GitHub repo URL: {repo_url}")
     headers = github_headers()
@@ -9057,7 +8838,7 @@ def decode_http_text(body: bytes, headers: dict[str, str]) -> str:
 
 
 def tangled_repo_segments(repo_url: str) -> tuple[str, str]:
-    normalized = normalize_tangled_repo_url(repo_url)
+    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
     if not normalized:
         raise ValueError(f"not a Tangled repo URL: {repo_url}")
     parsed = urllib.parse.urlparse(normalized)
@@ -9101,7 +8882,7 @@ def extract_tangled_repo_tree(repo_url: str, html: str) -> list[dict[str, Any]]:
         return []
     output: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    base = normalize_tangled_repo_url(repo_url) or repo_url
+    base = repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url
     for href in parser.hrefs:
         parsed = urllib.parse.urlparse(urllib.parse.urljoin(base.rstrip("/") + "/", href))
         segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
@@ -9123,7 +8904,7 @@ def extract_tangled_repo_tree(repo_url: str, html: str) -> list[dict[str, Any]]:
 
 
 def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> str:
-    normalized = normalize_tangled_repo_url(repo_url)
+    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
     if not normalized:
         return ""
     owner, repo = tangled_repo_segments(normalized)
@@ -9143,7 +8924,7 @@ def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> st
 
 
 def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
-    normalized = normalize_tangled_repo_url(repo_url)
+    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
     if not normalized:
         raise ValueError(f"not a Tangled repo URL: {repo_url}")
     cached = _TANGLED_REPO_FETCH_CACHE.get(normalized)
@@ -9193,7 +8974,7 @@ def search_github_repositories(query: str, limit: int = 5, *, timeout: float = R
     results: list[dict[str, Any]] = []
     for item in payload.get("items", [])[:limit]:
         html_url = str(item.get("html_url") or "")
-        normalized_repo = normalize_github_repo_url(html_url)
+        normalized_repo = repo_url_core.normalize_github_repo_url(html_url)
         if not normalized_repo:
             continue
         results.append(
@@ -9227,7 +9008,7 @@ def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_T
 
 
 def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
-    slug = extract_github_slug(repo_url)
+    slug = repo_url_core.extract_github_slug(repo_url)
     if slug is None:
         return ""
     normalized_path = str(path or "").strip().lstrip("/")
@@ -9379,7 +9160,7 @@ def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *,
     if not host:
         return False
     tokens = set(project_merge_aliases(project))
-    slug = extract_github_slug(repo_url)
+    slug = repo_url_core.extract_github_slug(repo_url)
     if slug:
         tokens.add(identifier_core.normalize_alias_token(slug.split("/", 1)[-1]))
     for nsid in lexicon_ids:
@@ -9874,7 +9655,7 @@ def apply_github_repo_evidence(project: dict[str, Any], bundle: EvidenceBundle) 
         bundle,
         integration_core.GitHubRepoIntegrationDependencies(
             normalize_url=identifier_core.normalize_url,
-            normalize_github_repo_url=normalize_github_repo_url,
+            normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
             normalize_service_candidate_url=normalize_service_candidate_url,
             confirm_source_code_url=confirm_source_code_url,
             add_investigation_log=add_investigation_log,
@@ -9906,12 +9687,12 @@ def apply_service_probe_result(
     follow_up_timeout: float = REQUEST_TIMEOUT_SHORT,
     collect_follow_ups: bool = True,
 ) -> None:
-    title = clean_title(result["title"])
+    title = naming_core.clean_title(result["title"])
     description = result["description"]
     supported = service_probe_supports_project(project, service_url, result)
     host = urllib.parse.urlparse(identifier_core.normalize_url(service_url)).netloc.lower()
     if supported:
-        if title and host not in GENERIC_PLATFORM_HOSTS:
+        if title and host not in naming_core.GENERIC_PLATFORM_HOSTS:
             add_name_candidate(project, title, f"service_title:{identifier_core.normalize_url(service_url)}")
         add_candidate_text(project, "summary", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
         add_candidate_text(project, "tagline", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
@@ -10038,7 +9819,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
         visited.add(normalized_resource_url)
         result = probe_service_url(normalized_resource_url)
         apply_resource_page_probe_status(project, normalized_resource_url, result)
-        title = clean_title(result["title"])
+        title = naming_core.clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
             add_name_candidate(project, title, f"resource_title:{normalized_resource_url}")
@@ -10063,7 +9844,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             visited.add(normalized_follow_url)
             nested = probe_service_url(normalized_follow_url)
             apply_resource_page_probe_status(project, normalized_follow_url, nested)
-            nested_title = clean_title(nested["title"])
+            nested_title = naming_core.clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
                 add_name_candidate(project, nested_title, f"resource_title:{normalized_follow_url}")
@@ -10637,7 +10418,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
     for url in urls:
         parsed = urllib.parse.urlparse(url)
         if parsed.netloc == "github.com":
-            normalized = normalize_github_repo_url(url)
+            normalized = repo_url_core.normalize_github_repo_url(url)
             if normalized:
                 add_candidate_source_code_url(
                     project,
@@ -10648,7 +10429,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
                     evidence_url=url,
                 )
         elif parsed.netloc == "tangled.org":
-            normalized = normalize_tangled_repo_url(url)
+            normalized = repo_url_core.normalize_tangled_repo_url(url)
             if normalized:
                 add_candidate_source_code_url(
                     project,
@@ -10690,10 +10471,10 @@ def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle
             add_investigation_log=add_investigation_log,
             add_candidate_source_code_url=add_candidate_source_code_url,
             add_candidate_url=add_candidate_url,
-            normalize_github_repo_url=normalize_github_repo_url,
-            normalize_tangled_repo_url=normalize_tangled_repo_url,
-            canonical_repo_url=canonical_repo_url,
-            is_supported_repo_url=is_supported_repo_url,
+            normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
+            normalize_tangled_repo_url=repo_url_core.normalize_tangled_repo_url,
+            canonical_repo_url=repo_url_core.canonical_repo_url,
+            is_supported_repo_url=repo_url_core.is_supported_repo_url,
             record_developer_handle=record_developer_handle,
             note_failure=note_failure,
         ),
@@ -10954,7 +10735,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     for url in clean_string_list(payload.get("source_code_urls")):
         parsed = urllib.parse.urlparse(url)
         if parsed.netloc == "github.com":
-            normalized = normalize_github_repo_url(url)
+            normalized = repo_url_core.normalize_github_repo_url(url)
             if normalized:
                 if normalized in source_code_url_values(project):
                     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
@@ -10969,7 +10750,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
                         evidence_url=url,
                     )
         elif parsed.netloc == "tangled.org":
-            normalized = normalize_tangled_repo_url(url)
+            normalized = repo_url_core.normalize_tangled_repo_url(url)
             if normalized:
                 if normalized in source_code_url_values(project):
                     project["source_code_urls"] = add_unique(project.get("source_code_urls", []), normalized)
@@ -11093,7 +10874,7 @@ def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
 
 
 def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
-    hints = normalize_repo_collection(
+    hints = repo_url_core.normalize_repo_collection(
         unique_list(
             [str(item or "") for item in source_code_url_values(project)]
             + [str(item or "") for item in project.get("candidate_source_code_urls", [])]
@@ -11106,7 +10887,7 @@ def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
         raw_value = str(item.get("value") or "").strip()
         if not raw_value:
             continue
-        normalized_value = canonical_repo_url(raw_value) or identifier_core.normalize_url(raw_value)
+        normalized_value = repo_url_core.canonical_repo_url(raw_value) or identifier_core.normalize_url(raw_value)
         if normalized_value:
             manual_repo_hints.append(normalized_value)
     return unique_list(hints + manual_repo_hints)
@@ -12445,7 +12226,7 @@ def is_strict_github_repo_url(url: str) -> bool:
 
 
 def is_strict_tangled_repo_url(url: str) -> bool:
-    normalized = normalize_tangled_repo_url(url)
+    normalized = repo_url_core.normalize_tangled_repo_url(url)
     if not normalized:
         return False
     parsed = urllib.parse.urlparse(normalized)
@@ -12487,14 +12268,14 @@ def batch_service_seed_hosts(project: dict[str, Any]) -> set[str]:
 def batch_repo_seed_urls(project: dict[str, Any]) -> set[str]:
     urls: set[str] = set()
     for value in manual_seed_values(project, "repo_url"):
-        normalized = normalize_repo_collection([value])
+        normalized = repo_url_core.normalize_repo_collection([value])
         if normalized:
             urls.add(normalized[0])
     return urls
 
 
 def batch_candidate_repo_urls(project: dict[str, Any]) -> set[str]:
-    return set(normalize_repo_collection(project.get("candidate_source_code_urls", [])))
+    return set(repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", [])))
 
 
 def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -> dict[str, list[str]]:
@@ -12874,8 +12655,8 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
         list(merged.get("service_status_evidence", [])) + list(source.get("service_status_evidence", []))
     )
 
-    merged["source_code_urls"] = normalize_repo_collection(source_code_url_values(merged) + source_code_url_values(source))
-    merged["candidate_source_code_urls"] = normalize_repo_collection(
+    merged["source_code_urls"] = repo_url_core.normalize_repo_collection(source_code_url_values(merged) + source_code_url_values(source))
+    merged["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(
         list(merged.get("candidate_source_code_urls", [])) + list(source.get("candidate_source_code_urls", []))
     )
     merged["source_repo_records"] = normalize_source_repo_records(
@@ -13155,11 +12936,11 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     confirmed_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") == "confirmed"]
     candidate_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"]
-    project["source_code_urls"] = normalize_repo_collection(
+    project["source_code_urls"] = repo_url_core.normalize_repo_collection(
         unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
     )
     project["candidate_source_code_urls"] = [
-        url for url in normalize_repo_collection(unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
+        url for url in repo_url_core.normalize_repo_collection(unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
         if url not in project.get("source_code_urls", [])
     ]
     sync_source_repo_provider_views(project)
@@ -13177,7 +12958,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         elif service_url_candidate_values(project):
             project["name"] = urllib.parse.urlparse(service_url_candidate_values(project)[0]).netloc
         elif provider_repo_url_values(project, "github"):
-            slug = extract_github_slug(provider_repo_url_values(project, "github")[0])
+            slug = repo_url_core.extract_github_slug(provider_repo_url_values(project, "github")[0])
             if slug:
                 project["name"] = slug.split("/")[-1]
     normalize_service_identifier_views(project)
@@ -13251,8 +13032,8 @@ def enrich_project(
     collected_github_repo_urls: set[str] = set()
     collected_tangled_repo_urls: set[str] = set()
     for repo_url in initial_repo_urls:
-        if extract_github_slug(repo_url) is not None:
-            normalized_repo_url = canonical_repo_url(repo_url)
+        if repo_url_core.extract_github_slug(repo_url) is not None:
+            normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
             if normalized_repo_url:
                 collected_github_repo_urls.add(normalized_repo_url)
             try:
@@ -13264,7 +13045,7 @@ def enrich_project(
                 run_evidence.extend(failed_collector_bundle(
                     project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
                 ))
-        elif normalized_tangled_repo_url := normalize_tangled_repo_url(repo_url):
+        elif normalized_tangled_repo_url := repo_url_core.normalize_tangled_repo_url(repo_url):
             collected_tangled_repo_urls.add(normalized_tangled_repo_url)
             try:
                 repo_evidence = collect_tangled_repo_evidence(project, repo_url)
@@ -13350,7 +13131,7 @@ def enrich_project(
     secondary_repo_urls = [
         repo_url
         for repo_url in unique_list(provider_repo_url_values(project, "github"))
-        if canonical_repo_url(repo_url) not in collected_github_repo_urls
+        if repo_url_core.canonical_repo_url(repo_url) not in collected_github_repo_urls
     ]
     for repo_url in secondary_repo_urls:
         try:
@@ -13365,7 +13146,7 @@ def enrich_project(
     secondary_tangled_repo_urls = [
         repo_url
         for repo_url in unique_list(provider_repo_url_values(project, "tangled"))
-        if normalize_tangled_repo_url(repo_url) not in collected_tangled_repo_urls
+        if repo_url_core.normalize_tangled_repo_url(repo_url) not in collected_tangled_repo_urls
     ]
     for repo_url in secondary_tangled_repo_urls:
         try:
@@ -14906,7 +14687,7 @@ def seed_value_identity_tokens(raw_value: str) -> set[str]:
             tokens.add(identifier_core.normalize_alias_token(host_parts[0]))
             if len(host_parts) >= 2:
                 tokens.add(identifier_core.normalize_alias_token("".join(host_parts[:-1])))
-    repo_url = canonical_repo_url(value)
+    repo_url = repo_url_core.canonical_repo_url(value)
     repo_parsed = urllib.parse.urlparse(repo_url)
     repo_segments = [segment for segment in repo_parsed.path.split("/") if segment]
     if len(repo_segments) >= 2:
@@ -15237,7 +15018,7 @@ def import_text_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool 
                     )
                     skipped_seeds += 1
                     continue
-                if seed_type == "repo_url" and canonical_repo_url(seed_value) == "https://github.com/notjuliet/pdsls":
+                if seed_type == "repo_url" and repo_url_core.canonical_repo_url(seed_value) == "https://github.com/notjuliet/pdsls":
                     skipped.append(
                         {
                             "raw_value": item.get("raw_value", ""),

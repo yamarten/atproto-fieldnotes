@@ -35,6 +35,20 @@ def normalize_url(url: str) -> str:
     return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
 
 
+def sanitize_extracted_url(raw_url: str) -> str:
+    value = str(raw_url or "").strip().strip("<>[]{}\"'")
+    for marker in ("](", ")("):
+        if marker in value:
+            value = value.split(marker, 1)[0].rstrip()
+    while value.endswith(("**", "__")):
+        value = value[:-2].rstrip()
+    while value.count("(") < value.count(")") and value.endswith(")"):
+        value = value[:-1].rstrip()
+    while value.endswith((".", ",", ";", ":", "!", "?", "]", "}", ">")):
+        value = value[:-1].rstrip()
+    return value
+
+
 def normalize_nsid(nsid: str) -> str:
     value = nsid.strip()
     if value.startswith("at://"):
