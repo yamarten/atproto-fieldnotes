@@ -53,6 +53,10 @@ def export_fixture(conn: sqlite3.Connection, *, run_id: str, case_id: str = "") 
         raise ValueError(f"investigation run not found: {run_id}")
     fixture = core.sanitize_fixture_value({
         "case_id": case_id or run["project_key"],
+        "fixture_metadata": {
+            "sanitization_version": 2,
+            "requires_manual_review_before_commit": True,
+        },
         "input_project": run["input_project"],
         "bundle": run["bundle"].to_dict(),
         "expected_evaluation": run["evaluation"],

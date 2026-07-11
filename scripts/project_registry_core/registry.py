@@ -14172,20 +14172,57 @@ def replay_dependencies() -> replay_core.ReplayDependencies:
 def load_benchmark_cases(path: Path) -> list[dict[str, Any]]:
     if path.is_dir():
         payloads = [load_json(item.read_text(encoding="utf-8")) for item in sorted(path.glob("*.json"))]
-        return [dict(item) for payload in payloads for item in (payload if isinstance(payload, list) else [payload]) if isinstance(item, dict)]
+        return [
+            dict(item)
+            for payload in payloads
+            for item in (payload if isinstance(payload, list) else [payload])
+            if isinstance(item, dict)
+            and isinstance(item.get("input_project"), dict)
+            and isinstance(item.get("bundle"), dict)
+            and isinstance(item.get("expected_evaluation"), dict)
+        ]
     payload = load_json(path.read_text(encoding="utf-8"))
     return [dict(item) for item in (payload if isinstance(payload, list) else [payload]) if isinstance(item, dict)]
 
 
 def sanitize_fixture_value(value: Any) -> Any:
-    secret_keys = {"token", "access_token", "refresh_token", "authorization", "api_key", "password"}
+    dropped_keys = {
+        "html", "readme_text", "body", "text_extract", "prompt", "command", "endpoint",
+        "headers", "request_headers", "response_headers", "cookie", "cookies", "raw_response",
+    }
+
+    def secret_key(key: str) -> bool:
+        lowered = key.lower()
+        return (
+            lowered in {"authorization", "api_key", "password", "secret"}
+            or lowered.endswith(("_token", "_api_key", "_password", "_secret"))
+        )
+
+    def sanitize_string(text: str) -> str:
+        if re.match(r"^(?:/Users/|/home/|[A-Za-z]:[\\/])", text):
+            return "[local-path]"
+        if re.search(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", text):
+            return re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [redacted]", text)
+        try:
+            parsed = urllib.parse.urlparse(text)
+            if parsed.scheme in {"http", "https"} and parsed.netloc:
+                host = parsed.hostname or ""
+                if parsed.port:
+                    host = f"{host}:{parsed.port}"
+                return urllib.parse.urlunparse((parsed.scheme, host, parsed.path, "", "", ""))
+        except ValueError:
+            pass
+        return text
+
+    if isinstance(value, str):
+        return sanitize_string(value)
     if isinstance(value, list):
         return [sanitize_fixture_value(item) for item in value]
     if isinstance(value, dict):
         return {
-            str(key): ("[redacted]" if str(key).lower() in secret_keys else sanitize_fixture_value(item))
+            str(key): ("[redacted]" if secret_key(str(key)) else sanitize_fixture_value(item))
             for key, item in value.items()
-            if str(key).lower() not in {"html", "readme_text", "body"}
+            if str(key).lower() not in dropped_keys
         }
     return value
 

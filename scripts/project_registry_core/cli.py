@@ -218,7 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.set_defaults(func=investigation_commands.cmd_replay_investigation)
 
     benchmark_parser = subparsers.add_parser("benchmark-investigation", help="Replay an investigation fixture corpus and report semantic regressions.")
-    benchmark_parser.add_argument("--path", default=str(registry.ROOT / "tests" / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"))
+    benchmark_parser.add_argument("--path", default=str(registry.ROOT / "tests" / "fixtures" / "project_registry"))
     benchmark_parser.set_defaults(func=investigation_commands.cmd_benchmark_investigation)
 
     export_fixture_parser = subparsers.add_parser("export-investigation-fixture", help="Export a sanitized fixture from a saved investigation run.")

@@ -1,0 +1,93 @@
+[
+  {
+    "case_id": "operator-blocks-tenant-service",
+    "input_project": {
+      "project_key": "fixture:blocked-tenant-service",
+      "seed_type": "service_url",
+      "seed_value": "https://microcosm.blue",
+      "manual_seeds": [{"type": "service_url", "value": "https://microcosm.blue"}],
+      "website_url": "https://microcosm.blue",
+      "service_urls": ["https://microcosm.blue"],
+      "service_url_candidates": ["https://slingshot.microcosm.blue"],
+      "blocked_identifiers": [{"type": "service_url", "value": "https://slingshot.microcosm.blue"}]
+    },
+    "bundle": {
+      "schema_version": 2,
+      "project_key": "fixture:blocked-tenant-service",
+      "collected_at": "2000-01-01T00:00:00+00:00",
+      "records": [{
+        "kind": "project_patch",
+        "source": "fixture:service-page",
+        "classification": "candidate",
+        "observed_at": "2000-01-01T00:00:00+00:00",
+        "value": {"fields": {"service_url_candidates": ["https://slingshot.microcosm.blue"]}},
+        "context": {"allowed_fields": ["service_url_candidates"]}
+      }],
+      "failures": [],
+      "collector_results": []
+    },
+    "expected_evaluation": {
+      "service_urls": ["https://microcosm.blue"],
+      "service_url_candidates": []
+    }
+  },
+  {
+    "case_id": "operator-defers-unrelated-repository",
+    "input_project": {
+      "project_key": "fixture:deferred-repository",
+      "seed_type": "nsid",
+      "seed_value": "app.bsky",
+      "manual_seeds": [{"type": "nsid", "value": "app.bsky"}],
+      "deferred_identifiers": [{"type": "repo_url", "value": "https://github.com/random-mdn/random-mdn-bot"}]
+    },
+    "bundle": {
+      "schema_version": 2,
+      "project_key": "fixture:deferred-repository",
+      "collected_at": "2000-01-01T00:00:00+00:00",
+      "records": [{
+        "kind": "project_patch",
+        "source": "fixture:repository-search",
+        "classification": "candidate",
+        "observed_at": "2000-01-01T00:00:00+00:00",
+        "value": {"fields": {"source_code_urls": ["https://github.com/random-mdn/random-mdn-bot"]}},
+        "context": {"allowed_fields": ["source_code_urls"]}
+      }],
+      "failures": [],
+      "collector_results": []
+    },
+    "expected_evaluation": {
+      "source_code_urls": []
+    }
+  },
+  {
+    "case_id": "operator-confirms-service-candidate",
+    "input_project": {
+      "project_key": "fixture:confirmed-service",
+      "seed_type": "nsid",
+      "seed_value": "pub.leaflet.document",
+      "manual_seeds": [{"type": "nsid", "value": "pub.leaflet.document"}],
+      "website_url": "https://leaflet.pub",
+      "service_urls": ["https://leaflet.pub"],
+      "confirmed_identifiers": [{"type": "service_url", "value": "https://leaflet.pub"}]
+    },
+    "bundle": {
+      "schema_version": 2,
+      "project_key": "fixture:confirmed-service",
+      "collected_at": "2000-01-01T00:00:00+00:00",
+      "records": [{
+        "kind": "project_patch",
+        "source": "fixture:service-search",
+        "classification": "candidate",
+        "observed_at": "2000-01-01T00:00:00+00:00",
+        "value": {"fields": {"service_url_candidates": ["https://leaflet.pub"]}},
+        "context": {"allowed_fields": ["service_url_candidates"]}
+      }],
+      "failures": [],
+      "collector_results": []
+    },
+    "expected_evaluation": {
+      "service_urls": ["https://leaflet.pub"],
+      "service_url_candidates": []
+    }
+  }
+]

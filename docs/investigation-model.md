@@ -166,10 +166,13 @@ record を対応づける履歴です。
 - `replay-investigation`: 保存 run の integration / evaluation を network なしで再実行し semantic diff を出す
 - `benchmark-investigation`: fixture corpus を一括評価し relation/evaluation の退行を報告する
 - `export-investigation-fixture`: 保存 run を sanitize 対象の fixture 形式へ出力する
-- corpus は at.fund、BioSky/observ-ing、spores.garden、Margin、Tangled、Passing Reads の6 caseを持つ
+- corpusは通常replay 6 caseに、operator correctionのblock/defer/confirm 3 caseを加えた9 caseを持つ
 
-fixture は raw response archive ではありません。誤判定を再現するための最小 evidence と期待評価を
-保存します。実 project の追加と sanitize 運用は継続課題です。
+fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。
+自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、
+local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去します。export結果にはmanual review必須markerを
+付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
+詳細な初回監査は[registry-corpus-audit-2026-07-11.md](notes/registry-corpus-audit-2026-07-11.md)です。
 
 ## LLM の位置づけ
 

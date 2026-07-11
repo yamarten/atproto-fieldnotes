@@ -58,9 +58,9 @@ maintenance series完了時に削除します。
 
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
-| P5.1 | 未着手 | 既存benchmark 6 caseはmanual gold setではない | current snapshotからdecision/bundle相関をread-only exportする |
-| P5.2 | 未着手 | なし | fixture sanitize ruleと除外情報を決定・文書化する |
-| P5.3 | 未着手 | なし | 少数のoperator correction fixtureで実際に退行を検出できることを確認する |
+| P5.1 | 完了 | [2026-07-11 corpus audit](registry-corpus-audit-2026-07-11.md)。3,239-project immutable snapshotでactive decision 83件/59 projectを再集計 | block/defer/confirmはlatest bundle相関あり、separateはsingle-project replayでなくmanual gold対象と判断 |
+| P5.2 | 完了 | sanitizer v2とcorpus auditへruleを固定 | secret/raw text/path/URL query等を機械除去し、実key・時刻・handle/DID・自由記述はcommit前manual縮約を必須化 |
+| P5.3 | 完了 | operator correction 3 caseを通常benchmarkへ接続 | block decisionを意図的に除去すると1 regressionを検出。通常6 + correction3の9/9成功 |
 
 ### Phase 6
 
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 365件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 367件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -106,7 +106,7 @@ maintenance series完了時に削除します。
 - HTTP transport分離後の内部host遮断、redirect先再検証、明示的なoperator endpoint許可、query送信の回帰test。
 - LLM transport分離後のcommand呼出し、OpenAI互換response shape、metrics、timeout分類の回帰test。
 - URL/NSID/authority/alias helperのdirect回帰testと、既存consumer test。
-- investigation benchmark 6 caseが全件成功、semantic regression 0件。
+- investigation benchmark 9 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
 - Web request logがquery/bodyを除いたmethod/path/status/durationだけを記録し、unexpected exceptionはserver側に
   tracebackを残す回帰test。POST JSON parseがmutation lock外で行われ、token比較が`hmac.compare_digest`を使う回帰test。

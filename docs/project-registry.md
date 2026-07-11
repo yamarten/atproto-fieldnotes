@@ -759,6 +759,9 @@ project-registry export-investigation-fixture --run-id inv:... --output /tmp/cas
 ```
 
 `benchmark-investigation`と`export-investigation-fixture`は開発・テストcorpus保守用で、通常のproject更新操作ではありません。
+benchmarkは通常replay 6件とoperator correction 3件を実行します。exportは機械的なsecret/raw text除去を行いますが、
+出力自体にもmanual review必須と記録されます。実project key、時刻、handle/DID、自由記述を含む出力をそのまま
+fixtureとしてコミットしません。
 
 ### serviceの個別診断
 

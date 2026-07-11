@@ -52,7 +52,8 @@ product briefと2026-07-10の静止DB baselineは作成済みです。baseline�
 - Semble weak matchのsuggestion化。
 - bulk enrich failure policyとLLM retry分類の見直し。
 - bounded real-source smokeとWeb診断情報。
-- operator correction fixtureとmanual gold setの役割分離。
+- manual gold setを50〜100件へ育て、confirmed precision、merge/split、紹介可否、operator確認時間を人が採点する。
+  3件のoperator correction実行fixtureは追加済みだが、manual goldの代替にはしない。
 - cleanup後も必要な場合のhistory保存形式・byte-aware retention再設計。
 - 巨大runのreplayでrelation normalizeが二乗的に長時間化する経路の改善。storage cleanupとは分ける。
 

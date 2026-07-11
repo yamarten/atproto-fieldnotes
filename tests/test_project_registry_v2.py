@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
 import unittest
@@ -217,6 +218,39 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertGreaterEqual(len([item for item in split if item["kind"] == "separate_project"]), 3)
         deferred = cases["multiple_repository_candidates_deferred"]["decisions"]
         self.assertEqual(len({item["target_value"] for item in deferred}), 10)
+
+    def test_operator_correction_benchmark_detects_removed_guard(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-correction-benchmark-v1.json"
+        cases = registry.load_benchmark_cases(path)
+        passing = registry.replay_core.benchmark_cases(cases, registry.replay_dependencies())
+        self.assertEqual(passing["regression_count"], 0)
+
+        mutated = copy.deepcopy(cases)
+        mutated[0]["input_project"]["blocked_identifiers"] = []
+        regressed = registry.replay_core.benchmark_cases(mutated, registry.replay_dependencies())
+        self.assertEqual(regressed["regression_count"], 1)
+        self.assertEqual(regressed["results"][0]["case_id"], "operator-blocks-tenant-service")
+        self.assertTrue(regressed["results"][0]["diff"]["changed"])
+
+    def test_fixture_sanitizer_removes_secrets_raw_text_paths_and_url_queries(self) -> None:
+        sanitized = registry.sanitize_fixture_value({
+            "api_key": "secret",
+            "nested": {"session_token": "secret", "headers": {"Authorization": "Bearer secret"}},
+            "html": "<p>raw</p>",
+            "path": "/Users/operator/private/file.json",
+            "url": "https://user:pass@example.com/path?token=secret#fragment",
+            "message": "Authorization: Bearer abc.def",
+            "public_identifier": "app.example.record",
+        })
+
+        self.assertEqual(sanitized["api_key"], "[redacted]")
+        self.assertEqual(sanitized["nested"]["session_token"], "[redacted]")
+        self.assertNotIn("headers", sanitized["nested"])
+        self.assertNotIn("html", sanitized)
+        self.assertEqual(sanitized["path"], "[local-path]")
+        self.assertEqual(sanitized["url"], "https://example.com/path")
+        self.assertEqual(sanitized["message"], "Authorization: Bearer [redacted]")
+        self.assertEqual(sanitized["public_identifier"], "app.example.record")
 
 
 if __name__ == "__main__":
