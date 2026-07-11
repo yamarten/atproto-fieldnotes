@@ -142,6 +142,10 @@ project-registry enrich --all --no-checkpoint
 
 Ctrl+Cは処理中projectの完了後に停止する要求として扱います。保存とcheckpoint更新後、Python tracebackは出さず、JSON linesに`interrupted: true`、`run_id`、`checkpoint_path`、`resume_command`を出して終了コード`130`で終わります。外部request中の即時停止ではないため、停止までの時間は各sourceのtimeoutに依存します。再開時はcheckpointに保存された最初の対象リストを使い、完了済みprojectを飛ばします。
 
+`enrich --all`は1 projectが失敗しても、失敗情報をcheckpointへ記録して残りを続行します。1件でも失敗した
+runは最終的にfailedとなり、CLIは終了コード`1`を返します。同じcheckpointをresumeすると完了済みprojectを
+飛ばし、失敗projectを再試行します。最初の失敗で停止したい診断時は`--fail-fast`を指定します。
+
 `stable` / `stalled` / `out_of_scope` / `archived` / `ignore` も回したい場合:
 
 ```bash

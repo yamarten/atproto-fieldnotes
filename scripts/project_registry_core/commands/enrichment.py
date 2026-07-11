@@ -32,6 +32,7 @@ def request_from_args(args: argparse.Namespace) -> OperationRequest:
             "include_ignore": bool(args.include_ignore),
             "new_only": bool(args.new_only),
             "retry_failures": bool(args.retry_failures),
+            "continue_on_error": not bool(args.fail_fast),
             "checkpoint_path": str(args.checkpoint_path or ""),
             "no_checkpoint": bool(args.no_checkpoint),
             "resume_run": str(args.resume_run or ""),
@@ -75,5 +76,6 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             result = services.run(conn, request, emit=emit, cancellation=cancellation)
     finally:
         conn.close()
-    return 130 if result.status == "cancelled" else 0
-
+    if result.status == "cancelled":
+        return 130
+    return 1 if result.status == "failed" else 0

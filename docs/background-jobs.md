@@ -59,7 +59,7 @@ review executeは先にdry-run planを作り、candidate IDを選択してから
 - `cancelled`
 - `failed`
 
-現行enrich serviceは正常終了と協調的中断でresultを返します。project処理中の例外は`failed` eventを通知して再送出します。syncはsource内のquery/page/item境界、reviewはcandidate境界で`progress` eventを返します。CLIは既存error handlingへ渡し、subprocess workerはjob-level failureへ変換します。
+現行enrich serviceは正常終了、協調的中断、失敗のいずれもstructured resultを返します。bulkではproject処理中の例外を`failed` eventとcheckpointへ記録して後続を処理しますが、run全体のresultも`failed`です。単体enrichと`--fail-fast`指定時は後続へ進みません。syncはsource内のquery/page/item境界、reviewはcandidate境界で`progress` eventを返します。
 
 ## 中断
 
@@ -73,6 +73,12 @@ review executeは先にdry-run planを作り、candidate IDを選択してから
 syncは進行中のHTTP requestを中断せず次のquery/page/item境界で、reviewは次candidateの前で停止します。境界までに完了したDB更新は取り消しません。sync/review自体のcheckpoint再開は未接続です。
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
+
+bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へ
+project key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了してもrun全体は
+`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。
+resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。
+障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
 
 ## Enrich Checkpoint
 

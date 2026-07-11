@@ -34,6 +34,7 @@
   - enrich、sync、reviewを別processで実行
   - operation別のprogressと協調停止
   - enrich checkpointの再発見と再開
+  - bulk enrichはproject失敗をcheckpointへ残して後続を続行し、run全体をfailedとして失敗分をresume可能
   - review dry-run planの選択実行とfingerprint再検証
   - Operationsからallowlist済みjob presetを手動または定期発火
     - 通常`enrich --all`、全tracking state対象`enrich --all`後のstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`

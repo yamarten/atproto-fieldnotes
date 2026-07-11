@@ -368,6 +368,11 @@ scan fallbackを削除して本itemを終端する。
 cancel resultは、checkpointをclearする前の`current_project_key`を返すか、field自体を削除します。
 常に空文字を返す互換性は維持しません。
 
+決定: bulk enrichはproject単位でrollback・失敗記録して後続を既定で続行する。1件でも失敗したrunの
+checkpoint/result/job statusとCLI終了コードはfailed/1とし、成功扱いしない。resumeはcompleted keyだけを
+除外する既存契約によりfailed projectを再試行する。診断時だけ`--fail-fast`で最初の失敗後に止める。
+単体enrichは続行せずstructured failed resultを返す。cancel resultの常に空だった`current_project_key`は削除する。
+
 ### P4.4: LLM failure / retry
 
 - transport failure、endpoint incompatibility、content parse failureを分ける。

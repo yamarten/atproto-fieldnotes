@@ -28,6 +28,7 @@ class EnrichmentOptions:
     include_ignore: bool = False
     new_only: bool = False
     retry_failures: bool = False
+    continue_on_error: bool = True
     checkpoint_path: str = ""
     no_checkpoint: bool = False
     resume_run: str = ""
@@ -58,6 +59,7 @@ class EnrichmentOptions:
             "include_ignore",
             "new_only",
             "retry_failures",
+            "continue_on_error",
             "deep_investigation",
             "llm_endpoint",
             "llm_model",
@@ -313,6 +315,7 @@ def run(
     completed_before = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}) if checkpoint else 0
     run_started = dt.datetime.now(dt.timezone.utc)
     promoted_now: list[dict[str, Any]] = []
+    failed_projects: list[dict[str, str]] = []
     if checkpoint:
         publish("started", {"enrich_run": {
             "run_id": checkpoint["run_id"],
@@ -369,11 +372,46 @@ def run(
             core.save_project(conn, enriched, enriched=True)
             conn.commit()
         except Exception as exc:
+            conn.rollback()
+            failure = {
+                "project_key": project_key,
+                "error": f"{type(exc).__name__}: {exc}",
+                "at": core.iso_now(),
+            }
+            failed_projects.append(failure)
             if checkpoint:
                 _mark_failed(checkpoint, project_key, exc)
                 written_path = write_checkpoint(checkpoint, options.checkpoint_path)
-            publish("failed", {"error": {"type": type(exc).__name__, "message": str(exc), "project_key": project_key}})
-            raise
+            error = {"type": type(exc).__name__, "message": str(exc), "project_key": project_key}
+            publish("failed", {"error": error, "continuing": bool(options.all_projects and options.continue_on_error)})
+            if options.all_projects and options.continue_on_error:
+                continue
+            if checkpoint:
+                checkpoint["status"] = "failed"
+                checkpoint["completed_at"] = core.iso_now()
+                written_path = write_checkpoint(checkpoint, options.checkpoint_path)
+            payload = {
+                "summary": "enrich_all" if options.all_projects else "enrich",
+                "run_id": checkpoint.get("run_id") if checkpoint else request.operation_id,
+                "checkpoint_path": str(written_path or "") if checkpoint else "",
+                "selected_project_count": selected_total,
+                "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else 0,
+                "failed_project_count": 1,
+                "failed_projects": failed_projects,
+                **(
+                    {"resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path)}
+                    if checkpoint else {}
+                ),
+            }
+            return OperationResult(
+                request.operation_id,
+                request.operation,
+                "failed",
+                started_at,
+                core.iso_now(),
+                payload,
+                error,
+            )
         if checkpoint:
             _mark_completed(checkpoint, project_key)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
@@ -405,7 +443,6 @@ def run(
                 "resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path),
                 "selected_project_count": selected_total,
                 "completed_project_count": len(checkpoint.get("completed_project_keys", [])),
-                "current_project_key": checkpoint.get("current_project_key", ""),
             }
         else:
             payload = {"summary": "enrich", "interrupted": True, "cancel_reason": cancellation.reason}
@@ -413,7 +450,7 @@ def run(
         return OperationResult(request.operation_id, request.operation, "cancelled", started_at, core.iso_now(), payload)
 
     if checkpoint:
-        checkpoint["status"] = "completed"
+        checkpoint["status"] = "failed" if failed_projects else "completed"
         checkpoint["completed_at"] = core.iso_now()
         checkpoint["current_project_key"] = ""
         written_path = write_checkpoint(checkpoint, options.checkpoint_path)
@@ -423,9 +460,20 @@ def run(
         "checkpoint_path": str(written_path or "") if checkpoint else "",
         "project_count": len(projects),
         "selected_project_count": selected_total,
-        "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(projects),
+        "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(projects) - len(failed_projects),
+        "failed_project_count": len(failed_projects),
+        "failed_projects": failed_projects,
         "promoted_now_count": len(promoted_now),
         "promoted_now": promoted_now,
     }
+    if failed_projects:
+        if checkpoint:
+            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path)
+        error = {
+            "type": "BulkEnrichmentError",
+            "message": f"{len(failed_projects)} project(s) failed during bulk enrich",
+        }
+        publish("failed", {**summary, "error": error})
+        return OperationResult(request.operation_id, request.operation, "failed", started_at, core.iso_now(), summary, error)
     publish("completed", summary)
     return OperationResult(request.operation_id, request.operation, "completed", started_at, core.iso_now(), summary)

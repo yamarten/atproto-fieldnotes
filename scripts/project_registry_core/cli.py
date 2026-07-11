@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--include-ignore", action="store_true", help="When used with --all, include projects marked ignore.")
     enrich_parser.add_argument("--new-only", action="store_true", help="When used with --all, enrich only projects that have never been enriched yet.")
     enrich_parser.add_argument("--retry-failures", action="store_true", help="When used with --all, enrich only projects whose previous enrich left last_run_errors.")
+    enrich_parser.add_argument("--fail-fast", action="store_true", help="When used with --all, stop after the first failed project instead of continuing the bulk run.")
     enrich_parser.add_argument("--run-id", help="When used with --all, use this id for the resumable checkpoint file.")
     enrich_parser.add_argument("--resume-run", help="Resume a previous --all enrich run from its checkpoint run id.")
     enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")

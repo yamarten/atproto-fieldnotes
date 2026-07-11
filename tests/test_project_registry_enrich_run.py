@@ -92,6 +92,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(checkpoint["status"], "interrupted")
         self.assertEqual(checkpoint["completed_project_keys"], ["proj:111111111111"])
         self.assertEqual(checkpoint["current_project_key"], "")
+        self.assertNotIn("current_project_key", result.data)
 
         resumed_calls: list[str] = []
 
@@ -143,6 +144,87 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         ])
         self.assertEqual(lines[-1]["summary"], "enrich_all")
         self.assertEqual(lines[-1]["completed_project_count"], 2)
+
+    def test_bulk_continues_after_failure_and_resume_retries_only_failed_project(self) -> None:
+        self.seed_projects()
+        checkpoint_path = Path(self.tempdir.name) / "failure.json"
+        calls: list[str] = []
+
+        def fail_one(conn, project, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(project["project_key"])
+            if project["project_key"] == "proj:111111111111":
+                raise RuntimeError("project-specific failure")
+            return dict(project, name="Completed after peer failure")
+
+        events = []
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(enrichment.core, "enrich_project", side_effect=fail_one):
+                result = enrichment.run(conn, self.request(checkpoint_path), emit=events.append)
+        finally:
+            conn.close()
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(set(calls), {"proj:111111111111", "proj:222222222222"})
+        self.assertEqual(result.data["failed_project_count"], 1)
+        self.assertEqual(result.data["failed_projects"][0]["project_key"], "proj:111111111111")
+        self.assertEqual(result.error["type"], "BulkEnrichmentError")
+        self.assertEqual(events[-1].kind, "failed")
+        checkpoint = json.loads(checkpoint_path.read_text())
+        self.assertEqual(checkpoint["status"], "failed")
+        self.assertEqual(checkpoint["completed_project_keys"], ["proj:222222222222"])
+        self.assertEqual(checkpoint["failed_projects"][0]["project_key"], "proj:111111111111")
+
+        resumed_calls: list[str] = []
+
+        def succeed(conn, project, **kwargs):  # type: ignore[no-untyped-def]
+            resumed_calls.append(project["project_key"])
+            return dict(project, name="Recovered")
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(enrichment.core, "enrich_project", side_effect=succeed):
+                resumed = enrichment.run(conn, self.request(checkpoint_path, resume_run="test-run"))
+        finally:
+            conn.close()
+
+        self.assertEqual(resumed.status, "completed")
+        self.assertEqual(resumed_calls, ["proj:111111111111"])
+        checkpoint = json.loads(checkpoint_path.read_text())
+        self.assertEqual(checkpoint["status"], "completed")
+        self.assertEqual(checkpoint["failed_projects"], [])
+
+    def test_bulk_fail_fast_stops_before_next_project(self) -> None:
+        self.seed_projects()
+        checkpoint_path = Path(self.tempdir.name) / "fail-fast.json"
+        request = self.request(checkpoint_path)
+        request = OperationRequest.create(
+            "enrich",
+            operation_id=request.operation_id,
+            execute=True,
+            parameters={**request.parameters, "continue_on_error": False},
+        )
+        calls: list[str] = []
+
+        def fail(conn, project, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(project["project_key"])
+            raise RuntimeError("stop now")
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(enrichment.core, "enrich_project", side_effect=fail):
+                result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("--resume-run", result.data["resume_command"])
+
+    def test_cli_fail_fast_option_sets_bulk_policy(self) -> None:
+        args = cli.build_parser().parse_args(["enrich", "--all", "--fail-fast"])
+        request = enrichment_commands.request_from_args(args)
+        self.assertFalse(request.parameters["continue_on_error"])
 
 
 if __name__ == "__main__":
