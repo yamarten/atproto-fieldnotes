@@ -42,7 +42,7 @@ maintenance series完了時に削除します。
 | P3.1 | 完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budgetに加え、resource URLのadd/移送/patch/guard/hydrate/merge/save経路を監査 | collector project patchにも即時budgetを追加し、raw save/merge/patch回帰testで確認 |
 | P3.2 | 完了 | `3243702`のcleanupにresource URL/旧LLM evidence縮約とcategory別bytes、role/host/path reportを追加。同じclone全件dry-runで4.620 GB→1.556 GB見込み | snapshot evaluation差分0。path名一律削除はせず現行代表budgetを再利用。正本適用はP3.3 |
 | P3.3 | 完了 | 2026-07-11にwriter停止とbackup後、正本へstorage cleanup、identifier backfill、same-site evidence repairを適用。payload 4,620,475,395→1,555,811,509 bytes、identifier 23,944→29,625行、stale probe 29件/17 projectを修復 | FK違反0、integrity ok、全command再dry-run 0件、handle/DID込み12,849 lookup差分0、same-site current mismatch 0。VACUUMは未実施 |
-| P3.4 | 一部完了 | `229b1c3`でbundle/collector本文二重保存を解消 | cleanup適用後の増加率を測り、snapshot差分化、stub、圧縮、retention、history DB分離を採否またはroadmapへ終端する |
+| P3.4 | roadmapへ延期 | `229b1c3`でbundle/collector本文二重保存を解消。cleanup直後は15,086 runs、論理payload 1,555,811,509 bytes、allocated 1,674,387,456 bytes、reusable 3,086,471,168 bytes | 30日または新規1,000 runsで再計測。論理payload 3 GiB超または月間512 MiB超を比較再開条件とし、各方式の不採用理由と個別gateをroadmapへ固定 |
 
 ### Phase 4
 

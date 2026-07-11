@@ -54,7 +54,15 @@ product briefと2026-07-10の静止DB baselineは作成済みです。baseline�
 - bounded real-source smokeとWeb診断情報。
 - manual gold setを50〜100件へ育て、confirmed precision、merge/split、紹介可否、operator確認時間を人が採点する。
   3件のoperator correction実行fixtureは追加済みだが、manual goldの代替にはしない。
-- cleanup後も必要な場合のhistory保存形式・byte-aware retention再設計。
+- history保存形式・byte-aware retention再設計は、2026-07-11 cleanup直後のbaselineから条件付きで再開する。
+  - baseline: 15,086 runs、論理payload 1,555,811,509 bytes、allocated 1,674,387,456 bytes、SQLite内reusable 3,086,471,168 bytes
+  - 30日経過または新規1,000 runsの早い方で`cleanup-storage-payloads` dry-runを再計測する
+  - 論理payload 3 GiB超、または30日換算の増加が512 MiB超なら、次の方式を一つずつ比較する
+  - input/output差分化・片側廃止: replayで両snapshotが必要なため現時点では不採用。再開時はreplay fixtureの同値を受入条件にする
+  - no-change run stub: no-changeの意味をcollector failure/cancelと区別できていないため現時点では不採用。weekly bytesの30%以上が意味上no-changeと確認できた場合に再検討する
+  - JSON圧縮: SQLite上の直接監査と部分更新を失うため現時点では不採用。上記byte gate到達時に圧縮率とread/replay costを測る
+  - byte-aware retention: 既存90日+projectごと最新3 runを維持する。導入時はmerge済みaliasをcanonical project単位で数え、alias単位の偶然の保持に依存しない
+  - history DB分離: backup、復旧、writer contentionを増やすため現時点では不採用。allocated historyが10 GiB超、またはcurrent DB maintenanceとの競合が実測された場合だけ再検討する
 - 巨大runのreplayでrelation normalizeが二乗的に長時間化する経路の改善。storage cleanupとは分ける。
 
 `registry.py`のstateful orchestration分割は、次の契約を先に確定してから再開します。単なる行数削減を目的に

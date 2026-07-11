@@ -9,16 +9,16 @@
 ## 現在地
 
 進捗の正本は[registry-maintenance-status.md](registry-maintenance-status.md#実行台帳)の33 IDです。
-現在は完了29、roadmapへ延期1、一部完了1、未着手2です。未終端3 IDは下記の作業順にすべて含めます。
+現在は完了29、roadmapへ延期2、未着手2です。未終端2 IDは下記の作業順にすべて含めます。
 ここへ完了項目や検証履歴を複製しません。
 
 通常運用側ではbug fixや小規模UI改善を継続できます。各作業単位の着手前と適用前にmasterとの差分を確認します。
 
 ## 次に必要な作業
 
-1. P3.3の正本maintenanceは完了した。P3.4でcleanup後の保存量をbaseline化し、観測期間を要する選択肢を
-   roadmapへ終端する。
-2. 全IDが終端してからcloseoutする。
+1. P3.3の正本maintenanceとP3.4の保存量判断gateは終端した。
+2. P7.1で通常側正本文書へ最終反映し、このmaintenance用status/handoffを削除する。
+3. P7.2でREADME/project-registry重複、絶対path、stale test数、registry-internals節を独立auditする。
    - P7.1: 通常側正本文書へ反映し、maintenance用status/handoffを削除する。
    - P7.2: 文書auditを独立実施する。
 
