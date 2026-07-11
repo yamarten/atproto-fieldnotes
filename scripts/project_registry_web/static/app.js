@@ -1,4 +1,6 @@
 const $ = (id) => document.getElementById(id);
+// Security boundary for HTML templates: every external string must pass through
+// esc(), link(), pill(), or json() before it reaches innerHTML/outerHTML.
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const list = (value) => Array.isArray(value) ? value : [];
 const resetDetailScroll = () => { if ($("detail")) $("detail").scrollTop = 0; window.scrollTo({top:0, left:0}); };
@@ -346,7 +348,7 @@ function normalizeQueueItem(item) {
 function renderList(data) {
   const items = list(data.items);
   const count = data.count ?? items.length;
-  $("list").innerHTML = `<div class="meta-row"><strong>${count}</strong> results</div>` + (items.length ? items.map((item, index) => {
+  $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> results</div>` + (items.length ? items.map((item, index) => {
     const project = normalizeQueueItem(item);
     const key = project.project_key || item.project_key || item.source_project_key || "";
     const name = project.name || item.source_name || key;

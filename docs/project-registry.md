@@ -185,7 +185,18 @@ project-registry init-db --db-path data/survey.dev.db
 project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
 ```
 
-project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。tokenとUI設定はURLへ保存しません。
+project detailは`Overview / Identifiers / Relations / Investigation / Decisions / Raw`に分かれ、検索条件、選択project、detail tabはURLからreload/back/forward後に復元します。UI設定はURLへ保存しません。tokenは初回bootstrap URLから読み取った直後にURLから除去します。
+
+### Access境界
+
+Web UIは`127.0.0.1`上で単一operatorが使うことを前提にしています。公開server、共有端末、複数利用者向けのaccess controlは実装していません。
+
+- 起動時に表示・自動openする初回URLだけはqueryにtokenを含みます。UIは読み取り後に`history.replaceState`でqueryを除去し、HTTP request logもqueryを記録しませんが、terminal出力、browser拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
+- tokenは同じoriginの`localStorage`へ保存します。同じbrowser profile・originを使えるscriptや利用者とは秘密を分離できません。共有端末では使わず、不要になったらSettingsの`Clear API token`で削除します。
+- server自身はplain HTTPで、TLS終端やtoken rotationを提供しません。loopback内の通信だけを想定し、localhost外へ直接bindしません。
+- localhost外から使う必要がある場合は、Web serverはloopback bindのまま、operatorが管理するSSH tunnelやTLS付きreverse proxyを前段に置きます。それを正式な常用導線にする場合は、proxy header、TLS、token更新、access logの契約を別途設計します。
+
+stderrのHTTP logはmethod、queryを除いたrequest path、status、所要時間だけを記録します。token、request body、background worker stderrは混ぜません。予期しないHTTP exceptionのtracebackとbackground jobのstderrはserver側の診断情報であり、UIへはそれぞれ一般的なerror responseと明示的に開いたjob detailとして表示します。
 
 `--reload`を付けると、Web server、application service、HTML/CSS/JavaScriptの変更時にserver processを再起動します。
 Settingsの`Reload server`は同じcommand-line argumentでserver processを手動再起動します。SQLiteは変更せず、

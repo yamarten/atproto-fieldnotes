@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hmac
 import json
 import mimetypes
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import uuid
 from http import HTTPStatus
@@ -151,30 +153,60 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._response_status = int(code)
+        super().send_response(code, message)
+
+    def handle_request(self, path: str, callback: Callable[[], None]) -> None:
+        started_at = time.monotonic()
+        self._response_status = HTTPStatus.INTERNAL_SERVER_ERROR
+        try:
+            callback()
+        finally:
+            # Unit tests construct the handler without a client socket. Real HTTP
+            # handlers always have client_address and receive one sanitized line.
+            if hasattr(self, "client_address"):
+                duration_ms = round((time.monotonic() - started_at) * 1000)
+                print(
+                    f'http method={self.command} path={path!r} '
+                    f'status={int(self._response_status)} duration_ms={duration_ms}',
+                    file=sys.stderr,
+                    flush=True,
+                )
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path.startswith("/api/"):
-            if not self.authorized():
-                self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
+        def respond() -> None:
+            if parsed.path.startswith("/api/"):
+                if not self.authorized():
+                    self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
+                    return
+                self.dispatch(lambda: self.handle_api_get(parsed))
                 return
-            self.dispatch(lambda: self.handle_api_get(parsed))
-            return
-        self.dispatch(lambda: self.serve_static(parsed.path))
+            self.dispatch(lambda: self.serve_static(parsed.path))
+        self.handle_request(parsed.path, respond)
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if not parsed.path.startswith("/api/"):
-            self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
-            return
-        if not self.authorized():
-            self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
-            return
-        lock = getattr(self.server, "mutation_lock", None)
-        if lock is None:
-            self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
-        else:
-            with lock:
-                self.dispatch(lambda: self.handle_api_post(parsed, self.read_json()))
+        def respond() -> None:
+            if not parsed.path.startswith("/api/"):
+                self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)
+                return
+            if not self.authorized():
+                self.send_error_json("unauthorized", "API token is required", HTTPStatus.UNAUTHORIZED)
+                return
+
+            def parse_then_mutate() -> None:
+                payload = self.read_json()
+                lock = getattr(self.server, "mutation_lock", None)
+                if lock is None:
+                    self.handle_api_post(parsed, payload)
+                else:
+                    with lock:
+                        self.handle_api_post(parsed, payload)
+
+            self.dispatch(parse_then_mutate)
+        self.handle_request(parsed.path, respond)
 
     def dispatch(self, callback: Callable[[], None]) -> None:
         try:
@@ -197,13 +229,14 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             else:
                 self.send_error_json("database_error", str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
         except Exception as exc:  # pragma: no cover - defensive HTTP boundary
+            traceback.print_exc(file=sys.stderr)
             self.send_error_json("internal_error", str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def authorized(self) -> bool:
         auth = str(self.headers.get("Authorization") or "")
         header = str(self.headers.get("X-Project-Registry-Token") or "")
         supplied = auth[7:].strip() if auth.lower().startswith("bearer ") else header.strip()
-        return bool(supplied) and supplied == self.server.token
+        return bool(supplied) and hmac.compare_digest(supplied, self.server.token)
 
     def serve_static(self, path: str) -> None:
         requested = "index.html" if path in {"", "/", "/index.html"} else path.lstrip("/")

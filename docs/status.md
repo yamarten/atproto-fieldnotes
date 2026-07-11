@@ -41,6 +41,13 @@
 - Web serverの手動reload
   - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動
   - active background jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続
+- Web診断とlocal access境界
+  - HTTP request logはquery/bodyを除いたmethod、path、status、所要時間だけをstderrへ記録
+  - unexpected HTTP exceptionはserver側へtracebackを残し、job stderrとは分離
+  - scheduled workerの起動失敗はqueueを終端し、presetの最終status/messageへ保存
+  - POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化
+  - API tokenはconstant-timeで比較
+  - UIのHTML templateは外部文字列を共通escape/link/JSON helperへ通す
 - project detail
   - 初期detailはmerge候補計算を待たずに表示
   - merge候補は後続requestで計算し、完了次第表示

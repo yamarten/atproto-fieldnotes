@@ -3,7 +3,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1169,12 +1171,15 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertFalse((registry.ROOT / "scripts" / "project_registry.py").exists())
 
     def test_public_cli_wrapper_is_the_only_shell_entrypoint(self) -> None:
+        env = os.environ.copy()
+        env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", "")])
         result = subprocess.run(
             [str(registry.ROOT / "bin" / "project-registry"), "--help"],
             cwd=registry.ROOT,
             check=True,
             capture_output=True,
             text=True,
+            env=env,
         )
         self.assertIn("usage: project-registry", result.stdout)
         self.assertFalse((registry.ROOT / "scripts" / "project-registry").exists())

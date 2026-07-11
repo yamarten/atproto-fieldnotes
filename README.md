@@ -94,6 +94,8 @@ project-registry-web --host 127.0.0.1 --port 8765
 
 project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。enrich、設定済みsourceのsync、tracking classification reviewは別processのbackground jobとしてWebから開始・監視できます。enrich bulkだけは中断とcheckpoint再開に対応し、sync/reviewの停止は現在のoperation完了後に反映されます。
 
+このUIはloopback上の個人利用向けです。token bootstrap、localStorage、plain HTTP、localhost外bindの制約は[利用手順](docs/project-registry.md#access境界)を確認してください。
+
 ## 環境変数
 
 実装上の環境変数は次で全部です。

@@ -33,7 +33,7 @@ maintenance series完了時に削除します。
 | P2.2 | 完了 | `61af6f6`の容量baselineに加え、[2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)でprompt-size分位10 project、20実LLM requestを測定 | full enrich phase蓄積とoperator review時間は通常運用で測るroadmapへ分離 |
 | P2.3 | 完了 | `be27ef4`。7 phaseとplanning/triage request metricsを保存・API・Webへ接続 | 代表sample取得はP2.2で追跡 |
 | P2.4 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)でGitHub、Semble、Bluesky introduced、collection inventory、Tangledのbounded worker dry-runと実LLM接続を確認。collection/Tangledへ`max_items`を追加 | live smokeは通常接続、failure/cancelはdeterministic test、partial-result policy変更はP4.3の責務とした |
-| P2.5 | 未着手 | なし | request log、traceback、scheduler失敗、lock範囲、constant-time token比較、innerHTML、利用制約を個別に監査し、実装またはroadmap判断する |
+| P2.5 | 完了 | `Harden Web diagnostics and scheduler boundaries` checkpoint。sanitized request log、server traceback、scheduler起動失敗の終端化、lock範囲、constant-time token比較、HTML template境界、access制約を実装・監査 | 公開telemetry、TLS前段、token rotationはlocalhost外write運用を正式導線にする場合だけ再検討する |
 
 ### Phase 3
 
@@ -91,14 +91,14 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 346件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 352件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
 - custom pathを`init-db`で作成し、schema versionとinvestigation tableを確認する回帰test。
 - Webがmissing DBを検出し、serverをbindする前に停止する回帰test。
 - 二つの公開wrapperがfake Python 3.9.18をimport前に拒否する回帰test。
-- repository-local `.venv`が無い状態で、system Python 3.14.6を使う二つの公開wrapperの`--help`。
+- requirements導入済み隔離PythonをPATHから選ぶ、二つの公開wrapperの`--help`。
 - `split-project` parserにexplicit key属性が無く、自動採番splitとWeb splitが成功する回帰test。
 - same first-label / different registrable domainをdirect判定、redirect、official/resource link、repo homepageで
   拒否する回帰test。同一registrable domainのsubdomainはsame-siteとして維持する。
@@ -108,6 +108,11 @@ maintenance series完了時に削除します。
 - URL/NSID/authority/alias helperのdirect回帰testと、既存consumer test。
 - investigation benchmark 6 caseが全件成功、semantic regression 0件。
 - JavaScript syntax checkが成功。
+- Web request logがquery/bodyを除いたmethod/path/status/durationだけを記録し、unexpected exceptionはserver側に
+  tracebackを残す回帰test。POST JSON parseがmutation lock外で行われ、token比較が`hmac.compare_digest`を使う回帰test。
+- scheduled workerの起動失敗がqueueから除かれ、presetの`last_status` / `last_message`へ失敗を残して再試行しない回帰test。
+- `innerHTML` / `outerHTML`への外部由来値を全数監査し、外部文字列を`esc` / `link` / `pill` / `json`境界へ通した。
+  result countの未escapeを修正し、template境界の回帰testを追加した。
 - temp DBの実browserでSettings、Operations、project detailを確認し、旧mode表示が無いこととmutation/job操作が
   通常表示されることを確認した。操作実行と正本DB更新は行っていない。
 - timing付きrunを持つtemp DBの実browserで、latest duration、run list duration、7 phase、planning/triage別の

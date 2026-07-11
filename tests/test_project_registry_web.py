@@ -10,7 +10,7 @@ from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import domain_policy, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, build_parser, main as web_main, restart_argv
@@ -323,6 +323,67 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
         self.assertNotIn("read_only", settings)
         self.assertNotIn("--read-only", build_parser().format_help())
+
+    def test_authorization_uses_constant_time_comparison(self) -> None:
+        with mock.patch("project_registry_web.server.hmac.compare_digest", return_value=True) as compare:
+            status, _settings, _ = self.request("/api/settings")
+
+        self.assertEqual(status, 200)
+        compare.assert_called_once_with(self.token, self.token)
+
+    def test_unexpected_api_exception_keeps_server_traceback(self) -> None:
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(RegistryWebHandler, "handle_api_get", side_effect=RuntimeError("diagnostic sentinel")),
+            mock.patch("project_registry_web.server.sys.stderr", stderr),
+        ):
+            status, payload, _ = self.request("/api/settings")
+
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"]["code"], "internal_error")
+        self.assertIn("Traceback (most recent call last)", stderr.getvalue())
+        self.assertIn("RuntimeError: diagnostic sentinel", stderr.getvalue())
+
+    def test_http_request_log_excludes_query_and_payload(self) -> None:
+        handler = RegistryWebHandler.__new__(RegistryWebHandler)
+        handler.command = "POST"
+        handler.client_address = ("127.0.0.1", 12345)
+        stderr = io.StringIO()
+
+        def respond() -> None:
+            handler._response_status = HTTPStatus.CREATED
+
+        with mock.patch("project_registry_web.server.sys.stderr", stderr):
+            handler.handle_request("/api/seeds", respond)
+
+        line = stderr.getvalue()
+        self.assertIn("method=POST path='/api/seeds' status=201 duration_ms=", line)
+        self.assertNotIn("token", line)
+        self.assertNotIn("seed", line.removeprefix("http method=POST path='/api/seeds'"))
+
+    def test_post_body_is_read_before_mutation_lock(self) -> None:
+        lock = TrackingLock()
+        self.server.mutation_lock = lock
+        original = RegistryWebHandler.read_json
+
+        def assert_outside_lock(handler):
+            self.assertEqual(lock.entries, 0)
+            return original(handler)
+
+        with mock.patch.object(RegistryWebHandler, "read_json", assert_outside_lock):
+            status, _payload, _ = self.request(
+                "/api/projects/proj:111111111111/tracking-state",
+                method="POST",
+                payload={"tracking_state": "stable"},
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(lock.entries, 1)
+
+    def test_html_template_boundary_escapes_dynamic_result_count(self) -> None:
+        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
+        self.assertIn("every external string must pass through", script)
+        self.assertIn("<strong>${esc(count)}</strong> results", script)
         self.assertNotIn("read_only", script)
 
     def test_build_information_only_reads_git_checkout(self) -> None:

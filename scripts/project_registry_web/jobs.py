@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import threading
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -594,7 +595,18 @@ class JobManager:
             return
         step = dict(remaining[0])
         request = self._request_for_schedule_step(step, preset_id)
-        job = self._start_locked(request)
+        try:
+            job = self._start_locked(request)
+        except Exception as exc:
+            schedule.update({
+                "last_completed_at": utc_now(),
+                "last_status": "failed",
+                "last_message": f"scheduled step could not start: {step.get('label') or step.get('operation')} ({type(exc).__name__}: {exc})",
+            })
+            queue.pop(0)
+            self._save_schedule_state_locked()
+            traceback.print_exc(file=sys.stderr)
+            return
         current["current_job_id"] = job.job_id
         current["current_step"] = step
         schedule.update({

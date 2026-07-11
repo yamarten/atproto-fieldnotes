@@ -165,6 +165,26 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
         self.assertEqual(schedule["last_status"], "completed")
 
+    def test_scheduled_worker_start_failure_is_recorded_without_retry(self) -> None:
+        with (
+            mock.patch.object(self.manager, "_spawn_locked", side_effect=OSError("worker unavailable")),
+            mock.patch("project_registry_web.jobs.traceback.print_exc"),
+        ):
+            state = self.manager.run_scheduled_preset("enrich_all")
+
+        self.assertEqual(state["queue"], [])
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all")
+        self.assertEqual(schedule["last_status"], "failed")
+        self.assertIn("could not start", schedule["last_message"])
+        self.assertIn("worker unavailable", schedule["last_message"])
+
+        second = self.manager.run_scheduler_once()
+        self.assertEqual(second["queue"], [])
+        self.assertEqual(
+            next(item for item in second["items"] if item["preset_id"] == "enrich_all")["last_status"],
+            "failed",
+        )
+
     def test_monthly_schedule_is_due_within_24_hours_only(self) -> None:
         schedule = {
             "enabled": True,
