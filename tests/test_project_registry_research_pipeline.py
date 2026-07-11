@@ -22,6 +22,31 @@ from project_registry_core import tangled as tangled_core
 
 
 class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
+    def test_project_patch_applies_resource_url_budget_immediately(self) -> None:
+        project = registry.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
+        records = [
+            {
+                "url": f"https://example.com/docs/page-{index}",
+                "role": "docs",
+                "source": "resource_page:https://example.com",
+                "confidence": "confirmed",
+            }
+            for index in range(20)
+        ]
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-11T00:00:00+00:00")
+        bundle.add_record(EvidenceRecord(
+            kind="project_patch",
+            source="resource_page",
+            classification="derived",
+            observed_at=bundle.collected_at,
+            value={"fields": {"resource_url_records": records}},
+            context={"allowed_fields": ["resource_url_records"]},
+        ))
+
+        registry.apply_collector_snapshot_evidence(project, bundle)
+
+        self.assertEqual(len(project["resource_url_records"]), 4)
+
     def search_dependencies(self, **overrides):  # type: ignore[no-untyped-def]
         values = {
             "now": lambda: "2026-06-13T00:00:00+00:00",

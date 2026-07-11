@@ -1969,6 +1969,22 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
 
 
 class ProjectRegistryMergeRecordTest(unittest.TestCase):
+    def test_merge_reapplies_resource_url_budget(self) -> None:
+        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        target["resource_url_records"] = [
+            {"url": f"https://example.com/docs/target-{index}", "role": "docs", "confidence": "confirmed"}
+            for index in range(4)
+        ]
+        source["resource_url_records"] = [
+            {"url": f"https://example.com/docs/source-{index}", "role": "docs", "confidence": "confirmed"}
+            for index in range(4)
+        ]
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertEqual(len(merged["resource_url_records"]), 4)
+
     def test_merge_preserves_candidate_developer_accounts_without_promoting_them(self) -> None:
         target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
         target["developer_accounts"] = [{"handle": "alice.example.com", "source": "manual"}]

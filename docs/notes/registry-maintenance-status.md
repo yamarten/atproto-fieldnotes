@@ -39,7 +39,7 @@ maintenance series完了時に削除します。
 
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
-| P3.1 | 一部完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budget | `resource_url_records`の既存budgetが全生成経路で適用されることを監査する |
+| P3.1 | 完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budgetに加え、resource URLのadd/移送/patch/guard/hydrate/merge/save経路を監査 | collector project patchにも即時budgetを追加し、raw save/merge/patch回帰testで確認 |
 | P3.2 | 一部完了 | `3243702`。`cleanup-storage-payloads`と2026-07-10 clone全件dry-run。4.620 GB→1.723 GB見込み | planにあるresource URL、role/host/path pattern、重複LLM evidenceのcategory別reportとの差を埋めるか、現行cleanup scopeを採用する判断を明記する |
 | P3.3 | 別operation待ち | `3243702`でtransaction、temp DB execute、FK/integrity/rollbackを確認 | 正本writer停止、backup、dry-run承認、execute、semantic audit、Web/worker再起動。same-site過去誤帰属auditも同windowで判断する。正本DBは未変更 |
 | P3.4 | 一部完了 | `229b1c3`でbundle/collector本文二重保存を解消 | cleanup適用後の増加率を測り、snapshot差分化、stub、圧縮、retention、history DB分離を採否またはroadmapへ終端する |
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 342件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 345件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。

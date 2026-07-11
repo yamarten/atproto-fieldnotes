@@ -86,6 +86,7 @@ class TangledIntegrationDependencies:
 @dataclass(frozen=True)
 class CollectorIntegrationDependencies:
     apply_lexicon_result: Callable[[dict[str, Any], str, dict[str, Any]], None]
+    normalize_resource_url_records: Callable[[list[Any]], list[dict[str, str]]]
     note_failure: Callable[[dict[str, Any], str], None]
 
 
@@ -108,7 +109,11 @@ def apply_collector_snapshot_evidence(
             allowed = {str(item) for item in record.context.get("allowed_fields", [])}
             for key, value in fields.items():
                 if key in allowed:
-                    project[key] = value
+                    project[key] = (
+                        dependencies.normalize_resource_url_records(list(value or []))
+                        if key == "resource_url_records" and isinstance(value, list)
+                        else value
+                    )
     for failure in bundle.failures:
         dependencies.note_failure(project, failure.message)
 

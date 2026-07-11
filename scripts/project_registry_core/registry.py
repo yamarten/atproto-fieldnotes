@@ -10606,6 +10606,7 @@ def apply_collector_snapshot_evidence(project: dict[str, Any], bundle: EvidenceB
         bundle,
         integration_core.CollectorIntegrationDependencies(
             apply_lexicon_result=apply_lexicon_record_result,
+            normalize_resource_url_records=normalize_resource_url_records,
             note_failure=note_failure,
         ),
     )

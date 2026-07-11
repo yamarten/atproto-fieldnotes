@@ -19,6 +19,27 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_save_applies_resource_url_budget_to_raw_oversized_state(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:rawresourcebudget", "service_url", "https://example.com")
+            project["resource_url_records"] = [
+                {
+                    "url": f"https://example.com/docs/page-{index}",
+                    "role": "docs",
+                    "source": "legacy_resource_urls",
+                    "confidence": "candidate",
+                }
+                for index in range(20)
+            ]
+            registry.save_project(conn, project)
+            saved = registry.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertEqual(len(saved["resource_url_records"]), 4)
+
     def test_split_project_parser_has_no_explicit_new_key_option(self) -> None:
         args = cli.build_parser().parse_args([
             "split-project",

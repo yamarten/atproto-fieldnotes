@@ -565,6 +565,9 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
   URL+role単位へmergeし、project全体、role単位、host+role単位のbudgetで絞ります。
   confirmed、直接的なsource、root/短い入口URL、既知roleを優先し、tag/archive/profile/post
   など大量contentになりやすいpathは低く扱います
+- budgetは通常の`add_resource_url`だけでなく、supporting-page移送、collector `project_patch`適用、
+  block/defer guard、shape hydration、project merge、saveの各境界で再適用します。外部patchやraw stateを
+  直接渡しても、次の境界まで無制限listを保持する経路はありません
 
 ### 4.1 NSID ownership の現在の優先順位
 
