@@ -2402,16 +2402,94 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
     return 99, False
 
 
+def indexed_identifier_matches(
+    conn: sqlite3.Connection,
+    identifier_type: str,
+    identifier_value: str,
+) -> list[tuple[int, str]]:
+    """Use the normalized index to bound exact identifier matches."""
+    normalized = canonical_seed_value(identifier_type, identifier_value)
+    kind = {
+        "github_repo_url": "repo_url",
+        "tangled_repo_url": "repo_url",
+        "service_url_candidate": "service_url",
+        "resolved_nsid": "nsid",
+    }.get(identifier_type, identifier_type)
+    if kind not in {"service_url", "repo_url", "nsid", "did", "handle", "domain"} or not normalized:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT project_key, role, classification, provider
+        FROM project_identifiers INDEXED BY idx_project_identifiers_lookup
+        WHERE kind = ? AND value = ?
+        """,
+        (kind, normalized),
+    ).fetchall()
+    matches: dict[str, int] = {}
+    for row in rows:
+        role = str(row["role"])
+        classification = str(row["classification"])
+        provider = str(row["provider"])
+        priority: int | None = None
+        if identifier_type == "service_url":
+            if role in {"seed", "manual_seed"} or classification == "confirmed":
+                priority = 0
+            elif classification == "candidate":
+                priority = 1
+        elif identifier_type == "nsid":
+            if role in {"seed", "manual_seed", "input_nsid", "primary_nsid"}:
+                priority = 0
+            elif role == "owned_nsid":
+                priority = 1
+        elif identifier_type == "resolved_nsid" and role == "owned_nsid":
+            priority = 0
+        elif identifier_type == "repo_url":
+            if role in {"seed", "manual_seed"} or classification == "confirmed":
+                priority = 0
+        elif identifier_type in {"github_repo_url", "tangled_repo_url"}:
+            expected_provider = identifier_type.removesuffix("_repo_url")
+            if role != "manual_seed" and classification == "confirmed" and provider == expected_provider:
+                priority = 0
+        elif identifier_type == "did" and role in {"seed", "manual_seed", "brand_did", "developer_did"}:
+            priority = 0
+        elif identifier_type == "handle" and role in {"seed", "manual_seed", "developer_handle", "project_handle"}:
+            priority = 0
+        elif identifier_type == "domain" and role in {"seed", "manual_seed", "authority_domain"}:
+            priority = 0
+        elif identifier_type == "service_url_candidate" and classification == "candidate":
+            priority = 0
+        if priority is not None:
+            project_key = str(row["project_key"])
+            matches[project_key] = min(priority, matches.get(project_key, priority))
+    ordered = sorted(((priority, project_key) for project_key, priority in matches.items()))
+    if identifier_type == "service_url_candidate":
+        ordered = [
+            (priority, project_key)
+            for priority, project_key in ordered
+            if (
+                (project := fetch_project(conn, project_key)) is not None
+                and project_matches_identifier(project, identifier_type, normalized)[1]
+            )
+        ]
+    return ordered
+
+
 def find_project_key_by_identifier(conn: sqlite3.Connection, identifier_type: str, identifier_value: str) -> str | None:
+    if identifier_type not in {"did", "handle"}:
+        matches = indexed_identifier_matches(conn, identifier_type, identifier_value)
+        return matches[0][1] if matches else None
+
+    # Older schema-v2 rows do not consistently contain the did/handle rows
+    # derived from account metadata. P3.3 will re-project them; until then these
+    # two selectors retain the payload scan so lookup meaning does not change.
     matches: list[tuple[int, str]] = []
     for project in all_projects(conn):
         priority, matched = project_matches_identifier(project, identifier_type, identifier_value)
         if matched:
             matches.append((priority, str(project["project_key"])))
-    if not matches:
-        return None
-    matches.sort(key=lambda item: (item[0], item[1]))
-    return matches[0][1]
+    matches.sort()
+    return matches[0][1] if matches else None
 
 
 def find_project_key_by_collection_namespace(projects: list[dict[str, Any]], namespace: str) -> str | None:
@@ -14362,7 +14440,7 @@ def split_project_tenant_group(
     if not identifiers:
         raise ValueError(f"tenant group has no movable identifiers: {tenant}")
 
-    target_key = generate_project_key({project["project_key"] for project in all_projects(conn)})
+    target_key = allocate_new_project_key(conn)
     first_type, first_value = identifiers[0]
     target = default_project_record(target_key, first_type, first_value)
     target["tracking_state"] = source.get("tracking_state", "active")
@@ -14591,19 +14669,9 @@ def resolve_semble_project_key_for_seed_value(
 ) -> tuple[str | None, str, str | None, str]:
     normalized_value = canonical_seed_value(seed_type, seed_value)
     projects = projects if projects is not None else all_projects(conn)
-    exact_project_keys: set[str] = set()
-    weak_project_keys: set[str] = set()
-    for project in projects:
-        priority, matched = project_matches_identifier(project, seed_type, normalized_value)
-        if not matched:
-            continue
-        project_key = str(project.get("project_key") or "")
-        if not project_key:
-            continue
-        if priority == 0:
-            exact_project_keys.add(project_key)
-        else:
-            weak_project_keys.add(project_key)
+    indexed_matches = indexed_identifier_matches(conn, seed_type, normalized_value)
+    exact_project_keys = {project_key for priority, project_key in indexed_matches if priority == 0}
+    weak_project_keys = {project_key for priority, project_key in indexed_matches if priority > 0}
     if len(exact_project_keys) == 1:
         return next(iter(exact_project_keys)), "exact_identifier", None, ""
     if len(exact_project_keys) > 1:

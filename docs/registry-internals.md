@@ -171,6 +171,12 @@ domainで先頭labelだけが同じhostはsame-siteにしません。
 
 runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。
 
+exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
+NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
+collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、
+安全判定を通らない一致はsuggestionに留めます。過去DBではaccount metadata由来の`handle` / `did` rowに
+未投影があるため、この2種だけはP3.3のnormalized row再投影までpayload scanを維持しています。
+
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`cleanup-app-links`は`profile_json.app.links`をcanonical identifierとconfirmed resource recordから再構築します。
 
 ## enrich の流れ

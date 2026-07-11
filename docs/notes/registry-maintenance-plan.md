@@ -350,6 +350,11 @@ JSON圧縮は候補ですが採用済み仕様ではありません。複数方�
 - 採番だけの全project hydrateを既存allocatorへ置き換える。
 - fuzzy/namespace/host-family matchはexact lookupと分け、意味を変えずに段階移動する。
 
+実装監査で、過去schema v2 DBにはaccount metadataから派生する一部の`handle` / `did` normalized rowが
+未投影と判明した。この2種をindexだけへ切り替えるのは意味変更になるため、source syncが使う
+NSID/service/repository/domain系を先にindex化し、`handle` / `did`はP3.3の全normalized row再投影後に
+scan fallbackを削除して本itemを終端する。
+
 ### P4.3: bulk enrich failure policy
 
 未決定:

@@ -127,6 +127,7 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `project_account`: project名義のaccount候補
   - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
+- `seed`: project作成時の初期入力。`state_json`の`seed_type` / `seed_value`と同じ値をnormalized rowにも投影する
 - `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
 
 manual seed NSIDはoperator decisionとして保持します。同じ値の`input_nsid`やcandidate `primary_nsid`は内部調査用の重複表現であり、Web detailでは個別の確認対象として表示しません。manual seed自体が誤りなら、そのNSIDをreject/block/deferしてseedごと外します。

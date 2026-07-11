@@ -41,7 +41,7 @@ maintenance series完了時に削除します。
 |---|---|---|---|
 | P3.1 | 完了 | `540b1b4` service budget、`229b1c3` collector/history縮約、`42cddbc` LLM evidence budgetに加え、resource URLのadd/移送/patch/guard/hydrate/merge/save経路を監査 | collector project patchにも即時budgetを追加し、raw save/merge/patch回帰testで確認 |
 | P3.2 | 完了 | `3243702`のcleanupにresource URL/旧LLM evidence縮約とcategory別bytes、role/host/path reportを追加。同じclone全件dry-runで4.620 GB→1.556 GB見込み | snapshot evaluation差分0。path名一律削除はせず現行代表budgetを再利用。正本適用はP3.3 |
-| P3.3 | 別operation待ち | `3243702`でtransaction、temp DB execute、FK/integrity/rollbackを確認 | 正本writer停止、backup、dry-run承認、execute、semantic audit、Web/worker再起動。same-site過去誤帰属auditも同windowで判断する。正本DBは未変更 |
+| P3.3 | 別operation待ち | `3243702`でtransaction、temp DB execute、FK/integrity/rollbackを確認 | 正本writer停止、backup、dry-run承認、execute、全normalized row再投影、semantic audit、Web/worker再起動。same-site過去誤帰属auditも同windowで判断する。正本DBは未変更。再投影後にP4.2の`handle` / `did` fallbackを削除する |
 | P3.4 | 一部完了 | `229b1c3`でbundle/collector本文二重保存を解消 | cleanup適用後の増加率を測り、snapshot差分化、stub、圧縮、retention、history DB分離を採否またはroadmapへ終端する |
 
 ### Phase 4
@@ -49,7 +49,7 @@ maintenance series完了時に削除します。
 | ID | 状態 | 対応commit・確認 | 残件 / 終端条件 |
 |---|---|---|---|
 | P4.1 | 完了 | [2026-07-11 smoke](registry-maintenance-real-source-smoke-2026-07-11.md)とcode auditでcandidate serviceの自動attachを確認・修正。40-card clone dry-runでexact 37件、candidate suggestion 2件、unmatched 1件 | normalized indexと残るlookup costはP4.2で追跡 |
-| P4.2 | 未着手 | なし | exact lookupのnormalized index利用、allocator利用、fuzzy lookup分離を実装またはroadmap判断する |
+| P4.2 | 一部完了 | `Index normalized identifiers for source matching` checkpoint。NSID/service/repository/domain exact lookupをnormalized indexへ移し、split採番だけの全hydrateをallocatorへ置換。3,239-project cloneの10,605 lookupで旧判定との差分0 | 過去rowにaccount metadata由来`handle` 1,368値 / `did` 5値の派生行が不足。P3.3で全row再投影後にこの2種のpayload scan fallbackを削除して終端する |
 | P4.3 | 未着手 | なし | bulk failure/cancel result policyを決め、実装・testするかroadmap判断する |
 | P4.4 | 未着手 | `3d0b598`はtransport分離のみでretry policyを変更していない | failure分類、payload fallback、timeout後retry、command/endpoint timeoutを決定・実装するかroadmap判断する |
 | P4.5 | 未着手 | source/config境界の文書化は`5951b42` | introduced既定query等の二重管理を監査し、operator可変値だけをconfig/requestへ移すか現状維持を決める |
@@ -91,7 +91,7 @@ maintenance series完了時に削除します。
 
 動作確認済み:
 
-- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 352件が全件成功。
+- `requirements.txt`を導入した隔離環境のPython 3.10.20と3.11.15でunit test 354件が全件成功。
 - 新規DBをcaller側のcommitなしでclose/reopenしてschema versionを確認する回帰test。
 - 既存DBをopenした接続を保持したまま、別接続が`BEGIN IMMEDIATE`を取得できる回帰test。
 - missing pathと未初期化fileを通常openが拒否し、fileを暗黙作成しない回帰test。
@@ -123,6 +123,8 @@ maintenance series完了時に削除します。
   bounded dry-runと、設定済み実LLM endpointへの接続。collection/Tangledの再実行を含めDB件数は不変。
 - 3,239-project cloneへSemble 40 cardsをdry-runし、confirmed/manual match 37件、candidate suggestion 2件、
   unmatched 1件を確認。協調停止した初回runと完走runのどちらもDB件数は不変。
+- 同じ3,239-project cloneからsource照合に関係する10,605 identifier lookupをread-only比較し、旧hydration判定と
+  normalized-index判定の差分0。過去rowの不足がある`handle` / `did`はP3.3までindex移行対象外とした。
 
 未検証:
 

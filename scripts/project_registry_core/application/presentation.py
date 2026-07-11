@@ -180,7 +180,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     role_labels = {
         "primary_nsid": "primary", "input_nsid": "input", "owned_nsid": "owned",
         "observed_lexicon": "observed", "recorded_namespace": "namespace",
-        "website": "primary", "manual_seed": "manual seed", "source_repository": "source",
+        "website": "primary", "seed": "initial seed", "manual_seed": "manual seed", "source_repository": "source",
         "source_repository_record": "source record", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
         "project_account": "project", "project_handle": "project handle",

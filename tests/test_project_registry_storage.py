@@ -19,6 +19,81 @@ from project_registry_core.commands import review as review_commands
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
+    def test_exact_identifier_lookup_uses_normalized_rows_without_project_hydration(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:indexlookup", "nsid", "app.example.post")
+            registry.apply_seed_to_project(project, "nsid", "app.example.post")
+            project["website_url"] = "https://example.com"
+            project["service_urls"] = ["https://example.com"]
+            project["service_url_candidates"] = ["https://candidate.example.com"]
+            project["source_code_urls"] = [
+                "https://github.com/example/app",
+                "https://tangled.sh/@example/app",
+            ]
+            project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:developer"}]
+            project["authority_domains"] = ["example.com"]
+            registry.save_project(conn, project)
+            saved = registry.fetch_project(conn, project["project_key"])
+            assert saved is not None
+            tangled_url = registry.provider_repo_url_values(saved, "tangled")[0]
+            seed_rows = conn.execute(
+                "SELECT kind, value FROM project_identifiers WHERE project_key = ? AND role = 'seed'",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertIn(("nsid", "app.example.post"), [tuple(row) for row in seed_rows])
+
+            with mock.patch.object(registry, "all_projects", side_effect=AssertionError("hydrated projects")):
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "nsid", "app.example.post"), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "service_url", "https://example.com/"), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "service_url_candidate", "https://candidate.example.com"), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "repo_url", "https://github.com/example/app"), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "github_repo_url", "https://github.com/example/app"), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "tangled_repo_url", tangled_url), project["project_key"])
+                self.assertEqual(registry.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."), project["project_key"])
+
+            self.assertEqual(registry.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])
+            self.assertEqual(registry.find_project_key_by_identifier(conn, "did", "did:plc:developer"), project["project_key"])
+
+            plan = conn.execute(
+                "EXPLAIN QUERY PLAN SELECT project_key FROM project_identifiers INDEXED BY idx_project_identifiers_lookup WHERE kind = ? AND value = ?",
+                ("nsid", "app.example.post"),
+            ).fetchall()
+            self.assertIn("idx_project_identifiers_lookup", " ".join(str(column) for row in plan for column in row))
+        finally:
+            conn.close()
+
+    def test_exact_identifier_priority_and_semble_ambiguity_are_preserved(self) -> None:
+        conn = registry.open_db()
+        try:
+            candidate = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.candidate.test")
+            registry.apply_seed_to_project(candidate, "nsid", "app.candidate.test")
+            candidate["service_url_candidates"] = ["https://shared.example.com"]
+            confirmed = self.make_project("proj:zzzzzzzzzzzz", "service_url", "https://shared.example.com")
+            registry.add_manual_seed(confirmed, "service_url", "https://shared.example.com", source="test")
+            registry.confirm_service_seed(confirmed, "https://shared.example.com", source="test")
+            registry.save_project(conn, candidate)
+            registry.save_project(conn, confirmed)
+
+            self.assertEqual(
+                registry.indexed_identifier_matches(conn, "service_url", "https://shared.example.com"),
+                [(0, confirmed["project_key"]), (1, candidate["project_key"])],
+            )
+            self.assertEqual(
+                registry.find_project_key_by_identifier(conn, "service_url", "https://shared.example.com"),
+                confirmed["project_key"],
+            )
+            with mock.patch.object(registry, "project_matches_identifier", side_effect=AssertionError("payload scan")):
+                resolved = registry.resolve_semble_project_key_for_seed_value(
+                    conn,
+                    "service_url",
+                    "https://shared.example.com",
+                    projects=[candidate, confirmed],
+                )
+            self.assertEqual(resolved, (confirmed["project_key"], "exact_identifier", None, ""))
+        finally:
+            conn.close()
+
     def test_save_applies_resource_url_budget_to_raw_oversized_state(self) -> None:
         conn = registry.open_db()
         try:

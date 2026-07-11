@@ -4,6 +4,9 @@ from dataclasses import asdict, dataclass
 import copy
 from typing import Any, Iterable, Mapping
 
+from . import identifiers
+from . import repo_urls
+
 
 RUNTIME_VIEW_MARKER = "_registry_runtime_view_v2"
 RUNTIME_IDENTIFIER_ROWS = "_registry_identifier_rows_v2"
@@ -208,6 +211,14 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         observed_at: str = "",
     ) -> None:
         text = str(value or "").strip()
+        if kind == "repo_url":
+            text = repo_urls.canonical_repo_url(text)
+        elif kind == "service_url":
+            text = identifiers.normalize_url(text)
+        elif kind == "nsid":
+            text = identifiers.normalize_nsid(text)
+        elif kind in {"handle", "domain"}:
+            text = text.lower().rstrip(".")
         if not text or classification not in CLASSIFICATIONS:
             return
         key = (kind, text, role)
@@ -224,6 +235,25 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
             metadata=metadata or {},
             observed_at=observed_at,
         ))
+
+    seed_kind = {
+        "service_url": "service_url",
+        "repo_url": "repo_url",
+        "nsid": "nsid",
+        "did": "did",
+        "handle": "handle",
+        "domain": "domain",
+    }
+    initial_seed_type = str(project.get("seed_type") or "")
+    initial_seed_kind = seed_kind.get(initial_seed_type)
+    if initial_seed_kind:
+        add(
+            initial_seed_kind,
+            project.get("seed_value"),
+            "seed",
+            "confirmed",
+            metadata={"type": initial_seed_type},
+        )
 
     add("nsid", project.get("primary_nsid"), "primary_nsid", "confirmed", primary=True)
     for value in project.get("input_nsids", []):
@@ -282,14 +312,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
             add("account", value, "project_account", "candidate", provider=provider)
             add("handle", value, "project_handle", "candidate", provider=provider)
 
-    seed_kind = {
-        "service_url": "service_url",
-        "repo_url": "repo_url",
-        "nsid": "nsid",
-        "did": "did",
-        "handle": "handle",
-        "domain": "domain",
-    }
     for item in project.get("manual_seeds", []):
         if not isinstance(item, dict):
             continue
@@ -519,6 +541,8 @@ def hydrate(
         kind, value, role = row["kind"], row["value"], row["role"]
         classification = row["classification"]
         metadata = row["metadata"]
+        if role == "seed":
+            continue
         if role == "manual_seed":
             project["manual_seeds"].append(copy.deepcopy(metadata) or {"type": kind, "value": value})
             continue

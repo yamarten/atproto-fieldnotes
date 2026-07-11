@@ -131,7 +131,7 @@ def split_identifier(
     ).fetchone())
     if not belongs_to_source:
         raise ValueError("identifier does not currently belong to the selected source project")
-    target_key = core.generate_project_key({project["project_key"] for project in core.all_projects(conn)})
+    target_key = core.allocate_new_project_key(conn)
     target = core.default_project_record(target_key, identifier_type, identifier_value)
     target["tracking_state"] = source.get("tracking_state", "active")
     target["status"] = source.get("status", "draft")
