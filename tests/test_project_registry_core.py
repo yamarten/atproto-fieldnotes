@@ -31,6 +31,37 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
             identifier_core.normalize_nsid("at://com.example.app/#main"),
             "com.example.app",
         )
+        self.assertEqual(
+            identifier_core.normalize_nsid("at://com.example.profileMusic/#main"),
+            "com.example.profileMusic",
+        )
+
+    def test_nsid_name_case_is_preserved_for_seed_extraction(self) -> None:
+        nsid = "com.bartenderSky.preferences.profileMusic"
+        self.assertEqual(registry.extract_collection_nsid(nsid), nsid)
+        self.assertEqual(registry.extract_collection_nsid(f"at://did:plc:example/{nsid}/self"), nsid)
+        self.assertEqual(registry.detect_seed_type(nsid), "nsid")
+        self.assertEqual(registry.canonical_seed_value("nsid", nsid), nsid)
+
+    def test_manual_nsid_seed_keeps_name_case(self) -> None:
+        nsid = "com.bartenderSky.preferences.profileMusic"
+        project = registry.default_project_record("proj:nsidcase", "nsid", nsid)
+        registry.apply_seed_to_project(project, "nsid", nsid)
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["input_nsids"], [nsid])
+
+    def test_text_seed_and_lexicon_detection_accept_case_sensitive_nsid(self) -> None:
+        nsid = "com.bartenderSky.preferences.profileMusic"
+
+        self.assertEqual(registry.parse_text_seed_line_values(nsid), [nsid])
+        self.assertTrue(
+            registry.repo_json_looks_like_lexicon(
+                "lexicons/com/bartenderSky/preferences/profileMusic.json",
+                {"lexicon": 1, "defs": {}},
+                nsid,
+            )
+        )
 
     def test_authority_domain_derivation_keeps_collection_and_namespace_contracts(self) -> None:
         self.assertEqual(identifier_core.derive_authority_domain("com.example.app"), "example.com")

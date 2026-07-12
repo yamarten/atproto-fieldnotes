@@ -919,6 +919,8 @@ identifier、relation evidence、operator decisionの正本はそれぞれ`proje
 
 ## NSIDの扱い
 
+NSID は storage / UI / external lookup で観測されたcaseを保持します。authority domain 由来の比較や alias token 化では小文字化した派生値を使うことがありますが、NSID本体、特にname部を正規化目的で小文字化しません。`listReposByCollection` などcase-sensitiveな外部APIへ渡す値も、保存済み値または観測値のcaseを保ちます。
+
 - `input_nsids`
   - 手動seedとして投入された NSID
 - `resolved_nsids`

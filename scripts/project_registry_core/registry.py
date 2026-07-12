@@ -921,7 +921,7 @@ def derived_authority_probe_urls(project: dict[str, Any]) -> list[str]:
 
 
 def normalize_extracted_nsid(nsid: str) -> str:
-    return identifier_core.normalize_nsid(nsid).lower()
+    return identifier_core.normalize_nsid(nsid)
 
 
 def extract_loose_collection_nsid(value: str) -> str:
@@ -7578,7 +7578,8 @@ def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]
 
 def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) -> bool:
     lowered = str(path or "").lower()
-    if not nsid or not re.fullmatch(NSID_PATTERN, nsid):
+    nsid = identifier_core.normalize_nsid(nsid)
+    if not nsid or not re.fullmatch(LOOSE_NSID_PATTERN, nsid):
         return False
     if isinstance(payload.get("lexicon"), int) and isinstance(payload.get("defs"), dict):
         return True
@@ -12627,7 +12628,7 @@ def parse_text_seed_line_values(line: str) -> list[str]:
     text = str(line or "").strip()
     if not text:
         return []
-    if text.startswith("at://") or re.fullmatch(NSID_PATTERN, text):
+    if text.startswith("at://") or extract_collection_nsid(text):
         return [text]
     if "http://" in text or "https://" in text:
         return extract_urls(text)
