@@ -5,9 +5,22 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&a
 const list = (value) => Array.isArray(value) ? value : [];
 const resetDetailScroll = () => { if ($("detail")) $("detail").scrollTop = 0; window.scrollTo({top:0, left:0}); };
 const backToListButton = () => `<button class="mobile-back secondary" data-detail-back>Back to list</button>`;
+function contextualBackButton() {
+  if (!state.detailBackTarget) return "";
+  const label = state.detailBackTarget.type === "merge" ? "Back to merge review" : "Back to project detail";
+  return `<button class="context-back secondary" data-detail-return>${esc(label)}</button>`;
+}
 function bindBackToListButtons() {
   document.querySelectorAll("[data-detail-back]").forEach((button) => {
     button.onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
+  });
+  document.querySelectorAll("[data-detail-return]").forEach((button) => {
+    button.onclick = () => {
+      const target = state.detailBackTarget;
+      if (!target) return;
+      if (target.type === "merge") loadMergeDetail(target.source, target.target, {backTarget: target.previous || null});
+      if (target.type === "project") loadDetail(target.key);
+    };
   });
 }
 const settingsKey = "projectRegistryWebV2Settings";
@@ -17,6 +30,7 @@ const state = {
   reviewView: "queue",
   selected: "",
   detailTab: "overview",
+  detailBackTarget: null,
   detailRevision: "",
   mergeSourceRevision: "",
   mergeTargetRevision: "",
@@ -347,7 +361,8 @@ function bindControls() {
 
 function renderExplicitMergePairForm({source = "", target = "", sourceFixed = false} = {}) {
   const sourceMode = sourceFixed ? "readonly" : "";
-  return `<div class="explicit-merge-pair" data-explicit-merge-pair>
+  const backProject = sourceFixed ? ` data-explicit-merge-back-project="${esc(source)}"` : "";
+  return `<div class="explicit-merge-pair" data-explicit-merge-pair${backProject}>
     <label>Source project<input data-explicit-merge-source placeholder="proj:3930cb0bedfd" value="${esc(source)}" ${sourceMode}></label>
     <label>Target project<input data-explicit-merge-target placeholder="proj:aefc07410260" value="${esc(target)}"></label>
     <button data-compare-explicit-merge class="primary">Compare pair</button>
@@ -378,7 +393,8 @@ function compareExplicitMergePair(form) {
   }
   status("");
   state.reviewView = "merge";
-  loadMergeDetail(source, target);
+  const backProject = form?.dataset.explicitMergeBackProject || "";
+  loadMergeDetail(source, target, {backTarget: backProject ? {type: "project", key: backProject} : null});
 }
 
 function normalizeQueueItem(item) {
@@ -460,9 +476,10 @@ function skipReviewItem(sourceKey = state.selected) {
   }
 }
 
-async function loadDetail(key, {updateUrl = true} = {}) {
+async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
   const request = ++state.detailRequest;
   state.selected = key; document.body.classList.add("detail-open");
+  state.detailBackTarget = backTarget;
   if (updateUrl) syncUrl();
   $("detail").innerHTML = `<p class="muted">Loading ${esc(key)}...</p>`;
   resetDetailScroll();
@@ -536,6 +553,7 @@ function renderDetail(data) {
   $("detail").innerHTML = `
     <div class="detail-header">
       ${backToListButton()}
+      ${contextualBackButton()}
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
@@ -550,7 +568,7 @@ function renderDetail(data) {
     ${tab("investigation", "Investigation", section("Latest Investigation", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">Load run history</button></div><div id="investigation-history"></div>`))}
     ${tab("decisions", "Decisions", section("Decisions / Guards", renderDecisions(decisions)))}
     ${tab("raw", "Raw", section("Raw Data", `<details open><summary>Project payload</summary>${json(data)}</details>`))}
-    <div class="detail-footer">${backToListButton()}</div>
+    <div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>
   `;
   bindBackToListButtons();
   $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
@@ -689,7 +707,7 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
       ? `<dl class="kv"><dt>Candidate</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>Confidence</dt><dd>${pill(recommendation.merge_confidence || "unknown")} score ${esc(recommendation.score || 0)}</dd><dt>Auto merge</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "Manual review required"}</dd></dl><div class="actions"><button class="small" data-view-project="${esc(recommendation.target_project_key)}">View candidate detail</button><button class="small" data-review-merge="${esc(recommendation.target_project_key)}">Compare before merge</button></div>${otherCandidates.length ? `<details><summary>Other candidates (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} score ${esc(item.score || 0)}</div><div class="actions"><button class="small" data-view-project="${esc(item.project_key)}">View</button><button class="small" data-review-merge="${esc(item.project_key)}">Compare</button></div></div>`).join("")}</details>` : ""}`
       : `<p class="muted">No merge candidate found.</p>`;
     document.querySelectorAll("[data-view-project]").forEach((button) => button.onclick = () => loadDetail(button.dataset.viewProject));
-    document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge));
+    document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge, {backTarget: {type: "project", key: projectKey}}));
     if (recommendation.auto_merge_ready) {
       $("merge-analysis-action").innerHTML = actionButton("Apply merge recommendation", "merge-recommendation", {other:recommendation.target_project_key}, "danger");
       bindDetailActions(projectKey);
@@ -856,8 +874,11 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "") 
 async function loadMergeDetail(source, target, options = {}) {
   const request = ++state.detailRequest;
   state.selected = source; document.body.classList.add("detail-open");
-  syncUrl();
   const includeFirstCreator = Boolean(options.includeFirstCreator);
+  state.detailBackTarget = Object.prototype.hasOwnProperty.call(options, "backTarget")
+    ? options.backTarget
+    : includeFirstCreator ? state.detailBackTarget : null;
+  syncUrl();
   if (!includeFirstCreator) resetDetailScroll();
   try {
     const data = await api(`/api/merge-pair?source_project_key=${encodeURIComponent(source)}&target_project_key=${encodeURIComponent(target)}${includeFirstCreator ? "&include_first_creator_details=1" : ""}`);
@@ -872,9 +893,9 @@ async function loadMergeDetail(source, target, options = {}) {
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view.</p>`
       : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">Load first-creator details</button></div>`;
     const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
-    $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}</div>`;
+    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_source_code_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
-    document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target));
+    document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
     $("load-first-creator-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeFirstCreator: true}));
     $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source));
