@@ -550,10 +550,11 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 `project_owned_lexicon_nsid()` は現在、次の順で `owned` を判定します。
 
 1. manual `nsid` seed そのもの
-2. manual `nsid` seed の親 namespace と一致
+2. manual `nsid` seed と同じ collection namespace を持つNSID
 3. `trust-graph-v1` で collection と confirmed developer DID の間に相互の強い有向経路がある
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONだけでは ownership を確定しません。
+manual NSID seed からの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように collection namespace が完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは、同じ operator seed からは自動owned扱いしません。
 
 repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。manual repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。

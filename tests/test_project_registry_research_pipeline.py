@@ -965,6 +965,20 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "org.other.post"))
 
+    def test_manual_nsid_seed_supports_same_collection_authority_only(self) -> None:
+        project = self.make_project("proj:manualnsidauthority", "nsid", "dev.idiolect.recommendation")
+        project["manual_seeds"] = [{"type": "nsid", "value": "dev.idiolect.recommendation"}]
+
+        self.assertTrue(registry.project_owned_lexicon_nsid(project, "dev.idiolect.adapter"))
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "dev.idiolect.recommendation.comment"))
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "dev.idiolect"))
+
+    def test_manual_nsid_seed_does_not_support_parent_or_child_namespace(self) -> None:
+        project = self.make_project("proj:manualnsidnamespace", "nsid", "network.comind.memory")
+        project["manual_seeds"] = [{"type": "nsid", "value": "network.comind.memory"}]
+
+        self.assertFalse(registry.project_owned_lexicon_nsid(project, "network.comind.void.memory"))
+
     def test_github_integration_downgrades_unowned_repo_lexicon_relation(self) -> None:
         project = self.make_project("proj:reporelation", "repo_url", "https://github.com/example/app")
         project["source_code_urls"] = ["https://github.com/example/app"]

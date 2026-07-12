@@ -6991,13 +6991,13 @@ def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:
     normalized = identifier_core.normalize_nsid(nsid)
     if not normalized:
         return False
-    namespace = lexicon_namespace_for_project(normalized)
+    namespace = namespace_from_collection_nsid(normalized)
     for seed in manual_seed_values(project, "nsid"):
         seed_nsid = identifier_core.normalize_nsid(seed)
         if not seed_nsid:
             continue
-        seed_namespace = lexicon_namespace_for_project(seed_nsid)
-        if normalized == seed_nsid or namespace == seed_namespace or namespace.startswith(f"{seed_namespace}.") or seed_namespace.startswith(f"{namespace}."):
+        seed_namespace = namespace_from_collection_nsid(seed_nsid)
+        if normalized == seed_nsid or (namespace and namespace == seed_namespace):
             return True
     return False
 
