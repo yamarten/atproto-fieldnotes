@@ -42,6 +42,8 @@ from project_registry_core.registry import (
     compute_duplicate_candidates,
     compute_merge_recommendation,
     confirm_source_code_url,
+    authority_probe_all_urls,
+    authority_probe_url_chains,
     derived_authority_probe_urls,
     enrich_from_resource_pages,
     ensure_project_shape,
@@ -57,6 +59,7 @@ from project_registry_core.registry import (
     provider_repo_url_values,
     record_promotion_transition,
     reset_investigation_state,
+    select_authority_probe_urls,
     service_probe_timeout_for_project,
     service_url_candidate_values,
     should_refresh_lexicon_surface,
@@ -179,7 +182,9 @@ def enrich_project(
                     project, source="lexicon_resolution", operation="resolve", target=nsid, exc=exc,
                 ))
 
-    authority_probe_urls = set(derived_authority_probe_urls(project))
+    authority_probe_chains = authority_probe_url_chains(project)
+    authority_probe_urls = set(authority_probe_all_urls(authority_probe_chains))
+    authority_probe_urls.update(derived_authority_probe_urls(project))
     initial_service_urls = unique_list(
         ([project.get("website_url")] if project.get("website_url") else [])
         + project.get("service_urls", [])
@@ -196,11 +201,24 @@ def enrich_project(
                 )
                 for service_url in initial_service_urls
             }
+            probe_results: dict[str, dict[str, Any]] = {}
+            probe_errors: dict[str, Exception] = {}
             for service_url in initial_service_urls:
                 try:
-                    timeout = service_probe_timeout_for_project(project, service_url)
-                    probe_result = service_futures[service_url].result()
-                    lane = "authority" if identifier_core.normalize_url(service_url) in authority_probe_urls else "static"
+                    probe_results[service_url] = service_futures[service_url].result()
+                except Exception as exc:
+                    probe_errors[service_url] = exc
+            selected_authority_probe_urls = select_authority_probe_urls(authority_probe_chains, probe_results)
+            for service_url in initial_service_urls:
+                try:
+                    if service_url in probe_errors:
+                        raise probe_errors[service_url]
+                    probe_result = probe_results[service_url]
+                    normalized_service_url = identifier_core.normalize_url(service_url)
+                    is_authority_probe = normalized_service_url in authority_probe_urls
+                    if is_authority_probe and normalized_service_url not in selected_authority_probe_urls:
+                        continue
+                    lane = "authority" if is_authority_probe else "static"
                     service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result, lane=lane)
                     apply_service_evidence(project, service_evidence)
                     if lane == "authority":

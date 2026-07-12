@@ -967,11 +967,40 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         registry.apply_seed_to_project(project, "nsid", "fm.freemix.release.track")
         self.assertIn("release.freemix.fm", project["authority_domains"])
         self.assertEqual(project["service_url_candidates"], [])
+        self.assertEqual(registry.authority_probe_url_chains(project), [["https://release.freemix.fm", "https://freemix.fm"]])
 
         project = registry.finalize_project_shape(project)
 
         self.assertEqual(project["service_url_candidates"], [])
         self.assertEqual(registry.derived_authority_probe_urls(project), [])
+
+    def test_authority_probe_chain_selects_parent_only_after_exact_4xx(self) -> None:
+        chains = [["https://actor.thermals.cloud", "https://thermals.cloud"]]
+        exact_404 = {"status_code": 404}
+        parent_200 = {"status_code": 200}
+
+        selected = registry.select_authority_probe_urls(
+            chains,
+            {
+                "https://actor.thermals.cloud": exact_404,
+                "https://thermals.cloud": parent_200,
+            },
+        )
+
+        self.assertEqual(selected, {"https://thermals.cloud"})
+        self.assertEqual(parent_200["authority_fallback_from"], "https://actor.thermals.cloud")
+        self.assertEqual(parent_200["authority_fallback_status_code"], 404)
+
+    def test_authority_probe_chain_discards_parent_when_exact_succeeds(self) -> None:
+        selected = registry.select_authority_probe_urls(
+            [["https://actor.thermals.cloud", "https://thermals.cloud"]],
+            {
+                "https://actor.thermals.cloud": {"status_code": 200},
+                "https://thermals.cloud": {"status_code": 200},
+            },
+        )
+
+        self.assertEqual(selected, {"https://actor.thermals.cloud"})
 
     def test_finalize_prunes_stored_nsid_authority_service_guesses(self) -> None:
         project = registry.default_project_record("proj:authoritycleanup", "nsid", "fm.freemix.release.track")
@@ -1097,6 +1126,33 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         project = registry.finalize_project_shape(project)
 
         self.assertIn("https://meyasuat.suibari.com", project["service_url_candidates"])
+
+    def test_finalize_restores_parent_authority_candidate_from_saved_fallback_probe(self) -> None:
+        project = registry.default_project_record("proj:authorityfallback", "nsid", "cloud.thermals.actor.profile")
+        project["primary_nsid"] = "cloud.thermals.actor.profile"
+        project["input_nsids"] = ["cloud.thermals.actor.profile"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "cloud.thermals.actor.profile"}]
+        project["authority_domains"] = ["actor.thermals.cloud"]
+        project["service_url_candidates"] = ["https://thermals.cloud"]
+        project["service_verification_results"] = [
+            {
+                "requested_url": "https://thermals.cloud",
+                "final_url": "https://thermals.cloud",
+                "status_code": 200,
+                "title": "Thermals",
+                "description": "AT Protocol thermal flying service",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "app_shell_detected"],
+                "authority_fallback_from": "https://actor.thermals.cloud",
+                "authority_fallback_status_code": 404,
+                "html_extract": "<title>Thermals</title>",
+            }
+        ]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://thermals.cloud", project["service_url_candidates"])
 
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")

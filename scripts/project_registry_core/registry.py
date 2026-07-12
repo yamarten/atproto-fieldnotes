@@ -714,6 +714,81 @@ def exact_service_origin_for_authority_domain(authority_domain: str) -> str:
     return f"https://{lowered}" if lowered else ""
 
 
+def authority_probe_url_chains(project: dict[str, Any]) -> list[list[str]]:
+    existing_urls = {
+        identifier_core.normalize_url(str(url or ""))
+        for url in (
+            ([project.get("website_url")] if project.get("website_url") else [])
+            + list(project.get("service_urls", []))
+            + service_url_candidate_values(project)
+        )
+        if identifier_core.normalize_url(str(url or ""))
+    }
+    failed_urls = {
+        identifier_core.normalize_url(str(url or ""))
+        for url in project.get("failed_service_urls", [])
+        if identifier_core.normalize_url(str(url or ""))
+    }
+    chains: list[list[str]] = []
+    seen_urls: set[str] = set(existing_urls) | set(failed_urls)
+    observed_nsids = unique_list(list(project.get("resolved_nsids", [])) + list(project.get("input_nsids", [])))
+    for raw_nsid in observed_nsids:
+        nsid = identifier_core.normalize_nsid(str(raw_nsid or ""))
+        if not nsid:
+            continue
+        authority_domain = identifier_core.derive_authority_domain(nsid)
+        chain = [
+            identifier_core.normalize_url(url)
+            for url in candidate_service_origins_for_authority_domain(authority_domain)
+            if identifier_core.normalize_url(url)
+        ]
+        chain = [url for url in chain if url not in seen_urls]
+        if not chain:
+            continue
+        chains.append(chain)
+        seen_urls.update(chain)
+    return chains
+
+
+def authority_probe_all_urls(chains: list[list[str]]) -> list[str]:
+    return unique_list([url for chain in chains for url in chain])
+
+
+def authority_probe_result_allows_parent_fallback(result: dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+    status_code = int(result.get("status_code") or 0)
+    return 400 <= status_code < 500
+
+
+def authority_probe_result_is_success(result: dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+    status_code = int(result.get("status_code") or 0)
+    return 0 < status_code < 400
+
+
+def select_authority_probe_urls(
+    chains: list[list[str]],
+    results_by_url: dict[str, dict[str, Any]],
+) -> set[str]:
+    selected: set[str] = set()
+    for chain in chains:
+        previous_result: dict[str, Any] | None = None
+        for index, url in enumerate(chain):
+            result = results_by_url.get(url)
+            if authority_probe_result_is_success(result):
+                if index > 0 and previous_result is not None:
+                    result["authority_fallback_from"] = chain[index - 1]
+                    result["authority_fallback_status_code"] = int(previous_result.get("status_code") or 0)
+                selected.add(url)
+                break
+            if not authority_probe_result_allows_parent_fallback(result):
+                break
+            previous_result = result
+    return selected
+
+
 def authority_service_candidates_allowed(
     project: dict[str, Any],
     authority_domain: str,
@@ -769,6 +844,7 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             for candidate_url in candidate_service_origins_for_authority_domain(authority_domain)
             if identifier_core.normalize_url(candidate_url) not in supported_urls
             and not authority_service_candidate_has_record_url(project, candidate_url)
+            and not authority_service_candidate_has_saved_probe_support(project, candidate_url)
         )
     return guesses
 
@@ -812,6 +888,22 @@ def authority_service_candidate_has_record_url(project: dict[str, Any], service_
     return False
 
 
+def authority_service_candidate_has_saved_probe_support(project: dict[str, Any], service_url: str) -> bool:
+    normalized = identifier_core.normalize_url(service_url)
+    if not normalized:
+        return False
+    for item in project.get("service_verification_results", []):
+        if not isinstance(item, dict):
+            continue
+        requested_url = identifier_core.normalize_url(str(item.get("requested_url") or ""))
+        if requested_url != normalized:
+            continue
+        result = {**item, "html": str(item.get("html_extract") or item.get("html") or ""), "lane": "authority"}
+        if authority_service_probe_candidate_allowed(project, normalized, result):
+            return True
+    return False
+
+
 def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]:
     guesses = nsid_authority_service_origins(project)
     has_nsid_evidence = bool(
@@ -839,6 +931,7 @@ def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]
         *(identifier_core.normalize_url(str(item or "")) for item in project.get("supported_service_urls", [])),
         *(identifier_core.normalize_url(str(item or "")) for item in manual_service_seed_urls),
         *(url for url in guesses if authority_service_candidate_has_record_url(project, url)),
+        *(url for url in guesses if authority_service_candidate_has_saved_probe_support(project, url)),
     }
     return {url for url in guesses if url and url not in retained}
 
@@ -7078,6 +7171,25 @@ def verified_authority_live_surface(project: dict[str, Any], service_url: str, r
     return bool(str(result.get("title") or "").strip() or str(result.get("description") or "").strip())
 
 
+def authority_service_probe_is_parent_fallback(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
+    normalized = identifier_core.normalize_url(service_url)
+    fallback_from = identifier_core.normalize_url(str(result.get("authority_fallback_from") or ""))
+    fallback_status_code = int(result.get("authority_fallback_status_code") or 0)
+    if not normalized or not fallback_from or not (400 <= fallback_status_code < 500):
+        return False
+    for authority_domain in project.get("authority_domains", []):
+        authority = str(authority_domain or "").strip().lower().rstrip(".")
+        registrable = domain_policy_core.root_domain(authority)
+        if not authority or not registrable or registrable == authority:
+            continue
+        if (
+            fallback_from == identifier_core.normalize_url(exact_service_origin_for_authority_domain(authority))
+            and normalized == identifier_core.normalize_url(exact_service_origin_for_authority_domain(registrable))
+        ):
+            return True
+    return False
+
+
 def authority_service_probe_candidate_allowed(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
     normalized = normalize_service_candidate_url(service_url)
     if not normalized or service_url_is_guarded(project, normalized):
@@ -7093,9 +7205,11 @@ def authority_service_probe_candidate_allowed(project: dict[str, Any], service_u
     if normalized != identifier_core.normalize_url(exact_service_origin_for_authority_domain(parsed.netloc)):
         return False
     authority_domains = {str(item or "").strip().lower().rstrip(".") for item in project.get("authority_domains", []) if str(item or "").strip()}
-    if parsed.netloc.lower() not in authority_domains:
+    is_authority_host = parsed.netloc.lower() in authority_domains
+    is_parent_fallback = authority_service_probe_is_parent_fallback(project, normalized, result)
+    if not is_authority_host and not is_parent_fallback:
         return False
-    if not authority_service_candidate_has_record_url(project, normalized):
+    if not is_parent_fallback and not authority_service_candidate_has_record_url(project, normalized):
         return False
     observed_status = normalize_service_status(result.get("service_status"))
     if observed_status in {"dead", "unreleased", "unknown"}:

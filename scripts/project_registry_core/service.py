@@ -191,6 +191,7 @@ def collect_service_probe_evidence(
             "service_status", "service_status_confidence", "service_status_evidence",
             "redirected", "redirect_same_host", "redirect_same_site_family",
             "redirect_http_to_https", "redirect_cross_host",
+            "authority_fallback_from", "authority_fallback_status_code",
             "cache_hit",
         )
         if key in result
