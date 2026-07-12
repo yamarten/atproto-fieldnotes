@@ -63,7 +63,7 @@ idempotentに作成できます。
 - `tagline`: 短い紹介文
 - `tagline_is_provisional`: 暫定文であることを示すflag
 - `summary`: projectの説明
-- `notes`: operatorが保持する編集メモ
+- `notes`: operatorが保持する人間向け編集メモ。merge履歴、split履歴、sync/import由来などの機械生成メモは入れない
 
 `app`:
 
@@ -88,6 +88,8 @@ idempotentに作成できます。
 - fieldの欠落をconfirmedな否定として扱わない。未調査、partial failure、証拠なしは調査履歴と評価detailで区別する
 
 代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
+
+`system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは分離し、紹介用profileやoperatorの自由記述には混ぜません。
 
 ## `project_identifiers`
 

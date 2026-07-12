@@ -163,9 +163,7 @@ def split_identifier(
     note_line = f"split out {identifier_type}:{identifier_value} -> {target['project_key']}"
     if note:
         note_line = f"{note_line} ({note.strip()})"
-    existing_notes = str(source.get("notes") or "").strip()
-    if note_line not in existing_notes.splitlines():
-        source["notes"] = (existing_notes + ("\n" if existing_notes else "") + note_line).strip()
+    core.append_system_note(source, note_line)
     source = core.finalize_project_shape(source)
     for item in (source, target):
         item["duplicate_candidates"] = core.compute_duplicate_candidates(conn, item)

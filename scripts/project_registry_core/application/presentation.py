@@ -557,7 +557,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     if row is None:
         raise KeyError(project_key)
     prepared = core.apply_promotion_state(project)
-    profile = _json(str(row["profile_json"]), {})
+    profile = core.project_record_payload(prepared)
     state = _json(str(row["state_json"]), {})
     raw_project = {
         "project_key": resolved,
@@ -568,6 +568,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "introduced_url": str(row["introduced_url"]),
         "profile": profile,
         "state": state,
+        "system_notes": list(prepared.get("system_notes") or []),
         "first_seen_at": str(row["first_seen_at"]),
         "last_seen_at": str(row["last_seen_at"]),
         "last_enriched_at": str(row["last_enriched_at"] or ""),

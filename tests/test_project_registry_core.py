@@ -2012,6 +2012,39 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
             merged["candidate_developer_accounts"],
         )
 
+    def test_merge_keeps_machine_history_out_of_operator_notes(self) -> None:
+        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        target["notes"] = "target operator note"
+        target["system_notes"] = ["target system note"]
+        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        source["notes"] = "source operator note"
+        source["system_notes"] = ["source system note"]
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertEqual(merged["notes"], "target operator note\nsource operator note")
+        self.assertIn("target system note", merged["system_notes"])
+        self.assertIn("source system note", merged["system_notes"])
+        self.assertTrue(any(item.startswith("merged from proj:mergesource at ") for item in merged["system_notes"]))
+        self.assertFalse(any("merged from" in line for line in merged["notes"].splitlines()))
+
+    def test_project_shape_moves_legacy_machine_notes_to_system_notes(self) -> None:
+        project = registry.default_project_record("proj:legacynotes", "service_url", "https://example.com")
+        project["notes"] = "\n".join([
+            "operator note",
+            "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00",
+            "split out repo_url:https://github.com/example/app -> proj:abcdef123456 (separate package)",
+            "github search sync matched query=atproto updated_at=2026-06-10T00:00:00Z stars=1",
+            "keep this sync-related manual note",
+        ])
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(shaped["notes"], "operator note\nkeep this sync-related manual note")
+        self.assertIn("merged from proj:123456789abc at 2026-07-12T05:41:55+00:00", shaped["system_notes"])
+        self.assertIn("split out repo_url:https://github.com/example/app -> proj:abcdef123456 (separate package)", shaped["system_notes"])
+        self.assertIn("github search sync matched query=atproto updated_at=2026-06-10T00:00:00Z stars=1", shaped["system_notes"])
+
 
 class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
     def project(self) -> dict:

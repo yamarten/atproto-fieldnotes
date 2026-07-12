@@ -596,6 +596,35 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(preview["source_project_key"], source["project_key"])
         self.assertEqual(preview["target_project_key"], target["project_key"])
 
+    def test_split_identifier_keeps_machine_history_out_of_operator_notes(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            source = registry.fetch_project(conn, created["project_key"])
+            assert source is not None
+            source["notes"] = "operator note"
+            registry.confirm_source_code_url(source, "https://github.com/example/app", source="manual_seed")
+            registry.save_project(conn, source)
+            conn.commit()
+
+            result = merge.split_identifier(
+                conn,
+                project_key=source["project_key"],
+                identifier_type="repo_url",
+                value="https://github.com/example/app",
+                note="separate package",
+                execute=True,
+            )
+            saved = registry.fetch_project(conn, source["project_key"])
+        finally:
+            conn.close()
+
+        self.assertEqual(result["mode"], "execute")
+        assert saved is not None
+        self.assertEqual(saved["notes"], "operator note")
+        self.assertTrue(any(item.startswith("split out repo_url:https://github.com/example/app -> ") for item in saved["system_notes"]))
+        self.assertFalse(any("split out" in line for line in saved["notes"].splitlines()))
+
     def test_merge_preserves_source_key_and_investigation_history_as_alias(self) -> None:
         conn = registry.open_db()
         try:

@@ -602,6 +602,38 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         }
         self.assertIn("https://app.example.com", candidate_values)
 
+    def test_project_detail_separates_legacy_machine_notes(self) -> None:
+        conn = registry.open_db()
+        try:
+            conn.execute(
+                "UPDATE projects SET profile_json = ? WHERE project_key = ?",
+                (
+                    json.dumps({
+                        "core": {
+                            "summary": "Example summary",
+                            "notes": "\n".join([
+                                "operator note",
+                                "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00",
+                            ]),
+                        },
+                        "app": {},
+                    }),
+                    "proj:111111111111",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["project"]["profile"]["core"]["notes"], "operator note")
+        self.assertIn(
+            "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00",
+            detail["project"]["system_notes"],
+        )
+
     def test_identifier_entries_keep_role_classification_association(self) -> None:
         conn = registry.open_db()
         ordinal = conn.execute(

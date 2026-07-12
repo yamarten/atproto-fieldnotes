@@ -872,6 +872,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             "semble collection sync matched atmosphere-apps updated_at=2026-06-10T00:00:00Z",
         ])
         registry.save_project(conn, project)
+        conn.execute(
+            "UPDATE projects SET profile_json = ? WHERE project_key = ?",
+            (
+                registry.dump_json({
+                    "core": {"notes": project["notes"]},
+                    "app": {},
+                }),
+                project["project_key"],
+            ),
+        )
+        conn.commit()
         try:
             dry_run = registry.cleanup_project_sync_notes(conn, execute=False)
             self.assertEqual(dry_run["changed_project_count"], 1)

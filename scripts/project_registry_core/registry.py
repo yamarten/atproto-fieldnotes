@@ -274,6 +274,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "evidence": (
         "discovery_sources",
+        "system_notes",
         "evidence_urls",
         "investigation_queries",
         "investigation_log",
@@ -1073,6 +1074,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "introduced_url": "",
         "tracking_state": "active",
         "tracking_note": "",
+        "system_notes": [],
         "discovery_sources": ["manual_seed"],
         "evidence_urls": [],
         "primary_nsid": "",
@@ -1448,6 +1450,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["introduced_url"] = identifier_core.normalize_url(str(defaults.get("introduced_url") or "")) if defaults.get("introduced_url") else ""
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
+    defaults["system_notes"] = unique_list([str(item).strip() for item in defaults.get("system_notes", []) if str(item).strip()])
+    split_operator_and_system_notes(defaults)
     defaults["manual_review_recommended"] = bool(defaults.get("manual_review_recommended"))
     defaults["manual_review_kind"] = str(defaults.get("manual_review_kind") or "other").strip().lower() or "other"
     if defaults["manual_review_kind"] not in {
@@ -2821,10 +2825,7 @@ def ensure_project_for_seed(
     project["manual_seeds"] = [dict(item) for item in project["manual_seeds"]]
     apply_seed_to_project(project, seed_type, identifier_value)
     if match_kind:
-        note = f"seed matched by {match_kind}: {identifier_value}"
-        existing_note = str(project.get("notes") or "").strip()
-        if note not in existing_note.splitlines():
-            project["notes"] = "\n".join([part for part in [existing_note, note] if part]).strip()
+        append_system_note(project, f"seed matched by {match_kind}: {identifier_value}")
     save_project(conn, project, enriched=False)
     conn.commit()
     saved = fetch_project(conn, target_project_key)
@@ -11095,6 +11096,42 @@ def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
     return max(current_value, incoming_value)
 
 
+MACHINE_NOTE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^merged from proj:[0-9a-f]{12} at \d{4}-\d{2}-\d{2}T"),
+    re.compile(r"^split(?: out)? .+ -> proj:[0-9a-f]{12}(?: |$)"),
+    re.compile(r"^seed matched by [^:]+: .+"),
+    re.compile(r"^imported from text seed list: .+"),
+    re.compile(r"^seed-list (?:section|note): .+"),
+    re.compile(r"^github search sync matched "),
+    re.compile(r"^collection import matched by "),
+    re.compile(r"^semble collection sync matched "),
+)
+
+
+def note_line_is_machine_generated(line: str) -> bool:
+    text = str(line or "").strip()
+    return bool(text and any(pattern.match(text) for pattern in MACHINE_NOTE_PATTERNS))
+
+
+def split_operator_and_system_notes(project: dict[str, Any]) -> None:
+    notes = str(project.get("notes") or "").strip()
+    if not notes:
+        project["system_notes"] = unique_list([str(item).strip() for item in project.get("system_notes", []) if str(item).strip()])
+        return
+    operator_lines: list[str] = []
+    system_lines = [str(item).strip() for item in project.get("system_notes", []) if str(item).strip()]
+    for line in notes.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if note_line_is_machine_generated(stripped):
+            system_lines.append(stripped)
+        else:
+            operator_lines.append(stripped)
+    project["notes"] = "\n".join(operator_lines).strip()
+    project["system_notes"] = unique_list(system_lines)
+
+
 def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     merged = ensure_project_shape(dict(target))
     source = ensure_project_shape(source)
@@ -11226,8 +11263,12 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["last_llm_review_at"] = merge_timestamp(str(merged.get("last_llm_review_at") or ""), str(source.get("last_llm_review_at") or ""), prefer="max")
 
     source_key = str(source.get("project_key") or "")
-    merged_note = f"merged from {source_key} at {iso_now()}"
-    merged["notes"] = "\n".join([item for item in [str(merged.get("notes") or "").strip(), str(source.get("notes") or "").strip(), merged_note] if item]).strip()
+    merged["notes"] = "\n".join(unique_list([item for item in [str(merged.get("notes") or "").strip(), str(source.get("notes") or "").strip()] if item])).strip()
+    merged["system_notes"] = unique_list(
+        list(merged.get("system_notes", []))
+        + list(source.get("system_notes", []))
+        + [f"merged from {source_key} at {iso_now()}"]
+    )
     merged["last_run_errors"] = []
     merged["duplicate_candidates"] = []
     merged["merge_recommendation"] = {}
@@ -12262,7 +12303,7 @@ def split_project_identifier_group(
     note_line = f"split {split_label} -> {target_key}"
     if note:
         note_line = f"{note_line} ({note.strip()})"
-    append_project_note(source, note_line)
+    append_system_note(source, note_line)
 
     source = finalize_project_shape(source)
     target = finalize_project_shape(target)
@@ -12550,15 +12591,11 @@ def resolve_semble_project_key_for_seed_value(
     return None, "", None, ""
 
 
-def append_project_note(project: dict[str, Any], note_line: str) -> None:
+def append_system_note(project: dict[str, Any], note_line: str) -> None:
     line = str(note_line or "").strip()
     if not line:
         return
-    existing = str(project.get("notes") or "").strip()
-    existing_lines = existing.splitlines() if existing else []
-    if line in existing_lines:
-        return
-    project["notes"] = "\n".join(existing_lines + [line]).strip()
+    project["system_notes"] = unique_list(list(project.get("system_notes", [])) + [line])
 
 
 def parse_text_seed_line_values(line: str) -> list[str]:
@@ -12988,11 +13025,11 @@ def import_text_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool 
             project = ensure_project_shape(project)
             project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "text_seed_list_import")
             source_note = f"imported from text seed list: {Path(path).name}"
-            append_project_note(project, source_note)
+            append_system_note(project, source_note)
             if section:
-                append_project_note(project, f"seed-list section: {section}")
+                append_system_note(project, f"seed-list section: {section}")
             if label:
-                append_project_note(project, f"seed-list note: {label}")
+                append_system_note(project, f"seed-list note: {label}")
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
             created_project_key = project["project_key"]
             imported_projects += 1
