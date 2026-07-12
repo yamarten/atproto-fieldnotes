@@ -1075,6 +1075,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 - ただし次は最初から除外します
   - 自分自身
   - `separate_project_keys` で相互 block された pair
+- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な弱い派生関係の設計メモは [derivation-relations.md](notes/derivation-relations.md) に分離しています
 
 ### candidate の根拠
 
