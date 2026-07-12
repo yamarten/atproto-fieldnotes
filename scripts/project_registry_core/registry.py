@@ -587,6 +587,10 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
             source = str(item.get("source") or "").strip()
         elif isinstance(item, str):
             handle = str(item).strip()
+        if DID_RE.fullmatch(handle):
+            if not did or did.lower() == handle.lower():
+                did = handle
+            handle = ""
         if not handle and not did:
             continue
         key = (handle.lower(), did.lower(), source)
@@ -3341,8 +3345,41 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     normalized_projects = 0
     collection_member_seed_repairs = 0
     manual_repo_seed_repairs = 0
+    developer_account_repairs = 0
     for row in rows:
         stored_payload = project_from_row_payload(row)
+        project_key = str(row["project_key"])
+        malformed_developer_accounts = sum(
+            1
+            for field in ("developer_accounts", "candidate_developer_accounts")
+            for item in (stored_payload.get(field) if isinstance(stored_payload.get(field), list) else [])
+            if isinstance(item, dict) and DID_RE.fullmatch(str(item.get("handle") or "").strip())
+        )
+        malformed_developer_identifier_rows = 0
+        identifier_rows = conn.execute(
+            """
+            SELECT kind, value, role, metadata_json
+            FROM project_identifiers
+            WHERE project_key = ?
+              AND role IN ('developer_account', 'developer_handle')
+            """,
+            (project_key,),
+        ).fetchall()
+        for identifier_row in identifier_rows:
+            kind = str(identifier_row["kind"])
+            value = str(identifier_row["value"])
+            role = str(identifier_row["role"])
+            metadata = load_json(str(identifier_row["metadata_json"] or "{}")) or {}
+            if kind == "handle" and role == "developer_handle" and DID_RE.fullmatch(value):
+                malformed_developer_identifier_rows += 1
+            elif (
+                kind == "account"
+                and role == "developer_account"
+                and isinstance(metadata, dict)
+                and DID_RE.fullmatch(str(metadata.get("handle") or "").strip())
+            ):
+                malformed_developer_identifier_rows += 1
+        developer_account_repairs += malformed_developer_accounts + malformed_developer_identifier_rows
         raw = project_from_row(conn, row)
         original = ensure_project_shape(raw)
         original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
@@ -3363,9 +3400,17 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         )
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(original)):
             normalized_projects += 1
-        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized)) or contribution_changed:
+        if (
+            malformed_developer_accounts
+            or malformed_developer_identifier_rows
+            or dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized))
+            or contribution_changed
+        ):
             pruned_projects += 1
             if execute:
+                if malformed_developer_accounts or malformed_developer_identifier_rows:
+                    normalized.pop(runtime_view.RUNTIME_IDENTIFIER_ROWS, None)
+                    normalized.pop(runtime_view.RUNTIME_IDENTIFIER_BASELINE, None)
                 save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
 
@@ -3429,6 +3474,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "pruned_project_count": pruned_projects,
         "collection_member_seed_repair_count": collection_member_seed_repairs,
         "manual_repo_seed_repair_count": manual_repo_seed_repairs,
+        "developer_account_repair_count": developer_account_repairs,
         "refreshed_derived_project_count": refreshed_derived_projects,
         "orphan_count": 0,
         "stale_count": 0,

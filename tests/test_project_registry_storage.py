@@ -101,6 +101,85 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_repair_db_moves_did_out_of_developer_handle_field(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:didhandleaccount", "nsid", "app.example.didhandle")
+            registry.save_project(conn, project)
+            state = json.loads(
+                conn.execute(
+                    "SELECT state_json FROM projects WHERE project_key = ?",
+                    (project["project_key"],),
+                ).fetchone()[0]
+            )
+            state.setdefault("evidence", {})["candidate_developer_accounts"] = [
+                {"handle": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"}
+            ]
+            conn.execute(
+                "UPDATE projects SET state_json = ? WHERE project_key = ?",
+                (json.dumps(state), project["project_key"]),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    project["project_key"],
+                    98,
+                    "account",
+                    "did:plc:abcdefghijklmnopqrstuvwx",
+                    "developer_account",
+                    "candidate",
+                    '{"handle":"did:plc:abcdefghijklmnopqrstuvwx","source":"fixture"}',
+                ),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    project["project_key"],
+                    99,
+                    "handle",
+                    "did:plc:abcdefghijklmnopqrstuvwx",
+                    "developer_handle",
+                    "candidate",
+                    '{"account":"did:plc:abcdefghijklmnopqrstuvwx"}',
+                ),
+            )
+            conn.commit()
+
+            dry_run = maintenance_services.repair_database(conn)
+            self.assertEqual(dry_run["mode"], "dry_run")
+            self.assertGreaterEqual(dry_run["pruned_project_count"], 1)
+            self.assertEqual(dry_run["developer_account_repair_count"], 3)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_identifiers WHERE project_key = ? AND kind = 'handle' AND value LIKE 'did:%'",
+                    (project["project_key"],),
+                ).fetchone()[0],
+                1,
+            )
+
+            executed = maintenance_services.repair_database(conn, execute=True)
+            self.assertEqual(executed["mode"], "execute")
+            repaired = registry.fetch_project(conn, project["project_key"])
+            assert repaired is not None
+            self.assertEqual(
+                repaired["candidate_developer_accounts"],
+                [{"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"}],
+            )
+            rows = conn.execute(
+                "SELECT kind, value, role FROM project_identifiers WHERE project_key = ? AND role LIKE 'developer_%' ORDER BY ordinal",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertNotIn(
+                ("handle", "did:plc:abcdefghijklmnopqrstuvwx", "developer_handle"),
+                [tuple(row) for row in rows],
+            )
+            self.assertIn(
+                ("did", "did:plc:abcdefghijklmnopqrstuvwx", "developer_did"),
+                [tuple(row) for row in rows],
+            )
+        finally:
+            conn.close()
+
     def test_exact_identifier_lookup_uses_normalized_rows_without_project_hydration(self) -> None:
         conn = registry.open_db()
         try:

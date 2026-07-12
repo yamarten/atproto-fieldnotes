@@ -1183,6 +1183,18 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
             project["candidate_developer_accounts"],
         )
 
+    def test_developer_account_normalization_moves_did_out_of_handle_field(self) -> None:
+        self.assertEqual(
+            registry.normalize_developer_accounts([
+                {"handle": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"},
+                "did:plc:zyxwvutsrqponmlkjihgfedc",
+            ]),
+            [
+                {"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"},
+                {"did": "did:plc:zyxwvutsrqponmlkjihgfedc"},
+            ],
+        )
+
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_resource_url_values_use_records_without_compat_view(self) -> None:
