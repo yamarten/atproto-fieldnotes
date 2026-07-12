@@ -160,7 +160,12 @@ def search_project_rows(
     sql = (
         "SELECT p.*, "
         "EXISTS (SELECT 1 FROM project_identifiers ci WHERE ci.project_key = p.project_key "
-        "AND ci.classification = 'candidate') AS query_has_candidates, "
+        "AND ci.classification = 'candidate' "
+        "AND NOT EXISTS (SELECT 1 FROM project_identifiers confirmed_ci "
+        "WHERE confirmed_ci.project_key = ci.project_key "
+        "AND confirmed_ci.kind = ci.kind "
+        "AND confirmed_ci.value = ci.value "
+        "AND confirmed_ci.classification = 'confirmed')) AS query_has_candidates, "
         "EXISTS (SELECT 1 FROM project_decisions pd WHERE pd.project_key = p.project_key "
         "AND pd.kind = 'defer_promotion' AND pd.cleared_at = '' "
         "AND (pd.expires_at = '' OR pd.expires_at > CURRENT_TIMESTAMP)) AS query_promotion_hold "

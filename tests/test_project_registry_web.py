@@ -602,6 +602,26 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         }
         self.assertIn("https://app.example.com", candidate_values)
 
+    def test_search_candidate_badge_ignores_confirmed_duplicate_rows(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.default_project_record("proj:duplicatecandidate", "nsid", "app.example.post")
+            registry.add_manual_seed(project, "nsid", "app.example.post", source="fixture")
+            project["website_url"] = "https://app.example.com"
+            project["service_urls"] = ["https://app.example.com"]
+            registry.save_project(conn, project)
+        finally:
+            conn.close()
+
+        status, payload, _ = self.request("/api/projects?q=duplicatecandidate")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:duplicatecandidate")
+        self.assertFalse(payload["items"][0]["has_candidates"])
+
+        status, payload, _ = self.request("/api/projects?q=duplicatecandidate&has_candidates=yes")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 0)
+
     def test_project_detail_separates_legacy_machine_notes(self) -> None:
         conn = registry.open_db()
         try:
