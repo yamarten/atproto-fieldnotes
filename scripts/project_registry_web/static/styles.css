@@ -77,6 +77,9 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .list { display: grid; grid-auto-rows: max-content; gap: 8px; align-content: start; overflow: auto; padding-right: 2px; }
 .controls { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .toolbar input[type="search"] { flex: 1 1 240px; }
+.explicit-merge-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; align-items: end; }
+.explicit-merge-pair label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
+.explicit-merge-pair input { width: 100%; min-width: 0; }
 .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
 .filter-grid label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
 .filter-grid input, .filter-grid select { width: 100%; min-width: 0; }

@@ -232,12 +232,15 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
 
 function listControls() {
   if (state.screen === "review") {
+    const explicitMerge = state.reviewView === "merge"
+      ? `<div class="explicit-merge-pair"><label>Source project<input id="explicit-merge-source" placeholder="proj:3930cb0bedfd"></label><label>Target project<input id="explicit-merge-target" placeholder="proj:aefc07410260"></label><button id="compare-explicit-merge" class="primary">Compare pair</button></div>`
+      : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
       <button id="refresh-review-list" class="secondary">Refresh</button>
-    </div></div>`;
+    </div>${explicitMerge}</div>`;
   }
   return `<div class="controls">
     <div class="toolbar"><input id="project-query" type="search" placeholder="Search name, NSID, account, URL" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">Search</button><button id="new-seed">New Seed</button></div>
@@ -336,9 +339,30 @@ function captureProjectSearch() {
 function bindControls() {
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
+  $("compare-explicit-merge")?.addEventListener("click", compareExplicitMergePair);
+  ["explicit-merge-source", "explicit-merge-target"].forEach((id) => {
+    $(id)?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") compareExplicitMergePair();
+    });
+  });
   $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
   $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
   $("new-seed")?.addEventListener("click", renderNewSeed);
+}
+
+function compareExplicitMergePair() {
+  const source = $("explicit-merge-source")?.value.trim() || "";
+  const target = $("explicit-merge-target")?.value.trim() || "";
+  if (!source || !target) {
+    status("Source and target project keys are required.", true);
+    return;
+  }
+  if (source === target) {
+    status("Source and target must be different projects.", true);
+    return;
+  }
+  state.reviewView = "merge";
+  loadMergeDetail(source, target);
 }
 
 function normalizeQueueItem(item) {
