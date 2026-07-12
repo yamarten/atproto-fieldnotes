@@ -2583,13 +2583,16 @@ def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[d
 def build_nsid_seed_parent_namespace_lookup(projects: list[dict[str, Any]]) -> dict[str, str]:
     pairs: list[tuple[str, str]] = []
     for project in projects:
-        if str(project.get("seed_type") or "") != "nsid":
-            continue
-        seed_value = identifier_core.normalize_nsid(str(project.get("seed_value") or ""))
-        parent_namespace = namespace_from_collection_nsid(seed_value)
-        if not parent_namespace:
-            continue
-        pairs.append((parent_namespace, str(project.get("project_key") or "")))
+        seed_values = []
+        if str(project.get("seed_type") or "") == "nsid":
+            seed_values.append(str(project.get("seed_value") or ""))
+        seed_values.extend(manual_seed_values(project, "nsid"))
+        for seed_value in unique_list(seed_values):
+            normalized_seed = identifier_core.normalize_nsid(str(seed_value or ""))
+            parent_namespace = namespace_from_collection_nsid(normalized_seed)
+            if not parent_namespace:
+                continue
+            pairs.append((parent_namespace, str(project.get("project_key") or "")))
     return build_unique_lookup(pairs)
 
 

@@ -714,7 +714,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
   - namespace が短すぎる
   - authority domain が import 許可ルールに合わない
 - 既存 project への match 順:
-  1. payload内のfull collectionから得た親 namespace が、既存projectのNSID seed / recorded namespace と一意に一致する
+  1. payload内のfull collectionから得た親 namespace が、既存projectの代表NSID seed、manual NSID seed、または recorded namespace と一意に一致する
   2. `exact_namespace`
   3. `exact_namespace_scan`
   4. `registrable_namespace`

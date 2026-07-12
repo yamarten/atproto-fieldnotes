@@ -434,6 +434,47 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("social.homeport.activitypub.note", fetched["input_nsids"])
         self.assertIn("social.homeport.activitypub.note", [item["value"] for item in fetched["manual_seeds"]])
 
+    def test_collection_import_attaches_by_manual_seed_parent_namespace(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:comind", "nsid", "network.comind.memory")
+            registry.add_manual_seed(project, "nsid", "network.comind.memory", source="test")
+            registry.add_manual_seed(project, "nsid", "network.comind.void.action", source="test")
+            registry.save_project(conn, project)
+
+            self.assertEqual(
+                registry.safe_collection_member_namespace_match(
+                    [project],
+                    ["network.comind.void.memory"],
+                ),
+                ("proj:comind", "member_seed_parent_namespace"),
+            )
+
+            result = registry.import_collection_inventory_payload(
+                conn,
+                [
+                    {
+                        "collection": "network.comind.void.memory",
+                        "count": 4,
+                        "recent_count": 4,
+                        "min": "2026-07-11T04:57:09+00:00",
+                        "max": "2026-07-11T08:43:02+00:00",
+                    }
+                ],
+                execute=True,
+                create_unmatched=True,
+                source="test_collection_inventory",
+            )
+            fetched = registry.fetch_project(conn, "proj:comind")
+        finally:
+            conn.close()
+
+        assert fetched is not None
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 1)
+        self.assertIn("network.comind.void.memory", fetched["input_nsids"])
+        self.assertIn("network.comind.void.memory", [item["value"] for item in fetched["manual_seeds"]])
+
     def test_collection_import_attaches_all_aggregated_members(self) -> None:
         conn = registry.open_db()
         try:
