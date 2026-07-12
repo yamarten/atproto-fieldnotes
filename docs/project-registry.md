@@ -671,12 +671,24 @@ TTY 上で一意に解決できた場合は、`--execute` なしでもその場�
 
 ## DBを直接編集した後
 
-GUIやSQLで `projects` を直接編集した後は、正規化と派生データ再計算のためにこれを回します。
+GUIやSQLで `projects` を直接編集した後、または保存済みデータを現行ロジックのshapeへ揃える時は、正規化と派生データ再計算のためにこれを回します。
 
 ```bash
 project-registry repair-db
 project-registry repair-db --execute
 ```
+
+既定はdry-runです。`--execute` を付けた時だけ保存します。`repair-db` は特定バグだけを直す専用コマンドではなく、DB全体のcurrent project payloadを現行の保存shapeへ揃え、merge候補派生値を再計算します。代表的な出力カウンタは次の意味です。
+
+- `normalized_project_count`: 読み込み時の互換shape補正だけでproject JSON payloadが変わるproject数。
+- `pruned_project_count`: `finalize_project_shape()`、developer account/handle補正、atproto contribution保存値の補正により、保存対象payloadが変わるproject数。project削除数や削除row数ではありません。
+- `collection_member_seed_repair_count`: collection observation由来のmember seedを補完した件数。
+- `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed source repositoryに残っていない旧shapeを補正する件数。
+- `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に入っている旧shapeを補正する件数。payload内とidentifier row内の検出数を合算します。
+- `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
+- `collision_count`: 正規化後に同じidentifierを複数projectが所有する衝突数。報告のみで、自動merge/separateは行いません。
+
+`--execute` はこれらの該当変更をまとめて保存します。たとえばdeveloper handle補正のつもりで実行しても、同時にmanual repo seed補正やmerge候補再計算が保存されることがあります。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。
 
 schema v2導入後に追加されたidentifier投影を既存projectへ補完する場合は、保存済みの手動行を保持したまま、
 current payloadから導出できる不足行だけを追加します。
