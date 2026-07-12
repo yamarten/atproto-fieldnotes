@@ -5,12 +5,33 @@ import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+from project_registry_core import cli
 from project_registry_core import service, storage
+from project_registry_core.commands import projects as project_commands
 from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_show_by_unknown_seed_does_not_create_project(self) -> None:
+        args = cli.build_parser().parse_args([
+            "show",
+            "--seed",
+            "app.example.unknown",
+            "--type",
+            "nsid",
+        ])
+
+        with self.assertRaisesRegex(ValueError, "project not found for seed"):
+            project_commands.cmd_show(args)
+
+        conn = registry.open_db()
+        try:
+            project_count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(project_count, 0)
+
     def test_project_detail_defers_duplicate_analysis_and_analysis_runs_once(self) -> None:
         conn = registry.open_db()
         try:

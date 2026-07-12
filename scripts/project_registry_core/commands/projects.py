@@ -38,7 +38,6 @@ def cmd_show(args: argparse.Namespace) -> int:
             seed_type=args.type,
             all_projects=bool(args.all),
             tracking_states=_tracking_states(args),
-            create_seed=bool(args.seed),
         )
         projects = services.prepare_project_views(conn, projects)
         if args.format == "json":
