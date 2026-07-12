@@ -120,9 +120,9 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `source_repository`: projectのsource候補またはconfirmed repo
   - `source_repository_record`: metadata、README、treeなどを取得したrepo observation
 - identity
-  - `developer_account`: 開発者・運営者account
-  - `developer_handle`: accountに対応するhandle
-  - `developer_did`: accountに対応するDID
+  - `developer_account`: 開発者・運営者accountの保存・操作単位。値は同じaccount recordのDIDまたはhandleで、Web表示では対応するhandle/DID成分と1つのidentity groupに畳む。trust graph nodeにはしない
+  - `developer_handle`: `developer_account` recordから展開したhandle成分。handle検索、domain/handle関係、表示上の補足に使う
+  - `developer_did`: `developer_account` recordから展開したDID成分。DID/schema record/Tangled recordなどDID単位の関係評価に使う
   - `brand_did`: project自身のDID
   - `project_account`: project名義のaccount候補
   - `project_handle`: project名義のhandle候補

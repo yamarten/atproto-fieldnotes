@@ -441,6 +441,19 @@ function section(title, body) { return `<section class="detail-section"><h3>${es
 function projectTimestampRows(project) {
   return `<dt>First seen</dt><dd>${esc(formatTimestamp(project.first_seen_at) || "Unknown")}</dd><dt>Last seen</dt><dd>${esc(formatTimestamp(project.last_seen_at) || "Unknown")}</dd><dt>Last enriched</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "Never")}</dd>`;
 }
+function mergeIdentifierLabel(item, classification) {
+  const entries = list(item.entries).filter((entry) => entry.classification === classification);
+  const roleLabels = uniqueValues(entries.map((entry) => entry.role_label || entry.role));
+  if (item.family === "identity" && roleLabels.includes("developer")) {
+    const parts = uniqueValues(entries.filter((entry) => entry.role !== "developer_account").map((entry) => entry.role_label || entry.kind));
+    return `developer identity${parts.length ? ` (${parts.join(" + ")})` : ""}`;
+  }
+  return roleLabels.join(" + ") || item.role_labels?.join(" + ") || item.roles?.join(" + ") || item.kinds?.join(" + ") || item.family || "";
+}
+function mergeIdentifierRows(identifiers, classification) {
+  const rows = list(identifiers).filter((item) => list(item.classifications).includes(classification) || item.classification === classification);
+  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${item.kinds?.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>`).join("") || `<span class="muted">None</span>`;
+}
 function actionButton(label, action, data = {}, style = "small") {
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
   return `<button class="${style}" data-action="${action}" ${attrs}>${esc(label)}</button>`;
@@ -807,8 +820,7 @@ async function loadMergeDetail(source, target, options = {}) {
     state.mergeTargetRevision = data.target_revision || "";
     const snapshot = (project, side) => {
       const identifiers = list(project.identifiers);
-      const identifierRows = (classification) => identifiers.filter((item) => item.classification === classification).map((item) => `<div><span class="muted">${esc(item.role || item.kind)}</span> ${link(item.value)}</div>`).join("") || `<span class="muted">None</span>`;
-      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Status</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>Seed</dt><dd>${esc(`${project.seed?.type || ""}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>Confirmed identifiers</strong>${identifierRows("confirmed")}<strong>Candidates</strong>${identifierRows("candidate")}</div><button class="small" data-merge-view="${esc(side)}">Open full detail</button></article>`;
+      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Status</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>Seed</dt><dd>${esc(`${project.seed?.type || ""}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>Confirmed identifiers</strong>${mergeIdentifierRows(identifiers, "confirmed")}<strong>Candidates</strong>${mergeIdentifierRows(identifiers, "candidate")}</div><button class="small" data-merge-view="${esc(side)}">Open full detail</button></article>`;
     };
     const firstCreatorBody = data.first_creator_details_included
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view.</p>`

@@ -785,15 +785,6 @@ def merge_pair(
 
     def snapshot(project: dict[str, Any]) -> dict[str, Any]:
         shaped = core.ensure_project_shape(project)
-        identifier_rows = conn.execute(
-            """
-            SELECT kind, value, role, classification, is_primary, provider
-            FROM project_identifiers
-            WHERE project_key = ?
-            ORDER BY ordinal
-            """,
-            (shaped["project_key"],),
-        ).fetchall()
         return {
             **_summary(shaped),
             "seed": {"type": shaped.get("seed_type", ""), "value": shaped.get("seed_value", "")},
@@ -805,17 +796,7 @@ def merge_pair(
             "candidate_nsids": list(shaped.get("candidate_nsids") or []),
             "developer_accounts": list(shaped.get("developer_accounts") or []),
             "candidate_developer_accounts": list(shaped.get("candidate_developer_accounts") or []),
-            "identifiers": [
-                {
-                    "kind": str(row["kind"]),
-                    "value": str(row["value"]),
-                    "role": str(row["role"]),
-                    "classification": str(row["classification"]),
-                    "is_primary": bool(row["is_primary"]),
-                    "provider": str(row["provider"]),
-                }
-                for row in identifier_rows
-            ],
+            "identifiers": _identifier_rows(conn, shaped["project_key"]),
         }
 
     preview = merge.merge_projects(
