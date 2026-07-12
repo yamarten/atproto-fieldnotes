@@ -81,6 +81,7 @@ function saveSettings() { localStorage.setItem(settingsKey, JSON.stringify(state
 function status(message, error = false) { $("status").textContent = message || ""; $("status").style.color = error ? "var(--danger)" : ""; }
 function safeUrl(value) { try { const url = new URL(String(value || "")); return ["http:", "https:"].includes(url.protocol) ? url.href : ""; } catch { return ""; } }
 function link(value) { const href = safeUrl(value); return href ? `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(value)}</a>` : esc(value); }
+function externalLink(href, label) { const safe = safeUrl(href); return safe ? `<a href="${esc(safe)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label); }
 function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value)}</span>` : ""; }
 function json(value) { return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`; }
 function parseTimeZoneOffset(value) {
@@ -509,7 +510,7 @@ function mergeIdentifierLabel(item, classification) {
 }
 function mergeIdentifierRows(identifiers, classification) {
   const rows = list(identifiers).filter((item) => list(item.classifications).includes(classification) || item.classification === classification);
-  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${item.kinds?.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>`).join("") || `<span class="muted">None</span>`;
+  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${identifierValueLink(item)}</div>`).join("") || `<span class="muted">None</span>`;
 }
 function actionButton(label, action, data = {}, style = "small") {
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
@@ -597,6 +598,26 @@ const identifierFamilies = [
 
 function uniqueValues(values) { return [...new Set(values.filter(Boolean))]; }
 
+function pdslsIdentityUrl(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (normalized.startsWith("did:") || /^[a-z0-9][a-z0-9.-]*\.[a-z0-9.-]+$/i.test(normalized)) {
+    return `https://pdsls.dev/${encodeURIComponent(normalized)}`;
+  }
+  return "";
+}
+
+function identifierValueLink(item) {
+  const kinds = list(item.kinds);
+  const value = String(item.value || "").trim();
+  if (kinds.some((kind) => ["service_url", "repo_url"].includes(kind))) return link(value);
+  if (kinds.some((kind) => ["account", "did", "handle"].includes(kind))) {
+    const href = pdslsIdentityUrl(value);
+    return href ? externalLink(href, value) : esc(value);
+  }
+  return esc(value);
+}
+
 function renderSystemNotes(project) {
   const notes = list(project.system_notes).filter((item) => String(item || "").trim());
   return notes.length ? notes.map((item) => esc(item)).join("<br>") : "None";
@@ -623,7 +644,7 @@ function renderIdentifier(item) {
   const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
   return `<div class="identifier ${esc(effectiveClassification)}">
     <div class="identifier-main">
-      <div class="identifier-value">${item.kinds.some((kind) => ["service_url", "repo_url"].includes(kind)) ? link(item.value) : esc(item.value)}</div>
+      <div class="identifier-value">${identifierValueLink(item)}</div>
       ${detail ? `<div class="identifier-roles">${esc(detail)}</div>` : ""}
       <div class="identifier-entry-list">${entries.map((entry) => {
         const entryType = entry.actions?.identifier_type || "";
