@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import copy
+import re
 from typing import Any, Iterable, Mapping
 
 from . import identifiers
@@ -26,6 +27,8 @@ RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_DECISION_BASELINE,
     RUNTIME_INVESTIGATION_RUN_ID,
 }
+ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
+DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 
 
@@ -37,6 +40,32 @@ def _unique(values: Iterable[str]) -> list[str]:
             continue
         seen.add(value)
         output.append(value)
+    return output
+
+
+def _normalized_developer_account(item: Mapping[str, Any]) -> dict[str, str]:
+    handle = str(item.get("handle") or "").strip()
+    did = str(item.get("did") or "").strip()
+    source = str(item.get("source") or "").strip()
+    if DID_RE.fullmatch(handle):
+        if not did or did.lower() == handle.lower():
+            did = handle
+        handle = ""
+    if handle:
+        handle = handle.rstrip(".")
+    if handle and not ATPROTO_HANDLE_RE.fullmatch(handle):
+        handle = ""
+    if did and not DID_RE.fullmatch(did):
+        did = ""
+    if not handle and not did:
+        return {}
+    output: dict[str, str] = {}
+    if handle:
+        output["handle"] = handle.lower()
+    if did:
+        output["did"] = did
+    if source:
+        output["source"] = source
     return output
 
 
@@ -302,13 +331,19 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         for item in project.get(field, []):
             if not isinstance(item, dict):
                 continue
-            value = str(item.get("did") or item.get("handle") or item.get("url") or "")
-            add("account", value, "developer_account", classification, metadata=dict(item))
-            add("handle", item.get("handle"), "developer_handle", classification, metadata={"account": value})
-            add("did", item.get("did"), "developer_did", classification, metadata={"account": value})
+            account = _normalized_developer_account(item)
+            if not account:
+                continue
+            value = str(account.get("did") or account.get("handle") or "")
+            add("account", value, "developer_account", classification, metadata=account)
+            add("handle", account.get("handle"), "developer_handle", classification, metadata={"account": value})
+            add("did", account.get("did"), "developer_did", classification, metadata={"account": value})
     add("did", project.get("brand_did"), "brand_did", "confirmed", primary=True)
     for field, provider in (("bluesky_handles", "bluesky"), ("tangled_handles", "tangled")):
         for value in project.get(field, []):
+            value = str(value or "").strip().rstrip(".").lower()
+            if not ATPROTO_HANDLE_RE.fullmatch(value):
+                continue
             add("account", value, "project_account", "candidate", provider=provider)
             add("handle", value, "project_handle", "candidate", provider=provider)
 
@@ -582,10 +617,12 @@ def hydrate(
                 project["source_repo_records"].append(record)
         elif kind == "account":
             if role == "developer_account":
-                target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
-                project[target].append(copy.deepcopy(metadata) or {"handle": value})
-            elif str(row["provider"]) == "bluesky": project["bluesky_handles"].append(value)
-            elif str(row["provider"]) == "tangled": project["tangled_handles"].append(value)
+                account = _normalized_developer_account(copy.deepcopy(metadata) or {"handle": value})
+                if account:
+                    target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
+                    project[target].append(account)
+            elif str(row["provider"]) == "bluesky" and ATPROTO_HANDLE_RE.fullmatch(value): project["bluesky_handles"].append(value)
+            elif str(row["provider"]) == "tangled" and ATPROTO_HANDLE_RE.fullmatch(value): project["tangled_handles"].append(value)
         elif kind == "did" and role == "brand_did" and classification == "confirmed":
             project["brand_did"] = value
 

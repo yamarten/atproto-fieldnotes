@@ -25,6 +25,21 @@ def _json(value: str, default: Any) -> Any:
     return json.loads(value)
 
 
+def _identifier_row_is_displayable(item: dict[str, Any]) -> bool:
+    kind = str(item.get("kind") or "")
+    role = str(item.get("role") or "")
+    value = str(item.get("value") or "").strip()
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    if role in {"developer_account", "developer_handle"}:
+        if kind == "account":
+            return bool(core.normalize_developer_accounts([metadata or {"handle": value}]))
+        if kind == "handle":
+            return bool(core.ATPROTO_HANDLE_RE.fullmatch(value))
+    if role == "project_handle":
+        return bool(core.ATPROTO_HANDLE_RE.fullmatch(value))
+    return True
+
+
 def _summary(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "project_key": str(project.get("project_key") or ""),
@@ -168,6 +183,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         }
         for row in rows
     ]
+    raw = [item for item in raw if _identifier_row_is_displayable(item)]
     family_specs = {
         "service_url": ("service", "Services"),
         "repo_url": ("repository", "Repositories"),

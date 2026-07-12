@@ -1254,6 +1254,25 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
             {"did": "did:web:alice.example.com"},
         )
         self.assertEqual(registry.extract_bluesky_profile_subject("https://bsky.app/profile/not-a-handle"), {})
+        self.assertEqual(
+            registry.extract_bluesky_profile_subject("https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`"),
+            {},
+        )
+
+    def test_extracted_template_profile_url_does_not_create_developer_candidate(self) -> None:
+        project = registry.default_project_record("proj:templateprofile", "service_url", "https://skyspace.me")
+
+        registry.record_developer_profile_url(
+            project,
+            "https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`",
+            "service_raw_url:https://skyspace.me",
+        )
+
+        self.assertEqual(project["candidate_developer_accounts"], [])
+        self.assertNotIn(
+            "https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`",
+            registry.extract_urls('const url = `https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`;'),
+        )
 
     def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:
         profile_url = "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"
@@ -1280,6 +1299,33 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
                 {"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"},
                 {"did": "did:plc:zyxwvutsrqponmlkjihgfedc"},
             ],
+        )
+
+    def test_developer_account_normalization_drops_template_handles(self) -> None:
+        self.assertEqual(
+            registry.normalize_developer_accounts([
+                {"handle": "${encodeURIComponent(profileData.handle)}`", "source": "service_raw_url:https://skyspace.me"},
+                {"handle": "Alice.Example.COM", "source": "fixture"},
+            ]),
+            [{"handle": "alice.example.com", "source": "fixture"}],
+        )
+
+    def test_project_shape_drops_template_handles_from_llm_source_evidence(self) -> None:
+        project = registry.default_project_record("proj:templateevidence", "service_url", "https://skyspace.me")
+        project["llm_source"] = {
+            "evidence": {
+                "candidate_developer_accounts": [
+                    {"handle": "${encodeURIComponent(profileData.handle)}`", "source": "service_raw_url:https://skyspace.me"},
+                    {"handle": "Alice.Example.COM", "source": "fixture"},
+                ]
+            }
+        }
+
+        shaped = registry.ensure_project_shape(project)
+
+        self.assertEqual(
+            shaped["llm_source"]["evidence"]["candidate_developer_accounts"],
+            [{"handle": "alice.example.com", "source": "fixture"}],
         )
 
 

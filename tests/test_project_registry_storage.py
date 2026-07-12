@@ -180,6 +180,67 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_repair_db_drops_template_developer_identifier_rows(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:templatehandle", "service_url", "https://skyspace.me")
+            registry.save_project(conn, project)
+            state = json.loads(
+                conn.execute(
+                    "SELECT state_json FROM projects WHERE project_key = ?",
+                    (project["project_key"],),
+                ).fetchone()[0]
+            )
+            state.setdefault("evidence", {})["candidate_developer_accounts"] = [
+                {"handle": "${encodeURIComponent(profileData.handle)}`", "source": "service_raw_url:https://skyspace.me"}
+            ]
+            conn.execute(
+                "UPDATE projects SET state_json = ? WHERE project_key = ?",
+                (json.dumps(state), project["project_key"]),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    project["project_key"],
+                    98,
+                    "account",
+                    "${encodeURIComponent(profileData.handle)}`",
+                    "developer_account",
+                    "candidate",
+                    '{"handle":"${encodeURIComponent(profileData.handle)}`","source":"service_raw_url:https://skyspace.me"}',
+                ),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    project["project_key"],
+                    99,
+                    "handle",
+                    "${encodeuricomponent(profiledata.handle)}`",
+                    "developer_handle",
+                    "candidate",
+                    '{"account":"${encodeURIComponent(profileData.handle)}`"}',
+                ),
+            )
+            conn.commit()
+
+            dry_run = maintenance_services.repair_database(conn)
+            self.assertEqual(dry_run["mode"], "dry_run")
+            self.assertGreaterEqual(dry_run["developer_account_repair_count"], 3)
+
+            executed = maintenance_services.repair_database(conn, execute=True)
+            self.assertEqual(executed["mode"], "execute")
+            repaired = registry.fetch_project(conn, project["project_key"])
+            assert repaired is not None
+            self.assertEqual(repaired["candidate_developer_accounts"], [])
+            rows = conn.execute(
+                "SELECT value FROM project_identifiers WHERE project_key = ? AND role LIKE 'developer_%'",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertFalse([row for row in rows if "encodeuricomponent" in str(row["value"]).lower()])
+        finally:
+            conn.close()
+
     def test_exact_identifier_lookup_uses_normalized_rows_without_project_hydration(self) -> None:
         conn = registry.open_db()
         try:

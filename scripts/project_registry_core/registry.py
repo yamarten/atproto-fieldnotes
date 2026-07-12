@@ -592,6 +592,12 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
             if not did or did.lower() == handle.lower():
                 did = handle
             handle = ""
+        if handle:
+            handle = handle.rstrip(".")
+        if handle and not ATPROTO_HANDLE_RE.fullmatch(handle):
+            handle = ""
+        if handle:
+            handle = handle.lower()
         if not handle and not did:
             continue
         key = (handle.lower(), did.lower(), source)
@@ -1565,6 +1571,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["last_promoted_at"] = str(defaults.get("last_promoted_at") or "")
     defaults["promotion_events"] = [dict(item) for item in defaults.get("promotion_events", []) if isinstance(item, dict)]
     defaults["llm_source"] = dict(defaults.get("llm_source") or {})
+    if isinstance(defaults["llm_source"].get("evidence"), dict):
+        evidence = dict(defaults["llm_source"]["evidence"])
+        evidence["developer_accounts"] = normalize_developer_accounts(evidence.get("developer_accounts", []))
+        evidence["candidate_developer_accounts"] = normalize_developer_accounts(evidence.get("candidate_developer_accounts", []))
+        defaults["llm_source"] = dict(defaults["llm_source"], evidence=evidence)
     defaults["llm_output"] = dict(defaults.get("llm_output") or {})
     defaults["duplicate_candidates"] = list(defaults.get("duplicate_candidates") or [])
     defaults["merge_recommendation"] = dict(defaults.get("merge_recommendation") or {})
@@ -3447,7 +3458,12 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             1
             for field in ("developer_accounts", "candidate_developer_accounts")
             for item in (stored_payload.get(field) if isinstance(stored_payload.get(field), list) else [])
-            if isinstance(item, dict) and DID_RE.fullmatch(str(item.get("handle") or "").strip())
+            if isinstance(item, dict)
+            and str(item.get("handle") or "").strip()
+            and (
+                DID_RE.fullmatch(str(item.get("handle") or "").strip())
+                or not ATPROTO_HANDLE_RE.fullmatch(str(item.get("handle") or "").strip())
+            )
         )
         malformed_developer_identifier_rows = 0
         identifier_rows = conn.execute(
@@ -3464,13 +3480,17 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             value = str(identifier_row["value"])
             role = str(identifier_row["role"])
             metadata = load_json(str(identifier_row["metadata_json"] or "{}")) or {}
-            if kind == "handle" and role == "developer_handle" and DID_RE.fullmatch(value):
+            if kind == "handle" and role == "developer_handle" and not ATPROTO_HANDLE_RE.fullmatch(value):
                 malformed_developer_identifier_rows += 1
             elif (
                 kind == "account"
                 and role == "developer_account"
                 and isinstance(metadata, dict)
-                and DID_RE.fullmatch(str(metadata.get("handle") or "").strip())
+                and str((metadata or {"handle": value}).get("handle") or "").strip()
+                and (
+                    DID_RE.fullmatch(str((metadata or {"handle": value}).get("handle") or "").strip())
+                    or not ATPROTO_HANDLE_RE.fullmatch(str((metadata or {"handle": value}).get("handle") or "").strip())
+                )
             ):
                 malformed_developer_identifier_rows += 1
         developer_account_repairs += malformed_developer_accounts + malformed_developer_identifier_rows

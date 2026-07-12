@@ -37,6 +37,8 @@ def normalize_url(url: str) -> str:
 
 def sanitize_extracted_url(raw_url: str) -> str:
     value = str(raw_url or "").strip().strip("<>[]{}\"'")
+    if "${" in value or "`" in value:
+        return ""
     for marker in ("](", ")("):
         if marker in value:
             value = value.split(marker, 1)[0].rstrip()

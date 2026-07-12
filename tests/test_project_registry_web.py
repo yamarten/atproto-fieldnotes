@@ -702,6 +702,41 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertFalse(identity["actions"]["confirm"])
         self.assertFalse(any(item["value"] == "dev.example.com" for item in detail["identifiers"]))
 
+    def test_project_detail_hides_malformed_developer_identifier_rows(self) -> None:
+        conn = registry.open_db()
+        try:
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "proj:111111111111",
+                    98,
+                    "account",
+                    "${encodeURIComponent(profileData.handle)}`",
+                    "developer_account",
+                    "candidate",
+                    '{"handle":"${encodeURIComponent(profileData.handle)}`","source":"service_raw_url:https://skyspace.me"}',
+                ),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "proj:111111111111",
+                    99,
+                    "handle",
+                    "${encodeuricomponent(profiledata.handle)}`",
+                    "developer_handle",
+                    "candidate",
+                    '{"account":"${encodeURIComponent(profileData.handle)}`"}',
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        self.assertFalse(any("encodeuricomponent" in item["value"].lower() for item in detail["identifiers"]))
+
     def test_authority_domain_identifier_can_be_split_from_detail(self) -> None:
         conn = registry.open_db()
         try:
