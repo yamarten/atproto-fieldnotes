@@ -1957,6 +1957,47 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(payload["first_creator_overlap"]["collection_first_record_creator_dids"], ["did:plc:shared"])
         self.assertNotIn("collection_first_record_creator_dids", payload["source_pair_candidate"]["reasons"])
 
+    def test_first_creator_details_use_observed_collection_member_case(self) -> None:
+        source = registry.default_project_record("proj:sourcefirstcreatorcase", "nsid", "app.alpha.record")
+        source["name"] = "Alpha Project"
+        source["input_nsids"] = ["app.alpha.record"]
+        source["collection_observations"] = [{
+            "collection": "app.alpha",
+            "members": ["app.alpha.recordMixed"],
+        }]
+        target = registry.default_project_record("proj:targetfirstcreatorcase", "nsid", "net.beta.entry")
+        target["name"] = "Beta Project"
+        target["input_nsids"] = ["net.beta.entry"]
+        original_fetch = registry.fetch_collection_first_creator_did
+        calls: list[str] = []
+
+        def fake_fetch(collection: str) -> str:
+            calls.append(collection)
+            if collection == "app.alpha.recordMixed":
+                return "did:plc:mixedcase"
+            if collection == "net.beta.entry":
+                return "did:plc:mixedcase"
+            return ""
+
+        try:
+            registry.fetch_collection_first_creator_did = fake_fetch
+
+            payload = registry.inspect_merge_pair_payload(None, source, target, include_first_creator_details=True)
+        finally:
+            registry.fetch_collection_first_creator_did = original_fetch
+
+        self.assertIn("app.alpha.recordMixed", calls)
+        self.assertEqual(payload["first_creator_overlap"]["collection_first_record_creator_dids"], ["did:plc:mixedcase"])
+        self.assertNotIn("alias_overlap", payload["first_creator_overlap"])
+        self.assertEqual(
+            payload["source_collection_first_creator_details"]["app.alpha.recordMixed"],
+            {"status": "found", "did": "did:plc:mixedcase"},
+        )
+        self.assertEqual(
+            payload["source_collection_first_creator_details"]["app.alpha.record"],
+            {"status": "not_found", "did": ""},
+        )
+
     def test_compute_external_lexicons_uses_saved_trust_state_only(self) -> None:
         project = registry.default_project_record("proj:externallexicon", "repo_url", "https://github.com/example/app")
         project["input_nsids"] = ["org.other.post"]

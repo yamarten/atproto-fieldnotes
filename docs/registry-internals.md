@@ -1131,6 +1131,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
 - collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
   - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
+  - 照会collectionは保存済みNSIDに加え、collection observationの`members`に残るcase-preservingなNSIDも使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
   - CLIからheuristicを判定へ含める導線はありません
 

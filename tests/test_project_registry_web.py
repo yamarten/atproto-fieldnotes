@@ -792,6 +792,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(payload["first_creator_details_included"])
         self.assertIn("source_collection_first_creator_dids", payload)
         self.assertIn("target_collection_first_creator_dids", payload)
+        self.assertIn("source_collection_first_creator_details", payload)
+        self.assertIn("target_collection_first_creator_details", payload)
 
     def test_investigation_history_detail_and_replay(self) -> None:
         status, runs, _ = self.request("/api/projects/proj:111111111111/investigation-runs")

@@ -8502,6 +8502,13 @@ def project_collection_nsids(project: dict[str, Any]) -> set[str]:
         normalized = identifier_core.normalize_nsid(str(value or ""))
         if normalized and namespace_from_collection_nsid(normalized):
             collections.add(normalized)
+    for observation in project.get("collection_observations", []):
+        if not isinstance(observation, dict):
+            continue
+        for value in observation.get("members", []):
+            normalized = identifier_core.normalize_nsid(str(value or ""))
+            if normalized and namespace_from_collection_nsid(normalized):
+                collections.add(normalized)
     for sample in project.get("recent_record_samples", []):
         if not isinstance(sample, dict):
             continue
@@ -8533,6 +8540,21 @@ def project_collection_first_creator_did_map(project: dict[str, Any]) -> dict[st
         if did:
             mapping[collection] = did
     return mapping
+
+
+def project_collection_first_creator_details(project: dict[str, Any]) -> dict[str, dict[str, str]]:
+    details: dict[str, dict[str, str]] = {}
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception as exc:
+            details[collection] = {"status": "error", "did": "", "error": str(exc)}
+            continue
+        if did:
+            details[collection] = {"status": "found", "did": did}
+        else:
+            details[collection] = {"status": "not_found", "did": ""}
+    return details
 
 
 def project_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
@@ -10475,6 +10497,8 @@ def inspect_merge_pair_payload(
     if include_first_creator_details:
         summary["source_collection_first_creator_dids"] = project_collection_first_creator_did_map(source)
         summary["target_collection_first_creator_dids"] = project_collection_first_creator_did_map(target)
+        summary["source_collection_first_creator_details"] = project_collection_first_creator_details(source)
+        summary["target_collection_first_creator_details"] = project_collection_first_creator_details(target)
     return summary
 
 
@@ -10865,11 +10889,12 @@ def batch_moderate_overlap(
         reasons["alias_overlap"] = alias_overlap
         return reasons
 
-    if collection_first_creator_heuristic and alias_overlap:
+    if collection_first_creator_heuristic:
         first_creator_overlap = sorted(project_collection_first_creator_dids(project_a) & project_collection_first_creator_dids(project_b))
         if first_creator_overlap:
             reasons["collection_first_record_creator_dids"] = first_creator_overlap
-            reasons["alias_overlap"] = alias_overlap
+            if alias_overlap:
+                reasons["alias_overlap"] = alias_overlap
             return reasons
 
     family_overlap = sorted(project_merge_authority_families(project_a) & project_merge_authority_families(project_b))
