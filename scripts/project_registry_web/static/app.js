@@ -233,7 +233,7 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
 function listControls() {
   if (state.screen === "review") {
     const explicitMerge = state.reviewView === "merge"
-      ? `<div class="explicit-merge-pair"><label>Source project<input id="explicit-merge-source" placeholder="proj:3930cb0bedfd"></label><label>Target project<input id="explicit-merge-target" placeholder="proj:aefc07410260"></label><button id="compare-explicit-merge" class="primary">Compare pair</button></div>`
+      ? renderExplicitMergePairForm()
       : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
@@ -339,20 +339,35 @@ function captureProjectSearch() {
 function bindControls() {
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
-  $("compare-explicit-merge")?.addEventListener("click", compareExplicitMergePair);
-  ["explicit-merge-source", "explicit-merge-target"].forEach((id) => {
-    $(id)?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") compareExplicitMergePair();
-    });
-  });
+  bindExplicitMergePairControls(document);
   $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
   $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
   $("new-seed")?.addEventListener("click", renderNewSeed);
 }
 
-function compareExplicitMergePair() {
-  const source = $("explicit-merge-source")?.value.trim() || "";
-  const target = $("explicit-merge-target")?.value.trim() || "";
+function renderExplicitMergePairForm({source = "", target = "", sourceFixed = false} = {}) {
+  const sourceMode = sourceFixed ? "readonly" : "";
+  return `<div class="explicit-merge-pair" data-explicit-merge-pair>
+    <label>Source project<input data-explicit-merge-source placeholder="proj:3930cb0bedfd" value="${esc(source)}" ${sourceMode}></label>
+    <label>Target project<input data-explicit-merge-target placeholder="proj:aefc07410260" value="${esc(target)}"></label>
+    <button data-compare-explicit-merge class="primary">Compare pair</button>
+  </div>`;
+}
+
+function bindExplicitMergePairControls(root) {
+  root.querySelectorAll("[data-compare-explicit-merge]").forEach((button) => {
+    button.onclick = () => compareExplicitMergePair(button.closest("[data-explicit-merge-pair]"));
+  });
+  root.querySelectorAll("[data-explicit-merge-source], [data-explicit-merge-target]").forEach((input) => {
+    input.onkeydown = (event) => {
+      if (event.key === "Enter") compareExplicitMergePair(input.closest("[data-explicit-merge-pair]"));
+    };
+  });
+}
+
+function compareExplicitMergePair(form) {
+  const source = form?.querySelector("[data-explicit-merge-source]")?.value.trim() || "";
+  const target = form?.querySelector("[data-explicit-merge-target]")?.value.trim() || "";
   if (!source || !target) {
     status("Source and target project keys are required.", true);
     return;
@@ -361,6 +376,7 @@ function compareExplicitMergePair() {
     status("Source and target must be different projects.", true);
     return;
   }
+  status("");
   state.reviewView = "merge";
   loadMergeDetail(source, target);
 }
@@ -514,7 +530,7 @@ function renderDetail(data) {
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
-    ${section("Merge Candidate", `<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
+    ${section("Merge Candidate", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
     ${section("Explain", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
   `;
   $("detail").innerHTML = `
@@ -543,6 +559,7 @@ function renderDetail(data) {
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
   $("skip-review-item")?.addEventListener("click", () => skipReviewItem(project.project_key));
   $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
+  bindExplicitMergePairControls(document);
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
     state.detailTab = button.dataset.detailTab;
     syncUrl();
