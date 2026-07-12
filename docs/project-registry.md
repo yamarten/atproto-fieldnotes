@@ -633,6 +633,8 @@ project-registry split-project \
 実行時は `--execute` を付けます。
 切り出し先の`project_key`は自動採番されます。
 
+`--identifier-type domain` を指定した場合は、authority domain 単位の誤マージ救済として扱います。指定 domain の authority domain identifier、同じ authority domain から導出される NSID、同じ host の confirmed service URL をまとめて切り出します。repo URL は domain だけでは帰属判断しないため自動移動しません。
+
 このコマンドは:
 
 - 指定 identifier を新 project に seed として移す

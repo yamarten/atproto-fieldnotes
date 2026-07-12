@@ -663,6 +663,25 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertFalse(identity["actions"]["confirm"])
         self.assertFalse(any(item["value"] == "dev.example.com" for item in detail["identifiers"]))
 
+    def test_authority_domain_identifier_can_be_split_from_detail(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            assert project is not None
+            registry.add_manual_seed(project, "domain", "app.example.com", source="fixture")
+            registry.save_project(conn, project, preserve_timestamps=True)
+            conn.commit()
+        finally:
+            conn.close()
+
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        domain = next(item for item in detail["identifiers"] if item["value"] == "app.example.com")
+        entry = next(item for item in domain["entries"] if item["kind"] == "domain")
+
+        self.assertTrue(entry["actions"]["split"])
+        self.assertEqual(entry["actions"]["identifier_type"], "domain")
+
     def test_merge_pair_includes_both_projects_and_result_preview(self) -> None:
         status, payload, _ = self.request(
             "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222"

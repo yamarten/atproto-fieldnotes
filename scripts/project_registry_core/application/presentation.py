@@ -258,7 +258,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             and entry_action_kind in {"service_url", "repo_url", "account", "did", "handle", "domain", "nsid"},
             "block": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
             "defer": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
-            "split": False,
+            "split": entry_action_kind == "domain",
             "scope": "identifier",
         }
         group["entries"].append(entry)

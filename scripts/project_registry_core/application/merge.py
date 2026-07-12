@@ -124,6 +124,14 @@ def split_identifier(
     identifier_value = core.canonical_seed_value(identifier_type, value)
     if not identifier_value:
         raise ValueError("identifier value is required")
+    if identifier_type == "domain":
+        return core.split_project_authority_domain(
+            conn,
+            source["project_key"],
+            identifier_value,
+            note=note,
+            execute=execute,
+        )
     identifier_kind = {"nsid": "nsid", "service_url": "service_url", "repo_url": "repo_url"}.get(identifier_type)
     belongs_to_source = bool(identifier_kind and conn.execute(
         "SELECT 1 FROM project_identifiers WHERE project_key = ? AND kind = ? AND value = ? LIMIT 1",

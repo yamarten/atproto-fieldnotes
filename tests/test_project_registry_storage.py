@@ -15,6 +15,7 @@ from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
+from project_registry_core.application import merge as merge_services
 from project_registry_core.application import sync as sync_services
 
 
@@ -256,6 +257,75 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         ])
 
         self.assertFalse(hasattr(args, "new_project_key"))
+
+        domain_args = cli.build_parser().parse_args([
+            "split-project",
+            "--project-key",
+            "proj:source",
+            "--identifier-type",
+            "domain",
+            "--value",
+            "app.example.com",
+        ])
+        self.assertEqual(domain_args.identifier_type, "domain")
+
+    def test_split_project_by_authority_domain_moves_domain_group(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:mixedauthority", "service_url", "https://foo.example.com")
+            registry.confirm_service_seed(project, "https://foo.example.com", source="test")
+            registry.confirm_service_seed(project, "https://bar.example.com", source="test")
+            registry.add_manual_seed(project, "nsid", "com.example.foo.post", source="test")
+            registry.add_manual_seed(project, "nsid", "com.example.bar.post", source="test")
+            registry.add_manual_seed(project, "domain", "foo.example.com", source="test")
+            registry.add_manual_seed(project, "repo_url", "https://github.com/example/mixed", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            dry_run = merge_services.split_identifier(
+                conn,
+                project_key="proj:mixedauthority",
+                identifier_type="domain",
+                value="foo.example.com",
+                execute=False,
+            )
+            unchanged = registry.fetch_project(conn, "proj:mixedauthority")
+            executed = merge_services.split_identifier(
+                conn,
+                project_key="proj:mixedauthority",
+                identifier_type="domain",
+                value="foo.example.com",
+                note="wrong merge",
+                execute=True,
+            )
+            source = registry.fetch_project(conn, "proj:mixedauthority")
+            target = registry.fetch_project(conn, executed["target_project_key"])
+        finally:
+            conn.close()
+
+        assert unchanged is not None
+        assert source is not None
+        assert target is not None
+        self.assertEqual(dry_run["mode"], "dry_run")
+        self.assertIn("foo.example.com", dry_run["target_authority_domains"])
+        self.assertIn("foo.example.com", unchanged["authority_domains"])
+        self.assertNotIn("https://foo.example.com", source["service_urls"])
+        self.assertNotIn("com.example.foo.post", source["input_nsids"])
+        self.assertNotIn("foo.example.com", source["authority_domains"])
+        self.assertIn("https://bar.example.com", source["service_urls"])
+        self.assertIn("com.example.bar.post", source["input_nsids"])
+        self.assertIn("bar.example.com", source["authority_domains"])
+        self.assertEqual(source["source_code_urls"], ["https://github.com/example/mixed"])
+        self.assertIn("https://foo.example.com", target["service_urls"])
+        self.assertIn("com.example.foo.post", target["input_nsids"])
+        self.assertIn("foo.example.com", target["authority_domains"])
+        self.assertEqual(target["source_code_urls"], [])
+        blocked = {(item["type"], item["value"]) for item in source["blocked_identifiers"]}
+        self.assertIn(("service_url", "https://foo.example.com"), blocked)
+        self.assertIn(("nsid", "com.example.foo.post"), blocked)
+        self.assertIn(("domain", "foo.example.com"), blocked)
+        self.assertIn(target["project_key"], source["separate_project_keys"])
+        self.assertIn(source["project_key"], target["separate_project_keys"])
 
     def test_init_db_parser_accepts_custom_path(self) -> None:
         args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
