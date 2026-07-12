@@ -661,8 +661,15 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             {entry["classification"] for entry in repository["entries"]},
             {"confirmed", "candidate"},
         )
+        self.assertEqual(
+            {entry["role"] for entry in repository["entries"]},
+            {"source_repository"},
+        )
+        self.assertEqual({entry["role_label"] for entry in repository["entries"]}, {"source"})
         candidate = next(entry for entry in repository["entries"] if entry["classification"] == "candidate")
-        self.assertTrue(candidate["actions"]["confirm"])
+        self.assertIn("source_repository_record", candidate["source_roles"])
+        self.assertFalse(candidate["actions"]["confirm"])
+        self.assertFalse(candidate["actions"]["reject"])
         self.assertEqual(repository["actions"]["scope"], "identifier")
 
     def test_website_role_displays_as_primary_service_marker(self) -> None:

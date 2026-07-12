@@ -181,10 +181,13 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "primary_nsid": "primary", "input_nsid": "input", "owned_nsid": "owned",
         "observed_lexicon": "observed", "recorded_namespace": "namespace",
         "website": "primary", "seed": "initial seed", "manual_seed": "manual seed", "source_repository": "source",
-        "source_repository_record": "source record", "developer_account": "developer",
+        "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
         "project_account": "project", "project_handle": "project handle",
         "authority_domain": "authority",
+    }
+    display_roles = {
+        "source_repository_record": "source_repository",
     }
     primary_service_values = {
         item["value"]
@@ -200,6 +203,11 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         item["value"]
         for item in raw
         if item["kind"] == "service_url" and item["role"] != "website" and item["classification"] == "confirmed"
+    }
+    confirmed_identifier_values = {
+        (item["kind"], item["value"])
+        for item in raw
+        if item["classification"] == "confirmed"
     }
 
     def group_value(item: dict[str, Any], family: str) -> str:
@@ -245,26 +253,60 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         ):
             group["observed_at"] = max(group["observed_at"], item["observed_at"])
             continue
+        display_role = display_roles.get(item["role"], item["role"])
         entry = dict(item)
+        entry["role"] = display_role
+        entry["source_roles"] = core.unique_list([display_role, item["role"]])
         entry["role_label"] = role_labels.get(item["role"], item["role"].replace("_", " "))
         developer_candidate = item["role"] == "developer_account"
         entry_action_kind = "account" if developer_candidate else item["kind"]
+        value_already_confirmed = (item["kind"], item["value"]) in confirmed_identifier_values
         entry["actions"] = {
             "identifier_type": entry_action_kind,
-            "confirm": item["classification"] == "candidate" and (
+            "confirm": item["classification"] == "candidate" and not value_already_confirmed and (
                 entry_action_kind in {"service_url", "repo_url", "account"}
             ),
             "reject": item["classification"] == "candidate"
+            and not value_already_confirmed
             and entry_action_kind in {"service_url", "repo_url", "account", "did", "handle", "domain", "nsid"},
             "block": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
             "defer": family == "identity" and entry_action_kind in {"account", "did", "handle", "domain"},
             "split": entry_action_kind == "domain",
             "scope": "identifier",
         }
-        group["entries"].append(entry)
+        entry_key = (
+            entry["kind"],
+            entry["value"],
+            entry["role"],
+            entry["classification"],
+            entry["actions"]["identifier_type"],
+        )
+        existing_entry = next((
+            candidate for candidate in group["entries"]
+            if (
+                candidate["kind"],
+                candidate["value"],
+                candidate["role"],
+                candidate["classification"],
+                candidate["actions"]["identifier_type"],
+            ) == entry_key
+        ), None)
+        if existing_entry is None:
+            group["entries"].append(entry)
+        else:
+            existing_entry["source_roles"] = core.unique_list(
+                list(existing_entry.get("source_roles", [])) + list(entry.get("source_roles", []))
+            )
+            existing_entry["is_primary"] = bool(existing_entry.get("is_primary")) or bool(entry.get("is_primary"))
+            if not existing_entry.get("provider") and entry.get("provider"):
+                existing_entry["provider"] = entry["provider"]
+            existing_entry["observed_at"] = max(
+                str(existing_entry.get("observed_at") or ""),
+                str(entry.get("observed_at") or ""),
+            )
         for field, value in (
             ("kinds", item["kind"]),
-            ("roles", item["role"]),
+            ("roles", display_role),
             ("role_labels", role_labels.get(item["role"], item["role"].replace("_", " "))),
             ("classifications", item["classification"]),
             ("providers", item["provider"]),
