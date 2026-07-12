@@ -23,7 +23,32 @@
 
 紹介フローを主導に置き、その延長で app export 可能性を確保する、という順序を維持します。
 
-## 保存量と履歴
+## 次の着手順
+
+### 短期目標
+
+次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
+
+1. 複数project collisionの個別判断
+   - `proj:29a36771674f` など、handoff に残る split / merge 判断を片付ける
+   - 目的: 既知のidentity不整合を減らし、後続の評価fixtureを汚さない
+2. manual gold set の拡張
+   - 追加済み3件のoperator correction fixtureを起点に、実誤判定caseを増やす
+   - 目的: queue policy、LLM comparison、service verification、atproto寄与度判定の共通評価土台を作る
+3. queue policy の診断と再設計
+   - gold set と sample review を見ながら、atproto利用深度、service利用可否、技術的新規性を独立signalとして定義する
+   - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
+
+### 依存関係
+
+- queue builder の分割は、queue policy の契約と sample review を先に用意してから行う
+- LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
+- service verification後半強化は、実誤判定caseで「認証後の利用可能性」や「複数surface統合」が問題だと分かってから行う
+- app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
+
+## 条件付き短期候補
+
+### 保存量と履歴
 
 - 2026-08-10到達または新規1,000 investigation runsの早い方で`cleanup-storage-payloads` dry-runを再計測する
 - 論理payload 3 GiB超、または30日換算の増加が512 MiB超なら、次の方式を一つずつ比較する
@@ -36,9 +61,9 @@
 
 比較基準は[2026-07-10 baseline](notes/registry-maintenance-baseline-2026-07-10.md)を参照してください。
 
-## 内部構造
+### 内部構造
 
-### DID exact lookupのcandidate hydration除去
+#### DID exact lookupのcandidate hydration除去
 
 現在のDID exact lookupはnormalized indexで候補を絞った後、候補projectだけをhydrateし、current payloadに存在しない
 normalized-only candidate DIDを除外します。全project scanではありませんが、normalized tableだけで判定できない暫定境界です。
@@ -50,7 +75,7 @@ normalized-only candidate DIDを除外します。全project scanではありま
 - 既知の5 DID collisionを含む実DB auditで、index-only判定と期待projectの差分が0になる
 - `find_project_key_by_identifier(..., "did", ...)`がproject hydrateを呼ばない回帰testを追加する
 
-### project state / save境界
+#### project state / save境界
 
 `registry.py`に残るproject shape、identifier guard、fetch/list/save、normalized lookup、project key allocationを、
 schema v2のcurrent/history契約を崩さない単位で分離します。
@@ -62,16 +87,16 @@ schema v2のcurrent/history契約を崩さない単位で分離します。
 
 単に同じ関数群をfacade越しに呼ぶだけの変更や、平置きmoduleを見た目のためにsubdirectoryへ移す変更は行いません。
 
-### queue policyの再設計と分割
+#### queue policyの再設計と分割
 
 現行queueには紹介準備やmanual reviewのsignalが混在しています。briefで主成果物を「深掘りする価値の判断」と
 定めたため、次にqueue policyを変更する時は、atprotoの利用深度、serviceの利用可否、技術的新規性を独立して
 確認できるsignalと並び順を先に決めます。その契約とsample reviewを用意してからqueue builderを分離し、file移動
 だけを先行させません。
 
-## データpolicyとmigration
+### データpolicyとmigration
 
-### DB-level policy marker
+#### DB-level policy marker
 
 DB-level migration/data policy markerは直近優先から外します。
 
@@ -82,7 +107,7 @@ DB-level migration/data policy markerは直近優先から外します。
 
 process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
 
-## 必要が生じた時に検討するもの
+## 条件付き長期候補
 
 現状の運用を妨げてはいませんが、具体的な不便や保守上の問題が出た場合に検討します。
 
@@ -123,7 +148,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - typed aggregate / 用途別view
   - normalized tableの直接queryを増やした後もflat runtime viewが主要な性能・保守問題として残る場合に再検討する
 
-## 長期候補
+## 長期構想
 
 直近の運用安定化には含めません。必要性や具体的な利用場面が見えたものから再検討します。
 
