@@ -638,6 +638,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 project_key=project_key,
                 name=str(payload.get("name") or ""),
                 notes=str(payload.get("notes") or ""),
+                introduced_url=str(payload.get("introduced_url") or ""),
             )
         if action == "profile":
             return projects.apply_profile_edit(
@@ -645,6 +646,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 project_key=project_key,
                 name=str(payload.get("name") or ""),
                 notes=str(payload.get("notes") or ""),
+                introduced_url=str(payload.get("introduced_url") or ""),
             )
         if action == "confirm-candidate":
             return services.confirm_candidate(

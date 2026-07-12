@@ -232,7 +232,7 @@ merge candidateからは候補projectの通常detailまたはmerge reviewへ移�
 
 relationと最新collector failureは個別対象としてdismissまたはdeferできます。判断は証拠行を変更せず`project_decisions`へ保存します。candidate developer accountはidentifierと同じdetail actionからconfirm/block/deferでき、既存projectへのmanual seed追加もdetail headerからpreview後に実行できます。
 
-OverviewのProfileでは`name`と人間向け`notes`を編集できます。Previewでfield単位のbefore/afterを確認してから保存し、preview後に別processがprojectを変更した場合は保存を拒否してdetailを再読込します。tagline、summary、website URL、`system_notes`はこの編集画面の対象外です。
+OverviewのProfileでは`name`、`introduced_url`、人間向け`notes`を編集できます。Previewでfield単位のbefore/afterを確認してから保存し、preview後に別processがprojectを変更した場合は保存を拒否してdetailを再読込します。tagline、summary、website URL、`system_notes`はこの編集画面の対象外です。
 
 ProjectsのFiltersではintroduced有無、identifierのkind/value/classification、relationのpredicate/subject/object/source、decisionのkind/target/active・expired・clearedを指定できます。これらはnormalized tableを直接queryし、全projectをhydrateしません。
 

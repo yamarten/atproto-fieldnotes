@@ -1154,21 +1154,36 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
         revision = detail["revision"]
+        introduced_url = "https://bsky.app/profile/yamarten.bsky.social/post/3ltestpost"
         status, preview, _ = self.request(
             "/api/projects/proj:111111111111/profile-preview",
             method="POST",
-            payload={"expected_revision": revision, "name": "Edited App", "notes": "operator note"},
+            payload={
+                "expected_revision": revision,
+                "name": "Edited App",
+                "introduced_url": introduced_url,
+                "notes": "operator note",
+            },
         )
         self.assertEqual(status, 200)
-        self.assertEqual([item["field"] for item in preview["result"]["changes"]], ["name", "notes"])
+        self.assertEqual(
+            [item["field"] for item in preview["result"]["changes"]],
+            ["name", "notes", "introduced_url"],
+        )
 
         status, applied, _ = self.request(
             "/api/projects/proj:111111111111/profile",
             method="POST",
-            payload={"expected_revision": revision, "name": "Edited App", "notes": "operator note"},
+            payload={
+                "expected_revision": revision,
+                "name": "Edited App",
+                "introduced_url": introduced_url,
+                "notes": "operator note",
+            },
         )
         self.assertEqual(status, 200)
         self.assertEqual(applied["detail"]["project"]["name"], "Edited App")
+        self.assertEqual(applied["detail"]["project"]["introduced_url"], introduced_url)
         self.assertEqual(applied["detail"]["project"]["profile"]["core"]["notes"], "operator note")
 
         status, stale, _ = self.request(

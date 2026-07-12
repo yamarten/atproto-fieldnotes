@@ -107,13 +107,25 @@ def preview_profile_edit(
     project_key: str,
     name: str,
     notes: str,
+    introduced_url: str,
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key)
-    before = {"name": str(project.get("name") or ""), "notes": str(project.get("notes") or "")}
-    after = {"name": str(name or "").strip(), "notes": str(notes or "").strip()}
+    normalized_introduced_url = identifiers.normalize_url(str(introduced_url or "")) if introduced_url else ""
+    if str(introduced_url or "").strip() and not normalized_introduced_url:
+        raise ValueError("introduced_url must be an http(s) URL")
+    before = {
+        "name": str(project.get("name") or ""),
+        "notes": str(project.get("notes") or ""),
+        "introduced_url": str(project.get("introduced_url") or ""),
+    }
+    after = {
+        "name": str(name or "").strip(),
+        "notes": str(notes or "").strip(),
+        "introduced_url": normalized_introduced_url,
+    }
     changes = [
         {"field": field, "before": before[field], "after": after[field]}
-        for field in ("name", "notes")
+        for field in ("name", "notes", "introduced_url")
         if before[field] != after[field]
     ]
     return {
@@ -131,13 +143,21 @@ def apply_profile_edit(
     project_key: str,
     name: str,
     notes: str,
+    introduced_url: str,
 ) -> dict[str, Any]:
-    preview = preview_profile_edit(conn, project_key=project_key, name=name, notes=notes)
+    preview = preview_profile_edit(
+        conn,
+        project_key=project_key,
+        name=name,
+        notes=notes,
+        introduced_url=introduced_url,
+    )
     if not preview["changed"]:
         return {**preview, "mode": "no_change"}
     project = core.resolve_single_project(conn, project_key=project_key)
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
+    project["introduced_url"] = preview["after"]["introduced_url"]
     core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     conn.commit()
     return {**preview, "mode": "updated"}
