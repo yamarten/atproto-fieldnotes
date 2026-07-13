@@ -251,12 +251,15 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
         if path == "/api/settings":
+            with contextlib.closing(self.server.open_db()) as conn:
+                filter_options = services.project_filter_options(conn)
             self.send_json({
                 "schema_version": database.SCHEMA_VERSION,
                 "server_instance_id": str(getattr(self.server, "instance_id", "")),
                 "db_path": str(self.server.db_path),
                 "token_required": True,
                 "tracking_states": sorted(core.TRACKING_STATES),
+                "filter_options": filter_options,
                 "operations_connected": True,
                 "build": dict(getattr(self.server, "build_info", {}) or {}),
                 "operation_capabilities": {

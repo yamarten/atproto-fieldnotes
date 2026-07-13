@@ -321,8 +321,20 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertTrue(settings["operation_capabilities"]["enrich"])
         self.assertTrue(settings["operation_capabilities"]["sync"])
         self.assertTrue(settings["operation_capabilities"]["review_ops"])
+        self.assertEqual(
+            set(settings["filter_options"]["tracking_states"]),
+            {"active", "stable", "stalled", "out_of_scope", "archived", "ignore"},
+        )
+        self.assertIn("live", settings["filter_options"]["service_statuses"])
+        self.assertIn("core", settings["filter_options"]["contribution_levels"])
+        self.assertIn("nsid", settings["filter_options"]["identifier_kinds"])
+        self.assertIn("defines_schema", settings["filter_options"]["relation_predicates"])
         self.assertNotIn("read_only", settings)
         self.assertNotIn("--read-only", build_parser().format_help())
+
+        self.assertIn('id="filter-tracking" multiple', script)
+        self.assertIn('id="filter-identifier-kind">${enumOptions', script)
+        self.assertIn('id="filter-relation-source" list=', script)
 
     def test_authorization_uses_constant_time_comparison(self) -> None:
         with mock.patch("project_registry_web.server.hmac.compare_digest", return_value=True) as compare:

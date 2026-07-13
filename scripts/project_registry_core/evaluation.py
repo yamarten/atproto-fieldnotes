@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 
+ATPROTO_CONTRIBUTION_LEVELS = {"unknown", "auth_only", "optional", "substantial", "core"}
+
+
 PARKED_DOMAIN_MARKERS = (
     "domain is for sale",
     "this domain is for sale",

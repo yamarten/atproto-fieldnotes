@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import datetime as dt
+import re
 import socket
 import unittest
 import urllib.error
@@ -9,7 +11,8 @@ import urllib.request
 from io import BytesIO
 from unittest import mock
 
-from helpers import registry
+from helpers import ROOT, registry
+from project_registry_core.cli import build_parser
 from project_registry_core import domain_policy, source_sync
 from project_registry_core import http_transport as http_transport_core
 from project_registry_core import identifiers as identifier_core
@@ -17,6 +20,37 @@ from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import naming as naming_core
+
+
+class ProjectRegistryCompletionTest(unittest.TestCase):
+    def test_zsh_completion_matches_public_cli_commands_and_long_options(self) -> None:
+        completion = (ROOT / "completions" / "_project-registry").read_text()
+        parser = build_parser()
+        subparsers = next(
+            action for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        listed_commands = set(re.findall(r"^  '([a-z][a-z0-9-]*):", completion, re.MULTILINE))
+        self.assertEqual(listed_commands, set(subparsers.choices))
+        tracking_match = re.search(r"^tracking_states=\(([^)]*)\)$", completion, re.MULTILINE)
+        self.assertIsNotNone(tracking_match)
+        self.assertEqual(set(tracking_match.group(1).split()), registry.TRACKING_STATES)
+
+        for command, subparser in subparsers.choices.items():
+            match = re.search(
+                rf"^  {re.escape(command)}\)\n(.*?)(?=^    ;;)",
+                completion,
+                re.MULTILINE | re.DOTALL,
+            )
+            self.assertIsNotNone(match, command)
+            completed_options = set(re.findall(r"--[a-z][a-z0-9-]*", match.group(1)))
+            parser_options = {
+                option
+                for action in subparser._actions
+                for option in action.option_strings
+                if option.startswith("--") and option != "--help"
+            }
+            self.assertEqual(completed_options, parser_options, command)
 
 
 class ProjectRegistryIdentifierHelperTest(unittest.TestCase):

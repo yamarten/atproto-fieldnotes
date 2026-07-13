@@ -13,6 +13,7 @@ subcommands=(
   'promotion-queue:List unintroduced projects worth showcasing'
   'review-stalled:Suggest lower-frequency tracking or revival'
   'review-ignore:Suggest low-value fork repos and derivative tools for ignore'
+  'review-out-of-scope:Suggest related projects that are outside the survey scope'
   'import-seed-list:Import a mixed text seed list'
   'sync-introduced:Mark matching projects as introduced from Bluesky posts'
   'sync-github-search:Search GitHub repositories and import repo seeds'
@@ -25,6 +26,10 @@ subcommands=(
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
+  'audit-trust-graph:Report trust-graph confirmation issues'
+  'repair-trust-graph:Recompute stored trust graph details'
+  'cleanup-storage-payloads:Compact stored service and investigation payloads'
+  'prune-investigation-history:Delete old investigation history'
   'set-tracking-state:Set tracking state for one project'
   'set-separate:Mark two projects as distinct'
   'block-identifier:Block one identifier from being reattached'
@@ -36,7 +41,7 @@ subcommands=(
   'merge:Merge one project into another'
 )
 
-tracking_states=(active watchlist stable stalled archived ignore)
+tracking_states=(active stable stalled out_of_scope archived ignore)
 seed_types=(nsid repo_url service_url)
 llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
@@ -126,10 +131,16 @@ case "$cmd" in
       '(-A --all-tracking-states)'{-A,--all-tracking-states}'[Ignore tracking state filters and enrich every project]' \
       '--include-stable[Include projects marked stable]' \
       '--include-stalled[Include projects marked stalled]' \
+      '--include-out-of-scope[Include projects outside the survey scope]' \
       '--include-archived[Include projects marked archived]' \
       '--include-ignore[Include projects marked ignore]' \
       '--new-only[Only enrich projects that have never been enriched]' \
       '--retry-failures[Only enrich projects whose previous enrich left last_run_errors]' \
+      '--fail-fast[Stop after the first failed project]' \
+      '--run-id[Use this resumable checkpoint run ID]:run id:' \
+      '--resume-run[Resume this checkpoint run ID]:run id:' \
+      '--checkpoint-path[Override the checkpoint JSON path]:path:_files' \
+      '--no-checkpoint[Disable resumable checkpoint writing]' \
       '--deep-investigation[Probe discovered resource or docs pages before LLM review]' \
       "--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
       "--llm-model[Model name for the LLM endpoint]:model:" \
@@ -149,7 +160,7 @@ case "$cmd" in
   explain)
     _arguments -S \
       '(-p --project-key)'{-p,--project-key}'[Target one project key]:project key:' \
-      '--topic[Restrict to one explanation topic]:topic:(all service_status ownership contribution merge_candidate)' \
+      '--topic[Restrict to one explanation topic]:topic:(all service_status ownership contribution merge_candidate trust)' \
       '--format[Output format]:format:(text json)'
     ;;
   review-queue)
@@ -182,7 +193,16 @@ case "$cmd" in
       '--execute[Apply the suggested updates]' \
       '--interactive[Step through ignore candidates interactively]' \
       "--note[Optional tracking note]:note:" \
-      '--note-reason[Preset note category]:reason:(atproto_unrelated out_of_scope personal_experiment derivative_utility fork_without_identity other)'
+      '--note-reason[Preset note category]:reason:(atproto_unrelated fork_without_identity personal_experiment other)'
+    ;;
+  review-out-of-scope)
+    _arguments -S \
+      '--tracking-states+[Restrict review-out-of-scope to these tracking states]:tracking states:_project_registry_tracking_states' \
+      '--limit[Maximum number of candidates to return or apply]:count:' \
+      '--execute[Apply the suggested updates]' \
+      '--interactive[Step through out-of-scope candidates interactively]' \
+      '--note[Optional tracking note]:note:' \
+      '--note-reason[Preset reason category]:reason:(auth_only client_only derivative_utility other)'
     ;;
   import-seed-list)
     _arguments -S \
@@ -194,6 +214,10 @@ case "$cmd" in
       '--query[Bluesky post search query]:query:' \
       '--limit[Maximum number of posts to inspect]:count:' \
       '--max-pages[Maximum number of paginated search requests]:count:' \
+      '--lookback-days[Override the configured initial lookback]:days:' \
+      '--incremental[Resume from the last successful sync]' \
+      '--no-incremental[Ignore stored sync state]' \
+      '--all-history[Ignore the saved watermark and initial lookback]' \
       '--execute[Apply introduced flags]'
     ;;
   sync-github-search)
@@ -203,6 +227,8 @@ case "$cmd" in
       '--per-page[How many results to fetch per page]:count:' \
       '--lookback-days[Only consider repos updated within this many days]:days:' \
       '--all-history[Disable updated_at lookback]' \
+      '--incremental[Resume each query from its last successful sync]' \
+      '--no-incremental[Ignore stored sync state]' \
       '--execute[Apply imports]' \
       '--create-unmatched[Create new projects for unknown GitHub repos]' \
       '--no-create-unmatched[List only without creating unknown GitHub repos]' \
@@ -215,7 +241,11 @@ case "$cmd" in
       '--create-unmatched[Create new projects for unmatched imported collections]' \
       '--no-create-unmatched[List only without creating unmatched collections]' \
       '--lookback-days[Only consider collections whose min timestamp is within this many days]:days:' \
-      '--save-path[Optional path to save the fetched JSON payload]:path:_files'
+      '--incremental[Use the last successful inventory watermark]' \
+      '--no-incremental[Ignore stored sync state]' \
+      '--all-history[Ignore the saved watermark and initial lookback]' \
+      '--save-path[Optional path to save the fetched JSON payload]:path:_files' \
+      '--max-items[Maximum number of fetched entries to process]:count:'
     ;;
   sync-semble-collections)
     _arguments -S \
@@ -223,6 +253,8 @@ case "$cmd" in
       '--per-page[How many collection cards to fetch per page]:count:' \
       '--lookback-days[Only consider cards updated within this many days]:days:' \
       '--all-history[Disable updated_at lookback]' \
+      '--incremental[Resume each collection from its last successful sync]' \
+      '--no-incremental[Ignore stored sync state]' \
       '--execute[Apply imports]' \
       '--create-unmatched[Create new projects for unknown seeds discovered from cards]' \
       '--no-create-unmatched[List only without creating unknown seeds]'
@@ -234,7 +266,8 @@ case "$cmd" in
       '--no-create-unmatched[Do not create unmatched projects]' \
       '--incremental[Use the saved time_us watermark]' \
       '--no-incremental[Ignore and do not update the saved watermark]' \
-      '--all-history[Ignore the saved watermark; source remains a rolling window]'
+      '--all-history[Ignore the saved watermark; source remains a rolling window]' \
+      '--max-items[Maximum number of rolling-window entries to process]:count:'
     ;;
   replay-investigation)
     _arguments -S \
@@ -260,11 +293,35 @@ case "$cmd" in
       '--execute[Apply the result and save an investigation run]'
     ;;
   repair-db)
-    _arguments -S
+    _arguments -S \
+      '--execute[Apply normalization and derived-field refreshes]'
     ;;
   audit-url-fields)
     _arguments -S \
       '--example-limit[Maximum anomaly examples per kind]:count:'
+    ;;
+  audit-trust-graph)
+    _arguments -S \
+      '--example-limit[Maximum issue examples]:count:'
+    ;;
+  repair-trust-graph)
+    _arguments -S \
+      '--execute[Apply trust graph recomputation]' \
+      '--downgrade-unsupported[Downgrade unsupported confirmed identifiers]' \
+      '--example-limit[Maximum examples]:count:'
+    ;;
+  cleanup-storage-payloads)
+    _arguments -S \
+      '--execute[Rewrite payloads in one transaction]' \
+      '--example-limit[Maximum largest-saving examples]:count:' \
+      '--vacuum[VACUUM after a successful rewrite]'
+    ;;
+  prune-investigation-history)
+    _arguments -S \
+      '--retention-days[Keep runs completed within this many days]:days:' \
+      '--keep-latest-per-project[Always keep this many newest runs per project]:count:' \
+      '--execute[Delete matching runs]' \
+      '--vacuum[VACUUM after deletion]'
     ;;
   set-tracking-state)
     _arguments -S \
@@ -326,7 +383,7 @@ case "$cmd" in
       '(-p --project-key -s --seed)'{-p,--project-key}'[Source project key]:project key:' \
       '(-p --project-key -s --seed)'{-s,--seed}'[Source project by known seed value]:seed:' \
       "--project-type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
-      "--identifier-type[Identifier class to split out]:identifier type:_project_registry_seed_types" \
+      '--identifier-type[Identifier class to split out]:identifier type:(nsid repo_url service_url domain)' \
       '--value[Identifier value to split out into a new project]:value:' \
       '--note[Optional operator note]:note:' \
       '--execute[Apply the split]'
@@ -338,8 +395,7 @@ case "$cmd" in
       "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       '(-t --target-project-key -T --target-seed)'{-t,--target-project-key}'[Target project key]:project key:' \
       '(-t --target-project-key -T --target-seed)'{-T,--target-seed}'[Target project by known seed value]:seed:' \
-      "--target-type[Required when --target-seed is ambiguous]:seed type:_project_registry_seed_types" \
-      '--bootstrap-collection-creator-heuristic[Include the temporary first-DID heuristic]'
+      "--target-type[Required when --target-seed is ambiguous]:seed type:_project_registry_seed_types"
     ;;
   merge)
     _arguments -S \

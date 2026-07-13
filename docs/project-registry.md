@@ -234,7 +234,7 @@ relationと最新collector failureは個別対象としてdismissまたはdefer�
 
 OverviewのProfileでは`name`、`introduced_url`、人間向け`notes`を編集できます。Previewでfield単位のbefore/afterを確認してから保存し、preview後に別processがprojectを変更した場合は保存を拒否してdetailを再読込します。tagline、summary、website URL、`system_notes`はこの編集画面の対象外です。
 
-ProjectsのFiltersではintroduced有無、identifierのkind/value/classification、relationのpredicate/subject/object/source、decisionのkind/target/active・expired・clearedを指定できます。これらはnormalized tableを直接queryし、全projectをhydrateしません。
+ProjectsのFiltersではtracking state、service status、atproto contribution、introduced有無、candidate/error有無、identifierのkind/value/classification、relationのpredicate/subject/object/source、decisionのkind/target/active・expired・clearedを指定できます。tracking state、service status、atproto contributionは複数選択でき、未選択なら絞り込みません。kind、classification、predicate、subject/object type、decision kind/target typeは保存契約または接続DBにある値から選びます。identifier・relation・decisionのvalueは部分一致、relation sourceは候補付きの完全一致入力です。これらはnormalized tableを直接queryし、全projectをhydrateしません。
 
 Operationsのenrich、sync、review classificationはWeb serverとは別processで動きます。enrichは単体projectまたはbulkを選び、deep investigation、未enrichのみ、前回失敗のみ、追加tracking stateを指定できます。syncは設定済みのintroduced/GitHub/collection inventory/Semble/Tangled sourceだけを選択でき、任意URLやqueryはCLIで扱います。syncのdry-runも外部通信しますがSQLiteは更新しません。reviewのdry-runはnetwork-freeで、executeは表示対象になった候補を一括適用します。
 

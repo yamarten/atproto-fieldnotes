@@ -6,8 +6,7 @@ import json
 import sqlite3
 from typing import Any
 
-from .. import registry as core
-from .. import storage
+from .. import evaluation, relations, registry as core, runtime_view, storage
 from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
 
 
@@ -17,6 +16,28 @@ CLASSIFICATION_ORDER = ("confirmed", "candidate", "derived", "heuristic")
 
 class StaleProjectError(RuntimeError):
     pass
+
+
+def project_filter_options(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    def distinct(table: str, column: str) -> list[str]:
+        rows = conn.execute(
+            f"SELECT DISTINCT {column} FROM {table} WHERE {column} != '' ORDER BY {column}"
+        ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    return {
+        "tracking_states": sorted(core.TRACKING_STATES),
+        "service_statuses": sorted(core.SERVICE_STATUS_VALUES),
+        "contribution_levels": sorted(evaluation.ATPROTO_CONTRIBUTION_LEVELS),
+        "identifier_kinds": sorted(core.IDENTIFIER_DECISION_TYPES),
+        "identifier_classifications": sorted(runtime_view.CLASSIFICATIONS),
+        "relation_predicates": sorted(relations.RELATION_PREDICATES),
+        "relation_subject_types": distinct("project_relations", "subject_type"),
+        "relation_object_types": distinct("project_relations", "object_type"),
+        "relation_sources": distinct("project_relations", "source"),
+        "decision_kinds": distinct("project_decisions", "kind"),
+        "decision_target_types": distinct("project_decisions", "target_type"),
+    }
 
 
 def _json(value: str, default: Any) -> Any:

@@ -257,27 +257,29 @@ function listControls() {
       <button id="refresh-review-list" class="secondary">Refresh</button>
     </div>${explicitMerge}</div>`;
   }
+  const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
     <div class="toolbar"><input id="project-query" type="search" placeholder="Search name, NSID, account, URL" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">Search</button><button id="new-seed">New Seed</button></div>
-    <details><summary>Filters</summary><div class="filter-grid">
-      <label>Tracking states<input id="filter-tracking" placeholder="active, stable" value="${esc(state.projectSearch.tracking)}"></label>
-      <label>Service status<input id="filter-service" placeholder="live, unknown" value="${esc(state.projectSearch.service)}"></label>
-      <label>Contribution<input id="filter-contribution" placeholder="core, substantial" value="${esc(state.projectSearch.contribution)}"></label>
+    <details><summary>Filters</summary><p class="muted">Multiple-choice filters accept any number of selections; no selection means Any.</p><div class="filter-grid">
+      <label>Tracking states<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
+      <label>Service status<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
+      <label>Contribution<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
       <label>Introduced<select id="filter-introduced">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.introduced)}</select></label>
       <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
       <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
       <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["first_seen_desc", "Recently added"], ["first_seen_asc", "Oldest added"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
-      <label>Identifier kind<input id="filter-identifier-kind" placeholder="nsid, account, repo_url" value="${esc(state.projectSearch.identifierKind)}"></label>
+      <label>Identifier kind<select id="filter-identifier-kind">${enumOptions(filterOptionValues("identifier_kinds"), state.projectSearch.identifierKind)}</select></label>
       <label>Identifier value<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
-      <label>Identifier classification<input id="filter-identifier-classification" placeholder="confirmed, candidate" value="${esc(state.projectSearch.identifierClassification)}"></label>
-      <label>Relation predicate<input id="filter-relation-predicate" placeholder="defines_schema" value="${esc(state.projectSearch.relationPredicate)}"></label>
-      <label>Relation subject type<input id="filter-relation-subject-type" value="${esc(state.projectSearch.relationSubjectType)}"></label>
+      <label>Identifier classification<select id="filter-identifier-classification">${enumOptions(filterOptionValues("identifier_classifications"), state.projectSearch.identifierClassification)}</select></label>
+      <label>Relation predicate<select id="filter-relation-predicate">${enumOptions(filterOptionValues("relation_predicates"), state.projectSearch.relationPredicate)}</select></label>
+      <label>Relation subject type<select id="filter-relation-subject-type">${enumOptions(filterOptionValues("relation_subject_types"), state.projectSearch.relationSubjectType)}</select></label>
       <label>Relation subject value<input id="filter-relation-subject-value" value="${esc(state.projectSearch.relationSubjectValue)}"></label>
-      <label>Relation object type<input id="filter-relation-object-type" value="${esc(state.projectSearch.relationObjectType)}"></label>
+      <label>Relation object type<select id="filter-relation-object-type">${enumOptions(filterOptionValues("relation_object_types"), state.projectSearch.relationObjectType)}</select></label>
       <label>Relation object value<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
-      <label>Relation source<input id="filter-relation-source" value="${esc(state.projectSearch.relationSource)}"></label>
-      <label>Decision kind<input id="filter-decision-kind" placeholder="block_identifier" value="${esc(state.projectSearch.decisionKind)}"></label>
-      <label>Decision target type<input id="filter-decision-target-type" value="${esc(state.projectSearch.decisionTargetType)}"></label>
+      <label>Relation source<input id="filter-relation-source" list="filter-relation-sources" value="${esc(state.projectSearch.relationSource)}"></label>
+      <datalist id="filter-relation-sources">${relationSources.map((value) => `<option value="${esc(value)}"></option>`).join("")}</datalist>
+      <label>Decision kind<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind)}</select></label>
+      <label>Decision target type<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType)}</select></label>
       <label>Decision target value<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
       <label>Decision status<select id="filter-decision-status">${selectOptions([["", "Any"], ["active", "Active"], ["expired", "Expired"], ["cleared", "Cleared"]], state.projectSearch.decisionStatus)}</select></label>
     </div></details>
@@ -331,12 +333,37 @@ function selectOptions(options, selected) {
   return options.map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(label)}</option>`).join("");
 }
 
+function filterOptionValues(key) {
+  return list(state.server?.filter_options?.[key]).map((value) => String(value));
+}
+
+function splitSelections(value) {
+  return String(value || "").split(/[\s,]+/).filter(Boolean);
+}
+
+function enumOptions(values, selected) {
+  const options = [...values];
+  if (selected && !options.includes(selected)) options.push(selected);
+  return selectOptions([["", "Any"], ...options.map((value) => [value, value])], selected);
+}
+
+function multiEnumOptions(values, selected) {
+  const selectedValues = new Set(splitSelections(selected));
+  const options = [...values];
+  selectedValues.forEach((value) => { if (!options.includes(value)) options.push(value); });
+  return options.map((value) => `<option value="${esc(value)}" ${selectedValues.has(value) ? "selected" : ""}>${esc(value)}</option>`).join("");
+}
+
+function selectedValues(id) {
+  return Array.from($(id)?.selectedOptions || []).map((option) => option.value).join(",");
+}
+
 function captureProjectSearch() {
   state.projectSearch = {
     query: $("project-query")?.value || "",
-    tracking: $("filter-tracking")?.value || "",
-    service: $("filter-service")?.value || "",
-    contribution: $("filter-contribution")?.value || "",
+    tracking: selectedValues("filter-tracking"),
+    service: selectedValues("filter-service"),
+    contribution: selectedValues("filter-contribution"),
     introduced: $("filter-introduced")?.value || "any",
     candidates: $("filter-candidates")?.value || "any",
     errors: $("filter-errors")?.value || "any",
