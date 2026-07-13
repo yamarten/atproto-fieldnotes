@@ -63,10 +63,10 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         registry.save_project(conn, project)
         conn.close()
 
-        legacy_v2 = sqlite3.connect(self.db_path)
-        legacy_v2.execute("DROP TABLE project_key_aliases")
-        legacy_v2.commit()
-        legacy_v2.close()
+        incomplete_v2 = sqlite3.connect(self.db_path)
+        incomplete_v2.execute("DROP TABLE project_key_aliases")
+        incomplete_v2.commit()
+        incomplete_v2.close()
 
         conn = registry.open_db()
         try:
@@ -100,7 +100,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
                     "did:plc:example",
                     "developer_account",
                     "candidate",
-                    metadata={"did": "did:plc:example", "source": "legacy"},
+                    metadata={"did": "did:plc:example", "source": "fixture"},
                 ),
                 runtime_view.ProjectIdentifier(
                     "did",

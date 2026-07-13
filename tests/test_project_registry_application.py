@@ -365,14 +365,14 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             {
                 "url": f"https://example.com/docs/page-{index}",
                 "role": "docs",
-                "source": "legacy_resource_urls",
+                "source": "oversized_resource_urls",
                 "confidence": "candidate",
             }
             for index in range(20)
         ]
         oversized_llm_evidence = {
             "resource_url_records": oversized_resources,
-            "summary_candidates": [{"value": "x" * 10_000, "source": "legacy"}],
+            "summary_candidates": [{"value": "x" * 10_000, "source": "historical_fixture"}],
         }
         state_row = conn.execute(
             "SELECT state_json FROM projects WHERE project_key = ?",

@@ -298,44 +298,6 @@ class EvidenceBundle:
         return cls.from_json(path.read_text(encoding="utf-8"))
 
 
-def populate_collector_results(bundle: EvidenceBundle) -> EvidenceBundle:
-    """Upgrade legacy evidence that predates explicit per-source collector results."""
-    if bundle.schema_version < 2 or bundle.collector_results:
-        return bundle
-    roots: list[str] = []
-    for source in [record.source for record in bundle.records] + [failure.source for failure in bundle.failures]:
-        root = str(source or "").split(":", 1)[0]
-        if root and root not in roots:
-            roots.append(root)
-    for root in roots:
-        records = [record for record in bundle.records if record.source.split(":", 1)[0] == root]
-        substantive_records = [
-            record for record in records
-            if record.kind not in {"investigation_query", "investigation_log"}
-        ]
-        failures = [failure for failure in bundle.failures if failure.source.split(":", 1)[0] == root]
-        if failures and substantive_records:
-            status: CollectorStatus = "partial"
-        elif failures and all(failure.category == "rate_limit" for failure in failures):
-            status = "rate_limited"
-        elif failures and all(failure.category == "request_budget" for failure in failures):
-            status = "skipped"
-        elif failures:
-            status = "failed"
-        else:
-            status = "success"
-        bundle.add_collector_result(CollectorResult(
-            source=root,
-            operation="collect",
-            status=status,
-            observed_at=(records[0].observed_at if records else bundle.collected_at),
-            request_count=1,
-            result_count=len(substantive_records),
-            stop_reason=(failures[0].category if failures else ""),
-        ))
-    return bundle
-
-
 def add_collector_result_summary(
     bundle: EvidenceBundle,
     *,

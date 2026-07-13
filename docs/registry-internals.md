@@ -930,7 +930,7 @@ NSID は storage / UI / external lookup で観測されたcaseを保持します
 - `confirmed_nsids`
   - 内部で扱う高信頼 NSID
 - `lexicons`
-  - legacy 上の canonical NSID。移行後は evidence 側の観測値として残す
+  - 旧保存形に由来する canonical NSID。現行では evidence 側の観測値として残す
 - `lexicon_namespaces`
   - project 粒度で記録する namespace
 

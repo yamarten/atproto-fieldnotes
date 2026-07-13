@@ -372,7 +372,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 {
                     "url": f"https://example.com/docs/page-{index}",
                     "role": "docs",
-                    "source": "legacy_resource_urls",
+                    "source": "oversized_resource_urls",
                     "confidence": "candidate",
                 }
                 for index in range(20)
@@ -1878,7 +1878,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(summary["project_count"], 2)
             self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 2)
             self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 0)
-            self.assertEqual(summary["migration_candidates"], [])
+            self.assertEqual(summary["cleanup_candidates"], [])
         finally:
             conn.close()
 

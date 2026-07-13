@@ -2153,7 +2153,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "field_inventory": field_summaries,
         "alias_relationships": alias_summaries,
         "anomalies": anomalies,
-        "migration_candidates": [],
+        "cleanup_candidates": [],
     }
 
 
@@ -3763,7 +3763,7 @@ def build_trust_graph_audit(conn: sqlite3.Connection, *, example_limit: int = 20
         "should_downgrade": [],
         "unsupported_confirmed_identifier": [],
         "guarded_confirmed_identifier": [],
-        "legacy_confirmed_anchor_dependency": [],
+        "unsupported_confirmed_anchor_dependency": [],
     }
     project_count = 0
     edge_count = 0
@@ -3800,7 +3800,7 @@ def build_trust_graph_audit(conn: sqlite3.Connection, *, example_limit: int = 20
                 continue
             if not bool((item.get("evaluation") or {}).get("auto_confirm")):
                 issues["unsupported_confirmed_identifier"].append(issue)
-                issues["legacy_confirmed_anchor_dependency"].append(issue)
+                issues["unsupported_confirmed_anchor_dependency"].append(issue)
     return {
         "mode": "dry_run",
         "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
