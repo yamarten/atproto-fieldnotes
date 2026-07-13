@@ -29,13 +29,10 @@
 
 次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
 
-1. 複数project collisionの個別判断
-   - `proj:29a36771674f` など、handoff に残る split / merge 判断を片付ける
-   - 目的: 既知のidentity不整合を減らし、後続の評価fixtureを汚さない
-2. manual gold set の拡張
+1. manual gold set の拡張
    - 追加済み3件のoperator correction fixtureを起点に、実誤判定caseを増やす
    - 目的: queue policy、LLM comparison、service verification、atproto寄与度判定の共通評価土台を作る
-3. queue policy の診断と再設計
+2. queue policy の診断と再設計
    - gold set と sample review を見ながら、atproto利用深度、service利用可否、技術的新規性を独立signalとして定義する
    - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
 

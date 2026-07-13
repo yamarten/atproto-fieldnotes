@@ -141,7 +141,7 @@
 
 2026-07-13時点で確認済み:
 
-- 全unit test 393件
+- 全unit test 394件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -149,12 +149,12 @@
 - 正本DB maintenance後のforeign key違反0、integrity `ok`
 - 2026-07-13の正本DB複製でsame-site 4件と`app.links` 4,868件を適用後、再監査0件、normalized roundtrip差分0、履歴table不変、foreign key違反0、integrity `ok`
 - 3,239 projectから作ったhandle/DIDを含む12,849 exact lookupで、従来判定との差分0
+- 正本DBでKlearsky、Postgame、radio4000の重複project 3組をmergeし、confirmed canonical identifierのcollision 0件、foreign key違反0、integrity `ok`を確認
 
 未検証:
 
 - 長時間運用時の実API retry/cache/budget値
 - cleanup後30日または新規1,000 runs時点の保存量増加率
-- `proj:29a36771674f`など、複数projectを跨いで残るidentifier collisionの個別分離・merge判断
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。

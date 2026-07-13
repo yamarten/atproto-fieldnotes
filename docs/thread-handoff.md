@@ -13,7 +13,6 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- `proj:29a36771674f`など、複数project collisionの個別split/merge判断を行う。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ
