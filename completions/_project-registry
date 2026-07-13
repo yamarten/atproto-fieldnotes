@@ -36,7 +36,6 @@ subcommands=(
   'inspect-merge-pair:Inspect merge evidence for one pair'
   'merge:Merge one project into another'
   'merge-batch:Batch merge only high-safety duplicate pairs'
-  'assist-db-edit:Parse a natural-language DB edit request'
 )
 
 tracking_states=(active watchlist stable stalled archived ignore)
@@ -374,16 +373,6 @@ case "$cmd" in
       '--bootstrap-collection-creator-heuristic[Temporarily use the first-DID startup heuristic]' \
       '--interactive[Step through planned merges interactively]' \
       '(-v --verbose)'{-v,--verbose}'[Include skipped pairs in the output]'
-    ;;
-  assist-db-edit)
-    _arguments -S \
-      '1:text:request text:' \
-      '--execute[Apply the suggested action only when uniquely resolved]' \
-      "--llm-endpoint[Optional OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
-      "--llm-model[Optional model name for the parsing LLM]:model:" \
-      "--llm-api-key[Optional API key for the parsing LLM]:api key:" \
-      "--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles" \
-      "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
     ;;
   *)
     _describe -t commands 'project-registry command' subcommands

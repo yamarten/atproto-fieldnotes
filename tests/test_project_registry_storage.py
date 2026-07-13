@@ -9,7 +9,6 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli, database, domain_policy, source_sync
-from project_registry_core.commands import assist as assist_commands
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
@@ -1286,47 +1285,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertIsNotNone(registry.fetch_project(conn, target["project_key"]))
             self.assertIn('"planned_merges": 1', stdout.getvalue())
             self.assertIn('"executed_merges": 0', stdout.getvalue())
-        finally:
-            conn.close()
-
-    def test_assisted_tracking_edit_runs_from_command_adapter(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:assist-adapter")
-            registry.save_project(conn, project)
-            conn.commit()
-            args = cli.build_parser().parse_args([
-                "assist-db-edit",
-                "set fixture stable",
-                "--execute",
-            ])
-            with (
-                mock.patch.object(registry, "open_db", return_value=conn),
-                mock.patch.object(
-                    registry,
-                    "parse_db_edit_request",
-                    return_value=(
-                        {
-                            "action": "set_tracking_state",
-                            "project_query": project["project_key"],
-                            "tracking_state": "stable",
-                            "note": "adapter characterization",
-                        },
-                        {"transport": "fixture"},
-                    ),
-                ),
-                captured_stdout() as stdout,
-            ):
-                result = assist_commands.cmd_assist_db_edit(args)
-
-            updated = registry.fetch_project(conn, project["project_key"])
-            assert updated is not None
-            payload = json.loads(stdout.getvalue())
-            self.assertIs(args.func, assist_commands.cmd_assist_db_edit)
-            self.assertEqual(result, 0)
-            self.assertEqual(payload["mode"], "execute")
-            self.assertEqual(updated["tracking_state"], "stable")
-            self.assertEqual(updated["tracking_note"], "adapter characterization")
         finally:
             conn.close()
 

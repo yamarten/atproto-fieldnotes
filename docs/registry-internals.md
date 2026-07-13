@@ -217,7 +217,6 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
   - review queueとstalled/ignore/out-of-scopeのinteractive入出力も`commands/review.py`が担当する
   - merge-batchのplan表示、TTY action、undo stack、JSON出力は`commands/merge.py`が担当する
-  - assist-db-editの自然文parse後の候補表示、確認、CLI mutation adapterは`commands/assist.py`が担当する
 - `project_registry_web/`
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない

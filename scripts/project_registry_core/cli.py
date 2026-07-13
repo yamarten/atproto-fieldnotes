@@ -6,7 +6,6 @@ import urllib.error
 from pathlib import Path
 
 from . import registry
-from .commands import assist as assist_commands
 from .commands import decisions as decision_commands
 from .commands import enrichment as enrichment_commands
 from .commands import explain as explain_commands
@@ -414,16 +413,6 @@ def build_parser() -> argparse.ArgumentParser:
     merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
     merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
     merge_batch_parser.set_defaults(func=merge_commands.cmd_merge_batch)
-
-    assist_parser = subparsers.add_parser("assist-db-edit", help="Parse a short natural-language DB edit request, suggest a concrete CLI command, and optionally execute it when uniquely resolved.")
-    assist_parser.add_argument("text", help="Short operator request such as 'AとBをマージしたい'.")
-    assist_parser.add_argument("--execute", action="store_true", help="Apply the suggested action only when the request resolves uniquely.")
-    assist_parser.add_argument("--llm-endpoint", help="Optional OpenAI-compatible LLM endpoint or base URL for parsing.")
-    assist_parser.add_argument("--llm-model", help="Optional model name for the parsing LLM.")
-    assist_parser.add_argument("--llm-api-key", help="Optional API key for the parsing LLM.")
-    assist_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
-    assist_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for the parsing LLM.")
-    assist_parser.set_defaults(func=assist_commands.cmd_assist_db_edit)
 
     return parser
 
