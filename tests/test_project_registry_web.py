@@ -622,26 +622,16 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["count"], 0)
 
-    def test_project_detail_separates_legacy_machine_notes(self) -> None:
+    def test_project_detail_separates_operator_and_system_notes(self) -> None:
         conn = registry.open_db()
         try:
-            conn.execute(
-                "UPDATE projects SET profile_json = ? WHERE project_key = ?",
-                (
-                    json.dumps({
-                        "core": {
-                            "summary": "Example summary",
-                            "notes": "\n".join([
-                                "operator note",
-                                "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00",
-                            ]),
-                        },
-                        "app": {},
-                    }),
-                    "proj:111111111111",
-                ),
-            )
-            conn.commit()
+            project = registry.fetch_project(conn, "proj:111111111111")
+            assert project is not None
+            project["notes"] = "operator note"
+            project["system_notes"] = [
+                "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00"
+            ]
+            registry.save_project(conn, project)
         finally:
             conn.close()
 

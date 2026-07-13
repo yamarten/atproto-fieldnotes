@@ -395,22 +395,13 @@ def list_collector_run_rows(conn: sqlite3.Connection, run_id: str) -> list[dict[
     output: list[dict[str, Any]] = []
     for row in rows:
         result = json.loads(str(row["result_json"]))
-        bundled_evidence = result.get("evidence_storage") == "bundle_json"
         output.append({
             "source": str(row["source"]),
             "operation": str(row["operation"]),
             "status": str(row["status"]),
             "observed_at": str(row["observed_at"]),
             "result": result,
-            "record_count": (
-                int(result.get("record_count") or 0)
-                if bundled_evidence
-                else len(json.loads(str(row["records_json"])))
-            ),
-            "failure_count": (
-                int(result.get("failure_count") or 0)
-                if bundled_evidence
-                else len(json.loads(str(row["failures_json"])))
-            ),
+            "record_count": int(result["record_count"]),
+            "failure_count": int(result["failure_count"]),
         })
     return output

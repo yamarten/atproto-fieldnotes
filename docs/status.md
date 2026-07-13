@@ -88,6 +88,7 @@
   - 2026-07-13にVACUUM済み。DB fileは約4.4 GiBから約1.5 GiBへ縮小し、`freelist_count=0` / `integrity_check=ok`を確認済み
   - 2026-07-13にactive `evidence.resource_url_records`から旧形式由来の補助URL 247件 / 174 projectsを削除済み。過去LLM入力snapshot内の同source名は履歴として残す
   - 2026-07-13に正本DBのsame-site stale probe 4件を現行policyで更新し、`app.links`から正本にない4,868 link / 449 projectsを削除。再監査0件、foreign key違反0、integrity `ok`を確認後、一度きりCLI commandを削除
+  - 2026-07-13に474 projectの旧machine note 1,071行を`system_notes`へ移動。runtime project同値、normalized child・履歴不変、再監査0件、foreign key違反0、integrity `ok`を確認し、読込時のpattern変換とcollector旧projection fallbackを削除
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
@@ -140,7 +141,7 @@
 
 2026-07-13時点で確認済み:
 
-- 全unit test 394件
+- 全unit test 393件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

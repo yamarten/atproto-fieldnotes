@@ -731,20 +731,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 "SELECT result_json, records_json, failures_json FROM collector_runs WHERE run_id = ?", (run_id,)
             ).fetchall()
             projected = storage_core.list_collector_run_rows(conn, run_id)
-            legacy_result = json.loads(rows[0]["result_json"])
-            legacy_result.pop("evidence_storage")
-            legacy_result.pop("record_count")
-            legacy_result.pop("failure_count")
-            conn.execute(
-                "UPDATE collector_runs SET result_json = ?, records_json = ?, failures_json = ? WHERE run_id = ?",
-                (
-                    json.dumps(legacy_result),
-                    json.dumps([{"source": "github_readme:https://github.com/example/app"}]),
-                    json.dumps([{"source": "github_repo"}]),
-                    run_id,
-                ),
-            )
-            existing_projected = storage_core.list_collector_run_rows(conn, run_id)
         finally:
             conn.close()
         self.assertEqual(len(rows), 1)
@@ -755,8 +741,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(rows[0]["records_json"], "[]")
         self.assertEqual(rows[0]["failures_json"], "[]")
         self.assertEqual(projected[0]["record_count"], 1)
-        self.assertEqual(existing_projected[0]["record_count"], 1)
-        self.assertEqual(existing_projected[0]["failure_count"], 1)
+        self.assertEqual(projected[0]["failure_count"], 0)
 
     def test_service_replay_uses_saved_probe_without_follow_up_network(self) -> None:
         project = self.make_project("proj:service-replay", "service_url", "https://example.com")

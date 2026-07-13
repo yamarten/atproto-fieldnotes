@@ -25,6 +25,8 @@ re-exportは置きません。
 
 現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
 
+人間向け`profile_json.core.notes`と機械生成履歴の`state_json.evidence.system_notes`はwrite pathで分離します。current DBは分離済みであり、project読込時にnote本文をpattern分類する処理は持ちません。`collector_runs`も`result_json`にcountを持つ現行projectionだけを読み、旧`records_json` / `failures_json`本文へのfallbackは行いません。
+
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
 新規DBの作成は`project-registry init-db [--db-path PATH]`だけが明示的に行います。通常CLI、Web、background

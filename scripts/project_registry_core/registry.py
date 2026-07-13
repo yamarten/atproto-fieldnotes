@@ -1549,7 +1549,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
     defaults["system_notes"] = unique_list([str(item).strip() for item in defaults.get("system_notes", []) if str(item).strip()])
-    split_operator_and_system_notes(defaults)
     defaults["manual_review_recommended"] = bool(defaults.get("manual_review_recommended"))
     defaults["manual_review_kind"] = str(defaults.get("manual_review_kind") or "other").strip().lower() or "other"
     if defaults["manual_review_kind"] not in {
@@ -11253,42 +11252,6 @@ def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
     if prefer == "min":
         return min(current_value, incoming_value)
     return max(current_value, incoming_value)
-
-
-MACHINE_NOTE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^merged from proj:[0-9a-f]{12} at \d{4}-\d{2}-\d{2}T"),
-    re.compile(r"^split(?: out)? .+ -> proj:[0-9a-f]{12}(?: |$)"),
-    re.compile(r"^seed matched by [^:]+: .+"),
-    re.compile(r"^imported from text seed list: .+"),
-    re.compile(r"^seed-list (?:section|note): .+"),
-    re.compile(r"^github search sync matched "),
-    re.compile(r"^collection import matched by "),
-    re.compile(r"^semble collection sync matched "),
-)
-
-
-def note_line_is_machine_generated(line: str) -> bool:
-    text = str(line or "").strip()
-    return bool(text and any(pattern.match(text) for pattern in MACHINE_NOTE_PATTERNS))
-
-
-def split_operator_and_system_notes(project: dict[str, Any]) -> None:
-    notes = str(project.get("notes") or "").strip()
-    if not notes:
-        project["system_notes"] = unique_list([str(item).strip() for item in project.get("system_notes", []) if str(item).strip()])
-        return
-    operator_lines: list[str] = []
-    system_lines = [str(item).strip() for item in project.get("system_notes", []) if str(item).strip()]
-    for line in notes.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if note_line_is_machine_generated(stripped):
-            system_lines.append(stripped)
-        else:
-            operator_lines.append(stripped)
-    project["notes"] = "\n".join(operator_lines).strip()
-    project["system_notes"] = unique_list(system_lines)
 
 
 def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:

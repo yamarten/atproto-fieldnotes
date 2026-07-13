@@ -268,6 +268,7 @@ scheduled presetsは現運用で利用中のため、削除候補から外しま
 - 将来、定常利用しないと決めた場合の`cleanup-storage-payloads`
 
 `backfill-derived-identifiers`、`repair-same-site-evidence`、`cleanup-app-links`は役割を終了し、定常責務を保存契約または設定変更serviceへ移して削除しました。
+旧machine noteの読込時変換とcollector旧projection fallbackも、正本DBの現行形式への移行後に削除しました。
 
 ## 削除しない方がよいもの
 

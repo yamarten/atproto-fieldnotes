@@ -89,7 +89,7 @@ idempotentに作成できます。
 
 代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
 
-`system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは分離し、紹介用profileやoperatorの自由記述には混ぜません。
+`system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは保存時点で分離し、紹介用profileやoperatorの自由記述には混ぜません。読込時に`notes`本文をpattern判定して`system_notes`へ移す互換処理は行いません。
 
 ## `project_identifiers`
 
@@ -255,7 +255,7 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 新規runでは、record/failure本文の正本は`investigation_runs.bundle_json`だけです。`collector_runs`は
 `source + operation`単位にまとめたstatus/count projectionで、複数結果のstatusは最も強いproblem状態、request/result
 件数は合計を保持します。`result_json.evidence_storage = "bundle_json"`とrecord/failure countを持ち、
-`records_json` / `failures_json`は空配列です。旧runの列内payloadはそのまま読めますが、新規runへ二重保存しません。
+`records_json` / `failures_json`は空配列です。旧形式の列内payloadを読むfallbackは持たず、現行projectionだけを対象にします。
 
 `projects.state_json`の`service_verification_results`は時系列履歴ではありません。`lane + requested_url`単位の
 最新観測を最大32 surface保持するcurrent viewです。過去runは上記history tableで確認します。

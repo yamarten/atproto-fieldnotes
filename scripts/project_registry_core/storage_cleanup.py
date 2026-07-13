@@ -351,7 +351,6 @@ def compact_registry_storage(
         str(row["run_id"]): {
             "row_count": int(row["row_count"] or 0),
             "bytes": int(row["payload_bytes"] or 0),
-            "legacy_row_count": int(row["legacy_row_count"] or 0),
         }
         for row in conn.execute(
             """
@@ -360,13 +359,7 @@ def compact_registry_storage(
                        LENGTH(CAST(result_json AS BLOB)) +
                        LENGTH(CAST(records_json AS BLOB)) +
                        LENGTH(CAST(failures_json AS BLOB))
-                   ), 0) AS payload_bytes,
-                   COALESCE(SUM(
-                       CASE
-                           WHEN json_extract(result_json, '$.evidence_storage') = 'bundle_json' THEN 0
-                           ELSE 1
-                       END
-                   ), 0) AS legacy_row_count
+                   ), 0) AS payload_bytes
             FROM collector_runs
             GROUP BY run_id
             """
@@ -525,7 +518,7 @@ def compact_registry_storage(
                 )
                 previous_projection = collector_before.get(
                     run_id,
-                    {"row_count": 0, "bytes": 0, "legacy_row_count": 0},
+                    {"row_count": 0, "bytes": 0},
                 )
                 collector_stats["run_count"] += 1
                 collector_stats["row_count_before"] += int(previous_projection["row_count"])
@@ -534,8 +527,6 @@ def compact_registry_storage(
                 collector_stats["bytes_after"] += projection_bytes
                 collector_stats["bytes_saved"] += int(previous_projection["bytes"]) - projection_bytes
                 if (
-                    int(previous_projection["legacy_row_count"]) > 0
-                    or
                     int(previous_projection["row_count"]) != len(projection_rows)
                     or int(previous_projection["bytes"]) != projection_bytes
                 ):
