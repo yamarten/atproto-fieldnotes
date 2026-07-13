@@ -1215,6 +1215,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertEqual(summary["created"], 1)
         self.assertEqual(summary["results"][0]["outcome"], "created")
+        self.assertEqual(summary["results"][0]["project_key"], projects[0]["project_key"])
         self.assertEqual(len(projects), 1)
         self.assertTrue(registry.runtime_view.is_complete(projects[0]))
 

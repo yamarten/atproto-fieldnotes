@@ -22,6 +22,22 @@ from project_registry_core.jobs import OperationRequest, generate_operation_id, 
 ACTIVE_STATUSES = {"queued", "running", "cancelling"}
 TERMINAL_STATUSES = {"completed", "cancelled", "failed"}
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+SOURCE_OBSERVATION_LIMIT = 4
+SOURCE_OBSERVATION_CANDIDATE_LIMIT = 100
+SOURCE_OBSERVATION_SUMMARY_KEYS = (
+    "source", "source_url", "query", "queries", "posts", "fetched_posts", "entries",
+    "namespaces", "created", "updated", "already_introduced", "matched", "matched_existing",
+    "unmatched", "rejected", "fetched_repos", "eligible_repos", "screened_out",
+    "suggested_existing_matches", "fetched_cards", "eligible_cards", "evidence_only_cards",
+    "evidence_only_attached", "evidence_only_unmatched", "observed", "fetched", "selected",
+    "skipped_irrelevant", "skipped_known", "skipped_old", "skipped_non_seed", "pending_before",
+    "pending_after", "mode", "create_unmatched", "incremental", "scan_complete", "state_updated",
+    "cancelled", "truncated", "boundary_reached", "gap_possible", "watermark_before",
+    "watermark_after", "match_reasons", "screen_reason_counts", "query_scans", "collection_scans",
+    "tracked_collections", "imported_project_keys", "matched_project_keys", "unmatched_entries",
+    "suggested_entries", "screened_out_entries", "evidence_only_entries", "rejected_entries",
+    "merge_candidates", "results",
+)
 
 
 SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
@@ -216,6 +232,110 @@ def _schedule_next_due_at(schedule: dict[str, Any], now_utc: dt.datetime) -> str
                 year += 1
                 month = 1
     return target.astimezone(dt.timezone.utc).isoformat()
+
+
+def _bounded_text(value: Any, limit: int = 500) -> str:
+    return str(value or "")[:limit]
+
+
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bounded_summary_value(value: Any, *, depth: int = 0) -> Any:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _bounded_text(value)
+    if depth >= 4:
+        return None
+    if isinstance(value, list):
+        return [
+            _bounded_summary_value(item, depth=depth + 1)
+            for item in value[:SOURCE_OBSERVATION_CANDIDATE_LIMIT]
+        ]
+    if isinstance(value, dict):
+        return {
+            _bounded_text(key, 200): _bounded_summary_value(item, depth=depth + 1)
+            for key, item in list(value.items())[:50]
+            if not str(key).lower().endswith(("token", "password", "secret", "api_key"))
+        }
+    return _bounded_text(value)
+
+
+def _bounded_sync_summary(value: Any) -> dict[str, Any]:
+    summary = value if isinstance(value, dict) else {}
+    output = {
+        key: _bounded_summary_value(summary[key])
+        for key in SOURCE_OBSERVATION_SUMMARY_KEYS
+        if key in summary
+    }
+    truncated = [
+        key
+        for key in SOURCE_OBSERVATION_SUMMARY_KEYS
+        if isinstance(summary.get(key), list)
+        and len(summary[key]) > SOURCE_OBSERVATION_CANDIDATE_LIMIT
+    ]
+    if truncated:
+        output["_truncated_lists"] = truncated
+    return output
+
+
+def _normalize_source_observation(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    source = _bounded_text(value.get("source"), 100).strip()
+    operation_id = _bounded_text(value.get("operation_id"), 200).strip()
+    if not source or not operation_id:
+        return None
+    error = value.get("error") if isinstance(value.get("error"), dict) else {}
+    return {
+        "operation_id": operation_id,
+        "source": source,
+        "preset_id": _bounded_text(value.get("preset_id"), 100),
+        "step": _bounded_text(value.get("step"), 200),
+        "started_at": _bounded_text(value.get("started_at"), 100),
+        "completed_at": _bounded_text(value.get("completed_at"), 100),
+        "duration_seconds": _nonnegative_int(value.get("duration_seconds")),
+        "status": _bounded_text(value.get("status"), 50),
+        "summary": _bounded_sync_summary(value.get("summary")),
+        "error": {
+            "type": _bounded_text(error.get("type"), 200),
+            "message": _bounded_text(error.get("message"), 1000),
+        } if error else {},
+    }
+
+
+def _bounded_source_observations(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    normalized = [
+        item
+        for item in (_normalize_source_observation(value) for value in values)
+        if item is not None
+    ]
+    retained: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for item in reversed(normalized):
+        source = str(item["source"])
+        if counts.get(source, 0) >= SOURCE_OBSERVATION_LIMIT:
+            continue
+        counts[source] = counts.get(source, 0) + 1
+        retained.append(item)
+    retained.reverse()
+    return retained
+
+
+def _duration_seconds(started_at: str, completed_at: str) -> int:
+    try:
+        started = dt.datetime.fromisoformat(started_at)
+        completed = dt.datetime.fromisoformat(completed_at)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, round((completed - started).total_seconds()))
 
 
 @dataclass
@@ -476,6 +596,7 @@ class JobManager:
             "updated_at": str(payload.get("updated_at") or ""),
             "schedules": normalized,
             "queue": normalized_queue,
+            "source_observations": _bounded_source_observations(payload.get("source_observations")),
         }
 
     def _save_schedule_state_locked(self) -> None:
@@ -484,6 +605,40 @@ class JobManager:
         tmp = self._schedule_path.with_suffix(self._schedule_path.suffix + ".tmp")
         tmp.write_text(json.dumps(self._schedule_state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         tmp.replace(self._schedule_path)
+
+    def _record_sync_observation_locked(self, job: JobRecord) -> None:
+        if job.request.operation != "sync" or not job.request.execute:
+            return
+        source = str(job.request.parameters.get("source") or "").strip()
+        if not source:
+            return
+        result = job.result if isinstance(job.result, dict) else {}
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        started_at = str(result.get("started_at") or job.started_at or job.created_at)
+        completed_at = str(result.get("completed_at") or job.completed_at or utc_now())
+        error = job.error if isinstance(job.error, dict) else result.get("error")
+        observation = _normalize_source_observation({
+            "operation_id": job.request.operation_id,
+            "source": source,
+            "preset_id": str(job.request.parameters.get("_scheduled_preset_id") or ""),
+            "step": str(job.request.parameters.get("_scheduled_step") or ""),
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_seconds": _duration_seconds(started_at, completed_at),
+            "status": str(result.get("status") or job.status),
+            "summary": summary,
+            "error": error if isinstance(error, dict) else {},
+        })
+        if observation is None:
+            return
+        existing = [
+            item
+            for item in self._schedule_state.get("source_observations", [])
+            if isinstance(item, dict) and item.get("operation_id") != observation["operation_id"]
+        ]
+        self._schedule_state["source_observations"] = _bounded_source_observations(existing + [observation])
+        self._save_schedule_state_locked()
 
     def _schedule_snapshot_locked(self) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc)
@@ -513,6 +668,7 @@ class JobManager:
             "updated_at": str(self._schedule_state.get("updated_at") or ""),
             "items": items,
             "queue": list(self._schedule_state.get("queue") or []),
+            "source_observations": list(self._schedule_state.get("source_observations") or []),
         }
 
     def _enqueue_schedule_locked(self, preset_id: str, *, period: str, reason: str) -> None:
@@ -842,6 +998,7 @@ class JobManager:
                     "message": f"worker exited with status {returncode}",
                 }
             job.process = None
+            self._record_sync_observation_locked(job)
             self._trim_locked()
 
     def _apply_message_locked(self, job: JobRecord, message: Any) -> None:

@@ -13,7 +13,7 @@ from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import source_sync
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
-from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
+from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _bounded_sync_summary, _schedule_due
 
 
 FAKE_WORKER = r'''
@@ -51,9 +51,20 @@ write({"type":"event","payload":{"schema_version":1,"operation_id":operation_id,
 if parameters.get("wait_on_first") and not parameters.get("resume_run"):
     while not cancelled:
         time.sleep(0.02)
-status = "cancelled" if cancelled else "completed"
-write({"type":"event","payload":{"schema_version":1,"operation_id":operation_id,"operation":operation,"kind":status,"sequence":2,"at":now(),"data":{"summary":"enrich_all"}}})
-write({"type":"result","payload":{"schema_version":1,"operation_id":operation_id,"operation":operation,"status":status,"started_at":now(),"completed_at":now(),"data":{"summary":"enrich_all"},"error":None}})
+failed = bool(parameters.get("fail"))
+status = "cancelled" if cancelled else ("failed" if failed else "completed")
+source = str(parameters.get("source") or "")
+summary = {
+    "created": 1,
+    "matched_existing": 2,
+    "unmatched": 1,
+    "state_updated": True,
+    "imported_project_keys": [f"proj:{source}"],
+    "unmatched_entries": [{"repo_url": f"https://example.test/{source}", "reason": "unmatched"}],
+} if operation == "sync" else "enrich_all"
+error = {"type":"SyntheticError","message":"synthetic sync failure"} if failed else None
+write({"type":"event","payload":{"schema_version":1,"operation_id":operation_id,"operation":operation,"kind":status,"sequence":2,"at":now(),"data":{"summary":summary}}})
+write({"type":"result","payload":{"schema_version":1,"operation_id":operation_id,"operation":operation,"status":status,"started_at":now(),"completed_at":now(),"data":{"summary":summary},"error":error}})
 '''
 
 
@@ -148,6 +159,63 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(state["queue"], [])
         schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
         self.assertEqual(schedule["last_status"], "completed")
+        self.assertEqual(
+            [item["source"] for item in state["source_observations"]],
+            ["github", "collections", "semble", "tangled"],
+        )
+        self.assertTrue(all(item["preset_id"] == "sync_sources_then_enrich" for item in state["source_observations"]))
+
+    def test_execute_sync_observations_persist_last_four_per_source(self) -> None:
+        operation_ids: list[str] = []
+        for _index in range(5):
+            job = self.manager.start_sync({"source": "semble"}, execute=True)
+            completed = self.wait_for(job["job_id"], {"completed"})
+            operation_ids.append(completed["operation_id"])
+
+        dry_run = self.manager.start_sync({"source": "semble"}, execute=False)
+        self.wait_for(dry_run["job_id"], {"completed"})
+        observations = self.manager.list_schedules()["source_observations"]
+        self.assertEqual(len(observations), 4)
+        self.assertEqual([item["operation_id"] for item in observations], operation_ids[-4:])
+        self.assertEqual(observations[-1]["summary"]["created"], 1)
+        self.assertEqual(
+            observations[-1]["summary"]["imported_project_keys"][0],
+            "proj:semble",
+        )
+
+        restarted = JobManager(
+            self.db_path,
+            worker_command=[sys.executable, str(self.worker_path)],
+            enable_scheduler=False,
+        )
+        try:
+            self.assertEqual(
+                [item["operation_id"] for item in restarted.list_schedules()["source_observations"]],
+                operation_ids[-4:],
+            )
+        finally:
+            restarted.close(timeout=1.0)
+
+    def test_sync_observation_candidate_references_are_bounded(self) -> None:
+        summary = _bounded_sync_summary({
+            "unmatched_entries": [
+                {"repo_url": f"https://example.test/repo-{index}", "outcome": "unmatched"}
+                for index in range(120)
+            ],
+        })
+
+        self.assertEqual(len(summary["unmatched_entries"]), 100)
+        self.assertEqual(summary["_truncated_lists"], ["unmatched_entries"])
+
+    def test_failed_execute_sync_observation_keeps_bounded_error(self) -> None:
+        job = self.manager.start_sync({"source": "tangled", "fail": True}, execute=True)
+        self.wait_for(job["job_id"], {"failed"})
+
+        observation = self.manager.list_schedules()["source_observations"][0]
+        self.assertEqual(observation["source"], "tangled")
+        self.assertEqual(observation["status"], "failed")
+        self.assertEqual(observation["error"]["type"], "SyntheticError")
+        self.assertEqual(observation["error"]["message"], "synthetic sync failure")
 
     def test_all_state_maintenance_runs_enrich_then_stalled_review(self) -> None:
         queued = self.manager.run_scheduled_preset("enrich_all_states")

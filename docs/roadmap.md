@@ -81,17 +81,41 @@ Webの現役導線から分離して削除します。
 ### 外部sourceとbrowser lane
 
 Semble / Tangled source laneとanonymous browser verificationは即時削除せず、週次または通常運用4回の
-固有成果を確認してから判断します。新しいtelemetry機能は作らず、次だけを記録します。
+固有成果を確認してから判断します。Web execute syncは`job-schedules.json`のsourceごと直近4回の
+bounded observationを使い、browser verificationは保存済みinvestigation runのinput/output snapshotを使います。
+汎用job履歴や追加DB tableは作らず、次だけを記録します。
 
 - 他sourceでは得られなかった新規project候補数
 - operatorが深掘り対象にした件数
 - browser verificationによってservice statusやURL採否が変わった件数
 - 実行時間、failure、manual correction数
 
+anonymous browser verificationは定期jobに含まれないため、同じ観測期間中にstatic / deep結果が曖昧なserviceを
+sampleとして明示実行します。browser runが0件なら削除判断の材料にはせず、観測期間を開始した扱いにしません。
+
+評価はSemble / Tangledの各laneで4回の発火結果と、review可能なcompleted resultを少なくとも1件ずつ得た後に
+行います。failure / cancelも信頼性と運用費の実績には数えますが、固有成果を判定するcompleted resultの代わりには
+しません。anonymous browser verificationは前述のsampleを少なくとも1件確認してから評価します。
+
 固有成果があれば維持します。固有成果がなく、人力での代替費も小さい場合は、laneとsource固有の
 config / parser / test / 文書をまとめて削除します。sourceを削除する場合は、最後のwatermark / config /
 historyを保持するかも同時に決めます。Tangled timeline / community / bot adapterは、具体的な有効化予定が
 なければ、通常接続せずparserも削除します。
+
+#### 観測終了時の片付け
+
+`job-schedules.json`の`source_observations`は上記評価のための一時的な仕込みであり、恒久的なjob履歴契約には
+しません。laneを維持する判断でも、評価結果を確定する作業と同じトピックで次を片付け、後続の機能拡張へ
+持ち越しません。
+
+- `project_registry_web.jobs`の観測用constant / helper / job完了hookとAPIの`source_observations` fieldを削除する
+- 観測専用testと、現行機能として観測導線を記述した文書を削除または更新する
+- 実運用の`job-schedules.json`から`source_observations`だけを除去し、scheduleとpending queueを維持したまま再読込を確認する
+- 評価結果とlaneの維持・削除判断だけをroadmapまたはstatusへ残し、観測payloadや作業用一覧は正本文書へ残さない
+
+laneを削除する場合は、これに加えて前述のsource固有config / parser / test / 文書とwatermark / historyの
+扱いを同じ作業で確定します。Tangledの結果にproject keyを含める契約はlane本体の出力なので、laneを維持する間は
+観測用仕込みの撤去対象に含めません。
 
 ### 内部構造
 

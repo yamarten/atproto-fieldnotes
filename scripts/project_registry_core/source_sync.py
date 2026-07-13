@@ -1637,7 +1637,13 @@ def sync_tangled_repos(
                 apply_tangled_evidence(project, bundle)
                 project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_ufos")
                 save_project(conn, finalize_project_shape(project), enriched=False)
-        results.append({"repo_url": repo_url, "owner_did": owner_did, "outcome": outcome, "time_us": entry["time_us"]})
+        results.append({
+            "project_key": str(project.get("project_key") or "") if project is not None else "",
+            "repo_url": repo_url,
+            "owner_did": owner_did,
+            "outcome": outcome,
+            "time_us": entry["time_us"],
+        })
     state_updated = bool(
         execute
         and not cancelled
