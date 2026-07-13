@@ -120,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=review_commands.cmd_promotion_queue)
 
-    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest active projects that likely deserve a lower tracking frequency.")
-    review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Flag projects whose collection activity has been quiet for at least this many days. Default: 45.")
+    review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest activity-based tracking-state changes for active and stalled projects.")
+    review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Use this many days as the inactivity threshold for repository and collection activity. Default: 45.")
     review_stalled_parser.add_argument(
         "--max-enrich-age-days",
         dest="max_enrich_age_days",
@@ -129,9 +129,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=30,
         help="Only consider stalled downgrades when the project was enriched within this freshness window. Default: 30.",
     )
-    review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=stalled updates. Without this flag, show a dry-run summary only.")
-    review_stalled_parser.add_argument("--interactive", action="store_true", help="Step through stalled-review candidates interactively and apply confirmed updates.")
-    review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying stalled updates.")
+    review_stalled_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking-state updates. Without this flag, show a dry-run summary only.")
+    review_stalled_parser.add_argument("--interactive", action="store_true", help="Step through activity-review candidates interactively and apply confirmed updates.")
+    review_stalled_parser.add_argument("--note", help="Optional tracking note to store when applying updates.")
     review_stalled_parser.set_defaults(func=review_commands.cmd_review_stalled)
 
     review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest unrelated or identity-less noise that likely deserves tracking_state=ignore.")

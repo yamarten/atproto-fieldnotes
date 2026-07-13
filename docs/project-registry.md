@@ -197,8 +197,8 @@ Web UIは`127.0.0.1`上で単一operatorが使うことを前提にしていま�
 
 - 起動時に表示・自動openする初回URLだけはqueryにtokenを含みます。UIは読み取り後に`history.replaceState`でqueryを除去し、HTTP request logもqueryを記録しませんが、terminal出力、browser拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
 - tokenは同じoriginの`localStorage`へ保存します。同じbrowser profile・originを使えるscriptや利用者とは秘密を分離できません。共有端末では使わず、不要になったらSettingsの`Clear API token`で削除します。
-- server自身はplain HTTPで、TLS終端やtoken rotationを提供しません。loopback内の通信だけを想定し、localhost外へ直接bindしません。
-- localhost外から使う必要がある場合は、Web serverはloopback bindのまま、operatorが管理するSSH tunnelやTLS付きreverse proxyを前段に置きます。それを正式な常用導線にする場合は、proxy header、TLS、token更新、access logの契約を別途設計します。
+- server自身はplain HTTPで、TLS終端やtoken rotationを提供しません。`--host`には非loopback addressも指定できますが、認証は共有tokenだけなので、既定の`127.0.0.1` bindを通常導線とします。
+- localhost外から使う必要がある場合は、Web serverをloopbackへbindしたまま、operatorが管理するSSH tunnelやTLS付きreverse proxyを前段に置きます。`--host 0.0.0.0`などで直接公開するとtokenを含む通信もplain HTTPになるため、常用導線とは扱いません。正式に使う場合はproxy header、TLS、token更新、access logの契約を別途設計します。
 
 stderrのHTTP logはmethod、queryを除いたrequest path、status、所要時間だけを記録します。token、request body、background worker stderrは混ぜません。予期しないHTTP exceptionのtracebackとbackground jobのstderrはserver側の診断情報であり、UIへはそれぞれ一般的なerror responseと明示的に開いたjob detailとして表示します。
 
@@ -868,9 +868,10 @@ export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
+export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 ```
 
-`ATPROTO_SURVEY_LLM_ENDPOINT` と Settings で指定する LLM endpoint は、operator が管理する trusted endpoint として扱います。project data から見つかった service / resource URL には内部宛て block が掛かりますが、この LLM endpoint 呼び出しだけは LAN / localhost の endpoint も許可します。
+`ATPROTO_SURVEY_LLM_ENDPOINT`で指定するLLM endpointは、operatorが管理するtrusted endpointとして扱います。project dataから見つかったservice / resource URLには内部宛てblockが掛かりますが、このLLM endpoint呼び出しだけはLAN / localhostのendpointも許可します。Web UIからのLLM設定は未接続です。
 
 `ATPROTO_SURVEY_LLM_TIMEOUT`はcommand/endpoint共通の1 attempt上限です。auto API styleはendpointが
 互換性エラーでrequestを拒否した場合だけ別payload/endpointを試し、timeoutやresponse JSON不良では再送しません。
@@ -887,6 +888,12 @@ GitHub検索の rate limit を避けたい場合:
 
 ```bash
 export GITHUB_TOKEN='ghp_...'
+```
+
+Web UIの共有tokenを環境変数で渡す場合:
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 ```
 
 現状、環境変数として読むのは上記だけです。`DNS_RESOLVER_URL` や `UFOS_API` はコード定数で、環境変数オーバーライドはありません。

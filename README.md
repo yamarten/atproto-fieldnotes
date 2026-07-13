@@ -97,7 +97,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 
 project検索、review/promotion/merge queue、normalized identifier/relation/decision、最新調査状態の表示、日常的なidentifier・tracking・merge操作に対応しています。enrich、設定済みsourceのsync、tracking classification reviewは別processのbackground jobとしてWebから開始・監視できます。enrich bulkだけは中断とcheckpoint再開に対応し、project単位の失敗は記録して後続を処理した後、run全体をfailedとして再開できます。sync/reviewの停止は現在のoperation完了後に反映されます。
 
-このUIはloopback上の個人利用向けです。token bootstrap、localStorage、plain HTTP、localhost外bindの制約は[利用手順](docs/project-registry.md#access境界)を確認してください。
+このUIはloopback上の個人利用向けです。token bootstrap、localStorage、plain HTTP、非loopback bind時の注意は[利用手順](docs/project-registry.md#access境界)を確認してください。
 
 ## 環境変数
 
@@ -121,6 +121,7 @@ export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
 export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
+export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 ```
 
 Bluesky post検索を使う場合:
@@ -135,6 +136,12 @@ GitHub検索の rate limit を避けたい場合:
 
 ```bash
 export GITHUB_TOKEN='ghp_...'
+```
+
+Web UIの共有tokenを環境変数で渡す場合:
+
+```bash
+export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 ```
 
 `DNS_RESOLVER_URL` や `UFOS_API` などは現状コード定数で、環境変数では上書きしません。
