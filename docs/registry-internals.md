@@ -216,7 +216,6 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - `project_registry_core/commands/`
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
   - review queueとstalled/ignore/out-of-scopeのinteractive入出力も`commands/review.py`が担当する
-  - merge-batchのplan表示、TTY action、undo stack、JSON出力は`commands/merge.py`が担当する
 - `project_registry_web/`
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
   - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
@@ -1033,7 +1032,7 @@ fallbackしません。
 
 `duplicate_candidates` と `merge_recommendation` は派生データです。必要なら再計算できます。
 
-`merge-batch` は保守的です。曖昧な一致は自動実行せず、`merge` の dry-run / execute で人が判断する前提です。
+Webのmerge候補planは保守的です。曖昧な一致は自動実行せず、pair reviewと個別actionで人が判断します。
 
 merge/split/separateの複数project書込みはoperation単位のSQLite transactionで実行します。
 repositoryの`save_project(..., commit=False)`を使い、2件目の保存、alias作成、source削除まで
@@ -1140,9 +1139,9 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
   - CLIからheuristicを判定へ含める導線はありません
 
-### merge-batch の追加安全策
+### merge候補planの追加安全策
 
-- `merge-batch` は `duplicate_candidates` をそのまま自動実行しません
+- Webのmerge候補planは`duplicate_candidates`をそのままactionへ適用しません
 - 候補 pair ごとに mutual recommendation を要求します
   - A の top が B
   - B の top も A

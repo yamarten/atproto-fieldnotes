@@ -10,7 +10,6 @@ from unittest import mock
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli, database, domain_policy, source_sync
 from project_registry_core.commands import maintenance as maintenance_commands
-from project_registry_core.commands import merge as merge_commands
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
@@ -1249,42 +1248,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(result, 0)
             self.assertEqual(updated["tracking_state"], "ignore")
             self.assertEqual(updated["tracking_note"], "review-ignore: 独自性の薄いfork")
-        finally:
-            conn.close()
-
-    def test_interactive_merge_batch_runs_from_command_adapter(self) -> None:
-        conn = registry.open_db()
-        try:
-            source = self.make_project("proj:merge-batch-source", "service_url", "https://source.example")
-            target = self.make_project("proj:merge-batch-target", "service_url", "https://target.example")
-            registry.save_project(conn, source)
-            registry.save_project(conn, target)
-            conn.commit()
-            args = cli.build_parser().parse_args(["merge-batch", "--interactive", "--max-merges", "1"])
-            stdout = io.StringIO()
-            stderr = io.StringIO()
-            stdout.isatty = lambda: True
-            plan = {
-                "source_project_key": source["project_key"],
-                "target_project_key": target["project_key"],
-                "reasons": {"manual_test": ["same fixture"]},
-            }
-            with (
-                mock.patch.object(registry, "open_db", return_value=conn),
-                mock.patch.object(registry, "build_batch_merge_plan", return_value=([plan], [])),
-                mock.patch.object(merge_commands.sys, "stdout", stdout),
-                mock.patch.object(merge_commands.sys, "stderr", stderr),
-                mock.patch.object(merge_commands.sys.stdin, "isatty", return_value=True),
-                mock.patch("builtins.input", return_value="n"),
-            ):
-                result = merge_commands.cmd_merge_batch(args)
-
-            self.assertIs(args.func, merge_commands.cmd_merge_batch)
-            self.assertEqual(result, 0)
-            self.assertIsNotNone(registry.fetch_project(conn, source["project_key"]))
-            self.assertIsNotNone(registry.fetch_project(conn, target["project_key"]))
-            self.assertIn('"planned_merges": 1', stdout.getvalue())
-            self.assertIn('"executed_merges": 0', stdout.getvalue())
         finally:
             conn.close()
 

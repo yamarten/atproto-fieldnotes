@@ -36,7 +36,6 @@
 - 特に慎重に扱うもの:
   - `repair-db`
   - `merge --execute`
-  - `merge-batch --execute`
   - import / sync の `--execute`
   - 直接 SQL 更新
 - heuristic を変えた後に既存データへ反映したい時は、まず `repair-db` で足りるかを考える

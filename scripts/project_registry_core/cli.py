@@ -371,7 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     split_parser.add_argument("--execute", action="store_true", help="Apply the split. Without this flag, only show a dry-run summary.")
     split_parser.set_defaults(func=merge_commands.cmd_split_project)
 
-    inspect_merge_parser = subparsers.add_parser("inspect-merge-pair", help="Inspect merge evidence for one specific project pair without running batch merge.")
+    inspect_merge_parser = subparsers.add_parser("inspect-merge-pair", help="Inspect merge evidence for one specific project pair.")
     inspect_merge_source = inspect_merge_parser.add_mutually_exclusive_group(required=True)
     inspect_merge_source.add_argument("-p", "--project-key", help="Source project key.")
     inspect_merge_source.add_argument("-s", "--seed", help="Source project by known seed value.")
@@ -395,14 +395,6 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--execute", action="store_true", help="Apply the merge. Without this flag, only show a dry-run summary.")
     merge_parser.add_argument("--force", action="store_true", help="Allow executing a non-auto-ready recommendation merge.")
     merge_parser.set_defaults(func=merge_commands.cmd_merge)
-
-    merge_batch_parser = subparsers.add_parser("merge-batch", help="Batch-merge only high-safety duplicate pairs.")
-    merge_batch_parser.add_argument("--execute", action="store_true", help="Apply the planned merges. Without this flag, only show a dry-run summary.")
-    merge_batch_parser.add_argument("--max-merges", type=int, help="Optional cap on how many planned merges to execute.")
-    merge_batch_parser.add_argument("--mode", choices=["strict", "moderate", "broad"], default=None, help="Safety level for automatic batch merge planning. Default: strict, or moderate when --interactive is set.")
-    merge_batch_parser.add_argument("--interactive", action="store_true", help="Step through planned merges interactively and apply confirmed merges.")
-    merge_batch_parser.add_argument("-v", "--verbose", action="store_true", help="Include skipped pairs in the output.")
-    merge_batch_parser.set_defaults(func=merge_commands.cmd_merge_batch)
 
     return parser
 

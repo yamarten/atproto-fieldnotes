@@ -25,18 +25,6 @@
 
 ## 次の着手順
 
-### 機能削減
-
-旧DB互換、移行痕跡、役割終了済みmaintenanceの削減は完了しました。次は、現在使っていないCLI入口を
-Webの現役導線から分離して削除します。
-
-1. `merge-batch`のCLI入口を削除する
-   - `merge-batch`のCLI parser、TTY review、CLI専用undoを削除する
-   - Webのmerge候補一覧、pair review、個別actionと、それらが使うapplication/core plannerは維持する
-
-この削減はDB変更を伴わず、collision判断やgold set拡張にも依存しません。各commandの削除は、Web導線を
-巻き込んでいないことを確認できる単位で分けてコミットします。
-
 ### 短期目標
 
 次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
@@ -57,7 +45,6 @@ Webの現役導線から分離して削除します。
 - LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
 - service verification後半強化は、実誤判定caseで「認証後の利用可能性」や「複数surface統合」が問題だと分かってから行う
 - app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
-- CLI削減とcollision判断は相互依存しない。機能整理を先に終えてからdata判断へ移る
 
 ## 条件付き短期候補
 

@@ -746,50 +746,6 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(target_after["manual_seeds"], target_before["manual_seeds"])
         self.assertEqual(alias_count, 0)
 
-    def test_merge_alias_reference_snapshot_can_be_restored_for_interactive_undo(self) -> None:
-        conn = registry.open_db()
-        try:
-            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
-            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
-            other = projects.add_seed(conn, seed="https://other.example", seed_type="service_url")
-            decisions.set_separate(
-                conn,
-                project_key=source["project_key"],
-                other_project_key=other["project_key"],
-            )
-            reference_rows = registry.project_merge_reference_rows(conn, source["project_key"])
-            with conn:
-                registry.register_project_merge_alias(
-                    conn,
-                    source_project_key=source["project_key"],
-                    target_project_key=target["project_key"],
-                )
-            with conn:
-                registry.restore_project_merge_aliases(
-                    conn,
-                    source_project_key=source["project_key"],
-                    source_aliases=[],
-                )
-                registry.restore_project_merge_references(
-                    conn,
-                    source_project_key=source["project_key"],
-                    reference_rows=reference_rows,
-                )
-            alias_count = conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]
-            restored_targets = [
-                row["target_value"]
-                for row in conn.execute(
-                    "SELECT target_value FROM project_decisions WHERE project_key = ? AND kind = 'separate_project'",
-                    (other["project_key"],),
-                )
-            ]
-        finally:
-            conn.close()
-
-        self.assertEqual(alias_count, 0)
-        self.assertIn(source["project_key"], restored_targets)
-        self.assertNotIn(target["project_key"], restored_targets)
-
     def test_split_and_separate_roll_back_when_second_project_save_fails(self) -> None:
         conn = registry.open_db()
         try:

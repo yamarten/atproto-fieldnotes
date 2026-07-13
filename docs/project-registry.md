@@ -404,13 +404,6 @@ project-registry merge \
   --execute
 ```
 
-一括候補の確認:
-
-```bash
-project-registry merge-batch
-project-registry merge-batch -v
-```
-
 特定 pair だけ根拠を確認する:
 
 ```bash

@@ -185,10 +185,6 @@ def project_key_family(conn: sqlite3.Connection, canonical_project_key: str) -> 
     return [canonical_project_key, *[str(row[0]) for row in rows]]
 
 
-def project_key_aliases(conn: sqlite3.Connection, canonical_project_key: str) -> list[str]:
-    return project_key_family(conn, canonical_project_key)[1:]
-
-
 def register_project_key_alias(
     conn: sqlite3.Connection,
     *,

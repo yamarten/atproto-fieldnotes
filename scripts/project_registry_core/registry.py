@@ -11356,61 +11356,6 @@ def register_project_merge_alias(
     )
 
 
-def project_merge_reference_rows(
-    conn: sqlite3.Connection,
-    source_project_key: str,
-) -> list[tuple[str, int]]:
-    rows = conn.execute(
-        """
-        SELECT project_key, ordinal
-        FROM project_decisions
-        WHERE kind = 'separate_project'
-          AND target_type = 'project_key'
-          AND target_value = ?
-        ORDER BY project_key, ordinal
-        """,
-        (source_project_key,),
-    ).fetchall()
-    return [(str(row["project_key"]), int(row["ordinal"])) for row in rows]
-
-
-def restore_project_merge_aliases(
-    conn: sqlite3.Connection,
-    *,
-    source_project_key: str,
-    source_aliases: list[str],
-) -> None:
-    conn.execute(
-        "DELETE FROM project_key_aliases WHERE alias_project_key = ?",
-        (source_project_key,),
-    )
-    if source_aliases:
-        placeholders = ",".join("?" for _ in source_aliases)
-        conn.execute(
-            f"UPDATE project_key_aliases SET canonical_project_key = ? "
-            f"WHERE alias_project_key IN ({placeholders})",
-            (source_project_key, *source_aliases),
-        )
-
-
-def restore_project_merge_references(
-    conn: sqlite3.Connection,
-    *,
-    source_project_key: str,
-    reference_rows: list[tuple[str, int]],
-) -> None:
-    for project_key, ordinal in reference_rows:
-        conn.execute(
-            """
-            UPDATE project_decisions
-            SET target_value = ?
-            WHERE project_key = ? AND ordinal = ?
-              AND kind = 'separate_project' AND target_type = 'project_key'
-            """,
-            (source_project_key, project_key, ordinal),
-        )
-
-
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)

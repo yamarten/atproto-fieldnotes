@@ -1,6 +1,6 @@
 #compdef project-registry
 
-local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts merge_modes review_kinds
+local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_efforts review_kinds
 local -a promotion_kinds
 
 subcommands=(
@@ -34,14 +34,12 @@ subcommands=(
   'split-project:Split one identifier out into a new project'
   'inspect-merge-pair:Inspect merge evidence for one pair'
   'merge:Merge one project into another'
-  'merge-batch:Batch merge only high-safety duplicate pairs'
 )
 
 tracking_states=(active watchlist stable stalled archived ignore)
 seed_types=(nsid repo_url service_url)
 llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
-merge_modes=(strict moderate broad)
 review_kinds=(
   service_candidate_needs_confirmation
   candidate_repo_needs_confirmation
@@ -354,15 +352,6 @@ case "$cmd" in
       "--target-type[Required when --target-seed is ambiguous]:seed type:_project_registry_seed_types" \
       '--execute[Apply the merge]' \
       '--force[Allow executing a non-auto-ready recommendation merge]'
-    ;;
-  merge-batch)
-    _arguments -S \
-      '--execute[Apply the planned merges]' \
-      '--max-merges[Optional cap on how many planned merges to execute]:count:' \
-      "--mode[Safety level for automatic batch merge planning]:mode:(${merge_modes[*]})" \
-      '--bootstrap-collection-creator-heuristic[Temporarily use the first-DID startup heuristic]' \
-      '--interactive[Step through planned merges interactively]' \
-      '(-v --verbose)'{-v,--verbose}'[Include skipped pairs in the output]'
     ;;
   *)
     _describe -t commands 'project-registry command' subcommands
