@@ -20,8 +20,8 @@
 
 次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認してください。
 
-2026-07-11 cleanup適用前backupは`data/survey.db.backup-20260711-170101`です。VACUUMは未実施で、SQLite内のfree pageは
-後続writeが再利用します。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、必要なら
+2026-07-11 cleanup適用前backupは`data/survey.db.backup-20260711-170101`です。2026-07-13にVACUUM済みで、
+`freelist_count=0` / `integrity_check=ok`を確認済みです。DBへ直接影響するcommandは従来どおりWeb/enrich/CLI writerを停止し、必要なら
 その時点で新しいbackupまたは複製を用意して実行してください。
 
 ## 未検証・未接続
