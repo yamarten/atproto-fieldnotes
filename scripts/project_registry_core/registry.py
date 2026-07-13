@@ -418,7 +418,6 @@ RESOURCE_URL_SOURCE_RANK_PREFIXES = {
     "resource_page": 2,
     "resource_follow_up": 3,
     "service_url_cleanup": 4,
-    "legacy_resource_urls": 5,
 }
 RESOURCE_URL_LOW_VALUE_PATH_SEGMENTS = {
     "archive",

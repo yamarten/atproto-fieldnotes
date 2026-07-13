@@ -176,8 +176,8 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
 - LLM実行は最大caseと別project各1件中心で、品質評価や回帰評価としては不足
 - `resource-summary` は URL群の全列挙を捨て、host別countと代表URLへ畳むため、
   特定URL pathが分類に必要なcaseでは情報を落とす可能性がある
-- ただし現在の長大caseでは、`resource_url_records` が legacy unknown URL の大量列挙になっており、
-  LLM triageへ全件渡す価値は低い可能性が高い
+- この評価時点の長大caseでは、`resource_url_records` が旧形式由来の unknown URL を大量列挙しており、
+  LLM triageへ全件渡す価値は低い可能性が高かった
 - `candidate_developer_accounts` の最大40k級は別途個別に縮約が必要
 
 方針への影響:

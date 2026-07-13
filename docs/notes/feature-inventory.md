@@ -241,8 +241,10 @@ maintenance commandを削除する時は、単に「正本DBへ一度適用し�
 |---|---:|---|
 | 未使用の旧payload補完関数 | 小〜中 | 現行コードから未接続で、保存契約やfixtureで不要か |
 | 移行専用metadata / legacy命名 | 小〜中 | 現行DBや通常payloadに残っていないか。現行意味がある場合は名前か説明を直す |
-| `legacy_resource_urls` source名 | 小 | 2026-07-13確認で正本DBに1064件 / 230 projects残存。DB cleanupとして別承認で変換し、その後rank互換を削除する |
 | 役割終了済みrepair command | 中 | 再発防止、正本DB再dry-run 0件、旧DB非対応の明示 |
+
+`legacy_resource_urls` source名は2026-07-13にactive `evidence.resource_url_records`から削除済みです。
+`llm_source.evidence`内の過去入力snapshotには履歴として残します。
 
 ### 2. 利用実績が無ければ削除しやすい
 
