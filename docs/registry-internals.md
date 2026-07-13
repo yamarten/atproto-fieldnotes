@@ -143,10 +143,9 @@ exact identifier lookupは`project_identifiers(kind, value, classification)` ind
 NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
 collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、
 安全判定を通らない一致はsuggestionに留めます。`handle` / `did`を含むexact lookupはnormalized indexだけを使います。
-このlookup実装を既存schema v2 DBへ適用する前に、`backfill-derived-identifiers --execute`でcurrent payloadから
-導出できる不足行を補完します。
+flat runtime viewは一部のroleを表現できないため、そこからnormalized rowの不足を推定しません。保存時はruntime markerに保持した元rowとの差分だけを反映し、無変更roundtripを維持します。
 
-`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`cleanup-app-links`は`profile_json.app.links`をcanonical identifierとconfirmed resource recordから再構築します。
+`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`profile_json.app.links`はproject保存時にcanonical identifierとconfirmed resource recordから純粋に再構築します。既存payloadへの一度きり再構築は適用済みです。
 
 ## enrich の流れ
 
@@ -1050,7 +1049,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 
 `audit-source-config [domain]` はローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` 追加後基準で既存 project を読み取り監査します。discovery fetch 設定の `config/sources.json` とは保存責務を分離しています。service URL、NSID authority、authority domain を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
 
-このコマンドはデフォルト interactive です。tenant group の番号を選んだ場合だけ、service URL / NSID / authority domain を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。split 適用後は suggestion を再構築し、同じ元 project に複数 tenant が残る間はその project を優先して再表示します。Enter で送った suggestion key はその実行中だけ skip set に残します。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` の責務は引数 domain の `domain-overrides.json` 追記だけで、split は自動適用しません。
+このコマンドはデフォルト interactive です。suffix追加時はcurrent service probeのsame-site派生判定も同じapplication serviceで再評価します。tenant group の番号を選んだ場合だけ、service URL / NSID / authority domain を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。split 適用後は suggestion を再構築し、同じ元 project に複数 tenant が残る間はその project を優先して再表示します。Enter で送った suggestion key はその実行中だけ skip set に残します。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` はsuffix設定とcurrent same-site判定を揃えますが、splitは自動適用しません。
 
 `split-project --identifier-type domain --value <authority-domain>` は、指定 authority domain と同一 host の confirmed service URL、同じ authority domain から導出される NSID、authority domain identifier をまとめて新 project へ切り出します。repo URL は authority domain だけでは帰属を確定できないため自動移動しません。
 
@@ -1218,13 +1217,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。
 
-`backfill-derived-identifiers`は保存済みidentifier rowを保持し、current payloadから導出できるが未保存の行だけを
-追加します。既定はdry-runです。`--execute`時は単一transaction内でidentifier tableを更新し、foreign key checkと
-integrity checkに失敗した場合はrollbackします。payload、relation、decisionは変更しません。
-
-`repair-same-site-evidence`は保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定し、
-staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正します。観測URL、service status、
-confirmed/candidate identifier、investigation snapshotは自動変更しません。
+新しいsuffix設定時はWebとCLIが同じapplication serviceを呼び、保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定します。staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正し、観測URL、service status、confirmed/candidate identifier、investigation snapshotは変更しません。保存済みEvidenceBundleをcurrent stateへ再適用する場合もsame-site flagを現行policyで再計算します。genericなproject保存や履歴payloadの縮約では再計算しません。
 
 ## review-stalled
 

@@ -7,6 +7,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from . import domain_policy, identifiers
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 
@@ -57,6 +58,27 @@ def service_verification_result_key(value: dict[str, Any]) -> tuple[str, str]:
     lane = str(value.get("lane") or "static").strip().lower()
     url = str(value.get("requested_url") or value.get("final_url") or "").strip().rstrip("/")
     return lane, url
+
+
+def normalize_redirect_same_site_policy(value: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(value)
+    if "redirect_same_site_family" not in normalized:
+        return normalized
+    requested = identifiers.normalize_url(str(
+        normalized.get("requested_url") or normalized.get("service_url") or normalized.get("url") or ""
+    ))
+    final = identifiers.normalize_url(str(normalized.get("final_url") or ""))
+    if not requested or not final:
+        return normalized
+    corrected = bool(requested != final and domain_policy.is_same_site_family(requested, final))
+    normalized["redirect_same_site_family"] = corrected
+    evidence = [str(item) for item in normalized.get("service_status_evidence", []) if str(item)]
+    normalized["service_status_evidence"] = (
+        list(dict.fromkeys([*evidence, "redirect_same_site_family"]))
+        if corrected
+        else [item for item in evidence if item != "redirect_same_site_family"]
+    )
+    return normalized
 
 
 def merge_service_verification_results(

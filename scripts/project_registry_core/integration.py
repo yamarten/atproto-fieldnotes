@@ -266,7 +266,7 @@ def apply_service_evidence(
                     "context": dict(record.context)}]
             )
         elif record.kind == "service_verification" and isinstance(record.value, dict):
-            value = dict(record.value)
+            value = service.normalize_redirect_same_site_policy(dict(record.value))
             project["service_verification_results"] = service.merge_service_verification_results(
                 project.get("service_verification_results", []), value
             )

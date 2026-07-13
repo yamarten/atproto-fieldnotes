@@ -20,7 +20,7 @@ from project_registry_core.application import sync as sync_services
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
-    def test_repair_same_site_evidence_recomputes_stale_redirect_flags_only(self) -> None:
+    def test_refresh_current_same_site_evidence_recomputes_stale_redirect_flags_only(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:samesiterepair", "service_url", "https://pages.dev")
@@ -36,13 +36,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             }]
             registry.save_project(conn, project)
 
-            dry_run = maintenance_services.repair_same_site_evidence(conn)
-            self.assertEqual(dry_run["changed_project_count"], 1)
-            unchanged = registry.fetch_project(conn, project["project_key"])
-            assert unchanged is not None
-            self.assertTrue(unchanged["service_verification_results"][0]["redirect_same_site_family"])
-
-            executed = maintenance_services.repair_same_site_evidence(conn, execute=True)
+            executed = registry.refresh_current_same_site_evidence(conn)
             self.assertEqual(executed["repaired_result_count"], 1)
             self.assertEqual(executed["aggregate_evidence_change_count"], 1)
             repaired = registry.fetch_project(conn, project["project_key"])
@@ -52,52 +46,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(repaired["service_status_evidence"], ["http_200"])
             self.assertEqual(repaired["service_urls"], ["https://pages.dev"])
             self.assertEqual(repaired["service_status"], "live")
-            self.assertEqual(maintenance_services.repair_same_site_evidence(conn)["changed_project_count"], 0)
-        finally:
-            conn.close()
-
-    def test_backfill_derived_identifiers_is_dry_run_by_default_and_preserves_stored_rows(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:identifierbackfill", "nsid", "app.example.backfill")
-            registry.apply_seed_to_project(project, "nsid", "app.example.backfill")
-            project["developer_accounts"] = [{"handle": "Dev.Example.COM.", "did": "did:plc:developer"}]
-            registry.save_project(conn, project)
-            conn.execute(
-                "DELETE FROM project_identifiers WHERE project_key = ? AND kind IN ('handle', 'did')",
-                (project["project_key"],),
-            )
-            conn.execute(
-                "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (project["project_key"], 99, "external_id", "manual-1", "operator", "confirmed", 0, "", "{}", ""),
-            )
-            conn.commit()
-
-            dry_run = maintenance_services.backfill_derived_identifiers(conn)
-            self.assertEqual(dry_run["mode"], "dry_run")
-            self.assertEqual(dry_run["changed_project_count"], 1)
-            self.assertEqual(dry_run["added_by_kind"], {"did": 1, "handle": 1})
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) FROM project_identifiers WHERE project_key = ? AND kind IN ('handle', 'did')",
-                    (project["project_key"],),
-                ).fetchone()[0],
-                0,
-            )
-
-            executed = maintenance_services.backfill_derived_identifiers(conn, execute=True)
-            self.assertEqual(executed["mode"], "execute")
-            rows = conn.execute(
-                "SELECT kind, value, role FROM project_identifiers WHERE project_key = ? ORDER BY ordinal",
-                (project["project_key"],),
-            ).fetchall()
-            self.assertIn(("external_id", "manual-1", "operator"), [tuple(row) for row in rows])
-            self.assertIn(("handle", "dev.example.com", "developer_handle"), [tuple(row) for row in rows])
-            self.assertIn(("did", "did:plc:developer", "developer_did"), [tuple(row) for row in rows])
-            self.assertEqual(
-                maintenance_services.backfill_derived_identifiers(conn)["changed_project_count"],
-                0,
-            )
+            self.assertEqual(registry.refresh_current_same_site_evidence(conn)["changed_project_count"], 0)
         finally:
             conn.close()
 
@@ -1159,18 +1108,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIsNone(args.days)
 
     def test_parser_accepts_audit_url_fields_command(self) -> None:
-        args = cli.build_parser().parse_args(["audit-url-fields", "--example-limit", "3"])
+        parser = cli.build_parser()
+        args = parser.parse_args(["audit-url-fields", "--example-limit", "3"])
 
         self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
         self.assertEqual(args.example_limit, 3)
-
-    def test_parser_accepts_cleanup_app_links_command(self) -> None:
-        parser = cli.build_parser()
-
-        cleanup_args = parser.parse_args(["cleanup-app-links", "--execute"])
-
-        self.assertEqual(cleanup_args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertTrue(cleanup_args.execute)
 
         storage_cleanup_args = parser.parse_args([
             "cleanup-storage-payloads",
@@ -1772,7 +1714,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_cleanup_project_app_links_rebuilds_only_from_canonical_sources(self) -> None:
+    def test_save_project_rebuilds_app_links_only_from_canonical_sources(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:applinkcleanup", "service_url", "https://example.com")
@@ -1791,25 +1733,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
             registry.save_project(conn, project)
 
-            dry_run = registry.cleanup_project_app_links(conn)
-            stored_before = registry.fetch_project(conn, "proj:applinkcleanup")
-            self.assertEqual(dry_run["mode"], "dry_run")
-            self.assertEqual(dry_run["removed_link_count"], 1)
-            self.assertEqual(len(stored_before["links"]), 3)
-
-            executed = registry.cleanup_project_app_links(conn, execute=True)
-            stored_after = registry.fetch_project(conn, "proj:applinkcleanup")
-            self.assertEqual(executed["mode"], "execute")
+            stored = registry.fetch_project(conn, "proj:applinkcleanup")
             self.assertEqual(
-                stored_after["links"],
+                stored["links"],
                 [
                     {"uri": "https://example.com", "role": "website", "official": True},
                     {"uri": "https://example.com/docs", "role": "docs", "official": True},
                 ],
-            )
-            self.assertEqual(
-                registry.cleanup_project_app_links(conn, execute=True)["changed_project_count"],
-                0,
             )
         finally:
             conn.close()

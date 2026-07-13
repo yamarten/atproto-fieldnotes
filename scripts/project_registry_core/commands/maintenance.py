@@ -39,16 +39,6 @@ def cmd_repair_db(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_backfill_derived_identifiers(args: argparse.Namespace) -> int:
-    payload = _with_db(lambda conn: services.backfill_derived_identifiers(
-        conn,
-        execute=bool(args.execute),
-        example_limit=int(args.example_limit),
-    ))
-    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
 def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.audit_urls(conn, example_limit=int(args.example_limit)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -66,22 +56,6 @@ def cmd_repair_trust_graph(args: argparse.Namespace) -> int:
         conn,
         execute=bool(args.execute),
         downgrade_unsupported=bool(args.downgrade_unsupported),
-        example_limit=int(args.example_limit),
-    ))
-    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
-def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
-    payload = _with_db(lambda conn: services.cleanup_app_links(conn, execute=bool(args.execute)))
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def cmd_repair_same_site_evidence(args: argparse.Namespace) -> int:
-    payload = _with_db(lambda conn: services.repair_same_site_evidence(
-        conn,
-        execute=bool(args.execute),
         example_limit=int(args.example_limit),
     ))
     print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
@@ -117,21 +91,23 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
         raise ValueError("default interactive mode requires a TTY; use --no-interactive for JSON dry-run output")
     requested_suffix = domain_policy.normalize_multi_tenant_suffix(args.domain) if args.domain else ""
     added_suffix = False
+    should_configure = bool(requested_suffix and args.execute)
     if requested_suffix and requested_suffix not in domain_policy.configured_multi_tenant_suffixes():
-        should_add = bool(args.execute)
-        if interactive and not should_add:
-            should_add = core.prompt_for_confirmation(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]")
-        if should_add:
-            added_suffix = domain_policy.add_configured_multi_tenant_suffix(requested_suffix)
+        if interactive and not should_configure:
+            should_configure = core.prompt_for_confirmation(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]")
     suffixes = [requested_suffix] if requested_suffix else sorted(domain_policy.configured_multi_tenant_suffixes())
     conn = core.open_db()
     try:
+        suffix_update = services.configure_multi_tenant_suffix(conn, requested_suffix) if should_configure else None
+        added_suffix = bool(suffix_update and suffix_update["added"])
+        same_site_refresh = suffix_update["same_site_refresh"] if suffix_update else None
         suggestions = core.build_source_config_split_suggestions(conn, suffixes=suffixes)
         payload = {
             "mode": "interactive" if interactive else "dry_run",
             "requested_suffix": requested_suffix,
             "suffix_added": added_suffix,
             "audited_suffixes": suffixes,
+            "same_site_refresh": same_site_refresh,
             "split_suggestion_count": len(suggestions),
             "split_suggestions": suggestions,
         }

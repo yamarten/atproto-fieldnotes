@@ -22,7 +22,7 @@ from typing import Any, Callable
 from project_registry_core import database
 from project_registry_core import domain_policy
 from project_registry_core import registry as core
-from project_registry_core.application import decisions, merge, presentation as services, projects
+from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
 
 
@@ -505,12 +505,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/domain-overrides/multi-tenant-suffixes":
             suffix = domain_policy.normalize_multi_tenant_suffix(str(payload.get("suffix") or ""))
-            added = domain_policy.add_configured_multi_tenant_suffix(suffix)
-            self.send_json({
-                "suffix": suffix,
-                "added": added,
-                "custom_multi_tenant_suffixes": sorted(domain_policy.configured_multi_tenant_suffixes()),
-            })
+            with contextlib.closing(self.server.open_db()) as conn:
+                result = maintenance.configure_multi_tenant_suffix(conn, suffix)
+            self.send_json(result)
             return
         if not path.startswith("/api/projects/"):
             self.send_error_json("not_found", "Resource not found", HTTPStatus.NOT_FOUND)

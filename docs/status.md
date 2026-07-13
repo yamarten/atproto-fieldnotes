@@ -79,12 +79,15 @@
 - 既存保存payloadのmaintenance
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
-  - `backfill-derived-identifiers`は保存済みidentifierを保持し、current payloadから導出できる不足行だけを補完
-  - `repair-same-site-evidence`はcurrent probeのredirect same-site派生判定だけを現行domain policyで修復
+  - multi-tenant suffixをWebまたは`audit-source-config --execute`で追加すると、同じapplication serviceがcurrent same-site判定を再評価する
+  - 保存済みservice evidenceをcurrent stateへ再適用する時は、requested/final URLからsame-site判定を現行policyで再計算する。investigation runの履歴payloadは変更しない
+  - `profile_json.app.links`は保存時にcanonical identifierとconfirmed resourceから毎回再構築し、既存の派生linkを入力として引き継がない
+  - `backfill-derived-identifiers`はflat runtime viewが失ったroleを不足rowと誤認するため削除。normalized identifierは無変更roundtripを維持する
   - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
-  - 2026-07-11に正本DBへ適用済み。payload 3,064,663,886 bytes削減、identifier 5,681行補完、same-site stale probe 29件修復
+  - 2026-07-11に正本DBへ適用済み。payload 3,064,663,886 bytes削減、identifier 5,681行補完、same-site stale probe 29件修復。identifier件数は当時の作業記録であり現行commandの契約ではない
   - 2026-07-13にVACUUM済み。DB fileは約4.4 GiBから約1.5 GiBへ縮小し、`freelist_count=0` / `integrity_check=ok`を確認済み
   - 2026-07-13にactive `evidence.resource_url_records`から旧形式由来の補助URL 247件 / 174 projectsを削除済み。過去LLM入力snapshot内の同source名は履歴として残す
+  - 2026-07-13に正本DBのsame-site stale probe 4件を現行policyで更新し、`app.links`から正本にない4,868 link / 449 projectsを削除。再監査0件、foreign key違反0、integrity `ok`を確認後、一度きりCLI commandを削除
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
@@ -135,15 +138,15 @@
 
 ## 動作確認状況
 
-2026-07-12時点で確認済み:
+2026-07-13時点で確認済み:
 
-- Python 3.10 / 3.11で全unit test 372件
+- 全unit test 394件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
   [bounded real-source smoke](notes/registry-maintenance-real-source-smoke-2026-07-11.md)
 - 正本DB maintenance後のforeign key違反0、integrity `ok`
-- storage cleanup、identifier backfill、same-site evidence repairの再dry-run変更0件
+- 2026-07-13の正本DB複製でsame-site 4件と`app.links` 4,868件を適用後、再監査0件、normalized roundtrip差分0、履歴table不変、foreign key違反0、integrity `ok`
 - 3,239 projectから作ったhandle/DIDを含む12,849 exact lookupで、従来判定との差分0
 
 未検証:

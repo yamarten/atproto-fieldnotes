@@ -56,7 +56,7 @@ project-registry init-db --db-path data/survey.dev.db
 
 `tldextract` で PSL を引きます。入力は repo 内の `vendor/public_suffix_list.dat` に固定し、ライブラリの cache は `data/tldextract-cache/` 配下に置きます。
 
-PSL に載っていない hosted suffix を追加したい場合は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に suffix を足します。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。初期形は [config/domain-overrides.example.json](../config/domain-overrides.example.json) です。discovery source の設定は `config/sources.json` に残します。
+PSL に載っていない hosted suffix は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に保存します。追加にはWeb merge reviewまたは次の監査コマンドを使います。`example.com` を追加すると、`foo.example.com` と `bar.example.com` は別 family 扱いになります。初期形は [config/domain-overrides.example.json](../config/domain-overrides.example.json) です。discovery source の設定は `config/sources.json` に残します。
 
 既存 DB を追加後の基準で確認しながら追記する場合:
 
@@ -64,7 +64,7 @@ PSL に載っていない hosted suffix を追加したい場合は、ローカ�
 project-registry audit-source-config example.com
 ```
 
-このコマンドは既定で interactive です。suffix が未登録なら `domain-overrides.json` への追記を確認し、追加後の family 基準で `split_suggestions` を表示します。各 suggestion には tenant ごとの service URL / NSID、曖昧な repo、仮分割後の merge candidate、既存 `split-project` の dry-run コマンドが含まれます。
+このコマンドは既定で interactive です。suffix が未登録なら `domain-overrides.json` への追記を確認し、保存済みcurrent service probeのsame-site判定を追加後のpolicyで再評価してから`split_suggestions`を表示します。各 suggestion には tenant ごとの service URL / NSID、曖昧な repo、仮分割後の merge candidate、既存 `split-project` の dry-run コマンドが含まれます。
 
 JSON dry-run のみ:
 
@@ -78,7 +78,7 @@ project-registry audit-source-config example.com --no-interactive
 project-registry audit-source-config example.com --execute --no-interactive
 ```
 
-interactive では tenant group の番号を選んだ場合だけ、その group の service URL / NSID を 1 つの新 project へまとめて切り出します。元 project に複数 tenant が残る場合は suggestion を再計算し、同じ project を続けて表示します。Enter で送った suggestion はその実行中だけ先送りします。元 project には block と `set-separate` 相当の相互分離を残します。`--execute --no-interactive` では split を自動適用しません。共有 repo、共有 lexicon、URL 移転などの例外があるため、分割は常に suggestion 確認後に行います。
+interactive では tenant group の番号を選んだ場合だけ、その group の service URL / NSID を 1 つの新 project へまとめて切り出します。元 project に複数 tenant が残る場合は suggestion を再計算し、同じ project を続けて表示します。Enter で送った suggestion はその実行中だけ先送りします。元 project には block と `set-separate` 相当の相互分離を残します。`--execute --no-interactive` では split を自動適用しません。共有 repo、共有 lexicon、URL 移転などの例外があるため、分割は常に suggestion 確認後に行います。設定ファイルを直接編集した場合も、同じsuffixに`--execute --no-interactive`を実行してcurrent stateを揃えます。
 
 ## zsh補完
 
@@ -533,14 +533,7 @@ project-registry audit-url-fields --example-limit 5
 
 このコマンドはDBを更新しません。削除済みalias fieldはinventoryへ出力されません。
 
-保存済み`profile_json.app.links`を正本から再構築する場合:
-
-```bash
-project-registry cleanup-app-links
-project-registry cleanup-app-links --execute
-```
-
-既定は dry-run です。全削除ではなく、`website_url`、`source_code_url(s)`、`service_urls`、confirmed な `resource_url_records` から再構築します。
+保存済み`profile_json.app.links`はproject保存時に、`website_url`、`source_code_url(s)`、`service_urls`、confirmedな`resource_url_records`から再構築します。既存の派生linkは入力として引き継ぎません。
 
 適用する場合:
 
@@ -689,27 +682,6 @@ project-registry repair-db --execute
 - `collision_count`: 正規化後に同じidentifierを複数projectが所有する衝突数。報告のみで、自動merge/separateは行いません。
 
 `--execute` はこれらの該当変更をまとめて保存します。たとえばdeveloper handle補正のつもりで実行しても、同時にmanual repo seed補正やmerge候補再計算が保存されることがあります。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。
-
-schema v2導入後に追加されたidentifier投影を既存projectへ補完する場合は、保存済みの手動行を保持したまま、
-current payloadから導出できる不足行だけを追加します。
-
-```bash
-project-registry backfill-derived-identifiers
-project-registry backfill-derived-identifiers --execute
-```
-
-既定はdry-runです。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。実行は一つの
-transactionで行い、commit前にforeign key checkとintegrity checkを通します。
-
-保存済みservice probeのsame-site redirect判定を現在のdomain policyで再評価する場合:
-
-```bash
-project-registry repair-same-site-evidence
-project-registry repair-same-site-evidence --execute
-```
-
-このcommandはcurrent probeと集約evidenceの`redirect_same_site_family`だけを修正し、service URL、status、
-investigation snapshotは変更しません。既定はdry-runです。
 
 trust graph による confirmed identifier 判定を点検する場合:
 

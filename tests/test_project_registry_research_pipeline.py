@@ -850,6 +850,40 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(len(results), service_core.SERVICE_VERIFICATION_RESULT_MAX_COUNT)
         self.assertEqual(results[-1]["requested_url"], "https://example.com/page-39")
 
+    def test_saved_service_evidence_recomputes_policy_derived_same_site_flag(self) -> None:
+        project = self.make_project("proj:saved-service-policy", "service_url", "https://foo.pages.dev")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(EvidenceRecord(
+            kind="service_verification",
+            source="service_static:https://foo.pages.dev",
+            classification="derived",
+            observed_at=bundle.collected_at,
+            value={
+                "lane": "static",
+                "requested_url": "https://foo.pages.dev",
+                "final_url": "https://bar.pages.dev",
+                "title": "",
+                "description": "",
+                "status_code": 200,
+                "service_status": "unverified",
+                "service_status_confidence": "none",
+                "redirected": True,
+                "redirect_same_host": False,
+                "redirect_same_site_family": True,
+                "redirect_http_to_https": False,
+                "redirect_cross_host": True,
+                "service_status_evidence": ["http_200", "redirect_same_site_family"],
+                "links": [],
+                "urls": [],
+            },
+        ))
+
+        registry.apply_saved_service_evidence(project, bundle)
+
+        result = project["service_verification_results"][0]
+        self.assertFalse(result["redirect_same_site_family"])
+        self.assertEqual(result["service_status_evidence"], ["http_200"])
+
     def test_service_integration_does_not_collect_follow_up_pages(self) -> None:
         project = self.make_project("proj:service-apply", "service_url", "https://example.com")
         project["website_url"] = "https://example.com"

@@ -546,8 +546,8 @@ def app_link_role_from_service_url(url: str, website_url: str = "") -> str:
     return ""
 
 
-def build_project_app_links(project: dict[str, Any], *, include_existing: bool = True) -> list[dict[str, Any]]:
-    links = normalize_app_links(list(project.get("links", []) or [])) if include_existing else []
+def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
 
     website_url = identifier_core.normalize_url(str(project.get("website_url") or ""))
     if website_url:
@@ -12054,73 +12054,9 @@ def sanitize_fixture_value(value: Any) -> Any:
     return value
 
 
-def cleanup_project_app_links(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
-    rows = conn.execute("SELECT * FROM projects ORDER BY project_key ASC").fetchall()
-    changed_projects = 0
-    links_before = 0
-    links_after = 0
-    removed_links = 0
-    added_links = 0
-    examples: list[dict[str, Any]] = []
-
-    for row in rows:
-        project_key = str(row["project_key"])
-        record_payload = load_json(str(row["profile_json"] or "{}")) or {}
-        if not isinstance(record_payload, dict):
-            raise ValueError(f"profile_json must be an object: {project_key}")
-        project = project_from_row(conn, row)
-        existing_links = normalize_app_links(list(project.get("links", []) or []))
-        rebuilt_links = build_project_app_links(project, include_existing=False)
-        links_before += len(existing_links)
-        links_after += len(rebuilt_links)
-        existing_keys = {(link["uri"], link["role"]) for link in existing_links}
-        rebuilt_keys = {(link["uri"], link["role"]) for link in rebuilt_links}
-        removed = sorted(existing_keys - rebuilt_keys)
-        added = sorted(rebuilt_keys - existing_keys)
-        if not removed and not added:
-            continue
-        changed_projects += 1
-        removed_links += len(removed)
-        added_links += len(added)
-        if len(examples) < 20:
-            examples.append(
-                {
-                    "project_key": project_key,
-                    "removed_count": len(removed),
-                    "removed": [{"uri": uri, "role": role} for uri, role in removed[:20]],
-                    "added_count": len(added),
-                    "added": [{"uri": uri, "role": role} for uri, role in added[:20]],
-                }
-            )
-        app = dict(record_payload.get("app") or {})
-        if rebuilt_links:
-            app["links"] = rebuilt_links
-        else:
-            app.pop("links", None)
-        record_payload["app"] = app
-        if execute:
-            conn.execute(
-                "UPDATE projects SET profile_json = ? WHERE project_key = ?",
-                (dump_json(record_payload, sort_keys=False), project_key),
-            )
-    if execute:
-        conn.commit()
-    return {
-        "mode": "execute" if execute else "dry_run",
-        "project_count": len(rows),
-        "changed_project_count": changed_projects,
-        "link_count_before": links_before,
-        "link_count_after": links_after,
-        "removed_link_count": removed_links,
-        "added_link_count": added_links,
-        "examples": examples,
-    }
-
-
-def repair_same_site_evidence(
+def refresh_current_same_site_evidence(
     conn: sqlite3.Connection,
     *,
-    execute: bool = False,
     example_limit: int = 20,
 ) -> dict[str, Any]:
     rows = conn.execute("SELECT * FROM projects ORDER BY project_key").fetchall()
@@ -12135,25 +12071,16 @@ def repair_same_site_evidence(
             for item in project.get(field, []):
                 if not isinstance(item, dict) or "redirect_same_site_family" not in item:
                     continue
-                requested = identifier_core.normalize_url(str(
-                    item.get("requested_url") or item.get("service_url") or item.get("url") or ""
-                ))
-                final = identifier_core.normalize_url(str(item.get("final_url") or ""))
-                if not requested or not final:
-                    continue
-                corrected = bool(
-                    requested != final
-                    and domain_policy_core.is_same_site_family(requested, final)
-                )
-                if bool(item.get("redirect_same_site_family")) == corrected:
+                normalized = service_core.normalize_redirect_same_site_policy(item)
+                corrected = bool(normalized.get("redirect_same_site_family"))
+                normalized_evidence = list(normalized.get("service_status_evidence", []))
+                if (
+                    bool(item.get("redirect_same_site_family")) == corrected
+                    and list(item.get("service_status_evidence", [])) == normalized_evidence
+                ):
                     continue
                 item["redirect_same_site_family"] = corrected
-                evidence = [str(value) for value in item.get("service_status_evidence", []) if str(value)]
-                item["service_status_evidence"] = (
-                    unique_list(evidence + ["redirect_same_site_family"])
-                    if corrected
-                    else [value for value in evidence if value != "redirect_same_site_family"]
-                )
+                item["service_status_evidence"] = normalized_evidence
                 project_repairs += 1
 
         aggregate_before = list(project.get("service_status_evidence", []))
@@ -12180,7 +12107,7 @@ def repair_same_site_evidence(
                 "aggregate_evidence_changed": aggregate_changed,
             })
 
-    if execute and projects_to_save:
+    if projects_to_save:
         conn.execute("BEGIN IMMEDIATE")
         try:
             for project in projects_to_save:
@@ -12197,7 +12124,6 @@ def repair_same_site_evidence(
             raise
 
     return {
-        "mode": "execute" if execute else "dry_run",
         "project_count": len(rows),
         "changed_project_count": len(projects_to_save),
         "repaired_result_count": repaired_result_count,

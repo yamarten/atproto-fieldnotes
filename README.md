@@ -29,7 +29,7 @@ export PATH="$PWD/bin:$PATH"
 
 `tldextract` を使って PSL 判定を行います。入力は repo 内の [vendor/public_suffix_list.dat](vendor/public_suffix_list.dat) に固定し、ライブラリの cache は [data/tldextract-cache](data/tldextract-cache) 配下に置きます。外部の絶対パスには依存しません。
 
-PSL に無い hosted suffix を手動で足したい場合は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に追加します。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。初期形は [config/domain-overrides.example.json](config/domain-overrides.example.json) です。discovery sourceのenabled、URL、query、scope、request budgetは[config/sources.json](config/sources.json)に置き、matching/classification policyはcode/testへ置きます。
+PSL に無い hosted suffix は、ローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` に保存します。追加にはWeb merge reviewまたは次の監査コマンドを使います。ここに `example.com` を入れると、`foo.example.com` と `bar.example.com` を別 service family として扱います。初期形は [config/domain-overrides.example.json](config/domain-overrides.example.json) です。discovery sourceのenabled、URL、query、scope、request budgetは[config/sources.json](config/sources.json)に置き、matching/classification policyはcode/testへ置きます。
 
 登録済み project への影響も確認する場合は、監査コマンドから追加できます。
 
@@ -37,7 +37,7 @@ PSL に無い hosted suffix を手動で足したい場合は、ローカル設�
 project-registry audit-source-config example.com
 ```
 
-既定は interactive です。追加確認後に `domain-overrides.json` を更新し、新しい family 基準で同一 project に複数 tenant が混在していないかを表示します。tenant group の番号を選んだ場合だけ、その group の identifier をまとめて新 project へ切り出します。split 後も元 project に複数 tenant が残る場合は、再計算した同 project の suggestion を続けて表示します。JSON dry-run だけを見る場合は `--no-interactive`、確認なしで suffix 追記まで行う場合は `--execute --no-interactive` を使います。non-interactive では split を適用しません。
+既定は interactive です。追加確認後に `domain-overrides.json` を更新し、保存済みcurrent service probeのsame-site判定を新しいpolicyで再評価してから、同一 project に複数 tenant が混在していないかを表示します。tenant group の番号を選んだ場合だけ、その group の identifier をまとめて新 project へ切り出します。split 後も元 project に複数 tenant が残る場合は、再計算した同 project の suggestion を続けて表示します。JSON dry-run だけを見る場合は `--no-interactive`、確認なしで suffix 追記まで行う場合は `--execute --no-interactive` を使います。non-interactive では split を適用しません。設定ファイルを直接編集した場合も、同じsuffixに`--execute --no-interactive`を実行してcurrent stateを揃えます。
 
 ## テスト
 
@@ -159,7 +159,7 @@ project-registry enrich --all --new-only --llm-reasoning-effort high
 
 旧DB schemaは現行導線の対象外です。
 
-保存payloadの縮約、identifier backfill、same-site evidence修復、履歴retention、VACUUMを含むmaintenance手順は
+保存payloadの縮約、履歴retention、VACUUMを含むmaintenance手順は
 [利用手順](docs/project-registry.md#保存payloadの縮約)を正本とします。正本DBへ適用する操作はbackupを取り、
 Web、worker、別CLIを停止したmaintenance windowでだけ行います。
 

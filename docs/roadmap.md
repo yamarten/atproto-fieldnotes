@@ -36,10 +36,6 @@
 2. 旧互換・移行痕跡を削除する
    - `legacy` / `migration` / `compat` / `v1` 由来の名前、test、文書、未使用関数を棚卸しする
    - 現行仕様として意味があるものは名称か説明を直し、過去移行都合だけのものは削除する
-3. 一度きりrepair commandのsunset可否を確認する
-   - `backfill-derived-identifiers`、`repair-same-site-evidence`、`cleanup-app-links` は再発防止と再dry-run 0件を確認してから個別に削除する
-   - `cleanup-storage-payloads` は2026-08-10または新規1,000 investigation runs再計測まで維持する
-
 ### 短期目標
 
 次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
@@ -339,6 +335,3 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - `trust-graph-v1` の本体方針、URL相互trust、collection ownership、identity trust評価、audit/repair/explainは接続済み。現行仕様は[registry-internals.md](registry-internals.md)を正本にする
   - `did` / `handle` / `domain` のtrust評価結果を、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続
   - accepted GitHub repoからReadTheDocsなどのdocs siteへ明示的にlinkしている場合、README内の任意URLとは分けて`repo_links_service`へ昇格できる条件を検討する
-- `cleanup-app-links`
-  - dry-run を先に表示し、execute は明示確認を必須にする
-  - Web UI には出さず CLI で扱う

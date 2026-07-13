@@ -822,6 +822,18 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         try:
             domain_policy.DOMAIN_OVERRIDES_PATH = domain_overrides_path
             domain_policy.reset_domain_config_cache()
+            conn = registry.open_db()
+            project = self.make_project("proj:suffixrefresh", "service_url", "https://foo.example.com")
+            project["service_status_evidence"] = ["http_200", "redirect_same_site_family"]
+            project["service_verification_results"] = [{
+                "requested_url": "https://foo.example.com",
+                "final_url": "https://bar.example.com",
+                "redirected": True,
+                "redirect_same_site_family": True,
+                "service_status_evidence": ["http_200", "redirect_same_site_family"],
+            }]
+            registry.save_project(conn, project)
+            conn.close()
 
             status, payload, _ = self.request(
                 "/api/domain-overrides/multi-tenant-suffixes",
@@ -833,7 +845,24 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.assertEqual(status, 200)
             self.assertTrue(payload["added"])
             self.assertEqual(payload["suffix"], "example.com")
+            self.assertEqual(payload["same_site_refresh"]["changed_project_count"], 1)
             self.assertEqual(json.loads(domain_overrides_path.read_text())["custom_multi_tenant_suffixes"], ["example.com"])
+            conn = registry.open_db()
+            refreshed = registry.fetch_project(conn, project["project_key"])
+            conn.close()
+            assert refreshed is not None
+            self.assertFalse(refreshed["service_verification_results"][0]["redirect_same_site_family"])
+            self.assertNotIn("redirect_same_site_family", refreshed["service_status_evidence"])
+
+            status, retry_payload, _ = self.request(
+                "/api/domain-overrides/multi-tenant-suffixes",
+                method="POST",
+                payload={"suffix": "example.com"},
+                include_revision=False,
+            )
+            self.assertEqual(status, 200)
+            self.assertFalse(retry_payload["added"])
+            self.assertEqual(retry_payload["same_site_refresh"]["changed_project_count"], 0)
         finally:
             domain_policy.DOMAIN_OVERRIDES_PATH = original_domain_overrides_path
             domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes

@@ -71,7 +71,7 @@ idempotentに作成できます。
 - `platforms`: 対応platform
 - `links`: canonical identifierとconfirmed resourceから再構築できる公開link view
 
-`links`で現在使うroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`です。identifierの正本ではなく表示・将来export用のviewなので、`cleanup-app-links`で再構築できます。
+`links`で現在使うroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`です。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
 
 ### `state_json`
 
