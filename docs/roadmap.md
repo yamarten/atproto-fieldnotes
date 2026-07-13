@@ -27,12 +27,9 @@
 
 ### 短期目標
 
-次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
+固定したmanual gold setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
 
-1. manual gold set の拡張
-   - 追加済み3件のoperator correction fixtureを起点に、実誤判定caseを増やす
-   - 目的: queue policy、LLM comparison、service verification、atproto寄与度判定の共通評価土台を作る
-2. queue policy の診断と再設計
+1. queue policy の診断と再設計
    - gold set と sample review を見ながら、atproto利用深度、service利用可否、技術的新規性を独立signalとして定義する
    - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
 
@@ -201,7 +198,6 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 次の優先候補だけを roadmap として残します。接続済み範囲と恒久的な契約は
 [investigation-model.md](investigation-model.md) を正本とします。
 
-- 追加済み3件のoperator correction fixtureを起点に、manual gold set用の実誤判定caseを増やす
 - OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
 - Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
 - UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める

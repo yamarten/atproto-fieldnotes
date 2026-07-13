@@ -205,19 +205,79 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
 
 
 class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
-    def test_operator_correction_fixture_keeps_distinct_guard_cases(self) -> None:
-        path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-corrections-v2.json"
+    def test_manual_gold_fixture_has_fixed_decision_coverage(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
-        cases = {item["case"]: item for item in payload["cases"]}
-        self.assertEqual(payload["schema_version"], 2)
+        cases = payload["cases"]
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(len(cases), 11)
+        self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
+
+        action_counts: dict[str, int] = {}
+        covered_areas: set[str] = set()
+        allowed_actions = {
+            "block_identifier",
+            "confirm_identifier",
+            "defer_identifier",
+            "merge_project",
+            "separate_project",
+        }
+        for case in cases:
+            covered_areas.update(case["areas"])
+            subjects_by_ref = {item["ref"]: item for item in case["subjects"]}
+            subject_refs = set(subjects_by_ref)
+            self.assertEqual(len(subject_refs), len(case["subjects"]))
+            self.assertTrue(case["evidence_summary"])
+            for decision in case["expected_decisions"]:
+                self.assertIn(decision["action"], allowed_actions)
+                self.assertIn(decision["subject_ref"], subject_refs)
+                action_counts[decision["action"]] = action_counts.get(decision["action"], 0) + 1
+                if decision["target_type"] == "project_ref":
+                    self.assertIn(decision["target_value"], subject_refs)
+                else:
+                    candidates = {
+                        (item["type"], item["value"])
+                        for item in subjects_by_ref[decision["subject_ref"]]["candidate_identifiers"]
+                    }
+                    self.assertIn(
+                        (decision["target_type"], decision["target_value"]),
+                        candidates,
+                    )
+
         self.assertEqual(
-            cases["erroneous_service_merge_residue"]["decisions"][0]["target_value"],
-            "https://bookhive.buzz",
+            covered_areas,
+            {"identity", "repository_verification", "service_verification"},
         )
-        split = cases["tenant_services_split_from_platform"]["decisions"]
-        self.assertGreaterEqual(len([item for item in split if item["kind"] == "separate_project"]), 3)
-        deferred = cases["multiple_repository_candidates_deferred"]["decisions"]
-        self.assertEqual(len({item["target_value"] for item in deferred}), 10)
+        self.assertGreaterEqual(action_counts["block_identifier"], 3)
+        self.assertGreaterEqual(action_counts["confirm_identifier"], 3)
+        self.assertGreaterEqual(action_counts["defer_identifier"], 2)
+        self.assertGreaterEqual(action_counts["separate_project"], 3)
+        self.assertEqual(action_counts["merge_project"], 3)
+
+    def test_manual_gold_fixture_omits_volatile_log_identity(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        forbidden_keys = {
+            "project_key",
+            "run_id",
+            "created_at",
+            "expires_at",
+            "cleared_at",
+            "operator_note",
+        }
+
+        def assert_fixed(value: object) -> None:
+            if isinstance(value, dict):
+                self.assertFalse(forbidden_keys & value.keys())
+                for child in value.values():
+                    assert_fixed(child)
+            elif isinstance(value, list):
+                for child in value:
+                    assert_fixed(child)
+            elif isinstance(value, str):
+                self.assertFalse(value.startswith("proj:"))
+
+        assert_fixed(payload["cases"])
 
     def test_operator_correction_benchmark_detects_removed_guard(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-correction-benchmark-v1.json"

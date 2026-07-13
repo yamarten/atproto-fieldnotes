@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "purpose": "Fixed operator-reviewed examples for identity and identifier policy evaluation.",
+  "provenance": {
+    "source": "Operator-confirmed corrections and merge reviews in the local registry.",
+    "snapshot_date": "2026-07-13",
+    "selection": "Keep distinct failure shapes and decision actions; do not mirror every decision row."
+  },
+  "sanitization": {
+    "synthetic_project_refs": true,
+    "public_identifiers_only": true,
+    "excluded_fields": [
+      "database_project_key",
+      "run_id",
+      "decision_timestamp",
+      "expiry_timestamp",
+      "operator_note",
+      "raw_response",
+      "local_path",
+      "credential"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "block-erroneous-service-merge-residue",
+      "areas": ["identity", "service_verification"],
+      "subjects": [
+        {
+          "ref": "shelfcheck",
+          "name": "ShelfCheck",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "org.shelfcheck.shelf.entry"},
+            {"type": "service_url", "value": "https://www.shelfcheck.org"},
+            {"type": "repo_url", "value": "https://github.com/nowells/libby-reading-list"}
+          ],
+          "candidate_identifiers": [
+            {"type": "service_url", "value": "https://bookhive.buzz"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {
+          "action": "block_identifier",
+          "subject_ref": "shelfcheck",
+          "target_type": "service_url",
+          "target_value": "https://bookhive.buzz"
+        }
+      ],
+      "evidence_summary": [
+        "The candidate belongs to another project and was residue from an erroneous merge."
+      ]
+    },
+    {
+      "case_id": "separate-platform-from-tenant-services",
+      "areas": ["identity", "service_verification"],
+      "subjects": [
+        {
+          "ref": "microcosm-platform",
+          "name": "microcosm",
+          "confirmed_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/at-microcosm/microcosm-rs"}
+          ],
+          "candidate_identifiers": [
+            {"type": "service_url", "value": "https://slingshot.microcosm.blue"},
+            {"type": "service_url", "value": "https://spacedust.microcosm.blue"},
+            {"type": "service_url", "value": "https://ufos-api.microcosm.blue"}
+          ]
+        },
+        {
+          "ref": "slingshot-tenant",
+          "name": "Slingshot",
+          "confirmed_identifiers": [
+            {"type": "service_url", "value": "https://slingshot.microcosm.blue"}
+          ],
+          "candidate_identifiers": []
+        },
+        {
+          "ref": "spacedust-tenant",
+          "name": "Spacedust",
+          "confirmed_identifiers": [
+            {"type": "service_url", "value": "https://spacedust.microcosm.blue"}
+          ],
+          "candidate_identifiers": []
+        },
+        {
+          "ref": "ufos-tenant",
+          "name": "UFOs",
+          "confirmed_identifiers": [
+            {"type": "service_url", "value": "https://ufos-api.microcosm.blue"}
+          ],
+          "candidate_identifiers": []
+        }
+      ],
+      "expected_decisions": [
+        {"action": "block_identifier", "subject_ref": "microcosm-platform", "target_type": "service_url", "target_value": "https://slingshot.microcosm.blue"},
+        {"action": "block_identifier", "subject_ref": "microcosm-platform", "target_type": "service_url", "target_value": "https://spacedust.microcosm.blue"},
+        {"action": "block_identifier", "subject_ref": "microcosm-platform", "target_type": "service_url", "target_value": "https://ufos-api.microcosm.blue"},
+        {"action": "separate_project", "subject_ref": "microcosm-platform", "target_type": "project_ref", "target_value": "slingshot-tenant"},
+        {"action": "separate_project", "subject_ref": "microcosm-platform", "target_type": "project_ref", "target_value": "spacedust-tenant"},
+        {"action": "separate_project", "subject_ref": "microcosm-platform", "target_type": "project_ref", "target_value": "ufos-tenant"}
+      ],
+      "evidence_summary": [
+        "A shared parent domain does not make independently operated tenant services part of the platform project."
+      ]
+    },
+    {
+      "case_id": "defer-unrelated-repository-candidates",
+      "areas": ["identity", "repository_verification"],
+      "subjects": [
+        {
+          "ref": "bluesky",
+          "name": "Bluesky",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "app.bsky"},
+            {"type": "nsid", "value": "chat.bsky"}
+          ],
+          "candidate_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/random-mdn/random-mdn-bot"},
+            {"type": "repo_url", "value": "https://github.com/hulln/bsky-unfollow"},
+            {"type": "repo_url", "value": "https://github.com/mattn/bsky"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "defer_identifier", "subject_ref": "bluesky", "target_type": "repo_url", "target_value": "https://github.com/random-mdn/random-mdn-bot"},
+        {"action": "defer_identifier", "subject_ref": "bluesky", "target_type": "repo_url", "target_value": "https://github.com/hulln/bsky-unfollow"},
+        {"action": "defer_identifier", "subject_ref": "bluesky", "target_type": "repo_url", "target_value": "https://github.com/mattn/bsky"}
+      ],
+      "evidence_summary": [
+        "Repository search results that merely mention or integrate with Bluesky are not owned repositories."
+      ]
+    },
+    {
+      "case_id": "confirm-service-from-domain-aligned-nsid",
+      "areas": ["service_verification"],
+      "subjects": [
+        {
+          "ref": "leaflet",
+          "name": "Leaflet",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "pub.leaflet.document"}
+          ],
+          "candidate_identifiers": [
+            {"type": "service_url", "value": "https://leaflet.pub"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "confirm_identifier", "subject_ref": "leaflet", "target_type": "service_url", "target_value": "https://leaflet.pub"}
+      ],
+      "evidence_summary": [
+        "The service domain is the authority domain represented by the confirmed NSID."
+      ]
+    },
+    {
+      "case_id": "block-shared-external-service",
+      "areas": ["identity", "service_verification"],
+      "subjects": [
+        {
+          "ref": "ionosphere",
+          "name": "Ionosphere",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "tv.ionosphere.comment"},
+            {"type": "repo_url", "value": "https://github.com/blaine/ionosphere"}
+          ],
+          "candidate_identifiers": [
+            {"type": "service_url", "value": "https://stream.place"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "block_identifier", "subject_ref": "ionosphere", "target_type": "service_url", "target_value": "https://stream.place"}
+      ],
+      "evidence_summary": [
+        "Use of an external service does not establish that the service is an Ionosphere-owned surface."
+      ]
+    },
+    {
+      "case_id": "confirm-service-from-matching-account-domain",
+      "areas": ["service_verification"],
+      "subjects": [
+        {
+          "ref": "roadbook",
+          "name": "Roadbook",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "us.roadbook.trip"},
+            {"type": "account", "value": "roadbook.us"}
+          ],
+          "candidate_identifiers": [
+            {"type": "service_url", "value": "https://roadbook.us"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "confirm_identifier", "subject_ref": "roadbook", "target_type": "service_url", "target_value": "https://roadbook.us"}
+      ],
+      "evidence_summary": [
+        "The candidate service host matches the confirmed project account and NSID authority."
+      ]
+    },
+    {
+      "case_id": "confirm-repository-from-matching-owner-domain",
+      "areas": ["repository_verification"],
+      "subjects": [
+        {
+          "ref": "attested",
+          "name": "Attested",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "network.attested.payment.proof"},
+            {"type": "account", "value": "attested.network"}
+          ],
+          "candidate_identifiers": [
+            {"type": "repo_url", "value": "https://tangled.org/attested.network/site"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "confirm_identifier", "subject_ref": "attested", "target_type": "repo_url", "target_value": "https://tangled.org/attested.network/site"}
+      ],
+      "evidence_summary": [
+        "The repository owner matches the confirmed project account and NSID authority."
+      ]
+    },
+    {
+      "case_id": "defer-ambiguous-alternate-repository",
+      "areas": ["repository_verification"],
+      "subjects": [
+        {
+          "ref": "writer",
+          "name": "Writer",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "org.stormlightlabs.malfestio.card"},
+            {"type": "repo_url", "value": "https://tangled.org/desertthunder.dev/malfestio"}
+          ],
+          "candidate_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/stormlightlabs/writer"}
+          ]
+        }
+      ],
+      "expected_decisions": [
+        {"action": "defer_identifier", "subject_ref": "writer", "target_type": "repo_url", "target_value": "https://github.com/stormlightlabs/writer"}
+      ],
+      "evidence_summary": [
+        "The candidate is plausible but the saved evidence does not justify replacing or joining the confirmed repository."
+      ]
+    },
+    {
+      "case_id": "merge-custom-record-into-client-project",
+      "areas": ["identity", "repository_verification"],
+      "subjects": [
+        {
+          "ref": "klearsky-client",
+          "name": "Klearsky",
+          "confirmed_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/mimonelu/klearsky"}
+          ],
+          "candidate_identifiers": []
+        },
+        {
+          "ref": "klearsky-record",
+          "name": "Klearsky repostMutes",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "net.mimonelu.klearsky.repostMutes"}
+          ],
+          "candidate_identifiers": []
+        }
+      ],
+      "expected_decisions": [
+        {"action": "merge_project", "subject_ref": "klearsky-record", "target_type": "project_ref", "target_value": "klearsky-client"}
+      ],
+      "evidence_summary": [
+        "The official client repository defines the custom record represented by the second project."
+      ]
+    },
+    {
+      "case_id": "merge-app-nsids-into-repository-project",
+      "areas": ["identity", "repository_verification"],
+      "subjects": [
+        {
+          "ref": "postgame-repository",
+          "name": "Postgame",
+          "confirmed_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/assemblezero/postgame"}
+          ],
+          "candidate_identifiers": []
+        },
+        {
+          "ref": "postgame-records",
+          "name": "Postgame records",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "at.postgame.list"},
+            {"type": "nsid", "value": "at.postgame.love"}
+          ],
+          "candidate_identifiers": []
+        }
+      ],
+      "expected_decisions": [
+        {"action": "merge_project", "subject_ref": "postgame-records", "target_type": "project_ref", "target_value": "postgame-repository"}
+      ],
+      "evidence_summary": [
+        "The official application repository states that it stores data under the at.postgame namespace."
+      ]
+    },
+    {
+      "case_id": "merge-record-nsid-into-repository-project",
+      "areas": ["identity", "repository_verification"],
+      "subjects": [
+        {
+          "ref": "radio4000-repository",
+          "name": "radio4000",
+          "confirmed_identifiers": [
+            {"type": "repo_url", "value": "https://github.com/radio4000/r4atproto"}
+          ],
+          "candidate_identifiers": []
+        },
+        {
+          "ref": "radio4000-record",
+          "name": "radio4000 track record",
+          "confirmed_identifiers": [
+            {"type": "nsid", "value": "com.radio4000.track"}
+          ],
+          "candidate_identifiers": []
+        }
+      ],
+      "expected_decisions": [
+        {"action": "merge_project", "subject_ref": "radio4000-record", "target_type": "project_ref", "target_value": "radio4000-repository"}
+      ],
+      "evidence_summary": [
+        "The official repository states that the application creates com.radio4000.track records."
+      ]
+    }
+  ]
+}

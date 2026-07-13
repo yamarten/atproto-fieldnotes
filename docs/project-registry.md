@@ -723,6 +723,9 @@ benchmarkは通常replay 6件とoperator correction 3件を実行します。exp
 出力自体にもmanual review必須と記録されます。実project key、時刻、handle/DID、自由記述を含む出力をそのまま
 fixtureとしてコミットしません。
 
+`manual-gold-v1.json`はbenchmarkとは別に、operator reviewから固定したidentity / service / repository判断を保持します。
+DBのdecision rowを参照せず、synthetic project refと公開identifierに対する期待actionを比較用入力として使います。
+
 ### serviceの個別診断
 
 `verify-service`はservice確認の深さを`--lane`で指定します。ここでのlaneは実装上の検証方式を区別するoption名です。
