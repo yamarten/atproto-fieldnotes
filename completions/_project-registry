@@ -25,7 +25,6 @@ subcommands=(
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
-  'cleanup-app-links:Rebuild stored app links from canonical URL fields'
   'set-tracking-state:Set tracking state for one project'
   'set-tracking-state-batch:Set tracking state for a filtered set of projects'
   'set-separate:Mark two projects as distinct'
@@ -270,10 +269,6 @@ case "$cmd" in
   audit-url-fields)
     _arguments -S \
       '--example-limit[Maximum anomaly examples per kind]:count:'
-    ;;
-  cleanup-app-links)
-    _arguments -S \
-      '--execute[Apply profile_json app link updates]'
     ;;
   set-tracking-state)
     _arguments -S \

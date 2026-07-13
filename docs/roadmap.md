@@ -25,17 +25,6 @@
 
 ## 次の着手順
 
-### 最優先の削減枠
-
-機能追加やqueue再設計の前に、旧DB互換、移行痕跡、旧payload fallbackを棚卸しして削ります。
-
-1. 旧互換と現行安全弁を分類する
-   - 旧DB schema、旧Web payload、旧Python import API、EvidenceBundle v1 reader、移行専用metadataは通常機能として維持しない
-   - 障害調査で古いDBやbackupを見る必要が出た場合は、恒久機能ではなく `.tmp/` の使い捨てscriptや一時SQLで扱う
-   - authority parent fallback、source lookback fallback、LLM endpoint互換fallbackなど、現行仕様の安全弁は旧互換と混同しない
-2. 旧互換・移行痕跡を削除する
-   - `legacy` / `migration` / `compat` / `v1` 由来の名前、test、文書、未使用関数を棚卸しする
-   - 現行仕様として意味があるものは名称か説明を直し、過去移行都合だけのものは削除する
 ### 短期目標
 
 次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。

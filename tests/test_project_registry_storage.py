@@ -1765,9 +1765,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             anomalies = {item["kind"]: item for item in summary["anomalies"]}
 
             self.assertEqual(summary["project_count"], 2)
+            self.assertTrue(all("migration" not in item for item in summary["field_inventory"]))
             self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 2)
             self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 0)
-            self.assertEqual(summary["cleanup_candidates"], [])
+            self.assertNotIn("cleanup_candidates", summary)
         finally:
             conn.close()
 

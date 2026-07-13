@@ -221,17 +221,17 @@ PROJECT_SCALAR_FIELDS = (
 PROJECT_STORAGE_SCALAR_FIELDS = PROJECT_SCALAR_FIELDS + ("introduced_url",)
 
 URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
-    {"field": "website_url", "layer": "canonical", "role": "primary public website", "migration": "keep"},
-    {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference", "migration": "keep"},
-    {"field": "source_code_url", "layer": "canonical", "role": "primary source repository", "migration": "keep"},
-    {"field": "service_urls", "layer": "confirmed_set", "role": "confirmed service surfaces", "migration": "keep"},
-    {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories", "migration": "keep"},
-    {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces", "migration": "keep"},
-    {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories", "migration": "keep"},
-    {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations", "migration": "keep"},
-    {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs", "migration": "keep"},
-    {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes", "migration": "keep"},
-    {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes", "migration": "keep"},
+    {"field": "website_url", "layer": "canonical", "role": "primary public website"},
+    {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference"},
+    {"field": "source_code_url", "layer": "canonical", "role": "primary source repository"},
+    {"field": "service_urls", "layer": "confirmed_set", "role": "confirmed service surfaces"},
+    {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories"},
+    {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces"},
+    {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories"},
+    {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations"},
+    {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs"},
+    {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes"},
+    {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes"},
 )
 
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
@@ -2151,7 +2151,6 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         "field_inventory": field_summaries,
         "alias_relationships": alias_summaries,
         "anomalies": anomalies,
-        "cleanup_candidates": [],
     }
 
 

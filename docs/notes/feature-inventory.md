@@ -15,8 +15,8 @@
 3. **運用補助**: Web、worker、checkpoint、scheduler。手作業でも代替できるため、実利用頻度で維持を判断できる。
 4. **source固有・maintenance**: 外部source adapterや一度きりのcleanup。最も削除候補にしやすい。
 
-最初に削除を検討しやすいのは、旧DB互換・移行痕跡・旧payload fallback、`assist-db-edit`、
-役割を終えたcleanup/repair command、未使用のsource lane、未使用ならbrowser verificationです。schedulerは
+旧DB互換・移行痕跡・旧payload fallbackと役割を終えたcleanup/repair commandは削除済みです。
+次に削除を検討しやすいのは、`assist-db-edit`、未使用のsource lane、未使用ならbrowser verificationです。schedulerは
 現運用で利用中のため削除候補から外します。逆に、normalized storage、operator decision、merge/split、
 evidence分類、保存budgetを削ってもコードは減りますが、projectの価値と安全性を同時に失います。
 
@@ -317,10 +317,9 @@ scheduled presetsは現運用で利用中のため、削除候補から外しま
 
 今すぐ大規模削除を始めるより、次の順が安全です。
 
-1. 旧DB互換、移行痕跡、旧payload fallbackを削る。
-2. `assist-db-edit`とCLI batch操作の削除可否を確認する。
-3. Semble/Tangled/browser laneの固有成果を4周期測る。
-4. 役割を終えたmaintenance commandをsunset候補として確定する。
-5. manual gold setを増やし、LLM planning/triageの有無を比較する。
+1. `assist-db-edit`とCLI batch操作の削除可否を確認する。
+2. Semble/Tangled/browser laneの固有成果を4周期測る。
+3. `cleanup-storage-payloads`の再計測条件を待つ。
+4. manual gold setを増やし、LLM planning/triageの有無を比較する。
 
 この順なら、projectの中核と安全性を崩さず、削除効果の大きい補助subsystemから判断できます。
