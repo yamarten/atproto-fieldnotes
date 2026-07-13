@@ -2984,26 +2984,16 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         project["evidence_urls"] = add_unique(project.get("evidence_urls", []), normalized)
         add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
 
-def project_lookup_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
+def project_collision_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
-    if project.get("primary_nsid"):
-        identifiers.add(("nsid", identifier_core.normalize_nsid(project["primary_nsid"])))
-    for nsid in project.get("input_nsids", []):
+    for nsid in current_confirmed_nsids(project):
         identifiers.add(("nsid", identifier_core.normalize_nsid(nsid)))
-    for nsid in project.get("resolved_nsids", []):
-        identifiers.add(("resolved_nsid", identifier_core.normalize_nsid(nsid)))
     for url in source_code_url_values(project):
         identifiers.add(("repo_url", identifier_core.normalize_url(url)))
-    for url in provider_repo_url_values(project, "github"):
-        identifiers.add(("github_repo_url", identifier_core.normalize_url(url)))
-    for url in provider_repo_url_values(project, "tangled"):
-        identifiers.add(("tangled_repo_url", identifier_core.normalize_url(url)))
     for url in project.get("service_urls", []):
         identifiers.add(("service_url", identifier_core.normalize_url(url)))
     if project.get("website_url"):
         identifiers.add(("service_url", identifier_core.normalize_url(project["website_url"])))
-    for url in service_url_candidate_values(project):
-        identifiers.add(("service_url_candidate", identifier_core.normalize_url(url)))
     return {item for item in identifiers if item[1]}
 
 
@@ -3526,7 +3516,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         project_map[normalized["project_key"]] = normalized
 
     expected_by_project: dict[str, set[tuple[str, str]]] = {
-        project_key: project_lookup_identifiers(project)
+        project_key: project_collision_identifiers(project)
         for project_key, project in project_map.items()
     }
 

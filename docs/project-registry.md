@@ -632,7 +632,7 @@ project-registry repair-db --execute
 - `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed source repositoryに残っていない旧shapeを補正する件数。
 - `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に入っている旧shapeを補正する件数。payload内とidentifier row内の検出数を合算します。
 - `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
-- `collision_count`: 正規化後に同じidentifierを複数projectが所有する衝突数。報告のみで、自動merge/separateは行いません。
+- `collision_count`: 正規化後に同じconfirmed canonical identifierを複数projectが所有する衝突数。candidateとprovider別の派生viewは数えません。報告のみで、自動merge/separateは行いません。
 
 `--execute` はこれらの該当変更をまとめて保存します。たとえばdeveloper handle補正のつもりで実行しても、同時にmanual repo seed補正やmerge候補再計算が保存されることがあります。適用前にwriterを止めてDB backupを作り、dry-runの件数を確認してください。
 

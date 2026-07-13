@@ -1967,11 +1967,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             first = self.make_project("proj:eeeeeeeeeeee", "service_url", "https://collision.example")
             first["name"] = "First"
             first["website_url"] = "https://collision.example"
+            registry.set_service_url_candidate_values(first, ["https://shared-candidate.example"])
             registry.save_project(conn, first)
 
             second = self.make_project("proj:ffffffffffff", "service_url", "https://collision.example")
             second["name"] = "Second"
             second["website_url"] = "https://collision.example"
+            registry.set_service_url_candidate_values(second, ["https://shared-candidate.example"])
             registry.save_project(conn, second)
             conn.commit()
 
@@ -1984,6 +1986,36 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertIn(("service_url", "https://collision.example"), collisions)
             self.assertEqual(
                 collisions[("service_url", "https://collision.example")],
+                {"proj:eeeeeeeeeeee", "proj:ffffffffffff"},
+            )
+            self.assertNotIn(("service_url_candidate", "https://shared-candidate.example"), collisions)
+        finally:
+            conn.close()
+
+    def test_audit_counts_provider_repo_collision_once(self) -> None:
+        conn = registry.open_db()
+        try:
+            repo_url = "https://github.com/example/shared"
+            first = self.make_project("proj:eeeeeeeeeeee", "repo_url", repo_url)
+            first["source_code_urls"] = [repo_url]
+            registry.save_project(conn, first)
+
+            second = self.make_project("proj:ffffffffffff", "repo_url", repo_url)
+            second["source_code_urls"] = [repo_url]
+            registry.save_project(conn, second)
+            conn.commit()
+
+            summary = registry.audit_and_repair_identifiers(conn)
+            matching = [
+                item
+                for item in summary["collisions"]
+                if item["identifier_value"] == repo_url
+            ]
+
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0]["identifier_type"], "repo_url")
+            self.assertEqual(
+                set(matching[0]["project_keys"]),
                 {"proj:eeeeeeeeeeee", "proj:ffffffffffff"},
             )
         finally:
