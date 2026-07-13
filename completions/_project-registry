@@ -26,7 +26,6 @@ subcommands=(
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'set-tracking-state:Set tracking state for one project'
-  'set-tracking-state-batch:Set tracking state for a filtered set of projects'
   'set-separate:Mark two projects as distinct'
   'block-identifier:Block one identifier from being reattached'
   'defer-identifier:Temporarily downgrade one identifier'
@@ -276,15 +275,6 @@ case "$cmd" in
       "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       "--tracking-state[Tracking state to assign]:tracking state:_project_registry_tracking_states" \
       '--note[Optional tracking note]:note:'
-    ;;
-  set-tracking-state-batch)
-    _arguments -S \
-      '(--record-did --nsid-prefix)'--record-did'[Match projects whose recent_record_samples include this DID]:did:' \
-      '(--record-did --nsid-prefix)'--nsid-prefix'[Match projects whose NSID starts with this prefix]:nsid prefix:' \
-      '--current-tracking-states+[Optional pre-filter on current tracking state]:tracking states:_project_registry_tracking_states' \
-      "--tracking-state[Tracking state to assign]:tracking state:_project_registry_tracking_states" \
-      '--note[Optional tracking note]:note:' \
-      '--execute[Apply the change]'
     ;;
   set-separate)
     _arguments -S \

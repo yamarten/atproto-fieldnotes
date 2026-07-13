@@ -541,21 +541,6 @@ project-registry audit-url-fields --example-limit 5
 project-registry review-stalled --execute
 ```
 
-同じ creator DID や NSID prefix にぶら下がる project をまとめて切り替える場合:
-
-```bash
-project-registry set-tracking-state-batch \
-  --record-did did:plc:ie77niyfcztulkf2oa7p4adz \
-  --tracking-state ignore
-
-project-registry set-tracking-state-batch \
-  --record-did did:plc:ie77niyfcztulkf2oa7p4adz \
-  --current-tracking-states active stalled \
-  --tracking-state ignore \
-  --note "bulk ignore noisy synthetic NSIDs" \
-  --execute
-```
-
 ## merge recommendation の手動抑止
 
 この 2 件は別物として扱いたい、というときは相互に block できます:

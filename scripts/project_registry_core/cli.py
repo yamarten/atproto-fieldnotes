@@ -309,16 +309,6 @@ def build_parser() -> argparse.ArgumentParser:
     tracking_parser.add_argument("--note", help="Optional tracking note.")
     tracking_parser.set_defaults(func=project_commands.cmd_set_tracking_state)
 
-    tracking_batch_parser = subparsers.add_parser("set-tracking-state-batch", help="Set tracking state for all projects matching a coarse filter.")
-    tracking_batch_filter = tracking_batch_parser.add_mutually_exclusive_group(required=True)
-    tracking_batch_filter.add_argument("--record-did", help="Match projects whose recent_record_samples include this DID.")
-    tracking_batch_filter.add_argument("--nsid-prefix", help="Match projects whose primary/input/resolved NSID starts with this prefix.")
-    tracking_batch_parser.add_argument("--current-tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Optional pre-filter on current tracking state.")
-    tracking_batch_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(registry.TRACKING_STATES), help="Tracking state to assign.")
-    tracking_batch_parser.add_argument("--note", help="Optional tracking note.")
-    tracking_batch_parser.add_argument("--execute", action="store_true", help="Apply the change. Without this flag, show a dry-run summary only.")
-    tracking_batch_parser.set_defaults(func=project_commands.cmd_set_tracking_state_batch)
-
     separate_parser = subparsers.add_parser("set-separate", help="Mark two projects as distinct so merge recommendations do not pair them.")
     separate_source = separate_parser.add_mutually_exclusive_group(required=True)
     separate_source.add_argument("-p", "--project-key", help="First project key.")

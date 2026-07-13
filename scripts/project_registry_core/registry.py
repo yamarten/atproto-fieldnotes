@@ -11749,34 +11749,6 @@ def stalled_review_entry(
     }
 
 
-def project_matches_batch_tracking_filter(
-    project: dict[str, Any],
-    *,
-    record_did: str = "",
-    nsid_prefix: str = "",
-    tracking_states: set[str] | None = None,
-) -> bool:
-    if tracking_states is not None and str(project.get("tracking_state") or "active") not in tracking_states:
-        return False
-    if record_did:
-        samples = [
-            str(item.get("did") or "")
-            for item in project.get("recent_record_samples", [])
-            if isinstance(item, dict)
-        ]
-        if record_did not in samples:
-            return False
-    if nsid_prefix:
-        candidates = unique_list(
-            ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
-            + [str(item or "") for item in project.get("input_nsids", [])]
-            + [str(item or "") for item in project.get("resolved_nsids", [])]
-        )
-        if not any(value.startswith(nsid_prefix) for value in candidates if value):
-            return False
-    return bool(record_did or nsid_prefix)
-
-
 def collect_service_verification(project: dict[str, Any], service_url: str, lane: str) -> EvidenceBundle:
     if lane == "browser":
         return service_core.collect_browser_service_evidence(

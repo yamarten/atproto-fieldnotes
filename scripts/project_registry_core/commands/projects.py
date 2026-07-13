@@ -22,7 +22,6 @@ def cmd_add_seed(args: argparse.Namespace) -> int:
     print(json.dumps(payload, ensure_ascii=False))
     return 0
 
-
 def _tracking_states(args: argparse.Namespace) -> set[str] | None:
     values = getattr(args, "tracking_states", None)
     return {str(item) for item in values} if values else None
@@ -112,22 +111,4 @@ def cmd_set_tracking_state(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(json.dumps(payload, ensure_ascii=False))
-    return 0
-
-
-def cmd_set_tracking_state_batch(args: argparse.Namespace) -> int:
-    conn = core.open_db()
-    try:
-        payload = services.set_tracking_state_batch(
-            conn,
-            tracking_state=args.tracking_state,
-            record_did=args.record_did or "",
-            nsid_prefix=args.nsid_prefix or "",
-            current_tracking_states=set(args.current_tracking_states or []),
-            note=args.note,
-            execute=bool(args.execute),
-        )
-    finally:
-        conn.close()
-    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
     return 0

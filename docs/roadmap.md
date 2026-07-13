@@ -30,8 +30,7 @@
 旧DB互換、移行痕跡、役割終了済みmaintenanceの削減は完了しました。次は、現在使っていないCLI入口を
 Webの現役導線から分離して削除します。
 
-1. CLI batch入口を削除する
-   - `set-tracking-state-batch` commandを削除する
+1. `merge-batch`のCLI入口を削除する
    - `merge-batch`のCLI parser、TTY review、CLI専用undoを削除する
    - Webのmerge候補一覧、pair review、個別actionと、それらが使うapplication/core plannerは維持する
 
