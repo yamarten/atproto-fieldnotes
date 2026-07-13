@@ -15,8 +15,9 @@
 3. **運用補助**: Web、worker、checkpoint、scheduler。手作業でも代替できるため、実利用頻度で維持を判断できる。
 4. **source固有・maintenance**: 外部source adapterや一度きりのcleanup。最も削除候補にしやすい。
 
-最初に削除を検討しやすいのは、`assist-db-edit`、役割を終えたcleanup/repair command、未使用のsource lane、
-未使用ならschedulerとbrowser verificationです。逆に、normalized storage、operator decision、merge/split、
+最初に削除を検討しやすいのは、旧DB互換・移行痕跡・旧payload fallback、`assist-db-edit`、
+役割を終えたcleanup/repair command、未使用のsource lane、未使用ならbrowser verificationです。schedulerは
+現運用で利用中のため削除候補から外します。逆に、normalized storage、operator decision、merge/split、
 evidence分類、保存budgetを削ってもコードは減りますが、projectの価値と安全性を同時に失います。
 
 ## 評価基準
@@ -185,6 +186,10 @@ LLM subsystemは削除効果が比較的大きい一方、紹介文作成や曖�
 
 ## 10. Maintenance、audit、開発補助
 
+旧DBやbackupを通常機能として再open/再repairする導線は維持しません。障害調査で必要になった場合は、
+恒久commandではなく `.tmp/` の使い捨てscriptや一時SQLで扱います。削除対象を判断する時は、旧互換・移行痕跡と、
+現行仕様の安全弁としてのfallbackを混同しません。
+
 | 機能 | 接続状況 | 重要度 | 削除効果 | 所見・削除条件 |
 |---|---|---:|---:|---|
 | `init-db` | CLI | A | 小 | 明示初期化の安全境界。維持 |
@@ -230,27 +235,37 @@ maintenance commandを削除する時は、単に「正本DBへ一度適用し�
 
 ## 削除候補の優先順位
 
-### 1. 利用実績が無ければ削除しやすい
+### 1. 旧互換・移行痕跡
+
+| 候補 | 期待効果 | 判断に必要な確認 |
+|---|---:|---|
+| 未使用の旧payload補完関数 | 小〜中 | 現行コードから未接続で、保存契約やfixtureで不要か |
+| 移行専用metadata / legacy命名 | 小〜中 | 現行DBや通常payloadに残っていないか。現行意味がある場合は名前か説明を直す |
+| `legacy_resource_urls` source名 | 小 | 2026-07-13確認で正本DBに1064件 / 230 projects残存。DB cleanupとして別承認で変換し、その後rank互換を削除する |
+| 役割終了済みrepair command | 中 | 再発防止、正本DB再dry-run 0件、旧DB非対応の明示 |
+
+### 2. 利用実績が無ければ削除しやすい
 
 | 候補 | 期待効果 | 判断に必要な確認 |
 |---|---:|---|
 | `assist-db-edit` | 中 | 過去1〜2か月に何回使い、手動command作成を何分減らしたか |
 | Tangled optional adapter parser | 小〜中 | 有効化予定または固有の候補sourceがあるか |
-| Web raw tab | 小 | CLI `show`で不足する実例があるか |
-| Web manual reload | 小〜中 | terminal再起動より実際に便利か |
 | batch tracking / batch merge | 中 | 繰り返し使うoperationか、一度きりか |
 
-### 2. 運用形態によって大きく削れる
+Web raw tabとWeb manual reloadは現運用で利用中のため、現時点の削除候補から外します。
+
+### 3. 運用形態によって大きく削れる
 
 | 候補 | 期待効果 | 判断に必要な確認 |
 |---|---:|---|
-| scheduled presets一式 | 大 | 定期発火を実際に使っているか。手動CLIやOS schedulerで十分か |
 | anonymous browser verification | 中 | static/deepでは得られない採否変更を何件生んだか |
 | Semble source lane | 中 | 他sourceにない有用候補を何件得たか |
 | Tangled source lane | 中 | 他sourceにないrepo/ownership evidenceを何件得たか |
 | LLM planning/triage | 大 | gold set精度とoperator時間がdeterministic pathより改善するか |
 
-### 3. 役割終了後に削除できるmaintenance
+scheduled presetsは現運用で利用中のため、削除候補から外します。
+
+### 4. 役割終了後に削除できるmaintenance
 
 - `backfill-derived-identifiers`
 - `repair-same-site-evidence`
@@ -307,10 +322,10 @@ maintenance commandを削除する時は、単に「正本DBへ一度適用し�
 
 今すぐ大規模削除を始めるより、次の順が安全です。
 
-1. `assist-db-edit`、batch操作、Web raw/reloadの実利用を確認する。
-2. Semble/Tangled/browser laneの固有成果を4周期測る。
-3. 役割を終えたmaintenance commandをsunset候補として確定する。
-4. manual gold setを増やし、LLM planning/triageの有無を比較する。
-5. schedulerを使っていなければ、worker/checkpointを残してschedule layerだけ削除する。
+1. 旧DB互換、移行痕跡、旧payload fallbackを削る。
+2. `assist-db-edit`とCLI batch操作の削除可否を確認する。
+3. Semble/Tangled/browser laneの固有成果を4周期測る。
+4. 役割を終えたmaintenance commandをsunset候補として確定する。
+5. manual gold setを増やし、LLM planning/triageの有無を比較する。
 
 この順なら、projectの中核と安全性を崩さず、削除効果の大きい補助subsystemから判断できます。
