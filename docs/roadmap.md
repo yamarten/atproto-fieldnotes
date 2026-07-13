@@ -37,7 +37,7 @@
    - `legacy` / `migration` / `compat` / `v1` 由来の名前、test、文書、未使用関数を棚卸しする
    - 現行仕様として意味があるものは名称か説明を直し、過去移行都合だけのものは削除する
 3. 一度きりrepair commandのsunset可否を確認する
-   - `backfill-derived-identifiers`、`repair-same-site-evidence`、`cleanup-app-links`、`cleanup-sync-notes` は再発防止と再dry-run 0件を確認してから個別に削除する
+   - `backfill-derived-identifiers`、`repair-same-site-evidence`、`cleanup-app-links` は再発防止と再dry-run 0件を確認してから個別に削除する
    - `cleanup-storage-payloads` は2026-08-10または新規1,000 investigation runs再計測まで維持する
 
 ### 短期目標

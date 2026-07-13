@@ -78,16 +78,6 @@ def cmd_cleanup_app_links(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_cleanup_sync_notes(args: argparse.Namespace) -> int:
-    payload = _with_db(lambda conn: services.cleanup_sync_notes(
-        conn,
-        execute=bool(args.execute),
-        example_limit=int(args.example_limit),
-    ))
-    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
-    return 0
-
-
 def cmd_repair_same_site_evidence(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.repair_same_site_evidence(
         conn,

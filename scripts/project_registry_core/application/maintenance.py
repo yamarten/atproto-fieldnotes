@@ -110,10 +110,6 @@ def cleanup_app_links(conn: sqlite3.Connection, *, execute: bool = False) -> dic
     return core.cleanup_project_app_links(conn, execute=execute)
 
 
-def cleanup_sync_notes(conn: sqlite3.Connection, *, execute: bool = False, example_limit: int = 20) -> dict[str, Any]:
-    return core.cleanup_project_sync_notes(conn, execute=execute, example_limit=max(0, example_limit))
-
-
 def repair_same_site_evidence(
     conn: sqlite3.Connection,
     *,

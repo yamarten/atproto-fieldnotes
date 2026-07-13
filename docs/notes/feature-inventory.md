@@ -202,7 +202,6 @@ LLM subsystemは削除効果が比較的大きい一方、紹介文作成や曖�
 | `backfill-derived-identifiers` | CLI | C | 中 | 正本適用・再dry-run差分0。新しい保存欠落が再発しないならsunset候補 |
 | `repair-same-site-evidence` | CLI | C | 小〜中 | 正本修復済み。domain policyを再変更しないならsunset候補 |
 | `cleanup-app-links` | CLI | C | 小〜中 | 過去payload修復用なら、再発防止確認後にsunset候補 |
-| `cleanup-sync-notes` | CLI | C | 小 | 一度きりcleanupなら削除候補 |
 | `set-tracking-state-batch` | CLI | C | 小〜中 | 実運用で繰り返し使わなければ削除候補 |
 | `merge-batch` | CLI | C | 中 | 安全な一括merge需要が無ければ対話的mergeへ統合候補 |
 | `assist-db-edit` | CLI | D〜C | 中 | 最有力削除候補。定型command作成を実際に減らしているか確認する |
@@ -272,7 +271,6 @@ scheduled presetsは現運用で利用中のため、削除候補から外しま
 - `backfill-derived-identifiers`
 - `repair-same-site-evidence`
 - `cleanup-app-links`
-- `cleanup-sync-notes`
 - 将来、定常利用しないと決めた場合の`cleanup-storage-payloads`
 
 これらはまとめて消さず、再発防止と再dry-run 0件を個別に確認します。

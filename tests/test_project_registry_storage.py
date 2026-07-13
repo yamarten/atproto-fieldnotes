@@ -922,47 +922,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             [item["value"] for item in fetched["manual_seeds"]],
         )
 
-    def test_cleanup_sync_notes_removes_only_machine_generated_lines(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:syncnotes", "repo_url", "https://github.com/example/app")
-        project["notes"] = "\n".join([
-            "operator note",
-            "github search sync matched query=atproto updated_at=2026-06-10T00:00:00Z stars=1",
-            "collection import matched by exact_namespace_scan: app.example",
-            "keep this sync-related manual note",
-            "semble collection sync matched atmosphere-apps updated_at=2026-06-10T00:00:00Z",
-        ])
-        registry.save_project(conn, project)
-        conn.execute(
-            "UPDATE projects SET profile_json = ? WHERE project_key = ?",
-            (
-                registry.dump_json({
-                    "core": {"notes": project["notes"]},
-                    "app": {},
-                }),
-                project["project_key"],
-            ),
-        )
-        conn.commit()
-        try:
-            dry_run = registry.cleanup_project_sync_notes(conn, execute=False)
-            self.assertEqual(dry_run["changed_project_count"], 1)
-            self.assertEqual(dry_run["removed_line_count"], 3)
-
-            result = registry.cleanup_project_sync_notes(conn, execute=True)
-            saved = registry.fetch_project(conn, "proj:syncnotes")
-        finally:
-            conn.close()
-
-        self.assertEqual(result["changed_project_count"], 1)
-        self.assertEqual(saved["notes"], "operator note\nkeep this sync-related manual note")
-
-    def test_cleanup_sync_notes_parser(self) -> None:
-        args = cli.build_parser().parse_args(["cleanup-sync-notes", "--execute", "--example-limit", "3"])
-        self.assertTrue(args.execute)
-        self.assertEqual(args.example_limit, 3)
-        self.assertEqual(args.func.__name__, "cmd_cleanup_sync_notes")
-
     def test_sync_state_roundtrip_is_scoped(self) -> None:
         conn = registry.open_db()
         try:
