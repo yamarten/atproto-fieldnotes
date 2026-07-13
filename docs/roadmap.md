@@ -1,8 +1,8 @@
 # Project Registry Roadmap
 
 現在の実装状況は[status.md](status.md)、確定済みの保存形や責務分担は
-[project-record.md](project-record.md)、[registry-internals.md](registry-internals.md)、
-[investigation-model.md](investigation-model.md)に移しました。
+[project-record.md](developer/project-record.md)、[registry-internals.md](developer/registry-internals.md)、
+[investigation-model.md](developer/investigation-model.md)に移しました。
 
 この文書は、まだ本体仕様に取り込んでいない展望と TODO を置くためのメモです。
 
@@ -196,7 +196,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 ## 調査 pipeline の残件
 
 次の優先候補だけを roadmap として残します。接続済み範囲と恒久的な契約は
-[investigation-model.md](investigation-model.md) を正本とします。
+[investigation-model.md](developer/investigation-model.md) を正本とします。
 
 - OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
 - Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
@@ -211,7 +211,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - 複数projectを跨ぐ永続circuit breaker
 
 設計途中の詳細は次の作業用文書へ分離しています。trust graphの現行仕様は
-[registry-internals.md](registry-internals.md)を正本とします。
+[registry-internals.md](developer/registry-internals.md)を正本とします。
 
 - ownership / identity: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
 - service verification: [service-verification.md](notes/service-verification.md)
@@ -291,7 +291,7 @@ path名の名指しだけでは信頼性が低いため、将来的には次の�
 
 ## atproto寄与度の独立評価
 
-現行の level、score、evidence と rule-based v1 は [registry-internals.md](registry-internals.md) を正本とします。
+現行の level、score、evidence と rule-based v1 は [registry-internals.md](developer/registry-internals.md) を正本とします。
 未接続の候補は次です。
 
 - `incidental` を確定できる evidence source
@@ -317,6 +317,11 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 
 未接続 / 将来候補:
 
+- 利用を圧迫しないHelp導線
+  - `docs/user/web-ui.md`を利用者向け正本とし、画面内へ長い説明を重複させない
+  - 独立したHelp画面では日常flow、用語、DB write/network/dry-run、access境界を短く案内する
+  - filterや破壊的actionの直近には、意味が紛らわしい箇所だけtooltipまたは短い補足を置く
+  - CLI固有の低水準操作をWeb Helpへ網羅せず、必要な場合だけCLIガイドへ導く
 - sync/reviewのcheckpoint再開
   - 現状はsource/candidate境界のprogressと停止まで
 - server再起動後のprocess job一覧・event復元
@@ -329,7 +334,7 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - 現行confirm/block/defer/splitは`kind + value`単位で、同じ値を持つ全roleへ作用する
   - 実例でrole単位の拒否が必要になった時に、decision targetとruntime guardを拡張する
 - Webからのprofile編集範囲拡大
-  - 現状の通常編集は`name`とoperator向け`notes`だけ
+  - 現状の通常編集は`name`、`introduced_url`、operator向け`notes`
   - 必要になったら`tagline`、`summary`、`website_url`、`profile_json.app.links`などをfield単位preview、revision check、根拠表示付きで追加する
   - identifier/relation/decisionの正本を直接JSON編集させず、既存review actionや専用mutationを優先する
 - PWA/local app化の再評価
@@ -350,6 +355,6 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
   - repoとNSIDの両方がacceptedではない `defines_schema` relationと、それに連動したowned NSIDを棚卸しする
   - dry-runで影響projectとidentifier/relation差分を出し、backup後にrepairまたは個別cleanupを実行する
 - trust graph残件
-  - `trust-graph-v1` の本体方針、URL相互trust、collection ownership、identity trust評価、audit/repair/explainは接続済み。現行仕様は[registry-internals.md](registry-internals.md)を正本にする
+  - `trust-graph-v1` の本体方針、URL相互trust、collection ownership、identity trust評価、audit/repair/explainは接続済み。現行仕様は[registry-internals.md](developer/registry-internals.md)を正本にする
   - `did` / `handle` / `domain` のtrust評価結果を、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続
   - accepted GitHub repoからReadTheDocsなどのdocs siteへ明示的にlinkしている場合、README内の任意URLとは分けて`repo_links_service`へ昇格できる条件を検討する

@@ -1,6 +1,6 @@
 # Background Job Model
 
-この文書は、長時間operator workflowをCLI、将来のWeb worker、テストから同じ業務処理として実行するための恒久的な契約です。個別collectorのevidence契約は[investigation-model.md](investigation-model.md)を参照してください。
+この文書は、長時間operator workflowをCLI、Web worker、テストから同じ業務処理として実行するための恒久的な契約です。個別collectorのevidence契約は[investigation-model.md](investigation-model.md)を参照してください。
 
 ## 目的
 

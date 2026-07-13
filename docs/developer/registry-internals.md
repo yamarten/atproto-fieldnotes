@@ -1,6 +1,6 @@
 # Registry Internals
 
-registry schema version 2の内部仕様と運用メモです。利用手順は [project-registry.md](project-registry.md)、保存モデルの正本は [project-record.md](project-record.md) を参照してください。
+registry schema version 2の内部仕様と運用メモです。利用手順は[利用ガイド](../user/guide.md)、保存モデルの正本は[project-record.md](project-record.md)を参照してください。
 
 ## 運用前提
 
@@ -18,7 +18,7 @@ registry schema version 2の内部仕様と運用メモです。利用手順は 
 - `registry.py`はproject shape、normalized lookup、保存、merge/queue policyなどのstateful helperを引き続き持つ
 
 `source_sync.py`と`enrichment_pipeline.py`は、project stateや保存を重複実装せず`registry.py`の既存helperを明示的に
-利用します。この依存を狭める次の分割条件は[roadmap.md](roadmap.md)に置きます。既存内部symbolを維持するための
+利用します。この依存を狭める次の分割条件は[roadmap.md](../roadmap.md)に置きます。既存内部symbolを維持するための
 re-exportは置きません。
 
 ## データの持ち方
@@ -270,8 +270,8 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - cache と circuit breaker は process/source 単位で、複数 project を跨ぐ永続 policy ではない
 
 collector reliability と replay の設計途中の論点は
-[collector-reliability.md](notes/collector-reliability.md) と
-[evidence-replay.md](notes/evidence-replay.md) に分離しています。
+[collector-reliability.md](../notes/collector-reliability.md) と
+[evidence-replay.md](../notes/evidence-replay.md) に分離しています。
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
@@ -515,7 +515,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - browser 認証後の機能確認と Web UI 専用表示
 
 static probe、deep page、browser 検証の役割分担と次段階の検討は
-[service-verification.md](notes/service-verification.md) を参照してください。
+[service-verification.md](../notes/service-verification.md) を参照してください。
 
 ### 4. first-party link の扱い
 
@@ -558,7 +558,7 @@ manual NSID seed からの拡張は、`dev.idiolect.recommendation` から `dev.
 repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。manual repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
 domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
-[identity-ownership-evidence.md](notes/identity-ownership-evidence.md) に分離しています。
+[identity-ownership-evidence.md](../notes/identity-ownership-evidence.md) に分離しています。
 
 ### 5. investigation collector の扱い
 
@@ -1074,7 +1074,7 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 - ただし次は最初から除外します
   - 自分自身
   - `separate_project_keys` で相互 block された pair
-- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な弱い派生関係の設計メモは [derivation-relations.md](notes/derivation-relations.md) に分離しています
+- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な弱い派生関係の設計メモは [derivation-relations.md](../notes/derivation-relations.md) に分離しています
 
 ### candidate の根拠
 

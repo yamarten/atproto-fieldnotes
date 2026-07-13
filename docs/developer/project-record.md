@@ -1,6 +1,6 @@
 # Project Record Schema
 
-この文書はregistry schema version 2のproject保存モデルと、各データの意味を定める正本です。調査pipelineの責務は[investigation-model.md](investigation-model.md)、具体的な判定規則は[registry-internals.md](registry-internals.md)を参照してください。
+この文書はregistry schema version 2のproject保存モデルと、各データの意味を定める開発者向けの正本です。調査pipelineの責務は[investigation-model.md](investigation-model.md)、具体的な判定規則は[registry-internals.md](registry-internals.md)を参照してください。
 
 ## 設計意図
 

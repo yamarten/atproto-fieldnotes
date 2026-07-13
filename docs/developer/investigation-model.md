@@ -2,7 +2,7 @@
 
 project 調査の責務境界と evidence の恒久的な契約を定める正本文書です。source ごとの具体的な
 heuristic と request 上限は [registry-internals.md](registry-internals.md)、保存 field は
-[project-record.md](project-record.md)、検討中の論点は [notes/](notes/) を参照してください。
+[project-record.md](project-record.md)、検討中の論点は [notes/](../notes/) を参照してください。
 
 ## 目的
 
@@ -223,7 +223,7 @@ Web UIのrun summary、bounded evidence、input/output/evaluation、要求時の
 
 関連 notes:
 
-- [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
-- [service-verification.md](notes/service-verification.md)
-- [evidence-replay.md](notes/evidence-replay.md)
-- [collector-reliability.md](notes/collector-reliability.md)
+- [identity-ownership-evidence.md](../notes/identity-ownership-evidence.md)
+- [service-verification.md](../notes/service-verification.md)
+- [evidence-replay.md](../notes/evidence-replay.md)
+- [collector-reliability.md](../notes/collector-reliability.md)

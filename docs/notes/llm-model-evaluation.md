@@ -1,8 +1,8 @@
 # LLM Model Evaluation Notes
 
 > 作業用・検討用文書です。現行仕様の正本ではありません。LLM の恒久的な位置づけは
-> [../investigation-model.md](../investigation-model.md)、`enrich` の接続状況は
-> [../registry-internals.md](../registry-internals.md) を参照してください。
+> [investigation-model.md](../developer/investigation-model.md)、`enrich` の接続状況は
+> [registry-internals.md](../developer/registry-internals.md) を参照してください。
 
 ## 目的
 

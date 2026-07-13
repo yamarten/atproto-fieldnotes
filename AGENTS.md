@@ -14,7 +14,7 @@
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
 - Web実装は`scripts/project_registry_web/`
   - schema v2 Web API、subprocess job registry、静的UI
-- 詳細なmodule構成と依存方向は`docs/registry-internals.md`を正本にする
+- 詳細なmodule構成と依存方向は`docs/developer/registry-internals.md`を正本にする
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない
@@ -69,15 +69,17 @@
 
 - 利用手順:
   - [README.md](README.md)
-  - [docs/project-registry.md](docs/project-registry.md)
+  - [docs/user/guide.md](docs/user/guide.md)
+  - [docs/user/cli.md](docs/user/cli.md)
+  - [docs/user/web-ui.md](docs/user/web-ui.md)
 - 目的・主要判断:
   - [docs/brief.md](docs/brief.md)
 - 内部仕様:
   - [docs/status.md](docs/status.md)
-  - [docs/registry-internals.md](docs/registry-internals.md)
-  - [docs/investigation-model.md](docs/investigation-model.md)
-  - [docs/background-jobs.md](docs/background-jobs.md)
-  - [docs/project-record.md](docs/project-record.md)
+  - [docs/developer/registry-internals.md](docs/developer/registry-internals.md)
+  - [docs/developer/investigation-model.md](docs/developer/investigation-model.md)
+  - [docs/developer/background-jobs.md](docs/developer/background-jobs.md)
+  - [docs/developer/project-record.md](docs/developer/project-record.md)
 - 設計途中の比較・検討メモ:
   - [docs/notes/](docs/notes/)
 - 直近の残件・引き継ぎ:
@@ -85,11 +87,13 @@
 
 ## 文書の配置
 
-- `docs/` 直下は、利用手順、現行仕様、データモデル、roadmap、handoff など役割が確立した正本文書を置く
+- `docs/user/` は利用者向けの操作ガイドを置く
+- `docs/developer/` は保存契約、内部仕様、調査・background jobの設計を置く
+- `docs/` 直下は、brief、status、roadmap、handoffなどproject全体の現在地と統治に関する正本文書を置く
 - 開発フェーズ名や一時的な作業単位だけを理由に、`docs/` 直下へ新規文書を増やさない
 - 調査メモ、比較資料、設計途中の論点、作業記録など、会話だけでは失われるが現行仕様や roadmap に直接混ぜるには重い内容は `docs/notes/` に置いてよい
 - `docs/notes/` の文書は作業用・履歴用であることを明確にし、確定した内容は適切な正本文書へ反映する
-- 現状仕様、将来課題、調査途中の仮説を一つの文書に混ぜず、`registry-internals.md` / `roadmap.md` / `thread-handoff.md` / `docs/notes/` の責務に分ける
+- 現状仕様、将来課題、調査途中の仮説を一つの文書に混ぜず、`docs/developer/registry-internals.md` / `docs/roadmap.md` / `docs/thread-handoff.md` / `docs/notes/` の責務に分ける
 - `docs/thread-handoff.md` は次スレッドが読む最短の現在地と未完了作業だけを書く
   - 完了した実装内容、検証ログ、詳細な変更一覧は置かない
   - `次に必要な作業` には未完了で実行可能な作業だけを書く
@@ -118,7 +122,7 @@
 1. この `AGENTS.md`
 2. `docs/thread-handoff.md`
 3. `docs/status.md`
-4. `docs/registry-internals.md`
-5. `docs/investigation-model.md`
-6. `docs/background-jobs.md`
-7. 必要に応じて `README.md` / `docs/project-registry.md` / `docs/notes/`
+4. `docs/developer/registry-internals.md`
+5. `docs/developer/investigation-model.md`
+6. `docs/developer/background-jobs.md`
+7. 必要に応じて `README.md` / `docs/user/` / `docs/notes/`

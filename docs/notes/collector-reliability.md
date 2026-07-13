@@ -1,7 +1,7 @@
 # Collector Reliability Notes
 
 > 作業用・検討用文書です。現行仕様の正本ではありません。契約は
-> [../investigation-model.md](../investigation-model.md) を参照してください。
+> [investigation-model.md](../developer/investigation-model.md) を参照してください。
 
 ## 現在地
 

@@ -102,10 +102,10 @@
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
 
-利用手順は[project-registry.md](project-registry.md)、保存契約は
-[project-record.md](project-record.md)、調査契約は
-[investigation-model.md](investigation-model.md)、background operation契約は
-[background-jobs.md](background-jobs.md)を正本とします。
+利用手順は[利用ガイド](user/guide.md)、CLIの公開面は[CLIガイド](user/cli.md)、Webの公開面は
+[Web UIガイド](user/web-ui.md)、保存契約は[project-record.md](developer/project-record.md)、調査契約は
+[investigation-model.md](developer/investigation-model.md)、background operation契約は
+[background-jobs.md](developer/background-jobs.md)を正本とします。
 
 ## 既知の制約
 
