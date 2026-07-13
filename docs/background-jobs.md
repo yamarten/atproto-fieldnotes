@@ -127,7 +127,6 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 未接続:
 
 - sync/reviewのcheckpoint再開
-- `assist-db-edit`の共通job化
 - server再起動後のprocess job一覧復元。enrich checkpoint発見は接続済み
 - job event履歴の永続化
 

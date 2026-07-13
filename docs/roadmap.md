@@ -25,6 +25,22 @@
 
 ## 次の着手順
 
+### 機能削減
+
+旧DB互換、移行痕跡、役割終了済みmaintenanceの削減は完了しました。次は、現在使っていないCLI入口を
+Webの現役導線から分離して削除します。
+
+1. `assist-db-edit`を削除する
+   - CLI parser、`commands/assist.py`、自然文parse helper、専用test・文書・補完をまとめて削除する
+   - merge / separate / block / tracking stateのWeb actionと個別CLI commandは維持する
+2. CLI batch入口を削除する
+   - `set-tracking-state-batch` commandを削除する
+   - `merge-batch`のCLI parser、TTY review、CLI専用undoを削除する
+   - Webのmerge候補一覧、pair review、個別actionと、それらが使うapplication/core plannerは維持する
+
+この削減はDB変更を伴わず、collision判断やgold set拡張にも依存しません。各commandの削除は、Web導線を
+巻き込んでいないことを確認できる単位で分けてコミットします。
+
 ### 短期目標
 
 次は、queue や triage の大きな実装を変える前に、判断の正解例と評価軸を固めます。
@@ -45,6 +61,7 @@
 - LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
 - service verification後半強化は、実誤判定caseで「認証後の利用可能性」や「複数surface統合」が問題だと分かってから行う
 - app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
+- CLI削減とcollision判断は相互依存しない。機能整理を先に終えてからdata判断へ移る
 
 ## 条件付き短期候補
 
@@ -60,6 +77,21 @@
 - 最大payload runでrelation normalizeが二乗的に長時間化する経路を、storage cleanupとは分けて改善する
 
 比較基準は[2026-07-10 baseline](notes/registry-maintenance-baseline-2026-07-10.md)を参照してください。
+
+### 外部sourceとbrowser lane
+
+Semble / Tangled source laneとanonymous browser verificationは即時削除せず、週次または通常運用4回の
+固有成果を確認してから判断します。新しいtelemetry機能は作らず、次だけを記録します。
+
+- 他sourceでは得られなかった新規project候補数
+- operatorが深掘り対象にした件数
+- browser verificationによってservice statusやURL採否が変わった件数
+- 実行時間、failure、manual correction数
+
+固有成果があれば維持します。固有成果がなく、人力での代替費も小さい場合は、laneとsource固有の
+config / parser / test / 文書をまとめて削除します。sourceを削除する場合は、最後のwatermark / config /
+historyを保持するかも同時に決めます。Tangled timeline / community / bot adapterは、具体的な有効化予定が
+なければ、通常接続せずparserも削除します。
 
 ### 内部構造
 
@@ -143,8 +175,6 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - provisional taglineやservice/lexicon間のsummary競合がqueueで継続的に観測された場合に、prompt分離とreview導線を検討する
 - syncの追加tuning
   - collection全件取得、GitHub broad query、screen-unmatched精度が実測のrequest量・誤候補で問題になったsourceだけを対象にする
-- DB編集支援の拡張
-  - `assist-db-edit`でsplit、seed追加、stalled反映を扱うのは、定型操作の手動command作成が繰り返し負担になった場合だけにする
 - typed aggregate / 用途別view
   - normalized tableの直接queryを増やした後もflat runtime viewが主要な性能・保守問題として残る場合に再検討する
 
@@ -171,7 +201,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - OAuth `include:` permission setを再帰解決し、循環と取得失敗をsource状態へ残す
 - Tangled timeline/community search/bot adapterを必要性評価後にopt-in接続する
 - UFOs rolling windowのgap検知後に、別sourceで補完する運用を決める
-- browser service verificationの実Playwright smoke testと複数surface統合を追加する
+- anonymous browser verificationの固有成果を確認できた場合だけ、実Playwright smoke testと複数surface統合を追加する
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
 - LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
@@ -292,7 +322,6 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 - server再起動後のprocess job一覧・event復元
   - enrich checkpointの再発見と再開は接続済み
   - job eventを永続化する場合は保存量とretention policyを先に決める
-- `assist-db-edit`の共通background job化
 - evidence表示上限の調整
   - run一覧、bounded evidence、replay差分は接続済み
   - raw HTMLやREADME全文の表示は非目標を維持する

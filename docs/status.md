@@ -119,7 +119,6 @@
   - `registry_meta`はschema versionしか持たない
   - 正本DBが単一のため、直近の実装優先から外した
   - 将来必要になった場合は、audit合格後のadditive updateとして後付けする
-- `assist-db-edit`の共通background job化
 - Tangled timeline/community search/bot adapterの通常実行
 - Tangled repoの完全なtree取得。現状は公開HTMLとREADME raw取得に限定
 - OAuth `include:` permission setの再帰解決
