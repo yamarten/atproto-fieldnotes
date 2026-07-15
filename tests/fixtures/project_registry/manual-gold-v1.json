@@ -333,6 +333,7 @@
   "promotion_cases": [
     {
       "case_id": "queue-runtime-validation-juntos-service",
+      "browser_calibration_case_id": "juntos-rendered-auth-forms",
       "subject": {
         "ref": "juntos",
         "name": "Juntos",
@@ -341,7 +342,7 @@
         "service_url": "https://juntos.chat",
         "service_status": "live",
         "service_status_confidence": "low",
-        "service_status_evidence": ["http_200"],
+        "service_status_evidence": ["http_200", "browser_password_form_detected", "browser_identity_form_detected", "browser_oauth_entry_detected"],
         "operator_observation": "login_reached_then_backend_error",
         "operator_observation_confidence": "recalled_not_reverified",
         "atproto_contribution_level": "core",
@@ -357,6 +358,7 @@
     },
     {
       "case_id": "hold-landing-only-moat",
+      "browser_calibration_case_id": "moat-rendered-information-page",
       "subject": {
         "ref": "moat",
         "name": "Moat",
@@ -382,6 +384,7 @@
     },
     {
       "case_id": "hold-landing-only-gmstn-systems",
+      "browser_calibration_case_id": "gmstn-systems-rendered-landing-page",
       "subject": {
         "ref": "gmstn-systems",
         "name": "gmstn.systems",
@@ -406,6 +409,7 @@
     },
     {
       "case_id": "queue-incomplete-core-echosky",
+      "browser_calibration_case_id": "echosky-rendered-password-form",
       "subject": {
         "ref": "echosky",
         "name": "Echosky",
@@ -414,7 +418,7 @@
         "service_url": "https://echosky.app",
         "service_status": "live",
         "service_status_confidence": "medium",
-        "service_status_evidence": ["http_200", "login_surface_detected"],
+        "service_status_evidence": ["http_200", "browser_password_form_detected", "browser_identity_form_detected"],
         "atproto_contribution_level": "substantial",
         "technical_interest_level": "notable"
       },

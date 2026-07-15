@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "purpose": "Frozen rendered-page summaries for network-free browser evidence regression tests.",
+  "provenance": {
+    "observed_at": "2026-07-16",
+    "capture": "verify-service --lane browser dry-run",
+    "page_summaries_manually_minimized": true,
+    "live_urls_are_smoke_references_only": true
+  },
+  "cases": [
+    {
+      "case_id": "juntos-rendered-auth-forms",
+      "service_url": "https://juntos.chat",
+      "navigation_results": [
+        {
+          "url": "https://juntos.chat/",
+          "title": "Juntos",
+          "text": "Sign in to Juntos\nJoin the conversation\nContinue with Bluesky\nContinue with Google\nor use app password\nHandle or email\nApp password\nSign in",
+          "links": [],
+          "forms": [
+            {
+              "action": "https://juntos.chat/",
+              "method": "get",
+              "inputs": [
+                {"type": "text", "name": "", "autocomplete": "", "placeholder": "your-handle.bsky.social"}
+              ],
+              "submit_texts": ["Continue with Bluesky"]
+            },
+            {
+              "action": "https://juntos.chat/",
+              "method": "get",
+              "inputs": [
+                {"type": "text", "name": "", "autocomplete": "username", "placeholder": "you.bsky.social"},
+                {"type": "password", "name": "", "autocomplete": "current-password", "placeholder": "xxxx-xxxx-xxxx-xxxx"}
+              ],
+              "submit_texts": ["Sign in"]
+            }
+          ],
+          "auth_actions": [
+            {"kind": "button", "href": "", "text": "Continue with Bluesky"},
+            {"kind": "button", "href": "", "text": "Continue with Google"},
+            {"kind": "button", "href": "", "text": "Sign in"}
+          ],
+          "network_errors": [],
+          "console_errors": [],
+          "js_rendered": true
+        }
+      ],
+      "expected": {
+        "auth_link_followed": false,
+        "password_form_detected": true,
+        "identity_form_detected": true,
+        "oauth_entry_detected": true,
+        "login_surface_reached": true,
+        "rendered_error_detected": false
+      }
+    },
+    {
+      "case_id": "moat-rendered-information-page",
+      "service_url": "http://moat.social",
+      "navigation_results": [
+        {
+          "url": "http://moat.social/",
+          "title": "Moat - messager on the ATProtocol",
+          "text": "Moat is Messaging on ATproto.\nAt present, Moat runs in the terminal—scaffolding very much in evidence. But the portcullis operates smoothly, and you can send encrypted messages today.",
+          "links": [{"href": "https://github.com/singhblom/moat", "text": "GitHub"}],
+          "forms": [],
+          "auth_actions": [{"kind": "a", "href": "https://github.com/singhblom/moat", "text": "GitHub"}],
+          "network_errors": [],
+          "console_errors": [],
+          "js_rendered": true
+        }
+      ],
+      "expected": {
+        "auth_link_followed": false,
+        "password_form_detected": false,
+        "identity_form_detected": false,
+        "oauth_entry_detected": false,
+        "login_surface_reached": false,
+        "rendered_error_detected": false
+      }
+    },
+    {
+      "case_id": "gmstn-systems-rendered-landing-page",
+      "service_url": "https://gmstn.systems",
+      "navigation_results": [
+        {
+          "url": "https://gmstn.systems/",
+          "title": "Gemstone Systems",
+          "text": "our tools suck.\nnot the dev part, that part's honestly fine. we're talking about the everything else part.\nno more context loss, no more broken integrations, no more lock in. all of your context and knowledge in one place, meshed within each other, and all entirely yours.\nyou can thank the atproto for that.\nit's time for something better.\nGemstone Systems",
+          "links": [{"href": "https://atproto.com/", "text": "atproto"}],
+          "forms": [],
+          "auth_actions": [{"kind": "a", "href": "https://atproto.com/", "text": "atproto"}],
+          "network_errors": [],
+          "console_errors": [],
+          "js_rendered": true
+        }
+      ],
+      "expected": {
+        "auth_link_followed": false,
+        "password_form_detected": false,
+        "identity_form_detected": false,
+        "oauth_entry_detected": false,
+        "login_surface_reached": false,
+        "rendered_error_detected": false
+      }
+    },
+    {
+      "case_id": "echosky-rendered-password-form",
+      "service_url": "https://echosky.app",
+      "navigation_results": [
+        {
+          "url": "https://echosky.app/login",
+          "title": "ログイン - Echosky",
+          "text": "Echosky\nログイン\nEchoskyにログイン\nATProto掲示板システムへようこそ\nATProtoサービス\nユーザー名またはメール\nパスワード\nアプリパスワードを使用してください\nログイン",
+          "links": [{"href": "https://echosky.app/login", "text": "Login"}],
+          "forms": [
+            {
+              "action": "https://echosky.app/login",
+              "method": "get",
+              "inputs": [
+                {"type": "text", "name": "service", "autocomplete": "", "placeholder": "https://bsky.social"},
+                {"type": "text", "name": "identifier", "autocomplete": "username", "placeholder": "username.bsky.social"},
+                {"type": "password", "name": "password", "autocomplete": "current-password", "placeholder": ""}
+              ],
+              "submit_texts": ["Login"]
+            }
+          ],
+          "auth_actions": [{"kind": "a", "href": "https://echosky.app/login", "text": "ログイン"}],
+          "network_errors": [],
+          "console_errors": [],
+          "js_rendered": true
+        }
+      ],
+      "expected": {
+        "auth_link_followed": false,
+        "password_form_detected": true,
+        "identity_form_detected": true,
+        "oauth_entry_detected": false,
+        "login_surface_reached": true,
+        "rendered_error_detected": false
+      }
+    }
+  ]
+}

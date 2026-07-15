@@ -13,10 +13,9 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 最初の作業は[roadmapの rendered auth surface evidence](roadmap.md)です。[scripts/project_registry_core/service.py](../scripts/project_registry_core/service.py)の`collect_browser_service_evidence()`は現在、loginらしいsame-site linkを辿ったpageが1件以上あるだけで`login_surface_reached=true`にします。
-- browser navigationの返値とservice verification recordを拡張し、link追従、password / handle / email入力とsubmitの組み合わせ、OAuth入口、network / console errorを別evidenceにします。認証情報の入力、form submit、認証後だけ発生する障害は対象外です。
-- [tests/test_project_registry_research_pipeline.py](../tests/test_project_registry_research_pipeline.py)に、linkだけのpage、password form、OAuth入口、描画後errorのunit testを追加します。その後`requirements-browser.txt`の依存を用意し、[manual gold fixture](../tests/fixtures/project_registry/manual-gold-v1.json)の4 caseにある`subject.service_url`を次の形でdry-runします: `bin/project-registry verify-service --seed <service_url> --type service_url --lane browser`
-- browser evidenceの受入後は、roadmapの2〜5に従ってcurrent service observation projection、editorial policy、queue API / Web UI、executable evaluationの順に進めます。これらをbrowser evidenceと同じ変更に混ぜません。
+- 最初の作業は[roadmapの current service observation projection](roadmap.md)です。probeごとの最新結果は`lane + requested_url`単位で残りますが、project直下のservice status / confidence / evidenceには過去値のmax / unionが残り得ます。
+- 最新のURL別・lane別観測からcurrent scalarを作るpure projectionと、lane間のprecedence・矛盾規則を実装します。temp DBの新旧観測fixtureでcurrent scalarだけが変わり、investigation historyが不変であることを確認します。
+- 正本DBへ反映する前に複製に対するdry-run / auditを行い、適用は別途承認を得ます。その後はroadmapの順にeditorial policy、queue API / Web UI、executable evaluationへ進めます。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ

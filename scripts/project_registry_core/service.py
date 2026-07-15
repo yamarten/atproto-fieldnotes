@@ -33,6 +33,9 @@ SERVICE_URL_MAX_COUNT = 192
 SERVICE_URL_MAX_BYTES = 32 * 1024
 SERVICE_URL_ITEM_MAX_BYTES = 2048
 SERVICE_VERIFICATION_RESULT_MAX_COUNT = 32
+SERVICE_BROWSER_FORM_MAX_COUNT = 12
+SERVICE_BROWSER_INPUT_MAX_COUNT = 24
+SERVICE_BROWSER_ACTION_MAX_COUNT = 24
 SERVICE_LINK_PRIORITY_TOKENS = (
     "source",
     "repo",
@@ -298,6 +301,105 @@ class BrowserDependencies:
     now: Callable[[], str]
 
 
+def normalized_browser_forms(value: Any) -> list[dict[str, Any]]:
+    forms: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        inputs = []
+        for raw_input in item.get("inputs", []) if isinstance(item.get("inputs"), list) else []:
+            if not isinstance(raw_input, dict):
+                continue
+            inputs.append({
+                "type": bounded_text(str(raw_input.get("type") or "text").lower(), 32),
+                "name": bounded_text(str(raw_input.get("name") or ""), 128),
+                "autocomplete": bounded_text(str(raw_input.get("autocomplete") or ""), 64),
+                "placeholder": bounded_text(str(raw_input.get("placeholder") or ""), 256),
+            })
+        forms.append({
+            "action": bounded_text(str(item.get("action") or ""), 2048),
+            "method": bounded_text(str(item.get("method") or "get").lower(), 16),
+            "inputs": inputs[:SERVICE_BROWSER_INPUT_MAX_COUNT],
+            "submit_texts": [
+                bounded_text(str(text), 256)
+                for text in (item.get("submit_texts", []) if isinstance(item.get("submit_texts"), list) else [])
+                if str(text).strip()
+            ][:8],
+        })
+        if len(forms) >= SERVICE_BROWSER_FORM_MAX_COUNT:
+            break
+    return forms
+
+
+def normalized_browser_auth_actions(value: Any) -> list[dict[str, str]]:
+    actions: list[dict[str, str]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        actions.append({
+            "kind": bounded_text(str(item.get("kind") or ""), 32),
+            "href": bounded_text(str(item.get("href") or ""), 2048),
+            "text": bounded_text(str(item.get("text") or ""), 256),
+        })
+        if len(actions) >= SERVICE_BROWSER_ACTION_MAX_COUNT:
+            break
+    return actions
+
+
+def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
+    forms = normalized_browser_forms(page.get("forms"))
+    page_context = " ".join((
+        str(page.get("url") or ""),
+        str(page.get("title") or ""),
+        bounded_text(str(page.get("text") or ""), 2000),
+    )).lower()
+    auth_context_tokens = ("login", "log in", "sign in", "signin", "signup", "sign up", "register")
+    password_form_detected = False
+    identity_form_detected = False
+    for form in forms:
+        inputs = list(form.get("inputs") or [])
+        submit_text = " ".join(str(item) for item in form.get("submit_texts") or []).lower()
+        form_context = f"{page_context} {form.get('action', '')} {submit_text}".lower()
+        has_submit = bool(form.get("submit_texts")) or any(
+            str(item.get("type") or "").lower() in {"submit", "image"}
+            for item in inputs if isinstance(item, dict)
+        )
+        has_password = any(
+            str(item.get("type") or "").lower() == "password"
+            for item in inputs if isinstance(item, dict)
+        )
+        has_identity = any(
+            str(item.get("type") or "").lower() == "email"
+            or any(
+                token in " ".join(str(item.get(field) or "") for field in ("name", "autocomplete", "placeholder")).lower()
+                for token in ("email", "username", "user name", "handle", "identifier", "login")
+            )
+            for item in inputs if isinstance(item, dict)
+        )
+        password_form_detected = password_form_detected or (has_password and has_submit)
+        identity_form_detected = identity_form_detected or (
+            has_identity and has_submit and any(token in form_context for token in auth_context_tokens)
+        )
+
+    oauth_entry_detected = False
+    for action in normalized_browser_auth_actions(page.get("auth_actions")):
+        text = str(action.get("text") or "").lower()
+        href = str(action.get("href") or "").lower()
+        provider = any(token in f"{text} {href}" for token in (
+            "atproto", "bluesky", "github", "google", "apple", "discord", "microsoft",
+        ))
+        oauth_entry_detected = oauth_entry_detected or (
+            "oauth" in href
+            or "/authorize" in href
+            or (provider and any(token in text for token in ("continue", "sign in", "log in", "login")))
+        )
+    return {
+        "password_form_detected": password_form_detected,
+        "identity_form_detected": identity_form_detected,
+        "oauth_entry_detected": oauth_entry_detected,
+    }
+
+
 def same_site_url(base_url: str, candidate: str) -> bool:
     base = urllib.parse.urlparse(base_url)
     parsed = urllib.parse.urlparse(candidate)
@@ -325,8 +427,19 @@ def collect_browser_service_evidence(
             text = str(link.get("text") if isinstance(link, dict) else "").lower()
             if href and same_site_url(service_url, href) and any(token in f"{text} {href.lower()}" for token in ("login", "log in", "sign in", "signup", "sign up", "register")):
                 candidates.append(href)
+        first_url = str(first.get("url") or service_url).rstrip("/")
         for url in list(dict.fromkeys(candidates))[:2]:
+            if url.rstrip("/") == first_url:
+                continue
             pages.append(dict(dependencies.navigate(url)))
+        page_features = [browser_page_auth_features(page) for page in pages]
+        password_form_detected = any(item["password_form_detected"] for item in page_features)
+        identity_form_detected = any(item["identity_form_detected"] for item in page_features)
+        oauth_entry_detected = any(item["oauth_entry_detected"] for item in page_features)
+        rendered_error_detected = any(
+            page.get("network_errors") or page.get("console_errors")
+            for page in pages
+        )
         value = {
             "requested_url": service_url,
             "lane": "browser",
@@ -337,10 +450,17 @@ def collect_browser_service_evidence(
                     "text_extract": bounded_text(str(page.get("text") or ""), 6000),
                     "network_errors": list(page.get("network_errors") or [])[:20],
                     "console_errors": list(page.get("console_errors") or [])[:20],
+                    "forms": normalized_browser_forms(page.get("forms")),
+                    "auth_actions": normalized_browser_auth_actions(page.get("auth_actions")),
                 }
                 for page in pages
             ],
-            "login_surface_reached": len(pages) > 1,
+            "auth_link_followed": len(pages) > 1,
+            "password_form_detected": password_form_detected,
+            "identity_form_detected": identity_form_detected,
+            "oauth_entry_detected": oauth_entry_detected,
+            "login_surface_reached": password_form_detected or identity_form_detected or oauth_entry_detected,
+            "rendered_error_detected": rendered_error_detected,
             "js_rendered": bool(first.get("js_rendered", True)),
         }
         bundle.add_record(EvidenceRecord(
@@ -382,6 +502,27 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
             "text": page.locator("body").inner_text(timeout=timeout_ms),
             "links": page.locator("a[href]").evaluate_all(
                 "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
+            ),
+            "forms": page.locator("form").evaluate_all(
+                """els => els.slice(0, 12).map(form => ({
+                    action: form.action || '',
+                    method: (form.method || 'get').toLowerCase(),
+                    inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
+                        type: (input.type || 'text').toLowerCase(),
+                        name: input.name || '',
+                        autocomplete: input.autocomplete || '',
+                        placeholder: input.placeholder || ''
+                    })),
+                    submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
+                }))"""
+            ),
+            "auth_actions": page.locator("a[href], button").evaluate_all(
+                """els => els.map(item => ({
+                    kind: item.tagName.toLowerCase(),
+                    href: item.href || '',
+                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
             ),
             "network_errors": network_errors,
             "console_errors": console_errors,

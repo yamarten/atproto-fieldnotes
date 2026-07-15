@@ -179,7 +179,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 
 exportのsanitizationは機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
 
-`verify-service`の`static`はtop page、`deep`は同一siteの追加page、`browser`はJavaScript描画後の匿名画面とlogin/signup到達を確認します。認証入力、登録、投稿はしません。browser laneにはPlaywrightの任意依存が必要です。
+`verify-service`の`static`はtop page、`deep`は同一siteの追加pageを確認します。`browser`はJavaScript描画後の匿名画面を開き、auth linkを辿った事実と、passwordまたはhandle/email入力を持つform、OAuth入口、描画後network/console errorを別々に記録します。linkを辿れただけではlogin surface確認済みにしません。認証入力、form送信、登録、投稿は行いません。browser laneにはPlaywrightの任意依存が必要です。
 
 ## 現在の整理対象
 

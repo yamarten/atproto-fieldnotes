@@ -1076,7 +1076,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 message="unknown failure", retryable=False,
             )
 
-    def test_browser_collector_follows_only_anonymous_login_surface(self) -> None:
+    def test_browser_collector_does_not_treat_followed_link_as_confirmed_login_surface(self) -> None:
         project = self.make_project("proj:browser", "service_url", "https://example.com")
         original = copy.deepcopy(project)
         pages = {
@@ -1089,8 +1089,98 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         )
         self.assertEqual(project, original)
         registry.apply_service_evidence(project, bundle)
-        self.assertEqual(project["service_status"], "live")
-        self.assertIn("browser_login_surface_reached", project["service_status_evidence"])
+        value = bundle.records[0].value
+        self.assertTrue(value["auth_link_followed"])
+        self.assertFalse(value["login_surface_reached"])
+        self.assertNotIn("browser_login_surface_reached", project["service_status_evidence"])
+        self.assertIn("browser_rendered_surface", project["service_status_evidence"])
+
+    def test_browser_collector_confirms_password_form_and_preserves_summary(self) -> None:
+        project = self.make_project("proj:browserform", "service_url", "https://example.com")
+        pages = {
+            "https://example.com": {
+                "url": "https://example.com", "title": "App", "text": "Welcome",
+                "links": [{"href": "https://example.com/login", "text": "Log in"}], "js_rendered": True,
+            },
+            "https://example.com/login": {
+                "url": "https://example.com/login", "title": "Sign in", "text": "Sign in",
+                "links": [], "js_rendered": True,
+                "forms": [{
+                    "action": "https://example.com/session", "method": "post",
+                    "inputs": [
+                        {"type": "email", "name": "email", "autocomplete": "email"},
+                        {"type": "password", "name": "password", "autocomplete": "current-password"},
+                    ],
+                    "submit_texts": ["Sign in"],
+                }],
+            },
+        }
+        bundle = service_core.collect_browser_service_evidence(
+            project, "https://example.com",
+            service_core.BrowserDependencies(navigate=lambda url: pages[url], now=lambda: "2026-07-16T00:00:00+00:00"),
+        )
+        value = bundle.records[0].value
+        self.assertTrue(value["password_form_detected"])
+        self.assertTrue(value["identity_form_detected"])
+        self.assertTrue(value["login_surface_reached"])
+        self.assertEqual(value["pages"][1]["forms"][0]["inputs"][1]["type"], "password")
+        registry.apply_service_evidence(project, bundle)
+        self.assertIn("browser_password_form_detected", project["service_status_evidence"])
+        self.assertIn("browser_identity_form_detected", project["service_status_evidence"])
+
+    def test_browser_collector_separates_oauth_entry_and_rendered_errors(self) -> None:
+        project = self.make_project("proj:browseroauth", "service_url", "https://example.com")
+        page = {
+            "url": "https://example.com", "title": "App login", "text": "Continue",
+            "links": [], "js_rendered": True,
+            "auth_actions": [{
+                "kind": "a", "href": "https://auth.example.com/oauth/authorize", "text": "Continue with Bluesky",
+            }],
+            "network_errors": ["GET https://api.example.com/session"],
+            "console_errors": ["backend unavailable"],
+        }
+        bundle = service_core.collect_browser_service_evidence(
+            project, "https://example.com",
+            service_core.BrowserDependencies(navigate=lambda _url: page, now=lambda: "2026-07-16T00:00:00+00:00"),
+        )
+        value = bundle.records[0].value
+        self.assertTrue(value["oauth_entry_detected"])
+        self.assertFalse(value["password_form_detected"])
+        self.assertTrue(value["rendered_error_detected"])
+        registry.apply_service_evidence(project, bundle)
+        self.assertIn("browser_oauth_entry_detected", project["service_status_evidence"])
+        self.assertIn("browser_rendered_error_detected", project["service_status_evidence"])
+
+    def test_browser_service_calibration_fixture_is_network_free_and_reproducible(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "browser-service-calibration-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertTrue(payload["provenance"]["page_summaries_manually_minimized"])
+        self.assertTrue(payload["provenance"]["live_urls_are_smoke_references_only"])
+        self.assertEqual(len(payload["cases"]), 4)
+        self.assertEqual(len({item["case_id"] for item in payload["cases"]}), 4)
+
+        for case in payload["cases"]:
+            pages = list(case["navigation_results"])
+            calls: list[str] = []
+
+            def navigate(url: str) -> dict:
+                calls.append(url)
+                if len(calls) > len(pages):
+                    self.fail(f"unexpected navigation for {case['case_id']}: {url}")
+                return copy.deepcopy(pages[len(calls) - 1])
+
+            project = self.make_project(f"proj:{case['case_id']}", "service_url", case["service_url"])
+            bundle = service_core.collect_browser_service_evidence(
+                project,
+                case["service_url"],
+                service_core.BrowserDependencies(navigate=navigate, now=lambda: "2026-07-16T00:00:00+00:00"),
+            )
+            self.assertFalse(bundle.failures)
+            value = bundle.records[0].value
+            for key, expected in case["expected"].items():
+                self.assertEqual(value[key], expected, f"{case['case_id']}:{key}")
+            self.assertEqual(len(calls), len(pages))
 
     def test_tangled_account_collector_paginates_pds_records(self) -> None:
         project = self.make_project("proj:tangled", "service_url", "https://example.com")

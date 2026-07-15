@@ -270,7 +270,15 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
 
         juntos = next(item for item in cases if item["subject"]["ref"] == "juntos")
         self.assertEqual(juntos["subject"]["service_status_confidence"], "low")
-        self.assertEqual(juntos["subject"]["service_status_evidence"], ["http_200"])
+        self.assertEqual(
+            juntos["subject"]["service_status_evidence"],
+            [
+                "http_200",
+                "browser_password_form_detected",
+                "browser_identity_form_detected",
+                "browser_oauth_entry_detected",
+            ],
+        )
         self.assertEqual(
             juntos["expected_promotion"],
             {"disposition": "queue", "reason": "runtime_validation_required"},
@@ -292,6 +300,13 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
             signal["kind"] for signal in registry.compute_showcase_signals(project)
         }
         self.assertIn("service_candidate_needs_validation", signal_kinds)
+
+        browser_path = Path(__file__).parent / "fixtures" / "project_registry" / "browser-service-calibration-v1.json"
+        browser_payload = json.loads(browser_path.read_text(encoding="utf-8"))
+        browser_case_ids = {item["case_id"] for item in browser_payload["cases"]}
+        linked_cases = [item for item in cases if "browser_calibration_case_id" in item]
+        self.assertEqual(len(linked_cases), 4)
+        self.assertTrue(all(item["browser_calibration_case_id"] in browser_case_ids for item in linked_cases))
 
     def test_manual_gold_fixture_has_showcase_reference_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
