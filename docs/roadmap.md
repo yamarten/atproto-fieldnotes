@@ -29,17 +29,44 @@
 
 固定したmanual gold setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
 
-1. promotion queue のpositive sampleと順位再設計
+1. promotion queue のevidence・順位・表示を一貫させる
+
+   実装済みの土台:
+
    - exclude 8件、hold 2件、queue 2件、contextual 2件のeditorial sampleと、紹介済みpositive reference 5件を固定済み
-   - service surface確認済みと要validationを別signalとし、Echoskyを前者、Juntos / Moat / gmstn.systemsを後者で候補に残す。静的probeだけでbackend障害とlanding-onlyを無理に分けない
-   - 次はatShare / Mathrのような単独紹介よりcontextualな候補を表す順位・表示契約を決める。Bluesky / rolldとstandard.site / idiolectを別系統のpositive referenceとし、meyasuatの地域性はmanual contextに留める
-   - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
+   - service surface確認済みと要validationを別signalとし、後者を約100点下に表示済み
+   - 地域性は自動スコアに入れず、meyasuatのmanual contextに留めると確定済み
+
+   次の実施順:
+
+   1. browser auth surface evidenceを強化する
+      - 現在の`login_surface_reached`はloginらしいlinkを辿れただけで、遷移先のformを確認していない
+      - `login_link_followed`、password / handle / email入力とsubmitの組み合わせ、OAuth login入口、描画後のnetwork / console errorを別evidenceにする
+      - 認証情報の入力やsubmitは行わない。認証後だけ発生する障害は確認範囲外とする
+      - browser依存を用意したbounded runでJuntos / Echosky / Moat / gmstn.systemsを比較する
+   2. current service observationの投影規則を整理する
+      - `service_status_*`の単純な履歴unionではなく、`lane + requested_url`ごとの最新観測からcurrent stateを導出する
+      - gmstn.systemsの保存状態`live / high`と最新probe・LLM判断の矛盾を実caseとし、古いpositive evidenceを無条件に勝たせない
+      - 履歴自体はinvestigation runに残し、current stateの簡素化のために捨てない
+   3. candidate visibilityとeditorial判断の契約を決める
+      - service surface、要validation、contextual、serviceのないtechnical interestを独立軸のまま、queueのgroupと順位へ投影する
+      - Juntosのような「候補には出すが紹介は保留」と、候補自体を隠す現行`defer_promotion`を混同しない
+      - atShare / Mathrのcontextual扱い、Bluesky / rolldの強いservice正例、standard.site / idiolectの技術的正例を比較に使う
+   4. queue outputとWeb表示・操作を契約に合わせる
+      - 合計scoreだけではなく、signal、score breakdown、validation reason、editorial groupを返す
+      - Webでgroup / reasonを読める形にし、必要ならgroup別filterを追加する
+      - hold / defer / contextualの操作対象がproject全体か個別signalかを決めてからmutationを増やす
+   5. fixed sampleと正本DB sample reviewで評価する
+      - 名前依存の例外は作らず、manual goldとpositive referenceから順位・groupの差分を検出できる評価を用意する
+      - Juntosはvalidation候補、Echoskyはsurface確認済み、Moat / gmstn.systemsは下位のvalidation候補、atShare / Mathrはcontextualになることを受入sampleとする
+
+   目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する。
 
 ### 依存関係
 
 - queue builder の分割は、queue policy の契約と sample review を先に用意してから行う
 - LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
-- service verification後半強化は、実誤判定caseで「認証後の利用可能性」や「複数surface統合」が問題だと分かってから行う
+- contextualの順位・表示調整は、browser auth surface evidenceとcurrent service observationの投影規則を先に固め、不安定な入力をscoreで埋め合わせない
 - app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
 
 ## 条件付き短期候補

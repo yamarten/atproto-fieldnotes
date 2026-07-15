@@ -13,7 +13,9 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- service surface確認済みと要validationの分離を前提に、atShare / Mathrをcontextualに扱う順位・表示契約を決める。紹介済みpositive reference 5件を比較に使う。
+- browser laneのlogin判定を「linkを辿れた」だけから、form / OAuth入口 / 描画後errorの構造化evidenceへ変える。認証情報の入力・submitは行わない。
+- browser依存を用意したbounded runでJuntos / Echosky / Moat / gmstn.systemsを比較し、次に最新観測から`service_status_*`のcurrent stateを投影する規則を決める。
+- その後、candidate visibilityとeditorial判断を分けた上で、atShare / Mathrのcontextual扱い、score breakdown、Web表示、hold / deferの操作単位を決める。固定sample 14件と紹介済みpositive reference 5件を評価に使う。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ
