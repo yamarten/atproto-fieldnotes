@@ -29,38 +29,44 @@
 
 固定したmanual gold setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
 
-1. promotion queue のevidence・順位・表示を一貫させる
+#### Promotion queue のevidence・順位・表示
 
-   実装済みの土台:
+目的は、候補を見せるか、service利用可否をどこまで確認できたか、単独で紹介する価値があるかを分け、「深掘りする価値がある候補」を根拠付きで提示することです。
 
-   - exclude 8件、hold 2件、queue 2件、contextual 2件のeditorial sampleと、紹介済みpositive reference 5件を固定済み
-   - service surface確認済みと要validationを別signalとし、後者を約100点下に表示済み
-   - 地域性は自動スコアに入れず、meyasuatのmanual contextに留めると確定済み
+現在の契約:
 
-   次の実施順:
+- 機械的なservice evidenceは`service_surface_confirmed`と`service_candidate_needs_validation`に分け、後者を約100点下に表示します
+- operatorが期待するqueue上の扱いは[manual gold fixture](../tests/fixtures/project_registry/manual-gold-v1.json)の`expected_promotion.disposition`に`exclude / hold / queue / contextual`として保持します
+- 紹介済みの強いservice例と、serviceを持たない技術的価値の例は同fixtureの`showcase_reference_cases`に分けます
+- 地域性は機械スコアに入れず、operatorが読む`manual_context`に留めます
+- `contextual`の順位、queue group、Web表示、操作契約は未実装です
 
-   1. browser auth surface evidenceを強化する
-      - 現在の`login_surface_reached`はloginらしいlinkを辿れただけで、遷移先のformを確認していない
-      - `login_link_followed`、password / handle / email入力とsubmitの組み合わせ、OAuth login入口、描画後のnetwork / console errorを別evidenceにする
-      - 認証情報の入力やsubmitは行わない。認証後だけ発生する障害は確認範囲外とする
-      - browser依存を用意したbounded runでJuntos / Echosky / Moat / gmstn.systemsを比較する
-   2. current service observationの投影規則を整理する
-      - `service_status_*`の単純な履歴unionではなく、`lane + requested_url`ごとの最新観測からcurrent stateを導出する
-      - gmstn.systemsの保存状態`live / high`と最新probe・LLM判断の矛盾を実caseとし、古いpositive evidenceを無条件に勝たせない
-      - 履歴自体はinvestigation runに残し、current stateの簡素化のために捨てない
-   3. candidate visibilityとeditorial判断の契約を決める
-      - service surface、要validation、contextual、serviceのないtechnical interestを独立軸のまま、queueのgroupと順位へ投影する
-      - Juntosのような「候補には出すが紹介は保留」と、候補自体を隠す現行`defer_promotion`を混同しない
-      - atShare / Mathrのcontextual扱い、Bluesky / rolldの強いservice正例、standard.site / idiolectの技術的正例を比較に使う
-   4. queue outputとWeb表示・操作を契約に合わせる
-      - 合計scoreだけではなく、signal、score breakdown、validation reason、editorial groupを返す
-      - Webでgroup / reasonを読める形にし、必要ならgroup別filterを追加する
-      - hold / defer / contextualの操作対象がproject全体か個別signalかを決めてからmutationを増やす
-   5. fixed sampleと正本DB sample reviewで評価する
-      - 名前依存の例外は作らず、manual goldとpositive referenceから順位・groupの差分を検出できる評価を用意する
-      - Juntosはvalidation候補、Echoskyはsurface確認済み、Moat / gmstn.systemsは下位のvalidation候補、atShare / Mathrはcontextualになることを受入sampleとする
+実施順と受入条件:
 
-   目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する。
+1. rendered auth surface evidence
+   - 問題: [service.py](../scripts/project_registry_core/service.py)の`collect_browser_service_evidence()`は、loginらしいsame-site linkを一つでも辿ると`login_surface_reached=true`にします。遷移先のlogin formやOAuth入口は確認しません
+   - 変更対象: browserが返す描画後DOMの要約とservice verification evidence。link追従、password / handle / email入力とsubmitの組み合わせ、OAuth入口、network / console errorを別々に保持します
+   - 非対象: 認証情報の入力、form submit、認証後だけ発生する障害の確認
+   - 自動確認: [test_project_registry_research_pipeline.py](../tests/test_project_registry_research_pipeline.py)で、linkだけのpageをform確認済みにせず、password formとOAuth入口を別evidenceとし、描画後errorを保持することを検証します
+   - 実source確認: `requirements-browser.txt`の依存を用意し、`verify-service --lane browser`のdry-runで`queue-runtime-validation-juntos-service`、`queue-incomplete-core-echosky`、`hold-landing-only-moat`、`hold-landing-only-gmstn-systems`に対応する4 serviceを比較します。正本DBへの保存は別途承認後に行います
+2. current service observation projection
+   - 問題: probeごとの最新結果は`service_verification_results`に`lane + requested_url`単位で残りますが、project直下の`service_status / confidence / evidence`は新旧観測のmax / unionの影響を受けます。そのため、現在の観測と矛盾する強い過去値が残る場合があります
+   - 変更対象: 最新のURL別・lane別観測からcurrent scalarを作るpure projectionと、lane間のprecedence・矛盾規則
+   - 非対象: investigation runの履歴削除、LLM判定をHTTP / browser観測と同じ事実として扱うこと
+   - 確認: temp DBの新旧観測fixtureでcurrent scalarだけが最新状態へ変わり、investigation historyが不変であることを検証します。正本DBは複製に対するdry-run / auditを先に行います
+3. candidate visibility and editorial policy
+   - 問題: [registry.py](../scripts/project_registry_core/registry.py)の`promotion_queue_sort_score()`はservice signalに固定点を与えますが、`contextual`はまだruntimeのgroupやscoreに投影されません。また`defer_promotion`はproject全体をqueueから隠すため、「候補には出すが紹介は保留」を表せません
+   - 変更対象: candidate visibility、service evidence group、editorial group、score breakdownを別々に定義し、project全体と個別signalのどちらにhold / deferが作用するかを決めます
+   - 非対象: project名ごとの例外、地域性の自動スコア化、契約確定前のmutation追加
+   - 確認: `promotion_cases`のqueue / hold / contextual / excludeと`showcase_reference_cases`のflagship / strong / technical_interestの差を説明可能なscore breakdownとgroupになることをfixture評価します
+4. queue API and Web UI
+   - 変更対象: promotion queue responseにgroup、score breakdown、validation reasonを返し、WebのPromotion listで候補を開かずに主要根拠を読めるようにします。group別filterは実件数と運用上の必要を確認して追加します
+   - 依存: 3のpolicy契約を先に固定します
+   - 確認: PythonのAPI test、JavaScript syntax check、Promotion listの実browser確認を行います
+5. executable evaluation
+   - 問題: manual goldは現在、fixtureの構造と一部のpolicy境界をunit testしますが、queue全体のgroup・順位差分を機械的に評価しません
+   - 変更対象: 固定fixtureから期待group・相対順位・根拠を評価し、差分を報告するnetworkなしのevaluator
+   - 確認: fixtureの全caseが評価対象になり、意図的なscore / group変更だけがreview可能な差分として現れることを検証します
 
 ### 依存関係
 

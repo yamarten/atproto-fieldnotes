@@ -332,7 +332,7 @@
   ],
   "promotion_cases": [
     {
-      "case_id": "hold-http-only-juntos-service",
+      "case_id": "queue-runtime-validation-juntos-service",
       "subject": {
         "ref": "juntos",
         "name": "Juntos",
