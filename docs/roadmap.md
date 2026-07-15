@@ -41,7 +41,9 @@
 - 紹介済みの強いservice例と、serviceを持たない技術的価値の例は同fixtureの`showcase_reference_cases`に分けます
 - 地域性は機械スコアに入れず、operatorが読む`manual_context`に留めます
 - current service scalarは最新のURL別・lane別観測から投影し、過去scalarのmax / unionを引き継ぎません。WhiteWindのbrowser公開利用面は同一URLのstatic docs-only分類より優先します
-- `contextual`の順位、queue group、Web表示、操作契約は未実装です
+- queue itemはcandidate visibility、service evidence group、`editorial_group=unreviewed`、既存scoreの成分別breakdownを返します
+- `defer_promotion`はproject全体を期限付きで非表示にし、service validationは候補を残す個別signalとして扱います
+- `contextual / hold`の明示判断を保存・表示・操作する契約は未実装です
 
 実施順と受入条件:
 
@@ -50,13 +52,15 @@
    - 複製3,278 projectのうち420 projectでscalar差分を確認しました。正本DB writer停止を確認し、別途承認を得て`repair-db --execute`を適用します
    - 適用後は再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認します
 2. candidate visibility and editorial policy
-   - 問題: [registry.py](../scripts/project_registry_core/registry.py)の`promotion_queue_sort_score()`はservice signalに固定点を与えますが、`contextual`はまだruntimeのgroupやscoreに投影されません。また`defer_promotion`はproject全体をqueueから隠すため、「候補には出すが紹介は保留」を表せません
-   - 変更対象: candidate visibility、service evidence group、editorial group、score breakdownを別々に定義し、project全体と個別signalのどちらにhold / deferが作用するかを決めます
-   - 非対象: project名ごとの例外、地域性の自動スコア化、契約確定前のmutation追加
-   - 確認: `promotion_cases`のqueue / hold / contextual / excludeと`showcase_reference_cases`のflagship / strong / technical_interestの差を説明可能なscore breakdownとgroupになることをfixture評価します
-3. queue API and Web UI
-   - 変更対象: promotion queue responseにgroup、score breakdown、validation reasonを返し、WebのPromotion listで候補を開かずに主要根拠を読めるようにします。group別filterは実件数と運用上の必要を確認して追加します
-   - 依存: 2のpolicy契約を先に固定します
+   - 完了: candidate visibility、service evidence group、editorial group、score breakdownを純粋なpolicy projectionとして分離しました
+   - 完了: `defer_promotion`はproject全体、validationは個別service signalへ作用すると固定しました
+   - 完了: manual gold 14件でmachine projectionを検証し、hold / contextualを保存事実から自動推定しない境界を固定しました
+   - 非対象: project名ごとの例外、地域性の自動スコア化、編集判断の保存・mutation
+3. editorial decision, queue API and Web UI
+   - 変更対象: `hold / contextual`を明示的なoperator判断として保存・解除できるようにし、Promotion listでgroup、score breakdown、validation reasonを候補を開かず読めるようにします。既存API responseへのmachine projection接続は完了しています
+   - `defer_promotion`の期限付き非表示とは別に、「候補には出すが単独紹介は保留」を表現します
+   - group別filterは実件数と運用上の必要を確認して追加します
+   - 依存: 2のpolicy契約を維持し、contextualを説明文heuristicで自動生成しません
    - 確認: PythonのAPI test、JavaScript syntax check、Promotion listの実browser確認を行います
 4. executable evaluation
    - 問題: manual goldは現在、fixtureの構造と一部のpolicy境界をunit testしますが、queue全体のgroup・順位差分を機械的に評価しません

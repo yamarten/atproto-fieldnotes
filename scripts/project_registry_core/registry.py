@@ -10281,21 +10281,64 @@ def build_out_of_scope_review_note(item: dict[str, Any], reason_key: str, extra_
     return " / ".join([part for part in parts if part])
 
 
-def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
-    score = 0
-    now = dt.datetime.now(dt.timezone.utc)
+def promotion_candidate_visibility(project: dict[str, Any]) -> dict[str, Any]:
+    if str(project.get("introduced_url") or "").strip():
+        return {"group": "excluded", "reasons": ["already_introduced"]}
+    tracking_state = str(project.get("tracking_state") or "active")
+    if tracking_state in {"out_of_scope", "ignore"}:
+        return {
+            "group": "excluded",
+            "reasons": [f"tracking_state_{tracking_state}"],
+        }
+    if active_promotion_deferral(project):
+        return {"group": "deferred", "reasons": ["active_promotion_deferral"]}
+    return {"group": "eligible", "reasons": []}
+
+
+def promotion_service_evidence_group(signals: list[dict[str, Any]]) -> str:
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if "service_surface_confirmed" in signal_kinds:
-        score += 200
+        return "confirmed"
     if "service_candidate_needs_validation" in signal_kinds:
-        score += 100
+        return "needs_validation"
+    return "not_applicable"
+
+
+def promotion_queue_score_breakdown(
+    project: dict[str, Any],
+    signals: list[dict[str, Any]],
+    *,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    current_time = now or dt.datetime.now(dt.timezone.utc)
+    components = {
+        "service_evidence": 0,
+        "lexicon_readiness": 0,
+        "technical_interest": 0,
+        "service_status": 0,
+        "service_confidence": 0,
+        "profile_completeness": 0,
+        "repository_evidence": 0,
+        "lexicon_evidence": 0,
+        "review_readiness": 0,
+        "atproto_contribution": 0,
+        "promotion_blockers": 0,
+        "recent_activity": 0,
+        "recent_collection_activity": 0,
+        "recent_repository_activity": 0,
+    }
+    signal_kinds = {str(item.get("kind") or "") for item in signals}
+    if "service_surface_confirmed" in signal_kinds:
+        components["service_evidence"] = 200
+    elif "service_candidate_needs_validation" in signal_kinds:
+        components["service_evidence"] = 100
     if "lexicon_ready_for_introduction" in signal_kinds:
-        score += 100
+        components["lexicon_readiness"] = 100
     if "technical_insight_candidate" in signal_kinds:
-        score += int(project.get("technical_interest_score", 0) or 0)
+        components["technical_interest"] = int(project.get("technical_interest_score", 0) or 0)
 
     service_status = normalize_service_status(project.get("service_status"))
-    score += {
+    components["service_status"] = {
         "live": 30,
         "beta": 20,
         "invite_only": 15,
@@ -10306,55 +10349,74 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
         "private": 2,
         "dead": 0,
     }.get(service_status, 0)
-    score += {
+    components["service_confidence"] = {
         "high": 12,
         "medium": 8,
         "low": 4,
         "none": 0,
     }.get(normalize_service_status_confidence(project.get("service_status_confidence")), 0)
     if str(project.get("summary") or "").strip():
-        score += 8
+        components["profile_completeness"] += 8
     if str(project.get("tagline") or "").strip():
-        score += 6
+        components["profile_completeness"] += 6
     if str(project.get("tagline") or "").strip() and not bool(project.get("tagline_is_provisional")):
-        score += 3
+        components["profile_completeness"] += 3
     if project_repo_hint_urls(project):
-        score += 6
+        components["repository_evidence"] = 6
     nsid_hints = unique_list(
         [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
         + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
     )
     if nsid_hints:
-        score += min(4, len(nsid_hints))
+        components["lexicon_evidence"] = min(4, len(nsid_hints))
     if not bool(project.get("manual_review_recommended")):
-        score += 4
-    score += int(project.get("atproto_contribution_score", 0) or 0) // 5
+        components["review_readiness"] = 4
+    components["atproto_contribution"] = int(project.get("atproto_contribution_score", 0) or 0) // 5
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
-    score -= len(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"})
+    components["promotion_blockers"] = -len(
+        blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}
+    )
     latest_activity = project_latest_activity_at(project)
-    activity_days = activity_age_days(latest_activity, now)
+    activity_days = activity_age_days(latest_activity, current_time)
     if activity_days is not None:
         if activity_days <= 3:
-            score += 18
+            components["recent_activity"] = 18
         elif activity_days <= 7:
-            score += 14
+            components["recent_activity"] = 14
         elif activity_days <= 14:
-            score += 10
+            components["recent_activity"] = 10
         elif activity_days <= 30:
-            score += 6
+            components["recent_activity"] = 6
         elif activity_days <= 60:
-            score += 2
+            components["recent_activity"] = 2
         elif activity_days >= 180:
-            score -= 4
+            components["recent_activity"] = -4
     latest_collection_activity = project_latest_collection_activity_at(project)
     latest_repo_activity = project_latest_repo_activity_at(project)
-    collection_days = activity_age_days(latest_collection_activity, now)
-    repo_days = activity_age_days(latest_repo_activity, now)
+    collection_days = activity_age_days(latest_collection_activity, current_time)
+    repo_days = activity_age_days(latest_repo_activity, current_time)
     if collection_days is not None and collection_days <= 14:
-        score += 3
+        components["recent_collection_activity"] = 3
     if repo_days is not None and repo_days <= 14:
-        score += 3
-    return score
+        components["recent_repository_activity"] = 3
+    return {"total": sum(components.values()), "components": components}
+
+
+def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
+    return int(promotion_queue_score_breakdown(project, signals)["total"])
+
+
+def promotion_policy_projection(
+    project: dict[str, Any],
+    signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "candidate_visibility": promotion_candidate_visibility(project),
+        "service_evidence_group": promotion_service_evidence_group(signals),
+        # Contextual or standalone placement is an editorial assertion, not an evidence heuristic.
+        "editorial_group": "unreviewed",
+        "score_breakdown": promotion_queue_score_breakdown(project, signals),
+    }
 
 
 def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
@@ -10364,11 +10426,7 @@ def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any
 
 def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools: bool = False) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
-    if shaped.get("introduced_url"):
-        return []
-    if str(shaped.get("tracking_state") or "") in {"out_of_scope", "ignore"}:
-        return []
-    if active_promotion_deferral(shaped):
+    if promotion_candidate_visibility(shaped)["group"] != "eligible":
         return []
 
     signals: list[dict[str, Any]] = []
@@ -10496,7 +10554,8 @@ def build_showcase_queue(
         if not signals:
             continue
         top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
-        sort_score = promotion_queue_sort_score(shaped, signals)
+        policy = promotion_policy_projection(shaped, signals)
+        sort_score = int(policy["score_breakdown"]["total"])
         queue.append(
             {
                 "project_key": shaped["project_key"],
@@ -10524,6 +10583,7 @@ def build_showcase_queue(
                 "summary": shaped.get("summary", ""),
                 "top_priority": top_priority,
                 "sort_score": sort_score,
+                **policy,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
                 "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
             }
@@ -10549,7 +10609,8 @@ def build_showcase_queue_item(
     if not signals:
         return None
     top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
-    sort_score = promotion_queue_sort_score(shaped, signals)
+    policy = promotion_policy_projection(shaped, signals)
+    sort_score = int(policy["score_breakdown"]["total"])
     return {
         "project_key": shaped["project_key"],
         "name": shaped.get("name", ""),
@@ -10576,6 +10637,7 @@ def build_showcase_queue_item(
         "summary": shaped.get("summary", ""),
         "top_priority": top_priority,
         "sort_score": sort_score,
+        **policy,
         "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
         "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
     }

@@ -308,6 +308,44 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len(linked_cases), 4)
         self.assertTrue(all(item["browser_calibration_case_id"] in browser_case_ids for item in linked_cases))
 
+    def test_manual_gold_promotion_cases_project_machine_policy_without_editorial_guessing(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))["promotion_cases"]
+        expected_service_groups = {
+            "juntos": "needs_validation",
+            "moat": "needs_validation",
+            "gmstn-systems": "needs_validation",
+            "echosky": "confirmed",
+            "atshare": "needs_validation",
+            "mathr": "confirmed",
+        }
+
+        for item in cases:
+            project = dict(item["subject"])
+            project["website_url"] = project.pop("service_url")
+            shaped = registry.apply_promotion_state(registry.ensure_project_shape(project))
+            signals = registry.compute_showcase_signals(shaped)
+            policy = registry.promotion_policy_projection(shaped, signals)
+            disposition = item["expected_promotion"]["disposition"]
+
+            if disposition == "exclude":
+                self.assertEqual(policy["candidate_visibility"]["group"], "excluded")
+                self.assertEqual(signals, [])
+                self.assertEqual(policy["service_evidence_group"], "not_applicable")
+            else:
+                self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
+                self.assertEqual(
+                    policy["service_evidence_group"],
+                    expected_service_groups[project["ref"]],
+                )
+                self.assertEqual(policy["editorial_group"], "unreviewed")
+
+        editorial_cases = [
+            item for item in cases
+            if item["expected_promotion"]["disposition"] in {"hold", "contextual"}
+        ]
+        self.assertEqual(len(editorial_cases), 4)
+
     def test_manual_gold_fixture_has_showcase_reference_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))

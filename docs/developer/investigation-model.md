@@ -177,8 +177,7 @@ local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去�
 
 manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを
 保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseはoperatorが期待する
-`exclude / hold / queue / contextual`を保持します。out-of-scopeの除外、Echoskyのsurface-confirmed、Juntos / Moat / gmstn.systemsのvalidation候補は現行policyとtestで確認し、
-contextualの境界は順位・表示契約の未実装sampleとして保持します。positive referenceはBluesky / rolldのservice紹介とstandard.site / idiolectの技術的価値を分け、meyasuatの地域性は自動スコアではなくmanual contextに留めます。
+`exclude / hold / queue / contextual`を保持します。out-of-scopeの除外、Echosky / Mathrのservice-confirmed、Juntos / Moat / gmstn.systems / atShareのvalidation候補は現行policyとtestで確認します。hold / contextualは同じ保存事実から機械推定できない編集判断なので、明示判断を保存するまではruntimeの`editorial_group=unreviewed`とすることも回帰条件です。positive referenceはBluesky / rolldのservice紹介とstandard.site / idiolectの技術的価値を分け、meyasuatの地域性は自動スコアではなくmanual contextに留めます。
 
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
 

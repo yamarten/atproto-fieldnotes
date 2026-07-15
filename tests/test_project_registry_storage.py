@@ -1617,6 +1617,59 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             100,
         )
 
+    def test_promotion_policy_separates_visibility_service_and_editorial_axes(self) -> None:
+        project = self.make_project("proj:policyaxes", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+        signals = registry.compute_showcase_signals(project)
+
+        policy = registry.promotion_policy_projection(project, signals)
+
+        self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
+        self.assertEqual(policy["service_evidence_group"], "confirmed")
+        self.assertEqual(policy["editorial_group"], "unreviewed")
+        self.assertEqual(
+            policy["score_breakdown"]["total"],
+            sum(policy["score_breakdown"]["components"].values()),
+        )
+        self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
+
+        registry.defer_promotion_on_project(project, reason="editorial review later")
+        self.assertEqual(
+            registry.promotion_candidate_visibility(project),
+            {"group": "deferred", "reasons": ["active_promotion_deferral"]},
+        )
+
+    def test_promotion_queue_item_exposes_policy_projection(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:policyitem", "service_url", "https://example.com")
+            project.update({
+                "category": "project",
+                "service_status": "live",
+                "service_status_confidence": "low",
+                "service_status_evidence": ["http_200"],
+            })
+            registry.confirm_service_seed(project, "https://example.com", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            item = registry.build_showcase_queue_item(conn, project["project_key"])
+
+            self.assertIsNotNone(item)
+            assert item is not None
+            self.assertEqual(item["candidate_visibility"], {"group": "eligible", "reasons": []})
+            self.assertEqual(item["service_evidence_group"], "needs_validation")
+            self.assertEqual(item["editorial_group"], "unreviewed")
+            self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
+        finally:
+            conn.close()
+
     def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
 

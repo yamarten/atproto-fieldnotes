@@ -1304,6 +1304,28 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.assertEqual(status, 200)
             self.assertIn("items", payload)
 
+    def test_promotion_queue_api_exposes_policy_projection(self) -> None:
+        conn = registry.open_db()
+        project = registry.fetch_project(conn, "proj:111111111111")
+        assert project is not None
+        project["category"] = "project"
+        project["website_url"] = "https://app.example.com"
+        project["service_status_confidence"] = "medium"
+        project["service_status_evidence"] = ["http_200", "login_surface_detected"]
+        registry.confirm_service_seed(project, "https://app.example.com", source="fixture")
+        registry.save_project(conn, project)
+        conn.commit()
+        conn.close()
+
+        status, payload, _ = self.request("/api/promotion-queue?limit=10")
+
+        self.assertEqual(status, 200)
+        item = next(item for item in payload["items"] if item["project_key"] == project["project_key"])
+        self.assertEqual(item["candidate_visibility"], {"group": "eligible", "reasons": []})
+        self.assertEqual(item["service_evidence_group"], "confirmed")
+        self.assertEqual(item["editorial_group"], "unreviewed")
+        self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
+
     def test_validation_not_found_and_database_busy_error_shapes(self) -> None:
         status, payload, _ = self.request("/api/projects?introduced=maybe")
         self.assertEqual(status, 400)

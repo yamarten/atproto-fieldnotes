@@ -108,6 +108,9 @@
 - promotion queueの独立signal
   - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。正本DBで160候補のうち前者78件、後者66件
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
+  - application/Web APIのqueue itemはcandidate visibility、service evidence group、editorial group、score breakdownを別fieldで返す
+  - activeな`defer_promotion`はproject全体を期限付きで非表示にし、serviceのvalidation状態は候補を残したまま個別signalへ作用する
+  - `contextual`や紹介保留は機械推定せず、明示判断の保存導線が入るまでは`editorial_group=unreviewed`とする
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
@@ -152,7 +155,7 @@
 
 2026-07-16時点で確認済み:
 
-- 全unit test 411件
+- 全unit test 415件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

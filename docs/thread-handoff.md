@@ -15,7 +15,7 @@
 
 - current service observation projectionの実装と複製DB dry-runは完了しています。3,278 project中420 projectでscalar差分があり、正本DBは未変更です。
 - 次はwriter停止と別途承認を確認して`repair-db --execute`を正本DBへ適用します。再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認してください。
-- 適用後は[roadmapのcandidate visibility and editorial policy](roadmap.md)へ進み、candidate visibility、service evidence group、editorial group、score breakdownの契約をmanual gold fixtureに対して固定します。
+- machine policy projectionは完了しています。次のcode作業は[roadmapのeditorial decision, queue API and Web UI](roadmap.md)で、`hold / contextual`を期限付き非表示の`defer_promotion`と分けて明示保存・表示します。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ
