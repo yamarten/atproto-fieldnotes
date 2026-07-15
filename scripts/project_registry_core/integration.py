@@ -281,7 +281,9 @@ def apply_service_evidence(
                     browser_evidence.append("browser_identity_form_detected")
                 if value.get("oauth_entry_detected"):
                     browser_evidence.append("browser_oauth_entry_detected")
-                if value.get("login_surface_reached"):
+                if value.get("public_app_surface_detected"):
+                    browser_evidence.append("browser_public_app_surface_detected")
+                if value.get("login_surface_reached") or value.get("public_app_surface_detected"):
                     apply_saved_service_probe(project, {
                         "service_status": "live",
                         "service_status_confidence": "high",

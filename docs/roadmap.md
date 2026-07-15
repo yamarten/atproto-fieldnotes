@@ -37,7 +37,7 @@
 
 - 機械的なservice evidenceは`service_surface_confirmed`と`service_candidate_needs_validation`に分け、後者を約100点下に表示します
 - operatorが期待するqueue上の扱いは[manual gold fixture](../tests/fixtures/project_registry/manual-gold-v1.json)の`expected_promotion.disposition`に`exclude / hold / queue / contextual`として保持します
-- Juntos / Echosky / Moat / gmstn.systemsの描画後page要約は[browser calibration fixture](../tests/fixtures/project_registry/browser-service-calibration-v1.json)に固定し、networkなしの回帰入力として使います。fixture内の実URLは現在状態を再確認するsmoke referenceであり、回帰評価時に取得し直しません
+- Juntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約は[browser calibration fixture](../tests/fixtures/project_registry/browser-service-calibration-v1.json)に固定し、networkなしの回帰入力として使います。fixture内の実URLは現在状態を再確認するsmoke referenceであり、回帰評価時に取得し直しません
 - 紹介済みの強いservice例と、serviceを持たない技術的価値の例は同fixtureの`showcase_reference_cases`に分けます
 - 地域性は機械スコアに入れず、operatorが読む`manual_context`に留めます
 - `contextual`の順位、queue group、Web表示、操作契約は未実装です
@@ -46,6 +46,7 @@
 
 1. current service observation projection
    - 問題: probeごとの最新結果は`service_verification_results`に`lane + requested_url`単位で残りますが、project直下の`service_status / confidence / evidence`は新旧観測のmax / unionの影響を受けます。そのため、現在の観測と矛盾する強い過去値が残る場合があります
+   - 既知の実例: WhiteWindはstatic laneの`docs_only_surface_detected`とbrowser laneの`browser_public_app_surface_detected`が併存するため、browserで確認した公開利用面を古いstatic分類で打ち消さない必要があります
    - 変更対象: 最新のURL別・lane別観測からcurrent scalarを作るpure projectionと、lane間のprecedence・矛盾規則
    - 非対象: investigation runの履歴削除、LLM判定をHTTP / browser観測と同じ事実として扱うこと
    - 確認: temp DBの新旧観測fixtureでcurrent scalarだけが最新状態へ変わり、investigation historyが不変であることを検証します。正本DBは複製に対するdry-run / auditを先に行います

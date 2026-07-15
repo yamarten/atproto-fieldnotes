@@ -36,6 +36,19 @@ SERVICE_VERIFICATION_RESULT_MAX_COUNT = 32
 SERVICE_BROWSER_FORM_MAX_COUNT = 12
 SERVICE_BROWSER_INPUT_MAX_COUNT = 24
 SERVICE_BROWSER_ACTION_MAX_COUNT = 24
+SERVICE_BROWSER_PUBLIC_CONTENT_MIN_COUNT = 3
+SERVICE_BROWSER_PUBLIC_ACTION_PHRASES = (
+    "post new entry",
+    "new entry",
+    "new post",
+    "create entry",
+    "create post",
+    "write entry",
+    "write post",
+    "compose",
+    "publish",
+    "upload",
+)
 SERVICE_LINK_PRIORITY_TOKENS = (
     "source",
     "repo",
@@ -346,6 +359,10 @@ def normalized_browser_auth_actions(value: Any) -> list[dict[str, str]]:
     return actions
 
 
+def normalized_browser_service_actions(value: Any) -> list[dict[str, str]]:
+    return normalized_browser_auth_actions(value)
+
+
 def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
     forms = normalized_browser_forms(page.get("forms"))
     page_context = " ".join((
@@ -400,6 +417,39 @@ def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
     }
 
 
+def browser_page_public_surface_features(page: dict[str, Any], service_url: str) -> dict[str, Any]:
+    service_actions = normalized_browser_service_actions(page.get("service_actions"))
+    service_action_detected = any(
+        any(
+            phrase in str(action.get("text") or "").strip().lower()
+            for phrase in SERVICE_BROWSER_PUBLIC_ACTION_PHRASES
+        )
+        for action in service_actions
+    )
+
+    page_url = str(page.get("url") or service_url)
+    content_urls: set[str] = set()
+    for item in page.get("links", []) if isinstance(page.get("links"), list) else []:
+        href = str(item.get("href") or item.get("url") or "") if isinstance(item, dict) else str(item or "")
+        resolved = urllib.parse.urljoin(page_url, href)
+        if not resolved or not same_site_url(service_url, resolved):
+            continue
+        path_parts = [part for part in urllib.parse.urlparse(resolved).path.split("/") if part]
+        if len(path_parts) < 2 or path_parts[0].lower() in SUPPORTING_PAGE_PATHS:
+            continue
+        content_urls.add(resolved.rstrip("/"))
+
+    public_content_item_count = len(content_urls)
+    return {
+        "service_action_detected": service_action_detected,
+        "public_content_item_count": public_content_item_count,
+        "public_app_surface_detected": (
+            service_action_detected
+            and public_content_item_count >= SERVICE_BROWSER_PUBLIC_CONTENT_MIN_COUNT
+        ),
+    }
+
+
 def same_site_url(base_url: str, candidate: str) -> bool:
     base = urllib.parse.urlparse(base_url)
     parsed = urllib.parse.urlparse(candidate)
@@ -433,9 +483,16 @@ def collect_browser_service_evidence(
                 continue
             pages.append(dict(dependencies.navigate(url)))
         page_features = [browser_page_auth_features(page) for page in pages]
+        public_surface_features = [browser_page_public_surface_features(page, service_url) for page in pages]
         password_form_detected = any(item["password_form_detected"] for item in page_features)
         identity_form_detected = any(item["identity_form_detected"] for item in page_features)
         oauth_entry_detected = any(item["oauth_entry_detected"] for item in page_features)
+        service_action_detected = any(item["service_action_detected"] for item in public_surface_features)
+        public_content_item_count = max(
+            (int(item["public_content_item_count"]) for item in public_surface_features),
+            default=0,
+        )
+        public_app_surface_detected = any(item["public_app_surface_detected"] for item in public_surface_features)
         rendered_error_detected = any(
             page.get("network_errors") or page.get("console_errors")
             for page in pages
@@ -452,6 +509,11 @@ def collect_browser_service_evidence(
                     "console_errors": list(page.get("console_errors") or [])[:20],
                     "forms": normalized_browser_forms(page.get("forms")),
                     "auth_actions": normalized_browser_auth_actions(page.get("auth_actions")),
+                    "service_actions": normalized_browser_service_actions(page.get("service_actions")),
+                    "links": bounded_service_links(
+                        str(page.get("url") or service_url),
+                        page.get("links"),
+                    ),
                 }
                 for page in pages
             ],
@@ -460,6 +522,9 @@ def collect_browser_service_evidence(
             "identity_form_detected": identity_form_detected,
             "oauth_entry_detected": oauth_entry_detected,
             "login_surface_reached": password_form_detected or identity_form_detected or oauth_entry_detected,
+            "service_action_detected": service_action_detected,
+            "public_content_item_count": public_content_item_count,
+            "public_app_surface_detected": public_app_surface_detected,
             "rendered_error_detected": rendered_error_detected,
             "js_rendered": bool(first.get("js_rendered", True)),
         }
@@ -490,43 +555,51 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
         raise RuntimeError("browser verification requires requirements-browser.txt") from exc
     with sync_playwright() as playwright:  # pragma: no cover - integration path
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page()
-        network_errors: list[str] = []
-        console_errors: list[str] = []
-        page.on("requestfailed", lambda request: network_errors.append(f"{request.method} {request.url}"))
-        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
-        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-        payload = {
-            "url": page.url,
-            "title": page.title(),
-            "text": page.locator("body").inner_text(timeout=timeout_ms),
-            "links": page.locator("a[href]").evaluate_all(
-                "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
-            ),
-            "forms": page.locator("form").evaluate_all(
-                """els => els.slice(0, 12).map(form => ({
-                    action: form.action || '',
-                    method: (form.method || 'get').toLowerCase(),
-                    inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
-                        type: (input.type || 'text').toLowerCase(),
-                        name: input.name || '',
-                        autocomplete: input.autocomplete || '',
-                        placeholder: input.placeholder || ''
-                    })),
-                    submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
-                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
-                }))"""
-            ),
-            "auth_actions": page.locator("a[href], button").evaluate_all(
-                """els => els.map(item => ({
-                    kind: item.tagName.toLowerCase(),
-                    href: item.href || '',
-                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
-                })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
-            ),
-            "network_errors": network_errors,
-            "console_errors": console_errors,
-            "js_rendered": True,
-        }
-        browser.close()
-        return payload
+        try:
+            page = browser.new_page()
+            network_errors: list[str] = []
+            console_errors: list[str] = []
+            page.on("requestfailed", lambda request: network_errors.append(f"{request.method} {request.url}"))
+            page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+            return {
+                "url": page.url,
+                "title": page.title(),
+                "text": page.locator("body").inner_text(timeout=timeout_ms),
+                "links": page.locator("a[href]").evaluate_all(
+                    "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
+                ),
+                "forms": page.locator("form").evaluate_all(
+                    """els => els.slice(0, 12).map(form => ({
+                        action: form.action || '',
+                        method: (form.method || 'get').toLowerCase(),
+                        inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
+                            type: (input.type || 'text').toLowerCase(),
+                            name: input.name || '',
+                            autocomplete: input.autocomplete || '',
+                            placeholder: input.placeholder || ''
+                        })),
+                        submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                            .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
+                    }))"""
+                ),
+                "auth_actions": page.locator("a[href], button").evaluate_all(
+                    """els => els.map(item => ({
+                        kind: item.tagName.toLowerCase(),
+                        href: item.href || '',
+                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                    })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
+                ),
+                "service_actions": page.locator("a[href], button").evaluate_all(
+                    """els => els.map(item => ({
+                        kind: item.tagName.toLowerCase(),
+                        href: item.href || '',
+                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                    })).filter(item => /post new entry|new entry|new post|create (entry|post)|write (entry|post)|compose|publish|upload/i.test(item.text)).slice(0, 24)"""
+                ),
+                "network_errors": network_errors,
+                "console_errors": console_errors,
+                "js_rendered": True,
+            }
+        finally:
+            browser.close()

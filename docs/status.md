@@ -98,8 +98,8 @@
   - 通常replay 6件とoperator correctionのblock/defer/confirm 3件をnetworkなしで評価
   - fixture exportはsanitizer v2を通し、commit前のmanual縮約を必須とする
   - manual gold setはoperator reviewから固定したidentity / service / repository判断11件、promotionのhold / exclude / queue / contextual 14件、紹介済みpositive reference 5件を実project key・時刻・期限なしで保持
-  - Juntos / Echosky / Moat / gmstn.systemsの描画後page要約4件をnetworkなしのbrowser calibrationとして固定し、manual goldの対応caseから参照。実URLは現在状態のsmoke referenceに限定
-  - browser laneはauth link追従、password form、handle/email form、OAuth入口、描画後network/console errorを別evidenceにし、link到達だけではlogin surfaceを確定しない
+  - Juntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約5件をnetworkなしのbrowser calibrationとして固定。前4件はmanual goldの対応caseから参照し、WhiteWindは独立login pageを持たない公開利用面の正例とする。実URLは現在状態のsmoke referenceに限定
+  - browser laneはauth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceにし、link到達や作成CTAだけではservice surfaceを確定しない
   - promotion caseのうちout-of-scope除外、Echoskyのsurface-confirmed、Juntos / Moat / gmstn.systemsのvalidation候補は現行policyで確認済み。contextualは未実装のeditorial境界
 - promotion queueの独立signal
   - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。正本DBで160候補のうち前者78件、後者66件
@@ -148,7 +148,7 @@
 
 2026-07-16時点で確認済み:
 
-- 全unit test 405件
+- 全unit test 406件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

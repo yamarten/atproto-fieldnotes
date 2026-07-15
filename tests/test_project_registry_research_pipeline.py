@@ -1151,14 +1151,35 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIn("browser_oauth_entry_detected", project["service_status_evidence"])
         self.assertIn("browser_rendered_error_detected", project["service_status_evidence"])
 
+    def test_browser_public_app_surface_requires_action_and_content_items(self) -> None:
+        project = self.make_project("proj:browserlandingcta", "service_url", "https://example.com")
+        page = {
+            "url": "https://example.com", "title": "Coming soon", "text": "Create post",
+            "links": [
+                {"href": "https://example.com/about", "text": "About"},
+                {"href": "https://example.com/docs/start", "text": "Docs"},
+            ],
+            "service_actions": [{"kind": "button", "href": "", "text": "Create post"}],
+            "forms": [], "auth_actions": [], "network_errors": [], "console_errors": [],
+            "js_rendered": True,
+        }
+        bundle = service_core.collect_browser_service_evidence(
+            project, "https://example.com",
+            service_core.BrowserDependencies(navigate=lambda _url: page, now=lambda: "2026-07-16T00:00:00+00:00"),
+        )
+        value = bundle.records[0].value
+        self.assertTrue(value["service_action_detected"])
+        self.assertEqual(value["public_content_item_count"], 0)
+        self.assertFalse(value["public_app_surface_detected"])
+
     def test_browser_service_calibration_fixture_is_network_free_and_reproducible(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "browser-service-calibration-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(payload["schema_version"], 1)
         self.assertTrue(payload["provenance"]["page_summaries_manually_minimized"])
         self.assertTrue(payload["provenance"]["live_urls_are_smoke_references_only"])
-        self.assertEqual(len(payload["cases"]), 4)
-        self.assertEqual(len({item["case_id"] for item in payload["cases"]}), 4)
+        self.assertEqual(len(payload["cases"]), 5)
+        self.assertEqual(len({item["case_id"] for item in payload["cases"]}), 5)
 
         for case in payload["cases"]:
             pages = list(case["navigation_results"])
@@ -1181,6 +1202,13 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             for key, expected in case["expected"].items():
                 self.assertEqual(value[key], expected, f"{case['case_id']}:{key}")
             self.assertEqual(len(calls), len(pages))
+            if value["public_app_surface_detected"]:
+                registry.apply_service_evidence(project, bundle)
+                self.assertIn("browser_public_app_surface_detected", project["service_status_evidence"])
+                project["category"] = "project"
+                project["website_url"] = case["service_url"]
+                signal_kinds = {item["kind"] for item in registry.compute_showcase_signals(project)}
+                self.assertIn("service_surface_confirmed", signal_kinds)
 
     def test_tangled_account_collector_paginates_pds_records(self) -> None:
         project = self.make_project("proj:tangled", "service_url", "https://example.com")

@@ -168,7 +168,7 @@ record を対応づける履歴です。
 - `export-investigation-fixture`: 保存 run を sanitize 対象の fixture 形式へ出力する
 - executable corpusは通常replay 6 caseに、operator correctionのblock/defer/confirm 3 caseを加えた9 caseを持つ
 - `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 case、promotionのhold / exclude / queue / contextual 14 case、紹介済みのpositive reference 5 caseを持つ
-- `browser-service-calibration-v1.json`はJuntos / Echosky / Moat / gmstn.systemsの描画後page要約と期待auth evidenceを4 caseに固定する
+- `browser-service-calibration-v1.json`はJuntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約と期待browser evidenceを5 caseに固定する
 
 fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。
 自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、
@@ -180,7 +180,9 @@ manual gold setはDBのdecision rowを逐次mirrorしません。synthetic proje
 `exclude / hold / queue / contextual`を保持します。out-of-scopeの除外、Echoskyのsurface-confirmed、Juntos / Moat / gmstn.systemsのvalidation候補は現行policyとtestで確認し、
 contextualの境界は順位・表示契約の未実装sampleとして保持します。positive referenceはBluesky / rolldのservice紹介とstandard.site / idiolectの技術的価値を分け、meyasuatの地域性は自動スコアではなくmanual contextに留めます。
 
-browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
+browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
+
+browserの`public_app_surface_detected`は、作成・投稿を表すactionと、supporting pageではない二階層以上の同一site link 3件以上が同じpageにある場合だけ成立します。CTA単独やcontent link単独では成立しません。action語彙は現在英語のpost / entry / create / write / compose / publish / uploadに限定し、固有project名による例外は持ちません。
 
 ## LLM の位置づけ
 
@@ -198,7 +200,7 @@ browser calibrationは実URLを取得し直さず、固定したpage URL、title
 - GitHub lexicon JSON と source usage の意味分類
 - lexicon resolution、recent record sample、service static/deep、resource page の evidence 化
 - OAuth client metadata の permission relation
-- anonymous browser service verification。auth link追従、password form、handle/email form、OAuth入口、描画後network/console errorを別evidenceとして保持する
+- anonymous browser service verification。auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceとして保持する
 - confirmed developer account からの Tangled PDS record 探索
 - Tangled repo URL のHTML/README inspection
 - UFOs rolling window の `sync-tangled-repos`

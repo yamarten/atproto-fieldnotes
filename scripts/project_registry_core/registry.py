@@ -10230,6 +10230,7 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
                 "browser_password_form_detected",
                 "browser_identity_form_detected",
                 "browser_oauth_entry_detected",
+                "browser_public_app_surface_detected",
                 "verified_authority_service_surface",
                 "invite_text_detected",
                 "beta_text_detected",

@@ -52,6 +52,9 @@
         "identity_form_detected": true,
         "oauth_entry_detected": true,
         "login_surface_reached": true,
+        "service_action_detected": false,
+        "public_content_item_count": 0,
+        "public_app_surface_detected": false,
         "rendered_error_detected": false
       }
     },
@@ -77,6 +80,9 @@
         "identity_form_detected": false,
         "oauth_entry_detected": false,
         "login_surface_reached": false,
+        "service_action_detected": false,
+        "public_content_item_count": 0,
+        "public_app_surface_detected": false,
         "rendered_error_detected": false
       }
     },
@@ -102,6 +108,9 @@
         "identity_form_detected": false,
         "oauth_entry_detected": false,
         "login_surface_reached": false,
+        "service_action_detected": false,
+        "public_content_item_count": 0,
+        "public_app_surface_detected": false,
         "rendered_error_detected": false
       }
     },
@@ -138,6 +147,45 @@
         "identity_form_detected": true,
         "oauth_entry_detected": false,
         "login_surface_reached": true,
+        "service_action_detected": false,
+        "public_content_item_count": 0,
+        "public_app_surface_detected": false,
+        "rendered_error_detected": false
+      }
+    },
+    {
+      "case_id": "whitewind-rendered-public-app-surface",
+      "service_url": "https://whtwnd.com",
+      "navigation_results": [
+        {
+          "url": "https://whtwnd.com/",
+          "title": "WhiteWind atproto blog",
+          "text": "WhiteWind\nPost new entry\nSearch\nLatest\nPopular\nMigrating PDS Account with goat\nNotes on Running a Full-Network atproto Relay",
+          "links": [
+            {"href": "https://whtwnd.com/akosirkal.blog/3mqlxzef4lu2h", "text": "Életkor ellenőrzés a gyerekek védelmébe nem védi a gyerekeket"},
+            {"href": "https://whtwnd.com/hivetoday.bsky.social/hivetoday-issue-90", "text": "The Stabilizer Came Back While Ecency Made Ownership the Story"},
+            {"href": "https://whtwnd.com/johnmcnwoods.eurosky.social/3mmfdvg64aq2i", "text": "Pub Of The Year 2026"},
+            {"href": "https://whtwnd.com/iris.scorpio.city/3mpzvzxgowe2n", "text": "The Witness: Relocating the Blind Spot"}
+          ],
+          "forms": [],
+          "auth_actions": [],
+          "service_actions": [
+            {"kind": "button", "href": "", "text": "Post new entry"}
+          ],
+          "network_errors": [],
+          "console_errors": [],
+          "js_rendered": true
+        }
+      ],
+      "expected": {
+        "auth_link_followed": false,
+        "password_form_detected": false,
+        "identity_form_detected": false,
+        "oauth_entry_detected": false,
+        "login_surface_reached": false,
+        "service_action_detected": true,
+        "public_content_item_count": 4,
+        "public_app_surface_detected": true,
         "rendered_error_detected": false
       }
     }
