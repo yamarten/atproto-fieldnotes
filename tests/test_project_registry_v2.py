@@ -254,16 +254,18 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertGreaterEqual(action_counts["separate_project"], 3)
         self.assertEqual(action_counts["merge_project"], 3)
 
-    def test_manual_gold_fixture_has_promotion_negative_coverage(self) -> None:
+    def test_manual_gold_fixture_has_promotion_editorial_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         cases = payload["promotion_cases"]
 
-        self.assertEqual(len(cases), 9)
+        self.assertEqual(len(cases), 14)
         self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
         dispositions = [item["expected_promotion"]["disposition"] for item in cases]
         self.assertEqual(dispositions.count("exclude"), 8)
-        self.assertEqual(dispositions.count("hold"), 1)
+        self.assertEqual(dispositions.count("hold"), 3)
+        self.assertEqual(dispositions.count("queue"), 1)
+        self.assertEqual(dispositions.count("contextual"), 2)
         self.assertTrue(all(item["evidence_summary"] for item in cases))
 
         juntos = next(item for item in cases if item["subject"]["ref"] == "juntos")
@@ -276,7 +278,27 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         excluded = [item for item in cases if item["expected_promotion"]["disposition"] == "exclude"]
         self.assertTrue(all(item["subject"]["tracking_state"] == "out_of_scope" for item in excluded))
 
-        for item in cases:
+        echosky = next(item for item in cases if item["subject"]["ref"] == "echosky")
+        project = dict(echosky["subject"])
+        project["website_url"] = project.pop("service_url")
+        signal_kinds = {
+            signal["kind"] for signal in registry.compute_showcase_signals(project)
+        }
+        self.assertIn("service_ready_for_introduction", signal_kinds)
+
+    def test_enforced_promotion_negative_cases_match_policy(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = payload["promotion_cases"]
+        enforced_cases = [
+            item
+            for item in cases
+            if item["expected_promotion"]["disposition"] == "exclude"
+            or item["expected_promotion"]["reason"] == "service_not_usable"
+        ]
+
+        self.assertEqual(len(enforced_cases), 9)
+        for item in enforced_cases:
             project = dict(item["subject"])
             project["website_url"] = project.pop("service_url")
             signal_kinds = {

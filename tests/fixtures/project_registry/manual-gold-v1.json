@@ -354,6 +354,121 @@
       ]
     },
     {
+      "case_id": "hold-landing-only-moat",
+      "subject": {
+        "ref": "moat",
+        "name": "Moat",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "http://moat.social",
+        "service_status": "live",
+        "service_status_confidence": "medium",
+        "service_status_evidence": ["http_200", "docs_only_surface_detected"],
+        "observed_surface": "landing_page_only",
+        "working_service_observed": false,
+        "specification_available": false,
+        "atproto_contribution_level": "core",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "hold",
+        "reason": "landing_page_only"
+      },
+      "evidence_summary": [
+        "Operator review found only a landing page, with no working service or specification available."
+      ]
+    },
+    {
+      "case_id": "hold-landing-only-gmstn-systems",
+      "subject": {
+        "ref": "gmstn-systems",
+        "name": "gmstn.systems",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "https://gmstn.systems",
+        "service_status": "live",
+        "service_status_confidence": "high",
+        "observed_surface": "landing_page_only",
+        "working_service_observed": false,
+        "specification_available": false,
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "hold",
+        "reason": "landing_page_only"
+      },
+      "evidence_summary": [
+        "Operator review found only a landing page, with no working service or specification available."
+      ]
+    },
+    {
+      "case_id": "queue-incomplete-core-echosky",
+      "subject": {
+        "ref": "echosky",
+        "name": "Echosky",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "https://echosky.app",
+        "service_status": "live",
+        "service_status_confidence": "medium",
+        "service_status_evidence": ["http_200", "login_surface_detected"],
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "queue",
+        "reason": "introduction_boundary"
+      },
+      "evidence_summary": [
+        "The core implementation may be incomplete, so publication remains uncertain, but surfacing it in the candidate queue is correct."
+      ]
+    },
+    {
+      "case_id": "contextual-bluesky-adjacent-atshare",
+      "subject": {
+        "ref": "atshare",
+        "name": "atShare",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "https://atshare.social",
+        "service_status": "live",
+        "service_status_confidence": "low",
+        "service_status_evidence": ["http_200"],
+        "atproto_contribution_level": "core",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "contextual",
+        "reason": "bluesky_client_adjacent"
+      },
+      "evidence_summary": [
+        "The project is closer to a Bluesky client feature than a distinct atproto application and is mainly useful in a grouped feature."
+      ]
+    },
+    {
+      "case_id": "contextual-common-game-record-mathr",
+      "subject": {
+        "ref": "mathr",
+        "name": "Mathr",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "https://mathr.app",
+        "service_status": "live",
+        "service_status_confidence": "medium",
+        "service_status_evidence": ["http_200", "login_surface_detected"],
+        "atproto_contribution_level": "core",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "contextual",
+        "reason": "common_game_score_record_pattern"
+      },
+      "evidence_summary": [
+        "Persisting game scores as records is a recurring pattern, so this is most useful in a grouped feature or as a related example."
+      ]
+    },
+    {
       "case_id": "exclude-out-of-scope-bluesky-comments",
       "subject": {
         "ref": "bluesky-comments",

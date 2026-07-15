@@ -167,7 +167,7 @@ record を対応づける履歴です。
 - `benchmark-investigation`: fixture corpus を一括評価し relation/evaluation の退行を報告する
 - `export-investigation-fixture`: 保存 run を sanitize 対象の fixture 形式へ出力する
 - executable corpusは通常replay 6 caseに、operator correctionのblock/defer/confirm 3 caseを加えた9 caseを持つ
-- `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 caseと、promotionのhold / exclude 9 caseを持つ
+- `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 caseと、promotionのhold / exclude / queue / contextual 14 caseを持つ
 
 fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。
 自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、
@@ -175,8 +175,9 @@ local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去�
 付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
 
 manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを
-保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。現時点ではqueue紹介可否、
-atproto利用深度、技術的新規性の正解labelを持たないため、これらはqueue policyのsample reviewで追加します。
+保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseはoperatorが期待する
+`exclude / hold / queue / contextual`を保持します。out-of-scope、HTTP-only hold、Echoskyのqueue維持は現行policyとtestで確認し、
+landing-onlyとcontextualの境界は順位・表示契約の未実装sampleとして保持します。
 
 ## LLM の位置づけ
 
