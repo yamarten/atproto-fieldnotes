@@ -3438,6 +3438,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     collection_member_seed_repairs = 0
     manual_repo_seed_repairs = 0
     developer_account_repairs = 0
+    current_service_projection_changes = 0
+    current_service_projection_examples: list[dict[str, Any]] = []
     for row in rows:
         stored_payload = project_from_row_payload(row)
         project_key = str(row["project_key"])
@@ -3486,6 +3488,24 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
         normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        current_service_before = {
+            "service_status": str(original.get("service_status") or "unknown"),
+            "service_status_confidence": str(original.get("service_status_confidence") or "none"),
+            "service_status_evidence": list(original.get("service_status_evidence", [])),
+        }
+        current_service_after = {
+            "service_status": str(normalized.get("service_status") or "unknown"),
+            "service_status_confidence": str(normalized.get("service_status_confidence") or "none"),
+            "service_status_evidence": list(normalized.get("service_status_evidence", [])),
+        }
+        if current_service_before != current_service_after:
+            current_service_projection_changes += 1
+            if len(current_service_projection_examples) < 20:
+                current_service_projection_examples.append({
+                    "project_key": project_key,
+                    "before": current_service_before,
+                    "after": current_service_after,
+                })
         collection_member_seed_repairs += add_collection_observation_member_seeds(
             normalized,
             default_source="collection_observation_repair",
@@ -3576,6 +3596,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "collection_member_seed_repair_count": collection_member_seed_repairs,
         "manual_repo_seed_repair_count": manual_repo_seed_repairs,
         "developer_account_repair_count": developer_account_repairs,
+        "current_service_projection_change_count": current_service_projection_changes,
+        "current_service_projection_examples": current_service_projection_examples,
         "refreshed_derived_project_count": refreshed_derived_projects,
         "orphan_count": 0,
         "stale_count": 0,
@@ -8253,7 +8275,11 @@ def apply_service_probe_result(
 ) -> None:
     title = naming_core.clean_title(result["title"])
     description = result["description"]
-    supported = service_probe_supports_project(project, service_url, result)
+    supported = (
+        bool(result.get("supports_project"))
+        if "supports_project" in result
+        else service_probe_supports_project(project, service_url, result)
+    )
     host = urllib.parse.urlparse(identifier_core.normalize_url(service_url)).netloc.lower()
     if supported:
         if title and host not in naming_core.GENERIC_PLATFORM_HOSTS:
@@ -8371,6 +8397,149 @@ def apply_service_probe_result(
             add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=iso_now())
         except Exception as exc:
             note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
+
+
+CURRENT_SERVICE_BASE_LANE_PRIORITY = {"authority": 1, "static": 2, "deep": 3}
+
+
+def current_service_result_supports_project(
+    project: dict[str, Any],
+    requested_url: str,
+    result: dict[str, Any],
+) -> bool:
+    if "supports_project" in result:
+        return bool(result.get("supports_project"))
+    host = urllib.parse.urlparse(identifier_core.normalize_url(requested_url)).netloc.lower()
+    if not host or service_probe_looks_parked(result):
+        return False
+    accepted_urls = unique_list(
+        ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+        + list(project.get("service_urls", []))
+        + list(project.get("supported_service_urls", []))
+    )
+    accepted_hosts = {
+        urllib.parse.urlparse(identifier_core.normalize_url(str(item or ""))).netloc.lower()
+        for item in accepted_urls
+        if identifier_core.normalize_url(str(item or ""))
+    }
+    final_host = urllib.parse.urlparse(identifier_core.normalize_url(str(result.get("final_url") or ""))).netloc.lower()
+    confirmed_redirect_to_accepted_host = bool(
+        final_host in accepted_hosts
+        and (
+            result.get("redirect_same_host")
+            or result.get("redirect_same_site_family")
+            or result.get("redirect_http_to_https")
+        )
+    )
+    return (
+        host in manual_service_hosts(project)
+        or host in accepted_hosts
+        or confirmed_redirect_to_accepted_host
+    )
+
+
+def project_current_service_observation(project: dict[str, Any]) -> dict[str, Any] | None:
+    """Project current service scalars from the latest observation in each lane and URL."""
+    current_results: list[dict[str, Any]] = []
+    for item in project.get("service_verification_results", []):
+        if isinstance(item, dict):
+            current_results = service_core.merge_service_verification_results(current_results, item)
+
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for item in current_results:
+        lane = str(item.get("lane") or "static").strip().lower()
+        requested_url = identifier_core.normalize_url(str(
+            item.get("requested_url") or item.get("final_url") or ""
+        )).rstrip("/")
+        if not requested_url:
+            continue
+        if lane in CURRENT_SERVICE_BASE_LANE_PRIORITY:
+            if not service_probe_represents_service_identity(requested_url, {**item, "lane": lane}):
+                continue
+        elif lane != "browser":
+            continue
+        grouped.setdefault(requested_url, {})[lane] = item
+
+    if not grouped:
+        return None
+
+    aggregate_status = "unknown"
+    aggregate_confidence = "none"
+    aggregate_evidence: list[str] = []
+    has_supported_observation = False
+    for requested_url, lanes in grouped.items():
+        current_status = "unknown"
+        current_confidence = "none"
+        current_evidence: list[str] = []
+
+        base_lane = max(
+            (lane for lane in lanes if lane in CURRENT_SERVICE_BASE_LANE_PRIORITY),
+            key=lambda lane: CURRENT_SERVICE_BASE_LANE_PRIORITY[lane],
+            default="",
+        )
+        if base_lane:
+            base = dict(lanes[base_lane])
+            if current_service_result_supports_project(project, requested_url, base):
+                has_supported_observation = True
+                current_status = normalize_service_status(base.get("service_status"))
+                current_confidence = normalize_service_status_confidence(
+                    base.get("service_status_confidence")
+                )
+                current_evidence = unique_list(
+                    [str(item) for item in base.get("service_status_evidence", []) if str(item)]
+                )
+                if current_status == "unverified" and verified_authority_live_surface(
+                    project, requested_url, base
+                ):
+                    current_status = "live"
+                    current_confidence = merge_service_status_confidence(current_confidence, "medium")
+                    current_evidence = add_unique(
+                        current_evidence, "verified_authority_service_surface"
+                    )
+
+        browser = lanes.get("browser")
+        if browser is not None:
+            has_supported_observation = True
+            browser_observation = service_core.browser_service_observation(browser)
+            if browser_observation["positive_surface"]:
+                if current_status not in {"beta", "invite_only"}:
+                    current_status = "live"
+                current_confidence = "high"
+                current_evidence = [
+                    value
+                    for value in current_evidence
+                    if value not in service_core.SERVICE_BROWSER_POSITIVE_CONTRADICTIONS
+                ]
+            current_evidence = unique_list(
+                current_evidence + list(browser_observation["service_status_evidence"])
+            )
+
+        aggregate_status = merge_service_status(
+            aggregate_status,
+            current_status,
+        )
+        aggregate_confidence = merge_service_status_confidence(
+            aggregate_confidence,
+            current_confidence,
+        )
+        aggregate_evidence = unique_list(aggregate_evidence + current_evidence)
+
+    if not has_supported_observation:
+        return None
+    return {
+        "service_status": aggregate_status,
+        "service_status_confidence": aggregate_confidence,
+        "service_status_evidence": aggregate_evidence,
+    }
+
+
+def apply_current_service_observation_state(project: dict[str, Any]) -> bool:
+    projection = project_current_service_observation(project)
+    if projection is None:
+        return False
+    changed = any(project.get(field) != value for field, value in projection.items())
+    project.update(projection)
+    return changed
 
 
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
@@ -9086,6 +9255,7 @@ def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
             note_failure=note_failure,
         ),
     )
+    apply_current_service_observation_state(project)
 
 
 def collect_service_evidence_with_followups(
@@ -9141,6 +9311,7 @@ def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle
             note_failure=note_failure,
         ),
     )
+    apply_current_service_observation_state(project)
 
 
 def list_atproto_records(pds_url: str, did: str, cursor: str = "") -> dict[str, Any]:
@@ -11546,6 +11717,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             if slug:
                 project["name"] = slug.split("/")[-1]
     normalize_service_identifier_views(project)
+    apply_current_service_observation_state(project)
     return project
 
 

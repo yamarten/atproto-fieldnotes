@@ -186,6 +186,18 @@ browserの`public_app_surface_detected`は、作成・投稿を表すactionと�
 
 bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2を無効にして1回再試行します。通常接続の失敗全般には適用せず、使用時は`transport_fallback`としてbrowser page evidenceに残します。
 
+project直下の`service_status / service_status_confidence / service_status_evidence`は、保存済みの
+`service_verification_results`を初期値なしで再評価するcurrent projectionです。過去scalarのmax / unionは入力にしません。
+
+- current resultは`lane + requested_url`ごとに最新1件を使う
+- supporting pageの`follow_up`と、static / deepのsupporting page URLはproject scalarへ入れない
+- 同一URLのbase laneは`deep > static > authority`とし、肯定的browser observationをその上へ重ねる
+- browserでloginまたは公開app surfaceを確認したURLは`live / high`とし、同じURLの`docs_only`、`coming_soon`、mixed launch分類を除く。`beta`と`invite_only`は両立するため維持する
+- static / deep / authority resultはcollector時点の`supports_project`を保存して利用する。旧resultにこのfieldがない場合は、manual service host、確認済みservice host、またはそこへの確認済みsame-site redirectに限定して復元する
+- 対象となるbase/browser observationがない場合は、LLM等が設定した既存scalarをprojectionで消さない
+
+projectionはnetwork、browser、trust graph更新を行いません。`repair-db`は変更件数とbefore/after例をdry-runで報告し、investigation runのinput/output/bundle/evaluationは更新しません。
+
 ## LLM の位置づけ
 
 - LLM は query planning、editorial 補助、曖昧な分類候補に使う

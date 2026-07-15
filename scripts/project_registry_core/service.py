@@ -49,6 +49,11 @@ SERVICE_BROWSER_PUBLIC_ACTION_PHRASES = (
     "publish",
     "upload",
 )
+SERVICE_BROWSER_POSITIVE_CONTRADICTIONS = {
+    "coming_soon_detected",
+    "docs_only_surface_detected",
+    "mixed_launch_signals_detected",
+}
 SERVICE_LINK_PRIORITY_TOKENS = (
     "source",
     "repo",
@@ -219,7 +224,7 @@ def collect_service_probe_evidence(
     *,
     observed_at: str,
     lane: str = "static",
-    supports_project: bool = False,
+    supports_project: bool | None = None,
 ) -> EvidenceBundle:
     html = str(result.get("html") or "")
     value = {
@@ -236,6 +241,8 @@ def collect_service_probe_evidence(
     }
     value["requested_url"] = requested_url
     value["lane"] = lane
+    if supports_project is not None:
+        value["supports_project"] = bool(supports_project)
     raw_links = result.get("links") if isinstance(result.get("links"), list) else []
     raw_urls = result.get("urls") if isinstance(result.get("urls"), list) else []
     value["links"] = bounded_service_links(requested_url, raw_links)
@@ -457,6 +464,32 @@ def same_site_url(base_url: str, candidate: str) -> bool:
         or base.hostname.endswith(f".{parsed.hostname}")
         or parsed.hostname.endswith(f".{base.hostname}")
     ))
+
+
+def browser_service_observation(value: dict[str, Any]) -> dict[str, Any]:
+    pages = [item for item in value.get("pages", []) if isinstance(item, dict)]
+    evidence: list[str] = []
+    if value.get("password_form_detected"):
+        evidence.append("browser_password_form_detected")
+    if value.get("identity_form_detected"):
+        evidence.append("browser_identity_form_detected")
+    if value.get("oauth_entry_detected"):
+        evidence.append("browser_oauth_entry_detected")
+    if value.get("public_app_surface_detected"):
+        evidence.append("browser_public_app_surface_detected")
+    positive = bool(value.get("login_surface_reached") or value.get("public_app_surface_detected"))
+    if positive:
+        evidence.insert(0, "browser_login_surface_reached")
+    elif pages and not any(page.get("network_errors") for page in pages):
+        evidence.append("browser_rendered_surface")
+    if value.get("rendered_error_detected"):
+        evidence.append("browser_rendered_error_detected")
+    return {
+        "service_status": "live" if positive else "unknown",
+        "service_status_confidence": "high" if positive else "none",
+        "service_status_evidence": list(dict.fromkeys(evidence)),
+        "positive_surface": positive,
+    }
 
 
 def collect_browser_service_evidence(

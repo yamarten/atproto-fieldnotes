@@ -40,16 +40,15 @@
 - Juntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約は[browser calibration fixture](../tests/fixtures/project_registry/browser-service-calibration-v1.json)に固定し、networkなしの回帰入力として使います。fixture内の実URLは現在状態を再確認するsmoke referenceであり、回帰評価時に取得し直しません
 - 紹介済みの強いservice例と、serviceを持たない技術的価値の例は同fixtureの`showcase_reference_cases`に分けます
 - 地域性は機械スコアに入れず、operatorが読む`manual_context`に留めます
+- current service scalarは最新のURL別・lane別観測から投影し、過去scalarのmax / unionを引き継ぎません。WhiteWindのbrowser公開利用面は同一URLのstatic docs-only分類より優先します
 - `contextual`の順位、queue group、Web表示、操作契約は未実装です
 
 実施順と受入条件:
 
-1. current service observation projection
-   - 問題: probeごとの最新結果は`service_verification_results`に`lane + requested_url`単位で残りますが、project直下の`service_status / confidence / evidence`は新旧観測のmax / unionの影響を受けます。そのため、現在の観測と矛盾する強い過去値が残る場合があります
-   - 既知の実例: WhiteWindはstatic laneの`docs_only_surface_detected`とbrowser laneの`browser_public_app_surface_detected`が併存するため、browserで確認した公開利用面を古いstatic分類で打ち消さない必要があります
-   - 変更対象: 最新のURL別・lane別観測からcurrent scalarを作るpure projectionと、lane間のprecedence・矛盾規則
-   - 非対象: investigation runの履歴削除、LLM判定をHTTP / browser観測と同じ事実として扱うこと
-   - 確認: temp DBの新旧観測fixtureでcurrent scalarだけが最新状態へ変わり、investigation historyが不変であることを検証します。正本DBは複製に対するdry-run / auditを先に行います
+1. current service observation projectionの正本DB適用
+   - 実装、temp DBの新旧観測/履歴不変test、WhiteWind競合fixture、正本DB複製のdry-runは完了しています
+   - 複製3,278 projectのうち420 projectでscalar差分を確認しました。正本DB writer停止を確認し、別途承認を得て`repair-db --execute`を適用します
+   - 適用後は再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認します
 2. candidate visibility and editorial policy
    - 問題: [registry.py](../scripts/project_registry_core/registry.py)の`promotion_queue_sort_score()`はservice signalに固定点を与えますが、`contextual`はまだruntimeのgroupやscoreに投影されません。また`defer_promotion`はproject全体をqueueから隠すため、「候補には出すが紹介は保留」を表せません
    - 変更対象: candidate visibility、service evidence group、editorial group、score breakdownを別々に定義し、project全体と個別signalのどちらにhold / deferが作用するかを決めます

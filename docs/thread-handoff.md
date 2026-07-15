@@ -13,10 +13,9 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 最初の作業は[roadmapの current service observation projection](roadmap.md)です。probeごとの最新結果は`lane + requested_url`単位で残りますが、project直下のservice status / confidence / evidenceには過去値のmax / unionが残り得ます。
-- 最新のURL別・lane別観測からcurrent scalarを作るpure projectionと、lane間のprecedence・矛盾規則を実装します。temp DBの新旧観測fixtureでcurrent scalarだけが変わり、investigation historyが不変であることを確認します。
-- WhiteWindを実例として、staticの`docs_only_surface_detected`とbrowserの`browser_public_app_surface_detected`が併存する場合に、公開利用面の確認を古いstatic分類で打ち消さないことをfixture化します。
-- 正本DBへ反映する前に複製に対するdry-run / auditを行い、適用は別途承認を得ます。その後はroadmapの順にeditorial policy、queue API / Web UI、executable evaluationへ進めます。
+- current service observation projectionの実装と複製DB dry-runは完了しています。3,278 project中420 projectでscalar差分があり、正本DBは未変更です。
+- 次はwriter停止と別途承認を確認して`repair-db --execute`を正本DBへ適用します。再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認してください。
+- 適用後は[roadmapのcandidate visibility and editorial policy](roadmap.md)へ進み、candidate visibility、service evidence group、editorial group、score breakdownの契約をmanual gold fixtureに対して固定します。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ

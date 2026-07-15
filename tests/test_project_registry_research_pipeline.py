@@ -885,6 +885,217 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             registry.apply_service_evidence(project, bundle)
         self.assertEqual(len(project["service_verification_results"]), 1)
 
+    def test_current_service_observation_replaces_stale_same_lane_scalar(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:current-service", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        old_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "App",
+                "service_status": "live", "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+                "links": [], "urls": [], "html": "<form>Sign in</form>",
+            },
+            observed_at="2026-07-15T00:00:00+00:00",
+            supports_project=True,
+        )
+        registry.apply_service_evidence(project, old_bundle)
+        self.assertEqual(project["service_status"], "live")
+
+        new_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                "service_status": "unverified", "service_status_confidence": "low",
+                "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+            },
+            observed_at="2026-07-16T00:00:00+00:00",
+            supports_project=True,
+        )
+        registry.apply_service_evidence(project, new_bundle)
+
+        self.assertEqual(project["service_status"], "unverified")
+        self.assertEqual(project["service_status_confidence"], "low")
+        self.assertEqual(project["service_status_evidence"], ["http_200"])
+        self.assertEqual(len(project["service_verification_results"]), 1)
+
+    def test_current_service_observation_ignores_follow_up_status(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:current-follow-up", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        static_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                "service_status": "unverified", "service_status_confidence": "low",
+                "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+            },
+            observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
+        )
+        follow_up_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], f"{service_url}/login",
+            {
+                "status_code": 200, "final_url": f"{service_url}/login", "title": "Sign in", "description": "",
+                "service_status": "live", "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+                "links": [], "urls": [], "html": "<form>Sign in</form>",
+            },
+            observed_at="2026-07-16T00:01:00+00:00", lane="follow_up", supports_project=True,
+        )
+        static_bundle.extend(follow_up_bundle)
+
+        registry.apply_service_evidence(project, static_bundle)
+
+        self.assertEqual(project["service_status"], "unverified")
+        self.assertEqual(project["service_status_confidence"], "low")
+        self.assertEqual(project["service_status_evidence"], ["http_200"])
+
+    def test_current_service_observation_prefers_whitewind_browser_surface(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "project_registry" / "browser-service-calibration-v1.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        case = next(item for item in fixture["cases"] if item["case_id"] == "whitewind-rendered-public-app-surface")
+        service_url = case["service_url"]
+        project = self.make_project("proj:whitewind-current", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        static_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "WhiteWind", "description": "Docs",
+                "service_status": "none", "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "docs_only_surface_detected"],
+                "links": [], "urls": [], "html": "Documentation",
+            },
+            observed_at="2026-07-15T00:00:00+00:00", supports_project=True,
+        )
+        registry.apply_service_evidence(project, static_bundle)
+        pages = list(case["navigation_results"])
+        browser_bundle = service_core.collect_browser_service_evidence(
+            project,
+            service_url,
+            service_core.BrowserDependencies(
+                navigate=lambda _url: copy.deepcopy(pages.pop(0)),
+                now=lambda: "2026-07-16T00:00:00+00:00",
+            ),
+        )
+
+        before_projection = copy.deepcopy(project)
+        registry.apply_service_evidence(project, browser_bundle)
+        projection_input = copy.deepcopy(project)
+        projection = registry.project_current_service_observation(project)
+
+        self.assertEqual(before_projection["service_status"], "none")
+        self.assertEqual(project["service_status"], "live")
+        self.assertEqual(project["service_status_confidence"], "high")
+        self.assertIn("browser_public_app_surface_detected", project["service_status_evidence"])
+        self.assertNotIn("docs_only_surface_detected", project["service_status_evidence"])
+        self.assertEqual(projection["service_status"], "live")
+        self.assertEqual(project, projection_input)
+
+    def test_current_service_projection_preserves_saved_investigation_history(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:current-history", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        old_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "App",
+                "service_status": "live", "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+                "links": [], "urls": [], "html": "<form>Sign in</form>",
+            },
+            observed_at="2026-07-15T00:00:00+00:00", supports_project=True,
+        )
+        old_input = copy.deepcopy(project)
+        registry.apply_service_evidence(project, old_bundle)
+        old_output = registry.finalize_project_shape(project)
+        conn = registry.open_db()
+        try:
+            registry.save_project(conn, old_output, enriched=True)
+            run_id = storage_core.save_investigation_run(
+                conn,
+                project_key=project["project_key"],
+                started_at=old_bundle.collected_at,
+                completed_at=old_bundle.collected_at,
+                input_project=old_input,
+                output_project=old_output,
+                bundle=old_bundle,
+            )
+            conn.commit()
+
+            current = registry.fetch_project(conn, project["project_key"])
+            assert current is not None
+            new_bundle = service_core.collect_service_probe_evidence(
+                project["project_key"], service_url,
+                {
+                    "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                    "service_status": "unverified", "service_status_confidence": "low",
+                    "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+                },
+                observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
+            )
+            registry.apply_service_evidence(current, new_bundle)
+            registry.save_project(conn, registry.finalize_project_shape(current), enriched=True)
+            conn.commit()
+            stored_run = storage_core.load_investigation_run(conn, run_id)
+            stored_current = registry.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert stored_run is not None
+        assert stored_current is not None
+        self.assertEqual(stored_run["evaluation"]["service_status"], "live")
+        self.assertEqual(stored_run["bundle"].records[0].value["service_status"], "live")
+        self.assertEqual(stored_current["service_status"], "unverified")
+        self.assertEqual(stored_current["service_status_confidence"], "low")
+
+    def test_repair_db_reports_and_applies_current_service_projection(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:repair-current-service", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                "service_status": "unverified", "service_status_confidence": "low",
+                "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+            },
+            observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
+        )
+        project["service_verification_results"] = [dict(bundle.records[0].value)]
+        project["service_status"] = "live"
+        project["service_status_confidence"] = "high"
+        project["service_status_evidence"] = ["http_200", "login_surface_detected"]
+        conn = registry.open_db()
+        try:
+            registry.save_project(conn, project, enriched=True)
+            conn.commit()
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            repaired = registry.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert repaired is not None
+        self.assertEqual(dry_run["current_service_projection_change_count"], 1)
+        self.assertEqual(dry_run["current_service_projection_examples"][0]["project_key"], project["project_key"])
+        self.assertEqual(executed["current_service_projection_change_count"], 1)
+        self.assertEqual(repaired["service_status"], "unverified")
+        self.assertEqual(repaired["service_status_confidence"], "low")
+        self.assertEqual(repaired["service_status_evidence"], ["http_200"])
+
     def test_follow_up_service_evidence_does_not_emit_operates_service_relation(self) -> None:
         bundle = service_core.collect_service_probe_evidence(
             "proj:service-followup",

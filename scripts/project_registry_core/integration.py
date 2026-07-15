@@ -273,30 +273,7 @@ def apply_service_evidence(
             if value.get("lane") in {"static", "deep", "follow_up"}:
                 dependencies.apply_probe(project, str(value.get("requested_url") or ""), value)
             elif value.get("lane") == "browser":
-                pages = list(value.get("pages") or [])
-                browser_evidence = []
-                if value.get("password_form_detected"):
-                    browser_evidence.append("browser_password_form_detected")
-                if value.get("identity_form_detected"):
-                    browser_evidence.append("browser_identity_form_detected")
-                if value.get("oauth_entry_detected"):
-                    browser_evidence.append("browser_oauth_entry_detected")
-                if value.get("public_app_surface_detected"):
-                    browser_evidence.append("browser_public_app_surface_detected")
-                if value.get("login_surface_reached") or value.get("public_app_surface_detected"):
-                    apply_saved_service_probe(project, {
-                        "service_status": "live",
-                        "service_status_confidence": "high",
-                        "service_status_evidence": ["browser_login_surface_reached", *browser_evidence],
-                    })
-                elif pages and not any(page.get("network_errors") for page in pages if isinstance(page, dict)):
-                    project["service_status_evidence"] = list(dict.fromkeys(
-                        list(project.get("service_status_evidence", [])) + ["browser_rendered_surface"]
-                    ))
-                if value.get("rendered_error_detected"):
-                    project["service_status_evidence"] = list(dict.fromkeys(
-                        list(project.get("service_status_evidence", [])) + ["browser_rendered_error_detected"]
-                    ))
+                apply_saved_service_probe(project, service.browser_service_observation(value))
     for failure in bundle.failures:
         dependencies.note_failure(project, failure.message)
 
