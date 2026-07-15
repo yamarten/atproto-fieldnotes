@@ -51,6 +51,7 @@
         "password_form_detected": true,
         "identity_form_detected": true,
         "oauth_entry_detected": true,
+        "auth_menu_expanded": false,
         "login_surface_reached": true,
         "service_action_detected": false,
         "public_content_item_count": 0,
@@ -79,6 +80,7 @@
         "password_form_detected": false,
         "identity_form_detected": false,
         "oauth_entry_detected": false,
+        "auth_menu_expanded": false,
         "login_surface_reached": false,
         "service_action_detected": false,
         "public_content_item_count": 0,
@@ -107,6 +109,7 @@
         "password_form_detected": false,
         "identity_form_detected": false,
         "oauth_entry_detected": false,
+        "auth_menu_expanded": false,
         "login_surface_reached": false,
         "service_action_detected": false,
         "public_content_item_count": 0,
@@ -146,6 +149,7 @@
         "password_form_detected": true,
         "identity_form_detected": true,
         "oauth_entry_detected": false,
+        "auth_menu_expanded": false,
         "login_surface_reached": true,
         "service_action_detected": false,
         "public_content_item_count": 0,
@@ -160,18 +164,31 @@
         {
           "url": "https://whtwnd.com/",
           "title": "WhiteWind atproto blog",
-          "text": "WhiteWind\nPost new entry\nSearch\nLatest\nPopular\nMigrating PDS Account with goat\nNotes on Running a Full-Network atproto Relay",
+          "text": "WhiteWind\nPost new entry\nSign in with Bluesky account\nSign up (opens Bluesky)\nSearch\nLatest\nPopular\nMigrating PDS Account with goat\nNotes on Running a Full-Network atproto Relay",
           "links": [
             {"href": "https://whtwnd.com/akosirkal.blog/3mqlxzef4lu2h", "text": "Életkor ellenőrzés a gyerekek védelmébe nem védi a gyerekeket"},
             {"href": "https://whtwnd.com/hivetoday.bsky.social/hivetoday-issue-90", "text": "The Stabilizer Came Back While Ecency Made Ownership the Story"},
             {"href": "https://whtwnd.com/johnmcnwoods.eurosky.social/3mmfdvg64aq2i", "text": "Pub Of The Year 2026"},
             {"href": "https://whtwnd.com/iris.scorpio.city/3mpzvzxgowe2n", "text": "The Witness: Relocating the Blind Spot"}
           ],
-          "forms": [],
-          "auth_actions": [],
+          "forms": [
+            {
+              "action": "https://whtwnd.com/",
+              "method": "get",
+              "inputs": [
+                {"type": "text", "name": "identity", "autocomplete": "", "placeholder": "Author handle or DID (e.g. <username>.bsky.social)"}
+              ],
+              "submit_texts": ["Search"]
+            }
+          ],
+          "auth_actions": [
+            {"kind": "button", "href": "", "text": "Sign in with Bluesky account"},
+            {"kind": "a", "href": "https://bsky.app/", "text": "Sign up (opens Bluesky)"}
+          ],
           "service_actions": [
             {"kind": "button", "href": "", "text": "Post new entry"}
           ],
+          "menu_expanded_count": 1,
           "network_errors": [],
           "console_errors": [],
           "js_rendered": true
@@ -181,8 +198,9 @@
         "auth_link_followed": false,
         "password_form_detected": false,
         "identity_form_detected": false,
-        "oauth_entry_detected": false,
-        "login_surface_reached": false,
+        "oauth_entry_detected": true,
+        "auth_menu_expanded": true,
+        "login_surface_reached": true,
         "service_action_detected": true,
         "public_content_item_count": 4,
         "public_app_surface_detected": true,

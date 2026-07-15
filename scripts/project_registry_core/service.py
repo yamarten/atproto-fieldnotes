@@ -368,7 +368,6 @@ def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
     page_context = " ".join((
         str(page.get("url") or ""),
         str(page.get("title") or ""),
-        bounded_text(str(page.get("text") or ""), 2000),
     )).lower()
     auth_context_tokens = ("login", "log in", "sign in", "signin", "signup", "sign up", "register")
     password_form_detected = False
@@ -487,6 +486,7 @@ def collect_browser_service_evidence(
         password_form_detected = any(item["password_form_detected"] for item in page_features)
         identity_form_detected = any(item["identity_form_detected"] for item in page_features)
         oauth_entry_detected = any(item["oauth_entry_detected"] for item in page_features)
+        auth_menu_expanded = any(int(page.get("menu_expanded_count") or 0) > 0 for page in pages)
         service_action_detected = any(item["service_action_detected"] for item in public_surface_features)
         public_content_item_count = max(
             (int(item["public_content_item_count"]) for item in public_surface_features),
@@ -497,6 +497,11 @@ def collect_browser_service_evidence(
             page.get("network_errors") or page.get("console_errors")
             for page in pages
         )
+        browser_transport_fallbacks = list(dict.fromkeys(
+            str(page.get("transport_fallback") or "")
+            for page in pages
+            if str(page.get("transport_fallback") or "")
+        ))
         value = {
             "requested_url": service_url,
             "lane": "browser",
@@ -514,6 +519,8 @@ def collect_browser_service_evidence(
                         str(page.get("url") or service_url),
                         page.get("links"),
                     ),
+                    "menu_expanded_count": int(page.get("menu_expanded_count") or 0),
+                    "transport_fallback": str(page.get("transport_fallback") or ""),
                 }
                 for page in pages
             ],
@@ -521,11 +528,13 @@ def collect_browser_service_evidence(
             "password_form_detected": password_form_detected,
             "identity_form_detected": identity_form_detected,
             "oauth_entry_detected": oauth_entry_detected,
+            "auth_menu_expanded": auth_menu_expanded,
             "login_surface_reached": password_form_detected or identity_form_detected or oauth_entry_detected,
             "service_action_detected": service_action_detected,
             "public_content_item_count": public_content_item_count,
             "public_app_surface_detected": public_app_surface_detected,
             "rendered_error_detected": rendered_error_detected,
+            "browser_transport_fallbacks": browser_transport_fallbacks,
             "js_rendered": bool(first.get("js_rendered", True)),
         }
         bundle.add_record(EvidenceRecord(
@@ -548,58 +557,92 @@ def collect_browser_service_evidence(
     return bundle
 
 
+def playwright_page_payload(
+    playwright: Any,
+    url: str,
+    *,
+    timeout_ms: int,
+    browser_args: list[str] | None = None,
+    transport_fallback: str = "",
+) -> dict[str, Any]:
+    browser = playwright.chromium.launch(headless=True, args=list(browser_args or []))
+    try:
+        page = browser.new_page()
+        network_errors: list[str] = []
+        console_errors: list[str] = []
+        page.on("requestfailed", lambda request: network_errors.append(f"{request.method} {request.url}"))
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+        menu_expanded_count = page.locator('button[aria-haspopup="menu"]').evaluate_all(
+            """els => {
+                const visible = els.filter(item => item.offsetWidth || item.offsetHeight || item.getClientRects().length);
+                const targets = visible.filter(item => item.getAttribute('aria-expanded') !== 'true').slice(0, 3);
+                targets.forEach(item => item.click());
+                return targets.length;
+            }"""
+        )
+        if menu_expanded_count:
+            page.wait_for_timeout(200)
+        return {
+            "url": page.url,
+            "title": page.title(),
+            "text": page.locator("body").inner_text(timeout=timeout_ms),
+            "links": page.locator("a[href]").evaluate_all(
+                "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
+            ),
+            "forms": page.locator("form").evaluate_all(
+                """els => els.slice(0, 12).map(form => ({
+                    action: form.action || '',
+                    method: (form.method || 'get').toLowerCase(),
+                    inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
+                        type: (input.type || 'text').toLowerCase(),
+                        name: input.name || '',
+                        autocomplete: input.autocomplete || '',
+                        placeholder: input.placeholder || ''
+                    })),
+                    submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
+                }))"""
+            ),
+            "auth_actions": page.locator("a[href], button").evaluate_all(
+                """els => els.map(item => ({
+                    kind: item.tagName.toLowerCase(),
+                    href: item.href || '',
+                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
+            ),
+            "service_actions": page.locator("a[href], button").evaluate_all(
+                """els => els.map(item => ({
+                    kind: item.tagName.toLowerCase(),
+                    href: item.href || '',
+                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                })).filter(item => /post new entry|new entry|new post|create (entry|post)|write (entry|post)|compose|publish|upload/i.test(item.text)).slice(0, 24)"""
+            ),
+            "network_errors": network_errors,
+            "console_errors": console_errors,
+            "menu_expanded_count": menu_expanded_count,
+            "transport_fallback": transport_fallback,
+            "js_rendered": True,
+        }
+    finally:
+        browser.close()
+
+
 def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise RuntimeError("browser verification requires requirements-browser.txt") from exc
     with sync_playwright() as playwright:  # pragma: no cover - integration path
-        browser = playwright.chromium.launch(headless=True)
         try:
-            page = browser.new_page()
-            network_errors: list[str] = []
-            console_errors: list[str] = []
-            page.on("requestfailed", lambda request: network_errors.append(f"{request.method} {request.url}"))
-            page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
-            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-            return {
-                "url": page.url,
-                "title": page.title(),
-                "text": page.locator("body").inner_text(timeout=timeout_ms),
-                "links": page.locator("a[href]").evaluate_all(
-                    "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
-                ),
-                "forms": page.locator("form").evaluate_all(
-                    """els => els.slice(0, 12).map(form => ({
-                        action: form.action || '',
-                        method: (form.method || 'get').toLowerCase(),
-                        inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
-                            type: (input.type || 'text').toLowerCase(),
-                            name: input.name || '',
-                            autocomplete: input.autocomplete || '',
-                            placeholder: input.placeholder || ''
-                        })),
-                        submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
-                            .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
-                    }))"""
-                ),
-                "auth_actions": page.locator("a[href], button").evaluate_all(
-                    """els => els.map(item => ({
-                        kind: item.tagName.toLowerCase(),
-                        href: item.href || '',
-                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
-                    })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
-                ),
-                "service_actions": page.locator("a[href], button").evaluate_all(
-                    """els => els.map(item => ({
-                        kind: item.tagName.toLowerCase(),
-                        href: item.href || '',
-                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
-                    })).filter(item => /post new entry|new entry|new post|create (entry|post)|write (entry|post)|compose|publish|upload/i.test(item.text)).slice(0, 24)"""
-                ),
-                "network_errors": network_errors,
-                "console_errors": console_errors,
-                "js_rendered": True,
-            }
-        finally:
-            browser.close()
+            return playwright_page_payload(playwright, url, timeout_ms=timeout_ms)
+        except Exception as exc:
+            if "ERR_SOCKET_NOT_CONNECTED" not in str(exc):
+                raise
+            return playwright_page_payload(
+                playwright,
+                url,
+                timeout_ms=timeout_ms,
+                browser_args=["--disable-http2"],
+                transport_fallback="disable_http2_after_socket_not_connected",
+            )
