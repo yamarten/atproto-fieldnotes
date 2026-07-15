@@ -29,8 +29,9 @@
 
 固定したmanual gold setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
 
-1. queue policy の診断と再設計
-   - gold set と sample review を見ながら、atproto利用深度、service利用可否、技術的新規性を独立signalとして定義する
+1. promotion queue のpositive sampleと順位再設計
+   - service利用不能1件とout-of-scope 8件をnegative goldとして固定し、low-confidence serviceを紹介候補から分離済み
+   - 次はpositive sampleをreviewし、atproto利用深度、service利用可否、技術的新規性を横断した順位と表示契約を決める
    - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
 
 ### 依存関係

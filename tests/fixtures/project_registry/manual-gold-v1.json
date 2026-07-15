@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "purpose": "Fixed operator-reviewed examples for identity and identifier policy evaluation.",
+  "purpose": "Fixed operator-reviewed examples for identity, identifier, and promotion policy evaluation.",
   "provenance": {
     "source": "Operator-confirmed corrections and merge reviews in the local registry.",
-    "snapshot_date": "2026-07-13",
+    "snapshot_date": "2026-07-15",
     "selection": "Keep distinct failure shapes and decision actions; do not mirror every decision row."
   },
   "sanitization": {
@@ -328,6 +328,150 @@
       "evidence_summary": [
         "The official repository states that the application creates com.radio4000.track records."
       ]
+    }
+  ],
+  "promotion_cases": [
+    {
+      "case_id": "hold-http-only-juntos-service",
+      "subject": {
+        "ref": "juntos",
+        "name": "Juntos",
+        "tracking_state": "active",
+        "category": "project",
+        "service_url": "https://juntos.chat",
+        "service_status": "live",
+        "service_status_confidence": "low",
+        "service_status_evidence": ["http_200"],
+        "atproto_contribution_level": "core",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {
+        "disposition": "hold",
+        "reason": "service_not_usable"
+      },
+      "evidence_summary": [
+        "HTTP 200 alone did not establish that the service was usable; operator review found it unavailable."
+      ]
+    },
+    {
+      "case_id": "exclude-out-of-scope-bluesky-comments",
+      "subject": {
+        "ref": "bluesky-comments",
+        "name": "Bluesky Comments",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://bluesky-comments-docs.mhamlin.workers.dev",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-hangar",
+      "subject": {
+        "ref": "hangar",
+        "name": "Hangar",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://hangar.blue",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-hughlou",
+      "subject": {
+        "ref": "hughlou",
+        "name": "hughlou",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://hughlou.com",
+        "service_status": "live",
+        "atproto_contribution_level": "optional",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-lexicon-community",
+      "subject": {
+        "ref": "lexicon-community",
+        "name": "Lexicon Community",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://lexicon.community",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-lastfm-blue",
+      "subject": {
+        "ref": "lastfm-blue",
+        "name": "lastfm.blue",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://lastfm.butialabs.com",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-skycle",
+      "subject": {
+        "ref": "skycle",
+        "name": "skycle.app",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://skycle.app",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-skystack",
+      "subject": {
+        "ref": "skystack",
+        "name": "Skystack",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://web.skystack.xyz",
+        "service_status": "live",
+        "atproto_contribution_level": "optional",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    },
+    {
+      "case_id": "exclude-out-of-scope-toolshed",
+      "subject": {
+        "ref": "toolshed",
+        "name": "ToolShed",
+        "tracking_state": "out_of_scope",
+        "category": "project",
+        "service_url": "https://toolshed.sh",
+        "service_status": "live",
+        "atproto_contribution_level": "substantial",
+        "technical_interest_level": "notable"
+      },
+      "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     }
   ]
 }

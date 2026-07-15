@@ -10197,12 +10197,19 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
     signals: list[dict[str, Any]] = []
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
     service_status = str(shaped.get("service_status") or "unknown")
+    service_status_confidence = normalize_service_status_confidence(
+        shaped.get("service_status_confidence")
+    )
     category = str(shaped.get("category") or "")
 
     allowed_service_categories = {"project"}
     if include_personal_tools:
         allowed_service_categories.add("personal_tool")
-    if category in allowed_service_categories and service_status in {"live", "beta", "invite_only"}:
+    if (
+        category in allowed_service_categories
+        and service_status in {"live", "beta", "invite_only"}
+        and service_status_confidence in {"medium", "high"}
+    ):
         if service_is_derivative_bluesky_tool(shaped):
             return signals
         if shaped.get("website_url") or shaped.get("service_urls"):
@@ -10213,6 +10220,7 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
                     "details": {
                         "category": category,
                         "service_status": service_status,
+                        "service_status_confidence": service_status_confidence,
                         "website_url": str(shaped.get("website_url") or ""),
                         "blockers": sorted(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}),
                     },

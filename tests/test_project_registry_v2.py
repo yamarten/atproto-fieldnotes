@@ -254,6 +254,36 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertGreaterEqual(action_counts["separate_project"], 3)
         self.assertEqual(action_counts["merge_project"], 3)
 
+    def test_manual_gold_fixture_has_promotion_negative_coverage(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = payload["promotion_cases"]
+
+        self.assertEqual(len(cases), 9)
+        self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
+        dispositions = [item["expected_promotion"]["disposition"] for item in cases]
+        self.assertEqual(dispositions.count("exclude"), 8)
+        self.assertEqual(dispositions.count("hold"), 1)
+        self.assertTrue(all(item["evidence_summary"] for item in cases))
+
+        juntos = next(item for item in cases if item["subject"]["ref"] == "juntos")
+        self.assertEqual(juntos["subject"]["service_status_confidence"], "low")
+        self.assertEqual(juntos["subject"]["service_status_evidence"], ["http_200"])
+        self.assertEqual(
+            juntos["expected_promotion"],
+            {"disposition": "hold", "reason": "service_not_usable"},
+        )
+        excluded = [item for item in cases if item["expected_promotion"]["disposition"] == "exclude"]
+        self.assertTrue(all(item["subject"]["tracking_state"] == "out_of_scope" for item in excluded))
+
+        for item in cases:
+            project = dict(item["subject"])
+            project["website_url"] = project.pop("service_url")
+            signal_kinds = {
+                signal["kind"] for signal in registry.compute_showcase_signals(project)
+            }
+            self.assertNotIn("service_ready_for_introduction", signal_kinds)
+
     def test_manual_gold_fixture_omits_volatile_log_identity(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -278,6 +308,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
                 self.assertFalse(value.startswith("proj:"))
 
         assert_fixed(payload["cases"])
+        assert_fixed(payload["promotion_cases"])
 
     def test_operator_correction_benchmark_detects_removed_guard(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-correction-benchmark-v1.json"

@@ -97,7 +97,10 @@
 - replay regression corpus
   - 通常replay 6件とoperator correctionのblock/defer/confirm 3件をnetworkなしで評価
   - fixture exportはsanitizer v2を通し、commit前のmanual縮約を必須とする
-  - manual gold setはoperator reviewから固定した11件で、identity / service / repositoryの期待actionを実project key・時刻・期限なしで保持
+  - manual gold setはoperator reviewから固定したidentity / service / repository判断11件とpromotionのhold / exclude 9件を、実project key・時刻・期限なしで保持
+- promotion queueの独立signal
+  - service紹介候補は`live / beta / invite_only`かつconfidence `medium / high`。HTTP 200だけのlow判定は要reviewとして残す
+  - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
@@ -140,9 +143,9 @@
 
 ## 動作確認状況
 
-2026-07-13時点で確認済み:
+2026-07-15時点で確認済み:
 
-- 全unit test 395件
+- 全unit test 398件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

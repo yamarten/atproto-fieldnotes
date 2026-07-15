@@ -1014,6 +1014,8 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
 
 技術的な学習価値は、実用性や紹介準備とは別軸で `technical_interest_*` に保持します。LLM は evidence に基づいて `none / notable / high / exceptional` を暫定評価し、理由を enum と短い説明で残します。`promotion-queue` の `technical_insight_candidate` は `high` / `exceptional` だけを対象にします。`notable` は将来の再評価材料として保存しますが、推薦 signal にはしません。
 
+serviceの利用可否も独立軸として扱います。`service_ready_for_introduction`は`service_status=live / beta / invite_only`に加え、`service_status_confidence=medium / high`を必要とします。HTTP 200だけの`low`判定はservice statusやreview候補として保持しますが、利用可能な紹介候補とはみなしません。これはatproto寄与度や`technical_insight_candidate`を抑止しません。
+
 理由 enum:
 
 - `novel_design_pattern`

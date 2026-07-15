@@ -99,7 +99,7 @@ project-registry enrich --all --resume-run weekly-20260714
 
 | kind | 意味 |
 | --- | --- |
-| `service_ready_for_introduction` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`。 |
+| `service_ready_for_introduction` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`かつ確認の確からしさがmedium以上。HTTP 200だけのlow判定は含めない。 |
 | `lexicon_ready_for_introduction` | lexiconにNSID hintと公開先があり、紹介metadataの大きな欠落がない。 |
 | `technical_insight_candidate` | 実用性とは別に、設計・相互運用・参照実装として特に見る価値がある。 |
 

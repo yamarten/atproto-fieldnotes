@@ -1518,7 +1518,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_promotion_deferral_hides_queue_item_until_expiry(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-        project.update({"category": "project", "service_status": "live"})
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
         registry.defer_promotion_on_project(project, reason="中核機能が未実装")
@@ -1534,7 +1539,24 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_out_of_scope_project_is_not_promoted(self) -> None:
         project = self.make_project("proj:outofscope", "service_url", "https://example.com")
-        project.update({"category": "project", "service_status": "live", "tracking_state": "out_of_scope"})
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "tracking_state": "out_of_scope",
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_low_confidence_http_only_service_is_not_promotion_ready(self) -> None:
+        project = self.make_project("proj:http200only", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "low",
+            "service_status_evidence": ["http_200"],
+        })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
         self.assertEqual(registry.compute_showcase_signals(project), [])
@@ -1888,6 +1910,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "name": "Low",
                     "category": "project",
                     "service_status": "live",
+                    "service_status_confidence": "medium",
                     "summary": "Low summary",
                     "tagline": "Low tagline",
                 }
@@ -1901,6 +1924,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "name": "High",
                     "category": "project",
                     "service_status": "live",
+                    "service_status_confidence": "medium",
                     "summary": "High summary",
                     "tagline": "High tagline",
                     "resolved_nsids": ["app.high.post"],
@@ -1927,7 +1951,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-            project.update({"category": "project", "service_status": "live"})
+            project.update({
+                "category": "project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+            })
             registry.confirm_service_seed(project, "https://example.com", source="test")
             registry.save_project(conn, project)
             conn.commit()
