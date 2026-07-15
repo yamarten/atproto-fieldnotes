@@ -1,8 +1,8 @@
 # atproto survey automation
 
-新しく生まれたatproto project、service、library、lexiconを発見し、調査・review・追跡するための個人用ローカルツールです。
+新しく生まれたatprotoのプロジェクト、サービス、ライブラリ、lexiconを発見し、調査・整理・追跡するための個人用ローカルツールです。
 
-主対象は新規lexiconを持つ独立projectです。候補を外部sourceから収集し、manual seedを調査してproject recordへ育て、紹介状況と継続調査stateをSQLiteに保存します。
+主対象は新規lexiconを持つ独立プロジェクトです。候補を外部情報源から収集し、シードを起点に登録プロジェクトを調査して、紹介状況と追跡状態をSQLiteに保存します。
 
 ## Quick start
 
@@ -23,7 +23,7 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
-Web UIの`Projects`からseedを登録・調査し、`Review`で候補を確認します。CLIで最小フローを行う場合は次の通りです。
+Web UIの`Projects`からシードを登録・調査し、`Review`で要レビュー項目や紹介候補を確認します。CLIで最小フローを行う場合は次の通りです。
 
 ```bash
 project-registry add-seed sh.tangled.repo
@@ -31,15 +31,15 @@ project-registry enrich --seed sh.tangled.repo --type nsid
 project-registry show --seed sh.tangled.repo --type nsid
 ```
 
-通常コマンドとWeb UIはDBを暗黙作成しません。既定DBは`data/survey.db`です。別DBを使う方法、seed形式、外部sourceとLLMの設定は[利用ガイド](docs/user/guide.md)を参照してください。
+通常コマンドとWeb UIはDBを暗黙作成しません。既定DBは`data/survey.db`です。別DBを使う方法、シード形式、外部情報源とLLMの設定は[利用ガイド](docs/user/guide.md)を参照してください。
 
 ## 公開入口
 
-- [bin/project-registry](bin/project-registry): 登録、調査、review、sync、maintenanceのCLI
+- [bin/project-registry](bin/project-registry): 登録、調査、候補整理、外部情報の取り込み、保守のCLI
 - [bin/project-registry-web](bin/project-registry-web): schema v2ローカルWeb UI
 - [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web): zsh completion
 
-`PATH`には`bin/`だけを追加する前提です。各CLI optionは`project-registry COMMAND --help`で確認できます。
+`PATH`には`bin/`だけを追加する前提です。各CLIオプションは`project-registry COMMAND --help`で確認できます。
 
 ## テスト
 
@@ -53,9 +53,9 @@ testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite D
 
 利用者向け:
 
-- [利用ガイド](docs/user/guide.md): setup、seed、日常フロー、安全な使い分け
-- [CLIガイド](docs/user/cli.md): 全公開コマンドの入力、出力、network、DB変更
-- [Web UIガイド](docs/user/web-ui.md): 画面、filter、action、background job、access境界
+- [利用ガイド](docs/user/guide.md): 準備、シード、日常フロー、安全な使い分け
+- [CLIガイド](docs/user/cli.md): 全公開コマンドの入力、出力、外部接続、DB変更
+- [Web UIガイド](docs/user/web-ui.md): 画面、絞り込み、操作、バックグラウンドジョブ、アクセス境界
 
 現在地と計画:
 

@@ -1,6 +1,6 @@
 # Project Registry Web UIガイド
 
-`project-registry-web`はschema version 2のSQLite DBを操作する、単一operator向けのローカルWeb UIです。日常的な登録、調査、review、project修正はWeb UIを主導線とし、低水準のauditやmaintenanceは[CLIガイド](cli.md)へ分けています。
+`project-registry-web`はschema version 2のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
 
 ## 起動
 
@@ -9,13 +9,13 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
-| option | 意味 |
+| オプション | 意味 |
 | --- | --- |
 | `--host` | bind先。既定はloopback。 |
-| `--port` | port。既定は`8765`。 |
+| `--port` | ポート。既定は`8765`。 |
 | `--db-path` | 接続するschema v2 SQLite DB。既定は`data/survey.db`。 |
 | `--token` | API共有token。`ATPROTO_SURVEY_WEB_TOKEN`でも指定できる。 |
-| `--reload` | Web実装変更時にserver processを再起動する。 |
+| `--reload` | Web実装変更時にサーバープロセスを再起動する。 |
 | `--reload-interval` | reload確認間隔。 |
 
 別DBは先にCLIで初期化します。
@@ -29,112 +29,111 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 | 画面 | 主な用途 | DB変更 |
 | --- | --- | --- |
-| `Review` | review queue、promotion queue、任意pairを含むmerge review | actionを確認した時だけwrite。skipはwriteしない |
-| `Projects` | project検索、detail表示、seed preview・追加 | 検索はread-only。明示した編集/actionだけwrite |
-| `Operations` | enrich、設定済みsync、tracking classification review、scheduled preset | dry-runとexecuteを画面で区別 |
-| `Settings` | queue limit、merge mode、表示time zone、token、server/DB情報 | UI設定はlocalStorage。server reloadはDBを変更しない |
+| `Review` | 要レビュー一覧、紹介候補一覧、任意の組み合わせを含むマージ候補の比較 | 操作を確認した時だけ書き込み。skipは書き込まない |
+| `Projects` | 登録プロジェクトの検索・詳細表示、シードのプレビュー・追加 | 検索は読み取り専用。明示した編集・操作だけ書き込み |
+| `Operations` | `enrich`、外部情報の取り込み（`sync`）、追跡状態の見直し、定期実行設定 | dry-runとexecuteを画面で区別 |
+| `Settings` | 一覧件数、マージ方法、表示time zone、token、サーバー・DB情報 | UI設定はlocalStorage。サーバーのreloadはDBを変更しない |
 
-検索条件、選択project、detail tabはURLに保存され、reload、back、forwardで復元します。tokenとUI設定はURLへ残しません。
+検索条件、選択中の登録プロジェクト、詳細タブはURLに保存され、reload、back、forwardで復元します。tokenとUI設定はURLへ残しません。
 
 ## Projects
 
-`Add seed`はNSID、repository URL、service URLをpreviewしてから登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存project detailから追加したseedはそのprojectへ紐づきます。
+`Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてからシードとして登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加したシードは、その登録プロジェクトへ紐づきます。
 
-Filtersで次を絞り込めます。
+フィルターで次を絞り込めます。
 
-- tracking state、service status、atproto contribution、introduced有無、candidate/error有無
-- identifierのkind、value、classification
-- relationのpredicate、subject/object typeとvalue、source
-- decisionのkind、target type/value、active・expired・cleared
+- 追跡状態、サービス状態、atprotoへの寄与度、introducedの有無、候補・エラーの有無
+- 識別子の種類、値、分類
+- 関係の種類、subject/objectの種類と値、情報源
+- 手動判断の種類、対象の種類・値、有効・期限切れ・解除済み
 
-tracking state、service status、atproto contributionは複数選択です。kind、classification、predicate、subject/object type、decision kind/target typeは選択肢から指定します。identifier・relation・decisionのvalueは部分一致、relation sourceは候補付き完全一致です。未選択のfilterは絞り込みません。
+追跡状態、サービス状態、atprotoへの寄与度は複数選択です。種類、分類、関係、subject/objectの種類、手動判断・対象の種類は選択肢から指定します。識別子・関係・手動判断の値は部分一致、関係の情報源は候補付き完全一致です。未選択のフィルターは絞り込みません。
 
-project detailは次のtabに分かれます。
+登録プロジェクトの詳細画面は次のタブに分かれます。
 
-| tab | 表示内容 |
+| タブ | 表示内容 |
 | --- | --- |
-| `Overview` | profile、service/ownership、保存済み結論のExplain、merge候補、notes |
-| `Identifiers` | classificationとrole付きidentifier、候補へのaction |
-| `Relations` | typed relation evidence、dismiss/defer action |
-| `Investigation` | 最新run、collector結果/failure、履歴、保存evidence、replay |
-| `Decisions` | active guardとoperator decision履歴 |
-| `Raw` | schema v2 APIが返したproject payload |
+| `Overview` | profile、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
+| `Identifiers` | 分類とrole付きの識別子、候補への操作 |
+| `Relations` | 種類付きの関係根拠、除外・保留操作 |
+| `Investigation` | 最新の調査実行記録、収集結果・失敗、履歴、保存済みの根拠、再評価 |
+| `Decisions` | 有効な制御と手動判断の履歴 |
+| `Raw` | schema v2 APIが返した登録プロジェクトのデータ |
 
-`Overview`のExplainは保存済みstateを表示し、networkやLLMを使いません。全project比較が必要なmerge候補はdetail本体の後に別requestで計算し、DBへ保存しません。保存データがない項目は`not_observed`であり、否定結果ではありません。
+`Overview`のExplainは保存済み状態を表示し、ネットワークやLLMを使いません。全登録プロジェクトとの比較が必要なマージ候補は詳細本体の後に別リクエストで計算し、DBへ保存しません。保存データがない項目は`not_observed`であり、否定結果ではありません。
 
-detailから次を実行できます。
+詳細画面から次を実行できます。
 
-- 単体enrich、tracking state変更、manual seed追加
-- candidate confirm/reject、identifier block/defer、relation dismiss/defer
-- promotion hold、split、separation解除、merge review
-- profileの`name`、`introduced_url`、人間向け`notes`のpreview・保存
+- 単体`enrich`、追跡状態の変更、手動シードの追加
+- 識別子候補の採用・除外、識別子の再付着防止・保留、関係の除外・保留
+- 紹介保留、分割、別プロジェクト指定の解除、マージ候補の比較
+- profileの`name`、`introduced_url`、利用者向け`notes`のプレビュー・保存
 
-変更は確認後にSQLiteへ保存します。profile editはpreview後にprojectが別processで変わっていた場合、保存を拒否して再読込を促します。`system_notes`は機械生成履歴で、profile editの対象ではありません。
+変更は確認後にSQLiteへ保存します。profile編集はプレビュー後に登録プロジェクトが別プロセスで変わっていた場合、保存を拒否して再読込を促します。`system_notes`は機械生成履歴で、profile編集の対象ではありません。
 
-identifierへのblock/defer/splitは同じvalueのrole単位ではなく、画面に示すidentifier identity全体へ作用します。defer解除は自動confirmではありません。
+識別子の再付着防止・保留・分割は、同じ値のrole単位ではなく、画面に示す識別子全体へ作用します。保留解除は自動採用ではありません。
 
 ## Review
 
-`Review Queue`は人の確認が必要な候補、`Promotion`は紹介候補、`Merge`は重複候補または直接入力した任意pairを表示します。
+`Review Queue`は要レビュー項目、`Promotion`は紹介候補、`Merge`は重複候補または直接入力した任意の組み合わせを表示します。
 
-action保存後は表示中カードだけを一覧から外し、次へ進みます。一覧全体を自動再計算しないため、最新候補と件数を取り直す時は`Refresh`を使います。`Skip for now`はDBへ何も書かず、その表示中だけ候補を先送りします。
+操作の保存後は表示中のカードだけを一覧から外し、次へ進みます。一覧全体を自動再計算しないため、最新候補と件数を取り直す時は`Refresh`を使います。`Skip for now`はDBへ何も書かず、その表示中だけ候補を先送りします。
 
-merge reviewはsourceからtargetへ統合する向きで、両projectのprofile、state、seed、identifier、pair signal、merged previewを比較します。`Keep separate`はpairのseparation guardを保存します。`Merge projects`は確認後に統合します。候補一覧にないpairもproject keyを直接指定して比較できます。
+マージ候補の比較では、マージ元からマージ先へまとめる向きで、両方の登録プロジェクトのprofile、状態、シード、識別子、候補となった理由、マージ結果のプレビューを比較します。`Keep separate`は2件を別の登録プロジェクトとして扱う手動判断を保存します。`Merge projects`は確認後にマージします。候補一覧にない組み合わせもプロジェクトキーを直接指定して比較できます。
 
-PSLにないmulti-tenant suffixが原因らしいpairでは、suffix候補を表示し、その場で`domain-overrides.json`へ追加できます。suffix追加は今後のfamily判定を変えるため、preview内容を確認してください。
+PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾辞候補を表示し、その場で`domain-overrides.json`へ追加できます。接尾辞の追加は今後のドメイン判定を変えるため、プレビュー内容を確認してください。
 
 ## Operations
 
-background jobはWeb serverとは別processで動き、同じWeb serverでは同時に1件だけ実行できます。CLIなど別processとの排他は行いません。
+バックグラウンドジョブはWebサーバーとは別プロセスで動き、同じWebサーバーでは同時に1件だけ実行できます。CLIなど別プロセスとの排他は行いません。
 
 ### Enrich
 
-単体またはbulkを選び、deep investigation、未enrichのみ、前回failureのみ、追加tracking stateを指定できます。bulk enrichはproject間で停止し、checkpointから再開できます。1 projectのfailureは記録して後続を処理し、run全体をfailedとして再開可能にします。
+単体または一括実行を選び、詳細調査、未`enrich`のみ、前回失敗分のみ、追加の追跡状態を指定できます。一括`enrich`は登録プロジェクト間で停止し、チェックポイントから再開できます。1件の登録プロジェクトの失敗は記録して後続を処理し、一括実行全体を`failed`として再開可能にします。
 
-### Sync
+### Sync（外部情報の取り込み）
 
-設定済みのintroduced、GitHub、collection inventory、Semble、Tangled sourceを実行します。任意queryやURLはCLIで指定します。dry-runでも外部networkへ接続しますがSQLiteは更新しません。syncの停止要求は現在のsource page/item境界で反映され、checkpoint再開はありません。
+設定済みのintroduced、GitHub、collection一覧、Semble、Tangledから外部情報を取り込みます。任意の検索条件やURLはCLIで指定します。dry-runでは取り込み候補を確認でき、外部ネットワークへ接続しますがSQLiteは更新しません。停止要求は現在の情報源のページ・項目境界で反映され、チェックポイントからの再開はありません。
 
 ### Review Ops
 
-保存済みproject dataからstalled/stable、out-of-scope、ignore候補を再計算します。plan作成はnetwork-freeです。dry-runで候補を確認し、execute時は表示対象を一括適用します。
+保存済みの登録プロジェクト情報から、`stalled`・`stable`、調査範囲外、追跡対象外への変更候補を再計算します。適用内容の作成はネットワークを使いません。dry-runで候補を確認し、execute時は表示対象を一括適用します。
 
 ### Scheduled Presets
 
-allowlist済みpresetだけを手動または定期発火できます。任意commandは実行できません。設定できるのは通常bulk enrich、全tracking stateのmaintenance、introduced sync、その他sync後のnew-only enrichです。
+許可済みの定期実行設定だけを手動または定期的に開始できます。任意のコマンドは実行できません。設定できるのは通常の一括`enrich`、全追跡状態の見直し、introduced情報の取り込み、その他の外部情報を取り込んだ後に行う新規登録分だけの`enrich`です。
 
-各presetはenabled、毎週または月の第N週、曜日、時刻、time zoneを持ちます。設定とpending queueはDBと同じdirectoryの`job-schedules.json`へ保存します。予定から24時間を超えた未実行分は後追い発火しません。server再起動時に実行中だったstepは完了扱いにせず、同じstepから再試行します。
+各設定は有効・無効、毎週または月の第N週、曜日、時刻、time zoneを持ちます。設定と実行待ち一覧はDBと同じディレクトリの`job-schedules.json`へ保存します。予定から24時間を超えた未実行分は後から実行しません。サーバー再起動時に実行中だった段階は完了扱いにせず、同じ段階から再試行します。
 
-### job履歴と再起動
+### ジョブ履歴と再起動
 
-job一覧とeventはserver process内だけに保持され、server再起動後は復元されません。bulk enrichの未完了checkpointは`Discovered Checkpoints`から再発見・再開できます。sync/reviewにはcheckpoint再開がありません。
+ジョブ一覧とイベントはサーバープロセス内だけに保持され、サーバー再起動後は復元されません。一括`enrich`の未完了チェックポイントは`Discovered Checkpoints`から再発見・再開できます。外部情報の取り込みと追跡状態の見直しにはチェックポイントからの再開がありません。
 
-Settingsの`Reload server`はWeb processを再起動し、SQLiteは変更しません。active jobへ協調停止を要求し、timeoutを超えたworkerは終了してから再起動します。browserは新processの応答後に自動再読込します。
+Settingsの`Reload server`はWebプロセスを再起動し、SQLiteは変更しません。実行中のジョブへ協調停止を要求し、タイムアウトを超えたworkerは終了してから再起動します。ブラウザーは新プロセスの応答後に自動再読込します。
 
 ## Settings
 
-- queue/project/merge limit、merge mode、personal toolの包含
+- 一覧・登録プロジェクト・マージ候補の件数上限、マージ方法、personal toolの包含
 - 表示time zone。既定`Asia/Tokyo`、IANA名または`+09:00`形式
 - API tokenの保存・削除
 - 接続DB、Python version、起動時Git commit/dirty状態
-- server reload
+- サーバーのreload
 
-UI設定とtokenは同じoriginの`localStorage`に保存します。表示time zoneを変えてもDB timestampは変わりません。Git状態はserver起動時に一度取得するため、checkout変更後はreloadが必要です。
+UI設定とtokenは同じoriginの`localStorage`に保存します。表示time zoneを変えてもDB timestampは変わりません。Git状態はサーバー起動時に一度取得するため、checkout変更後はreloadが必要です。
 
-## Access境界
+## アクセス境界
 
-Web UIは`127.0.0.1`上で単一operatorが使う前提です。公開server、共有端末、複数利用者向けのaccess controlはありません。
+Web UIは`127.0.0.1`上で1人の利用者が使う前提です。公開サーバー、共有端末、複数利用者向けのアクセス制御はありません。
 
-- 起動時の初回URLだけqueryにtokenを含み、UIは読取直後にURLから除去します。ただしterminal、browser拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
-- tokenは同じoriginの`localStorage`へ保存されます。同じbrowser profile・originを使えるscriptや利用者とは秘密を分離できません。不要になったらSettingsの`Clear API token`で削除してください。
-- serverはplain HTTPで、TLS終端やtoken rotationを提供しません。`--host 0.0.0.0`などで直接公開しないでください。
+- 起動時の初回URLだけqueryにtokenを含み、UIは読取直後にURLから除去します。ただしターミナル、ブラウザー拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
+- tokenは同じoriginの`localStorage`へ保存されます。同じブラウザープロファイル・originを使えるスクリプトや利用者とは秘密を分離できません。不要になったらSettingsの`Clear API token`で削除してください。
+- サーバーはplain HTTPで、TLS終端やtoken rotationを提供しません。`--host 0.0.0.0`などで直接公開しないでください。
 - localhost外から使う場合はloopbackへbindしたまま、管理下のSSH tunnelまたはTLS付きreverse proxyを前段に置きます。
 
-API requestは共有token必須です。起動時URLのbootstrap token、`Authorization: Bearer ...`、`X-Project-Registry-Token`のいずれかを使います。静的assetはtokenなしで配信します。
+APIリクエストは共有token必須です。起動時URLのbootstrap token、`Authorization: Bearer ...`、`X-Project-Registry-Token`のいずれかを使います。静的assetはtokenなしで配信します。
 
 ## 現在未接続のもの
 
-- server再起動後のprocess job履歴復元。bulk enrich checkpointの再発見は接続済み。
+- サーバー再起動後のプロセス内ジョブ履歴復元。一括`enrich`チェックポイントの再発見は接続済み。
 - Web UIからのLLM接続設定。
-- Web UIからのserver shutdown。reloadは接続済み。
-
+- Web UIからのサーバー終了。reloadは接続済み。

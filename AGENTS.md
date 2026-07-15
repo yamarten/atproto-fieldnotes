@@ -88,6 +88,9 @@
 ## 文書の配置
 
 - `docs/user/` は利用者向けの操作ガイドを置く
+- 利用者向け文書の基本用語は `docs/user/guide.md` の「基本用語」を正本とし、編集上の境界は `docs/notes/user-facing-terminology.md` を参照する
+  - README、brief、`docs/user/`では利用者向け語彙を優先する
+  - 開発文書ではコード、DB、enumと対応する英語を維持してよく、利用者向け語彙への一括置換はしない
 - `docs/developer/` は保存契約、内部仕様、調査・background jobの設計を置く
 - `docs/` 直下は、brief、status、roadmap、handoffなどproject全体の現在地と統治に関する正本文書を置く
 - 開発フェーズ名や一時的な作業単位だけを理由に、`docs/` 直下へ新規文書を増やさない

@@ -42,6 +42,11 @@
 
 ## 条件付き短期候補
 
+### 開発文書の用語整理
+
+- 機能削減の判断と削除が一段落した後、`docs/developer/`を読み直し、未定義の独自語、対象が曖昧な`run` / `review`、古くなった説明を整理する
+- 全面翻訳や一括置換は行わず、コード・DB・enumと対応する用語は維持する。利用者向け語彙との境界は[編集方針メモ](notes/user-facing-terminology.md)を参照する
+
 ### 保存量と履歴
 
 - 2026-08-10到達または新規1,000 investigation runsの早い方で`cleanup-storage-payloads` dry-runを再計測する
@@ -319,8 +324,9 @@ Web UIのschema v2検索は接続済みです。検索拡張候補は次です�
 
 - 利用を圧迫しないHelp導線
   - `docs/user/web-ui.md`を利用者向け正本とし、画面内へ長い説明を重複させない
-  - 独立したHelp画面では日常flow、用語、DB write/network/dry-run、access境界を短く案内する
-  - filterや破壊的actionの直近には、意味が紛らわしい箇所だけtooltipまたは短い補足を置く
+  - 独立したHelp画面では日常フロー、基本用語、DB書き込み・外部接続・dry-run、アクセス境界を短く案内する
+  - 外部情報の取り込みは、dry-runでも外部接続することを明示する
+  - フィルターや破壊的操作の直近には、意味が紛らわしい箇所だけtooltipまたは短い補足を置く
   - CLI固有の低水準操作をWeb Helpへ網羅せず、必要な場合だけCLIガイドへ導く
 - sync/reviewのcheckpoint再開
   - 現状はsource/candidate境界のprogressと停止まで
