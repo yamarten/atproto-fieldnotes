@@ -110,7 +110,8 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
     promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
-        "service_ready_for_introduction",
+        "service_surface_confirmed",
+        "service_candidate_needs_validation",
         "lexicon_ready_for_introduction",
         "technical_insight_candidate",
     ], help="Restrict to specific promotion signal kinds.")

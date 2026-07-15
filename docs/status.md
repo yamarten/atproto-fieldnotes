@@ -97,10 +97,10 @@
 - replay regression corpus
   - 通常replay 6件とoperator correctionのblock/defer/confirm 3件をnetworkなしで評価
   - fixture exportはsanitizer v2を通し、commit前のmanual縮約を必須とする
-  - manual gold setはoperator reviewから固定したidentity / service / repository判断11件とpromotionのhold / exclude / queue / contextual 14件を、実project key・時刻・期限なしで保持
-  - promotion caseのうちout-of-scope、HTTP-only hold、Echosky queueは現行policyで確認済み。landing-onlyとcontextualは未実装のeditorial境界
+  - manual gold setはoperator reviewから固定したidentity / service / repository判断11件、promotionのhold / exclude / queue / contextual 14件、紹介済みpositive reference 5件を実project key・時刻・期限なしで保持
+  - promotion caseのうちout-of-scope除外、Echoskyのsurface-confirmed、Juntos / Moat / gmstn.systemsのvalidation候補は現行policyで確認済み。contextualは未実装のeditorial境界
 - promotion queueの独立signal
-  - service紹介候補は`live / beta / invite_only`かつconfidence `medium / high`。HTTP 200だけのlow判定は要reviewとして残す
+  - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。正本DBで160候補のうち前者78件、後者66件
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
@@ -146,7 +146,7 @@
 
 2026-07-15時点で確認済み:
 
-- 全unit test 399件
+- 全unit test 402件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "Fixed operator-reviewed examples for identity, identifier, and promotion policy evaluation.",
+  "purpose": "Fixed operator-reviewed examples for identity, identifier, promotion, and showcase policy evaluation.",
   "provenance": {
     "source": "Operator-confirmed corrections and merge reviews in the local registry.",
     "snapshot_date": "2026-07-15",
@@ -342,15 +342,17 @@
         "service_status": "live",
         "service_status_confidence": "low",
         "service_status_evidence": ["http_200"],
+        "operator_observation": "login_reached_then_backend_error",
+        "operator_observation_confidence": "recalled_not_reverified",
         "atproto_contribution_level": "core",
         "technical_interest_level": "notable"
       },
       "expected_promotion": {
-        "disposition": "hold",
-        "reason": "service_not_usable"
+        "disposition": "queue",
+        "reason": "runtime_validation_required"
       },
       "evidence_summary": [
-        "HTTP 200 alone did not establish that the service was usable; operator review found it unavailable."
+        "The candidate was worth surfacing even though the operator recalls reaching login and then seeing a backend error; the runtime observation has not been reverified."
       ]
     },
     {
@@ -587,6 +589,96 @@
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
+    }
+  ],
+  "showcase_reference_cases": [
+    {
+      "case_id": "showcase-flagship-bluesky",
+      "subject": {
+        "ref": "bluesky",
+        "name": "Bluesky",
+        "category": "project",
+        "service_url": "https://bsky.app",
+        "service_available": true
+      },
+      "expected_editorial": {
+        "tier": "flagship",
+        "reason": "canonical_atproto_service"
+      },
+      "evidence_summary": [
+        "Bluesky is the canonical positive example for a generally useful atproto service introduction."
+      ]
+    },
+    {
+      "case_id": "showcase-strong-service-rolld",
+      "subject": {
+        "ref": "rolld",
+        "name": "rolld",
+        "category": "project",
+        "service_url": "https://rolld.at",
+        "service_available": true
+      },
+      "expected_editorial": {
+        "tier": "strong",
+        "reason": "working_distinct_atproto_service"
+      },
+      "evidence_summary": [
+        "A recent working service with a distinct atproto use case is a strong standalone introduction candidate."
+      ]
+    },
+    {
+      "case_id": "showcase-technical-standard-site",
+      "subject": {
+        "ref": "standard-site",
+        "name": "standard.site",
+        "category": "lexicon",
+        "service_url": "https://standard.site",
+        "service_available": false
+      },
+      "expected_editorial": {
+        "tier": "technical_interest",
+        "reason": "interesting_protocol_design_without_service"
+      },
+      "evidence_summary": [
+        "The protocol and lexicon design is worth introducing even without an end-user service."
+      ]
+    },
+    {
+      "case_id": "showcase-technical-idiolect",
+      "subject": {
+        "ref": "idiolect",
+        "name": "idiolect",
+        "category": "project",
+        "service_url": "https://idiolect.dev",
+        "service_available": false
+      },
+      "expected_editorial": {
+        "tier": "technical_interest",
+        "reason": "interesting_protocol_design_without_service"
+      },
+      "evidence_summary": [
+        "The design is interesting enough for introduction despite having no usable service."
+      ]
+    },
+    {
+      "case_id": "showcase-strong-meyasuat",
+      "subject": {
+        "ref": "meyasuat",
+        "name": "meyasuat",
+        "category": "project",
+        "service_url": "https://meyasuat.suibari.com",
+        "service_available": true
+      },
+      "expected_editorial": {
+        "tier": "strong",
+        "reason": "working_distinct_atproto_service"
+      },
+      "manual_context": [
+        "Japanese origin may be an editorial tie-breaker, but is not an automated ranking signal."
+      ],
+      "evidence_summary": [
+        "A working distinct service is a strong example; regional relevance is retained only as manual context."
+      ]
     }
   ]
 }

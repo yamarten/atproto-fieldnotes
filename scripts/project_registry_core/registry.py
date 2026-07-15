@@ -9793,7 +9793,11 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
     if not project_key:
         return commands
     signal_kinds = {str(item.get("kind") or "") for item in signals}
-    if signal_kinds & {"service_ready_for_introduction", "lexicon_ready_for_introduction"}:
+    if signal_kinds & {
+        "service_surface_confirmed",
+        "service_candidate_needs_validation",
+        "lexicon_ready_for_introduction",
+    }:
         commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
     return unique_list(commands)
 
@@ -10110,8 +10114,10 @@ def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, 
     score = 0
     now = dt.datetime.now(dt.timezone.utc)
     signal_kinds = {str(item.get("kind") or "") for item in signals}
-    if "service_ready_for_introduction" in signal_kinds:
+    if "service_surface_confirmed" in signal_kinds:
         score += 200
+    if "service_candidate_needs_validation" in signal_kinds:
+        score += 100
     if "lexicon_ready_for_introduction" in signal_kinds:
         score += 100
     if "technical_insight_candidate" in signal_kinds:
@@ -10200,6 +10206,11 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
     service_status_confidence = normalize_service_status_confidence(
         shaped.get("service_status_confidence")
     )
+    service_status_evidence = {
+        str(item).strip()
+        for item in shaped.get("service_status_evidence", [])
+        if str(item).strip()
+    }
     category = str(shaped.get("category") or "")
 
     allowed_service_categories = {"project"}
@@ -10208,19 +10219,41 @@ def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools:
     if (
         category in allowed_service_categories
         and service_status in {"live", "beta", "invite_only"}
-        and service_status_confidence in {"medium", "high"}
     ):
         if service_is_derivative_bluesky_tool(shaped):
             return signals
         if shaped.get("website_url") or shaped.get("service_urls"):
+            usable_surface_evidence = {
+                "login_surface_detected",
+                "app_shell_detected",
+                "browser_login_surface_reached",
+                "verified_authority_service_surface",
+                "invite_text_detected",
+                "beta_text_detected",
+            }
+            surface_confirmed = (
+                service_status_confidence in {"medium", "high"}
+                and bool(service_status_evidence & usable_surface_evidence)
+            )
+            validation_reasons: list[str] = []
+            if service_status_confidence not in {"medium", "high"}:
+                validation_reasons.append("low_service_status_confidence")
+            if not service_status_evidence & usable_surface_evidence:
+                validation_reasons.append("usable_surface_unconfirmed")
             signals.append(
                 {
-                    "kind": "service_ready_for_introduction",
-                    "priority": 9 if service_status == "live" else 8,
+                    "kind": (
+                        "service_surface_confirmed"
+                        if surface_confirmed
+                        else "service_candidate_needs_validation"
+                    ),
+                    "priority": (9 if service_status == "live" else 8) if surface_confirmed else 6,
                     "details": {
                         "category": category,
                         "service_status": service_status,
                         "service_status_confidence": service_status_confidence,
+                        "service_status_evidence": sorted(service_status_evidence),
+                        "validation_reasons": validation_reasons,
                         "website_url": str(shaped.get("website_url") or ""),
                         "blockers": sorted(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}),
                     },

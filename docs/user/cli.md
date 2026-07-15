@@ -95,11 +95,12 @@ project-registry enrich --all --resume-run weekly-20260714
 | `high_information_density` | NSID、schema sample、record sampleが多く、人が見る情報量が大きい。 |
 | `many_identity_candidates` | サービス、リポジトリ、手動シードの候補が多く、同一性の整理が必要。 |
 
-`promotion-queue --kinds`で選べる紹介候補は次の3種類です。
+`promotion-queue --kinds`で選べる紹介候補は次の4種類です。
 
 | kind | 意味 |
 | --- | --- |
-| `service_ready_for_introduction` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`かつ確認の確からしさがmedium以上。HTTP 200だけのlow判定は含めない。 |
+| `service_surface_confirmed` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`、confidenceがmedium以上で、login、app shell、browser到達などのservice surfaceを確認済み。紹介確定を意味しない。 |
+| `service_candidate_needs_validation` | service URLと稼働statusの候補はあるが、confidenceが低いか稼働面が未確認。上記より低い優先度で残す。 |
 | `lexicon_ready_for_introduction` | lexiconにNSID hintと公開先があり、紹介metadataの大きな欠落がない。 |
 | `technical_insight_candidate` | 実用性とは別に、設計・相互運用・参照実装として特に見る価値がある。 |
 

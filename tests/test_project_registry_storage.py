@@ -1251,12 +1251,20 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_promotion_queue_parser_accepts_technical_insight_kind(self) -> None:
+    def test_promotion_queue_parser_accepts_supported_kinds(self) -> None:
         args = cli.build_parser().parse_args(
-            ["promotion-queue", "--kinds", "technical_insight_candidate"]
+            [
+                "promotion-queue",
+                "--kinds",
+                "technical_insight_candidate",
+                "service_candidate_needs_validation",
+            ]
         )
 
-        self.assertEqual(args.kinds, ["technical_insight_candidate"])
+        self.assertEqual(
+            args.kinds,
+            ["technical_insight_candidate", "service_candidate_needs_validation"],
+        )
 
     def test_add_configured_multi_tenant_suffix_updates_domain_overrides_and_cache(self) -> None:
         original_config_path = registry.CONFIG_PATH
@@ -1534,7 +1542,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         ).isoformat()
         self.assertEqual(
             [signal["kind"] for signal in registry.compute_showcase_signals(project)],
-            ["service_ready_for_introduction"],
+            ["service_surface_confirmed"],
         )
 
     def test_out_of_scope_project_is_not_promoted(self) -> None:
@@ -1549,7 +1557,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertEqual(registry.compute_showcase_signals(project), [])
 
-    def test_low_confidence_http_only_service_is_not_promotion_ready(self) -> None:
+    def test_low_confidence_http_only_service_is_validation_candidate(self) -> None:
         project = self.make_project("proj:http200only", "service_url", "https://example.com")
         project.update({
             "category": "project",
@@ -1559,7 +1567,55 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["low_service_status_confidence", "usable_surface_unconfirmed"],
+        )
+
+    def test_docs_only_service_is_validation_candidate(self) -> None:
+        project = self.make_project("proj:docsonly", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "docs_only_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["usable_surface_unconfirmed"],
+        )
+
+    def test_validation_candidate_sorts_below_confirmed_service_surface(self) -> None:
+        confirmed = self.make_project("proj:confirmed", "service_url", "https://confirmed.example")
+        confirmed.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(confirmed, "https://confirmed.example", source="test")
+        validation = dict(confirmed)
+        validation["project_key"] = "proj:validation"
+        validation["service_status_evidence"] = ["http_200"]
+
+        confirmed_signals = registry.compute_showcase_signals(confirmed)
+        validation_signals = registry.compute_showcase_signals(validation)
+
+        self.assertEqual([item["kind"] for item in confirmed_signals], ["service_surface_confirmed"])
+        self.assertEqual([item["kind"] for item in validation_signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            registry.promotion_queue_sort_score(confirmed, confirmed_signals)
+            - registry.promotion_queue_sort_score(validation, validation_signals),
+            100,
+        )
 
     def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")

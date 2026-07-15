@@ -30,9 +30,9 @@
 固定したmanual gold setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
 
 1. promotion queue のpositive sampleと順位再設計
-   - exclude 8件、hold 3件、queue 1件、contextual 2件のeditorial sampleを固定し、low-confidence serviceを紹介候補から分離済み
-   - Moat / gmstn.systemsはlanding pageのみでも現在のservice signalに残る。名前依存ではなく、稼働機能や仕様を確認したevidenceと単なる紹介面を分ける
-   - Echoskyのqueue維持と、atShare / Mathrのような単独紹介よりcontextualな候補を表す順位・表示契約を決める
+   - exclude 8件、hold 2件、queue 2件、contextual 2件のeditorial sampleと、紹介済みpositive reference 5件を固定済み
+   - service surface確認済みと要validationを別signalとし、Echoskyを前者、Juntos / Moat / gmstn.systemsを後者で候補に残す。静的probeだけでbackend障害とlanding-onlyを無理に分けない
+   - 次はatShare / Mathrのような単独紹介よりcontextualな候補を表す順位・表示契約を決める。Bluesky / rolldとstandard.site / idiolectを別系統のpositive referenceとし、meyasuatの地域性はmanual contextに留める
    - 目的: 「深掘りする価値がある候補」を、背景と根拠付きで提示する主導線を改善する
 
 ### 依存関係

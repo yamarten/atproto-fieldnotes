@@ -13,7 +13,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- Moat / gmstn.systemsのlanding-onlyをservice紹介候補から分け、Echoskyをqueueに残しつつatShare / Mathrをcontextualに扱う順位・表示契約を決める。
+- service surface確認済みと要validationの分離を前提に、atShare / Mathrをcontextualに扱う順位・表示契約を決める。紹介済みpositive reference 5件を比較に使う。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ

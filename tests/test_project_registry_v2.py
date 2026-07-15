@@ -263,8 +263,8 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
         dispositions = [item["expected_promotion"]["disposition"] for item in cases]
         self.assertEqual(dispositions.count("exclude"), 8)
-        self.assertEqual(dispositions.count("hold"), 3)
-        self.assertEqual(dispositions.count("queue"), 1)
+        self.assertEqual(dispositions.count("hold"), 2)
+        self.assertEqual(dispositions.count("queue"), 2)
         self.assertEqual(dispositions.count("contextual"), 2)
         self.assertTrue(all(item["evidence_summary"] for item in cases))
 
@@ -273,7 +273,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(juntos["subject"]["service_status_evidence"], ["http_200"])
         self.assertEqual(
             juntos["expected_promotion"],
-            {"disposition": "hold", "reason": "service_not_usable"},
+            {"disposition": "queue", "reason": "runtime_validation_required"},
         )
         excluded = [item for item in cases if item["expected_promotion"]["disposition"] == "exclude"]
         self.assertTrue(all(item["subject"]["tracking_state"] == "out_of_scope" for item in excluded))
@@ -284,27 +284,46 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         signal_kinds = {
             signal["kind"] for signal in registry.compute_showcase_signals(project)
         }
-        self.assertIn("service_ready_for_introduction", signal_kinds)
+        self.assertIn("service_surface_confirmed", signal_kinds)
 
-    def test_enforced_promotion_negative_cases_match_policy(self) -> None:
+        project = dict(juntos["subject"])
+        project["website_url"] = project.pop("service_url")
+        signal_kinds = {
+            signal["kind"] for signal in registry.compute_showcase_signals(project)
+        }
+        self.assertIn("service_candidate_needs_validation", signal_kinds)
+
+    def test_manual_gold_fixture_has_showcase_reference_coverage(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = payload["showcase_reference_cases"]
+
+        self.assertEqual(len(cases), 5)
+        self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
+        tiers = [item["expected_editorial"]["tier"] for item in cases]
+        self.assertEqual(tiers.count("flagship"), 1)
+        self.assertEqual(tiers.count("strong"), 2)
+        self.assertEqual(tiers.count("technical_interest"), 2)
+        self.assertTrue(all(item["evidence_summary"] for item in cases))
+
+        meyasuat = next(item for item in cases if item["subject"]["ref"] == "meyasuat")
+        self.assertIn("not an automated ranking signal", meyasuat["manual_context"][0])
+
+    def test_excluded_promotion_cases_match_policy(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         cases = payload["promotion_cases"]
-        enforced_cases = [
+        excluded_cases = [
             item
             for item in cases
             if item["expected_promotion"]["disposition"] == "exclude"
-            or item["expected_promotion"]["reason"] == "service_not_usable"
         ]
 
-        self.assertEqual(len(enforced_cases), 9)
-        for item in enforced_cases:
+        self.assertEqual(len(excluded_cases), 8)
+        for item in excluded_cases:
             project = dict(item["subject"])
             project["website_url"] = project.pop("service_url")
-            signal_kinds = {
-                signal["kind"] for signal in registry.compute_showcase_signals(project)
-            }
-            self.assertNotIn("service_ready_for_introduction", signal_kinds)
+            self.assertEqual(registry.compute_showcase_signals(project), [])
 
     def test_manual_gold_fixture_omits_volatile_log_identity(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
@@ -331,6 +350,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
 
         assert_fixed(payload["cases"])
         assert_fixed(payload["promotion_cases"])
+        assert_fixed(payload["showcase_reference_cases"])
 
     def test_operator_correction_benchmark_detects_removed_guard(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "operator-correction-benchmark-v1.json"

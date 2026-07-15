@@ -59,7 +59,8 @@ review_kinds=(
   many_identity_candidates
 )
 promotion_kinds=(
-  service_ready_for_introduction
+  service_surface_confirmed
+  service_candidate_needs_validation
   lexicon_ready_for_introduction
   technical_insight_candidate
 )
