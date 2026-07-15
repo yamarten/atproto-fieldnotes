@@ -25,6 +25,18 @@ function bindBackToListButtons() {
 }
 const settingsKey = "projectRegistryWebV2Settings";
 const defaults = { reviewLimit: 50, projectLimit: 50, mergeLimit: 50, mergeMode: "moderate", includePersonalTools: false, timeZone: "Asia/Tokyo" };
+const filterOptionFallbacks = {
+  tracking_states: ["active", "archived", "ignore", "out_of_scope", "stable", "stalled"],
+  service_statuses: ["beta", "dead", "invite_only", "live", "none", "private", "unknown", "unreleased", "unverified"],
+  contribution_levels: ["auth_only", "core", "optional", "substantial", "unknown"],
+  identifier_kinds: ["account", "did", "domain", "handle", "nsid", "repo_url", "service_url"],
+  identifier_classifications: ["candidate", "confirmed", "derived", "heuristic"],
+  relation_predicates: ["defines_schema", "mentions_collection", "official_account", "operates_service", "redirects_to", "requests_permission", "source_repository", "uses_collection"],
+  relation_subject_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
+  relation_object_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
+  decision_kinds: ["block_identifier", "confirm_identifier", "defer_identifier", "defer_promotion", "defer_review_target", "dismiss_review", "dismiss_review_target", "separate_project"],
+  decision_target_types: ["account", "did", "domain", "handle", "nsid", "project_key", "repo_url", "review_kind", "review_target", "service_url"],
+};
 const state = {
   screen: "review",
   reviewView: "queue",
@@ -334,7 +346,10 @@ function selectOptions(options, selected) {
 }
 
 function filterOptionValues(key) {
-  return list(state.server?.filter_options?.[key]).map((value) => String(value));
+  const values = new Set();
+  list(filterOptionFallbacks[key]).forEach((value) => values.add(String(value)));
+  list(state.server?.filter_options?.[key]).forEach((value) => values.add(String(value)));
+  return Array.from(values).sort();
 }
 
 function splitSelections(value) {

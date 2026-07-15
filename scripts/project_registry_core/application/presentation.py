@@ -12,6 +12,34 @@ from . import decisions, explain, investigation, merge, projects, query as query
 
 WEB_API_VERSION = 2
 CLASSIFICATION_ORDER = ("confirmed", "candidate", "derived", "heuristic")
+RELATION_ENTITY_TYPES = (
+    "account",
+    "did",
+    "domain",
+    "handle",
+    "nsid",
+    "oauth_client",
+    "project",
+    "repo",
+    "service",
+    "website",
+)
+DECISION_KINDS = (
+    "block_identifier",
+    "confirm_identifier",
+    "defer_identifier",
+    "defer_promotion",
+    "defer_review_target",
+    "dismiss_review",
+    "dismiss_review_target",
+    "separate_project",
+)
+DECISION_TARGET_TYPES = (
+    "project_key",
+    "review_kind",
+    "review_target",
+    *tuple(sorted(core.IDENTIFIER_DECISION_TYPES)),
+)
 
 
 class StaleProjectError(RuntimeError):
@@ -25,6 +53,9 @@ def project_filter_options(conn: sqlite3.Connection) -> dict[str, list[str]]:
         ).fetchall()
         return [str(row[0]) for row in rows]
 
+    def merged(*values: list[str] | tuple[str, ...]) -> list[str]:
+        return sorted({str(item) for group in values for item in group if str(item)})
+
     return {
         "tracking_states": sorted(core.TRACKING_STATES),
         "service_statuses": sorted(core.SERVICE_STATUS_VALUES),
@@ -32,11 +63,11 @@ def project_filter_options(conn: sqlite3.Connection) -> dict[str, list[str]]:
         "identifier_kinds": sorted(core.IDENTIFIER_DECISION_TYPES),
         "identifier_classifications": sorted(runtime_view.CLASSIFICATIONS),
         "relation_predicates": sorted(relations.RELATION_PREDICATES),
-        "relation_subject_types": distinct("project_relations", "subject_type"),
-        "relation_object_types": distinct("project_relations", "object_type"),
+        "relation_subject_types": merged(RELATION_ENTITY_TYPES, distinct("project_relations", "subject_type")),
+        "relation_object_types": merged(RELATION_ENTITY_TYPES, distinct("project_relations", "object_type")),
         "relation_sources": distinct("project_relations", "source"),
-        "decision_kinds": distinct("project_decisions", "kind"),
-        "decision_target_types": distinct("project_decisions", "target_type"),
+        "decision_kinds": merged(DECISION_KINDS, distinct("project_decisions", "kind")),
+        "decision_target_types": merged(DECISION_TARGET_TYPES, distinct("project_decisions", "target_type")),
     }
 
 
