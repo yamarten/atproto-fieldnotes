@@ -3,10 +3,12 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+import tempfile
 import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
+import promotion_evaluation
 from project_registry_core import database
 from project_registry_core import runtime_view
 
@@ -266,6 +268,15 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(dispositions.count("queue"), 2)
         self.assertEqual(dispositions.count("deprioritize"), 4)
         self.assertTrue(all(item["evidence_summary"] for item in cases))
+        self.assertTrue(all(item["expected_policy"] for item in cases))
+        expected_order = payload["promotion_queue_expectation"]["ordered_subject_refs"]
+        queued_refs = {
+            item["subject"]["ref"]
+            for item in cases
+            if item["expected_promotion"]["disposition"] != "exclude"
+        }
+        self.assertEqual(len(expected_order), len(set(expected_order)))
+        self.assertEqual(set(expected_order), queued_refs)
 
         juntos = next(item for item in cases if item["subject"]["ref"] == "juntos")
         self.assertEqual(juntos["subject"]["service_status_confidence"], "low")
@@ -356,6 +367,37 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
             if item["expected_promotion"]["disposition"] == "deprioritize"
         ]
         self.assertEqual(len(lowered_priority_cases), 4)
+
+    def test_promotion_benchmark_executes_all_cases_and_detects_order_regression(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        summary = promotion_evaluation.evaluate(path)
+
+        self.assertEqual(summary["case_count"], 14)
+        self.assertEqual(summary["passed_case_count"], 14)
+        self.assertEqual(summary["regression_count"], 0)
+        self.assertEqual(summary["actual_order"], summary["expected_order"])
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["promotion_queue_expectation"]["ordered_subject_refs"][:2] = ["juntos", "echosky"]
+        with tempfile.TemporaryDirectory() as tempdir:
+            changed_path = Path(tempdir) / "manual-gold-v1.json"
+            changed_path.write_text(json.dumps(payload), encoding="utf-8")
+            changed_summary = promotion_evaluation.evaluate(changed_path)
+
+        self.assertTrue(changed_summary["order_regression"])
+        self.assertEqual(changed_summary["case_regression_count"], 0)
+        self.assertEqual(changed_summary["regression_count"], 1)
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["promotion_cases"][0]["expected_policy"]["score_breakdown"]["total"] += 1
+        with tempfile.TemporaryDirectory() as tempdir:
+            changed_path = Path(tempdir) / "manual-gold-v1.json"
+            changed_path.write_text(json.dumps(payload), encoding="utf-8")
+            changed_summary = promotion_evaluation.evaluate(changed_path)
+
+        self.assertFalse(changed_summary["order_regression"])
+        self.assertEqual(changed_summary["case_regression_count"], 1)
+        self.assertEqual(changed_summary["results"][0]["diff"]["changes"][0]["field"], "score_breakdown")
 
     def test_manual_gold_fixture_has_showcase_reference_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"

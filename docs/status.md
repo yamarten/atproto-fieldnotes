@@ -112,6 +112,7 @@
   - activeな`defer_promotion`はproject全体を期限付きで非表示にし、serviceのvalidation状態は候補を残したまま個別signalへ作用する
   - `lower_promotion_priority`は任意の理由メモを持つnormalized operator decisionとして保存・解除する。activeな候補は一覧に残るが、通常候補より後ろへ並べる
   - WebのPromotion cardはservice group、manual priority、validation理由、score内訳を表示し、詳細からpriorityを変更できる。temp DBの実browserで、設定後に次cardへ進み、再取得後はメモ付きで末尾へ移り、解除できることを確認済み
+  - manual goldのpromotion evaluator testは14件を通常queueと同じ生成処理へ通し、policy、score内訳、相対順位の差分をnetworkなしで検出する
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
@@ -156,7 +157,7 @@
 
 2026-07-16時点で確認済み:
 
-- 全unit test 417件
+- 全unit test 420件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

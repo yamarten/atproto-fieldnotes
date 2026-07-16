@@ -62,9 +62,9 @@
    - 完了: 設定後は表示中のcardを外して次へ進み、再取得時は通常候補より後ろへ並べます
    - 完了: PythonのAPI test、JavaScript syntax check、temp DBでのPromotion list・優先度設定・解除を実browserで確認しました
 4. executable evaluation
-   - 問題: manual goldは現在、fixtureの構造と一部のpolicy境界をunit testしますが、queue全体のpriority・順位差分を機械的に評価しません
-   - 変更対象: 固定fixtureから期待priority・相対順位・根拠を評価し、差分を報告するnetworkなしのevaluator
-   - 確認: fixtureの全caseが評価対象になり、意図的なscore / priority変更だけがreview可能な差分として現れることを検証します
+   - 完了: manual goldの全14 promotion caseを実queue生成処理へ通すnetworkなしのevaluatorを追加しました
+   - 完了: visibility、service evidence、手動priority、signal、score breakdownと、候補集合全体の相対順位をfixture期待値と比較します
+   - 完了: evaluator test自身が意図的なscore・順位差分を検出できることも回帰条件にしました
 
 ### 依存関係
 

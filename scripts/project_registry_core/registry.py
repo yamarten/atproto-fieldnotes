@@ -10620,16 +10620,15 @@ def compute_showcase_signals(
     return signals
 
 
-def build_showcase_queue(
-    conn: sqlite3.Connection,
+def build_showcase_queue_from_projects(
+    projects: list[dict[str, Any]],
     *,
-    tracking_states: set[str] | None = None,
     limit: int | None = 50,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
-    project_list = [ensure_project_shape(project) for project in list_projects(conn, tracking_states=tracking_states)]
+    project_list = [ensure_project_shape(project) for project in projects]
     for project in project_list:
         shaped = apply_promotion_state(dict(project))
         signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
@@ -10681,6 +10680,22 @@ def build_showcase_queue(
     return queue if limit is None else queue[: max(1, int(limit or 50))]
 
 
+def build_showcase_queue(
+    conn: sqlite3.Connection,
+    *,
+    tracking_states: set[str] | None = None,
+    limit: int | None = 50,
+    kinds: set[str] | None = None,
+    include_personal_tools: bool = False,
+) -> list[dict[str, Any]]:
+    return build_showcase_queue_from_projects(
+        list_projects(conn, tracking_states=tracking_states),
+        limit=limit,
+        kinds=kinds,
+        include_personal_tools=include_personal_tools,
+    )
+
+
 def build_showcase_queue_item(
     conn: sqlite3.Connection,
     project_key: str,
@@ -10691,45 +10706,13 @@ def build_showcase_queue_item(
     project = fetch_project(conn, project_key)
     if project is None:
         return None
-    shaped = apply_promotion_state(ensure_project_shape(project))
-    signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
-    if kinds is not None:
-        signals = [item for item in signals if str(item.get("kind") or "") in kinds]
-    if not signals:
-        return None
-    top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
-    policy = promotion_policy_projection(shaped, signals)
-    sort_score = int(policy["score_breakdown"]["total"])
-    return {
-        "project_key": shaped["project_key"],
-        "name": shaped.get("name", ""),
-        "tracking_state": shaped.get("tracking_state", "active"),
-        "status": shaped.get("status", "draft"),
-        "category": shaped.get("category", ""),
-        "service_status": shaped.get("service_status", "unknown"),
-        "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
-        "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),
-        "technical_interest_level": shaped.get("technical_interest_level", "none"),
-        "technical_interest_score": int(shaped.get("technical_interest_score", 0) or 0),
-        "last_promotion_deferral_reason": latest_promotion_deferral_reason(shaped),
-        "first_seen_at": shaped.get("first_seen_at", ""),
-        "last_seen_at": shaped.get("last_seen_at", ""),
-        "seed_type": shaped.get("seed_type", ""),
-        "seed_value": shaped.get("seed_value", ""),
-        "nsids": unique_list(
-            [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
-            + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
-        )[:5],
-        "website_url": shaped.get("website_url", ""),
-        "repo_urls": project_repo_hint_urls(shaped)[:3],
-        "tagline": shaped.get("tagline", ""),
-        "summary": shaped.get("summary", ""),
-        "top_priority": top_priority,
-        "sort_score": sort_score,
-        **policy,
-        "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-        "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
-    }
+    queue = build_showcase_queue_from_projects(
+        [project],
+        limit=None,
+        kinds=kinds,
+        include_personal_tools=include_personal_tools,
+    )
+    return queue[0] if queue else None
 
 
 def build_review_queue(

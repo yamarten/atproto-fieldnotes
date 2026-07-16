@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- 未完了のmigrationやmaintenance window待ちはありません。
+- current service observation projectionの正本DB適用だけが、writer停止と承認待ちです。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
@@ -15,7 +15,7 @@
 
 - current service observation projectionの実装と複製DB dry-runは完了しています。3,278 project中420 projectでscalar差分があり、正本DBは未変更です。
 - 次はwriter停止と別途承認を確認して`repair-db --execute`を正本DBへ適用します。再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認してください。
-- machine policy projectionと候補優先度の手動判断 / Web表示は完了しています。次のcode作業は[roadmapのexecutable evaluation](roadmap.md)です。
+- machine policy projection、候補優先度の手動判断 / Web表示、manual goldを使うexecutable evaluationは完了しています。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ

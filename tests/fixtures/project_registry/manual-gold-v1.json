@@ -330,6 +330,16 @@
       ]
     }
   ],
+  "promotion_queue_expectation": {
+    "ordered_subject_refs": [
+      "echosky",
+      "juntos",
+      "mathr",
+      "gmstn-systems",
+      "moat",
+      "atshare"
+    ]
+  },
   "promotion_cases": [
     {
       "case_id": "queue-runtime-validation-juntos-service",
@@ -351,6 +361,18 @@
       "expected_promotion": {
         "disposition": "queue",
         "reason": "runtime_validation_required"
+      },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "needs_validation",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": ["service_candidate_needs_validation"],
+        "top_priority": 6,
+        "score_breakdown": {
+          "total": 134,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -4}
+        }
       },
       "evidence_summary": [
         "The candidate was worth surfacing even though the operator recalls reaching login and then seeing a backend error; the runtime observation has not been reverified."
@@ -378,6 +400,18 @@
         "disposition": "deprioritize",
         "reason": "landing_page_only"
       },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "needs_validation",
+        "priority_group": "lowered",
+        "priority_reason": "landing_page_only",
+        "signal_kinds": ["service_candidate_needs_validation"],
+        "top_priority": 6,
+        "score_breakdown": {
+          "total": 138,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+        }
+      },
       "evidence_summary": [
         "Operator review found only a landing page, with no working service or specification available."
       ]
@@ -403,6 +437,18 @@
         "disposition": "deprioritize",
         "reason": "landing_page_only"
       },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "needs_validation",
+        "priority_group": "lowered",
+        "priority_reason": "landing_page_only",
+        "signal_kinds": ["service_candidate_needs_validation"],
+        "top_priority": 6,
+        "score_breakdown": {
+          "total": 142,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 12, "review_readiness": 4, "promotion_blockers": -4}
+        }
+      },
       "evidence_summary": [
         "Operator review found only a landing page, with no working service or specification available."
       ]
@@ -426,6 +472,18 @@
         "disposition": "queue",
         "reason": "introduction_boundary"
       },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "confirmed",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": ["service_surface_confirmed"],
+        "top_priority": 9,
+        "score_breakdown": {
+          "total": 238,
+          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+        }
+      },
       "evidence_summary": [
         "The core implementation may be incomplete, so publication remains uncertain, but surfacing it in the candidate queue is correct."
       ]
@@ -447,6 +505,18 @@
       "expected_promotion": {
         "disposition": "deprioritize",
         "reason": "bluesky_client_adjacent"
+      },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "needs_validation",
+        "priority_group": "lowered",
+        "priority_reason": "bluesky_client_adjacent",
+        "signal_kinds": ["service_candidate_needs_validation"],
+        "top_priority": 6,
+        "score_breakdown": {
+          "total": 134,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -4}
+        }
       },
       "evidence_summary": [
         "The project is closer to a Bluesky client feature than a distinct atproto application and is mainly useful in a grouped feature."
@@ -470,6 +540,18 @@
         "disposition": "deprioritize",
         "reason": "common_game_score_record_pattern"
       },
+      "expected_policy": {
+        "candidate_visibility": {"group": "eligible", "reasons": []},
+        "service_evidence_group": "confirmed",
+        "priority_group": "lowered",
+        "priority_reason": "common_game_score_record_pattern",
+        "signal_kinds": ["service_surface_confirmed"],
+        "top_priority": 9,
+        "score_breakdown": {
+          "total": 238,
+          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+        }
+      },
       "evidence_summary": [
         "Persisting game scores as records is a recurring pattern, so this is most useful in a grouped feature or as a related example."
       ]
@@ -487,6 +569,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -502,6 +591,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -517,6 +613,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -532,6 +635,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -547,6 +657,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -562,6 +679,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -577,6 +701,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     },
     {
@@ -592,6 +723,13 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {"disposition": "exclude", "reason": "out_of_scope"},
+      "expected_policy": {
+        "candidate_visibility": {"group": "excluded", "reasons": ["tracking_state_out_of_scope"]},
+        "service_evidence_group": "not_applicable",
+        "priority_group": "normal",
+        "priority_reason": "",
+        "signal_kinds": []
+      },
       "evidence_summary": ["The operator confirmed that this project remains outside the promotion scope."]
     }
   ],
