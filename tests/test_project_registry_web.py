@@ -1077,6 +1077,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["last_reason"], "wait for editorial review")
         self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["suggested_days"], 45)
 
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/lower-promotion-priority",
+            method="POST",
+            payload={"note": "best in a grouped feature"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["detail"]["promotion_policy"]["priority_group"], "lowered")
+        self.assertEqual(payload["detail"]["promotion_policy"]["priority_reason"], "best in a grouped feature")
+        self.assertTrue(any(
+            item["kind"] == "lower_promotion_priority"
+            for item in payload["detail"]["decisions"]["active"]
+        ))
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/clear-promotion-priority",
+            method="POST",
+            payload={},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["detail"]["promotion_policy"]["priority_group"], "normal")
+
         conn = registry.open_db()
         rows = conn.execute(
             "SELECT kind, target_value FROM project_decisions WHERE project_key = ?",
@@ -1323,7 +1344,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         item = next(item for item in payload["items"] if item["project_key"] == project["project_key"])
         self.assertEqual(item["candidate_visibility"], {"group": "eligible", "reasons": []})
         self.assertEqual(item["service_evidence_group"], "confirmed")
-        self.assertEqual(item["editorial_group"], "unreviewed")
+        self.assertEqual(item["priority_group"], "normal")
         self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
 
     def test_validation_not_found_and_database_busy_error_shapes(self) -> None:

@@ -34,8 +34,14 @@ const filterOptionFallbacks = {
   relation_predicates: ["defines_schema", "mentions_collection", "official_account", "operates_service", "redirects_to", "requests_permission", "source_repository", "uses_collection"],
   relation_subject_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
   relation_object_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
-  decision_kinds: ["block_identifier", "confirm_identifier", "defer_identifier", "defer_promotion", "defer_review_target", "dismiss_review", "dismiss_review_target", "separate_project"],
-  decision_target_types: ["account", "did", "domain", "handle", "nsid", "project_key", "repo_url", "review_kind", "review_target", "service_url"],
+  decision_kinds: ["block_identifier", "confirm_identifier", "defer_identifier", "defer_promotion", "defer_review_target", "dismiss_review", "dismiss_review_target", "lower_promotion_priority", "separate_project"],
+  decision_target_types: ["account", "did", "domain", "handle", "nsid", "project_key", "promotion_priority", "repo_url", "review_kind", "review_target", "service_url"],
+};
+const decisionKindOptionLabels = {
+  lower_promotion_priority: "Lower candidate priority [lower_promotion_priority]",
+};
+const decisionTargetOptionLabels = {
+  promotion_priority: "Candidate priority [promotion_priority]",
 };
 const state = {
   screen: "review",
@@ -290,8 +296,8 @@ function listControls() {
       <label>Relation object value<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
       <label>Relation source<input id="filter-relation-source" list="filter-relation-sources" value="${esc(state.projectSearch.relationSource)}"></label>
       <datalist id="filter-relation-sources">${relationSources.map((value) => `<option value="${esc(value)}"></option>`).join("")}</datalist>
-      <label>Decision kind<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind)}</select></label>
-      <label>Decision target type<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType)}</select></label>
+      <label>Decision kind<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind, decisionKindOptionLabels)}</select></label>
+      <label>Decision target type<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType, decisionTargetOptionLabels)}</select></label>
       <label>Decision target value<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
       <label>Decision status<select id="filter-decision-status">${selectOptions([["", "Any"], ["active", "Active"], ["expired", "Expired"], ["cleared", "Cleared"]], state.projectSearch.decisionStatus)}</select></label>
     </div></details>
@@ -356,10 +362,10 @@ function splitSelections(value) {
   return String(value || "").split(/[\s,]+/).filter(Boolean);
 }
 
-function enumOptions(values, selected) {
+function enumOptions(values, selected, labels = {}) {
   const options = [...values];
   if (selected && !options.includes(selected)) options.push(selected);
-  return selectOptions([["", "Any"], ...options.map((value) => [value, value])], selected);
+  return selectOptions([["", "Any"], ...options.map((value) => [value, labels[value] || value])], selected);
 }
 
 function multiEnumOptions(values, selected) {
@@ -444,6 +450,73 @@ function normalizeQueueItem(item) {
   return item.project || item;
 }
 
+const promotionServiceLabels = {
+  confirmed: "Usable service screen confirmed",
+  needs_validation: "Service screen needs validation",
+  not_applicable: "No service-screen assessment",
+};
+
+const promotionPriorityLabels = {
+  normal: "Normal priority",
+  lowered: "Lower priority",
+};
+
+const promotionVisibilityLabels = {
+  eligible: "Shown in candidate list",
+  deferred: "Temporarily hidden from candidate list",
+  excluded: "Not in candidate list",
+};
+
+const promotionScoreLabels = {
+  service_evidence: "Usable service screen",
+  lexicon_readiness: "Lexicon ready for introduction",
+  technical_interest: "Technical interest",
+  service_status: "Service status",
+  service_confidence: "Service-status confidence",
+  profile_completeness: "Profile completeness",
+  repository_evidence: "Repository found",
+  lexicon_evidence: "Lexicon found",
+  review_readiness: "No manual-review flag",
+  atproto_contribution: "atproto contribution",
+  promotion_blockers: "Missing introduction material",
+  recent_activity: "Recent activity",
+  recent_collection_activity: "Recent record activity",
+  recent_repository_activity: "Recent repository activity",
+};
+
+const promotionValidationLabels = {
+  low_service_status_confidence: "service status has low confidence",
+  usable_surface_unconfirmed: "no usable service screen was confirmed",
+};
+
+const promotionSignalLabels = {
+  service_surface_confirmed: "Usable service screen confirmed",
+  service_candidate_needs_validation: "Service screen needs validation",
+  lexicon_ready_for_introduction: "Lexicon ready for introduction",
+  technical_insight_candidate: "Technical insight candidate",
+};
+
+function promotionLabel(labels, value) {
+  return labels[value] || String(value || "Not available").replaceAll("_", " ");
+}
+
+function promotionCardDetails(item) {
+  if (state.screen !== "review" || state.reviewView !== "promotion") return "";
+  const breakdown = item.score_breakdown || {};
+  const components = Object.entries(breakdown.components || {})
+    .filter(([, value]) => Number(value) !== 0)
+    .map(([key, value]) => `${promotionLabel(promotionScoreLabels, key)} ${Number(value) > 0 ? "+" : ""}${value}`);
+  const validationReasons = uniqueValues(
+    list(item.signals).flatMap((signal) => list(signal.details?.validation_reasons))
+  ).map((reason) => promotionLabel(promotionValidationLabels, reason));
+  const serviceGroup = item.service_evidence_group || "not_applicable";
+  const priorityGroup = item.priority_group || "normal";
+  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(`Ranking score ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
+    ${item.priority_reason ? `<span class="muted">Priority note: ${esc(item.priority_reason)}</span>` : ""}
+    ${validationReasons.length ? `<span class="muted">Needs validation: ${esc(validationReasons.join(", "))}</span>` : ""}
+    ${components.length ? `<span class="muted">${esc(components.join(" · "))}</span>` : ""}`;
+}
+
 function renderList(data) {
   const items = list(data.items);
   const count = data.count ?? items.length;
@@ -452,11 +525,17 @@ function renderList(data) {
     const key = project.project_key || item.project_key || item.source_project_key || "";
     const name = project.name || item.source_name || key;
     const mergeTarget = item.target_project_key;
-    const signals = list(item.signals).map((signal) => pill(signal.kind || signal, "candidate")).join(" ");
+    const signals = list(item.signals).map((signal) => {
+      const kind = signal.kind || signal;
+      if (state.reviewView === "promotion" && ["service_surface_confirmed", "service_candidate_needs_validation"].includes(kind)) return "";
+      const label = state.reviewView === "promotion" ? promotionLabel(promotionSignalLabels, kind) : kind;
+      return pill(label, "candidate");
+    }).filter(Boolean).join(" ");
     return `<button class="card ${state.selected === key ? "selected" : ""}" data-project-key="${esc(key)}" ${mergeTarget ? `data-merge-target="${esc(mergeTarget)}"` : ""}>
       <span class="card-title"><strong>${esc(name)}</strong>${pill(project.tracking_state || item.recommendation?.confidence || "")}</span>
       <span class="meta-row">${pill(project.service_status || "")}${pill(project.atproto_contribution_level || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>
       ${project.tagline ? `<span>${esc(project.tagline)}</span>` : ""}${signals ? `<span class="meta-row">${signals}</span>` : ""}
+      ${promotionCardDetails(item)}
       ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
   }).join("") : `<div class="empty-state"><p>No matching projects.</p></div>`);
@@ -568,6 +647,7 @@ function renderDetail(data) {
   const relations = list(data.relations);
   const decisions = data.decisions || {active: [], history: []};
   const evaluation = data.evaluation || {};
+  const promotionPolicy = data.promotion_policy || {};
   const investigation = data.investigation;
   const overview = data.overview || {};
   const serviceOwnership = data.service_ownership_review || {};
@@ -583,11 +663,17 @@ function renderDetail(data) {
     "defer-promotion",
     {days: promotionDeferDays, "default-note": promotionDefer.last_reason || ""}
   );
+  const priorityGroup = promotionPolicy.priority_group || "normal";
+  const promotionPriorityActions = `<div class="actions">
+    ${priorityGroup === "lowered"
+      ? actionButton("Restore normal priority", "clear-promotion-priority")
+      : actionButton("Lower priority", "lower-promotion-priority")}
+  </div>`;
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
-    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
+    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>${promotionPriorityActions}`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
     ${section("Merge Candidate", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
@@ -703,7 +789,12 @@ function renderIdentifier(item) {
 function renderDecisions(decisions) {
   const active = list(decisions.active);
   const history = list(decisions.history);
-  const current = active.length ? active.map((item) => `<div class="decision"><div>${pill(item.kind, "candidate")} ${esc(item.target_type)} ${esc(item.target_value)}</div><div class="muted">${esc(item.note || "No note")} ${item.expires_at ? `· expires ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("Clear block", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("Clear defer", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("Clear hold", "clear-promotion-deferral") : ""}${item.kind === "separate_project" ? actionButton("Clear separate", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("Clear", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`).join("") : `<p class="muted">No active decisions.</p>`;
+  const current = active.length ? active.map((item) => {
+    const summary = item.kind === "lower_promotion_priority"
+      ? `${pill("Candidate priority", "candidate")} Lower priority`
+      : `${pill(item.kind, "candidate")} ${esc(item.target_type)} ${esc(item.target_value)}`;
+    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(item.note || "No note")} ${item.expires_at ? `· expires ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("Clear block", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("Clear defer", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("Clear defer", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("Restore normal priority", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("Clear separate", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("Clear", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
+  }).join("") : `<p class="muted">No active decisions.</p>`;
   return current + (history.length ? `<details><summary>Decision history (${history.length})</summary>${json(history)}</details>` : "");
 }
 
@@ -895,16 +986,33 @@ function bindDetailActions(projectKey) {
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
-    const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target"].includes(action);
-    confirmMutation(action.replaceAll("-", " "), `${action.replaceAll("-", " ")} ${payload.value || payload.other_project_key || projectKey}?`, `/api/projects/${encodeURIComponent(projectKey)}/${action}`, payload, needsNote, button.dataset.defaultNote || "");
+    const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
+    const title = action === "lower-promotion-priority"
+      ? "Lower candidate priority"
+      : action === "clear-promotion-priority"
+        ? "Restore normal candidate priority"
+        : action.replaceAll("-", " ");
+    const message = ["lower-promotion-priority", "clear-promotion-priority"].includes(action)
+      ? `${title} for ${projectKey}?`
+      : `${title} ${payload.value || payload.other_project_key || projectKey}?`;
+    confirmMutation(
+      title,
+      message,
+      `/api/projects/${encodeURIComponent(projectKey)}/${action}`,
+      payload,
+      needsNote,
+      button.dataset.defaultNote || "",
+      action === "lower-promotion-priority" ? "Reason or note (optional)" : "Reason or note",
+    );
   });
 }
 
-function confirmMutation(title, message, path, payload, note, defaultNote = "") {
+function confirmMutation(title, message, path, payload, note, defaultNote = "", noteLabel = "Reason or note") {
   const dialog = $("confirm-dialog");
   $("confirm-title").textContent = title;
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = !note;
+  $("confirm-note-text").textContent = noteLabel;
   $("confirm-note").value = note ? defaultNote : "";
   showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {

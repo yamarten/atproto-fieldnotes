@@ -958,8 +958,12 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 - promotion deferred
   - `promotion_deferrals`
   - 紹介候補として再浮上させるまでの理由付き一時保留履歴
-  - 既定 7 日。active な期限内 entry がある間だけ `promotion-queue` から除外する
+  - 初回の若いprojectは14日、通常初回は30日、履歴がある場合は45 / 60 / 90日。activeな期限内entryがある間だけ`promotion-queue`から除外する
   - 期限切れ entry や clear 済み entry も履歴として残し、再保留時の理由再利用と将来の復活条件判定に使える形にする
+- promotion priority adjustment
+  - `promotion_priority_adjustments`
+  - operatorが候補の優先度を下げた理由と履歴。期限は持たず、clearまで維持する
+  - 候補は`promotion-queue`に残るが通常候補より後ろへ並び、`defer_promotion`とは独立する
 - `summary_candidates`
 - `name_candidates`
 - `tagline_candidates`
@@ -1047,16 +1051,20 @@ alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めま�
 
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。
 
-`promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`top_priority`, `sort_score`, `project_key` の順でグローバルソートしてから `--limit` を適用します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
+`promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`priority_group`、`top_priority`、`sort_score`、`project_key` の順でグローバルソートしてから `--limit` を適用します。`priority_group=lowered`は通常候補の後ろへ送り、各group内では従来のsignalとscore順を維持します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
 
 promotion policyは次を混ぜずに投影します。
 
 - `candidate_visibility`: `eligible / deferred / excluded`。紹介済み、`out_of_scope / ignore`、activeな`defer_promotion`のようなproject全体の表示可否を表す
 - `service_evidence_group`: `confirmed / needs_validation / not_applicable`。service signalだけの確認度を表し、単独紹介の可否は含めない
-- `editorial_group`: 明示判断が未保存の現状は`unreviewed`。`contextual`や紹介保留をproject名・説明文・service evidenceから自動推定しない
+- `priority_group`: `normal / lowered`。`lowered`はnormalized decisionの明示判断だけから投影し、project名・説明文・service evidenceから自動推定しない。理由メモは任意
 - `score_breakdown`: service、lexicon、technical interest、profile、activityなど既存scoreの加減点を成分別に返し、`total`を従来の`sort_score`として使う
 
 したがって`defer_promotion`は個別service signalの評価を下げる操作ではなく、project全体を期限付きで非表示にする操作です。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
+
+WebのPromotion cardはservice group、manual priority、validation理由、scoreの非ゼロ成分を表示します。詳細画面から優先度を下げる時は任意の理由メモを入力でき、保存後は現在cardを外して次候補へ進みます。`Refresh`後も候補自体は残りますが、通常候補より後ろへ並びます。
+
+merge元とcanonical targetの両方にactiveなpromotion priority判断がある場合はtarget側を維持し、source側をclear済み履歴として残します。
 
 `promotion_deferrals` に active な entry がある project は signal 計算前に除外します。未指定時の保留期間は `suggested_promotion_defer_days()` が決めます。初回の若い project は 14 日、通常初回は 30 日、過去の promotion defer 履歴がある場合は 45 / 60 / 90 日へ延ばします。`--days` または API payload の `days` が明示された場合はその値を優先します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
 

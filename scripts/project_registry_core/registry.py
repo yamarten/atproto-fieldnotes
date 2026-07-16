@@ -1238,6 +1238,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "deferred_identifiers": [],
         "confirmed_identifiers": [],
         "promotion_deferrals": [],
+        "promotion_priority_adjustments": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -1517,6 +1518,80 @@ def clear_active_promotion_deferrals(project: dict[str, Any]) -> None:
     project["promotion_deferrals"] = deferrals
 
 
+def normalize_promotion_priority_adjustments(entries: list[Any]) -> list[dict[str, str]]:
+    output: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        normalized = {
+            "reason": str(item.get("reason") or "").strip(),
+            "added_at": str(item.get("added_at") or ""),
+        }
+        cleared_at = str(item.get("cleared_at") or "").strip()
+        if cleared_at:
+            normalized["cleared_at"] = cleared_at
+        output.append(normalized)
+    return output
+
+
+def active_promotion_priority_adjustment(project: dict[str, Any]) -> dict[str, str] | None:
+    active = [
+        item
+        for item in normalize_promotion_priority_adjustments(
+            list(project.get("promotion_priority_adjustments", []))
+        )
+        if not item.get("cleared_at")
+    ]
+    return active[-1] if active else None
+
+
+def set_promotion_priority_on_project(
+    project: dict[str, Any],
+    *,
+    lowered: bool,
+    reason: str = "",
+) -> dict[str, str] | None:
+    adjustments = normalize_promotion_priority_adjustments(
+        list(project.get("promotion_priority_adjustments", []))
+    )
+    cleared_at = iso_now()
+    for item in adjustments:
+        if not item.get("cleared_at"):
+            item["cleared_at"] = cleared_at
+    entry = None
+    if lowered:
+        normalized_reason = str(reason or "").strip()
+        entry = {
+            "reason": normalized_reason,
+            "added_at": iso_now(),
+        }
+        adjustments.append(entry)
+    project["promotion_priority_adjustments"] = adjustments
+    return entry
+
+
+def merge_promotion_priority_adjustments(
+    target_entries: list[Any],
+    source_entries: list[Any],
+) -> list[dict[str, str]]:
+    target = normalize_promotion_priority_adjustments(target_entries)
+    source = normalize_promotion_priority_adjustments(source_entries)
+    combined = [*target, *source]
+    target_active = [index for index, item in enumerate(target) if not item.get("cleared_at")]
+    source_active = [
+        len(target) + index
+        for index, item in enumerate(source)
+        if not item.get("cleared_at")
+    ]
+    chosen = target_active[-1] if target_active else source_active[-1] if source_active else None
+    if chosen is not None:
+        cleared_at = iso_now()
+        for index, item in enumerate(combined):
+            if index != chosen and not item.get("cleared_at"):
+                item["cleared_at"] = cleared_at
+    return combined
+
+
 def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults = default_project_record(
         str(project.get("project_key") or "unknown"),
@@ -1588,6 +1663,9 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["deferred_identifiers"] = normalize_deferred_identifiers(list(defaults.get("deferred_identifiers") or []))
     defaults["confirmed_identifiers"] = normalize_confirmed_identifiers(list(defaults.get("confirmed_identifiers") or []))
     defaults["promotion_deferrals"] = normalize_promotion_deferrals(list(defaults.get("promotion_deferrals") or []))
+    defaults["promotion_priority_adjustments"] = normalize_promotion_priority_adjustments(
+        list(defaults.get("promotion_priority_adjustments") or [])
+    )
     defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
     defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
@@ -10410,11 +10488,12 @@ def promotion_policy_projection(
     project: dict[str, Any],
     signals: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    priority_adjustment = active_promotion_priority_adjustment(project)
     return {
         "candidate_visibility": promotion_candidate_visibility(project),
         "service_evidence_group": promotion_service_evidence_group(signals),
-        # Contextual or standalone placement is an editorial assertion, not an evidence heuristic.
-        "editorial_group": "unreviewed",
+        "priority_group": "lowered" if priority_adjustment else "normal",
+        "priority_reason": str((priority_adjustment or {}).get("reason") or ""),
         "score_breakdown": promotion_queue_score_breakdown(project, signals),
     }
 
@@ -10424,9 +10503,14 @@ def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any
     return top_priority * 10 + int(project.get("atproto_contribution_score", 0) or 0)
 
 
-def compute_showcase_signals(project: dict[str, Any], *, include_personal_tools: bool = False) -> list[dict[str, Any]]:
+def compute_showcase_signals(
+    project: dict[str, Any],
+    *,
+    include_personal_tools: bool = False,
+    include_ineligible: bool = False,
+) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(ensure_project_shape(dict(project)))
-    if promotion_candidate_visibility(shaped)["group"] != "eligible":
+    if not include_ineligible and promotion_candidate_visibility(shaped)["group"] != "eligible":
         return []
 
     signals: list[dict[str, Any]] = []
@@ -10588,7 +10672,12 @@ def build_showcase_queue(
                 "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
             }
         )
-    queue.sort(key=lambda item: (-int(item.get("top_priority", 0) or 0), -int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
+    queue.sort(key=lambda item: (
+        1 if item.get("priority_group") == "lowered" else 0,
+        -int(item.get("top_priority", 0) or 0),
+        -int(item.get("sort_score", 0) or 0),
+        str(item.get("project_key") or ""),
+    ))
     return queue if limit is None else queue[: max(1, int(limit or 50))]
 
 
@@ -11455,6 +11544,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     )
     merged["promotion_deferrals"] = normalize_promotion_deferrals(
         list(merged.get("promotion_deferrals", [])) + list(source.get("promotion_deferrals", []))
+    )
+    merged["promotion_priority_adjustments"] = merge_promotion_priority_adjustments(
+        list(merged.get("promotion_priority_adjustments", [])),
+        list(source.get("promotion_priority_adjustments", [])),
     )
     merged["dismissed_review_kinds"] = unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))

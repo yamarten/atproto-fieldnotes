@@ -254,7 +254,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertGreaterEqual(action_counts["separate_project"], 3)
         self.assertEqual(action_counts["merge_project"], 3)
 
-    def test_manual_gold_fixture_has_promotion_editorial_coverage(self) -> None:
+    def test_manual_gold_fixture_has_promotion_priority_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         cases = payload["promotion_cases"]
@@ -263,9 +263,8 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len({item["case_id"] for item in cases}), len(cases))
         dispositions = [item["expected_promotion"]["disposition"] for item in cases]
         self.assertEqual(dispositions.count("exclude"), 8)
-        self.assertEqual(dispositions.count("hold"), 2)
         self.assertEqual(dispositions.count("queue"), 2)
-        self.assertEqual(dispositions.count("contextual"), 2)
+        self.assertEqual(dispositions.count("deprioritize"), 4)
         self.assertTrue(all(item["evidence_summary"] for item in cases))
 
         juntos = next(item for item in cases if item["subject"]["ref"] == "juntos")
@@ -308,7 +307,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len(linked_cases), 4)
         self.assertTrue(all(item["browser_calibration_case_id"] in browser_case_ids for item in linked_cases))
 
-    def test_manual_gold_promotion_cases_project_machine_policy_without_editorial_guessing(self) -> None:
+    def test_manual_gold_promotion_cases_project_machine_policy_without_priority_guessing(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
         cases = json.loads(path.read_text(encoding="utf-8"))["promotion_cases"]
         expected_service_groups = {
@@ -338,13 +337,25 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
                     policy["service_evidence_group"],
                     expected_service_groups[project["ref"]],
                 )
-                self.assertEqual(policy["editorial_group"], "unreviewed")
+                self.assertEqual(policy["priority_group"], "normal")
+                if disposition == "deprioritize":
+                    registry.set_promotion_priority_on_project(
+                        shaped,
+                        lowered=True,
+                        reason=item["expected_promotion"]["reason"],
+                    )
+                    policy = registry.promotion_policy_projection(shaped, signals)
+                    self.assertEqual(policy["priority_group"], "lowered")
+                    self.assertEqual(
+                        policy["priority_reason"],
+                        item["expected_promotion"]["reason"],
+                    )
 
-        editorial_cases = [
+        lowered_priority_cases = [
             item for item in cases
-            if item["expected_promotion"]["disposition"] in {"hold", "contextual"}
+            if item["expected_promotion"]["disposition"] == "deprioritize"
         ]
-        self.assertEqual(len(editorial_cases), 4)
+        self.assertEqual(len(lowered_priority_cases), 4)
 
     def test_manual_gold_fixture_has_showcase_reference_coverage(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"

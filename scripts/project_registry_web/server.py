@@ -684,6 +684,13 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 days=None if raw_days in (None, "") else _int(raw_days, core.DEFAULT_PROMOTION_DEFER_DAYS, maximum=365),
                 clear=action.startswith("clear-"),
             )
+        if action in {"lower-promotion-priority", "clear-promotion-priority"}:
+            return decisions.set_promotion_priority(
+                conn,
+                project_key=project_key,
+                lowered=action == "lower-promotion-priority",
+                reason=str(payload.get("reason") or note).strip(),
+            )
         if action == "dismiss-review-kind":
             return decisions.dismiss_review_kind(
                 conn,

@@ -101,16 +101,17 @@
 - replay regression corpus
   - 通常replay 6件とoperator correctionのblock/defer/confirm 3件をnetworkなしで評価
   - fixture exportはsanitizer v2を通し、commit前のmanual縮約を必須とする
-  - manual gold setはoperator reviewから固定したidentity / service / repository判断11件、promotionのhold / exclude / queue / contextual 14件、紹介済みpositive reference 5件を実project key・時刻・期限なしで保持
+  - manual gold setはoperator reviewから固定したidentity / service / repository判断11件、promotionのexclude / queue / deprioritize 14件、紹介済みpositive reference 5件を実project key・時刻・期限なしで保持
   - Juntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約5件をnetworkなしのbrowser calibrationとして固定。前4件はmanual goldの対応caseから参照し、WhiteWindは独立login pageを持たない公開利用面の正例とする。実URLは現在状態のsmoke referenceに限定
   - browser laneは表示中の匿名menu展開、auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceにし、link到達や作成CTAだけではservice surfaceを確定しない
-  - promotion caseのうちout-of-scope除外、Echoskyのsurface-confirmed、Juntos / Moat / gmstn.systemsのvalidation候補は現行policyで確認済み。contextualは未実装のeditorial境界
+  - promotion caseのうちout-of-scope除外、Echosky / Mathrのsurface-confirmed、Juntos / Moat / gmstn.systems / atShareのvalidation候補を確認。優先度を下げる判断は明示assertion後だけpriorityへ反映する
 - promotion queueの独立signal
   - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。正本DBで160候補のうち前者78件、後者66件
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
-  - application/Web APIのqueue itemはcandidate visibility、service evidence group、editorial group、score breakdownを別fieldで返す
+  - application/Web APIのqueue itemはcandidate visibility、service evidence group、manual priority group、score breakdownを別fieldで返す
   - activeな`defer_promotion`はproject全体を期限付きで非表示にし、serviceのvalidation状態は候補を残したまま個別signalへ作用する
-  - `contextual`や紹介保留は機械推定せず、明示判断の保存導線が入るまでは`editorial_group=unreviewed`とする
+  - `lower_promotion_priority`は任意の理由メモを持つnormalized operator decisionとして保存・解除する。activeな候補は一覧に残るが、通常候補より後ろへ並べる
+  - WebのPromotion cardはservice group、manual priority、validation理由、score内訳を表示し、詳細からpriorityを変更できる。temp DBの実browserで、設定後に次cardへ進み、再取得後はメモ付きで末尾へ移り、解除できることを確認済み
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない
@@ -155,7 +156,7 @@
 
 2026-07-16時点で確認済み:
 
-- 全unit test 415件
+- 全unit test 417件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

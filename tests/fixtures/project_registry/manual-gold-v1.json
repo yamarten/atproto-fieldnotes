@@ -357,7 +357,7 @@
       ]
     },
     {
-      "case_id": "hold-landing-only-moat",
+      "case_id": "deprioritize-landing-only-moat",
       "browser_calibration_case_id": "moat-rendered-information-page",
       "subject": {
         "ref": "moat",
@@ -375,7 +375,7 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {
-        "disposition": "hold",
+        "disposition": "deprioritize",
         "reason": "landing_page_only"
       },
       "evidence_summary": [
@@ -383,7 +383,7 @@
       ]
     },
     {
-      "case_id": "hold-landing-only-gmstn-systems",
+      "case_id": "deprioritize-landing-only-gmstn-systems",
       "browser_calibration_case_id": "gmstn-systems-rendered-landing-page",
       "subject": {
         "ref": "gmstn-systems",
@@ -400,7 +400,7 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {
-        "disposition": "hold",
+        "disposition": "deprioritize",
         "reason": "landing_page_only"
       },
       "evidence_summary": [
@@ -431,7 +431,7 @@
       ]
     },
     {
-      "case_id": "contextual-bluesky-adjacent-atshare",
+      "case_id": "deprioritize-bluesky-adjacent-atshare",
       "subject": {
         "ref": "atshare",
         "name": "atShare",
@@ -445,7 +445,7 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {
-        "disposition": "contextual",
+        "disposition": "deprioritize",
         "reason": "bluesky_client_adjacent"
       },
       "evidence_summary": [
@@ -453,7 +453,7 @@
       ]
     },
     {
-      "case_id": "contextual-common-game-record-mathr",
+      "case_id": "deprioritize-common-game-record-mathr",
       "subject": {
         "ref": "mathr",
         "name": "Mathr",
@@ -467,7 +467,7 @@
         "technical_interest_level": "notable"
       },
       "expected_promotion": {
-        "disposition": "contextual",
+        "disposition": "deprioritize",
         "reason": "common_game_score_record_pattern"
       },
       "evidence_summary": [

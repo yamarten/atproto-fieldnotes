@@ -191,6 +191,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `defer_identifier`: identifierの確定を期限付きで保留する
 - `confirm_identifier`: operatorがcandidate identifierを明示確認した履歴
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
+- `lower_promotion_priority`: promotion候補を一覧に残したまま通常候補より後ろへ送る。理由は`note`に保存し、clear後は通常優先度へ戻る
 - `dismiss_review`: 特定review signalをdismissする
 - `dismiss_review_target`: fingerprintで特定したrelationまたはcollector failureをdismissする
 - `defer_review_target`: fingerprintで特定したrelationまたはcollector failureを期限付きで保留する

@@ -182,6 +182,36 @@ def set_promotion_defer(
     }
 
 
+def set_promotion_priority(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    lowered: bool,
+    reason: str = "",
+) -> dict[str, Any]:
+    project = core.ensure_project_shape(
+        core.resolve_single_project(conn, project_key=project_key)
+    )
+    entry = core.set_promotion_priority_on_project(
+        project,
+        lowered=lowered,
+        reason=reason,
+    )
+    core.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+    )
+    conn.commit()
+    return {
+        "project_key": project["project_key"],
+        "priority_group": "lowered" if entry else "normal",
+        "priority_reason": str((entry or {}).get("reason") or ""),
+        "promotion_priority_adjustments": project.get("promotion_priority_adjustments", []),
+    }
+
+
 def dismiss_review_kind(
     conn: sqlite3.Connection,
     *,

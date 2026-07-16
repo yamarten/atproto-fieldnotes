@@ -13,6 +13,67 @@ from project_registry_core.application import decisions, explain, maintenance, m
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
+    def test_promotion_priority_decision_roundtrips_and_is_independent_from_defer(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:editorial", "service_url", "https://example.com")
+            project.update({
+                "category": "project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+            })
+            registry.confirm_service_seed(project, "https://example.com", source="test")
+            registry.save_project(conn, project)
+            conn.commit()
+
+            result = decisions.set_promotion_priority(
+                conn,
+                project_key=project["project_key"],
+                lowered=True,
+                reason="best presented with similar projects",
+            )
+            decisions.set_identifier_block(
+                conn,
+                project_key=project["project_key"],
+                identifier_type="repo_url",
+                value="https://github.com/example/unrelated",
+                note="unrelated",
+            )
+            saved = registry.fetch_project(conn, project["project_key"])
+            assert saved is not None
+            signals = registry.compute_showcase_signals(saved)
+            policy = registry.promotion_policy_projection(saved, signals)
+
+            self.assertEqual(result["priority_group"], "lowered")
+            self.assertEqual(policy["candidate_visibility"]["group"], "eligible")
+            self.assertEqual(policy["priority_group"], "lowered")
+            self.assertEqual(policy["priority_reason"], "best presented with similar projects")
+            self.assertIsNone(registry.active_promotion_deferral(saved))
+            rows = conn.execute(
+                "SELECT kind, target_type, target_value, cleared_at FROM project_decisions "
+                "WHERE project_key = ? AND kind = 'lower_promotion_priority'",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertEqual([tuple(row) for row in rows], [
+                ("lower_promotion_priority", "promotion_priority", "lowered", "")
+            ])
+
+            cleared = decisions.set_promotion_priority(
+                conn,
+                project_key=project["project_key"],
+                lowered=False,
+            )
+            saved = registry.fetch_project(conn, project["project_key"])
+            assert saved is not None
+            self.assertEqual(cleared["priority_group"], "normal")
+            self.assertEqual(
+                registry.promotion_policy_projection(saved, registry.compute_showcase_signals(saved))["priority_group"],
+                "normal",
+            )
+        finally:
+            conn.close()
+
     def test_show_by_unknown_seed_does_not_create_project(self) -> None:
         args = cli.build_parser().parse_args([
             "show",

@@ -95,6 +95,7 @@ DECISION_FIELDS = {
     "blocked_identifiers",
     "deferred_identifiers",
     "promotion_deferrals",
+    "promotion_priority_adjustments",
     "dismissed_review_kinds",
     "separate_project_keys",
     "confirmed_identifiers",
@@ -447,6 +448,17 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 cleared_at=str(item.get("cleared_at") or ""),
                 metadata=dict(item),
             ))
+    for item in project.get("promotion_priority_adjustments", []):
+        if isinstance(item, dict):
+            output.append(ProjectDecision(
+                "lower_promotion_priority",
+                "promotion_priority",
+                "lowered",
+                str(item.get("reason") or ""),
+                str(item.get("added_at") or ""),
+                cleared_at=str(item.get("cleared_at") or ""),
+                metadata=dict(item),
+            ))
     for value in project.get("dismissed_review_kinds", []):
         output.append(ProjectDecision("dismiss_review", "review_kind", str(value)))
     for value in project.get("separate_project_keys", []):
@@ -636,6 +648,7 @@ def hydrate(
 
     project.update({
         "blocked_identifiers": [], "deferred_identifiers": [], "promotion_deferrals": [],
+        "promotion_priority_adjustments": [],
         "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
         "review_target_decisions": [],
     })
@@ -657,6 +670,11 @@ def hydrate(
             project["promotion_deferrals"].append(metadata or {
                 "reason": str(row["note"]), "added_at": str(row["created_at"]),
                 "expires_at": str(row["expires_at"]), "cleared_at": str(row["cleared_at"]),
+            })
+        elif kind == "lower_promotion_priority":
+            project["promotion_priority_adjustments"].append(metadata or {
+                "reason": str(row["note"]),
+                "added_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"]),
             })
         elif kind == "dismiss_review":
             project["dismissed_review_kinds"].append(str(row["target_value"]))

@@ -1617,7 +1617,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             100,
         )
 
-    def test_promotion_policy_separates_visibility_service_and_editorial_axes(self) -> None:
+    def test_promotion_policy_separates_visibility_service_and_manual_priority(self) -> None:
         project = self.make_project("proj:policyaxes", "service_url", "https://example.com")
         project.update({
             "category": "project",
@@ -1632,12 +1632,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
         self.assertEqual(policy["service_evidence_group"], "confirmed")
-        self.assertEqual(policy["editorial_group"], "unreviewed")
+        self.assertEqual(policy["priority_group"], "normal")
         self.assertEqual(
             policy["score_breakdown"]["total"],
             sum(policy["score_breakdown"]["components"].values()),
         )
         self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
+
+        registry.set_promotion_priority_on_project(project, lowered=True)
+        policy = registry.promotion_policy_projection(project, signals)
+        self.assertEqual(policy["priority_group"], "lowered")
+        self.assertEqual(policy["priority_reason"], "")
 
         registry.defer_promotion_on_project(project, reason="editorial review later")
         self.assertEqual(
@@ -1665,10 +1670,69 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             assert item is not None
             self.assertEqual(item["candidate_visibility"], {"group": "eligible", "reasons": []})
             self.assertEqual(item["service_evidence_group"], "needs_validation")
-            self.assertEqual(item["editorial_group"], "unreviewed")
+            self.assertEqual(item["priority_group"], "normal")
             self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
         finally:
             conn.close()
+
+    def test_lowered_promotion_priority_sorts_after_normal_candidates(self) -> None:
+        conn = registry.open_db()
+        try:
+            normal = self.make_project("proj:normalpriority", "service_url", "https://normal.example")
+            normal.update({
+                "category": "project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+            })
+            registry.confirm_service_seed(normal, "https://normal.example", source="test")
+            lowered = dict(normal)
+            lowered["project_key"] = "proj:loweredpriority"
+            lowered["website_url"] = "https://lowered.example"
+            lowered["service_urls"] = ["https://lowered.example"]
+            registry.set_promotion_priority_on_project(
+                lowered,
+                lowered=True,
+                reason="weak candidate",
+            )
+            registry.save_project(conn, normal)
+            registry.save_project(conn, lowered)
+            conn.commit()
+
+            queue = registry.build_showcase_queue(conn, limit=None)
+
+            keys = [item["project_key"] for item in queue]
+            self.assertLess(keys.index(normal["project_key"]), keys.index(lowered["project_key"]))
+            lowered_item = next(item for item in queue if item["project_key"] == lowered["project_key"])
+            self.assertEqual(lowered_item["priority_group"], "lowered")
+            self.assertEqual(lowered_item["priority_reason"], "weak candidate")
+        finally:
+            conn.close()
+
+    def test_merge_keeps_canonical_target_promotion_priority(self) -> None:
+        target = self.make_project("proj:editorialtarget", "service_url", "https://target.example")
+        source = self.make_project("proj:editorialsource", "service_url", "https://source.example")
+        registry.set_promotion_priority_on_project(
+            target,
+            lowered=True,
+            reason="not ready for a standalone introduction",
+        )
+        registry.set_promotion_priority_on_project(
+            source,
+            lowered=True,
+            reason="best grouped with similar projects",
+        )
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertEqual(
+            registry.active_promotion_priority_adjustment(merged)["reason"],
+            "not ready for a standalone introduction",
+        )
+        adjustments = merged["promotion_priority_adjustments"]
+        self.assertEqual(len(adjustments), 2)
+        self.assertFalse(adjustments[0].get("cleared_at"))
+        self.assertTrue(adjustments[1].get("cleared_at"))
 
     def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")

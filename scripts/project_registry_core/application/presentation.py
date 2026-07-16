@@ -29,6 +29,7 @@ DECISION_KINDS = (
     "confirm_identifier",
     "defer_identifier",
     "defer_promotion",
+    "lower_promotion_priority",
     "defer_review_target",
     "dismiss_review",
     "dismiss_review_target",
@@ -36,6 +37,7 @@ DECISION_KINDS = (
 )
 DECISION_TARGET_TYPES = (
     "project_key",
+    "promotion_priority",
     "review_kind",
     "review_target",
     *tuple(sorted(core.IDENTIFIER_DECISION_TYPES)),
@@ -667,6 +669,8 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     if row is None:
         raise KeyError(project_key)
     prepared = core.apply_promotion_state(project)
+    promotion_signals = core.compute_showcase_signals(prepared, include_ineligible=True)
+    promotion_policy = core.promotion_policy_projection(prepared, promotion_signals)
     profile = core.project_record_payload(prepared)
     state = _json(str(row["state_json"]), {})
     raw_project = {
@@ -704,6 +708,8 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "relations": _relation_rows(conn, resolved),
         "decisions": _decision_rows(conn, resolved),
         "evaluation": evaluation,
+        "promotion_policy": promotion_policy,
+        "promotion_signals": promotion_signals,
         "investigation": _investigation_summary(conn, resolved),
         "review": core.build_review_queue_item(conn, resolved),
         "duplicates": [],
