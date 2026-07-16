@@ -294,6 +294,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     service_statuses=_set(query.get("service_statuses", [])) or None,
                     contribution_levels=_set(query.get("contribution_levels", [])) or None,
                     technical_interest_levels=_set(query.get("technical_interest_levels", [])) or None,
+                    has_notes=_choice(query.get("has_notes", ["any"])[0], {"yes", "no", "any"}),
                     introduced=_choice(query.get("introduced", ["any"])[0], {"yes", "no", "any"}),
                     has_candidates=_choice(query.get("has_candidates", ["any"])[0], {"yes", "no", "any"}),
                     has_errors=_choice(query.get("has_errors", ["any"])[0], {"yes", "no", "any"}),

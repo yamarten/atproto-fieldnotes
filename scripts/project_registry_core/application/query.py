@@ -24,6 +24,7 @@ def search_project_rows(
     service_statuses: set[str] | None = None,
     contribution_levels: set[str] | None = None,
     technical_interest_levels: set[str] | None = None,
+    has_notes: str = "any",
     identifier_kind: str = "",
     identifier_value: str = "",
     identifier_classification: str = "",
@@ -70,6 +71,13 @@ def search_project_rows(
             f"IN ({', '.join('?' for _ in values)})"
         )
         parameters.extend(values)
+
+    if has_notes in {"yes", "no"}:
+        notes_present = (
+            "NULLIF(TRIM(COALESCE(json_extract(p.profile_json, '$.core.notes'), '')), '') "
+            "IS NOT NULL"
+        )
+        conditions.append(notes_present if has_notes == "yes" else f"NOT ({notes_present})")
 
     text = str(query or "").strip()
     if text:

@@ -952,6 +952,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                 self.assertEqual(payload["count"], expected)
                 self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
 
+    def test_search_filters_by_operator_notes_presence(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = registry.fetch_project(conn, "proj:111111111111")
+            assert project is not None
+            project["notes"] = "follow up with maintainer"
+            registry.save_project(conn, project)
+        finally:
+            conn.close()
+
+        status, payload, _ = self.request("/api/projects?has_notes=yes")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [item["project_key"] for item in payload["items"]],
+            ["proj:111111111111"],
+        )
+
+        status, payload, _ = self.request("/api/projects?has_notes=no")
+        self.assertEqual(status, 200)
+        self.assertNotIn("proj:111111111111", {item["project_key"] for item in payload["items"]})
+
     def test_project_search_supports_first_seen_sort(self) -> None:
         conn = registry.open_db()
         conn.execute(

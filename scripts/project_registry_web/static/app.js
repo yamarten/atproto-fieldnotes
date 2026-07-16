@@ -66,6 +66,7 @@ const state = {
     tracking: "",
     service: "",
     contribution: "",
+    notes: "any",
     introduced: "any",
     candidates: "any",
     errors: "any",
@@ -196,6 +197,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
     tracking: query.get("tracking") || "",
     service: query.get("service") || "",
     contribution: query.get("contribution") || "",
+    notes: query.get("notes") || "any",
     introduced: query.get("introduced") || "any",
     candidates: query.get("candidates") || "any",
     errors: query.get("errors") || "any",
@@ -220,6 +222,7 @@ function syncUrl({replace = false} = {}) {
       tracking: state.projectSearch.tracking,
       service: state.projectSearch.service,
       contribution: state.projectSearch.contribution,
+      notes: state.projectSearch.notes !== "any" ? state.projectSearch.notes : "",
       introduced: state.projectSearch.introduced !== "any" ? state.projectSearch.introduced : "",
       candidates: state.projectSearch.candidates !== "any" ? state.projectSearch.candidates : "",
       errors: state.projectSearch.errors !== "any" ? state.projectSearch.errors : "",
@@ -282,6 +285,7 @@ function listControls() {
       <label>Tracking states<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
       <label>Service status<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
       <label>Contribution<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
+      <label>Notes<select id="filter-notes">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.notes)}</select></label>
       <label>Introduced<select id="filter-introduced">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.introduced)}</select></label>
       <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
       <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
@@ -331,6 +335,7 @@ function projectSearchPath() {
     tracking_states: state.projectSearch.tracking,
     service_statuses: state.projectSearch.service,
     contribution_levels: state.projectSearch.contribution,
+    has_notes: state.projectSearch.notes,
     introduced: state.projectSearch.introduced,
     has_candidates: state.projectSearch.candidates,
     has_errors: state.projectSearch.errors,
@@ -385,6 +390,7 @@ function captureProjectSearch() {
     tracking: selectedValues("filter-tracking"),
     service: selectedValues("filter-service"),
     contribution: selectedValues("filter-contribution"),
+    notes: $("filter-notes")?.value || "any",
     introduced: $("filter-introduced")?.value || "any",
     candidates: $("filter-candidates")?.value || "any",
     errors: $("filter-errors")?.value || "any",
