@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -2239,6 +2240,25 @@ def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def project_storage_projection(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "scalars": {
+            field: project.get(field)
+            for field in ("name", "website_url", "service_status", "tracking_state", "introduced_url")
+        },
+        "profile": project_record_payload(project),
+        "state": project_ops_payload(project),
+    }
+
+
+def project_normalized_child_projection(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "identifiers": [asdict(item) for item in runtime_view.project_identifiers(project)],
+        "relations": runtime_view.relation_rows(project),
+        "decisions": [asdict(item) for item in runtime_view.project_decisions(project)],
+    }
+
+
 def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
     return unique_list([identifier_core.normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if identifier_core.normalize_nsid(str(item or ""))])
 
@@ -2445,6 +2465,9 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     }
     list_fields = (
         "dismissed_review_kinds",
+        "blocked_identifiers",
+        "deferred_identifiers",
+        "confirmed_identifiers",
         "promotion_blockers",
         "manual_seeds",
         "features",
@@ -2468,6 +2491,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "recent_record_samples",
         "atproto_contribution_evidence",
         "technical_interest_reasons",
+        runtime_view.RUNTIME_IDENTIFIER_ROWS,
     )
     for field in list_fields:
         value = project.get(field)
@@ -3403,7 +3427,13 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         ]
 
 
-def remove_identifier_from_project(project: dict[str, Any], identifier_type: str, value: str) -> None:
+def remove_identifier_from_project(
+    project: dict[str, Any],
+    identifier_type: str,
+    value: str,
+    *,
+    remove_normalized_rows: bool = False,
+) -> None:
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return
@@ -3490,6 +3520,17 @@ def remove_identifier_from_project(project: dict[str, Any], identifier_type: str
             for domain in unique_list(project.get("authority_domains", []))
             if str(domain or "").strip().lower().rstrip(".") != lowered
         ]
+    runtime_rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
+    if remove_normalized_rows and isinstance(runtime_rows, list):
+        project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = [
+            dict(item)
+            for item in runtime_rows
+            if not (
+                isinstance(item, dict)
+                and str(item.get("kind") or "") == identifier_type
+                and normalize_blocked_identifier_value(identifier_type, str(item.get("value") or "")) == normalized
+            )
+        ]
     project["manual_seeds"] = [
         dict(item)
         for item in project.get("manual_seeds", [])
@@ -3518,6 +3559,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     developer_account_repairs = 0
     current_service_projection_changes = 0
     current_service_projection_examples: list[dict[str, Any]] = []
+    normalized_child_changes = 0
+    normalized_child_change_examples: list[str] = []
     for row in rows:
         stored_payload = project_from_row_payload(row)
         project_key = str(row["project_key"])
@@ -3565,9 +3608,10 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         original = ensure_project_shape(raw)
         original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
-        normalized = apply_atproto_contribution_state(
-            finalize_project_shape(ensure_project_shape(dict(original)))
-        )
+        normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        restore_lossless_primary_candidates(normalized, original)
+        reclassify_service_specific_lexicon(normalized)
+        normalized = apply_atproto_contribution_state(normalized)
         current_service_before = {
             "service_status": str(original.get("service_status") or "unknown"),
             "service_status_confidence": str(original.get("service_status_confidence") or "none"),
@@ -3591,7 +3635,10 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             normalized,
             default_source="collection_observation_repair",
         )
-        normalized = apply_atproto_contribution_state(finalize_project_shape(normalized))
+        normalized = finalize_project_shape(normalized)
+        restore_lossless_primary_candidates(normalized, original)
+        reclassify_service_specific_lexicon(normalized)
+        normalized = apply_atproto_contribution_state(normalized)
         contribution_changed = any(
             dump_json(stored_payload.get(field, default)) != dump_json(normalized.get(field, default))
             for field, default in (
@@ -3600,12 +3647,21 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
                 ("atproto_contribution_evidence", []),
             )
         )
-        if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(original)):
+        if dump_json(project_storage_projection(raw)) != dump_json(project_storage_projection(original)):
             normalized_projects += 1
+        normalized_child_changed = (
+            dump_json(project_normalized_child_projection(original))
+            != dump_json(project_normalized_child_projection(normalized))
+        )
+        if normalized_child_changed:
+            normalized_child_changes += 1
+            if len(normalized_child_change_examples) < 20:
+                normalized_child_change_examples.append(project_key)
         stored_payload_changed = (
             malformed_developer_accounts
             or malformed_developer_identifier_rows
-            or dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized))
+            or dump_json(project_storage_projection(raw)) != dump_json(project_storage_projection(normalized))
+            or normalized_child_changed
             or contribution_changed
         )
         if stored_payload_changed:
@@ -3678,6 +3734,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "collection_member_seed_repair_count": collection_member_seed_repairs,
         "manual_repo_seed_repair_count": manual_repo_seed_repairs,
         "developer_account_repair_count": developer_account_repairs,
+        "normalized_child_change_count": normalized_child_changes,
+        "normalized_child_change_examples": normalized_child_change_examples,
         "current_service_projection_change_count": current_service_projection_changes,
         "current_service_projection_examples": current_service_projection_examples,
         "refreshed_derived_project_count": refreshed_derived_projects,
@@ -3709,6 +3767,99 @@ def identifier_has_active_confirm_decision(project: dict[str, Any], identifier_t
         ):
             return True
     return False
+
+
+def primary_identifier_review_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
+    rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
+    if not isinstance(rows, list):
+        return []
+    confirmed_values = {
+        (
+            str(item.get("kind") or ""),
+            normalize_blocked_identifier_value(
+                str(item.get("kind") or ""),
+                str(item.get("value") or ""),
+            ),
+        )
+        for item in rows
+        if isinstance(item, dict) and str(item.get("classification") or "") == "confirmed"
+    }
+    output: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in rows:
+        if not isinstance(item, dict) or str(item.get("classification") or "") != "candidate":
+            continue
+        kind = str(item.get("kind") or "")
+        role = str(item.get("role") or "")
+        if (kind, role) not in {("nsid", "primary_nsid"), ("service_url", "website")}:
+            continue
+        value = normalize_blocked_identifier_value(kind, str(item.get("value") or ""))
+        key = (kind, value, role)
+        if (
+            not value
+            or key in seen
+            or (kind, value) in confirmed_values
+            or identifier_is_manual_seed(project, kind, value)
+            or (kind == "nsid" and project_owned_lexicon_nsid(project, value))
+            or identifier_has_active_confirm_decision(project, kind, value)
+            or identifier_is_blocked(project, kind, value)
+            or identifier_is_deferred(project, kind, value)
+        ):
+            continue
+        seen.add(key)
+        output.append({"kind": kind, "value": value, "role": role})
+    return output
+
+
+def restore_lossless_primary_candidates(project: dict[str, Any], source: dict[str, Any]) -> None:
+    rows = source.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
+    if not isinstance(rows, list):
+        return
+    candidate_nsids: list[str] = []
+    candidate_websites: list[str] = []
+    for item in rows:
+        if not isinstance(item, dict) or str(item.get("classification") or "") != "candidate":
+            continue
+        kind = str(item.get("kind") or "")
+        role = str(item.get("role") or "")
+        value = normalize_blocked_identifier_value(kind, str(item.get("value") or ""))
+        if kind == "nsid" and role == "primary_nsid" and value:
+            candidate_nsids.append(value)
+        elif kind == "service_url" and role == "website" and value:
+            candidate_websites.append(value)
+    project["input_nsids"] = unique_list(list(project.get("input_nsids", [])) + candidate_nsids)
+    set_service_url_candidate_values(
+        project,
+        unique_list(service_url_candidate_values(project) + candidate_websites),
+    )
+
+
+def confirm_primary_identifier_candidate(project: dict[str, Any], identifier_type: str, value: str) -> str:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
+    if not normalized or not isinstance(rows, list):
+        return ""
+    matched = False
+    updated: list[dict[str, Any]] = []
+    for item in rows:
+        row = dict(item) if isinstance(item, dict) else item
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role") or "")
+        if (
+            str(row.get("kind") or "") == identifier_type
+            and str(row.get("classification") or "") == "candidate"
+            and (identifier_type, role) in {("nsid", "primary_nsid"), ("service_url", "website")}
+            and normalize_blocked_identifier_value(identifier_type, str(row.get("value") or "")) == normalized
+        ):
+            row["classification"] = "confirmed"
+            row["is_primary"] = True
+            matched = True
+        updated.append(row)
+    if matched:
+        project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = updated
+        return normalized
+    return ""
 
 
 def identifier_is_manual_seed(project: dict[str, Any], identifier_type: str, value: str) -> bool:
@@ -9845,6 +9996,18 @@ def compute_review_signals(
         if manual_review_kind == "service_status_manual_check"
         else []
     )
+    primary_identifier_candidates = primary_identifier_review_candidates(shaped)
+    if primary_identifier_candidates:
+        signals.append(
+            {
+                "kind": "primary_identifier_needs_confirmation",
+                "priority": 8,
+                "details": {
+                    "candidate_count": len(primary_identifier_candidates),
+                    "candidates": primary_identifier_candidates[:5],
+                },
+            }
+        )
     if (
         shaped.get("manual_review_recommended")
         and manual_review_kind != "other"

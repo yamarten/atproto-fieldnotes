@@ -1346,6 +1346,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.assertEqual(status, 200)
             self.assertIn("items", payload)
 
+        status, payload, _ = self.request("/api/review-queue?limit=10&kinds=not_a_signal")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["items"], [])
+
     def test_promotion_queue_api_exposes_policy_projection(self) -> None:
         conn = registry.open_db()
         project = registry.fetch_project(conn, "proj:111111111111")

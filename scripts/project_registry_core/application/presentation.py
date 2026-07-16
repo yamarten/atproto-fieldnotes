@@ -337,6 +337,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "identifier_type": entry_action_kind,
             "confirm": item["classification"] == "candidate" and not value_already_confirmed and (
                 entry_action_kind in {"service_url", "repo_url", "account"}
+                or (entry_action_kind == "nsid" and item["role"] == "primary_nsid")
             ),
             "reject": item["classification"] == "candidate"
             and not value_already_confirmed
@@ -792,8 +793,11 @@ def confirm_candidate(
     project = core.resolve_single_project(conn, project_key=project_key)
     if identifier_type == "service_url":
         confirmed = core.confirm_service_seed(project, value, source="web_ui")
+        core.confirm_primary_identifier_candidate(project, identifier_type, confirmed)
     elif identifier_type == "repo_url":
         confirmed = core.confirm_repo_seed(project, value, source="web_ui")
+    elif identifier_type == "nsid":
+        confirmed = core.confirm_primary_identifier_candidate(project, identifier_type, value)
     elif identifier_type == "account":
         normalized = str(value or "").strip().lower()
         candidate = next((
@@ -815,7 +819,7 @@ def confirm_candidate(
             ]
             confirmed = str(candidate.get("handle") or candidate.get("did") or "")
     else:
-        raise ValueError("identifier_type must be service_url, repo_url, or account")
+        raise ValueError("identifier_type must be service_url, repo_url, nsid, or account")
     if not confirmed:
         raise ValueError("candidate value is required")
     core.add_confirmed_identifier_decision(

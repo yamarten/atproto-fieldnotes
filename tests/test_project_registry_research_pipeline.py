@@ -1098,6 +1098,75 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(repaired["service_status_evidence"], ["http_200"])
         self.assertEqual(after_repair["current_service_projection_change_count"], 0)
 
+    def test_repair_db_does_not_count_lossless_primary_candidates_as_prunable(self) -> None:
+        project = self.make_project("proj:lossless-primary", "service_url", "https://example.com")
+        conn = registry.open_db()
+        try:
+            registry.save_project(conn, project)
+            conn.execute(
+                "INSERT INTO project_identifiers "
+                "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (project["project_key"], 98, "nsid", "app.example.feed", "primary_nsid", "candidate", 1, "{}"),
+            )
+            conn.execute(
+                "INSERT INTO project_identifiers "
+                "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (project["project_key"], 99, "service_url", "https://app.example.com", "website", "candidate", 1, "{}"),
+            )
+            conn.commit()
+
+            rows_before = conn.execute(
+                "SELECT kind, value, role, classification FROM project_identifiers "
+                "WHERE project_key = ? AND classification = 'candidate' ORDER BY ordinal",
+                (project["project_key"],),
+            ).fetchall()
+            registry.audit_and_repair_identifiers(conn, execute=True)
+            rows_after = conn.execute(
+                "SELECT kind, value, role, classification FROM project_identifiers "
+                "WHERE project_key = ? AND classification = 'candidate' ORDER BY ordinal",
+                (project["project_key"],),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual([tuple(row) for row in rows_after], [tuple(row) for row in rows_before])
+
+    def test_repair_db_detects_relation_only_normalized_child_change(self) -> None:
+        project = self.make_project("proj:relation-only-repair", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "defines_schema",
+                    "object": {"type": "nsid", "value": "org.other.post"},
+                    "locator": "lexicons/org/other/post.json",
+                    "method": "lexicon_json",
+                },
+                "source": "github_repo:https://github.com/example/app",
+                "classification": "confirmed",
+                "observed_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+        conn = registry.open_db()
+        try:
+            registry.save_project(conn, project)
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            registry.audit_and_repair_identifiers(conn, execute=True)
+            row = conn.execute(
+                "SELECT predicate, classification FROM project_relations WHERE project_key = ?",
+                (project["project_key"],),
+            ).fetchone()
+            after = registry.audit_and_repair_identifiers(conn, execute=False)
+        finally:
+            conn.close()
+
+        self.assertEqual(dry_run["normalized_child_change_count"], 1)
+        self.assertEqual((row["predicate"], row["classification"]), ("mentions_collection", "candidate"))
+        self.assertEqual(after["normalized_child_change_count"], 0)
+
     def test_follow_up_service_evidence_does_not_emit_operates_service_relation(self) -> None:
         bundle = service_core.collect_service_probe_evidence(
             "proj:service-followup",

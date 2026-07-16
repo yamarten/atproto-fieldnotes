@@ -64,8 +64,12 @@
    - 完了: visibility、service evidence、手動priority、signal、score breakdownと、候補集合全体の相対順位をfixture期待値と比較します
    - 完了: evaluator test自身が意図的なscore・順位差分を検出できることも回帰条件にしました
 5. normalized child repair残差の監査
-   - `repair-db`のcurrent service projectionは0件へ収束済みですが、candidate `primary_nsid` / `website` rowをlossless runtime viewが保持するため、`pruned_project_count`には103 projectが残ります
-   - service scalar適用とは分離し、候補identifierを削除してよい根拠と、保存payload差分カウンタがnormalized child差分を数える契約のどちらを直すか確認してから扱います。判断前に`repair-db --execute`を繰り返しません
+   - 完了: `repair-db`は保存JSONとnormalized child rowを別々に比較し、finalize中だけの一時値を修復件数へ含めず、正当なchild row修復は検出します
+   - 完了: 正本へ32 projectの派生寄与度更新と1 projectのchild修復を適用し、再dry-run 0件、foreign key違反0、integrity `ok`を確認しました
+   - 完了: 同値confirmed rowと重複するcandidate primary 2,063 rowを削除し、trust policyでownership確認済みの64 NSIDをconfirmed `owned_nsid`へ変換しました。一回限りのcleanup処理はコードへ残していません
+   - 完了: Review Queueへ汎用のsignal kindフィルターを追加し、URL再読込後も条件を復元できるようにしました
+   - candidate `primary_nsid` / `website` rowは既存review queueの`primary_identifier_needs_confirmation`へ投影します。残りは61 project / 63 identifierで、confirm/reject/block/deferによるoperator reviewが必要です
+   - 63 identifier解決後、candidate primary rowが0件になったことを確認し、専用review/roundtrip処理を削除します
 
 ### 依存関係
 

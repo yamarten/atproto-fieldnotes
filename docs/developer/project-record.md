@@ -140,6 +140,8 @@ load時は専用runtime codecがnormalized child tableを読み、collector/eval
 
 runtime codecは、loadして無変更saveした場合にidentifier、relation、decision rowのclassification、role、primary、provider、metadata、observed_atを維持します。candidateのprimary NSID、candidateのowned NSID、candidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。candidate primaryを`projects.website_url`、`primary_nsid`、`source_code_url`などのconfirmed用flat fieldへhydrateしません。
 
+candidateの`primary_nsid`と`website` roleは、normalized identifier rowから`primary_identifier_needs_confirmation` review signalへ投影します。監査状態を別途保存せず、confirmはrowをconfirmedへ変更、reject/blockはrowを削除、deferは既存decisionの期限中だけsignalを抑止します。
+
 削除済みalias fieldも生成・保存しません。
 
 ## `project_relations`

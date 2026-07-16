@@ -81,7 +81,12 @@ def set_identifier_block(
         blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": core.iso_now()})
     project["blocked_identifiers"] = blocked
     if not clear:
-        core.remove_identifier_from_project(project, identifier_type, normalized_value)
+        core.remove_identifier_from_project(
+            project,
+            identifier_type,
+            normalized_value,
+            remove_normalized_rows=True,
+        )
     project = _refresh_merge_state(conn, core.finalize_project_shape(project))
     core.save_project(
         conn,

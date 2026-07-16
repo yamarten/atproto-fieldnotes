@@ -141,6 +141,8 @@ domainで先頭labelだけが同じhostはsame-siteにしません。
 
 runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。
 
+candidateの`primary_nsid` / `website` roleは通常のreview queueへ`primary_identifier_needs_confirmation`として都度投影します。専用の監査tableや移行由来flagは持ちません。operatorのconfirm/reject/blockでnormalized row自体を解決し、deferは期限後に同じrowから再表示します。
+
 exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
 NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
 collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、

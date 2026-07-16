@@ -13,10 +13,12 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- `repair-db`のcurrent service projectionは再dry-run 0件です。`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差なので、候補identifierの扱いを監査する前にexecuteを繰り返しません。
+- `repair-db`は正本へ適用済みで再dry-run 0件です。重複candidate primary 2,063 rowの削除とtrust確認済み64 NSIDの`owned_nsid`化も完了し、残りはReview Queueの`Signal kind`を`primary_identifier_needs_confirmation`にした時に出る61 project / 63 identifierです。全件解決後にcandidate primary専用処理を削除します。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ
+
+- 2026-07-16のcandidate primary整理直前backupは`.tmp/repair-candidate-audit/survey-before-primary-cleanup.db`です。
 
 次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認してください。
 

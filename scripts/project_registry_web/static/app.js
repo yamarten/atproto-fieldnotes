@@ -46,6 +46,7 @@ const decisionTargetOptionLabels = {
 const state = {
   screen: "review",
   reviewView: "queue",
+  reviewSignalKind: "",
   selected: "",
   detailTab: "overview",
   detailBackTarget: null,
@@ -189,6 +190,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   if (["review", "projects", "operations", "settings"].includes(screen)) state.screen = screen;
   const view = query.get("view");
   if (["queue", "promotion", "merge"].includes(view)) state.reviewView = view;
+  state.reviewSignalKind = query.get("review_kind") || "";
   state.selected = query.get("project") || "";
   const tab = query.get("tab");
   if (["overview", "identifiers", "relations", "investigation", "decisions", "raw"].includes(tab)) state.detailTab = tab;
@@ -216,6 +218,9 @@ function syncUrl({replace = false} = {}) {
   const query = new URLSearchParams();
   if (state.screen !== "review") query.set("screen", state.screen);
   if (state.screen === "review" && state.reviewView !== "queue") query.set("view", state.reviewView);
+  if (state.screen === "review" && state.reviewView === "queue" && state.reviewSignalKind) {
+    query.set("review_kind", state.reviewSignalKind);
+  }
   if (state.screen === "projects") {
     const values = {
       q: state.projectSearch.query,
@@ -271,12 +276,15 @@ function listControls() {
     const explicitMerge = state.reviewView === "merge"
       ? renderExplicitMergePairForm()
       : "";
+    const reviewFilter = state.reviewView === "queue"
+      ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. primary_identifier_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
+      : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
       <button id="refresh-review-list" class="secondary">Refresh</button>
-    </div>${explicitMerge}</div>`;
+    </div>${reviewFilter}${explicitMerge}</div>`;
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
@@ -318,7 +326,11 @@ async function loadList() {
     if (state.screen === "projects") data = await api(projectSearchPath());
     else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?limit=${state.settings.reviewLimit}&include_personal_tools=${state.settings.includePersonalTools}`);
     else if (state.reviewView === "merge") data = await api(`/api/merge-batch?mode=${encodeURIComponent(state.settings.mergeMode)}&limit=${state.settings.mergeLimit}`);
-    else data = await api(`/api/review-queue?limit=${state.settings.reviewLimit}`);
+    else {
+      const query = new URLSearchParams({limit: state.settings.reviewLimit});
+      if (state.reviewSignalKind) query.set("kinds", state.reviewSignalKind);
+      data = await api(`/api/review-queue?${query}`);
+    }
     if (request !== state.listRequest) return;
     renderList(data);
   } catch (error) {
@@ -408,6 +420,20 @@ function captureProjectSearch() {
 function bindControls() {
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
+  const applyReviewFilter = () => {
+    state.reviewSignalKind = $("review-signal-kind")?.value.trim() || "";
+    state.selected = "";
+    syncUrl();
+    loadList();
+  };
+  $("apply-review-filter")?.addEventListener("click", applyReviewFilter);
+  $("review-signal-kind")?.addEventListener("keydown", (event) => { if (event.key === "Enter") applyReviewFilter(); });
+  $("clear-review-filter")?.addEventListener("click", () => {
+    state.reviewSignalKind = "";
+    state.selected = "";
+    syncUrl();
+    loadList();
+  });
   bindExplicitMergePairControls(document);
   $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
   $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
