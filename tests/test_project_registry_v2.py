@@ -124,6 +124,14 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         after = database.normalized_rows_snapshot(conn)
 
         self.assertEqual(before, after)
+
+        registry.audit_and_repair_identifiers(conn, execute=True)
+        repaired = registry.fetch_project(conn, project["project_key"])
+        repaired_rows = database.normalized_rows_snapshot(conn)
+
+        assert repaired is not None
+        self.assertEqual(repaired["primary_nsid"], "")
+        self.assertEqual(before, repaired_rows)
         conn.close()
 
     def test_normalized_children_roundtrip(self) -> None:

@@ -48,9 +48,7 @@
 実施順と受入条件:
 
 1. current service observation projectionの正本DB適用
-   - 実装、temp DBの新旧観測/履歴不変test、WhiteWind競合fixture、正本DB複製のdry-runは完了しています
-   - 複製3,278 projectのうち420 projectでscalar差分を確認しました。正本DB writer停止を確認し、別途承認を得て`repair-db --execute`を適用します
-   - 適用後は再dry-run 0件、investigation history件数不変、foreign key違反0、integrity `ok`を確認します
+   - 完了: 2026-07-16に正本3,278 projectへ適用し、current service projectionの再dry-run 0件、履歴table件数不変、foreign key違反0、integrity `ok`を確認しました
 2. candidate visibility and priority policy
    - 完了: candidate visibility、service evidence group、manual priority group、score breakdownを純粋なpolicy projectionとして分離しました
    - 完了: `defer_promotion`はproject全体、validationは個別service signalへ作用すると固定しました
@@ -65,6 +63,9 @@
    - 完了: manual goldの全14 promotion caseを実queue生成処理へ通すnetworkなしのevaluatorを追加しました
    - 完了: visibility、service evidence、手動priority、signal、score breakdownと、候補集合全体の相対順位をfixture期待値と比較します
    - 完了: evaluator test自身が意図的なscore・順位差分を検出できることも回帰条件にしました
+5. normalized child repair残差の監査
+   - `repair-db`のcurrent service projectionは0件へ収束済みですが、candidate `primary_nsid` / `website` rowをlossless runtime viewが保持するため、`pruned_project_count`には103 projectが残ります
+   - service scalar適用とは分離し、候補identifierを削除してよい根拠と、保存payload差分カウンタがnormalized child差分を数える契約のどちらを直すか確認してから扱います。判断前に`repair-db --execute`を繰り返しません
 
 ### 依存関係
 

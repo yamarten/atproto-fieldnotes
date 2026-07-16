@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import io
 import json
@@ -700,6 +701,16 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(executed["collection_member_seed_repair_count"], 1)
         self.assertIn("link.latr.saved.item", after["input_nsids"])
         self.assertIn("link.latr.saved.item", [item["value"] for item in after["manual_seeds"]])
+
+        stable = copy.deepcopy(after)
+        self.assertEqual(
+            registry.add_collection_observation_member_seeds(
+                after,
+                default_source="collection_observation_repair",
+            ),
+            0,
+        )
+        self.assertEqual(after, stable)
 
     def test_collection_import_does_not_attach_by_service_host_family(self) -> None:
         conn = registry.open_db()

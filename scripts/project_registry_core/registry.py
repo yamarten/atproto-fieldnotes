@@ -3565,7 +3565,9 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         original = ensure_project_shape(raw)
         original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
-        normalized = finalize_project_shape(ensure_project_shape(dict(original)))
+        normalized = apply_atproto_contribution_state(
+            finalize_project_shape(ensure_project_shape(dict(original)))
+        )
         current_service_before = {
             "service_status": str(original.get("service_status") or "unknown"),
             "service_status_confidence": str(original.get("service_status_confidence") or "none"),
@@ -3576,7 +3578,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             "service_status_confidence": str(normalized.get("service_status_confidence") or "none"),
             "service_status_evidence": list(normalized.get("service_status_evidence", [])),
         }
-        if current_service_before != current_service_after:
+        current_service_projection_changed = current_service_before != current_service_after
+        if current_service_projection_changed:
             current_service_projection_changes += 1
             if len(current_service_projection_examples) < 20:
                 current_service_projection_examples.append({
@@ -3588,7 +3591,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             normalized,
             default_source="collection_observation_repair",
         )
-        normalized = finalize_project_shape(normalized)
+        normalized = apply_atproto_contribution_state(finalize_project_shape(normalized))
         contribution_changed = any(
             dump_json(stored_payload.get(field, default)) != dump_json(normalized.get(field, default))
             for field, default in (
@@ -3599,18 +3602,19 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         )
         if dump_json(project_json_payload(raw)) != dump_json(project_json_payload(original)):
             normalized_projects += 1
-        if (
+        stored_payload_changed = (
             malformed_developer_accounts
             or malformed_developer_identifier_rows
             or dump_json(project_json_payload(raw)) != dump_json(project_json_payload(normalized))
             or contribution_changed
-        ):
+        )
+        if stored_payload_changed:
             pruned_projects += 1
-            if execute:
-                if malformed_developer_accounts or malformed_developer_identifier_rows:
-                    normalized.pop(runtime_view.RUNTIME_IDENTIFIER_ROWS, None)
-                    normalized.pop(runtime_view.RUNTIME_IDENTIFIER_BASELINE, None)
-                save_project(conn, normalized, enriched=False)
+        if execute and (stored_payload_changed or current_service_projection_changed):
+            if malformed_developer_accounts or malformed_developer_identifier_rows:
+                normalized.pop(runtime_view.RUNTIME_IDENTIFIER_ROWS, None)
+                normalized.pop(runtime_view.RUNTIME_IDENTIFIER_BASELINE, None)
+            save_project(conn, normalized, enriched=False)
         project_map[normalized["project_key"]] = normalized
 
     expected_by_project: dict[str, set[tuple[str, str]]] = {
@@ -6137,14 +6141,20 @@ def add_collection_observation_member_seeds(project: dict[str, Any], *, default_
     seed_parents = collection_seed_parent_namespaces(project)
     if not seed_parents:
         return 0
+    known = set(before)
     for observation in project.get("collection_observations", []):
         if not isinstance(observation, dict):
             continue
         source = str(observation.get("source") or default_source)
         for member in observation.get("members", []):
             normalized = identifier_core.normalize_nsid(str(member or ""))
-            if normalized and namespace_from_collection_nsid(normalized) in seed_parents:
+            if (
+                normalized
+                and normalized not in known
+                and namespace_from_collection_nsid(normalized) in seed_parents
+            ):
                 add_manual_seed(project, "nsid", normalized, source=source)
+                known.add(normalized)
     after = {
         canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or ""))
         for item in project.get("manual_seeds", [])
@@ -11843,7 +11853,11 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
-    if not project.get("primary_nsid") and project.get("input_nsids"):
+    if (
+        not project.get("primary_nsid")
+        and project.get("input_nsids")
+        and not runtime_view.is_complete(project)
+    ):
         project["primary_nsid"] = project["input_nsids"][0]
     if not project.get("name"):
         if project.get("website_url"):

@@ -86,6 +86,8 @@
   - multi-tenant suffixをWebまたは`audit-source-config --execute`で追加すると、同じapplication serviceがcurrent same-site判定を再評価する
   - 保存済みservice evidenceをcurrent stateへ再適用する時は、requested/final URLからsame-site判定を現行policyで再計算する。investigation runの履歴payloadは変更しない
   - `repair-db` dry-runはcurrent service projectionの変更件数とbefore/after例を報告する
+  - scalar列の`service_status`だけが変わる場合も`repair-db --execute`の保存対象にする
+  - collection observationのmember seed補完は未登録memberだけに作用し、補完0件のprojectへprimary NSIDやservice候補を再生成しない
   - `profile_json.app.links`は保存時にcanonical identifierとconfirmed resourceから毎回再構築し、既存の派生linkを入力として引き継がない
   - `backfill-derived-identifiers`はflat runtime viewが失ったroleを不足rowと誤認するため削除。normalized identifierは無変更roundtripを維持する
   - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
@@ -166,7 +168,8 @@
 - 2026-07-13の正本DB複製でsame-site 4件と`app.links` 4,868件を適用後、再監査0件、normalized roundtrip差分0、履歴table不変、foreign key違反0、integrity `ok`
 - 3,239 projectから作ったhandle/DIDを含む12,849 exact lookupで、従来判定との差分0
 - 正本DBでKlearsky、Postgame、radio4000の重複project 3組をmergeし、confirmed canonical identifierのcollision 0件、foreign key違反0、integrity `ok`を確認
-- 正本DB複製3,278 projectに対するcurrent service projection dry-runは約25秒で完了し、420 projectのscalar差分を報告。正本DBへの適用は未実施
+- 2026-07-16に正本DBへcurrent service projection 421件を適用。そのうちscalar-only 151件は保存判定修正後に反映し、projection再dry-run 0件、`projects=3,278` / `investigation_runs=20,472` / `collector_runs=116,967` / `project_decisions=178`の前後一致、foreign key違反0、integrity `ok`を確認
+- 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 
 未検証:
 

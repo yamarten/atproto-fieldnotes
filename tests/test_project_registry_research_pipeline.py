@@ -1076,8 +1076,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         )
         project["service_verification_results"] = [dict(bundle.records[0].value)]
         project["service_status"] = "live"
-        project["service_status_confidence"] = "high"
-        project["service_status_evidence"] = ["http_200", "login_surface_detected"]
+        project["service_status_confidence"] = "low"
+        project["service_status_evidence"] = ["http_200"]
         conn = registry.open_db()
         try:
             registry.save_project(conn, project, enriched=True)
@@ -1085,6 +1085,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
             repaired = registry.fetch_project(conn, project["project_key"])
+            after_repair = registry.audit_and_repair_identifiers(conn, execute=False)
         finally:
             conn.close()
 
@@ -1095,6 +1096,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(repaired["service_status"], "unverified")
         self.assertEqual(repaired["service_status_confidence"], "low")
         self.assertEqual(repaired["service_status_evidence"], ["http_200"])
+        self.assertEqual(after_repair["current_service_projection_change_count"], 0)
 
     def test_follow_up_service_evidence_does_not_emit_operates_service_relation(self) -> None:
         bundle = service_core.collect_service_probe_evidence(

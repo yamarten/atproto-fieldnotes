@@ -1235,6 +1235,8 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
+current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのmember seed補完は未登録memberだけを追加し、補完済みmemberへ`add_manual_seed()`を再適用しません。
+
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。
 
