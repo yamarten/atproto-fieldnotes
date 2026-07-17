@@ -9,6 +9,7 @@ from project_registry_core import cli
 from project_registry_core.application import enrichment
 from project_registry_core.commands import enrichment as enrichment_commands
 from project_registry_core.jobs import CancellationToken, OperationRequest
+from project_registry_core import project_record
 
 
 class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
@@ -16,7 +17,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             for key in ("proj:111111111111", "proj:222222222222"):
-                registry.save_project(conn, self.make_project(key, "nsid", f"app.example.{key[-1]}"))
+                project_record.save_project(conn, self.make_project(key, "nsid", f"app.example.{key[-1]}"))
             conn.commit()
         finally:
             conn.close()

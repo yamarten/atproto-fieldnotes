@@ -6,6 +6,7 @@ import json
 from .. import registry as core
 from .. import runtime_view
 from ..application import projects as services
+from project_registry_core import project_record
 
 
 def cmd_add_seed(args: argparse.Namespace) -> int:
@@ -63,7 +64,7 @@ def _print_project(project: dict[str, object]) -> None:
     print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
     print(f"  introduced={bool(project.get('introduced_url'))} introduced_url={project.get('introduced_url') or '-'}")
     print(f"  last_promoted_at={project.get('last_promoted_at') or '-'} promotion_events={len(project.get('promotion_events', []))}")
-    print(f"  github={', '.join(core.provider_repo_url_values(project, 'github')) or '-'}")
+    print(f"  github={', '.join(project_record.provider_repo_url_values(project, 'github')) or '-'}")
     print(f"  source_code={', '.join(project.get('source_code_urls', [])) or '-'}")
     print(f"  candidate_source_code={', '.join(project.get('candidate_source_code_urls', [])) or '-'}")
     print(f"  features={'; '.join(project.get('features', [])) or '-'}")

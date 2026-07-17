@@ -24,6 +24,7 @@ from project_registry_core import domain_policy
 from project_registry_core import registry as core
 from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
+from project_registry_core import project_record
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -258,7 +259,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 "server_instance_id": str(getattr(self.server, "instance_id", "")),
                 "db_path": str(self.server.db_path),
                 "token_required": True,
-                "tracking_states": sorted(core.TRACKING_STATES),
+                "tracking_states": sorted(project_record.TRACKING_STATES),
                 "filter_options": filter_options,
                 "operations_connected": True,
                 "build": dict(getattr(self.server, "build_info", {}) or {}),
@@ -544,7 +545,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if not isinstance(tracking_values, list):
             raise ValueError("tracking_states must be an array")
         tracking_states = tuple(str(item).strip() for item in tracking_values if str(item).strip())
-        invalid_states = set(tracking_states) - core.TRACKING_STATES
+        invalid_states = set(tracking_states) - project_record.TRACKING_STATES
         if invalid_states:
             raise ValueError(f"invalid tracking_states: {', '.join(sorted(invalid_states))}")
         return {
@@ -588,7 +589,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if not isinstance(tracking_values, list):
             raise ValueError("tracking_states must be an array")
         tracking_states = tuple(str(item).strip() for item in tracking_values if str(item).strip())
-        invalid_states = set(tracking_states) - core.TRACKING_STATES
+        invalid_states = set(tracking_states) - project_record.TRACKING_STATES
         if invalid_states:
             raise ValueError(f"invalid tracking_states: {', '.join(sorted(invalid_states))}")
         note_reason = str(payload.get("note_reason") or "").strip()

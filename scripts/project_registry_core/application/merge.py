@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from .. import registry as core
+from project_registry_core import project_record
 
 
 def inspect_pair(
@@ -17,8 +18,8 @@ def inspect_pair(
     target_seed_type: str | None = None,
     include_first_creator_details: bool = False,
 ) -> dict[str, Any]:
-    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    target = core.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
+    source = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    target = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
     return core.inspect_merge_pair_payload(
@@ -43,7 +44,7 @@ def merge_projects(
     execute: bool = False,
     force: bool = False,
 ) -> dict[str, Any]:
-    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    source = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     resolve_recommendation = use_recommendation or not any([target_project_key, target_seed])
     if resolve_recommendation:
         source["duplicate_candidates"] = core.compute_duplicate_candidates(conn, source)
@@ -59,7 +60,7 @@ def merge_projects(
         target = core.resolve_single_project(conn, project_key=resolved_target_key)
     else:
         target = core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type)
-    target = core.ensure_project_shape(target)
+    target = project_record.ensure_project_shape(target)
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
     if core.merge_is_blocked(source, target) and not force:
@@ -93,7 +94,7 @@ def merge_projects(
     }
     if execute:
         with conn:
-            core.save_project(
+            project_record.save_project(
                 conn,
                 merged,
                 enriched=bool(merged.get("last_enriched_at")),
@@ -120,8 +121,8 @@ def split_identifier(
     note: str = "",
     execute: bool = False,
 ) -> dict[str, Any]:
-    source = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    identifier_value = core.canonical_seed_value(identifier_type, value)
+    source = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    identifier_value = project_record.canonical_seed_value(identifier_type, value)
     if not identifier_value:
         raise ValueError("identifier value is required")
     if identifier_type == "domain":
@@ -139,27 +140,27 @@ def split_identifier(
     ).fetchone())
     if not belongs_to_source:
         raise ValueError("identifier does not currently belong to the selected source project")
-    target_key = core.allocate_new_project_key(conn)
-    target = core.default_project_record(target_key, identifier_type, identifier_value)
+    target_key = project_record.allocate_new_project_key(conn)
+    target = project_record.default_project_record(target_key, identifier_type, identifier_value)
     target["tracking_state"] = source.get("tracking_state", "active")
     target["status"] = source.get("status", "draft")
-    target["discovery_sources"] = core.unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
+    target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
     target["tracking_note"] = f"split from {source['project_key']}"
     core.add_manual_seed(target, identifier_type, identifier_value, source="split")
     target = core.finalize_project_shape(target)
-    blocked = core.normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    blocked = project_record.normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
     block_key = (identifier_type, identifier_value)
     if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
         blocked.append({
             "type": identifier_type,
             "value": identifier_value,
             "note": note.strip() or "split out to another project",
-            "added_at": core.iso_now(),
+            "added_at": project_record.iso_now(),
         })
     source["blocked_identifiers"] = blocked
     core.remove_identifier_from_project(source, identifier_type, identifier_value)
-    source["separate_project_keys"] = core.unique_list(list(source.get("separate_project_keys", [])) + [target["project_key"]])
-    target["separate_project_keys"] = core.unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+    source["separate_project_keys"] = project_record.unique_list(list(source.get("separate_project_keys", [])) + [target["project_key"]])
+    target["separate_project_keys"] = project_record.unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
     note_line = f"split out {identifier_type}:{identifier_value} -> {target['project_key']}"
     if note:
         note_line = f"{note_line} ({note.strip()})"
@@ -190,12 +191,12 @@ def split_identifier(
     }
     if execute:
         with conn:
-            core.save_project(
+            project_record.save_project(
                 conn,
                 source,
                 enriched=bool(source.get("last_enriched_at")),
                 preserve_timestamps=True,
                 commit=False,
             )
-            core.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
+            project_record.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
     return summary

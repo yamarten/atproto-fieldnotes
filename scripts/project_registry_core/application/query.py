@@ -5,6 +5,7 @@ import sqlite3
 from typing import Any
 
 from .. import registry as core
+from project_registry_core import project_record
 
 
 def _like(value: str) -> str:
@@ -184,7 +185,7 @@ def search_project_rows(
     sql += " ORDER BY p.last_seen_at DESC, p.project_key ASC"
     output: list[dict[str, Any]] = []
     for row in conn.execute(sql, tuple(parameters)).fetchall():
-        project = core.project_from_row_payload(row)
+        project = project_record.project_from_row_payload(row)
         project["_query_has_candidates"] = bool(row["query_has_candidates"])
         project["_query_promotion_hold"] = bool(row["query_promotion_hold"])
         output.append(project)

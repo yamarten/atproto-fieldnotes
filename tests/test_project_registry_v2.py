@@ -11,9 +11,25 @@ from helpers import TempRegistryDbTestCase, registry
 import promotion_evaluation
 from project_registry_core import database
 from project_registry_core import runtime_view
+from project_registry_core import project_record
 
 
 class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
+    def test_project_record_is_the_storage_boundary_without_registry_reexports(self) -> None:
+        self.assertNotIn("registry", vars(project_record))
+        self.assertNotIn("project_record", vars(database))
+        for name in (
+            "default_project_record",
+            "ensure_project_shape",
+            "fetch_project",
+            "list_projects",
+            "save_project",
+            "find_project_key_by_identifier",
+            "allocate_new_project_key",
+        ):
+            self.assertTrue(callable(getattr(project_record, name)))
+            self.assertFalse(hasattr(registry, name))
+
     def test_open_database_initialization_survives_close_without_caller_commit(self) -> None:
         fresh_path = Path(self.tempdir.name) / "fresh.db"
         conn = database.open_database(fresh_path, create=True)
@@ -62,7 +78,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
     def test_opening_existing_v2_database_adds_project_alias_table(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:additivev2")
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
         conn.close()
 
         incomplete_v2 = sqlite3.connect(self.db_path)
@@ -75,7 +91,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             alias_table = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_key_aliases'"
             ).fetchone()
-            existing = registry.fetch_project(conn, project["project_key"])
+            existing = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()
 
@@ -85,7 +101,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
     def test_loaded_normalized_rows_roundtrip_losslessly(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:v2lossless")
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
         database.replace_identifier_rows(
             conn,
             project["project_key"],
@@ -116,10 +132,10 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         conn.commit()
         before = database.normalized_rows_snapshot(conn)
 
-        fetched = registry.fetch_project(conn, project["project_key"])
+        fetched = project_record.fetch_project(conn, project["project_key"])
         assert fetched is not None
         self.assertEqual(fetched["input_nsids"], ["app.example.post"])
-        registry.save_project(conn, fetched, preserve_timestamps=True)
+        project_record.save_project(conn, fetched, preserve_timestamps=True)
         after = database.normalized_rows_snapshot(conn)
 
         self.assertEqual(before, after)
@@ -148,9 +164,9 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             "context": {},
         }
         project["relation_evidence"] = [relation, relation]
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
 
-        fetched = registry.fetch_project(conn, project["project_key"])
+        fetched = project_record.fetch_project(conn, project["project_key"])
         self.assertIsNotNone(fetched)
         assert fetched is not None
         self.assertEqual(fetched["source_code_urls"], ["https://github.com/example/app"])
@@ -169,15 +185,15 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         project = self.make_project("proj:v2partial")
         project["service_url_candidates"] = ["https://candidate.example"]
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
 
         with self.assertRaisesRegex(ValueError, "complete runtime view"):
-            registry.save_project(conn, {
+            project_record.save_project(conn, {
                 "project_key": project["project_key"],
                 "name": "Partial update",
             })
 
-        fetched = registry.fetch_project(conn, project["project_key"])
+        fetched = project_record.fetch_project(conn, project["project_key"])
         assert fetched is not None
         self.assertTrue(runtime_view.is_complete(fetched))
         self.assertEqual(fetched["service_url_candidates"], ["https://candidate.example"])
@@ -195,8 +211,8 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             "expires_at": "2099-06-14T00:00:00+00:00",
         }]
         merged = registry.merge_project_records(target, source)
-        registry.save_project(conn, merged)
-        fetched = registry.fetch_project(conn, target["project_key"])
+        project_record.save_project(conn, merged)
+        fetched = project_record.fetch_project(conn, target["project_key"])
         assert fetched is not None
         self.assertEqual(len(fetched["blocked_identifiers"]), 1)
         self.assertEqual(len(fetched["deferred_identifiers"]), 1)
@@ -332,7 +348,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         for item in cases:
             project = dict(item["subject"])
             project["website_url"] = project.pop("service_url")
-            shaped = registry.apply_promotion_state(registry.ensure_project_shape(project))
+            shaped = registry.apply_promotion_state(project_record.ensure_project_shape(project))
             signals = registry.compute_showcase_signals(shaped)
             policy = registry.promotion_policy_projection(shaped, signals)
             disposition = item["expected_promotion"]["disposition"]

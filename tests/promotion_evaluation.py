@@ -6,6 +6,7 @@ from typing import Any
 
 from project_registry_core import registry
 from project_registry_core.replay import semantic_diff
+from project_registry_core import project_record
 
 
 def _nonzero_score(score_breakdown: dict[str, Any]) -> dict[str, Any]:
@@ -26,7 +27,7 @@ def _fixture_project(case: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("promotion fixture subject ref is required")
     subject["project_key"] = f"fixture:{subject_ref}"
     subject["website_url"] = str(subject.pop("service_url", "") or "")
-    project = registry.apply_promotion_state(registry.ensure_project_shape(subject))
+    project = registry.apply_promotion_state(project_record.ensure_project_shape(subject))
     expected_promotion = dict(case.get("expected_promotion") or {})
     if expected_promotion.get("disposition") == "deprioritize":
         registry.set_promotion_priority_on_project(

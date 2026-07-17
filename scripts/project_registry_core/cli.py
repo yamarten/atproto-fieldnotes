@@ -15,6 +15,7 @@ from .commands import merge as merge_commands
 from .commands import projects as project_commands
 from .commands import review as review_commands
 from .commands import sync as sync_commands
+from project_registry_core import project_record
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument(
         "--tracking-states",
         nargs="+",
-        choices=sorted(registry.TRACKING_STATES),
+        choices=sorted(project_record.TRACKING_STATES),
         help="When used with --all, override the default tracking_state set explicitly.",
     )
     enrich_parser.add_argument("--include-stable", action="store_true", help="When used with --all, include projects marked stable.")
@@ -78,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_group.add_argument("--seed", help="Target by known seed value.")
     show_group.add_argument("--all", action="store_true", help="Show all projects.")
     show_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
+    show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     show_parser.set_defaults(func=project_commands.cmd_show)
 
@@ -89,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.set_defaults(func=explain_commands.cmd_explain)
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
-    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active stable stalled.")
+    review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active stable stalled.")
     review_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_candidate_needs_confirmation",
         "candidate_repo_needs_confirmation",
@@ -108,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
-    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
+    promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_surface_confirmed",
         "service_candidate_needs_validation",
@@ -135,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_stalled_parser.set_defaults(func=review_commands.cmd_review_stalled)
 
     review_ignore_parser = subparsers.add_parser("review-ignore", help="Suggest unrelated or identity-less noise that likely deserves tracking_state=ignore.")
-    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active stable stalled.")
+    review_ignore_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict review-ignore to these tracking states. Default: active stable stalled.")
     review_ignore_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
     review_ignore_parser.add_argument("--interactive", action="store_true", help="Step through ignore candidates interactively and apply confirmed ignores.")
@@ -147,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-out-of-scope",
         help="Suggest related projects that are currently outside the survey scope but should remain re-evaluable.",
     )
-    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(registry.TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active stable stalled out_of_scope.")
+    review_scope_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict review-out-of-scope to these tracking states. Default: active stable stalled out_of_scope.")
     review_scope_parser.add_argument("--limit", type=int, default=None, help="Maximum number of candidates to return or apply. Default: 100, or unlimited when --interactive is set.")
     review_scope_parser.add_argument("--execute", action="store_true", help="Apply suggested tracking_state=out_of_scope updates. Without this flag, show a dry-run summary only.")
     review_scope_parser.add_argument("--interactive", action="store_true", help="Step through out-of-scope candidates interactively and apply confirmed updates.")
@@ -306,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     tracking_target.add_argument("-p", "--project-key", help="Target one project key.")
     tracking_target.add_argument("-s", "--seed", help="Target by known seed value.")
     tracking_parser.add_argument("--type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    tracking_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(registry.TRACKING_STATES), help="Tracking state to assign.")
+    tracking_parser.add_argument("-S", "--tracking-state", required=True, choices=sorted(project_record.TRACKING_STATES), help="Tracking state to assign.")
     tracking_parser.add_argument("--note", help="Optional tracking note.")
     tracking_parser.set_defaults(func=project_commands.cmd_set_tracking_state)
 

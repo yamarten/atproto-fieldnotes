@@ -10,6 +10,7 @@ from typing import Any
 from .. import registry as core, runtime_view
 from ..application import review as services
 from . import queue_interaction
+from project_registry_core import project_record
 
 
 def _print(payload: dict[str, Any]) -> int:
@@ -23,8 +24,8 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
     inactivity_days = max(1, int(args.inactivity_days or 45))
     max_enrich_age_days = max(1, int(args.max_enrich_age_days or 30))
     project_list = [
-        core.ensure_project_shape(project)
-        for project in core.list_projects(conn, tracking_states={"active", "stalled"})
+        project_record.ensure_project_shape(project)
+        for project in project_record.list_projects(conn, tracking_states={"active", "stalled"})
     ]
     candidates = [
         entry
@@ -76,7 +77,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
                 item = None
                 break
             if answer == "j":
-                project = core.fetch_project(conn, str(item.get("project_key") or ""))
+                project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
                 if project is not None:
                     print(json.dumps(
                         runtime_view.sanitize_runtime_snapshot(project),
@@ -93,7 +94,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
             if answer in {"q", "quit"}:
                 break
             continue
-        project = core.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
         project["tracking_state"] = str(
@@ -101,7 +102,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
         )
         if note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = note
-        core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated.append(project["project_key"])
         updated_with_state.append({
             "project_key": project["project_key"],
@@ -136,8 +137,8 @@ def _cmd_review_classification_interactive(
         or set(default_tracking_states or {"active", "stable", "stalled"})
     )
     project_list = [
-        core.ensure_project_shape(project)
-        for project in core.list_projects(conn, tracking_states=tracking_states)
+        project_record.ensure_project_shape(project)
+        for project in project_record.list_projects(conn, tracking_states=tracking_states)
     ]
     candidates = [entry for project in project_list if (entry := entry_builder(project))]
     candidates.sort(key=lambda item: (
@@ -176,7 +177,7 @@ def _cmd_review_classification_interactive(
                 item = None
                 break
             if answer == "j":
-                project = core.fetch_project(conn, str(item.get("project_key") or ""))
+                project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
                 if project is not None:
                     print(json.dumps(
                         runtime_view.sanitize_runtime_snapshot(project),
@@ -193,7 +194,7 @@ def _cmd_review_classification_interactive(
             if answer in {"q", "quit"}:
                 break
             continue
-        project = core.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
         next_state = str(item.get("suggested_tracking_state") or target_state)
@@ -229,7 +230,7 @@ def _cmd_review_classification_interactive(
             project["tracking_note"] = "reactivated after owned protocol surface detection"
         elif note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = note
-        core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated.append(project["project_key"])
         noted_project_keys.append({
             "project_key": project["project_key"],

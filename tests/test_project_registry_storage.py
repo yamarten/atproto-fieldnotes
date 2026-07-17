@@ -16,6 +16,7 @@ from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
 from project_registry_core.application import merge as merge_services
 from project_registry_core.application import sync as sync_services
+from project_registry_core import project_record
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
@@ -33,12 +34,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "redirect_same_site_family": True,
                 "service_status_evidence": ["http_200", "redirect_same_site_family"],
             }]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             executed = registry.refresh_current_same_site_evidence(conn)
             self.assertEqual(executed["repaired_result_count"], 1)
             self.assertEqual(executed["aggregate_evidence_change_count"], 1)
-            repaired = registry.fetch_project(conn, project["project_key"])
+            repaired = project_record.fetch_project(conn, project["project_key"])
             assert repaired is not None
             self.assertFalse(repaired["service_verification_results"][0]["redirect_same_site_family"])
             self.assertNotIn("redirect_same_site_family", repaired["service_verification_results"][0]["service_status_evidence"])
@@ -53,7 +54,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:didhandleaccount", "nsid", "app.example.didhandle")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             state = json.loads(
                 conn.execute(
                     "SELECT state_json FROM projects WHERE project_key = ?",
@@ -107,7 +108,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             executed = maintenance_services.repair_database(conn, execute=True)
             self.assertEqual(executed["mode"], "execute")
-            repaired = registry.fetch_project(conn, project["project_key"])
+            repaired = project_record.fetch_project(conn, project["project_key"])
             assert repaired is not None
             self.assertEqual(
                 repaired["candidate_developer_accounts"],
@@ -132,7 +133,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:templatehandle", "service_url", "https://skyspace.me")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             state = json.loads(
                 conn.execute(
                     "SELECT state_json FROM projects WHERE project_key = ?",
@@ -178,7 +179,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             executed = maintenance_services.repair_database(conn, execute=True)
             self.assertEqual(executed["mode"], "execute")
-            repaired = registry.fetch_project(conn, project["project_key"])
+            repaired = project_record.fetch_project(conn, project["project_key"])
             assert repaired is not None
             self.assertEqual(repaired["candidate_developer_accounts"], [])
             rows = conn.execute(
@@ -203,10 +204,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ]
             project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:developer"}]
             project["authority_domains"] = ["example.com"]
-            registry.save_project(conn, project)
-            saved = registry.fetch_project(conn, project["project_key"])
+            project_record.save_project(conn, project)
+            saved = project_record.fetch_project(conn, project["project_key"])
             assert saved is not None
-            tangled_url = registry.provider_repo_url_values(saved, "tangled")[0]
+            tangled_url = project_record.provider_repo_url_values(saved, "tangled")[0]
             seed_rows = conn.execute(
                 "SELECT kind, value FROM project_identifiers WHERE project_key = ? AND role = 'seed'",
                 (project["project_key"],),
@@ -214,17 +215,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertIn(("nsid", "app.example.post"), [tuple(row) for row in seed_rows])
 
             with mock.patch.object(registry, "all_projects", side_effect=AssertionError("hydrated projects")):
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "nsid", "app.example.post"), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "service_url", "https://example.com/"), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "service_url_candidate", "https://candidate.example.com"), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "repo_url", "https://github.com/example/app"), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "github_repo_url", "https://github.com/example/app"), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "tangled_repo_url", tangled_url), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "nsid", "app.example.post"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "service_url", "https://example.com/"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "service_url_candidate", "https://candidate.example.com"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "repo_url", "https://github.com/example/app"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "github_repo_url", "https://github.com/example/app"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "tangled_repo_url", tangled_url), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."), project["project_key"])
 
             with mock.patch.object(registry, "all_projects", side_effect=AssertionError("payload scan")):
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])
-                self.assertEqual(registry.find_project_key_by_identifier(conn, "did", "did:plc:developer"), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])
+                self.assertEqual(project_record.find_project_key_by_identifier(conn, "did", "did:plc:developer"), project["project_key"])
 
             plan = conn.execute(
                 "EXPLAIN QUERY PLAN SELECT project_key FROM project_identifiers INDEXED BY idx_project_identifiers_lookup WHERE kind = ? AND value = ?",
@@ -243,18 +244,18 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             confirmed = self.make_project("proj:zzzzzzzzzzzz", "service_url", "https://shared.example.com")
             registry.add_manual_seed(confirmed, "service_url", "https://shared.example.com", source="test")
             registry.confirm_service_seed(confirmed, "https://shared.example.com", source="test")
-            registry.save_project(conn, candidate)
-            registry.save_project(conn, confirmed)
+            project_record.save_project(conn, candidate)
+            project_record.save_project(conn, confirmed)
 
             self.assertEqual(
-                registry.indexed_identifier_matches(conn, "service_url", "https://shared.example.com"),
+                project_record.indexed_identifier_matches(conn, "service_url", "https://shared.example.com"),
                 [(0, confirmed["project_key"]), (1, candidate["project_key"])],
             )
             self.assertEqual(
-                registry.find_project_key_by_identifier(conn, "service_url", "https://shared.example.com"),
+                project_record.find_project_key_by_identifier(conn, "service_url", "https://shared.example.com"),
                 confirmed["project_key"],
             )
-            with mock.patch.object(registry, "project_matches_identifier", side_effect=AssertionError("payload scan")):
+            with mock.patch.object(project_record, "project_matches_identifier", side_effect=AssertionError("payload scan")):
                 resolved = registry.resolve_semble_project_key_for_seed_value(
                     conn,
                     "service_url",
@@ -272,15 +273,15 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_handle["bluesky_handles"] = ["shared.example.com"]
             developer_handle = self.make_project("proj:zzzzzzzzzzzz", "nsid", "app.handle.developer")
             developer_handle["developer_accounts"] = [{"handle": "shared.example.com"}]
-            registry.save_project(conn, project_handle)
-            registry.save_project(conn, developer_handle)
+            project_record.save_project(conn, project_handle)
+            project_record.save_project(conn, developer_handle)
 
             self.assertEqual(
-                registry.indexed_identifier_matches(conn, "handle", "SHARED.EXAMPLE.COM."),
+                project_record.indexed_identifier_matches(conn, "handle", "SHARED.EXAMPLE.COM."),
                 [(0, developer_handle["project_key"]), (1, project_handle["project_key"])],
             )
             self.assertEqual(
-                registry.find_project_key_by_identifier(conn, "handle", "shared.example.com"),
+                project_record.find_project_key_by_identifier(conn, "handle", "shared.example.com"),
                 developer_handle["project_key"],
             )
         finally:
@@ -292,8 +293,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             stale = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.did.stale")
             current = self.make_project("proj:zzzzzzzzzzzz", "nsid", "app.did.current")
             current["candidate_developer_accounts"] = [{"did": "did:plc:shared"}]
-            registry.save_project(conn, stale)
-            registry.save_project(conn, current)
+            project_record.save_project(conn, stale)
+            project_record.save_project(conn, current)
             conn.execute(
                 "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (stale["project_key"], 99, "did", "did:plc:shared", "developer_did", "candidate", 0, "", "{}", ""),
@@ -302,11 +303,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             with mock.patch.object(registry, "all_projects", side_effect=AssertionError("full payload scan")):
                 self.assertEqual(
-                    registry.indexed_identifier_matches(conn, "did", "did:plc:shared"),
+                    project_record.indexed_identifier_matches(conn, "did", "did:plc:shared"),
                     [(0, current["project_key"])],
                 )
                 self.assertEqual(
-                    registry.find_project_key_by_identifier(conn, "did", "did:plc:shared"),
+                    project_record.find_project_key_by_identifier(conn, "did", "did:plc:shared"),
                     current["project_key"],
                 )
         finally:
@@ -325,8 +326,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 }
                 for index in range(20)
             ]
-            registry.save_project(conn, project)
-            saved = registry.fetch_project(conn, project["project_key"])
+            project_record.save_project(conn, project)
+            saved = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()
 
@@ -367,7 +368,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.add_manual_seed(project, "nsid", "com.example.bar.post", source="test")
             registry.add_manual_seed(project, "domain", "foo.example.com", source="test")
             registry.add_manual_seed(project, "repo_url", "https://github.com/example/mixed", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             dry_run = merge_services.split_identifier(
@@ -377,7 +378,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 value="foo.example.com",
                 execute=False,
             )
-            unchanged = registry.fetch_project(conn, "proj:mixedauthority")
+            unchanged = project_record.fetch_project(conn, "proj:mixedauthority")
             executed = merge_services.split_identifier(
                 conn,
                 project_key="proj:mixedauthority",
@@ -386,8 +387,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 note="wrong merge",
                 execute=True,
             )
-            source = registry.fetch_project(conn, "proj:mixedauthority")
-            target = registry.fetch_project(conn, executed["target_project_key"])
+            source = project_record.fetch_project(conn, "proj:mixedauthority")
+            target = project_record.fetch_project(conn, executed["target_project_key"])
         finally:
             conn.close()
 
@@ -546,7 +547,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_builtin_lexicon_policy_does_not_come_from_source_config(self) -> None:
         with mock.patch.object(registry, "load_config", return_value={"collection_inventory": {"builtin_prefixes": ["evil."]}}):
-            self.assertEqual(registry.builtin_lexicon_prefixes(), ("app.bsky.", "chat.bsky.", "com.atproto."))
+            self.assertEqual(project_record.builtin_lexicon_prefixes(), ("app.bsky.", "chat.bsky.", "com.atproto."))
 
     def test_collection_import_attaches_by_member_parent_namespace(self) -> None:
         conn = registry.open_db()
@@ -564,7 +565,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 ("proj:homeport", "member_seed_parent_namespace"),
             )
             registry.add_manual_seed(project, "nsid", "social.homeport.activitypub.announce", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             result = registry.import_collection_inventory_payload(
                 conn,
@@ -581,7 +582,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 create_unmatched=True,
                 source="test_collection_inventory",
             )
-            fetched = registry.fetch_project(conn, "proj:homeport")
+            fetched = project_record.fetch_project(conn, "proj:homeport")
         finally:
             conn.close()
 
@@ -597,7 +598,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project = self.make_project("proj:comind", "nsid", "network.comind.memory")
             registry.add_manual_seed(project, "nsid", "network.comind.memory", source="test")
             registry.add_manual_seed(project, "nsid", "network.comind.void.action", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             self.assertEqual(
                 registry.safe_collection_member_namespace_match(
@@ -622,7 +623,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 create_unmatched=True,
                 source="test_collection_inventory",
             )
-            fetched = registry.fetch_project(conn, "proj:comind")
+            fetched = project_record.fetch_project(conn, "proj:comind")
         finally:
             conn.close()
 
@@ -657,7 +658,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 create_unmatched=True,
                 source="test_collection_inventory",
             )
-            fetched = registry.fetch_project(conn, result["imported_project_keys"][0])
+            fetched = project_record.fetch_project(conn, result["imported_project_keys"][0])
         finally:
             conn.close()
 
@@ -685,11 +686,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "source": "collection_inventory_import",
                 }
             ]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            before = registry.fetch_project(conn, "proj:latr")
+            before = project_record.fetch_project(conn, "proj:latr")
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
-            after = registry.fetch_project(conn, "proj:latr")
+            after = project_record.fetch_project(conn, "proj:latr")
         finally:
             conn.close()
 
@@ -723,7 +724,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 (None, ""),
             )
             registry.add_manual_seed(project, "service_url", "https://bakery.minomobi.com", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             result = registry.import_collection_inventory_payload(
                 conn,
@@ -740,7 +741,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 create_unmatched=True,
                 source="test_collection_inventory",
             )
-            fetched = registry.fetch_project(conn, "proj:bakery")
+            fetched = project_record.fetch_project(conn, "proj:bakery")
         finally:
             conn.close()
 
@@ -755,7 +756,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:cred", "service_url", "https://cred.blue")
             registry.add_manual_seed(project, "service_url", "https://cred.blue", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             registry.SEMBLE_TRACKED_COLLECTIONS = (
                 {"handle": "example.test", "rkey": "collection", "label": "apps"},
             )
@@ -794,7 +795,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     lookback_days=None,
                     incremental=False,
                 )
-            fetched = registry.fetch_project(conn, "proj:cred")
+            fetched = project_record.fetch_project(conn, "proj:cred")
         finally:
             registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
             conn.close()
@@ -812,8 +813,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         original_tracked_collections = registry.SEMBLE_TRACKED_COLLECTIONS
         try:
             project = self.make_project("proj:candidate", "repo_url", "https://github.com/example/candidate")
-            registry.set_service_url_candidate_values(project, ["https://candidate.example"])
-            registry.save_project(conn, project)
+            project_record.set_service_url_candidate_values(project, ["https://candidate.example"])
+            project_record.save_project(conn, project)
             registry.SEMBLE_TRACKED_COLLECTIONS = (
                 {"handle": "example.test", "rkey": "collection", "label": "apps"},
             )
@@ -861,7 +862,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     lookback_days=None,
                     incremental=False,
                 )
-            fetched = registry.fetch_project(conn, "proj:candidate")
+            fetched = project_record.fetch_project(conn, "proj:candidate")
         finally:
             registry.SEMBLE_TRACKED_COLLECTIONS = original_tracked_collections
             conn.close()
@@ -927,12 +928,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             project = self.make_project("proj:introduced01", "nsid", "app.example.post")
             registry.add_manual_seed(project, "nsid", "app.example.post", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             with mock.patch.object(source_sync, "search_bsky_posts_payload", return_value={"posts": []}):
                 second = source_sync.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
-            saved = registry.fetch_project(conn, "proj:introduced01")
+            saved = project_record.fetch_project(conn, "proj:introduced01")
             state = registry.read_sync_state(conn, "introduced", {"query": query})
         finally:
             conn.close()
@@ -1193,7 +1194,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:interactive-stalled")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
             args = cli.build_parser().parse_args(["review-stalled", "--interactive"])
             stdout = io.StringIO()
@@ -1217,7 +1218,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ):
                 result = review_commands.cmd_review_stalled(args)
 
-            updated = registry.fetch_project(conn, project["project_key"])
+            updated = project_record.fetch_project(conn, project["project_key"])
             assert updated is not None
             self.assertEqual(result, 0)
             self.assertEqual(updated["tracking_state"], "stalled")
@@ -1228,7 +1229,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:interactive-ignore")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
             args = cli.build_parser().parse_args(["review-ignore", "--interactive", "--limit", "1"])
             stdout = io.StringIO()
@@ -1253,7 +1254,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ):
                 result = review_commands.cmd_review_ignore(args)
 
-            updated = registry.fetch_project(conn, project["project_key"])
+            updated = project_record.fetch_project(conn, project["project_key"])
             assert updated is not None
             self.assertEqual(result, 0)
             self.assertEqual(updated["tracking_state"], "ignore")
@@ -1310,7 +1311,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["website_url"] = "https://foo.example.com"
             project["service_urls"] = ["https://foo.example.com", "https://bar.example.com"]
             project["input_nsids"] = ["com.example.foo.post", "com.example.bar.post"]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
@@ -1344,7 +1345,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.add_manual_seed(project, "service_url", "https://bar.example.com", source="test")
             registry.add_manual_seed(project, "nsid", "com.example.foo.post", source="test")
             registry.add_manual_seed(project, "nsid", "com.example.bar.post", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             result = registry.split_project_tenant_group(
@@ -1358,8 +1359,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 },
             )
 
-            source = registry.fetch_project(conn, "proj:tenanttenant")
-            target = registry.fetch_project(conn, result["target_project_key"])
+            source = project_record.fetch_project(conn, "proj:tenanttenant")
+            target = project_record.fetch_project(conn, result["target_project_key"])
             self.assertNotIn("https://bar.example.com", source["service_urls"])
             self.assertNotIn("com.example.bar.post", source["input_nsids"])
             self.assertIn("https://bar.example.com", target["service_urls"])
@@ -1382,7 +1383,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "https://baz.example.com",
             ):
                 registry.add_manual_seed(project, "service_url", url, source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             initial_suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
@@ -1396,7 +1397,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     initial_suggestions=initial_suggestions,
                 )
 
-            source = registry.fetch_project(conn, "proj:threetenants")
+            source = project_record.fetch_project(conn, "proj:threetenants")
             remaining_groups = registry.project_split_identifiers_by_tenant(source, "example.com")
             self.assertEqual(result["split_count"], 2)
             self.assertEqual(
@@ -1468,11 +1469,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "recorded_at": "2026-01-01T00:00:00+00:00",
                 }
             ]
-            registry.save_project(conn, project)
-            before = registry.fetch_project(conn, "proj:oldrepo")
+            project_record.save_project(conn, project)
+            before = project_record.fetch_project(conn, "proj:oldrepo")
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
-            after = registry.fetch_project(conn, "proj:oldrepo")
+            after = project_record.fetch_project(conn, "proj:oldrepo")
         finally:
             conn.close()
 
@@ -1527,7 +1528,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             }
         ]
 
-        project = registry.ensure_project_shape(project)
+        project = project_record.ensure_project_shape(project)
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
         self.assertEqual(project["deferred_identifiers"], [])
@@ -1670,7 +1671,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "service_status_evidence": ["http_200"],
             })
             registry.confirm_service_seed(project, "https://example.com", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             item = registry.build_showcase_queue_item(conn, project["project_key"])
@@ -1704,8 +1705,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 lowered=True,
                 reason="weak candidate",
             )
-            registry.save_project(conn, normal)
-            registry.save_project(conn, lowered)
+            project_record.save_project(conn, normal)
+            project_record.save_project(conn, lowered)
             conn.commit()
 
             queue = registry.build_showcase_queue(conn, limit=None)
@@ -1770,8 +1771,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
 
         entry = registry.defer_promotion_on_project(project, reason="explicit", days=7)
-        expires = registry.parse_iso(entry["expires_at"])
-        added = registry.parse_iso(entry["added_at"])
+        expires = project_record.parse_iso(entry["expires_at"])
+        added = project_record.parse_iso(entry["added_at"])
 
         self.assertIsNotNone(expires)
         self.assertIsNotNone(added)
@@ -1803,7 +1804,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
             registry.defer_promotion_on_project(project, reason="中核機能が未実装")
 
-            registry.save_project(conn, project, enriched=True)
+            project_record.save_project(conn, project, enriched=True)
             conn.commit()
 
             row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:aaaaaaaaaaaa",)).fetchone()
@@ -1829,13 +1830,13 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(state_payload["evidence"]["supported_service_urls"], ["https://example.com"])
             self.assertEqual(state_payload["evidence"]["resource_url_records"][0]["role"], "docs")
 
-            fetched = registry.fetch_project(conn, "proj:aaaaaaaaaaaa")
+            fetched = project_record.fetch_project(conn, "proj:aaaaaaaaaaaa")
             self.assertEqual(fetched["summary"], "Example summary")
             self.assertEqual(fetched["name_candidates"][0]["source"], "service_title:https://example.com")
             self.assertEqual(fetched["atproto_contribution_level"], "core")
             self.assertEqual(fetched["lexicon_scope"], "service_specific")
             self.assertEqual(fetched["technical_interest_reasons"], ["novel_design_pattern"])
-            self.assertEqual(registry.resource_url_values(fetched), ["https://example.com/docs"])
+            self.assertEqual(project_record.resource_url_values(fetched), ["https://example.com/docs"])
         finally:
             conn.close()
 
@@ -1856,9 +1857,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 source="service_page:https://example.com",
                 confidence="confirmed",
             )
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
-            stored = registry.fetch_project(conn, "proj:applinkcleanup")
+            stored = project_record.fetch_project(conn, "proj:applinkcleanup")
             self.assertEqual(
                 stored["links"],
                 [
@@ -1878,12 +1879,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             first["service_url_candidates"] = ["https://candidate.example.com"]
             first["source_code_url"] = "https://github.com/example/app"
             first["source_code_urls"] = ["https://github.com/example/app"]
-            registry.save_project(conn, first)
+            project_record.save_project(conn, first)
 
             second = self.make_project("proj:urlfieldaudit2", "service_url", "https://broken.example")
             second["website_url"] = "https://broken.example"
             second["service_url_candidates"] = ["https://two.example"]
-            registry.save_project(conn, second)
+            project_record.save_project(conn, second)
 
             summary = registry.build_url_field_audit(conn)
             aliases = {(item["left"], item["right"]): item for item in summary["alias_relationships"]}
@@ -1902,16 +1903,16 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:bbbbbbbbbbbb", "nsid", "app.example.post")
             project["name"] = "Example App"
-            registry.save_project(conn, project, enriched=True)
+            project_record.save_project(conn, project, enriched=True)
             conn.commit()
             first_last_enriched = conn.execute(
                 "SELECT last_enriched_at FROM projects WHERE project_key = ?",
                 ("proj:bbbbbbbbbbbb",),
             ).fetchone()["last_enriched_at"]
 
-            fetched = registry.fetch_project(conn, "proj:bbbbbbbbbbbb")
+            fetched = project_record.fetch_project(conn, "proj:bbbbbbbbbbbb")
             fetched["summary"] = "Updated without enrich"
-            registry.save_project(conn, fetched, enriched=False)
+            project_record.save_project(conn, fetched, enriched=False)
             conn.commit()
             second_last_enriched = conn.execute(
                 "SELECT last_enriched_at FROM projects WHERE project_key = ?",
@@ -1930,28 +1931,28 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             source["website_url"] = "https://example.com"
             source["duplicate_candidates"] = []
             source["merge_recommendation"] = {}
-            registry.save_project(conn, source)
+            project_record.save_project(conn, source)
 
             target = self.make_project("proj:dddddddddddd", "service_url", "https://example.com")
             target["name"] = "Example Target"
             target["website_url"] = "https://example.com"
             target["duplicate_candidates"] = []
             target["merge_recommendation"] = {}
-            registry.save_project(conn, target)
+            project_record.save_project(conn, target)
             conn.commit()
 
             summary = registry.audit_and_repair_identifiers(conn)
             self.assertGreaterEqual(summary["refreshed_derived_project_count"], 1)
             self.assertEqual(summary["mode"], "dry_run")
 
-            repaired = registry.fetch_project(conn, "proj:cccccccccccc")
+            repaired = project_record.fetch_project(conn, "proj:cccccccccccc")
             self.assertEqual(repaired["duplicate_candidates"], [])
             self.assertEqual(repaired["merge_recommendation"], {})
 
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
             self.assertEqual(executed["mode"], "execute")
 
-            repaired = registry.fetch_project(conn, "proj:cccccccccccc")
+            repaired = project_record.fetch_project(conn, "proj:cccccccccccc")
             duplicate_keys = {item["project_key"] for item in repaired["duplicate_candidates"]}
             self.assertIn("proj:dddddddddddd", duplicate_keys)
             self.assertEqual(repaired["merge_recommendation"]["merge_confidence"], "high")
@@ -1962,7 +1963,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
     def test_audit_persists_missing_atproto_contribution_fields(self) -> None:
         conn = registry.open_db()
         try:
-            now = registry.iso_now()
+            now = project_record.iso_now()
             conn.execute(
                 """
                 INSERT INTO projects (
@@ -2007,7 +2008,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project = self.make_project("proj:cafecafecafe", "nsid", "app.example.post")
             project["name"] = "Candidate Service"
             project["service_url_candidates"] = ["https://candidate.example"]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             def fail_compute(*args, **kwargs):
@@ -2037,12 +2038,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["service_url_candidates"] = ["https://candidate.example"]
             project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
             project["collection_observations"] = [{"recent_count": 2, "observed_at": "2026-05-25T00:00:00+00:00"}]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
 
             row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:abababababab",)).fetchone()
-            payload = registry.project_from_row_payload(row)
-            full = registry.apply_promotion_state(registry.ensure_project_shape(dict(payload)))
+            payload = project_record.project_from_row_payload(row)
+            full = registry.apply_promotion_state(project_record.ensure_project_shape(dict(payload)))
             light = registry.apply_promotion_state(registry.lightweight_review_project_shape(dict(payload)))
             full_signals = registry.compute_review_signals(full, assume_shaped=True, apply_promotion=False)
             light_signals = registry.compute_review_signals(light, assume_shaped=True, apply_promotion=False)
@@ -2064,7 +2065,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             optional["manual_review_kind"] = "identity_resolution"
             optional["manual_review_priority"] = "medium"
             optional["input_nsids"] = ["app.example.optional"]
-            registry.save_project(conn, optional)
+            project_record.save_project(conn, optional)
 
             substantial = self.make_project("proj:222222222222", "nsid", "app.example.substantial")
             substantial["name"] = "Substantial"
@@ -2072,7 +2073,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             substantial["manual_review_kind"] = "identity_resolution"
             substantial["manual_review_priority"] = "medium"
             substantial["collection_observations"] = [{"collection": "app.example.substantial", "count": 5}]
-            registry.save_project(conn, substantial)
+            project_record.save_project(conn, substantial)
             conn.commit()
 
             queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=2)
@@ -2098,7 +2099,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 }
             )
             registry.confirm_service_seed(low, "https://low.example", source="test")
-            registry.save_project(conn, low)
+            project_record.save_project(conn, low)
 
             high = self.make_project("proj:zzzzzzzzzzzz", "service_url", "https://high.example")
             high.update(
@@ -2113,7 +2114,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 }
             )
             registry.confirm_service_seed(high, "https://high.example", source="test")
-            registry.save_project(conn, high)
+            project_record.save_project(conn, high)
             conn.commit()
 
             args = cli.build_parser().parse_args(["promotion-queue", "--interactive", "--limit", "1"])
@@ -2139,7 +2140,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "service_status_confidence": "medium",
             })
             registry.confirm_service_seed(project, "https://example.com", source="test")
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.commit()
             queue = registry.build_showcase_queue(conn, tracking_states={"active"})
             stdout = io.StringIO()
@@ -2161,11 +2162,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     interactive=True,
                 )
 
-            fetched = registry.fetch_project(conn, "proj:promotionhold")
+            fetched = project_record.fetch_project(conn, "proj:promotionhold")
             active = registry.active_promotion_deferral(fetched)
             self.assertEqual(active["reason"], "中核機能が未実装")
             self.assertGreater(
-                registry.parse_iso(active["expires_at"]),
+                project_record.parse_iso(active["expires_at"]),
                 dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=6),
             )
         finally:
@@ -2177,14 +2178,14 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             first = self.make_project("proj:eeeeeeeeeeee", "service_url", "https://collision.example")
             first["name"] = "First"
             first["website_url"] = "https://collision.example"
-            registry.set_service_url_candidate_values(first, ["https://shared-candidate.example"])
-            registry.save_project(conn, first)
+            project_record.set_service_url_candidate_values(first, ["https://shared-candidate.example"])
+            project_record.save_project(conn, first)
 
             second = self.make_project("proj:ffffffffffff", "service_url", "https://collision.example")
             second["name"] = "Second"
             second["website_url"] = "https://collision.example"
-            registry.set_service_url_candidate_values(second, ["https://shared-candidate.example"])
-            registry.save_project(conn, second)
+            project_record.set_service_url_candidate_values(second, ["https://shared-candidate.example"])
+            project_record.save_project(conn, second)
             conn.commit()
 
             summary = registry.audit_and_repair_identifiers(conn)
@@ -2208,11 +2209,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             repo_url = "https://github.com/example/shared"
             first = self.make_project("proj:eeeeeeeeeeee", "repo_url", repo_url)
             first["source_code_urls"] = [repo_url]
-            registry.save_project(conn, first)
+            project_record.save_project(conn, first)
 
             second = self.make_project("proj:ffffffffffff", "repo_url", repo_url)
             second["source_code_urls"] = [repo_url]
-            registry.save_project(conn, second)
+            project_record.save_project(conn, second)
             conn.commit()
 
             summary = registry.audit_and_repair_identifiers(conn)
@@ -2234,7 +2235,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
     def test_invalid_json_is_not_auto_repaired(self) -> None:
         conn = registry.open_db()
         try:
-            now = registry.iso_now()
+            now = project_record.iso_now()
             conn.execute(
                 """
                 INSERT INTO projects (
@@ -2259,7 +2260,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             conn.commit()
 
             with self.assertRaises(json.JSONDecodeError):
-                registry.fetch_project(conn, "proj:badbadbadbad")
+                project_record.fetch_project(conn, "proj:badbadbadbad")
             with self.assertRaises(json.JSONDecodeError):
                 registry.audit_and_repair_identifiers(conn)
         finally:

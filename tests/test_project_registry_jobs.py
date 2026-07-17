@@ -466,8 +466,8 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(review_services.core, "list_projects", return_value=projects), mock.patch.object(
-                review_services.core, "ensure_project_shape", side_effect=lambda project: project
+            with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
+                review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
             ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
                 payload = review_services.stalled(
                     conn,
@@ -483,8 +483,8 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertTrue(payload["plan_fingerprint"].startswith("plan:"))
         self.assertTrue(all(item["candidate_id"].startswith("candidate:") for item in payload["candidates"]))
 
-        with mock.patch.object(review_services.core, "list_projects", return_value=projects), mock.patch.object(
-            review_services.core, "ensure_project_shape", side_effect=lambda project: project
+        with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
+            review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
         ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
             with self.assertRaisesRegex(ValueError, "plan changed"):
                 conn = registry.open_db()

@@ -15,11 +15,11 @@ registry schema version 2の内部仕様と運用メモです。利用手順は[
 - `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する
 - `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
 - `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
-- `registry.py`はproject shape、normalized lookup、保存、merge/queue policyなどのstateful helperを引き続き持つ
+- `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
+- `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する
 
-`source_sync.py`と`enrichment_pipeline.py`は、project stateや保存を重複実装せず`registry.py`の既存helperを明示的に
-利用します。この依存を狭める次の分割条件は[roadmap.md](../roadmap.md)に置きます。既存内部symbolを維持するための
-re-exportは置きません。
+`source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。
+`project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
 
 ## データの持ち方
 
@@ -209,6 +209,10 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - `project_registry_core/llm_transport.py`
   - command/OpenAI互換endpointの呼出し、response parser、timeout/error分類、request metricsを所有する
   - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える
+- `project_registry_core/project_record.py`
+  - projectの既定shapeと保存前正規化、scalar/profile/state payloadへの投影を所有する
+  - schema v2 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
+  - `database.py` / `runtime_view.py`と専門moduleを利用し、`registry.py`へ依存しない
 - `project_registry_core/application/`
   - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
@@ -229,21 +233,21 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - `project_registry_core/worker.py`
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
-  - collector/evaluation orchestrationと未分離の補助処理
+  - collector/evaluation orchestration、finalize、merge/queue policyと未分離の補助処理
   - `collect -> apply -> finalize/evaluate -> save` の orchestration
   - `argparse.Namespace`を受け取る`cmd_*`は残っていない
 
 現行の依存方向は完全分離後の目標図ではありません。確認済みの境界は次の通りです。
 
-- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportしないが、
-  maintenance専用のnormalized roundtrip verifierだけが遅延importして`fetch_project` / `save_project`を呼ぶ
+- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportせず、
+  maintenance専用のnormalized roundtrip verifierは`project_record.py`の`fetch_project` / `save_project`を遅延importする
 - `application/`はCLI/Web共通serviceとして分離済みだが、多くのserviceがdomain/storage facadeとして
-  `registry.py`をimportする。`commands/`も一部の表示・DB open helperで同じfacadeへ依存する
+  `registry.py`とproject保存用の`project_record.py`を用途別にimportする。`commands/`も同じ境界を使う
 - Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには
-  `registry.py`への直接依存が残る
+  `registry.py`または`project_record.py`への直接依存が残る
 - `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
   identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
-- 残るsource sync、project shape/save facade、queue、enrich orchestrationの分割はroadmapで追跡し、
+- 残るqueue、enrich orchestrationの分割はroadmapで追跡し、
   現時点でapplication/databaseが巨大moduleから独立済みとは扱わない
 
 この現行責務mapは一時的な移動計画ではなく内部仕様のsnapshotなので、本書を正本とします。同内容を

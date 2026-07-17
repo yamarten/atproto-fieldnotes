@@ -7,6 +7,7 @@ from typing import Any
 from .. import domain_policy
 from .. import registry as core
 from .. import storage, storage_cleanup
+from project_registry_core import project_record
 
 
 DEFAULT_INVESTIGATION_RETENTION_DAYS = 90
@@ -61,7 +62,7 @@ def cleanup_storage_payloads(
 ) -> dict[str, Any]:
     return storage_cleanup.compact_registry_storage(
         conn,
-        normalize_resource_url_records=core.normalize_resource_url_records,
+        normalize_resource_url_records=project_record.normalize_resource_url_records,
         execute=execute,
         example_limit=example_limit,
         vacuum=vacuum,
@@ -121,7 +122,7 @@ def prune_investigation_history(
         rank = project_rank.get(project_key, 0)
         project_rank[project_key] = rank + 1
         completed_at = str(row["completed_at"])
-        completed = core.parse_iso(completed_at)
+        completed = project_record.parse_iso(completed_at)
         if rank < keep_latest_per_project:
             retained_latest += 1
             continue

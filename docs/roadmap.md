@@ -23,57 +23,7 @@
 
 紹介フローを主導に置き、その延長で app export 可能性を確保する、という順序を維持します。
 
-## 次の着手順
-
-### 短期目標
-
-固定したmanual gold setとbrowser calibration setを使い、queueやtriageの大きな実装を変える前に評価軸を固めます。
-
-#### Promotion queue のevidence・順位・表示
-
-目的は、候補を見せるか、service利用可否をどこまで確認できたか、候補の優先度を下げる手動判断があるかを分け、「深掘りする価値がある候補」を根拠付きで提示することです。
-
-現在の契約:
-
-- 機械的なservice evidenceは`service_surface_confirmed`と`service_candidate_needs_validation`に分け、後者を約100点下に表示します
-- operatorが期待するqueue上の扱いは[manual gold fixture](../tests/fixtures/project_registry/manual-gold-v1.json)の`expected_promotion.disposition`に`exclude / queue / deprioritize`として保持します
-- Juntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約は[browser calibration fixture](../tests/fixtures/project_registry/browser-service-calibration-v1.json)に固定し、networkなしの回帰入力として使います。fixture内の実URLは現在状態を再確認するsmoke referenceであり、回帰評価時に取得し直しません
-- 紹介済みの強いservice例と、serviceを持たない技術的価値の例は同fixtureの`showcase_reference_cases`に分けます
-- 地域性は機械スコアに入れず、operatorが読む`manual_context`に留めます
-- current service scalarは最新のURL別・lane別観測から投影し、過去scalarのmax / unionを引き継ぎません。WhiteWindのbrowser公開利用面は同一URLのstatic docs-only分類より優先します
-- queue itemはcandidate visibility、service evidence group、`priority_group=normal / lowered`、既存scoreの成分別breakdownを返します
-- `defer_promotion`はproject全体を期限付きで非表示にし、service validationは候補を残す個別signalとして扱います
-- `lower_promotion_priority`は任意の理由メモを持つnormalized decisionとして保存・解除し、対象を通常候補より後ろへ送ります
-
-実施順と受入条件:
-
-1. current service observation projectionの正本DB適用
-   - 完了: 2026-07-16に正本3,278 projectへ適用し、current service projectionの再dry-run 0件、履歴table件数不変、foreign key違反0、integrity `ok`を確認しました
-2. candidate visibility and priority policy
-   - 完了: candidate visibility、service evidence group、manual priority group、score breakdownを純粋なpolicy projectionとして分離しました
-   - 完了: `defer_promotion`はproject全体、validationは個別service signalへ作用すると固定しました
-   - 完了: manual gold 14件でmachine projectionを検証し、優先度を下げる判断を保存事実から自動推定しない境界を固定しました
-   - 非対象: project名ごとの例外、地域性の自動スコア化
-3. priority decision, queue API and Web UI
-   - 完了: 優先度を下げる判断を任意の理由メモとともに保存・解除し、`defer_promotion`の期限付き非表示と分離しました
-   - 完了: Promotion listでpriority、score breakdown、validation reasonを候補を開かず読めるようにし、詳細からpriorityを変更できます
-   - 完了: 設定後は表示中のcardを外して次へ進み、再取得時は通常候補より後ろへ並べます
-   - 完了: PythonのAPI test、JavaScript syntax check、temp DBでのPromotion list・優先度設定・解除を実browserで確認しました
-4. executable evaluation
-   - 完了: manual goldの全14 promotion caseを実queue生成処理へ通すnetworkなしのevaluatorを追加しました
-   - 完了: visibility、service evidence、手動priority、signal、score breakdownと、候補集合全体の相対順位をfixture期待値と比較します
-   - 完了: evaluator test自身が意図的なscore・順位差分を検出できることも回帰条件にしました
-5. normalized child repair残差の監査
-   - 完了: `repair-db`は保存JSONとnormalized child rowを別々に比較し、finalize中だけの一時値を修復件数へ含めず、正当なchild row修復は検出します
-   - 完了: 正本へ32 projectの派生寄与度更新と1 projectのchild修復を適用し、再dry-run 0件、foreign key違反0、integrity `ok`を確認しました
-   - 完了: 同値confirmed rowと重複するcandidate primary 2,063 rowを削除し、trust policyでownership確認済みの64 NSIDをconfirmed `owned_nsid`へ変換しました。一回限りのcleanup処理はコードへ残していません
-   - 完了: Review Queueへ汎用のsignal kindフィルターを追加し、URL再読込後も条件を復元できるようにしました
-   - 完了: 意味的な代表選択をしていなかった`primary_nsid`を廃止し、confirmedは`owned_nsid`、candidateは`input_nsid`へ統合するコード契約へ変更しました
-   - 完了: normalized `website` roleを廃止し、URL候補とconfirmed URLは`service`へ統一、代表公開URLは`projects.website_url`だけを正本としました
-   - 完了: 正本DB複製で644 project / 703旧role rowを変換し、同値row統合後もproject数と`website_url`に差分がなく、再dry-run 0件、foreign key違反0、integrity `ok`を確認しました
-   - 完了: 正本DBへrole統合を適用し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認後、一回限りのreaderとnormalizerを削除しました
-
-### 依存関係
+## 実施順の依存関係
 
 - queue builder の分割は、queue policy の契約と sample review を先に用意してから行う
 - LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
@@ -152,18 +102,6 @@ normalized-only candidate DIDを除外します。全project scanではありま
 - current payloadから表現できない有効rowを失わないrepairまたは表現を用意する
 - 既知の5 DID collisionを含む実DB auditで、index-only判定と期待projectの差分が0になる
 - `find_project_key_by_identifier(..., "did", ...)`がproject hydrateを呼ばない回帰testを追加する
-
-#### project state / save境界
-
-`registry.py`に残るproject shape、identifier guard、fetch/list/save、normalized lookup、project key allocationを、
-schema v2のcurrent/history契約を崩さない単位で分離します。
-
-- `source_sync.py`と`enrichment_pipeline.py`が利用するstate/save helperを新しい正本moduleへ移す
-- normalized child roundtrip、merge alias、operator decisionを含むtemp DB testを受入条件にする
-- application/Webから`registry.py`への直接importと、新moduleから`registry.py`へ戻る依存を実際に減らす
-- 旧内部symbolのre-exportは置かず、呼出元とtestを同時に更新する
-
-単に同じ関数群をfacade越しに呼ぶだけの変更や、平置きmoduleを見た目のためにsubdirectoryへ移す変更は行いません。
 
 #### queue policyの再設計と分割
 

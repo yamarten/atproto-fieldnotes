@@ -21,7 +21,8 @@
   - source sync本体は`source_sync.py`
   - 1 projectのenrich本体は`enrichment_pipeline.py`
   - interactive queue入出力は`commands/queue_interaction.py`
-  - project state、保存、lookup、merge/queue policyは`registry.py`に残る
+  - project state、保存、normalized exact lookup、project key allocationは`project_record.py`
+  - collector/finalize orchestrationとmerge/queue policyは`registry.py`
 - Web UIの日常運用
   - normalized tableを直接使うproject検索と構造化filter
     - 自由入力検索は `project_key`、`name`、`website_url`、identifier value、relation subject/object/locator、decision target/note の大小文字を無視した部分一致
@@ -171,6 +172,7 @@
 - 2026-07-16に正本DBへcurrent service projection 421件を適用。そのうちscalar-only 151件は保存判定修正後に反映し、projection再dry-run 0件、`projects=3,278` / `investigation_runs=20,472` / `collector_runs=116,967` / `project_decisions=178`の前後一致、foreign key違反0、integrity `ok`を確認
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
+- project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
 
 未検証:
 

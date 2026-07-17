@@ -398,15 +398,15 @@ def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[st
 
 
 def verify_normalized_roundtrip(conn: sqlite3.Connection) -> dict[str, Any]:
-    from . import registry
+    from . import project_record
 
     before = normalized_rows_snapshot(conn)
     project_keys = [str(row["project_key"]) for row in conn.execute("SELECT project_key FROM projects ORDER BY project_key")]
     for project_key in project_keys:
-        project = registry.fetch_project(conn, project_key)
+        project = project_record.fetch_project(conn, project_key)
         if project is None:
             raise RuntimeError(f"roundtrip project missing: {project_key}")
-        registry.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     after = normalized_rows_snapshot(conn)
     examples: list[dict[str, Any]] = []
     diff_count = 0

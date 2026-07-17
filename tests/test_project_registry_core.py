@@ -20,6 +20,7 @@ from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import naming as naming_core
+from project_registry_core import project_record
 
 
 class ProjectRegistryCompletionTest(unittest.TestCase):
@@ -34,7 +35,7 @@ class ProjectRegistryCompletionTest(unittest.TestCase):
         self.assertEqual(listed_commands, set(subparsers.choices))
         tracking_match = re.search(r"^tracking_states=\(([^)]*)\)$", completion, re.MULTILINE)
         self.assertIsNotNone(tracking_match)
-        self.assertEqual(set(tracking_match.group(1).split()), registry.TRACKING_STATES)
+        self.assertEqual(set(tracking_match.group(1).split()), project_record.TRACKING_STATES)
 
         for command, subparser in subparsers.choices.items():
             match = re.search(
@@ -72,16 +73,16 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
     def test_nsid_name_case_is_preserved_for_seed_extraction(self) -> None:
         nsid = "com.bartenderSky.preferences.profileMusic"
-        self.assertEqual(registry.extract_collection_nsid(nsid), nsid)
-        self.assertEqual(registry.extract_collection_nsid(f"at://did:plc:example/{nsid}/self"), nsid)
+        self.assertEqual(project_record.extract_collection_nsid(nsid), nsid)
+        self.assertEqual(project_record.extract_collection_nsid(f"at://did:plc:example/{nsid}/self"), nsid)
         self.assertEqual(registry.detect_seed_type(nsid), "nsid")
-        self.assertEqual(registry.canonical_seed_value("nsid", nsid), nsid)
+        self.assertEqual(project_record.canonical_seed_value("nsid", nsid), nsid)
 
     def test_manual_nsid_seed_keeps_name_case(self) -> None:
         nsid = "com.bartenderSky.preferences.profileMusic"
-        project = registry.default_project_record("proj:nsidcase", "nsid", nsid)
+        project = project_record.default_project_record("proj:nsidcase", "nsid", nsid)
         registry.apply_seed_to_project(project, "nsid", nsid)
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(shaped["input_nsids"], [nsid])
 
@@ -108,7 +109,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
 class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
     def test_provider_repo_views_are_derived_from_confirmed_source_records(self) -> None:
-        project = registry.default_project_record("proj:repoview", "nsid", "app.example.post")
+        project = project_record.default_project_record("proj:repoview", "nsid", "app.example.post")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["source_repo_records"] = [
             {
@@ -120,26 +121,26 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
             }
         ]
 
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
-        self.assertEqual(registry.provider_repo_url_values(shaped, "github"), ["https://github.com/example/app"])
-        self.assertEqual(registry.provider_repo_url_values(shaped, "tangled"), ["https://tangled.org/example/lexicons"])
+        self.assertEqual(project_record.provider_repo_url_values(shaped, "github"), ["https://github.com/example/app"])
+        self.assertEqual(project_record.provider_repo_url_values(shaped, "tangled"), ["https://tangled.org/example/lexicons"])
         self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
 
     def test_codeberg_repo_seed_is_generic_repo_url(self) -> None:
-        project = registry.default_project_record("proj:codeberg", "repo_url", "https://codeberg.org/cartes/web/src/branch/main")
+        project = project_record.default_project_record("proj:codeberg", "repo_url", "https://codeberg.org/cartes/web/src/branch/main")
         registry.confirm_repo_seed(project, "https://codeberg.org/cartes/web/src/branch/main", source="test")
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(registry.detect_seed_type("https://codeberg.org/cartes/web"), "repo_url")
-        self.assertEqual(registry.canonical_seed_value("repo_url", "https://codeberg.org/cartes/web/src/branch/main"), "https://codeberg.org/cartes/web")
+        self.assertEqual(project_record.canonical_seed_value("repo_url", "https://codeberg.org/cartes/web/src/branch/main"), "https://codeberg.org/cartes/web")
         self.assertEqual(shaped["source_code_urls"], ["https://codeberg.org/cartes/web"])
         self.assertEqual(repo_url_core.infer_repo_provider(shaped["source_code_urls"][0]), "codeberg.org")
 
     def test_sourcehut_repo_seed_is_generic_repo_url(self) -> None:
-        project = registry.default_project_record("proj:sourcehut", "repo_url", "https://git.sr.ht/~example/app/tree/main")
+        project = project_record.default_project_record("proj:sourcehut", "repo_url", "https://git.sr.ht/~example/app/tree/main")
         registry.confirm_repo_seed(project, "https://git.sr.ht/~example/app/tree/main", source="test")
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(registry.detect_seed_type("https://git.sr.ht/~example/app"), "repo_url")
         self.assertEqual(shaped["source_code_urls"], ["https://git.sr.ht/~example/app"])
@@ -161,7 +162,7 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
         self.assertIsNone(repo_url_core.normalize_forge_repo_url("https://codeberg.org/explore/repos"))
 
     def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
-        project = registry.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
+        project = project_record.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
         registry.add_candidate_source_code_url(
             project,
             "https://github.com/example/candidate",
@@ -170,10 +171,10 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
         )
         project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
 
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(shaped["source_code_urls"], [])
-        self.assertEqual(registry.provider_repo_url_values(shaped, "github"), [])
+        self.assertEqual(project_record.provider_repo_url_values(shaped, "github"), [])
         self.assertEqual(shaped["candidate_source_code_urls"], ["https://github.com/example/candidate"])
 
 
@@ -500,7 +501,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         self.assertEqual(naming_core.source_url("service_title:https://example.com"), "https://example.com")
 
     def project_with_candidates(self, candidates: list[dict[str, str]], *, name: str = "") -> dict:
-        project = registry.default_project_record("proj:aaaaaaaaaaaa", "nsid", "app.example.post")
+        project = project_record.default_project_record("proj:aaaaaaaaaaaa", "nsid", "app.example.post")
         project["name"] = name
         project["name_candidates"] = candidates
         return project
@@ -766,7 +767,7 @@ class ProjectRegistrySameSiteTest(unittest.TestCase):
         )
 
     def test_unrelated_same_label_repo_homepage_gets_no_site_bonus(self) -> None:
-        project = registry.default_project_record(
+        project = project_record.default_project_record(
             "proj:samesiterepo",
             "service_url",
             "https://app.example.com",
@@ -812,7 +813,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertTrue(metadata["redirect_cross_host"])
 
     def test_same_host_http_to_https_redirect_canonicalizes_service_url(self) -> None:
-        project = registry.default_project_record("proj:redirecttest", "service_url", "http://example.com")
+        project = project_record.default_project_record("proj:redirecttest", "service_url", "http://example.com")
         registry.add_manual_seed(project, "service_url", "http://example.com", source="test")
         result = {
             "requested_url": "http://example.com",
@@ -844,7 +845,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertEqual(redirect_logs[0]["final_url"], "https://example.com")
 
     def test_cross_host_redirect_does_not_canonicalize_service_url(self) -> None:
-        project = registry.default_project_record("proj:redirectcross", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:redirectcross", "service_url", "https://example.com")
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
             "requested_url": "https://example.com",
@@ -874,7 +875,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertNotIn("https://other.example.net", project["service_url_candidates"])
 
     def test_nsid_mention_cross_host_redirect_does_not_add_final_url_as_candidate(self) -> None:
-        project = registry.default_project_record("proj:redirectcandidate", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:redirectcandidate", "service_url", "https://example.com")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
@@ -905,7 +906,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertNotIn("https://other.example.net", project["evidence_urls"])
 
     def test_supported_same_site_redirect_sets_empty_primary_website_url(self) -> None:
-        project = registry.default_project_record("proj:redirectsamefamily", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:redirectsamefamily", "service_url", "https://example.com")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
@@ -935,7 +936,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertIn("https://www.example.com", project["service_urls"])
 
     def test_supported_same_site_redirect_keeps_existing_primary_as_candidate(self) -> None:
-        project = registry.default_project_record("proj:redirectsamefamilyexisting", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:redirectsamefamilyexisting", "service_url", "https://example.com")
         project["input_nsids"] = ["app.example.post"]
         project["website_url"] = "https://current.example.com"
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
@@ -991,7 +992,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         }
 
     def test_nsid_seed_does_not_create_authority_service_candidates(self) -> None:
-        project = registry.default_project_record("proj:authorityseed", "nsid", "fm.freemix.release.track")
+        project = project_record.default_project_record("proj:authorityseed", "nsid", "fm.freemix.release.track")
 
         registry.apply_seed_to_project(project, "nsid", "fm.freemix.release.track")
         self.assertIn("release.freemix.fm", project["authority_domains"])
@@ -1032,7 +1033,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertEqual(selected, {"https://actor.thermals.cloud"})
 
     def test_finalize_prunes_stored_nsid_authority_service_guesses(self) -> None:
-        project = registry.default_project_record("proj:authoritycleanup", "nsid", "fm.freemix.release.track")
+        project = project_record.default_project_record("proj:authoritycleanup", "nsid", "fm.freemix.release.track")
         project["input_nsids"] = ["fm.freemix.release.track"]
         project["authority_domains"] = ["release.freemix.fm"]
         project["service_url_candidates"] = ["https://release.freemix.fm"]
@@ -1070,7 +1071,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://release.freemix.fm", evaluated_service_urls)
 
     def test_finalize_keeps_confirmed_authority_service_url(self) -> None:
-        project = registry.default_project_record("proj:authorityconfirmed", "nsid", "fm.freemix.release.track")
+        project = project_record.default_project_record("proj:authorityconfirmed", "nsid", "fm.freemix.release.track")
         project["input_nsids"] = ["fm.freemix.release.track"]
         project["authority_domains"] = ["release.freemix.fm"]
         project["service_urls"] = ["https://release.freemix.fm"]
@@ -1083,7 +1084,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://release.freemix.fm", project["supported_service_urls"])
 
     def test_authority_service_probe_keeps_candidate_when_record_urls_match_host(self) -> None:
-        project = registry.default_project_record("proj:authoritycandidate", "nsid", "com.suibari.meyasuat.answer")
+        project = project_record.default_project_record("proj:authoritycandidate", "nsid", "com.suibari.meyasuat.answer")
         project["input_nsids"] = ["com.suibari.meyasuat.answer"]
         project["authority_domains"] = ["meyasuat.suibari.com"]
         project["recorded_lexicon_namespaces"] = ["com.suibari.meyasuat"]
@@ -1124,7 +1125,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://meyasuat.suibari.com", project["supported_service_urls"])
 
     def test_finalize_restores_authority_candidate_from_saved_probe_result(self) -> None:
-        project = registry.default_project_record("proj:authoritysavedprobe", "nsid", "com.suibari.meyasuat.answer")
+        project = project_record.default_project_record("proj:authoritysavedprobe", "nsid", "com.suibari.meyasuat.answer")
         project["input_nsids"] = ["com.suibari.meyasuat.answer"]
         project["manual_seeds"] = [{"type": "nsid", "value": "com.suibari.meyasuat.answer"}]
         project["authority_domains"] = ["meyasuat.suibari.com"]
@@ -1153,7 +1154,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://meyasuat.suibari.com", project["service_url_candidates"])
 
     def test_finalize_restores_parent_authority_candidate_from_saved_fallback_probe(self) -> None:
-        project = registry.default_project_record("proj:authorityfallback", "nsid", "cloud.thermals.actor.profile")
+        project = project_record.default_project_record("proj:authorityfallback", "nsid", "cloud.thermals.actor.profile")
         project["input_nsids"] = ["cloud.thermals.actor.profile"]
         project["manual_seeds"] = [{"type": "nsid", "value": "cloud.thermals.actor.profile"}]
         project["authority_domains"] = ["actor.thermals.cloud"]
@@ -1179,7 +1180,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertIn("https://thermals.cloud", project["service_url_candidates"])
 
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
-        project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
+        project = project_record.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
 
@@ -1195,7 +1196,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://tz2at.xyz", retained_urls)
 
     def test_verified_exact_authority_does_not_confirm_service_without_reverse_evidence(self) -> None:
-        project = registry.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
+        project = project_record.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
         project["input_nsids"] = ["app.userinput.vote"]
         project["resolved_nsids"] = ["app.userinput.vote"]
         project["authority_domains"] = ["userinput.app"]
@@ -1225,7 +1226,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertEqual(project["service_status"], "unknown")
 
     def test_unverified_exact_authority_still_requires_page_evidence(self) -> None:
-        project = registry.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
+        project = project_record.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
         project["input_nsids"] = ["app.userinput.vote"]
         project["authority_domains"] = ["userinput.app"]
         project["service_url_candidates"] = ["https://userinput.app"]
@@ -1240,7 +1241,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://userinput.app", project["service_url_candidates"])
 
     def test_unsupported_authority_root_is_still_pruned(self) -> None:
-        project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
+        project = project_record.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
         project["service_url_candidates"] = ["https://tz2at.xyz"]
@@ -1250,7 +1251,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://tz2at.xyz", project["service_url_candidates"])
 
     def test_confirmed_service_url_is_removed_from_candidate_views(self) -> None:
-        project = registry.default_project_record("proj:serviceoverlap", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:serviceoverlap", "service_url", "https://example.com")
         project["service_urls"] = ["https://example.com", "https://app.example.com"]
         project["service_url_candidates"] = ["https://app.example.com"]
 
@@ -1262,27 +1263,27 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 class ProjectRegistryProfileUrlTest(unittest.TestCase):
     def test_bluesky_profile_subject_distinguishes_handle_and_did(self) -> None:
         self.assertEqual(
-            registry.extract_bluesky_profile_subject("https://bsky.app/profile/alice.example.com"),
+            project_record.extract_bluesky_profile_subject("https://bsky.app/profile/alice.example.com"),
             {"handle": "alice.example.com"},
         )
         self.assertEqual(
-            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"),
+            project_record.extract_bluesky_profile_subject("https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"),
             {"did": "did:plc:abcdefghijklmnopqrstuvwx"},
         )
         self.assertEqual(
-            registry.extract_bluesky_profile_subject("https://bsky.app/profile/did:web:alice.example.com"),
+            project_record.extract_bluesky_profile_subject("https://bsky.app/profile/did:web:alice.example.com"),
             {"did": "did:web:alice.example.com"},
         )
-        self.assertEqual(registry.extract_bluesky_profile_subject("https://bsky.app/profile/not-a-handle"), {})
+        self.assertEqual(project_record.extract_bluesky_profile_subject("https://bsky.app/profile/not-a-handle"), {})
         self.assertEqual(
-            registry.extract_bluesky_profile_subject("https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`"),
+            project_record.extract_bluesky_profile_subject("https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`"),
             {},
         )
 
     def test_extracted_template_profile_url_does_not_create_developer_candidate(self) -> None:
-        project = registry.default_project_record("proj:templateprofile", "service_url", "https://skyspace.me")
+        project = project_record.default_project_record("proj:templateprofile", "service_url", "https://skyspace.me")
 
-        registry.record_developer_profile_url(
+        project_record.record_developer_profile_url(
             project,
             "https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`",
             "service_raw_url:https://skyspace.me",
@@ -1296,7 +1297,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
     def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:
         profile_url = "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"
-        project = registry.default_project_record("proj:didprofile", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:didprofile", "repo_url", "https://github.com/example/app")
         project["website_url"] = profile_url
         project["service_urls"] = [profile_url]
 
@@ -1311,7 +1312,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
     def test_developer_account_normalization_moves_did_out_of_handle_field(self) -> None:
         self.assertEqual(
-            registry.normalize_developer_accounts([
+            project_record.normalize_developer_accounts([
                 {"handle": "did:plc:abcdefghijklmnopqrstuvwx", "source": "fixture"},
                 "did:plc:zyxwvutsrqponmlkjihgfedc",
             ]),
@@ -1323,7 +1324,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
     def test_developer_account_normalization_drops_template_handles(self) -> None:
         self.assertEqual(
-            registry.normalize_developer_accounts([
+            project_record.normalize_developer_accounts([
                 {"handle": "${encodeURIComponent(profileData.handle)}`", "source": "service_raw_url:https://skyspace.me"},
                 {"handle": "Alice.Example.COM", "source": "fixture"},
             ]),
@@ -1331,7 +1332,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
         )
 
     def test_project_shape_drops_template_handles_from_llm_source_evidence(self) -> None:
-        project = registry.default_project_record("proj:templateevidence", "service_url", "https://skyspace.me")
+        project = project_record.default_project_record("proj:templateevidence", "service_url", "https://skyspace.me")
         project["llm_source"] = {
             "evidence": {
                 "candidate_developer_accounts": [
@@ -1341,7 +1342,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
             }
         }
 
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(
             shaped["llm_source"]["evidence"]["candidate_developer_accounts"],
@@ -1351,7 +1352,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_resource_url_values_use_records_without_compat_view(self) -> None:
-        project = registry.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
         project["resource_url_records"] = [
             {
                 "url": "https://example.com/docs",
@@ -1362,9 +1363,9 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             }
         ]
 
-        self.assertEqual(registry.resource_url_values(project), ["https://example.com/docs"])
+        self.assertEqual(project_record.resource_url_values(project), ["https://example.com/docs"])
         self.assertEqual(
-            registry.resource_url_record_values(project),
+            project_record.resource_url_record_values(project),
             [
                 {
                     "url": "https://example.com/docs",
@@ -1377,7 +1378,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
     def test_deep_investigation_page_urls_prioritize_resource_records_then_service_paths(self) -> None:
-        project = registry.default_project_record("proj:deepurls", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:deepurls", "service_url", "https://example.com")
         project["website_url"] = "https://example.com/app"
         project["service_urls"] = ["https://example.com/app"]
         project["resource_url_records"] = [
@@ -1401,7 +1402,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
     def test_deep_investigation_page_urls_can_use_service_candidates(self) -> None:
-        project = registry.default_project_record("proj:deepcandidate", "nsid", "app.example.post")
+        project = project_record.default_project_record("proj:deepcandidate", "nsid", "app.example.post")
         project["service_url_candidates"] = ["https://candidate.example"]
 
         self.assertEqual(
@@ -1414,13 +1415,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
     def test_deep_investigation_page_urls_skip_profile_candidates(self) -> None:
-        project = registry.default_project_record("proj:deepprofile", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:deepprofile", "repo_url", "https://github.com/example/app")
         project["service_url_candidates"] = ["https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"]
 
         self.assertEqual(registry.deep_investigation_page_urls(project), [])
 
     def test_apply_resource_page_probe_status_records_page_kind_without_confirming_url(self) -> None:
-        project = registry.default_project_record("proj:deeplogin", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:deeplogin", "service_url", "https://example.com")
         project["service_urls"] = []
 
         registry.apply_resource_page_probe_status(
@@ -1439,7 +1440,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(project["service_urls"], [])
 
     def test_confirmed_resource_record_adds_app_link(self) -> None:
-        project = registry.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourceconfirmed", "service_url", "https://example.com")
         registry.add_resource_url(
             project,
             "https://example.com/docs",
@@ -1448,12 +1449,12 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             confidence="confirmed",
         )
 
-        links = registry.build_project_app_links(project)
+        links = project_record.build_project_app_links(project)
 
         self.assertIn({"uri": "https://example.com/docs", "role": "docs", "official": True}, links)
 
     def test_candidate_resource_record_does_not_add_app_link(self) -> None:
-        project = registry.default_project_record("proj:resourcecandidate", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcecandidate", "service_url", "https://example.com")
         registry.add_resource_url(
             project,
             "https://external.example.net/docs",
@@ -1462,11 +1463,11 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             confidence="candidate",
         )
 
-        self.assertEqual(registry.build_project_app_links(project), [])
+        self.assertEqual(project_record.build_project_app_links(project), [])
 
     def test_confirmed_resource_record_replaces_candidate_record_for_same_url(self) -> None:
-        project = registry.default_project_record("proj:resourcepromote", "service_url", "https://example.com")
-        project = registry.ensure_project_shape(project)
+        project = project_record.default_project_record("proj:resourcepromote", "service_url", "https://example.com")
+        project = project_record.ensure_project_shape(project)
 
         registry.add_resource_url(
             project,
@@ -1497,7 +1498,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
     def test_resource_url_records_keep_representative_budget_per_host_and_role(self) -> None:
-        project = registry.default_project_record("proj:resourcebudget", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcebudget", "service_url", "https://example.com")
 
         for index in range(10):
             registry.add_resource_url(
@@ -1520,7 +1521,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(docs_records[0]["url"], "https://example.com/docs")
 
     def test_first_party_link_collection_records_same_site_docs_as_confirmed(self) -> None:
-        project = registry.default_project_record("proj:resourcefirstparty", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcefirstparty", "service_url", "https://example.com")
 
         registry.collect_first_party_links(
             project,
@@ -1540,7 +1541,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.attacker.net/docs"]["confidence"], "candidate")
 
     def test_first_party_link_collection_skips_same_site_content_pages_without_resource_role(self) -> None:
-        project = registry.default_project_record("proj:resourcecontent", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcecontent", "service_url", "https://example.com")
 
         registry.collect_first_party_links(
             project,
@@ -1559,7 +1560,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.com/support/contact"]["role"], "support")
 
     def test_deferred_service_origin_blocks_supporting_page_resource(self) -> None:
-        project = registry.default_project_record("proj:deferredresource", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:deferredresource", "service_url", "https://example.com")
         registry.defer_identifier_on_project(project, "service_url", "https://example.com", note="not this project")
 
         registry.add_resource_url(
@@ -1574,7 +1575,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(project["resource_url_records"], [])
 
     def test_follow_up_service_probe_records_resource_not_service_url(self) -> None:
-        project = registry.default_project_record("proj:followupresource", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:followupresource", "service_url", "https://example.com")
         project["manual_seeds"] = [{"type": "service_url", "value": "https://example.com"}]
         project["website_url"] = "https://example.com"
         project["service_urls"] = ["https://example.com"]
@@ -1598,7 +1599,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
         self.assertEqual(project["service_urls"], ["https://example.com"])
-        self.assertEqual(registry.resource_url_values(project), ["https://example.com/docs"])
+        self.assertEqual(project_record.resource_url_values(project), ["https://example.com/docs"])
 
     def test_future_service_identity_excludes_named_noncanonical_pages(self) -> None:
         self.assertTrue(registry.service_url_is_supporting_page("https://example.com/docs/intro"))
@@ -1610,7 +1611,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_url_is_supporting_page("https://example.com/app/login"))
 
     def test_finalize_moves_supporting_service_paths_to_resource_records(self) -> None:
-        project = registry.default_project_record("proj:supportingpagecleanup", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:supportingpagecleanup", "service_url", "https://example.com")
         project["website_url"] = "https://example.com/docs"
         project["service_urls"] = ["https://example.com", "https://example.com/docs", "https://example.com/about"]
         project["supported_service_urls"] = ["https://example.com/docs"]
@@ -1634,12 +1635,12 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(finalized["service_urls"], ["https://example.com"])
         self.assertEqual(finalized["supported_service_urls"], [])
         self.assertEqual(finalized["relation_evidence"], [])
-        resource_urls = registry.resource_url_values(finalized)
+        resource_urls = project_record.resource_url_values(finalized)
         self.assertIn("https://example.com/docs", resource_urls)
         self.assertIn("https://example.com/about", resource_urls)
 
     def test_candidate_repo_link_does_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:candidatereposervice", "service_url", "https://kimbia.app")
+        project = project_record.default_project_record("proj:candidatereposervice", "service_url", "https://kimbia.app")
         project["name"] = "Kimbia"
         project["manual_seeds"] = [{"type": "service_url", "value": "https://kimbia.app"}]
         project["candidate_source_code_urls"] = ["https://github.com/mistweaverco/kimbia"]
@@ -1654,7 +1655,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://kimbia.mwco.app", result))
 
     def test_confirmed_repo_link_supports_service_probe(self) -> None:
-        project = registry.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
@@ -1681,7 +1682,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertTrue(registry.service_probe_supports_project(project, "https://app.example.com", result))
 
     def test_confirmed_repo_link_without_repo_to_service_reference_does_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:repoonlyservice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:repoonlyservice", "repo_url", "https://github.com/example/app")
         project["source_code_urls"] = ["https://github.com/example/app"]
         result = {
             "status_code": 200,
@@ -1694,7 +1695,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
 
     def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")
+        project = project_record.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")
         project["input_nsids"] = ["com.whtwnd.blog.entry"]
         result = {
             "status_code": 200,
@@ -1707,7 +1708,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://greengale.example.com", result))
 
     def test_verified_authority_domain_alone_does_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:authorityonlyservice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:authorityonlyservice", "repo_url", "https://github.com/example/app")
         project["lexicon_resolution_entries"] = [
             {
                 "input_nsid": "app.example.post",
@@ -1729,7 +1730,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
 
     def test_bluesky_profile_link_alone_does_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:profilelinkservice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:profilelinkservice", "repo_url", "https://github.com/example/app")
         project["bluesky_handles"] = ["example.com"]
         result = {
             "status_code": 200,
@@ -1742,7 +1743,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
 
     def test_self_claimed_atproto_markers_do_not_support_service_probe(self) -> None:
-        project = registry.default_project_record("proj:selfclaimservice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:selfclaimservice", "repo_url", "https://github.com/example/app")
         project["name"] = "Example"
         project["authority_domains"] = ["example.com"]
         result = {
@@ -1756,7 +1757,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertFalse(registry.service_probe_supports_project(project, "https://example.com", result))
 
     def test_finalize_removes_deferred_service_operates_relation(self) -> None:
-        project = registry.default_project_record("proj:guardedrelation", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:guardedrelation", "service_url", "https://example.com")
         registry.defer_identifier_on_project(project, "service_url", "https://other.example.com")
         project["service_urls"] = ["https://other.example.com"]
         project["supported_service_urls"] = ["https://other.example.com/docs"]
@@ -1795,7 +1796,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
 class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def nsid_project(self) -> dict:
-        project = registry.default_project_record("proj:lexiconscope", "nsid", "xyz.tz2at.raw.observation")
+        project = project_record.default_project_record("proj:lexiconscope", "nsid", "xyz.tz2at.raw.observation")
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
         project["category"] = "lexicon"
@@ -1806,7 +1807,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         project["summary"] = "第三者の相互運用を目的とする共有レキシコン。"
         project["website_url"] = "https://standard.site"
 
-        registry.reclassify_service_specific_lexicon(project)
+        project_record.reclassify_service_specific_lexicon(project)
 
         self.assertEqual(project["lexicon_scope"], "shared")
         self.assertEqual(project["category"], "lexicon")
@@ -1816,7 +1817,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         project["supported_service_urls"] = ["https://tz2at.xyz"]
         project["service_url_candidates"] = ["https://tz2at.xyz"]
 
-        registry.reclassify_service_specific_lexicon(project)
+        project_record.reclassify_service_specific_lexicon(project)
 
         self.assertEqual(project["lexicon_scope"], "service_specific")
         self.assertEqual(project["category"], "project")
@@ -1833,7 +1834,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
             }
         ]
 
-        registry.reclassify_service_specific_lexicon(project)
+        project_record.reclassify_service_specific_lexicon(project)
 
         self.assertEqual(project["lexicon_scope"], "service_specific")
         self.assertEqual(project["category"], "project")
@@ -1841,14 +1842,14 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def test_nsid_only_candidate_keeps_unknown_scope(self) -> None:
         project = self.nsid_project()
 
-        registry.reclassify_service_specific_lexicon(project)
+        project_record.reclassify_service_specific_lexicon(project)
 
         self.assertEqual(project["lexicon_scope"], "unknown")
         self.assertEqual(project["category"], "lexicon")
         self.assertIn("shared_lexicon_positioning_not_found", project["lexicon_scope_evidence"])
 
     def test_finalize_downgrades_unaccepted_repo_defines_schema_relation(self) -> None:
-        project = registry.default_project_record("proj:repoonlyschema", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:repoonlyschema", "repo_url", "https://github.com/example/app")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
@@ -1873,7 +1874,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(relation_record["context"]["downgraded_from"], "defines_schema")
 
     def test_finalize_keeps_defines_schema_for_accepted_repo_and_nsid(self) -> None:
-        project = registry.default_project_record("proj:acceptedschema", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:acceptedschema", "repo_url", "https://github.com/example/app")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["manual_seeds"] = [
             {"type": "repo_url", "value": "https://github.com/example/app"},
@@ -1915,7 +1916,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         project["candidate_developer_accounts"] = [
             {"handle": "tz2at.bsky.social", "source": "bsky_actor_search:tz2at"}
         ]
-        registry.apply_lexicon_scope_state(project)
+        project_record.apply_lexicon_scope_state(project)
 
         evidence = registry.build_llm_evidence_bundle(project)
 
@@ -2036,7 +2037,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         )
 
     def test_observed_lexicon_authority_does_not_create_medium_merge_candidate(self) -> None:
-        source = registry.default_project_record("proj:sourceleaflet", "repo_url", "https://github.com/WaveringAna/atproto-ui")
+        source = project_record.default_project_record("proj:sourceleaflet", "repo_url", "https://github.com/WaveringAna/atproto-ui")
         source["name"] = "Leaflet"
         source["authority_domains"] = ["leaflet.pub", "blocks.leaflet.pub", "graph.leaflet.pub"]
         source["input_nsids"] = ["pub.leaflet.document", "pub.leaflet.comment"]
@@ -2044,7 +2045,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         source["service_url_candidates"] = ["https://leaflet.pub", "https://blocks.leaflet.pub"]
         source["source_code_urls"] = ["https://github.com/WaveringAna/atproto-ui"]
 
-        target = registry.default_project_record("proj:targetleaflet", "repo_url", "https://github.com/ETJeanMachine/jeanmachine.dev")
+        target = project_record.default_project_record("proj:targetleaflet", "repo_url", "https://github.com/ETJeanMachine/jeanmachine.dev")
         target["name"] = "Leaflet"
         target["authority_domains"] = ["leaflet.pub"]
         target["input_nsids"] = ["pub.leaflet.document"]
@@ -2060,12 +2061,12 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertFalse(pair["auto_merge_ready"])
 
     def test_inspect_merge_pair_does_not_build_global_duplicate_index(self) -> None:
-        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/source")
+        source = project_record.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/source")
         source["name"] = "Example Source"
-        target = registry.default_project_record("proj:mergetarget", "repo_url", "https://github.com/example/target")
+        target = project_record.default_project_record("proj:mergetarget", "repo_url", "https://github.com/example/target")
         target["name"] = "Example Target"
 
-        original_list_projects = registry.list_projects
+        original_list_projects = project_record.list_projects
         original_build_index = registry.build_duplicate_candidate_index
 
         def fail_list_projects(_conn: object) -> list[dict[str, object]]:
@@ -2075,21 +2076,21 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
             raise AssertionError("pair inspection should not build the global duplicate index")
 
         try:
-            registry.list_projects = fail_list_projects
+            project_record.list_projects = fail_list_projects
             registry.build_duplicate_candidate_index = fail_build_index
 
             payload = registry.inspect_merge_pair_payload(None, source, target)
             self.assertIn("source_pair_candidate", payload)
             self.assertNotIn("source_recommendation", payload)
         finally:
-            registry.list_projects = original_list_projects
+            project_record.list_projects = original_list_projects
             registry.build_duplicate_candidate_index = original_build_index
 
     def test_inspect_merge_pair_can_include_first_creator_details_without_primary_signal(self) -> None:
-        source = registry.default_project_record("proj:sourcefirstcreator", "repo_url", "https://github.com/example/source")
+        source = project_record.default_project_record("proj:sourcefirstcreator", "repo_url", "https://github.com/example/source")
         source["name"] = "Example"
         source["input_nsids"] = ["app.example.post"]
-        target = registry.default_project_record("proj:targetfirstcreator", "repo_url", "https://github.com/example/target")
+        target = project_record.default_project_record("proj:targetfirstcreator", "repo_url", "https://github.com/example/target")
         target["name"] = "Example"
         target["input_nsids"] = ["app.example.comment"]
         original_fetch = registry.fetch_collection_first_creator_did
@@ -2109,14 +2110,14 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertNotIn("collection_first_record_creator_dids", payload["source_pair_candidate"]["reasons"])
 
     def test_first_creator_details_use_observed_collection_member_case(self) -> None:
-        source = registry.default_project_record("proj:sourcefirstcreatorcase", "nsid", "app.alpha.record")
+        source = project_record.default_project_record("proj:sourcefirstcreatorcase", "nsid", "app.alpha.record")
         source["name"] = "Alpha Project"
         source["input_nsids"] = ["app.alpha.record"]
         source["collection_observations"] = [{
             "collection": "app.alpha",
             "members": ["app.alpha.recordMixed"],
         }]
-        target = registry.default_project_record("proj:targetfirstcreatorcase", "nsid", "net.beta.entry")
+        target = project_record.default_project_record("proj:targetfirstcreatorcase", "nsid", "net.beta.entry")
         target["name"] = "Beta Project"
         target["input_nsids"] = ["net.beta.entry"]
         original_fetch = registry.fetch_collection_first_creator_did
@@ -2150,7 +2151,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         )
 
     def test_compute_external_lexicons_uses_saved_trust_state_only(self) -> None:
-        project = registry.default_project_record("proj:externallexicon", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:externallexicon", "repo_url", "https://github.com/example/app")
         project["input_nsids"] = ["org.other.post"]
 
         original_owned = registry.project_owned_lexicon_nsid
@@ -2161,7 +2162,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         try:
             registry.project_owned_lexicon_nsid = fail_owned
 
-            self.assertEqual(registry.compute_external_lexicons(project), ["org.other"])
+            self.assertEqual(project_record.compute_external_lexicons(project), ["org.other"])
         finally:
             registry.project_owned_lexicon_nsid = original_owned
 
@@ -2174,8 +2175,8 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
 
 class ProjectRegistryMergeRecordTest(unittest.TestCase):
     def test_merge_reapplies_resource_url_budget(self) -> None:
-        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
-        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        target = project_record.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        source = project_record.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
         target["resource_url_records"] = [
             {"url": f"https://example.com/docs/target-{index}", "role": "docs", "confidence": "confirmed"}
             for index in range(4)
@@ -2190,9 +2191,9 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
         self.assertEqual(len(merged["resource_url_records"]), 4)
 
     def test_merge_preserves_candidate_developer_accounts_without_promoting_them(self) -> None:
-        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        target = project_record.default_project_record("proj:mergetarget", "service_url", "https://example.com")
         target["developer_accounts"] = [{"handle": "alice.example.com", "source": "manual"}]
-        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        source = project_record.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
         source["candidate_developer_accounts"] = [{"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}]
 
         merged = registry.merge_project_records(target, source)
@@ -2205,10 +2206,10 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
         )
 
     def test_merge_keeps_machine_history_out_of_operator_notes(self) -> None:
-        target = registry.default_project_record("proj:mergetarget", "service_url", "https://example.com")
+        target = project_record.default_project_record("proj:mergetarget", "service_url", "https://example.com")
         target["notes"] = "target operator note"
         target["system_notes"] = ["target system note"]
-        source = registry.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
+        source = project_record.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
         source["notes"] = "source operator note"
         source["system_notes"] = ["source system note"]
 
@@ -2222,16 +2223,16 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
 
 class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
     def project(self) -> dict:
-        return registry.default_project_record("proj:contribution", "service_url", "https://example.com")
+        return project_record.default_project_record("proj:contribution", "service_url", "https://example.com")
 
     def test_resolved_nsid_is_core(self) -> None:
-        result = registry.compute_atproto_contribution(dict(self.project(), resolved_nsids=["app.example.post"]))
+        result = project_record.compute_atproto_contribution(dict(self.project(), resolved_nsids=["app.example.post"]))
 
         self.assertEqual(result["atproto_contribution_level"], "core")
         self.assertEqual(result["atproto_contribution_score"], 90)
 
     def test_record_observation_is_substantial(self) -> None:
-        result = registry.compute_atproto_contribution(
+        result = project_record.compute_atproto_contribution(
             dict(self.project(), collection_observations=[{"collection": "app.example.post", "count": 12, "recent_count": 3}])
         )
 
@@ -2239,19 +2240,19 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         self.assertEqual(result["atproto_contribution_score"], 70)
 
     def test_nsid_hint_only_is_optional(self) -> None:
-        result = registry.compute_atproto_contribution(dict(self.project(), input_nsids=["app.example.post"]))
+        result = project_record.compute_atproto_contribution(dict(self.project(), input_nsids=["app.example.post"]))
 
         self.assertEqual(result["atproto_contribution_level"], "optional")
         self.assertEqual(result["atproto_contribution_score"], 40)
 
     def test_auth_only_category_is_kept_without_protocol_surface(self) -> None:
-        result = registry.compute_atproto_contribution(dict(self.project(), category="auth_only"))
+        result = project_record.compute_atproto_contribution(dict(self.project(), category="auth_only"))
 
         self.assertEqual(result["atproto_contribution_level"], "auth_only")
         self.assertEqual(result["atproto_contribution_score"], 20)
 
     def test_strong_evidence_overrides_auth_only_category(self) -> None:
-        result = registry.compute_atproto_contribution(
+        result = project_record.compute_atproto_contribution(
             dict(self.project(), category="auth_only", recent_record_samples=[{"collection": "app.example.post"}])
         )
 
@@ -2268,7 +2269,7 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
 
 class ProjectRegistryOutOfScopeTest(unittest.TestCase):
     def test_auth_only_without_owned_protocol_surface_is_candidate(self) -> None:
-        project = registry.default_project_record("proj:authonly", "repo_url", "https://github.com/example/auth")
+        project = project_record.default_project_record("proj:authonly", "repo_url", "https://github.com/example/auth")
         project["category"] = "auth_only"
 
         entry = registry.out_of_scope_review_entry(project)
@@ -2278,20 +2279,20 @@ class ProjectRegistryOutOfScopeTest(unittest.TestCase):
         self.assertEqual(entry["suggested_tracking_state"], "out_of_scope")
 
     def test_auth_only_with_owned_protocol_surface_is_not_automatic_candidate(self) -> None:
-        project = registry.default_project_record("proj:authwithnsid", "nsid", "app.example.record")
+        project = project_record.default_project_record("proj:authwithnsid", "nsid", "app.example.record")
         project["category"] = "auth_only"
         project["resolved_nsids"] = ["app.example.record"]
 
         self.assertIsNone(registry.out_of_scope_review_entry(project))
 
     def test_out_of_scope_is_not_an_ignore_candidate(self) -> None:
-        project = registry.default_project_record("proj:scoped", "repo_url", "https://github.com/example/fork")
+        project = project_record.default_project_record("proj:scoped", "repo_url", "https://github.com/example/fork")
         project["tracking_state"] = "out_of_scope"
 
         self.assertIsNone(registry.ignore_review_entry(project))
 
     def test_out_of_scope_with_owned_protocol_surface_is_reactivation_candidate(self) -> None:
-        project = registry.default_project_record("proj:reactivate", "nsid", "app.example.record")
+        project = project_record.default_project_record("proj:reactivate", "nsid", "app.example.record")
         project["tracking_state"] = "out_of_scope"
         project["resolved_nsids"] = ["app.example.record"]
 
@@ -2306,7 +2307,7 @@ class ProjectRegistryStalledReviewTest(unittest.TestCase):
     NOW = dt.datetime(2026, 6, 12, tzinfo=dt.timezone.utc)
 
     def inactive_project(self) -> dict:
-        project = registry.default_project_record("proj:inactive", "repo_url", "https://github.com/example/inactive")
+        project = project_record.default_project_record("proj:inactive", "repo_url", "https://github.com/example/inactive")
         project["tracking_state"] = "active"
         project["service_status"] = "unknown"
         project["source_code_urls"] = ["https://github.com/example/inactive"]
@@ -2367,7 +2368,7 @@ class ProjectRegistryStalledReviewTest(unittest.TestCase):
 
 class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
     def project(self) -> dict:
-        project = registry.default_project_record("proj:technical", "repo_url", "https://github.com/example/protocol-lab")
+        project = project_record.default_project_record("proj:technical", "repo_url", "https://github.com/example/protocol-lab")
         project["category"] = "infra_tool"
         return project
 
@@ -2396,7 +2397,7 @@ class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
             }
         )
 
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(shaped["technical_interest_score"], 40)
         self.assertEqual(registry.compute_showcase_signals(shaped), [])
@@ -2410,7 +2411,7 @@ class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
             }
         )
 
-        shaped = registry.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(shaped["technical_interest_score"], 90)
         self.assertEqual(shaped["technical_interest_reasons"], ["novel_design_pattern"])
@@ -2449,7 +2450,7 @@ class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
 
 class ProjectRegistryManualReviewSignalTest(unittest.TestCase):
     def project(self) -> dict:
-        project = registry.default_project_record("proj:manualreview", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:manualreview", "service_url", "https://example.com")
         project["manual_review_recommended"] = True
         project["manual_review_kind"] = "service_status_manual_check"
         project["manual_review_priority"] = "medium"

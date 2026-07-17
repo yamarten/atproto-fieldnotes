@@ -5,6 +5,7 @@ from typing import Any, Iterable
 
 from .. import registry as core
 from .. import identifiers
+from project_registry_core import project_record
 
 
 def add_seed(
@@ -20,7 +21,7 @@ def add_seed(
     return {
         "project_key": project["project_key"],
         "seed_type": resolved_type,
-        "seed_value": core.canonical_seed_value(resolved_type, seed),
+        "seed_value": project_record.canonical_seed_value(resolved_type, seed),
         "name": project.get("name", ""),
     }
 
@@ -36,24 +37,24 @@ def select_projects(
     create_seed: bool = False,
 ) -> list[dict[str, Any]]:
     if project_key:
-        project = core.fetch_project(conn, core.resolve_project_key_input(conn, project_key))
+        project = project_record.fetch_project(conn, project_record.resolve_project_key_input(conn, project_key))
         if project is None:
             raise ValueError(f"project not found: {project_key}")
         return [project]
     if seed:
         resolved_type = core.detect_seed_type(seed, seed_type)
-        identifier_value = core.canonical_seed_value(resolved_type, seed)
-        resolved_key = core.find_project_key_by_identifier(conn, resolved_type, identifier_value)
+        identifier_value = project_record.canonical_seed_value(resolved_type, seed)
+        resolved_key = project_record.find_project_key_by_identifier(conn, resolved_type, identifier_value)
         if resolved_key is None:
             if not create_seed:
                 raise ValueError(f"project not found for seed: {seed}")
             project = core.ensure_project_for_seed(conn, resolved_type, seed)
             conn.commit()
             return [project]
-        project = core.fetch_project(conn, resolved_key)
+        project = project_record.fetch_project(conn, resolved_key)
         return [project] if project else []
     if all_projects:
-        return core.list_projects(conn, tracking_states=tracking_states)
+        return project_record.list_projects(conn, tracking_states=tracking_states)
     raise ValueError("choose one of project_key, seed, or all_projects")
 
 
@@ -82,12 +83,12 @@ def set_tracking_state(
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type)
     target_state = str(tracking_state or "").strip().lower()
-    if target_state not in core.TRACKING_STATES:
+    if target_state not in project_record.TRACKING_STATES:
         raise ValueError(f"invalid tracking_state: {tracking_state}")
     project["tracking_state"] = target_state
     if note is not None:
         project["tracking_note"] = str(note).strip()
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -158,6 +159,6 @@ def apply_profile_edit(
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
     project["introduced_url"] = preview["after"]["introduced_url"]
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     conn.commit()
     return {**preview, "mode": "updated"}

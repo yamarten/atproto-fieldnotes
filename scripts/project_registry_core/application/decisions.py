@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import registry as core
 from . import review_targets
+from project_registry_core import project_record
 
 
 def _refresh_merge_state(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
@@ -25,8 +26,8 @@ def set_separate(
     other_seed_type: str | None = None,
     clear: bool = False,
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    other = core.ensure_project_shape(core.resolve_single_project(conn, project_key=other_project_key, seed=other_seed, seed_type=other_seed_type))
+    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    other = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=other_project_key, seed=other_seed, seed_type=other_seed_type))
     if project["project_key"] == other["project_key"]:
         raise ValueError("project and other project resolve to the same project")
     project_blocked = set(project.get("separate_project_keys", []))
@@ -42,7 +43,7 @@ def set_separate(
     with conn:
         for item in (project, other):
             _refresh_merge_state(conn, item)
-            core.save_project(
+            project_record.save_project(
                 conn,
                 item,
                 enriched=bool(item.get("last_enriched_at")),
@@ -69,16 +70,16 @@ def set_identifier_block(
     note: str = "",
     clear: bool = False,
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    normalized_value = core.normalize_blocked_identifier_value(identifier_type, value)
+    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    normalized_value = project_record.normalize_blocked_identifier_value(identifier_type, value)
     if not normalized_value:
         raise ValueError("identifier value could not be normalized")
-    blocked = core.normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+    blocked = project_record.normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
     key = (identifier_type, normalized_value)
     if clear:
         blocked = [item for item in blocked if (str(item.get("type") or ""), str(item.get("value") or "")) != key]
     elif not any((str(item.get("type") or ""), str(item.get("value") or "")) == key for item in blocked):
-        blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": core.iso_now()})
+        blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": project_record.iso_now()})
     project["blocked_identifiers"] = blocked
     if not clear:
         core.remove_identifier_from_project(
@@ -88,7 +89,7 @@ def set_identifier_block(
             remove_normalized_rows=True,
         )
     project = _refresh_merge_state(conn, core.finalize_project_shape(project))
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -120,20 +121,20 @@ def set_identifier_defer(
     days: int = core.DEFAULT_DEFER_IDENTIFIER_DAYS,
     clear: bool = False,
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
-    normalized_value = core.normalize_blocked_identifier_value(identifier_type, value)
+    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    normalized_value = project_record.normalize_blocked_identifier_value(identifier_type, value)
     if not normalized_value:
         raise ValueError("identifier value could not be normalized")
     if clear:
         project["deferred_identifiers"] = [
-            item for item in core.normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+            item for item in project_record.normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
             if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
         ]
     else:
         core.defer_identifier_on_project(project, identifier_type, normalized_value, note=note.strip(), days=days)
         project = core.finalize_project_shape(project)
     project = _refresh_merge_state(conn, project)
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -165,13 +166,13 @@ def set_promotion_defer(
     days: int | None = None,
     clear: bool = False,
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
+    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     if clear:
         core.clear_active_promotion_deferrals(project)
         entry = None
     else:
         entry = core.defer_promotion_on_project(project, reason=reason.strip(), days=days)
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -194,7 +195,7 @@ def set_promotion_priority(
     lowered: bool,
     reason: str = "",
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(
+    project = project_record.ensure_project_shape(
         core.resolve_single_project(conn, project_key=project_key)
     )
     entry = core.set_promotion_priority_on_project(
@@ -202,7 +203,7 @@ def set_promotion_priority(
         lowered=lowered,
         reason=reason,
     )
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -224,16 +225,16 @@ def dismiss_review_kind(
     kind: str,
     clear: bool = False,
 ) -> dict[str, Any]:
-    project = core.fetch_project(conn, core.resolve_project_key_input(conn, project_key))
+    project = project_record.fetch_project(conn, project_record.resolve_project_key_input(conn, project_key))
     if project is None:
         raise ValueError(f"project not found: {project_key}")
     kinds = [str(item) for item in project.get("dismissed_review_kinds", []) if str(item)]
     if clear:
         kinds = [item for item in kinds if item != kind]
     else:
-        kinds = core.unique_list(kinds + [kind])
+        kinds = project_record.unique_list(kinds + [kind])
     project["dismissed_review_kinds"] = kinds
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -262,7 +263,7 @@ def set_review_target(
     kind = "dismiss_review_target" if action == "dismiss" else "defer_review_target" if action == "defer" else ""
     if not kind:
         raise ValueError("review target action must be dismiss or defer")
-    now = core.iso_now()
+    now = project_record.iso_now()
     entries = [dict(item) for item in project.get("review_target_decisions", []) if isinstance(item, dict)]
     for item in entries:
         if item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value and not item.get("cleared_at"):
@@ -282,6 +283,6 @@ def set_review_target(
             "metadata": dict(target["metadata"]),
         })
     project["review_target_decisions"] = entries
-    core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     conn.commit()
     return {"project_key": project["project_key"], "kind": kind, "target_type": target_type, "target_value": target_value, "cleared": clear}

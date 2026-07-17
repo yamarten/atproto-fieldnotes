@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- current service observation projectionの正本DB適用まで完了しました。
+- primary role統合とproject state/save境界の`project_record.py`への分離まで完了しました。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業

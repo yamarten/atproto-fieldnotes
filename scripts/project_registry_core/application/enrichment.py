@@ -11,6 +11,7 @@ from typing import Any
 
 from .. import enrichment_pipeline, registry as core
 from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
+from project_registry_core import project_record
 
 
 @dataclass(frozen=True)
@@ -93,7 +94,7 @@ def resume_command(run_id: str, override: str = "") -> str:
 
 
 def new_checkpoint(projects: list[dict[str, Any]], request: OperationRequest, options: EnrichmentOptions) -> dict[str, Any]:
-    now = core.iso_now()
+    now = project_record.iso_now()
     return {
         "version": 1,
         "run_id": _validate_run_id(request.operation_id),
@@ -127,7 +128,7 @@ def load_checkpoint(run_id: str, override: str = "") -> dict[str, Any]:
 def write_checkpoint(checkpoint: dict[str, Any], override: str = "") -> Path:
     path = checkpoint_path(str(checkpoint.get("run_id") or ""), override)
     path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint["updated_at"] = core.iso_now()
+    checkpoint["updated_at"] = project_record.iso_now()
     temporary = path.with_name(f"{path.name}.tmp")
     temporary.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     temporary.replace(path)
@@ -150,7 +151,7 @@ def _tracking_states(options: EnrichmentOptions) -> set[str] | None:
         return None
     if options.tracking_states:
         cleaned = {item.strip().lower() for item in options.tracking_states if item.strip()}
-        return {item for item in cleaned if item in core.TRACKING_STATES} or None
+        return {item for item in cleaned if item in project_record.TRACKING_STATES} or None
     states = {"active"}
     for enabled, value in (
         (options.include_stable, "stable"),
@@ -177,18 +178,18 @@ def _sort_key(project: dict[str, Any]) -> tuple[int, dt.datetime, float, str]:
 
 def _select_projects(conn: sqlite3.Connection, options: EnrichmentOptions) -> list[dict[str, Any]]:
     if options.project_key:
-        project = core.fetch_project(conn, core.resolve_project_key_input(conn, options.project_key))
+        project = project_record.fetch_project(conn, project_record.resolve_project_key_input(conn, options.project_key))
         if project is None:
             raise ValueError(f"project not found: {options.project_key}")
         return [project]
     if options.seed:
         seed_type = core.detect_seed_type(options.seed, options.seed_type or None)
-        value = core.canonical_seed_value(seed_type, options.seed)
-        project_key = core.find_project_key_by_identifier(conn, seed_type, value)
-        project = core.fetch_project(conn, project_key) if project_key else core.ensure_project_for_seed(conn, seed_type, options.seed)
+        value = project_record.canonical_seed_value(seed_type, options.seed)
+        project_key = project_record.find_project_key_by_identifier(conn, seed_type, value)
+        project = project_record.fetch_project(conn, project_key) if project_key else core.ensure_project_for_seed(conn, seed_type, options.seed)
         return [project] if project else []
     if options.all_projects:
-        projects = core.list_projects(conn, tracking_states=_tracking_states(options))
+        projects = project_record.list_projects(conn, tracking_states=_tracking_states(options))
         if options.new_only:
             projects = [project for project in projects if not str(project.get("last_enriched_at") or "").strip()]
         if options.retry_failures:
@@ -205,7 +206,7 @@ def _load_checkpoint_projects(conn: sqlite3.Connection, checkpoint: dict[str, An
         project_key = str(value or "").strip()
         if not project_key:
             continue
-        project = core.fetch_project(conn, project_key)
+        project = project_record.fetch_project(conn, project_key)
         if project is None:
             missing.append(project_key)
         else:
@@ -237,7 +238,7 @@ def _mark_failed(checkpoint: dict[str, Any], project_key: str, error: BaseExcept
         item for item in checkpoint.get("failed_projects", [])
         if isinstance(item, dict) and item.get("project_key") != project_key
     ]
-    failures.append({"project_key": project_key, "error": f"{type(error).__name__}: {error}", "at": core.iso_now()})
+    failures.append({"project_key": project_key, "error": f"{type(error).__name__}: {error}", "at": project_record.iso_now()})
     checkpoint["failed_projects"] = failures
     checkpoint["current_project_key"] = ""
 
@@ -263,7 +264,7 @@ def _project_payload(project: dict[str, Any]) -> dict[str, Any]:
         "last_promoted_at": project.get("last_promoted_at", ""),
         "last_run_errors": project.get("last_run_errors", []),
         "merge_recommendation": project.get("merge_recommendation", {}),
-        "github_repo_urls": core.provider_repo_url_values(project, "github"),
+        "github_repo_urls": project_record.provider_repo_url_values(project, "github"),
         "resolved_nsids": project.get("resolved_nsids", []),
     }
 
@@ -281,7 +282,7 @@ def run(
     if options.resume_run and options.no_checkpoint:
         raise ValueError("resume_run cannot be combined with no_checkpoint")
     cancellation = cancellation or CancellationToken()
-    started_at = core.iso_now()
+    started_at = project_record.iso_now()
     sequence = 0
 
     def publish(kind: EventKind, data: dict[str, Any]) -> None:
@@ -349,7 +350,7 @@ def run(
         publish("progress", {"progress": {
             "current": index,
             "total": selected_total,
-            "at": core.iso_now(),
+            "at": project_record.iso_now(),
             "phase": "start",
             "project_key": project_key,
             "elapsed": core.format_duration_hms(elapsed_seconds),
@@ -369,14 +370,14 @@ def run(
                 llm_api_style=options.llm_api_style or None,
                 deep_investigation=options.deep_investigation,
             )
-            core.save_project(conn, enriched, enriched=True)
+            project_record.save_project(conn, enriched, enriched=True)
             conn.commit()
         except Exception as exc:
             conn.rollback()
             failure = {
                 "project_key": project_key,
                 "error": f"{type(exc).__name__}: {exc}",
-                "at": core.iso_now(),
+                "at": project_record.iso_now(),
             }
             failed_projects.append(failure)
             if checkpoint:
@@ -388,7 +389,7 @@ def run(
                 continue
             if checkpoint:
                 checkpoint["status"] = "failed"
-                checkpoint["completed_at"] = core.iso_now()
+                checkpoint["completed_at"] = project_record.iso_now()
                 written_path = write_checkpoint(checkpoint, options.checkpoint_path)
             payload = {
                 "summary": "enrich_all" if options.all_projects else "enrich",
@@ -408,7 +409,7 @@ def run(
                 request.operation,
                 "failed",
                 started_at,
-                core.iso_now(),
+                project_record.iso_now(),
                 payload,
                 error,
             )
@@ -431,7 +432,7 @@ def run(
     if cancellation.cancel_requested:
         if checkpoint:
             checkpoint["status"] = "interrupted"
-            checkpoint["interrupted_at"] = core.iso_now()
+            checkpoint["interrupted_at"] = project_record.iso_now()
             checkpoint["current_project_key"] = ""
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
             payload = {
@@ -447,11 +448,11 @@ def run(
         else:
             payload = {"summary": "enrich", "interrupted": True, "cancel_reason": cancellation.reason}
         publish("cancelled", payload)
-        return OperationResult(request.operation_id, request.operation, "cancelled", started_at, core.iso_now(), payload)
+        return OperationResult(request.operation_id, request.operation, "cancelled", started_at, project_record.iso_now(), payload)
 
     if checkpoint:
         checkpoint["status"] = "failed" if failed_projects else "completed"
-        checkpoint["completed_at"] = core.iso_now()
+        checkpoint["completed_at"] = project_record.iso_now()
         checkpoint["current_project_key"] = ""
         written_path = write_checkpoint(checkpoint, options.checkpoint_path)
     summary = {
@@ -474,6 +475,6 @@ def run(
             "message": f"{len(failed_projects)} project(s) failed during bulk enrich",
         }
         publish("failed", {**summary, "error": error})
-        return OperationResult(request.operation_id, request.operation, "failed", started_at, core.iso_now(), summary, error)
+        return OperationResult(request.operation_id, request.operation, "failed", started_at, project_record.iso_now(), summary, error)
     publish("completed", summary)
-    return OperationResult(request.operation_id, request.operation, "completed", started_at, core.iso_now(), summary)
+    return OperationResult(request.operation_id, request.operation, "completed", started_at, project_record.iso_now(), summary)

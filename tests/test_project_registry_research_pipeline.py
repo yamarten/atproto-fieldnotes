@@ -23,11 +23,12 @@ from project_registry_core import runtime_view
 from project_registry_core import service as service_core
 from project_registry_core import storage as storage_core
 from project_registry_core import tangled as tangled_core
+from project_registry_core import project_record
 
 
 class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_project_patch_applies_resource_url_budget_immediately(self) -> None:
-        project = registry.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
         records = [
             {
                 "url": f"https://example.com/docs/page-{index}",
@@ -526,9 +527,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
             ):
                 enriched = enrichment_pipeline.enrich_project(conn, project)
-            registry.save_project(conn, enriched, enriched=True)
+            project_record.save_project(conn, enriched, enriched=True)
             conn.commit()
-            fetched = registry.fetch_project(conn, project["project_key"])
+            fetched = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()
 
@@ -1021,7 +1022,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         old_output = registry.finalize_project_shape(project)
         conn = registry.open_db()
         try:
-            registry.save_project(conn, old_output, enriched=True)
+            project_record.save_project(conn, old_output, enriched=True)
             run_id = storage_core.save_investigation_run(
                 conn,
                 project_key=project["project_key"],
@@ -1033,7 +1034,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             )
             conn.commit()
 
-            current = registry.fetch_project(conn, project["project_key"])
+            current = project_record.fetch_project(conn, project["project_key"])
             assert current is not None
             new_bundle = service_core.collect_service_probe_evidence(
                 project["project_key"], service_url,
@@ -1045,10 +1046,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
             )
             registry.apply_service_evidence(current, new_bundle)
-            registry.save_project(conn, registry.finalize_project_shape(current), enriched=True)
+            project_record.save_project(conn, registry.finalize_project_shape(current), enriched=True)
             conn.commit()
             stored_run = storage_core.load_investigation_run(conn, run_id)
-            stored_current = registry.fetch_project(conn, project["project_key"])
+            stored_current = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()
 
@@ -1080,11 +1081,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         project["service_status_evidence"] = ["http_200"]
         conn = registry.open_db()
         try:
-            registry.save_project(conn, project, enriched=True)
+            project_record.save_project(conn, project, enriched=True)
             conn.commit()
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
-            repaired = registry.fetch_project(conn, project["project_key"])
+            repaired = project_record.fetch_project(conn, project["project_key"])
             after_repair = registry.audit_and_repair_identifiers(conn, execute=False)
         finally:
             conn.close()
@@ -1117,7 +1118,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         ]
         conn = registry.open_db()
         try:
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
             registry.audit_and_repair_identifiers(conn, execute=True)
             row = conn.execute(
@@ -1205,7 +1206,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00", records=records)
         registry.apply_investigation_evidence(project, bundle)
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "org.other.post"))
-        self.assertEqual(registry.compute_atproto_contribution(project)["atproto_contribution_level"], "optional")
+        self.assertEqual(project_record.compute_atproto_contribution(project)["atproto_contribution_level"], "optional")
 
     def test_github_semantics_distinguish_schema_and_fixture(self) -> None:
         schema = {"lexicon": 1, "defs": {"main": {"type": "record"}}}
@@ -1513,7 +1514,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertIn("Protocol-aware local app", [item["value"] for item in project["summary_candidates"]])
         self.assertIn("README says this is the official app.", [item["value"] for item in project["summary_candidates"]])
-        self.assertIn("https://app.example.com", registry.service_url_candidate_values(project))
+        self.assertIn("https://app.example.com", project_record.service_url_candidate_values(project))
 
     def test_tangled_optional_adapters_remain_weak_candidates(self) -> None:
         timeline = tangled_core.normalize_optional_adapter_candidates(
@@ -1609,9 +1610,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "observed_at": "2026-06-13T00:00:00+00:00", "context": {},
         }]
         try:
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             registry.audit_and_repair_identifiers(conn, execute=True)
-            repaired = registry.fetch_project(conn, project["project_key"])
+            repaired = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()
         assert repaired is not None
@@ -1645,10 +1646,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "run_investigation_collectors",
             "enrich_from_github_repo",
             "project_owned_lexicon_nsid",
-            "compute_atproto_contribution",
             "classify_service_probe_result",
         ):
             self.assertTrue(callable(getattr(registry, name)))
+        self.assertTrue(callable(project_record.compute_atproto_contribution))
         self.assertFalse((registry.ROOT / "scripts" / "project_registry.py").exists())
 
     def test_public_cli_wrapper_is_the_only_shell_entrypoint(self) -> None:

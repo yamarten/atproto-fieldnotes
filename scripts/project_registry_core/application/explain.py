@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from .. import registry as core
+from project_registry_core import project_record
 
 
 TOPICS = ("service_status", "ownership", "contribution", "merge_candidate", "trust")
@@ -34,7 +35,7 @@ def explain_project_state(
     merge_pending: bool = False,
     topic: str = "all",
 ) -> dict[str, Any]:
-    project = core.ensure_project_shape(project)
+    project = project_record.ensure_project_shape(project)
     recommendation = dict(recommendation or {})
 
     service_evidence = [str(item) for item in project.get("service_status_evidence", []) if str(item)]
@@ -94,8 +95,8 @@ def explain_project_state(
 
 
 def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = "all") -> dict[str, Any]:
-    resolved = core.resolve_project_key_input(conn, project_key)
-    project = core.fetch_project(conn, resolved)
+    resolved = project_record.resolve_project_key_input(conn, project_key)
+    project = project_record.fetch_project(conn, resolved)
     if project is None:
         raise ValueError(f"project not found: {project_key}")
     duplicate_candidates = core.compute_duplicate_candidates(conn, project)

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .. import registry as core
+from project_registry_core import project_record
 
 
 def _candidate_id(item: dict[str, Any]) -> str:
@@ -89,8 +90,8 @@ def stalled(
     max_enrich_age_days = max(1, int(max_enrich_age_days))
     current_time = now or dt.datetime.now(dt.timezone.utc)
     projects = [
-        core.ensure_project_shape(project)
-        for project in core.list_projects(conn, tracking_states={"active", "stalled"})
+        project_record.ensure_project_shape(project)
+        for project in project_record.list_projects(conn, tracking_states={"active", "stalled"})
     ]
     candidates = [
         entry
@@ -146,7 +147,7 @@ def stalled(
     for item in candidates:
         if cancel_requested and cancel_requested():
             break
-        project = core.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
         project["tracking_state"] = str(
@@ -154,7 +155,7 @@ def stalled(
         )
         if resolved_note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = resolved_note
-        core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated.append(str(project["project_key"]))
         updated_projects.append({
             "project_key": str(project["project_key"]),
@@ -264,8 +265,8 @@ def _classification(
         or {"active", "stable", "stalled"}
     )
     projects = [
-        core.ensure_project_shape(project)
-        for project in core.list_projects(conn, tracking_states=resolved_states)
+        project_record.ensure_project_shape(project)
+        for project in project_record.list_projects(conn, tracking_states=resolved_states)
     ]
     candidates = [entry for project in projects if (entry := entry_builder(project))]
     candidates.sort(key=lambda item: (str(item.get("kind") or ""), str(item.get("project_key") or "")))
@@ -299,7 +300,7 @@ def _classification(
     for item in candidates:
         if cancel_requested and cancel_requested():
             break
-        project = core.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
         if not project:
             continue
         next_state = str(item.get("suggested_tracking_state") or target_state)
@@ -313,7 +314,7 @@ def _classification(
             project["tracking_note"] = "reactivated after owned protocol surface detection"
         elif resolved_note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = resolved_note
-        core.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
         updated.append(str(project["project_key"]))
         updated_notes.append({
             "project_key": str(project["project_key"]),

@@ -5,6 +5,7 @@ import unittest
 from helpers import registry, TempRegistryDbTestCase
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 from project_registry_core import trust_graph
+from project_registry_core import project_record
 
 
 class TrustGraphCoreTest(unittest.TestCase):
@@ -104,10 +105,10 @@ class TrustGraphCoreTest(unittest.TestCase):
 
 class RegistryTrustGraphIntegrationTest(unittest.TestCase):
     def test_blocked_service_candidate_does_not_auto_confirm(self) -> None:
-        project = registry.default_project_record("proj:blockedtrust", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:blockedtrust", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         project["blocked_identifiers"] = [{"type": "service_url", "value": "https://app.example.com"}]
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "repo_url",
             "https://github.com/example/app",
@@ -117,7 +118,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
             classification="confirmed",
             eligible_for_auto_confirm=True,
         )
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "service_url",
             "https://app.example.com",
@@ -134,9 +135,9 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertEqual(evaluation["reason"], "guarded_identifier")
 
     def test_manual_repo_seed_and_mutual_edges_confirm_service(self) -> None:
-        project = registry.default_project_record("proj:mutualservice", "repo_url", "https://github.com/example/app")
+        project = project_record.default_project_record("proj:mutualservice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "repo_url",
             "https://github.com/example/app",
@@ -146,7 +147,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
             classification="confirmed",
             eligible_for_auto_confirm=True,
         )
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "service_url",
             "https://app.example.com",
@@ -161,7 +162,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertEqual(project["service_urls"], ["https://app.example.com"])
 
     def test_tangled_record_adds_candidate_and_did_edge_without_confirming_repo(self) -> None:
-        project = registry.default_project_record("proj:tangledtrust", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:tangledtrust", "service_url", "https://example.com")
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-25T00:00:00+00:00")
         bundle.add_record(EvidenceRecord(
             kind="tangled_repo_snapshot",
@@ -185,7 +186,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertTrue(any(edge["predicate"] == "did_links_repo" for edge in edges))
 
     def test_collection_owned_when_schema_did_and_exact_authority_handle_are_mutual(self) -> None:
-        project = registry.default_project_record("proj:collectiontrust", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:collectiontrust", "service_url", "https://example.com")
         project["developer_accounts"] = [{"handle": "example.com", "did": "did:plc:dev", "source": "manual"}]
         project["lexicon_resolution_entries"] = [
             {
@@ -206,7 +207,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertTrue(any(edge["predicate"] == "domain_exact_handle" for edge in edges))
 
     def test_collection_not_owned_by_schema_record_without_exact_authority_handle(self) -> None:
-        project = registry.default_project_record("proj:hostedcollection", "service_url", "https://sprk.so")
+        project = project_record.default_project_record("proj:hostedcollection", "service_url", "https://sprk.so")
         project["developer_accounts"] = [{"handle": "sprk.so", "did": "did:plc:spark", "source": "manual"}]
         project["lexicon_resolution_entries"] = [
             {
@@ -222,7 +223,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "so.sprk.alice.post"))
 
     def test_collection_not_owned_by_did_schema_record_one_way_only(self) -> None:
-        project = registry.default_project_record("proj:onewaycollection", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:onewaycollection", "service_url", "https://example.com")
         project["developer_accounts"] = [{"did": "did:plc:dev", "source": "manual"}]
         project["lexicon_resolution_entries"] = [
             {
@@ -238,9 +239,9 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "app.example.post"))
 
     def test_handle_requires_did_document_reverse_claim_for_auto_confirm(self) -> None:
-        project = registry.default_project_record("proj:handletrust", "did", "did:plc:dev")
+        project = project_record.default_project_record("proj:handletrust", "did", "did:plc:dev")
         registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "handle",
             "dev.example.com",
@@ -254,7 +255,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         one_way = registry.trust_auto_confirm_identifier(project, "handle", "dev.example.com")
         self.assertFalse(one_way["auto_confirm"])
 
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "did",
             "did:plc:dev",
@@ -270,9 +271,9 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertEqual(mutual["reason"], "mutual_trust_path")
 
     def test_exact_domain_can_auto_confirm_only_through_mutual_identity_path(self) -> None:
-        project = registry.default_project_record("proj:domaintrust", "did", "did:plc:dev")
+        project = project_record.default_project_record("proj:domaintrust", "did", "did:plc:dev")
         registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "handle",
             "example.com",
@@ -282,7 +283,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
             classification="confirmed",
             eligible_for_auto_confirm=True,
         )
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "did",
             "did:plc:dev",
@@ -292,7 +293,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
             classification="confirmed",
             eligible_for_auto_confirm=True,
         )
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "domain",
             "example.com",
@@ -306,7 +307,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         missing_reverse = registry.trust_auto_confirm_identifier(project, "domain", "example.com")
         self.assertFalse(missing_reverse["auto_confirm"])
 
-        registry.record_trust_edge(
+        project_record.record_trust_edge(
             project,
             "handle",
             "example.com",
@@ -321,7 +322,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertTrue(mutual["auto_confirm"])
 
     def test_runtime_view_exposes_handle_identifier_separately_from_account(self) -> None:
-        project = registry.default_project_record("proj:runtimehandle", "service_url", "https://example.com")
+        project = project_record.default_project_record("proj:runtimehandle", "service_url", "https://example.com")
         project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
 
         identifiers = registry.runtime_view.project_identifiers(project)
@@ -371,7 +372,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                     method="html_link",
                 ),
             ]
-            registry.save_project(conn, missing)
+            project_record.save_project(conn, missing)
 
             reprobe = self.make_project("proj:reprobe", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(reprobe, "repo_url", "https://github.com/example/app", source="test")
@@ -382,11 +383,11 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                     method="github_homepage",
                 ),
             ]
-            registry.save_project(conn, reprobe)
+            project_record.save_project(conn, reprobe)
 
             downgrade = self.make_project("proj:downgrade", "nsid", "app.example.post")
             downgrade["service_urls"] = ["https://unrelated.example.com"]
-            registry.save_project(conn, downgrade)
+            project_record.save_project(conn, downgrade)
 
             audit = registry.build_trust_graph_audit(conn, example_limit=10)
         finally:
@@ -412,13 +413,13 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                     method="html_link",
                 ),
             ]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             dry_run = registry.repair_trust_graph(conn, execute=False)
             self.assertEqual(dry_run["changed_project_count"], 1)
 
             executed = registry.repair_trust_graph(conn, execute=True)
-            fetched = registry.fetch_project(conn, "proj:repairtrust")
+            fetched = project_record.fetch_project(conn, "proj:repairtrust")
         finally:
             conn.close()
 
@@ -434,13 +435,13 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:trustdowngrade", "nsid", "app.example.post")
             project["service_urls"] = ["https://unrelated.example.com"]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             with self.assertRaises(ValueError):
                 registry.repair_trust_graph(conn, execute=False, downgrade_unsupported=True)
 
             executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
-            fetched = registry.fetch_project(conn, "proj:trustdowngrade")
+            fetched = project_record.fetch_project(conn, "proj:trustdowngrade")
         finally:
             conn.close()
 
@@ -462,10 +463,10 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                 "record_uri": "at://did:plc:other/com.atproto.lexicon.schema/app.example.post",
                 "resolved_at": "2026-06-25T00:00:00+00:00",
             }]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
-            fetched = registry.fetch_project(conn, "proj:trustnsiddowngrade")
+            fetched = project_record.fetch_project(conn, "proj:trustnsiddowngrade")
         finally:
             conn.close()
 
@@ -482,10 +483,10 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             project = self.make_project("proj:trustdiddowngrade", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
             project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
 
             executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
-            fetched = registry.fetch_project(conn, "proj:trustdiddowngrade")
+            fetched = project_record.fetch_project(conn, "proj:trustdiddowngrade")
         finally:
             conn.close()
 

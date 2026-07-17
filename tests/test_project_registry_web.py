@@ -15,6 +15,7 @@ from project_registry_core import domain_policy, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, build_parser, main as web_main, restart_argv
 from project_registry_core.application import presentation
+from project_registry_core import project_record
 
 
 class FakeJobManager:
@@ -134,7 +135,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
     def seed_fixture(self) -> None:
         conn = registry.open_db()
-        project = registry.default_project_record("proj:111111111111", "nsid", "app.example.post")
+        project = project_record.default_project_record("proj:111111111111", "nsid", "app.example.post")
         project["name"] = "Example App"
         project["summary"] = "Example summary"
         project["tagline"] = "Example tagline"
@@ -159,13 +160,13 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             "observed_at": "2026-06-14T00:00:00+00:00",
             "context": {},
         }]
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
 
-        duplicate = registry.default_project_record("proj:222222222222", "service_url", "https://duplicate.example")
+        duplicate = project_record.default_project_record("proj:222222222222", "service_url", "https://duplicate.example")
         duplicate["name"] = "Example Duplicate"
         duplicate["website_url"] = "https://duplicate.example"
         duplicate["service_urls"] = ["https://duplicate.example"]
-        registry.save_project(conn, duplicate)
+        project_record.save_project(conn, duplicate)
 
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-14T00:00:00+00:00")
         bundle.add_collector_result(CollectorResult(
@@ -622,11 +623,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_search_candidate_badge_ignores_confirmed_duplicate_rows(self) -> None:
         conn = registry.open_db()
         try:
-            project = registry.default_project_record("proj:duplicatecandidate", "nsid", "app.example.post")
+            project = project_record.default_project_record("proj:duplicatecandidate", "nsid", "app.example.post")
             registry.add_manual_seed(project, "nsid", "app.example.post", source="fixture")
             project["website_url"] = "https://app.example.com"
             project["service_urls"] = ["https://app.example.com"]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
         finally:
             conn.close()
 
@@ -642,13 +643,13 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_project_detail_separates_operator_and_system_notes(self) -> None:
         conn = registry.open_db()
         try:
-            project = registry.fetch_project(conn, "proj:111111111111")
+            project = project_record.fetch_project(conn, "proj:111111111111")
             assert project is not None
             project["notes"] = "operator note"
             project["system_notes"] = [
                 "merged from proj:123456789abc at 2026-07-12T05:41:55+00:00"
             ]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
         finally:
             conn.close()
 
@@ -702,11 +703,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_website_scalar_displays_as_primary_service_marker(self) -> None:
         conn = registry.open_db()
         try:
-            project = registry.fetch_project(conn, "proj:111111111111")
+            project = project_record.fetch_project(conn, "proj:111111111111")
             assert project is not None
             project["website_url"] = "https://app.example.com"
             project["service_urls"] = ["https://app.example.com"]
-            registry.save_project(conn, project, preserve_timestamps=True)
+            project_record.save_project(conn, project, preserve_timestamps=True)
             conn.commit()
         finally:
             conn.close()
@@ -767,10 +768,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_authority_domain_identifier_can_be_split_from_detail(self) -> None:
         conn = registry.open_db()
         try:
-            project = registry.fetch_project(conn, "proj:111111111111")
+            project = project_record.fetch_project(conn, "proj:111111111111")
             assert project is not None
             registry.add_manual_seed(project, "domain", "app.example.com", source="fixture")
-            registry.save_project(conn, project, preserve_timestamps=True)
+            project_record.save_project(conn, project, preserve_timestamps=True)
             conn.commit()
         finally:
             conn.close()
@@ -804,12 +805,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_merge_pair_includes_multi_tenant_suffix_suggestion(self) -> None:
         conn = registry.open_db()
         try:
-            source = registry.default_project_record("proj:foofoofoofoo", "service_url", "https://foo.example.com")
+            source = project_record.default_project_record("proj:foofoofoofoo", "service_url", "https://foo.example.com")
             registry.add_manual_seed(source, "service_url", "https://foo.example.com", source="test")
-            target = registry.default_project_record("proj:barbarbarbar", "service_url", "https://bar.example.com")
+            target = project_record.default_project_record("proj:barbarbarbar", "service_url", "https://bar.example.com")
             registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
-            registry.save_project(conn, source)
-            registry.save_project(conn, target)
+            project_record.save_project(conn, source)
+            project_record.save_project(conn, target)
             conn.commit()
         finally:
             conn.close()
@@ -839,7 +840,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                 "redirect_same_site_family": True,
                 "service_status_evidence": ["http_200", "redirect_same_site_family"],
             }]
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
             conn.close()
 
             status, payload, _ = self.request(
@@ -855,7 +856,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.assertEqual(payload["same_site_refresh"]["changed_project_count"], 1)
             self.assertEqual(json.loads(domain_overrides_path.read_text())["custom_multi_tenant_suffixes"], ["example.com"])
             conn = registry.open_db()
-            refreshed = registry.fetch_project(conn, project["project_key"])
+            refreshed = project_record.fetch_project(conn, project["project_key"])
             conn.close()
             assert refreshed is not None
             self.assertFalse(refreshed["service_verification_results"][0]["redirect_same_site_family"])
@@ -955,10 +956,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
     def test_search_filters_by_operator_notes_presence(self) -> None:
         conn = registry.open_db()
         try:
-            project = registry.fetch_project(conn, "proj:111111111111")
+            project = project_record.fetch_project(conn, "proj:111111111111")
             assert project is not None
             project["notes"] = "follow up with maintainer"
-            registry.save_project(conn, project)
+            project_record.save_project(conn, project)
         finally:
             conn.close()
 
@@ -998,12 +999,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
 
     def test_search_does_not_hydrate_all_projects(self) -> None:
-        original = registry.list_projects
-        registry.list_projects = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("hydrated all projects"))
+        original = project_record.list_projects
+        project_record.list_projects = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("hydrated all projects"))
         try:
             status, payload, _ = self.request("/api/projects?q=app.example.post")
         finally:
-            registry.list_projects = original
+            project_record.list_projects = original
         self.assertEqual(status, 200)
         self.assertEqual(payload["items"][0]["project_key"], "proj:111111111111")
 
@@ -1013,10 +1014,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         stale_revision = detail["revision"]
 
         conn = registry.open_db()
-        project = registry.fetch_project(conn, "proj:111111111111")
+        project = project_record.fetch_project(conn, "proj:111111111111")
         assert project is not None
         project["name"] = "Changed elsewhere"
-        registry.save_project(conn, project, preserve_timestamps=True)
+        project_record.save_project(conn, project, preserve_timestamps=True)
         conn.close()
 
         status, payload, _ = self.request(
@@ -1165,7 +1166,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(merged["mode"], "execute")
         conn = registry.open_db()
-        self.assertIsNone(registry.fetch_project(conn, split_key))
+        self.assertIsNone(project_record.fetch_project(conn, split_key))
         conn.close()
 
     def test_targeted_review_decisions_and_developer_confirmation(self) -> None:
@@ -1280,7 +1281,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["project_key"], "proj:111111111111")
         conn = registry.open_db()
         try:
-            project = registry.fetch_project(conn, "proj:111111111111")
+            project = project_record.fetch_project(conn, "proj:111111111111")
         finally:
             conn.close()
         self.assertIn("https://github.com/example/second", [item["value"] for item in project["manual_seeds"]])
@@ -1352,14 +1353,14 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
     def test_promotion_queue_api_exposes_policy_projection(self) -> None:
         conn = registry.open_db()
-        project = registry.fetch_project(conn, "proj:111111111111")
+        project = project_record.fetch_project(conn, "proj:111111111111")
         assert project is not None
         project["category"] = "project"
         project["website_url"] = "https://app.example.com"
         project["service_status_confidence"] = "medium"
         project["service_status_evidence"] = ["http_200", "login_surface_detected"]
         registry.confirm_service_seed(project, "https://app.example.com", source="fixture")
-        registry.save_project(conn, project)
+        project_record.save_project(conn, project)
         conn.commit()
         conn.close()
 

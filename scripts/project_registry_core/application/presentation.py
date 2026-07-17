@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import evaluation, relations, registry as core, runtime_view, storage
 from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
+from project_registry_core import project_record
 
 
 WEB_API_VERSION = 2
@@ -40,7 +41,7 @@ DECISION_TARGET_TYPES = (
     "promotion_priority",
     "review_kind",
     "review_target",
-    *tuple(sorted(core.IDENTIFIER_DECISION_TYPES)),
+    *tuple(sorted(project_record.IDENTIFIER_DECISION_TYPES)),
 )
 
 
@@ -59,10 +60,10 @@ def project_filter_options(conn: sqlite3.Connection) -> dict[str, list[str]]:
         return sorted({str(item) for group in values for item in group if str(item)})
 
     return {
-        "tracking_states": sorted(core.TRACKING_STATES),
-        "service_statuses": sorted(core.SERVICE_STATUS_VALUES),
+        "tracking_states": sorted(project_record.TRACKING_STATES),
+        "service_statuses": sorted(project_record.SERVICE_STATUS_VALUES),
         "contribution_levels": sorted(evaluation.ATPROTO_CONTRIBUTION_LEVELS),
-        "identifier_kinds": sorted(core.IDENTIFIER_DECISION_TYPES),
+        "identifier_kinds": sorted(project_record.IDENTIFIER_DECISION_TYPES),
         "identifier_classifications": sorted(runtime_view.CLASSIFICATIONS),
         "relation_predicates": sorted(relations.RELATION_PREDICATES),
         "relation_subject_types": merged(RELATION_ENTITY_TYPES, distinct("project_relations", "subject_type")),
@@ -86,11 +87,11 @@ def _identifier_row_is_displayable(item: dict[str, Any]) -> bool:
     metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
     if role in {"developer_account", "developer_handle"}:
         if kind == "account":
-            return bool(core.normalize_developer_accounts([metadata or {"handle": value}]))
+            return bool(project_record.normalize_developer_accounts([metadata or {"handle": value}]))
         if kind == "handle":
-            return bool(core.ATPROTO_HANDLE_RE.fullmatch(value))
+            return bool(project_record.ATPROTO_HANDLE_RE.fullmatch(value))
     if role == "project_handle":
-        return bool(core.ATPROTO_HANDLE_RE.fullmatch(value))
+        return bool(project_record.ATPROTO_HANDLE_RE.fullmatch(value))
     return True
 
 
@@ -320,7 +321,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         display_role = display_roles.get(item["role"], item["role"])
         entry = dict(item)
         entry["role"] = display_role
-        entry["source_roles"] = core.unique_list([display_role, item["role"]])
+        entry["source_roles"] = project_record.unique_list([display_role, item["role"]])
         entry["role_label"] = role_labels.get(item["role"], item["role"].replace("_", " "))
         developer_candidate = item["role"] == "developer_account"
         entry_action_kind = "account" if developer_candidate else item["kind"]
@@ -358,7 +359,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         if existing_entry is None:
             group["entries"].append(entry)
         else:
-            existing_entry["source_roles"] = core.unique_list(
+            existing_entry["source_roles"] = project_record.unique_list(
                 list(existing_entry.get("source_roles", [])) + list(entry.get("source_roles", []))
             )
             existing_entry["is_primary"] = bool(existing_entry.get("is_primary")) or bool(entry.get("is_primary"))
@@ -445,7 +446,7 @@ def _decision_rows(conn: sqlite3.Connection, project_key: str) -> dict[str, list
     output: list[dict[str, Any]] = []
     for row in rows:
         expires_at = str(row["expires_at"])
-        expires = core.parse_iso(expires_at) if expires_at else None
+        expires = project_record.parse_iso(expires_at) if expires_at else None
         cleared_at = str(row["cleared_at"])
         active = not cleared_at and (expires is None or expires > now)
         output.append({
@@ -492,7 +493,7 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
 
 
 def investigation_run_list(conn: sqlite3.Connection, *, project_key: str, limit: int = 50) -> dict[str, Any]:
-    resolved = core.resolve_project_key_input(conn, project_key)
+    resolved = project_record.resolve_project_key_input(conn, project_key)
     items = storage.list_investigation_run_summaries(conn, project_key=resolved, limit=limit)
     return {"project_key": resolved, "count": len(items), "items": items}
 
@@ -655,8 +656,8 @@ def require_project_revision(conn: sqlite3.Connection, project_key: str, expecte
 
 
 def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
-    resolved = core.resolve_project_key_input(conn, project_key)
-    project = core.fetch_project(conn, resolved)
+    resolved = project_record.resolve_project_key_input(conn, project_key)
+    project = project_record.fetch_project(conn, resolved)
     if project is None:
         raise KeyError(project_key)
     row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (resolved,)).fetchone()
@@ -665,7 +666,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     prepared = core.apply_promotion_state(project)
     promotion_signals = core.compute_showcase_signals(prepared, include_ineligible=True)
     promotion_policy = core.promotion_policy_projection(prepared, promotion_signals)
-    profile = core.project_record_payload(prepared)
+    profile = project_record.project_record_payload(prepared)
     state = _json(str(row["state_json"]), {})
     raw_project = {
         "project_key": resolved,
@@ -732,9 +733,9 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
 
 
 def project_merge_analysis(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
-    resolved = core.resolve_project_key_input(conn, project_key)
+    resolved = project_record.resolve_project_key_input(conn, project_key)
     revision_before = project_revision(conn, resolved)
-    project = core.fetch_project(conn, resolved)
+    project = project_record.fetch_project(conn, resolved)
     if project is None:
         raise KeyError(project_key)
     prepared = projects.prepare_project_view(conn, project)
@@ -761,14 +762,14 @@ def project_merge_analysis(conn: sqlite3.Connection, *, project_key: str) -> dic
 
 def seed_preview(conn: sqlite3.Connection, *, seed: str, seed_type: str | None = None) -> dict[str, Any]:
     resolved_type = core.detect_seed_type(seed, seed_type)
-    value = core.canonical_seed_value(resolved_type, seed)
-    exact_key = core.find_project_key_by_identifier(conn, resolved_type, value)
+    value = project_record.canonical_seed_value(resolved_type, seed)
+    exact_key = project_record.find_project_key_by_identifier(conn, resolved_type, value)
     candidates = core.project_search_candidates(conn, value, limit=5)
     return {
         "seed_type": resolved_type,
         "seed_value": value,
         "exact_project_key": exact_key or "",
-        "exact": _summary(core.fetch_project(conn, exact_key)) if exact_key and core.fetch_project(conn, exact_key) else None,
+        "exact": _summary(project_record.fetch_project(conn, exact_key)) if exact_key and project_record.fetch_project(conn, exact_key) else None,
         "candidates": candidates,
         "can_create": exact_key is None,
     }
@@ -789,20 +790,20 @@ def confirm_candidate(
     elif identifier_type == "account":
         normalized = str(value or "").strip().lower()
         candidate = next((
-            item for item in core.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
+            item for item in project_record.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
             if normalized in {str(item.get("handle") or "").lower(), str(item.get("did") or "").lower()}
         ), None)
         if candidate is None:
             confirmed = ""
         else:
-            core.add_developer_account(
+            project_record.add_developer_account(
                 project,
                 str(candidate.get("handle") or ""),
                 str(candidate.get("source") or "web_ui"),
                 did=str(candidate.get("did") or ""),
             )
             project["candidate_developer_accounts"] = [
-                item for item in core.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
+                item for item in project_record.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
                 if item != candidate
             ]
             confirmed = str(candidate.get("handle") or candidate.get("did") or "")
@@ -817,7 +818,7 @@ def confirm_candidate(
         source="web_ui",
         note="candidate confirmed by operator",
     )
-    core.save_project(
+    project_record.save_project(
         conn,
         project,
         enriched=bool(project.get("last_enriched_at")),
@@ -895,7 +896,7 @@ def merge_pair(
     target = core.resolve_single_project(conn, project_key=target_project_key)
 
     def snapshot(project: dict[str, Any]) -> dict[str, Any]:
-        shaped = core.ensure_project_shape(project)
+        shaped = project_record.ensure_project_shape(project)
         return {
             **_summary(shaped),
             "seed": {"type": shaped.get("seed_type", ""), "value": shaped.get("seed_value", "")},
@@ -922,6 +923,6 @@ def merge_pair(
         "source": snapshot(source),
         "target": snapshot(target),
         "merged_preview": preview,
-        "source_revision": project_revision(conn, core.resolve_project_key_input(conn, source_project_key)),
-        "target_revision": project_revision(conn, core.resolve_project_key_input(conn, target_project_key)),
+        "source_revision": project_revision(conn, project_record.resolve_project_key_input(conn, source_project_key)),
+        "target_revision": project_revision(conn, project_record.resolve_project_key_input(conn, target_project_key)),
     }

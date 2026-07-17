@@ -19,18 +19,20 @@ from project_registry_core.registry import (
     confirm_repo_seed,
     confirm_service_seed,
     defer_promotion_on_project,
-    ensure_project_shape,
-    fetch_project,
     finalize_project_shape,
-    iso_now,
     latest_promotion_deferral_reason,
-    normalize_blocked_identifiers,
     project_repo_hint_urls,
     project_service_hint_urls,
-    save_project,
-    unique_list,
     update_project_tracking_state_value,
     verify_service_project,
+)
+from project_registry_core.project_record import (
+    ensure_project_shape,
+    fetch_project,
+    iso_now,
+    normalize_blocked_identifiers,
+    save_project,
+    unique_list,
 )
 
 

@@ -8,6 +8,7 @@ from typing import Any
 from .. import registry as core
 from .. import replay as replay_core
 from .. import storage as investigation_storage
+from project_registry_core import project_record
 
 
 def verify_service(
@@ -33,7 +34,7 @@ def replay(
     run = (
         investigation_storage.load_investigation_run(conn, run_id)
         if run_id
-        else investigation_storage.latest_investigation_run(conn, core.resolve_project_key_input(conn, str(project_key or "")))
+        else investigation_storage.latest_investigation_run(conn, project_record.resolve_project_key_input(conn, str(project_key or "")))
     )
     if run is None:
         raise ValueError("investigation run not found")
