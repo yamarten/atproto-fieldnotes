@@ -614,6 +614,8 @@ def collect_github_repo_evidence(
     project: dict[str, Any],
     repo_url: str,
     dependencies: GitHubRepoCollectorDependencies,
+    *,
+    trust_only: bool = False,
 ) -> EvidenceBundle:
     data, _attempts = run_with_retry(
         lambda: dependencies.fetch_github_repo(repo_url),
@@ -623,33 +625,36 @@ def collect_github_repo_evidence(
     readme_text = str(data.get("readme_text") or "")
     repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
     default_branch = str(data.get("default_branch") or "")
-    repo_lexicons = dependencies.repo_lexicon_hints(
+    repo_lexicons = [] if trust_only else dependencies.repo_lexicon_hints(
         repo_url,
         ref=default_branch,
         tree=repo_tree,
     )
-    semantic_hints = dependencies.repo_semantic_hints(repo_url, ref=default_branch, tree=repo_tree)
+    semantic_hints = [] if trust_only else dependencies.repo_semantic_hints(
+        repo_url, ref=default_branch, tree=repo_tree
+    )
     readme_urls = dependencies.extract_urls(readme_text)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
         project_key=str(project.get("project_key") or ""),
         collected_at=observed_at,
     )
-    bundle.add_record(evidence_record(
-        kind="github_repo_snapshot",
-        source=f"github_repo:{repo_url}",
-        classification="confirmed",
-        observed_at=observed_at,
-        value={
-            "repo_url": repo_url,
-            "repo": compact_github_repo_snapshot(repo),
-            "default_branch": default_branch,
-            "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
-            "semantic_hint_count": len(semantic_hints),
-            "readme_urls": bounded_github_readme_urls(readme_urls),
-            "readme_url_count": len(readme_urls),
-        },
-    ))
+    if not trust_only:
+        bundle.add_record(evidence_record(
+            kind="github_repo_snapshot",
+            source=f"github_repo:{repo_url}",
+            classification="confirmed",
+            observed_at=observed_at,
+            value={
+                "repo_url": repo_url,
+                "repo": compact_github_repo_snapshot(repo),
+                "default_branch": default_branch,
+                "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
+                "semantic_hint_count": len(semantic_hints),
+                "readme_urls": bounded_github_readme_urls(readme_urls),
+                "readme_url_count": len(readme_urls),
+            },
+        ))
     normalized_repo_url = str(repo_url).rstrip("/")
     homepage = str(repo.get("homepage") or "").strip()
     if homepage:
@@ -716,6 +721,8 @@ def collect_tangled_repo_evidence(
     project: dict[str, Any],
     repo_url: str,
     dependencies: TangledRepoCollectorDependencies,
+    *,
+    trust_only: bool = False,
 ) -> EvidenceBundle:
     data, _attempts = run_with_retry(
         lambda: dependencies.fetch_tangled_repo(repo_url),
@@ -730,20 +737,21 @@ def collect_tangled_repo_evidence(
         project_key=str(project.get("project_key") or ""),
         collected_at=observed_at,
     )
-    bundle.add_record(evidence_record(
-        kind="tangled_repo_inspection",
-        source=f"tangled_repo:{repo_url}",
-        classification="candidate",
-        observed_at=observed_at,
-        value={
-            "repo_url": repo_url,
-            "repo": repo,
-            "default_branch": default_branch,
-            "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
-            "readme_urls": dependencies.extract_urls(readme_text),
-            "readme_excerpt": readme_excerpt(readme_text),
-        },
-    ))
+    if not trust_only:
+        bundle.add_record(evidence_record(
+            kind="tangled_repo_inspection",
+            source=f"tangled_repo:{repo_url}",
+            classification="candidate",
+            observed_at=observed_at,
+            value={
+                "repo_url": repo_url,
+                "repo": repo,
+                "default_branch": default_branch,
+                "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
+                "readme_urls": dependencies.extract_urls(readme_text),
+                "readme_excerpt": readme_excerpt(readme_text),
+            },
+        ))
     normalized_repo_url = str(repo_url).rstrip("/")
     for url in dependencies.extract_urls(readme_text):
         parsed = urllib.parse.urlparse(url)

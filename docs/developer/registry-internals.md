@@ -110,6 +110,10 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 
+first-party page上の外部リンクは、通常はanchor textの`source` / `repository`等でsource repository候補と外部参照を区別します。iconだけでanchor textが空の場合も、対応providerのrepository URLで、repository名がproject名またはconfirmed service hostと一致する時だけcandidateとして記録します。この一致は候補化と`service -> repo`の観測にだけ使い、単独ではconfirmしません。
+
+candidate repositoryは通常のrepository enrich、project nameのidentity token、LLM triage evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。逆向きlinkが同じprojectのconfirmed serviceと一致して相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めてdescription、repository名、lexicon hint等を通常enrichへ適用します。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
+
 collection ownership は、manual NSID seed、または confirmed developer DID との相互 trust path がある場合だけ成立します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
 
 identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v1` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
@@ -996,6 +1000,8 @@ LLM は discovery の主役ではなく、整理の補助です。
 planning/triageのevidence JSONは24 KiB上限です。大量候補を単純に先頭だけで切らず、field別件数上限で先頭・末尾を
 代表として残した後、総byte上限まで低優先listを縮約します。縮約件数は`evidence_budget`に残します。固定prompt
 template、response、保存済みcollector payloadはこのbudgetとは別です。
+
+unconfirmedな`candidate_source_code_urls`はtriage evidenceから除外します。候補URLを調査対象に含める必要があるinvestigation planningにだけURLを渡し、candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
 
 - `summary`
 - `tagline`

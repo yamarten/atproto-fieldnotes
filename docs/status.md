@@ -81,6 +81,7 @@
   - record/failure本文は`bundle_json`へ一度だけ保存
   - `collector_runs`はsource/operation別のstatus/count projectionで、本文列は新規runでは空配列
   - GitHub API snapshotを使用fieldへ縮約し、同一repoの一run内再収集をしない
+  - first-party serviceから直接リンクされたcandidate repoは相互trust確認だけを先に収集し、confirm後に通常repo contentを適用する。未confirm候補はproject nameとLLM triageの材料にしない
 - 既存保存payloadのmaintenance
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う

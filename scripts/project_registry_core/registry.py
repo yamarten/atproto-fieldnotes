@@ -739,7 +739,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 token = identifier_core.normalize_alias_token(segment)
                 if token:
                     tokens.add(token)
-    for url in project_record.manual_seed_values(project, "repo_url") + project.get("source_code_urls", []) + project.get("candidate_source_code_urls", []):
+    for url in project_record.manual_seed_values(project, "repo_url") + project.get("source_code_urls", []):
         repo_url = repo_url_core.canonical_repo_url(str(url or ""))
         if not repo_url:
             continue
@@ -3235,6 +3235,31 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     return False
 
 
+def repo_link_matches_project_identity(project: dict[str, Any], url: str) -> bool:
+    normalized = repo_url_core.canonical_repo_url(url)
+    if not normalized or not repo_url_core.is_supported_repo_url(normalized):
+        return False
+    segments = [segment for segment in urllib.parse.urlparse(normalized).path.split("/") if segment]
+    if len(segments) < 2:
+        return False
+    repo_token = identifier_core.normalize_alias_token(segments[-1])
+    if len(repo_token) < 4:
+        return False
+    identity_tokens: set[str] = set()
+    name_token = identifier_core.normalize_alias_token(str(project.get("name") or ""))
+    if name_token:
+        identity_tokens.add(name_token)
+    for service_url in project_record.unique_list(
+        list(project.get("service_urls", []))
+        + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+        + project_record.manual_seed_values(project, "service_url")
+    ):
+        host = urllib.parse.urlparse(identifier_core.normalize_url(service_url)).netloc.lower()
+        if host:
+            identity_tokens.add(identifier_core.normalize_alias_token(host.removeprefix("www.")))
+    return repo_token in identity_tokens
+
+
 def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
     owners: set[str] = set()
     trusted_urls = set(manual_repo_urls(project)) | set(project.get("source_code_urls", []))
@@ -3256,7 +3281,11 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> boo
         if isinstance(item, dict) and str(item.get("handle") or "").strip()
     }
     developer_handle_match = bool(owner and owner.lower().removeprefix("@") in developer_handles)
-    if not repo_url_allowed_for_project(project, normalized) and not developer_handle_match:
+    if (
+        not repo_url_allowed_for_project(project, normalized)
+        and not repo_link_matches_project_identity(project, normalized)
+        and not developer_handle_match
+    ):
         return False
     if normalized in manual_repo_urls(project) or normalized in project.get("source_code_urls", []):
         return True
@@ -4992,6 +5021,111 @@ def confirm_source_code_url_with_trust(
     return True
 
 
+def confirmed_service_identity_urls(project: dict[str, Any]) -> list[str]:
+    return project_record.unique_list([
+        normalized
+        for value in (
+            list(project.get("service_urls", []))
+            + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+            + project_record.manual_seed_values(project, "service_url")
+        )
+        if (normalized := identifier_core.normalize_url(str(value or "")))
+    ])
+
+
+def service_reference_matches_project(project: dict[str, Any], value: str) -> bool:
+    normalized = identifier_core.normalize_url(value)
+    if not normalized:
+        return False
+    return any(
+        domain_policy_core.is_same_site_family(normalized, service_url)
+        for service_url in confirmed_service_identity_urls(project)
+    )
+
+
+def candidate_repo_trust_probe_urls(project: dict[str, Any]) -> list[str]:
+    candidates = {
+        repo_url_core.canonical_repo_url(str(value or ""))
+        for value in project.get("candidate_source_code_urls", [])
+        if repo_url_core.canonical_repo_url(str(value or ""))
+    }
+    output: list[str] = []
+    for edge in trust_graph_core.graph(project).get("edges", []):
+        if (
+            edge.get("predicate") != "service_links_repo"
+            or edge.get("classification") != "confirmed"
+            or not edge.get("eligible_for_auto_confirm")
+        ):
+            continue
+        subject = edge.get("subject") if isinstance(edge.get("subject"), dict) else {}
+        obj = edge.get("object") if isinstance(edge.get("object"), dict) else {}
+        repo_url = repo_url_core.canonical_repo_url(str(obj.get("value") or ""))
+        if (
+            subject.get("kind") == "service_url"
+            and obj.get("kind") == "repo_url"
+            and repo_url in candidates
+            and service_reference_matches_project(project, str(subject.get("value") or ""))
+            and repo_candidate_allowed_for_project(project, repo_url)
+        ):
+            output.append(repo_url)
+    return project_record.unique_list(output)
+
+
+def apply_candidate_repo_trust_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    bundle: EvidenceBundle,
+) -> int:
+    normalized_repo = repo_url_core.canonical_repo_url(repo_url)
+    if not normalized_repo or str(project.get("project_key") or "") != bundle.project_key:
+        return 0
+    accepted = 0
+    for record in bundle.records:
+        if record.kind != "relation" or not isinstance(record.value, dict):
+            continue
+        relation = dict(record.value)
+        subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+        obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+        if (
+            relation.get("predicate") != "source_repository"
+            or subject.get("type") != "repo"
+            or repo_url_core.canonical_repo_url(str(subject.get("value") or "")) != normalized_repo
+            or obj.get("type") not in {"website", "service"}
+            or not service_reference_matches_project(project, str(obj.get("value") or ""))
+        ):
+            continue
+        normalized_service = identifier_core.normalize_url(str(obj.get("value") or ""))
+        relation["subject"] = {"type": "repo", "value": normalized_repo}
+        relation["object"] = {"type": "website", "value": normalized_service}
+        project["relation_evidence"] = relation_core.normalize_relation_records(
+            list(project.get("relation_evidence", []))
+            + [{
+                "relation": relation,
+                "source": record.source,
+                "classification": "confirmed",
+                "observed_at": record.observed_at,
+                "context": {**dict(record.context), "candidate_repo_trust_inspection": True},
+            }]
+        )
+        project_record.record_trust_edge(
+            project,
+            "repo_url",
+            normalized_repo,
+            "repo_links_service",
+            "service_url",
+            normalized_service,
+            source=record.source,
+            locator=str(relation.get("locator") or normalized_repo),
+            method=str(relation.get("method") or "repo_reference"),
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=record.observed_at,
+            context={"candidate_repo_trust_inspection": True},
+        )
+        accepted += 1
+    return accepted
+
+
 def accepted_repo_schema_relation(project: dict[str, Any], relation: dict[str, Any]) -> bool:
     if relation.get("predicate") != "defines_schema":
         return True
@@ -5284,6 +5418,35 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
             project_record.record_developer_profile_url(project, url, source)
+        elif (
+            classification == "other"
+            and repo_url_core.is_supported_repo_url(url)
+            and repo_link_matches_project_identity(project, url)
+        ):
+            project_record.record_trust_edge(
+                project,
+                "service_url",
+                base_url,
+                "service_links_repo",
+                "repo_url",
+                repo_url_core.canonical_repo_url(url),
+                source=source,
+                locator=base_url,
+                method="first_party_repo_identity_match",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=project_record.iso_now(),
+                context={"link_text": text[:200]},
+            )
+            add_candidate_source_code_url(
+                project,
+                url,
+                source,
+                reason="first-party page linked a repository whose name matches the project service",
+                evidence_kind="first_party_repo_identity_match",
+                evidence_url=base_url,
+                relation="linked_repo_candidate",
+            )
         elif classification == "same_site":
             if (repo_url_core.normalize_github_repo_url(url) or repo_url_core.normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
                 project_record.record_trust_edge(
@@ -6171,7 +6334,12 @@ def enrich_from_lexicon(
     apply_lexicon_record_result(project, nsid, result)
 
 
-def collect_github_repo_evidence(project: dict[str, Any], repo_url: str) -> EvidenceBundle:
+def collect_github_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    *,
+    trust_only: bool = False,
+) -> EvidenceBundle:
     return investigation_core.collect_github_repo_evidence(
         project,
         repo_url,
@@ -6182,10 +6350,16 @@ def collect_github_repo_evidence(project: dict[str, Any], repo_url: str) -> Evid
             extract_urls=extract_urls,
             repo_semantic_hints=repo_semantic_hints,
         ),
+        trust_only=trust_only,
     )
 
 
-def collect_tangled_repo_evidence(project: dict[str, Any], repo_url: str) -> EvidenceBundle:
+def collect_tangled_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    *,
+    trust_only: bool = False,
+) -> EvidenceBundle:
     return investigation_core.collect_tangled_repo_evidence(
         project,
         repo_url,
@@ -6194,10 +6368,16 @@ def collect_tangled_repo_evidence(project: dict[str, Any], repo_url: str) -> Evi
             fetch_tangled_repo=fetch_tangled_repo,
             extract_urls=extract_urls,
         ),
+        trust_only=trust_only,
     )
 
 
-def apply_github_repo_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
+def apply_github_repo_evidence(
+    project: dict[str, Any],
+    bundle: EvidenceBundle,
+    *,
+    confirm_repo_snapshot: bool = True,
+) -> None:
     integration_core.apply_github_repo_evidence(
         project,
         bundle,
@@ -6219,6 +6399,7 @@ def apply_github_repo_evidence(project: dict[str, Any], bundle: EvidenceBundle) 
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
             record_trust_edge=project_record.record_trust_edge,
         ),
+        confirm_repo_snapshot=confirm_repo_snapshot,
     )
 
 
@@ -6751,14 +6932,18 @@ def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> 
     return "low", False
 
 
-def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
-    candidate_repo_urls = [
-        url
-        for url in project.get("candidate_source_code_urls", [])
-        if repo_candidate_allowed_for_project(project, str(url or ""))
-    ]
-    if project.get("source_code_urls"):
-        candidate_repo_urls = []
+def build_llm_evidence_bundle(
+    project: dict[str, Any],
+    *,
+    include_candidate_repos: bool = False,
+) -> dict[str, Any]:
+    candidate_repo_urls: list[str] = []
+    if include_candidate_repos and not project.get("source_code_urls"):
+        candidate_repo_urls = [
+            url
+            for url in project.get("candidate_source_code_urls", [])
+            if repo_candidate_allowed_for_project(project, str(url or ""))
+        ]
     evidence = {
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
@@ -6827,7 +7012,7 @@ def build_triage_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def build_investigation_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    evidence = build_llm_evidence_bundle(project)
+    evidence = build_llm_evidence_bundle(project, include_candidate_repos=True)
     prompt = (
         "You are planning a focused investigation for an AT Protocol project.\n"
         "Return JSON only. Be conservative.\n"

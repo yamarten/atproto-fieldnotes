@@ -351,6 +351,8 @@ def apply_github_repo_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
     dependencies: GitHubRepoIntegrationDependencies,
+    *,
+    confirm_repo_snapshot: bool = True,
 ) -> None:
     if str(project.get("project_key") or "") != bundle.project_key:
         raise ValueError("evidence project_key does not match target project")
@@ -454,20 +456,21 @@ def apply_github_repo_evidence(
         fork_parent_url = dependencies.normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
         fork_parent_full_name = str(fork_parent.get("full_name") or "")
 
-        dependencies.confirm_source_code_url(
-            project,
-            repo_url,
-            "github_repo_seed",
-            relation="fork_repo" if fork else "repo_seed",
-            reason=(
-                f"registered manually as repository seed; GitHub reports fork of {fork_parent_full_name or fork_parent_url}"
-                if fork and (fork_parent_full_name or fork_parent_url)
-                else "registered manually as repository seed"
-            ),
-            evidence_kind="manual_seed",
-            evidence_url=repo_url,
-            updated_at=repo_updated_at,
-        )
+        if confirm_repo_snapshot:
+            dependencies.confirm_source_code_url(
+                project,
+                repo_url,
+                "github_repo_seed",
+                relation="fork_repo" if fork else "repo_seed",
+                reason=(
+                    f"registered manually as repository seed; GitHub reports fork of {fork_parent_full_name or fork_parent_url}"
+                    if fork and (fork_parent_full_name or fork_parent_url)
+                    else "registered manually as repository seed"
+                ),
+                evidence_kind="manual_seed",
+                evidence_url=repo_url,
+                updated_at=repo_updated_at,
+            )
         if fork:
             dependencies.add_investigation_log(
                 project,

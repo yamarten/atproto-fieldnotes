@@ -23,6 +23,7 @@ from project_registry_core.registry import (
     REQUEST_TIMEOUT_LEXICON_HTTP,
     add_investigation_log,
     apply_authority_service_probe_result,
+    apply_candidate_repo_trust_evidence,
     apply_collector_snapshot_evidence,
     apply_github_repo_evidence,
     apply_investigation_evidence,
@@ -33,6 +34,7 @@ from project_registry_core.registry import (
     authority_probe_all_urls,
     authority_probe_url_chains,
     build_triage_prompt,
+    candidate_repo_trust_probe_urls,
     clean_string_list,
     collect_github_repo_evidence,
     collect_investigation_evidence,
@@ -43,6 +45,7 @@ from project_registry_core.registry import (
     compute_duplicate_candidates,
     compute_merge_recommendation,
     confirm_source_code_url,
+    confirm_source_code_url_with_trust,
     derived_authority_probe_urls,
     enrich_from_resource_pages,
     failed_collector_bundle,
@@ -248,6 +251,43 @@ def enrich_project(
                     run_evidence.extend(failed_collector_bundle(
                         project, source="service_static", operation="probe", target=service_url, exc=exc,
                     ))
+
+    for repo_url in candidate_repo_trust_probe_urls(project):
+        provider = repo_url_core.infer_repo_provider(repo_url)
+        try:
+            if provider == "github":
+                trust_evidence = collect_github_repo_evidence(project, repo_url, trust_only=True)
+            elif provider == "tangled":
+                trust_evidence = collect_tangled_repo_evidence(project, repo_url, trust_only=True)
+            else:
+                continue
+            run_evidence.extend(trust_evidence)
+            apply_candidate_repo_trust_evidence(project, repo_url, trust_evidence)
+            confirmed = confirm_source_code_url_with_trust(
+                project,
+                repo_url,
+                "candidate_repo_trust_inspection",
+                relation="mutual_first_party_link",
+                reason="first-party service and candidate repository link to each other",
+                evidence_kind="candidate_repo_trust_inspection",
+                evidence_url=repo_url,
+            )
+            if not confirmed:
+                continue
+            if provider == "github":
+                collected_github_repo_urls.add(repo_url_core.canonical_repo_url(repo_url))
+                repo_evidence = collect_github_repo_evidence(project, repo_url)
+                apply_github_repo_evidence(project, repo_evidence, confirm_repo_snapshot=False)
+            else:
+                collected_tangled_repo_urls.add(repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url)
+                repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+                apply_tangled_evidence(project, repo_evidence)
+            run_evidence.extend(repo_evidence)
+        except Exception as exc:
+            note_failure(project, f"candidate repository trust inspection failed for {repo_url}: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source=f"{provider}_repo", operation="trust_inspect", target=repo_url, exc=exc,
+            ))
 
     secondary_repo_urls = [
         repo_url

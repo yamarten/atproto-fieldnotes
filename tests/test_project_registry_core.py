@@ -1654,6 +1654,121 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertFalse(registry.service_probe_supports_project(project, "https://kimbia.mwco.app", result))
 
+    def test_unlabelled_first_party_tangled_repo_link_becomes_candidate_when_repo_matches_service(self) -> None:
+        project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
+        project["name"] = "Seams"
+        project["website_url"] = "https://seams.so"
+        project["service_urls"] = ["https://seams.so"]
+
+        registry.collect_first_party_links(
+            project,
+            "https://seams.so",
+            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
+            "service_page:https://seams.so",
+        )
+
+        self.assertEqual(
+            project["candidate_source_code_urls"],
+            ["https://tangled.org/sealight.xyz/seams.so"],
+        )
+        self.assertEqual(
+            registry.candidate_repo_trust_probe_urls(project),
+            ["https://tangled.org/sealight.xyz/seams.so"],
+        )
+
+    def test_candidate_repo_trust_inspection_confirms_mutual_link_without_applying_content(self) -> None:
+        project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
+        project["name"] = "Seams"
+        project["website_url"] = "https://seams.so"
+        project["service_urls"] = ["https://seams.so"]
+        registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
+        registry.collect_first_party_links(
+            project,
+            "https://seams.so",
+            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
+            "service_page:https://seams.so",
+        )
+        repo_url = project["candidate_source_code_urls"][0]
+
+        with mock.patch.object(
+            registry,
+            "fetch_tangled_repo",
+            return_value={
+                "repo": {
+                    "full_name": "sealight.xyz/seams.so",
+                    "name": "seams.so",
+                    "description": "Candidate content must not be applied before confirmation.",
+                },
+                "readme_text": "Project website: https://seams.so",
+                "tree": [],
+                "default_branch": "main",
+            },
+        ):
+            bundle = registry.collect_tangled_repo_evidence(project, repo_url, trust_only=True)
+
+        self.assertFalse(any(record.kind == "tangled_repo_inspection" for record in bundle.records))
+        self.assertEqual(project["summary_candidates"], [])
+        self.assertEqual(registry.apply_candidate_repo_trust_evidence(project, repo_url, bundle), 1)
+        self.assertTrue(
+            registry.confirm_source_code_url_with_trust(
+                project,
+                repo_url,
+                "test",
+                relation="mutual_first_party_link",
+            )
+        )
+        self.assertEqual(project["source_code_urls"], [repo_url])
+        self.assertEqual(project["summary_candidates"], [])
+
+    def test_candidate_repo_trust_inspection_rejects_unrelated_reverse_link(self) -> None:
+        project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
+        project["name"] = "Seams"
+        project["website_url"] = "https://seams.so"
+        project["service_urls"] = ["https://seams.so"]
+        registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
+        registry.collect_first_party_links(
+            project,
+            "https://seams.so",
+            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
+            "service_page:https://seams.so",
+        )
+        repo_url = project["candidate_source_code_urls"][0]
+        bundle = registry.EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-18T00:00:00+00:00")
+        bundle.add_record(registry.investigation_core.evidence_record(
+            kind="relation",
+            source=f"tangled_readme:{repo_url}",
+            classification="candidate",
+            observed_at="2026-07-18T00:00:00+00:00",
+            value={
+                "subject": {"type": "repo", "value": repo_url},
+                "predicate": "source_repository",
+                "object": {"type": "website", "value": "https://unrelated.example"},
+                "locator": repo_url,
+                "method": "readme_link",
+            },
+        ))
+
+        self.assertEqual(registry.apply_candidate_repo_trust_evidence(project, repo_url, bundle), 0)
+        self.assertFalse(
+            registry.confirm_source_code_url_with_trust(
+                project,
+                repo_url,
+                "test",
+                relation="mutual_first_party_link",
+            )
+        )
+        self.assertEqual(project["source_code_urls"], [])
+
+    def test_candidate_repo_does_not_supply_project_identity_tokens(self) -> None:
+        project = project_record.default_project_record("proj:example", "service_url", "https://example.com")
+        project["name"] = "Example"
+        project["candidate_source_code_urls"] = ["https://github.com/candidate-owner/untrusted-repo-name"]
+
+        tokens = registry.project_identity_anchor_tokens(project)
+
+        self.assertNotIn("candidateowner", tokens)
+        self.assertNotIn("untrustedreponame", tokens)
+
     def test_confirmed_repo_link_supports_service_probe(self) -> None:
         project = project_record.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
@@ -1961,7 +2076,8 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
         self.assertEqual(evidence, repeated)
         self.assertEqual(evidence, triage_evidence)
-        self.assertEqual(evidence, planning_evidence)
+        self.assertEqual(evidence["candidate_source_code_urls"], [])
+        self.assertEqual(planning_evidence["candidate_source_code_urls"], [])
         self.assertLessEqual(
             llm_evidence_core.evidence_bytes(evidence),
             llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
@@ -1990,6 +2106,20 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertLessEqual(
             len(evidence["summary_candidates"][0]["value"].encode("utf-8")),
             llm_evidence_core.LLM_EVIDENCE_STRING_MAX_BYTES,
+        )
+
+    def test_candidate_repo_is_available_to_investigation_planning_but_not_triage(self) -> None:
+        project = self.nsid_project()
+        project["name"] = "Candidate"
+        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+
+        _triage_prompt, triage_evidence = registry.build_triage_prompt(project)
+        _planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
+
+        self.assertEqual(triage_evidence["candidate_source_code_urls"], [])
+        self.assertEqual(
+            planning_evidence["candidate_source_code_urls"],
+            ["https://github.com/example/candidate"],
         )
 
 

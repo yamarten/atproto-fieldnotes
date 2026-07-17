@@ -291,6 +291,40 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertNotIn("semantic_hints", snapshot)
         self.assertNotIn("unused_api_payload", snapshot["repo"])
 
+    def test_github_candidate_trust_collection_excludes_repo_content(self) -> None:
+        project = self.make_project("proj:githubtrustonly", "service_url", "https://app.example.com")
+        lexicon_hints = mock.Mock(return_value=[{"nsid": "app.example.post"}])
+        semantic_hints = mock.Mock(return_value=[{"nsid": "app.example.post"}])
+        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+            now=lambda: "2026-07-18T00:00:00+00:00",
+            fetch_github_repo=lambda _repo_url: {
+                "repo": {
+                    "name": "app",
+                    "full_name": "example/app",
+                    "description": "Unconfirmed description",
+                    "homepage": "https://app.example.com",
+                },
+                "readme_text": "See https://app.example.com",
+                "tree": [{"path": "lexicons/app.example.post.json", "type": "blob"}],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lexicon_hints,
+            extract_urls=registry.extract_urls,
+            repo_semantic_hints=semantic_hints,
+        )
+
+        bundle = investigation_core.collect_github_repo_evidence(
+            project,
+            "https://github.com/example/app",
+            dependencies,
+            trust_only=True,
+        )
+
+        self.assertFalse(any(record.kind == "github_repo_snapshot" for record in bundle.records))
+        self.assertTrue(any(record.kind == "relation" for record in bundle.records))
+        lexicon_hints.assert_not_called()
+        semantic_hints.assert_not_called()
+
     def test_github_readme_url_snapshot_has_count_and_byte_budget(self) -> None:
         values = [f"https://example.com/path-{index}" for index in range(100)] + [
             "https://example.com/" + "x" * 3000
@@ -331,6 +365,46 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         registry.apply_github_repo_evidence(project, bundle)
 
         self.assertIn("https://exampleapp.example.com", project["service_url_candidates"])
+
+    def test_confirmed_candidate_github_content_does_not_add_manual_seed_provenance(self) -> None:
+        project = self.make_project("proj:confirmed-candidate", "service_url", "https://app.example.com")
+        repo_url = "https://github.com/example/app"
+        registry.confirm_source_code_url(
+            project,
+            repo_url,
+            "candidate_repo_trust_inspection",
+            relation="mutual_first_party_link",
+            evidence_kind="candidate_repo_trust_inspection",
+        )
+        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+            now=lambda: "2026-07-18T00:00:00+00:00",
+            fetch_github_repo=lambda _repo_url: {
+                "repo": {"name": "app", "full_name": "example/app", "description": "Confirmed app"},
+                "readme_text": "",
+                "tree": [],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lambda _repo_url, **_kwargs: [],
+            extract_urls=lambda _text: [],
+        )
+        bundle = investigation_core.collect_github_repo_evidence(project, repo_url, dependencies)
+
+        registry.apply_github_repo_evidence(project, bundle, confirm_repo_snapshot=False)
+
+        confirmed_records = [
+            item
+            for item in project["source_repo_records"]
+            if item.get("url") == repo_url and item.get("confidence") == "confirmed"
+        ]
+        self.assertEqual(len(confirmed_records), 1)
+        self.assertEqual(confirmed_records[0]["source"], "candidate_repo_trust_inspection")
+        self.assertNotIn("github_repo_seed", {item.get("source") for item in confirmed_records})
+        self.assertTrue(
+            any(
+                item.get("value") == "Confirmed app" and item.get("source") == "github:example/app"
+                for item in project["summary_candidates"]
+            )
+        )
 
     def test_tangled_repo_collector_returns_readme_snapshot_without_mutating_project(self) -> None:
         project = self.make_project("proj:tangledreposnapshot", "repo_url", "https://tangled.org/dev.example/app")
@@ -589,6 +663,50 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertEqual(collect_repo.call_count, 1)
         self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
+
+    def test_enrich_candidate_repo_collects_trust_before_full_content(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:candidate-repo-trust")
+        repo_url = "https://github.com/example/app"
+        project["candidate_source_code_urls"] = [repo_url]
+        trust_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:00+00:00",
+        )
+        repo_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:01+00:00",
+        )
+        empty_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:02+00:00",
+        )
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "candidate_repo_trust_probe_urls", return_value=[repo_url]),
+                mock.patch.object(
+                    enrichment_pipeline,
+                    "collect_github_repo_evidence",
+                    side_effect=[trust_bundle, repo_bundle],
+                ) as collect_repo,
+                mock.patch.object(enrichment_pipeline, "apply_candidate_repo_trust_evidence"),
+                mock.patch.object(enrichment_pipeline, "confirm_source_code_url_with_trust", return_value=True),
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence") as apply_repo,
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+            ):
+                enrichment_pipeline.enrich_project(conn, project)
+        finally:
+            conn.close()
+
+        self.assertEqual(collect_repo.call_count, 2)
+        self.assertEqual(collect_repo.call_args_list[0].kwargs, {"trust_only": True})
+        self.assertEqual(collect_repo.call_args_list[1].kwargs, {})
+        self.assertEqual(apply_repo.call_count, 1)
+        self.assertEqual(apply_repo.call_args.kwargs, {"confirm_repo_snapshot": False})
 
     def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
         with self.assertRaises(ValueError):
