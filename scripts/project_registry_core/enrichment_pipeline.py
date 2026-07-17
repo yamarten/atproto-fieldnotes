@@ -92,7 +92,7 @@ def enrich_project(
     project["_run_errors"] = []
     reset_investigation_state(project)
 
-    initial_nsids = unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
+    initial_nsids = unique_list(project.get("input_nsids", []) + project.get("resolved_nsids", []))
     if should_refresh_lexicon_surface(project, initial_nsids):
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_nsids))) as executor:
             lexicon_futures = {
@@ -163,7 +163,7 @@ def enrich_project(
 
     discovered_nsids = [
         nsid
-        for nsid in unique_list(([project.get("primary_nsid")] if project.get("primary_nsid") else []) + project.get("input_nsids", []))
+        for nsid in unique_list(project.get("input_nsids", []) + project.get("resolved_nsids", []))
         if nsid and nsid not in initial_nsids
     ]
     if should_refresh_lexicon_surface(project, discovered_nsids):

@@ -699,7 +699,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertFalse(candidate["actions"]["reject"])
         self.assertEqual(repository["actions"]["scope"], "identifier")
 
-    def test_website_role_displays_as_primary_service_marker(self) -> None:
+    def test_website_scalar_displays_as_primary_service_marker(self) -> None:
         conn = registry.open_db()
         try:
             project = registry.fetch_project(conn, "proj:111111111111")

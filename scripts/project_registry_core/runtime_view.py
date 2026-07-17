@@ -70,7 +70,6 @@ def _normalized_developer_account(item: Mapping[str, Any]) -> dict[str, str]:
 
 
 IDENTIFIER_FIELDS = {
-    "primary_nsid",
     "input_nsids",
     "resolved_nsids",
     "lexicons",
@@ -285,7 +284,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
             metadata={"type": initial_seed_type},
         )
 
-    add("nsid", project.get("primary_nsid"), "primary_nsid", "confirmed", primary=True)
     for value in project.get("input_nsids", []):
         add("nsid", value, "input_nsid", "candidate")
     for value in project.get("resolved_nsids", []):
@@ -299,7 +297,7 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
     for value in project.get("authority_domains", []):
         add("domain", value, "authority_domain", "derived")
 
-    add("service_url", project.get("website_url"), "website", "confirmed", primary=True)
+    add("service_url", project.get("website_url"), "service", "confirmed")
     for value in project.get("service_urls", []):
         add("service_url", value, "service", "confirmed")
     for value in project.get("service_url_candidates", []):
@@ -594,9 +592,7 @@ def hydrate(
             project["manual_seeds"].append(copy.deepcopy(metadata) or {"type": kind, "value": value})
             continue
         if kind == "nsid":
-            if role == "primary_nsid" and classification == "confirmed": project["primary_nsid"] = value
-            elif role == "primary_nsid": project["input_nsids"].append(value)
-            elif role == "input_nsid": project["input_nsids"].append(value)
+            if role == "input_nsid": project["input_nsids"].append(value)
             elif role == "owned_nsid": project["resolved_nsids"].append(value)
             elif role == "observed_lexicon": project["lexicons"].append(value)
             elif role == "referenced_nsid": project["external_lexicons"].append(value)

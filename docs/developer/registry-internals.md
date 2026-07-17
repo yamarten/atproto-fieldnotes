@@ -139,9 +139,9 @@ domainで先頭labelだけが同じhostはsame-siteにしません。
 
 `project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
 
-runtime viewはnormalized rowの無変更roundtripを維持します。candidate primary NSID、candidate owned NSID、candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。complete runtime viewでは`input_nsids`から`primary_nsid`や`recorded_namespace`を暗黙生成しません。
+runtime viewはnormalized rowの無変更roundtripを維持します。candidate owned NSIDやcandidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。NSIDの代表値は生成せず、調査処理は`input_nsids`と`resolved_nsids`の集合を使います。
 
-candidateの`primary_nsid` / `website` roleは通常のreview queueへ`primary_identifier_needs_confirmation`として都度投影します。専用の監査tableや移行由来flagは持ちません。operatorのconfirm/reject/blockでnormalized row自体を解決し、deferは期限後に同じrowから再表示します。
+代表公開URLの正本は`projects.website_url`です。normalized service URLはconfirmed/candidateとも`service` roleへ統一し、Webのprimary markerはservice URLと`website_url`の一致から導出します。
 
 exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
 NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
@@ -283,7 +283,7 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+Cは協調的な停止要求となり、処理中projectを保存した後に`status=interrupted`と再開commandを記録します。次回`--resume-run`は完了済みkeyを飛ばします。契約の正本は[background-jobs.md](background-jobs.md)です。
 
-Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。`website` roleはservice URLのprimary markerとして表示し、DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
+Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。service URLのprimary markerは`projects.website_url`との一致から表示し、DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
 enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
 
@@ -296,8 +296,8 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 ### 1. lexicon から取るもの
 
 - 入力:
-  - `primary_nsid`
   - `input_nsids`
+  - `resolved_nsids`
   - GitHub repo から後で見つかった NSID
 - 取得の流れ:
   - `_lexicon.<authority_domain>` の TXT を引いて DID を解決

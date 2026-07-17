@@ -279,7 +279,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "evidence_urls",
         "investigation_queries",
         "investigation_log",
-        "primary_nsid",
         "input_nsids",
         "resolved_nsids",
         "lexicon_resolution_entries",
@@ -689,8 +688,9 @@ def refresh_project_seed_identity(project: dict[str, Any]) -> None:
             if str(item.get("type") or "") == preferred_type and str(item.get("value") or "").strip():
                 set_project_seed_identity(project, preferred_type, str(item.get("value") or ""))
                 return
-    if project.get("primary_nsid"):
-        set_project_seed_identity(project, "nsid", str(project.get("primary_nsid") or ""))
+    nsid = next(iter(unique_list(list(project.get("resolved_nsids", [])) + list(project.get("input_nsids", [])))), "")
+    if nsid:
+        set_project_seed_identity(project, "nsid", str(nsid))
         return
     repo_url = next(iter(source_code_url_values(project)), "")
     if repo_url:
@@ -913,8 +913,7 @@ def authority_service_candidate_has_saved_probe_support(project: dict[str, Any],
 def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]:
     guesses = nsid_authority_service_origins(project)
     has_nsid_evidence = bool(
-        identifier_core.normalize_nsid(str(project.get("primary_nsid") or ""))
-        or any(identifier_core.normalize_nsid(str(item or "")) for item in project.get("input_nsids", []))
+        any(identifier_core.normalize_nsid(str(item or "")) for item in project.get("input_nsids", []))
         or any(identifier_core.normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []))
     )
     if has_nsid_evidence:
@@ -1176,7 +1175,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "system_notes": [],
         "discovery_sources": ["manual_seed"],
         "evidence_urls": [],
-        "primary_nsid": "",
         "input_nsids": [],
         "resolved_nsids": [],
         "lexicon_resolution_entries": [],
@@ -1600,12 +1598,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         str(project.get("seed_value") or ""),
     )
     defaults.update(project)
-    defaults["primary_nsid"] = identifier_core.normalize_nsid(str(defaults.get("primary_nsid") or ""))
     defaults["input_nsids"] = unique_list([identifier_core.normalize_nsid(str(item)) for item in defaults.get("input_nsids", []) if item])
-    if not defaults["primary_nsid"] and defaults["input_nsids"] and not runtime_view.is_complete(defaults):
-        defaults["primary_nsid"] = defaults["input_nsids"][0]
-    if defaults["primary_nsid"] and defaults["primary_nsid"] not in defaults["input_nsids"]:
-        defaults["input_nsids"] = [defaults["primary_nsid"], *defaults["input_nsids"]]
     defaults["resolved_nsids"] = unique_list([identifier_core.normalize_nsid(str(item)) for item in defaults.get("resolved_nsids", []) if item])
     defaults["service_status"] = normalize_service_status(defaults.get("service_status"))
     defaults["service_status_confidence"] = normalize_service_status_confidence(defaults.get("service_status_confidence"))
@@ -1983,10 +1976,6 @@ def prune_project_lexicon_identity(project: dict[str, Any]) -> None:
     project["input_nsids"] = unique_list(allowed_input_nsids)
     project["resolved_nsids"] = unique_list(allowed_resolved_nsids)
     project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if identifier_core.normalize_nsid(str(nsid or "")) in allowed_nsids]
-
-    primary_nsid = identifier_core.normalize_nsid(str(project.get("primary_nsid") or ""))
-    if primary_nsid and primary_nsid not in allowed_nsids:
-        project["primary_nsid"] = project["input_nsids"][0] if project.get("input_nsids") else ""
 
     project["lexicon_resolution_entries"] = [
         dict(item)
@@ -2471,7 +2460,6 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "promotion_blockers",
         "manual_seeds",
         "features",
-        "primary_nsid",
         "input_nsids",
         "resolved_nsids",
         "lexicon_namespaces",
@@ -2501,12 +2489,6 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             shaped[field] = [value]
         else:
             shaped[field] = []
-    if shaped["primary_nsid"]:
-        shaped["primary_nsid"] = str(shaped["primary_nsid"][0])
-    else:
-        shaped["primary_nsid"] = ""
-    if not shaped["primary_nsid"] and shaped["input_nsids"]:
-        shaped["primary_nsid"] = str(shaped["input_nsids"][0])
     if shaped["source_code_url"] and shaped["source_code_url"] not in shaped["source_code_urls"]:
         shaped["source_code_urls"] = [shaped["source_code_url"], *shaped["source_code_urls"]]
     shaped["recorded_lexicon_namespaces"] = unique_list(
@@ -2566,8 +2548,6 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
         return 99, False
     if identifier_type == "nsid":
         if normalized in [identifier_core.normalize_nsid(str(item)) for item in project.get("input_nsids", []) if item]:
-            return 0, True
-        if identifier_core.normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
             return 0, True
         if normalized in [identifier_core.normalize_nsid(str(item)) for item in project.get("resolved_nsids", []) if item]:
             return 1, True
@@ -2642,7 +2622,7 @@ def indexed_identifier_matches(
             elif classification == "candidate":
                 priority = 1
         elif identifier_type == "nsid":
-            if role in {"seed", "manual_seed", "input_nsid", "primary_nsid"}:
+            if role in {"seed", "manual_seed", "input_nsid"}:
                 priority = 0
             elif role == "owned_nsid":
                 priority = 1
@@ -2690,8 +2670,7 @@ def find_project_key_by_collection_namespace(projects: list[dict[str, Any]], nam
     normalized = identifier_core.normalize_nsid(namespace)
     for project in projects:
         candidates = unique_list(
-            ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
-            + list(project.get("input_nsids", []))
+            list(project.get("input_nsids", []))
             + list(project.get("resolved_nsids", []))
             + list(project.get("recorded_lexicon_namespaces", []))
         )
@@ -2761,8 +2740,7 @@ def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[d
     for project in projects:
         project_key = str(project["project_key"])
         namespace_candidates = unique_list(
-            ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
-            + list(project.get("input_nsids", []))
+            list(project.get("input_nsids", []))
             + list(project.get("resolved_nsids", []))
             + list(project.get("recorded_lexicon_namespaces", []))
         )
@@ -2858,7 +2836,6 @@ def save_project(
         )
     } if preserve_normalized_rows else {}
     project = ensure_project_shape(project)
-    project["primary_nsid"] = identifier_core.normalize_nsid(project.get("primary_nsid", "")) if project.get("primary_nsid") else ""
     project["input_nsids"] = unique_list([identifier_core.normalize_nsid(item) for item in project.get("input_nsids", []) if item])
     project["resolved_nsids"] = unique_list([identifier_core.normalize_nsid(item) for item in project.get("resolved_nsids", []) if item])
     project["lexicon_resolution_entries"] = normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
@@ -3043,7 +3020,6 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
     project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "manual_seed")
     if seed_type == "nsid":
         normalized_nsid = identifier_core.normalize_nsid(seed_value)
-        project["primary_nsid"] = project.get("primary_nsid") or normalized_nsid
         project["input_nsids"] = add_unique(project.get("input_nsids", []), normalized_nsid)
         authority_domain = identifier_core.derive_authority_domain(normalized_nsid)
         if authority_domain:
@@ -3182,8 +3158,6 @@ def downgrade_identifier_to_candidate(
         if not keep_candidate:
             remove_identifier_from_project(project, identifier_type, normalized)
             return
-        if identifier_core.normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
-            project["primary_nsid"] = ""
         project["resolved_nsids"] = [
             nsid
             for nsid in project.get("resolved_nsids", [])
@@ -3393,8 +3367,6 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         sync_source_repo_provider_views(project)
 
     if blocked_nsids:
-        if identifier_core.normalize_nsid(str(project.get("primary_nsid") or "")) in blocked_nsids:
-            project["primary_nsid"] = ""
         project["input_nsids"] = [nsid for nsid in project.get("input_nsids", []) if identifier_core.normalize_nsid(str(nsid or "")) not in blocked_nsids]
         project["resolved_nsids"] = [nsid for nsid in project.get("resolved_nsids", []) if identifier_core.normalize_nsid(str(nsid or "")) not in blocked_nsids]
         project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if identifier_core.normalize_nsid(str(nsid or "")) not in blocked_nsids]
@@ -3461,8 +3433,6 @@ def remove_identifier_from_project(
         project["evidence_urls"] = [url for url in project.get("evidence_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
         sync_source_repo_provider_views(project)
     elif identifier_type == "nsid":
-        if identifier_core.normalize_nsid(str(project.get("primary_nsid") or "")) == normalized:
-            project["primary_nsid"] = ""
         project["input_nsids"] = [nsid for nsid in project.get("input_nsids", []) if identifier_core.normalize_nsid(str(nsid or "")) != normalized]
         project["resolved_nsids"] = [nsid for nsid in project.get("resolved_nsids", []) if identifier_core.normalize_nsid(str(nsid or "")) != normalized]
         project["lexicons"] = [nsid for nsid in project.get("lexicons", []) if identifier_core.normalize_nsid(str(nsid or "")) != normalized]
@@ -3608,8 +3578,8 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         original = ensure_project_shape(raw)
         original_repo_urls = set(repo_url_core.normalize_repo_collection(source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
-        normalized = finalize_project_shape(ensure_project_shape(dict(original)))
-        restore_lossless_primary_candidates(normalized, original)
+        normalized = ensure_project_shape(dict(original))
+        normalized = finalize_project_shape(normalized)
         reclassify_service_specific_lexicon(normalized)
         normalized = apply_atproto_contribution_state(normalized)
         current_service_before = {
@@ -3636,7 +3606,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             default_source="collection_observation_repair",
         )
         normalized = finalize_project_shape(normalized)
-        restore_lossless_primary_candidates(normalized, original)
         reclassify_service_specific_lexicon(normalized)
         normalized = apply_atproto_contribution_state(normalized)
         contribution_changed = any(
@@ -3767,99 +3736,6 @@ def identifier_has_active_confirm_decision(project: dict[str, Any], identifier_t
         ):
             return True
     return False
-
-
-def primary_identifier_review_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
-    rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
-    if not isinstance(rows, list):
-        return []
-    confirmed_values = {
-        (
-            str(item.get("kind") or ""),
-            normalize_blocked_identifier_value(
-                str(item.get("kind") or ""),
-                str(item.get("value") or ""),
-            ),
-        )
-        for item in rows
-        if isinstance(item, dict) and str(item.get("classification") or "") == "confirmed"
-    }
-    output: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for item in rows:
-        if not isinstance(item, dict) or str(item.get("classification") or "") != "candidate":
-            continue
-        kind = str(item.get("kind") or "")
-        role = str(item.get("role") or "")
-        if (kind, role) not in {("nsid", "primary_nsid"), ("service_url", "website")}:
-            continue
-        value = normalize_blocked_identifier_value(kind, str(item.get("value") or ""))
-        key = (kind, value, role)
-        if (
-            not value
-            or key in seen
-            or (kind, value) in confirmed_values
-            or identifier_is_manual_seed(project, kind, value)
-            or (kind == "nsid" and project_owned_lexicon_nsid(project, value))
-            or identifier_has_active_confirm_decision(project, kind, value)
-            or identifier_is_blocked(project, kind, value)
-            or identifier_is_deferred(project, kind, value)
-        ):
-            continue
-        seen.add(key)
-        output.append({"kind": kind, "value": value, "role": role})
-    return output
-
-
-def restore_lossless_primary_candidates(project: dict[str, Any], source: dict[str, Any]) -> None:
-    rows = source.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
-    if not isinstance(rows, list):
-        return
-    candidate_nsids: list[str] = []
-    candidate_websites: list[str] = []
-    for item in rows:
-        if not isinstance(item, dict) or str(item.get("classification") or "") != "candidate":
-            continue
-        kind = str(item.get("kind") or "")
-        role = str(item.get("role") or "")
-        value = normalize_blocked_identifier_value(kind, str(item.get("value") or ""))
-        if kind == "nsid" and role == "primary_nsid" and value:
-            candidate_nsids.append(value)
-        elif kind == "service_url" and role == "website" and value:
-            candidate_websites.append(value)
-    project["input_nsids"] = unique_list(list(project.get("input_nsids", [])) + candidate_nsids)
-    set_service_url_candidate_values(
-        project,
-        unique_list(service_url_candidate_values(project) + candidate_websites),
-    )
-
-
-def confirm_primary_identifier_candidate(project: dict[str, Any], identifier_type: str, value: str) -> str:
-    normalized = normalize_blocked_identifier_value(identifier_type, value)
-    rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
-    if not normalized or not isinstance(rows, list):
-        return ""
-    matched = False
-    updated: list[dict[str, Any]] = []
-    for item in rows:
-        row = dict(item) if isinstance(item, dict) else item
-        if not isinstance(row, dict):
-            continue
-        role = str(row.get("role") or "")
-        if (
-            str(row.get("kind") or "") == identifier_type
-            and str(row.get("classification") or "") == "candidate"
-            and (identifier_type, role) in {("nsid", "primary_nsid"), ("service_url", "website")}
-            and normalize_blocked_identifier_value(identifier_type, str(row.get("value") or "")) == normalized
-        ):
-            row["classification"] = "confirmed"
-            row["is_primary"] = True
-            matched = True
-        updated.append(row)
-    if matched:
-        project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = updated
-        return normalized
-    return ""
 
 
 def identifier_is_manual_seed(project: dict[str, Any], identifier_type: str, value: str) -> bool:
@@ -4503,8 +4379,7 @@ def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None
 def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
     origins: set[str] = set()
     nsids = unique_list(
-        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
-        + [str(item or "") for item in project.get("input_nsids", [])]
+        [str(item or "") for item in project.get("input_nsids", [])]
         + [str(item or "") for item in project.get("resolved_nsids", [])]
     )
     for raw_nsid in nsids:
@@ -4519,8 +4394,7 @@ def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
 def nsid_seed_name_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     nsids = unique_list(
-        ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
-        + [str(item or "") for item in project.get("input_nsids", [])]
+        [str(item or "") for item in project.get("input_nsids", [])]
         + [str(item or "") for item in project.get("resolved_nsids", [])]
     )
     for raw_nsid in nsids:
@@ -5043,8 +4917,8 @@ def project_alias_tokens(project: dict[str, Any]) -> set[str]:
         token = identifier_core.normalize_alias_token(first)
         if token:
             tokens.add(token)
-    if project.get("primary_nsid"):
-        token = identifier_core.normalize_alias_token(str(project["primary_nsid"]).split(".")[-1])
+    for nsid in unique_list(list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))):
+        token = identifier_core.normalize_alias_token(str(nsid).split(".")[-1])
         if token:
             tokens.add(token)
     if project.get("website_url"):
@@ -5242,11 +5116,9 @@ def project_identity_strings(project: dict[str, Any]) -> set[str]:
         lowered = str(value or "").strip().lower()
         if lowered and not is_shared_official_identity_host(lowered):
             values.add(lowered)
-    for value in project.get("input_nsids", []):
+    for value in unique_list(list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))):
         if value:
             values.add(str(value).lower())
-    if project.get("primary_nsid"):
-        values.add(str(project.get("primary_nsid") or "").lower())
     for value in project.get("service_urls", []):
         host = urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc
         if host:
@@ -6374,7 +6246,6 @@ def project_search_candidates(
         seed_value = str(project.get("seed_value") or "")
         identifiers = unique_list(
             ([seed_value] if seed_value else [])
-            + ([str(project.get("primary_nsid") or "")] if project.get("primary_nsid") else [])
             + [str(item or "") for item in project.get("input_nsids", [])]
             + [str(item or "") for item in project.get("resolved_nsids", [])]
             + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
@@ -9119,8 +8990,7 @@ def has_shared_lexicon_positioning(project: dict[str, Any]) -> bool:
 
 def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
     has_lexicon_surface = bool(
-        project.get("primary_nsid")
-        or project.get("input_nsids")
+        project.get("input_nsids")
         or project.get("resolved_nsids")
         or project.get("recorded_lexicon_namespaces")
     )
@@ -9245,7 +9115,6 @@ def build_llm_evidence_bundle(project: dict[str, Any]) -> dict[str, Any]:
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
         "manual_seeds": project.get("manual_seeds", []),
-        "primary_nsid": project.get("primary_nsid") or "",
         "input_nsids": project.get("input_nsids", []),
         "resolved_nsids": project.get("resolved_nsids", []),
         "recorded_lexicon_namespaces": project.get("recorded_lexicon_namespaces", []),
@@ -9986,8 +9855,7 @@ def compute_review_signals(
     repo_candidates = project_repo_hint_urls(shaped)
     standalone_service_candidates = project_service_hint_urls(shaped)
     nsid_count = len(unique_list(
-        ([str(shaped.get("primary_nsid") or "")] if shaped.get("primary_nsid") else [])
-        + [str(item or "") for item in shaped.get("input_nsids", [])]
+        [str(item or "") for item in shaped.get("input_nsids", [])]
         + [str(item or "") for item in shaped.get("resolved_nsids", [])]
     ))
     manual_review_kind = str(shaped.get("manual_review_kind") or "other")
@@ -9996,18 +9864,6 @@ def compute_review_signals(
         if manual_review_kind == "service_status_manual_check"
         else []
     )
-    primary_identifier_candidates = primary_identifier_review_candidates(shaped)
-    if primary_identifier_candidates:
-        signals.append(
-            {
-                "kind": "primary_identifier_needs_confirmation",
-                "priority": 8,
-                "details": {
-                    "candidate_count": len(primary_identifier_candidates),
-                    "candidates": primary_identifier_candidates[:5],
-                },
-            }
-        )
     if (
         shaped.get("manual_review_recommended")
         and manual_review_kind != "other"
@@ -11718,7 +11574,6 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["discovery_sources"] = unique_list(list(merged.get("discovery_sources", [])) + list(source.get("discovery_sources", [])))
     merged["evidence_urls"] = unique_list(list(merged.get("evidence_urls", [])) + list(source.get("evidence_urls", [])))
 
-    merged["primary_nsid"] = choose_preferred_scalar(merged.get("primary_nsid"), source.get("primary_nsid"))
     merged["input_nsids"] = unique_list(list(merged.get("input_nsids", [])) + list(source.get("input_nsids", [])))
     merged["resolved_nsids"] = unique_list(list(merged.get("resolved_nsids", [])) + list(source.get("resolved_nsids", [])))
     merged["lexicon_resolution_entries"] = normalize_lexicon_resolution_entries(
@@ -12016,12 +11871,6 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
-    if (
-        not project.get("primary_nsid")
-        and project.get("input_nsids")
-        and not runtime_view.is_complete(project)
-    ):
-        project["primary_nsid"] = project["input_nsids"][0]
     if not project.get("name"):
         if project.get("website_url"):
             project["name"] = urllib.parse.urlparse(project["website_url"]).netloc
@@ -12490,8 +12339,7 @@ def project_split_identifiers_by_tenant(project: dict[str, Any], suffix: str) ->
         add(tenant_identity_for_suffix(host, suffix), "service_url", normalized)
 
     nsids = unique_list(
-        ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
-        + list(project.get("input_nsids", []))
+        list(project.get("input_nsids", []))
         + list(project.get("resolved_nsids", []))
         + manual_seed_values(project, "nsid")
     )
@@ -12541,8 +12389,7 @@ def project_split_identifiers_by_authority_domain(project: dict[str, Any], autho
             group["service_urls"] = add_unique(group["service_urls"], normalized_url)
 
     nsids = unique_list(
-        ([project.get("primary_nsid")] if project.get("primary_nsid") else [])
-        + list(project.get("input_nsids", []))
+        list(project.get("input_nsids", []))
         + list(project.get("resolved_nsids", []))
         + manual_seed_values(project, "nsid")
     )

@@ -169,11 +169,13 @@ def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
         actor_queries.append(str(project["name"]))
         post_queries.append(str(project["name"]))
         focus_terms.append(str(project["name"]))
-    if project.get("primary_nsid"):
-        repo_queries.append(str(project["primary_nsid"]))
-        actor_queries.append(str(project["primary_nsid"]))
-        post_queries.append(str(project["primary_nsid"]))
-        focus_terms.append(str(project["primary_nsid"]))
+    for nsid in unique_strings(
+        list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
+    ):
+        repo_queries.append(str(nsid))
+        actor_queries.append(str(nsid))
+        post_queries.append(str(nsid))
+        focus_terms.append(str(nsid))
     for domain in project.get("authority_domains", [])[:3]:
         repo_queries.append(str(domain))
         actor_queries.append(str(domain))

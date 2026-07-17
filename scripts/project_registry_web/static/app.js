@@ -277,7 +277,7 @@ function listControls() {
       ? renderExplicitMergePairForm()
       : "";
     const reviewFilter = state.reviewView === "queue"
-      ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. primary_identifier_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
+      ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
       : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>

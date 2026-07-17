@@ -109,14 +109,12 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
 主なroleと意味:
 
 - NSID
-  - `primary_nsid`: runtimeで代表として使うowned NSID
   - `input_nsid`: seedや調査入力として得たNSID。ownership確定前の作業入力であり、単独では「そのprojectのowned collection」とは扱わない
   - `owned_nsid`: ownership評価を通過したNSID
   - `observed_lexicon`: project周辺で観測したlexicon
   - `referenced_nsid`: projectが利用・参照する外部NSID
   - `recorded_namespace`: collection観測から導出したnamespace
 - service
-  - `website`: 代表公開URL。Web表示では独立した別identifierではなく、同じ `service_url` group のprimary markerとして扱う
   - `service`: confirmedまたはcandidateのservice surface
 - repository
   - `source_repository`: projectのsource候補またはconfirmed repo
@@ -132,15 +130,15 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
 - `seed`: project作成時の初期入力。`state_json`の`seed_type` / `seed_value`と同じ値をnormalized rowにも投影する
 - `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
 
-manual seed NSIDはoperator decisionとして保持します。同じ値の`input_nsid`やcandidate `primary_nsid`は内部調査用の重複表現であり、Web detailでは個別の確認対象として表示しません。manual seed自体が誤りなら、そのNSIDをreject/block/deferしてseedごと外します。
+manual seed NSIDはoperator decisionとして保持します。同じ値の`input_nsid`は内部調査用の入力表現であり、Web detailではmanual seedと重複するcandidate entryを個別の確認対象として表示しません。manual seed自体が誤りなら、そのNSIDをreject/block/deferしてseedごと外します。
+
+NSIDには代表値を置きません。調査処理は`input_nsid`と`owned_nsid`の集合を使います。代表公開URLは`projects.website_url`だけを正本とし、同じURLを`website` roleとして重複保存しません。Web表示のprimary markerはconfirmed `service` rowの値が`website_url`と一致するかで導出します。
 
 load時は専用runtime codecがnormalized child tableを読み、collector/evaluationが使うcanonical project dictへhydrateします。このdictは保存正本ではなく、既存の調査ロジックへ渡す完全なruntime viewです。
 
 既存projectを保存する時は、identifier、relation、decisionを読み込んだ完全なruntime viewであることを要求します。検索結果や部分的なdictをそのまま保存するとchild tableを全消去し得るため、partial dictからの更新は拒否します。runtime viewを識別する内部markerは`profile_json`、`state_json`、Web payload、investigation snapshotへ保存しません。
 
-runtime codecは、loadして無変更saveした場合にidentifier、relation、decision rowのclassification、role、primary、provider、metadata、observed_atを維持します。candidateのprimary NSID、candidateのowned NSID、candidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。candidate primaryを`projects.website_url`、`primary_nsid`、`source_code_url`などのconfirmed用flat fieldへhydrateしません。
-
-candidateの`primary_nsid`と`website` roleは、normalized identifier rowから`primary_identifier_needs_confirmation` review signalへ投影します。監査状態を別途保存せず、confirmはrowをconfirmedへ変更、reject/blockはrowを削除、deferは既存decisionの期限中だけsignalを抑止します。
+runtime codecは、loadして無変更saveした場合にidentifier、relation、decision rowのclassification、role、primary、provider、metadata、observed_atを維持します。candidateのowned NSIDやcandidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。
 
 削除済みalias fieldも生成・保存しません。
 

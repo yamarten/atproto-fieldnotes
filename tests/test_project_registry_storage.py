@@ -553,7 +553,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:homeport", "nsid", "social.homeport.activitypub.announce")
             parent_only_project = dict(project)
-            parent_only_project["primary_nsid"] = ""
             parent_only_project["input_nsids"] = []
             parent_only_project["resolved_nsids"] = []
             parent_only_project["recorded_lexicon_namespaces"] = []
@@ -1509,7 +1508,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_defer_nsid_keeps_value_in_temporary_category(self) -> None:
         project = self.make_project("proj:565656565656", "nsid", "app.example.post")
-        project["primary_nsid"] = "app.example.post"
         project["input_nsids"] = ["app.example.post"]
 
         registry.defer_identifier_on_project(project, "nsid", "app.example.post", days=30)

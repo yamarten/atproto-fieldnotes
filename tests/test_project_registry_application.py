@@ -620,136 +620,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             [(row["kind"], row["target_type"], row["target_value"]) for row in rows],
         )
 
-    def test_candidate_primary_nsid_is_reviewable_and_confirmable(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:candidateprimary", "service_url", "https://example.com")
-            registry.save_project(conn, project)
-            conn.execute(
-                "INSERT INTO project_identifiers "
-                "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (project["project_key"], 99, "nsid", "app.example.feed", "primary_nsid", "candidate", 1, "{}"),
-            )
-            conn.commit()
-
-            queue_item = registry.build_review_queue_item(
-                conn,
-                project["project_key"],
-                kinds={"primary_identifier_needs_confirmation"},
-            )
-            self.assertIsNotNone(queue_item)
-            assert queue_item is not None
-            self.assertEqual(
-                queue_item["signals"][0]["details"]["candidates"],
-                [{"kind": "nsid", "value": "app.example.feed", "role": "primary_nsid"}],
-            )
-            decisions.set_identifier_defer(
-                conn,
-                project_key=project["project_key"],
-                identifier_type="nsid",
-                value="app.example.feed",
-                days=30,
-            )
-            self.assertIsNone(registry.build_review_queue_item(
-                conn,
-                project["project_key"],
-                kinds={"primary_identifier_needs_confirmation"},
-            ))
-            decisions.set_identifier_defer(
-                conn,
-                project_key=project["project_key"],
-                identifier_type="nsid",
-                value="app.example.feed",
-                clear=True,
-            )
-            self.assertIsNotNone(registry.build_review_queue_item(
-                conn,
-                project["project_key"],
-                kinds={"primary_identifier_needs_confirmation"},
-            ))
-            detail = presentation.project_detail(conn, project_key=project["project_key"])
-            nsid_entry = next(
-                entry
-                for group in detail["identifiers"]
-                for entry in group["entries"]
-                if entry["kind"] == "nsid" and entry["role"] == "primary_nsid"
-            )
-            self.assertTrue(nsid_entry["actions"]["confirm"])
-
-            presentation.confirm_candidate(
-                conn,
-                project_key=project["project_key"],
-                identifier_type="nsid",
-                value="app.example.feed",
-            )
-            row = conn.execute(
-                "SELECT classification FROM project_identifiers "
-                "WHERE project_key = ? AND kind = 'nsid' AND value = ? AND role = 'primary_nsid'",
-                (project["project_key"], "app.example.feed"),
-            ).fetchone()
-            self.assertEqual(row["classification"], "confirmed")
-            self.assertIsNone(registry.build_review_queue_item(
-                conn,
-                project["project_key"],
-                kinds={"primary_identifier_needs_confirmation"},
-            ))
-        finally:
-            conn.close()
-
-    def test_manual_seed_duplicate_primary_candidate_is_not_reviewed(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:manualprimary", "nsid", "app.example.feed")
-            project["manual_seeds"] = [{"type": "nsid", "value": "app.example.feed", "source": "manual"}]
-            registry.save_project(conn, project)
-            conn.execute(
-                "INSERT INTO project_identifiers "
-                "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (project["project_key"], 99, "nsid", "app.example.feed", "primary_nsid", "candidate", 1, "{}"),
-            )
-            conn.commit()
-
-            item = registry.build_review_queue_item(
-                conn,
-                project["project_key"],
-                kinds={"primary_identifier_needs_confirmation"},
-            )
-        finally:
-            conn.close()
-
-        self.assertIsNone(item)
-
-    def test_blocking_candidate_primary_nsid_removes_normalized_row(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:rejectprimary", "service_url", "https://example.com")
-            registry.save_project(conn, project)
-            conn.execute(
-                "INSERT INTO project_identifiers "
-                "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (project["project_key"], 99, "nsid", "app.example.bad", "primary_nsid", "candidate", 1, "{}"),
-            )
-            conn.commit()
-
-            presentation.reject_candidate(
-                conn,
-                project_key=project["project_key"],
-                identifier_type="nsid",
-                value="app.example.bad",
-                note="not owned",
-            )
-            count = conn.execute(
-                "SELECT COUNT(*) FROM project_identifiers WHERE project_key = ? AND kind = 'nsid' AND value = ?",
-                (project["project_key"], "app.example.bad"),
-            ).fetchone()[0]
-            self.assertEqual(count, 0)
-        finally:
-            conn.close()
-
-    def test_confirming_candidate_website_updates_scalar_and_normalized_row(self) -> None:
+    def test_confirming_candidate_service_sets_initial_website_and_service_row(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:candidatewebsite", "repo_url", "https://github.com/example/app")
@@ -758,7 +629,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
                 "INSERT INTO project_identifiers "
                 "(project_key, ordinal, kind, value, role, classification, is_primary, metadata_json) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (project["project_key"], 99, "service_url", "https://app.example.com", "website", "candidate", 1, "{}"),
+                (project["project_key"], 99, "service_url", "https://app.example.com", "service", "candidate", 0, "{}"),
             )
             conn.commit()
 
@@ -771,7 +642,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             saved = registry.fetch_project(conn, project["project_key"])
             row = conn.execute(
                 "SELECT classification FROM project_identifiers "
-                "WHERE project_key = ? AND kind = 'service_url' AND value = ? AND role = 'website'",
+                "WHERE project_key = ? AND kind = 'service_url' AND value = ? AND role = 'service'",
                 (project["project_key"], "https://app.example.com"),
             ).fetchone()
         finally:

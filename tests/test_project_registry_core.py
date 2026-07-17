@@ -584,7 +584,6 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["seed_type"] = "nsid"
         project["seed_value"] = "com.hectorsector.book.status"
-        project["primary_nsid"] = "com.hectorsector.book.status"
         project["input_nsids"] = ["com.hectorsector.book.status"]
         project["authority_domains"] = ["book.hectorsector.com"]
 
@@ -604,7 +603,6 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["seed_type"] = "nsid"
         project["seed_value"] = "zip.meowing.isfox"
-        project["primary_nsid"] = "zip.meowing.isfox"
         project["input_nsids"] = ["zip.meowing.isfox"]
         project["authority_domains"] = ["meowing.zip"]
 
@@ -621,7 +619,6 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["seed_type"] = "nsid"
         project["seed_value"] = "com.hectorsector.book.status"
-        project["primary_nsid"] = "com.hectorsector.book.status"
         project["input_nsids"] = ["com.hectorsector.book.status"]
         project["authority_domains"] = ["book.hectorsector.com"]
 
@@ -638,7 +635,6 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["seed_type"] = "nsid"
         project["seed_value"] = "zip.meowing.isfox"
-        project["primary_nsid"] = "zip.meowing.isfox"
         project["input_nsids"] = ["zip.meowing.isfox"]
         project["authority_domains"] = ["meowing.zip"]
 
@@ -667,7 +663,6 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["seed_type"] = "repo_url"
         project["seed_value"] = "https://github.com/openmkt-app/marketplace"
-        project["primary_nsid"] = "app.atprotomkt.marketplace.listing"
         project["input_nsids"] = ["app.atprotomkt.marketplace.listing", "app.openmkt.marketplace.listing"]
         project["resolved_nsids"] = ["app.openmkt.marketplace.listing"]
         project["authority_domains"] = ["marketplace.atprotomkt.app", "marketplace.openmkt.app"]
@@ -1038,7 +1033,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_finalize_prunes_stored_nsid_authority_service_guesses(self) -> None:
         project = registry.default_project_record("proj:authoritycleanup", "nsid", "fm.freemix.release.track")
-        project["primary_nsid"] = "fm.freemix.release.track"
         project["input_nsids"] = ["fm.freemix.release.track"]
         project["authority_domains"] = ["release.freemix.fm"]
         project["service_url_candidates"] = ["https://release.freemix.fm"]
@@ -1077,7 +1071,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_finalize_keeps_confirmed_authority_service_url(self) -> None:
         project = registry.default_project_record("proj:authorityconfirmed", "nsid", "fm.freemix.release.track")
-        project["primary_nsid"] = "fm.freemix.release.track"
         project["input_nsids"] = ["fm.freemix.release.track"]
         project["authority_domains"] = ["release.freemix.fm"]
         project["service_urls"] = ["https://release.freemix.fm"]
@@ -1091,7 +1084,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_authority_service_probe_keeps_candidate_when_record_urls_match_host(self) -> None:
         project = registry.default_project_record("proj:authoritycandidate", "nsid", "com.suibari.meyasuat.answer")
-        project["primary_nsid"] = "com.suibari.meyasuat.answer"
         project["input_nsids"] = ["com.suibari.meyasuat.answer"]
         project["authority_domains"] = ["meyasuat.suibari.com"]
         project["recorded_lexicon_namespaces"] = ["com.suibari.meyasuat"]
@@ -1133,7 +1125,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_finalize_restores_authority_candidate_from_saved_probe_result(self) -> None:
         project = registry.default_project_record("proj:authoritysavedprobe", "nsid", "com.suibari.meyasuat.answer")
-        project["primary_nsid"] = "com.suibari.meyasuat.answer"
         project["input_nsids"] = ["com.suibari.meyasuat.answer"]
         project["manual_seeds"] = [{"type": "nsid", "value": "com.suibari.meyasuat.answer"}]
         project["authority_domains"] = ["meyasuat.suibari.com"]
@@ -1163,7 +1154,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_finalize_restores_parent_authority_candidate_from_saved_fallback_probe(self) -> None:
         project = registry.default_project_record("proj:authorityfallback", "nsid", "cloud.thermals.actor.profile")
-        project["primary_nsid"] = "cloud.thermals.actor.profile"
         project["input_nsids"] = ["cloud.thermals.actor.profile"]
         project["manual_seeds"] = [{"type": "nsid", "value": "cloud.thermals.actor.profile"}]
         project["authority_domains"] = ["actor.thermals.cloud"]
@@ -1190,7 +1180,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
-        project["primary_nsid"] = "xyz.tz2at.raw.observation"
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
 
@@ -1207,7 +1196,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_verified_exact_authority_does_not_confirm_service_without_reverse_evidence(self) -> None:
         project = registry.default_project_record("proj:verifiedauthority", "nsid", "app.userinput.vote")
-        project["primary_nsid"] = "app.userinput.vote"
         project["input_nsids"] = ["app.userinput.vote"]
         project["resolved_nsids"] = ["app.userinput.vote"]
         project["authority_domains"] = ["userinput.app"]
@@ -1238,7 +1226,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_unverified_exact_authority_still_requires_page_evidence(self) -> None:
         project = registry.default_project_record("proj:unverifiedauthority", "nsid", "app.userinput.vote")
-        project["primary_nsid"] = "app.userinput.vote"
         project["input_nsids"] = ["app.userinput.vote"]
         project["authority_domains"] = ["userinput.app"]
         project["service_url_candidates"] = ["https://userinput.app"]
@@ -1254,7 +1241,6 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
     def test_unsupported_authority_root_is_still_pruned(self) -> None:
         project = registry.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
-        project["primary_nsid"] = "xyz.tz2at.raw.observation"
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
         project["service_url_candidates"] = ["https://tz2at.xyz"]
@@ -1709,7 +1695,6 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
     def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
         project = registry.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")
-        project["primary_nsid"] = "com.whtwnd.blog.entry"
         project["input_nsids"] = ["com.whtwnd.blog.entry"]
         result = {
             "status_code": 200,
@@ -1811,7 +1796,6 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def nsid_project(self) -> dict:
         project = registry.default_project_record("proj:lexiconscope", "nsid", "xyz.tz2at.raw.observation")
-        project["primary_nsid"] = "xyz.tz2at.raw.observation"
         project["input_nsids"] = ["xyz.tz2at.raw.observation"]
         project["authority_domains"] = ["raw.tz2at.xyz"]
         project["category"] = "lexicon"
@@ -1984,7 +1968,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertLessEqual(len(triage_prompt.encode("utf-8")), 32 * 1024)
         self.assertLessEqual(len(planning_prompt.encode("utf-8")), 32 * 1024)
         self.assertEqual(evidence["project_key"], project["project_key"])
-        self.assertEqual(evidence["primary_nsid"], project["primary_nsid"])
+        self.assertEqual(evidence["input_nsids"], project["input_nsids"])
         budget = evidence["evidence_budget"]
         self.assertEqual(budget["max_bytes"], llm_evidence_core.LLM_EVIDENCE_MAX_BYTES)
         self.assertEqual(

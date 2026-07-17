@@ -170,6 +170,7 @@
 - 正本DBでKlearsky、Postgame、radio4000の重複project 3組をmergeし、confirmed canonical identifierのcollision 0件、foreign key違反0、integrity `ok`を確認
 - 2026-07-16に正本DBへcurrent service projection 421件を適用。そのうちscalar-only 151件は保存判定修正後に反映し、projection再dry-run 0件、`projects=3,278` / `investigation_runs=20,472` / `collector_runs=116,967` / `project_decisions=178`の前後一致、foreign key違反0、integrity `ok`を確認
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
+- 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 
 未検証:
 

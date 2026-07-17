@@ -68,8 +68,10 @@
    - 完了: 正本へ32 projectの派生寄与度更新と1 projectのchild修復を適用し、再dry-run 0件、foreign key違反0、integrity `ok`を確認しました
    - 完了: 同値confirmed rowと重複するcandidate primary 2,063 rowを削除し、trust policyでownership確認済みの64 NSIDをconfirmed `owned_nsid`へ変換しました。一回限りのcleanup処理はコードへ残していません
    - 完了: Review Queueへ汎用のsignal kindフィルターを追加し、URL再読込後も条件を復元できるようにしました
-   - candidate `primary_nsid` / `website` rowは既存review queueの`primary_identifier_needs_confirmation`へ投影します。残りは61 project / 63 identifierで、confirm/reject/block/deferによるoperator reviewが必要です
-   - 63 identifier解決後、candidate primary rowが0件になったことを確認し、専用review/roundtrip処理を削除します
+   - 完了: 意味的な代表選択をしていなかった`primary_nsid`を廃止し、confirmedは`owned_nsid`、candidateは`input_nsid`へ統合するコード契約へ変更しました
+   - 完了: normalized `website` roleを廃止し、URL候補とconfirmed URLは`service`へ統一、代表公開URLは`projects.website_url`だけを正本としました
+   - 完了: 正本DB複製で644 project / 703旧role rowを変換し、同値row統合後もproject数と`website_url`に差分がなく、再dry-run 0件、foreign key違反0、integrity `ok`を確認しました
+   - 完了: 正本DBへrole統合を適用し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認後、一回限りのreaderとnormalizerを削除しました
 
 ### 依存関係
 

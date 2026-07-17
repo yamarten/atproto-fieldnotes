@@ -93,7 +93,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
                 runtime_view.ProjectIdentifier(
                     "nsid",
                     "app.example.post",
-                    "primary_nsid",
+                    "input_nsid",
                     "candidate",
                     metadata={"source": "fixture"},
                 ),
@@ -118,20 +118,11 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
 
         fetched = registry.fetch_project(conn, project["project_key"])
         assert fetched is not None
-        self.assertEqual(fetched["primary_nsid"], "")
         self.assertEqual(fetched["input_nsids"], ["app.example.post"])
         registry.save_project(conn, fetched, preserve_timestamps=True)
         after = database.normalized_rows_snapshot(conn)
 
         self.assertEqual(before, after)
-
-        registry.audit_and_repair_identifiers(conn, execute=True)
-        repaired = registry.fetch_project(conn, project["project_key"])
-        repaired_rows = database.normalized_rows_snapshot(conn)
-
-        assert repaired is not None
-        self.assertEqual(repaired["primary_nsid"], "")
-        self.assertEqual(before, repaired_rows)
         conn.close()
 
     def test_normalized_children_roundtrip(self) -> None:

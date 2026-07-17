@@ -223,6 +223,10 @@ def search_projects(
 
 
 def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str, Any]]:
+    project_row = conn.execute(
+        "SELECT website_url FROM projects WHERE project_key = ?", (project_key,)
+    ).fetchone()
+    website_url = str(project_row["website_url"] or "") if project_row is not None else ""
     rows = conn.execute(
         "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
@@ -239,6 +243,10 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         }
         for row in rows
     ]
+    for item in raw:
+        if item["kind"] == "service_url" and item["role"] == "website":
+            item["role"] = "service"
+            item["is_primary"] = False
     raw = [item for item in raw if _identifier_row_is_displayable(item)]
     family_specs = {
         "service_url": ("service", "Services"),
@@ -250,9 +258,9 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "domain": ("identity", "Identities"),
     }
     role_labels = {
-        "primary_nsid": "primary", "input_nsid": "input", "owned_nsid": "owned",
+        "input_nsid": "input", "owned_nsid": "owned",
         "observed_lexicon": "observed", "recorded_namespace": "namespace",
-        "website": "primary", "seed": "initial seed", "manual_seed": "manual seed", "source_repository": "source",
+        "seed": "initial seed", "manual_seed": "manual seed", "source_repository": "source",
         "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
         "project_account": "project", "project_handle": "project handle",
@@ -261,20 +269,11 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     display_roles = {
         "source_repository_record": "source_repository",
     }
-    primary_service_values = {
-        item["value"]
-        for item in raw
-        if item["kind"] == "service_url" and item["role"] == "website"
-    }
+    primary_service_values = {website_url} if website_url else set()
     manual_seed_nsids = {
         item["value"]
         for item in raw
         if item["kind"] == "nsid" and item["role"] == "manual_seed"
-    }
-    service_values_with_confirmed_non_website_role = {
-        item["value"]
-        for item in raw
-        if item["kind"] == "service_url" and item["role"] != "website" and item["classification"] == "confirmed"
     }
     confirmed_identifier_values = {
         (item["kind"], item["value"])
@@ -294,7 +293,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         if (
             item["kind"] == "nsid"
             and item["value"] in manual_seed_nsids
-            and item["role"] in {"input_nsid", "primary_nsid"}
+            and item["role"] == "input_nsid"
             and item["classification"] == "candidate"
         ):
             continue
@@ -318,13 +317,6 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         group["is_primary"] = group["is_primary"] or (
             item["kind"] == "service_url" and key_value in primary_service_values
         )
-        if (
-            item["kind"] == "service_url"
-            and item["role"] == "website"
-            and item["value"] in service_values_with_confirmed_non_website_role
-        ):
-            group["observed_at"] = max(group["observed_at"], item["observed_at"])
-            continue
         display_role = display_roles.get(item["role"], item["role"])
         entry = dict(item)
         entry["role"] = display_role
@@ -337,7 +329,6 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "identifier_type": entry_action_kind,
             "confirm": item["classification"] == "candidate" and not value_already_confirmed and (
                 entry_action_kind in {"service_url", "repo_url", "account"}
-                or (entry_action_kind == "nsid" and item["role"] == "primary_nsid")
             ),
             "reject": item["classification"] == "candidate"
             and not value_already_confirmed
@@ -793,11 +784,8 @@ def confirm_candidate(
     project = core.resolve_single_project(conn, project_key=project_key)
     if identifier_type == "service_url":
         confirmed = core.confirm_service_seed(project, value, source="web_ui")
-        core.confirm_primary_identifier_candidate(project, identifier_type, confirmed)
     elif identifier_type == "repo_url":
         confirmed = core.confirm_repo_seed(project, value, source="web_ui")
-    elif identifier_type == "nsid":
-        confirmed = core.confirm_primary_identifier_candidate(project, identifier_type, value)
     elif identifier_type == "account":
         normalized = str(value or "").strip().lower()
         candidate = next((
@@ -819,7 +807,7 @@ def confirm_candidate(
             ]
             confirmed = str(candidate.get("handle") or candidate.get("did") or "")
     else:
-        raise ValueError("identifier_type must be service_url, repo_url, nsid, or account")
+        raise ValueError("identifier_type must be service_url, repo_url, or account")
     if not confirmed:
         raise ValueError("candidate value is required")
     core.add_confirmed_identifier_decision(

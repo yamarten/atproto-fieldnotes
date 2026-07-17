@@ -471,7 +471,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
 
         assert fetched is not None
         self.assertEqual(executed["downgraded_identifier_count"], 1)
-        self.assertEqual(fetched["primary_nsid"], "")
+        self.assertNotIn("primary_nsid", fetched)
         self.assertEqual(fetched["resolved_nsids"], [])
         self.assertEqual(fetched["input_nsids"], ["app.example.post"])
         self.assertEqual(fetched["lexicon_resolution_entries"][0]["resolved_nsid"], "app.example.post")
