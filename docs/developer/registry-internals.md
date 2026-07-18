@@ -381,7 +381,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - service page の GitHub / Tangled repo link は `service_links_repo`
   - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
   - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
-  - service probe由来edgeは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
+  - service probe由来edgeとその再生成元のrelationは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
   - GitHub repository metadata の homepage は `repo_links_service`
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
   - manual service seed の host そのものは operator anchor として support します

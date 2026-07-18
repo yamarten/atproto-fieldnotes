@@ -14,7 +14,6 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
-- Web processを新しいcodeで再起動した後、Arabica (`proj:2a30238c4e6c`)、Smoke Signal (`proj:449480a2d3c8`)、Exosphere (`proj:46460bd345ef`)をenrichし、曖昧なservice -> Tangled repoリンクが`same_project`として再確認されることを確認する。旧repoリンクpolicyのread-only auditで、既存confirmed identifierの根拠が変わりうる対象はこの3件だけだった。
 
 ## DB 操作メモ
 

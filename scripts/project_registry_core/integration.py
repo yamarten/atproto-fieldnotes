@@ -267,6 +267,19 @@ def apply_service_evidence(
             )
         elif record.kind == "service_verification" and isinstance(record.value, dict):
             value = service.normalize_redirect_same_site_policy(dict(record.value))
+            requested_url = str(value.get("requested_url") or "").rstrip("/")
+            if requested_url and value.get("lane") in {"static", "deep", "follow_up"}:
+                page_source = f"service_page:{requested_url}"
+                project["relation_evidence"] = normalize_relation_records([
+                    item
+                    for item in project.get("relation_evidence", [])
+                    if not (
+                        isinstance(item, dict)
+                        and str(item.get("source") or "").rstrip("/") == page_source
+                        and str((item.get("relation") or {}).get("predicate") or "")
+                        in {"source_repository", "official_account"}
+                    )
+                ])
             project["service_verification_results"] = service.merge_service_verification_results(
                 project.get("service_verification_results", []), value
             )

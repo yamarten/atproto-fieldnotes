@@ -1981,6 +1981,51 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(matching_edges[0]["classification"], "candidate")
         self.assertFalse(matching_edges[0]["eligible_for_auto_confirm"])
 
+    def test_saved_service_observation_replaces_stale_source_relation(self) -> None:
+        project = project_record.default_project_record("proj:relationreprobe", "service_url", "https://app.example.com")
+        project["name"] = "Example"
+        project["website_url"] = "https://app.example.com"
+        project["service_urls"] = ["https://app.example.com"]
+        project["candidate_source_code_urls"] = ["https://tangled.org/example.com/example"]
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "website", "value": "https://app.example.com"},
+                "predicate": "source_repository",
+                "object": {"type": "repo", "value": "https://tangled.org/example.com/example"},
+                "locator": "https://app.example.com",
+                "method": "first_party_link",
+            },
+            "source": "service_page:https://app.example.com",
+            "classification": "confirmed",
+            "observed_at": "2026-07-01T00:00:00+00:00",
+        }]
+        bundle = registry.service_core.collect_service_probe_evidence(
+            project["project_key"],
+            "https://app.example.com",
+            {
+                "status_code": 200,
+                "final_url": "https://app.example.com",
+                "title": "Example",
+                "description": "Example service.",
+                "links": [{"url": "https://tangled.org/example.com/example", "text": ""}],
+                "urls": [],
+                "html": "Example service.",
+            },
+            observed_at="2026-07-18T00:00:00+00:00",
+            supports_project=True,
+        )
+
+        registry.apply_service_evidence(project, bundle)
+
+        source_relations = [
+            item
+            for item in project["relation_evidence"]
+            if (item.get("relation") or {}).get("predicate") == "source_repository"
+            and item.get("source") == "service_page:https://app.example.com"
+        ]
+        self.assertEqual(source_relations, [])
+        self.assertEqual(len(registry.build_llm_evidence_bundle(project)["repository_link_candidates"]), 1)
+
     def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
         project = project_record.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")
         project["input_nsids"] = ["com.whtwnd.blog.entry"]

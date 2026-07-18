@@ -171,7 +171,7 @@ def bounded_json_items(
 def bounded_service_links(base_url: str, values: Any) -> list[dict[str, str]]:
     raw_links = values if isinstance(values, list) else []
     candidates: list[tuple[int, int, dict[str, str]]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for ordinal, item in enumerate(raw_links):
         if not isinstance(item, dict):
             continue
@@ -179,10 +179,22 @@ def bounded_service_links(base_url: str, values: Any) -> list[dict[str, str]]:
         if len(url.encode("utf-8")) > SERVICE_URL_ITEM_MAX_BYTES:
             continue
         text = bounded_utf8_text(str(item.get("text") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
-        if not url or (url, text) in seen:
+        aria_label = bounded_utf8_text(str(item.get("aria_label") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
+        title = bounded_utf8_text(str(item.get("title") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
+        key = (url, text, aria_label, title)
+        if not url or key in seen:
             continue
-        seen.add((url, text))
-        candidates.append((service_link_priority(base_url, url, text), ordinal, {"url": url, "text": text}))
+        seen.add(key)
+        bounded_link = {"url": url, "text": text}
+        if aria_label:
+            bounded_link["aria_label"] = aria_label
+        if title:
+            bounded_link["title"] = title
+        candidates.append((
+            service_link_priority(base_url, url, " ".join(value for value in (text, aria_label, title) if value)),
+            ordinal,
+            bounded_link,
+        ))
     return bounded_json_items(
         candidates,
         max_count=SERVICE_LINK_MAX_COUNT,
@@ -275,9 +287,13 @@ def collect_service_probe_evidence(
         if not isinstance(link, dict):
             continue
         url = str(link.get("url") or link.get("href") or "").rstrip("/")
-        label = str(link.get("text") or "").lower()
+        label = " ".join(
+            str(link.get(key) or "") for key in ("text", "aria_label", "title")
+        ).lower()
         host = urllib.parse.urlparse(url).netloc.lower()
-        if host in {"github.com", "tangled.org"} and any(token in label for token in ("source", "repo", "repository", "code")):
+        if host in {"github.com", "tangled.org"} and re.search(
+            r"\b(?:source(?:\s+code)?|repo|repository|repositories|monorepo)\b", label
+        ):
             bundle.add_record(relation_record(
                 source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
                 subject_type="website", subject_value=requested_url.rstrip("/"), predicate="source_repository",
