@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- primary role統合とproject state/save境界の`project_record.py`への分離まで完了しました。
+- promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業

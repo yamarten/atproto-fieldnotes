@@ -25,9 +25,7 @@
 
 ## 実施順の依存関係
 
-- queue builder の分割は、queue policy の契約と sample review を先に用意してから行う
 - LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
-- contextualの順位・表示調整は、current service observationの投影規則を先に固め、不安定な入力をscoreで埋め合わせない
 - app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
 
 ## 条件付き短期候補

@@ -165,20 +165,18 @@ record を対応づける履歴です。
 
 - `replay-investigation`: 保存 run の integration / evaluation を network なしで再実行し semantic diff を出す
 - `benchmark-investigation`: fixture corpus を一括評価し relation/evaluation の退行を報告する
-- manual goldのpromotion evaluator testは全caseを実queue生成処理へ通し、visibility、service evidence、手動priority、signal、score breakdown、候補集合全体の相対順位を評価する
+- manual goldのpromotion evaluator testは全caseを実queue生成処理へ通し、policy、signal、score breakdown、候補集合全体の相対順位を評価する
 - `export-investigation-fixture`: 保存 run を sanitize 対象の fixture 形式へ出力する
 - executable corpusは通常replay 6 caseに、operator correctionのblock/defer/confirm 3 caseを加えた9 caseを持つ
 - `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 case、promotionのexclude / queue / deprioritize 14 case、紹介済みのpositive reference 5 caseを持つ
-- `browser-service-calibration-v1.json`はJuntos / Echosky / Moat / gmstn.systems / WhiteWindの描画後page要約と期待browser evidenceを5 caseに固定する
+- `browser-service-calibration-v1.json`は描画後page要約と期待browser evidenceを5 caseに固定する
 
 fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。
 自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、
 local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去します。export結果にはmanual review必須markerを
 付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
 
-manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを
-保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseはoperatorが期待する
-`exclude / queue / deprioritize`を保持します。out-of-scopeの除外、Echosky / Mathrのservice-confirmed、Juntos / Moat / gmstn.systems / atShareのvalidation候補は現行policyとtestで確認します。`deprioritize`は同じ保存事実から機械推定できない手動判断なので、明示判断がなければ`priority_group=normal`、operator assertionを与えた後だけ`lowered`となることを回帰条件にします。operatorが残したreasonと機械policyの期待値は分け、後者は`expected_policy`、候補集合全体の順序は`promotion_queue_expectation`に固定します。個別の扱いはfixtureのreasonとevidence summaryに保持します。positive referenceはBluesky / rolldのservice紹介とstandard.site / idiolectの技術的価値を分け、meyasuatの地域性は自動スコアではなくmanual contextに留めます。
+manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseは`exclude / queue / deprioritize`を保持します。`deprioritize`は保存事実から機械推定せず、operator assertion後だけ`priority_group=lowered`となります。機械policyは`expected_policy`、候補集合全体の順序は`promotion_queue_expectation`、個別判断はfixtureのreasonとevidence summaryを正本とします。地域性など機械化しない基準はmanual contextに留めます。
 
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
 
