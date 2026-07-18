@@ -140,6 +140,7 @@ def enrich_project(
     initial_repo_urls = unique_list(source_code_url_values(project))
     collected_github_repo_urls: set[str] = set()
     collected_tangled_repo_urls: set[str] = set()
+    trust_inspected_repo_urls: set[str] = set()
     for repo_url in initial_repo_urls:
         if repo_url_core.extract_github_slug(repo_url) is not None:
             normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
@@ -253,6 +254,7 @@ def enrich_project(
                     ))
 
     for repo_url in candidate_repo_trust_probe_urls(project):
+        trust_inspected_repo_urls.add(repo_url)
         provider = repo_url_core.infer_repo_provider(repo_url)
         try:
             if provider == "github":
@@ -400,6 +402,32 @@ def enrich_project(
         apply_llm_output(project, payload, meta, evidence)
     except Exception as exc:
         note_failure(project, f"LLM review failed: {exc}")
+
+    for repo_url in candidate_repo_trust_probe_urls(project):
+        if repo_url in trust_inspected_repo_urls or repo_url in source_code_url_values(project):
+            continue
+        trust_inspected_repo_urls.add(repo_url)
+        provider = repo_url_core.infer_repo_provider(repo_url)
+        try:
+            if provider == "github":
+                trust_evidence = collect_github_repo_evidence(project, repo_url, trust_only=True)
+            elif provider == "tangled":
+                trust_evidence = collect_tangled_repo_evidence(project, repo_url, trust_only=True)
+            else:
+                continue
+            run_evidence.extend(trust_evidence)
+            apply_candidate_repo_trust_evidence(project, repo_url, trust_evidence)
+            confirm_source_code_url_with_trust(
+                project,
+                repo_url,
+                "candidate_repo_trust_inspection",
+                relation="mutual_first_party_link",
+                reason="LLM relationship assessment and current reverse link support the same project",
+                evidence_kind="candidate_repo_trust_inspection",
+                evidence_url=repo_url,
+            )
+        except Exception as exc:
+            note_failure(project, f"candidate repository trust inspection failed for {repo_url}: {exc}")
 
     phase_timings["triage_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     phase_started = time.perf_counter()

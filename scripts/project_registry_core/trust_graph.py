@@ -180,6 +180,34 @@ def upsert_edge(
     return candidate
 
 
+def remove_edges(
+    project: dict[str, Any],
+    *,
+    predicate: str = "",
+    source: str = "",
+    locator: str = "",
+    methods: set[str] | None = None,
+) -> int:
+    current = graph(project)
+    retained: list[dict[str, Any]] = []
+    removed = 0
+    for edge in current.get("edges", []):
+        matches = (
+            (not predicate or str(edge.get("predicate") or "") == predicate)
+            and (not source or str(edge.get("source") or "") == source)
+            and (not locator or str(edge.get("locator") or "") == locator)
+            and (methods is None or str(edge.get("method") or "") in methods)
+        )
+        if matches:
+            removed += 1
+        else:
+            retained.append(edge)
+    if removed:
+        current["edges"] = retained
+        set_graph(project, current)
+    return removed
+
+
 def auto_confirm_edges(
     edges: Iterable[Mapping[str, Any]],
     *,

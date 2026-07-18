@@ -755,6 +755,19 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
 
 
 class ProjectRegistrySameSiteTest(unittest.TestCase):
+    def test_extract_links_preserves_accessible_icon_label(self) -> None:
+        links = registry.extract_links(
+            '<a href="https://github.com/example/app" aria-label="Source code" title="GitHub"></a>',
+            "https://app.example.com",
+        )
+
+        self.assertEqual(links, [{
+            "url": "https://github.com/example/app",
+            "text": "",
+            "aria_label": "Source code",
+            "title": "GitHub",
+        }])
+
     def test_registrable_domain_uses_vendored_psl_rules(self) -> None:
         self.assertEqual(domain_policy.root_domain("api.example.co.uk"), "example.co.uk")
         self.assertEqual(domain_policy.root_domain("www.city.kawasaki.jp"), "city.kawasaki.jp")
@@ -777,6 +790,16 @@ class ProjectRegistrySameSiteTest(unittest.TestCase):
                 "https://app.example.com",
                 "https://app.attacker.net/about",
                 "About this project",
+            ),
+            "other",
+        )
+
+    def test_report_link_is_not_mistaken_for_repo_marker(self) -> None:
+        self.assertEqual(
+            registry.classify_official_link(
+                "https://app.example.com",
+                "https://github.com/example/framework",
+                "Report a bug",
             ),
             "other",
         )
@@ -1669,7 +1692,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertFalse(registry.service_probe_supports_project(project, "https://kimbia.mwco.app", result))
 
-    def test_unlabelled_first_party_tangled_repo_link_becomes_candidate_when_repo_matches_service(self) -> None:
+    def test_unlabelled_first_party_tangled_repo_link_waits_for_llm_before_trust_probe(self) -> None:
         project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
         project["name"] = "Seams"
         project["website_url"] = "https://seams.so"
@@ -1686,6 +1709,16 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             project["candidate_source_code_urls"],
             ["https://tangled.org/sealight.xyz/seams.so"],
         )
+        self.assertEqual(registry.candidate_repo_trust_probe_urls(project), [])
+        evidence = registry.build_llm_evidence_bundle(project)
+        registry.apply_repository_link_assessments(project, {
+            "repository_link_assessments": [{
+                "service_url": "https://seams.so",
+                "repo_url": "https://tangled.org/sealight.xyz/seams.so",
+                "relationship": "same_project",
+                "reason": "The names and first-party link identify the same project.",
+            }],
+        }, evidence)
         self.assertEqual(
             registry.candidate_repo_trust_probe_urls(project),
             ["https://tangled.org/sealight.xyz/seams.so"],
@@ -1704,6 +1737,15 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             "service_page:https://seams.so",
         )
         repo_url = project["candidate_source_code_urls"][0]
+        evidence = registry.build_llm_evidence_bundle(project)
+        registry.apply_repository_link_assessments(project, {
+            "repository_link_assessments": [{
+                "service_url": "https://seams.so",
+                "repo_url": repo_url,
+                "relationship": "same_project",
+                "reason": "The names and first-party link identify the same project.",
+            }],
+        }, evidence)
 
         with mock.patch.object(
             registry,
@@ -1823,6 +1865,121 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         }
 
         self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
+
+    def test_ambiguous_repo_link_waits_for_llm_relationship_assessment(self) -> None:
+        project = project_record.default_project_record("proj:ambiguousreposervice", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                "predicate": "source_repository",
+                "object": {"type": "website", "value": "https://app.example.com"},
+                "locator": "README",
+                "method": "github_homepage",
+            },
+            "source": "github_repo_metadata:https://github.com/example/app",
+            "classification": "candidate",
+        }]
+        result = {
+            "status_code": 200,
+            "title": "Example App",
+            "description": "Project homepage.",
+            "html": "Project homepage.",
+            "links": [{"url": "https://github.com/example/app", "text": "GitHub"}],
+        }
+
+        self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
+        evidence = registry.build_llm_evidence_bundle(project)
+        self.assertEqual(len(evidence["repository_link_candidates"]), 1)
+
+        registry.apply_llm_output(project, {
+            "repository_link_assessments": [{
+                "service_url": "https://app.example.com",
+                "repo_url": "https://github.com/example/app",
+                "relationship": "same_project",
+                "reason": "The page and repository describe Example App.",
+            }],
+        }, {}, evidence)
+
+        self.assertEqual(project["website_url"], "https://app.example.com")
+        self.assertIn("https://app.example.com", project["service_urls"])
+
+    def test_related_repo_link_does_not_complete_trust_path(self) -> None:
+        project = project_record.default_project_record("proj:relatedreposervice", "repo_url", "https://github.com/example/plugin")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/plugin", source="test")
+        project["source_code_urls"] = ["https://github.com/example/plugin"]
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "repo", "value": "https://github.com/example/plugin"},
+                "predicate": "source_repository",
+                "object": {"type": "website", "value": "https://framework.example"},
+                "locator": "README",
+                "method": "github_homepage",
+            },
+            "source": "github_repo_metadata:https://github.com/example/plugin",
+            "classification": "candidate",
+        }]
+        registry.service_probe_supports_project(project, "https://framework.example", {
+            "status_code": 200,
+            "title": "Framework",
+            "description": "Extensions for Framework.",
+            "html": "Extensions for Framework.",
+            "links": [{"url": "https://github.com/example/plugin", "text": "plugin"}],
+        })
+        evidence = registry.build_llm_evidence_bundle(project)
+
+        registry.apply_llm_output(project, {
+            "repository_link_assessments": [{
+                "service_url": "https://framework.example",
+                "repo_url": "https://github.com/example/plugin",
+                "relationship": "related",
+                "reason": "The repository is one extension listed by the framework site.",
+            }],
+        }, {}, evidence)
+
+        self.assertNotEqual(project["website_url"], "https://framework.example")
+        self.assertNotIn("https://framework.example", project["service_urls"])
+
+    def test_reprobe_replaces_previous_explicit_source_link_classification(self) -> None:
+        project = project_record.default_project_record("proj:reprobeservice", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                "predicate": "source_repository",
+                "object": {"type": "website", "value": "https://app.example.com"},
+                "locator": "README",
+                "method": "github_homepage",
+            },
+            "source": "github_repo_metadata:https://github.com/example/app",
+            "classification": "candidate",
+        }]
+        base_result = {
+            "status_code": 200,
+            "title": "Example App",
+            "description": "Project homepage.",
+            "html": "Project homepage.",
+        }
+
+        self.assertTrue(registry.service_probe_supports_project(project, "https://app.example.com", {
+            **base_result,
+            "links": [{"url": "https://github.com/example/app", "text": "Source"}],
+        }))
+        registry.service_probe_supports_project(project, "https://app.example.com", {
+            **base_result,
+            "links": [{"url": "https://github.com/example/app", "text": "plugin"}],
+        })
+        matching_edges = [
+            edge
+            for edge in registry.trust_graph_core.graph(project).get("edges", [])
+            if edge.get("predicate") == "service_links_repo"
+            and edge.get("source") == "service_probe:https://app.example.com"
+        ]
+        self.assertEqual(len(matching_edges), 1)
+        self.assertEqual(matching_edges[0]["classification"], "candidate")
+        self.assertFalse(matching_edges[0]["eligible_for_auto_confirm"])
 
     def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
         project = project_record.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")

@@ -3429,6 +3429,7 @@ class AnchorExtractor(HTMLParser):
         self.links: list[dict[str, str]] = []
         self._href: str | None = None
         self._text_parts: list[str] = []
+        self._link_attributes: dict[str, str] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag.lower() != "a":
@@ -3439,6 +3440,10 @@ class AnchorExtractor(HTMLParser):
             return
         self._href = urllib.parse.urljoin(self.base_url, href)
         self._text_parts = []
+        self._link_attributes = {
+            "aria_label": unescape(attr_map.get("aria-label", "").strip()),
+            "title": unescape(attr_map.get("title", "").strip()),
+        }
 
     def handle_data(self, data: str) -> None:
         if self._href is not None:
@@ -3448,37 +3453,53 @@ class AnchorExtractor(HTMLParser):
         if tag.lower() != "a" or self._href is None:
             return
         text = unescape(re.sub(r"\s+", " ", "".join(self._text_parts)).strip())
-        self.links.append({"url": self._href, "text": text})
+        self.links.append({"url": self._href, "text": text, **self._link_attributes})
         self._href = None
         self._text_parts = []
+        self._link_attributes = {}
 
 
 def extract_links(html: str, base_url: str) -> list[dict[str, str]]:
     parser = AnchorExtractor(base_url)
     parser.feed(html)
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     output: list[dict[str, str]] = []
     for item in parser.links:
         url = identifier_core.normalize_url(item["url"])
         text = item["text"]
-        key = (url, text)
+        aria_label = item.get("aria_label", "")
+        title = item.get("title", "")
+        key = (url, text, aria_label, title)
         if key in seen:
             continue
         seen.add(key)
-        output.append({"url": url, "text": text})
+        output.append({"url": url, "text": text, "aria_label": aria_label, "title": title})
     return output
+
+
+def link_label(link: dict[str, Any]) -> str:
+    return " ".join(
+        value
+        for value in (
+            str(link.get("text") or "").strip(),
+            str(link.get("aria_label") or "").strip(),
+            str(link.get("title") or "").strip(),
+        )
+        if value
+    )
 
 
 def classify_official_link(base_url: str, url: str, text: str) -> str:
     normalized = identifier_core.normalize_url(url)
     lowered_text = text.lower()
     lowered_url = normalized.lower()
+    source_marker = bool(re.search(r"\b(?:source(?:\s+code)?|repo|repository|repositories|monorepo)\b", lowered_text))
     if project_record.is_bluesky_profile_url(normalized):
         return "bluesky_profile"
     if repo_url_core.is_supported_repo_url(normalized):
-        if any(token in lowered_text for token in ["source", "view source", "repo", "repository", "monorepo"]):
+        if source_marker:
             return "source_repo"
-    if any(token in lowered_text for token in ["source", "view source", "monorepo"]):
+    if re.search(r"\b(?:source(?:\s+code)?|monorepo)\b", lowered_text):
         return "source_like"
     if "docs" in lowered_text or "/docs" in lowered_url or normalized.startswith("https://docs."):
         return "docs"
@@ -5189,6 +5210,20 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
     if not host or service_probe_looks_parked(result):
         return False
     sync_trust_edges_from_project_relations(project)
+    normalized_service_url = identifier_core.normalize_url(service_url)
+    trust_graph_core.remove_edges(
+        project,
+        predicate="service_links_repo",
+        source=f"service_probe:{normalized_service_url}",
+        locator=normalized_service_url,
+        methods={"html_link"},
+    )
+    relevant_repos = {
+        repo_url_core.canonical_repo_url(str(value or ""))
+        for value in list(project_record.source_code_url_values(project))
+        + list(project.get("candidate_source_code_urls", []))
+        if repo_url_core.canonical_repo_url(str(value or ""))
+    }
     for link in result.get("links", []):
         if not isinstance(link, dict):
             continue
@@ -5196,7 +5231,13 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
         if not url:
             continue
         repo_url = repo_url_core.canonical_repo_url(url)
-        if repo_url_core.normalize_github_repo_url(url) and repo_url:
+        if (
+            repo_url_core.is_supported_repo_url(url)
+            and repo_url
+            and (repo_url in relevant_repos or repo_link_matches_project_identity(project, repo_url))
+        ):
+            label = link_label(link)
+            explicit_source_link = classify_official_link(service_url, repo_url, label) == "source_repo"
             project_record.record_trust_edge(
                 project,
                 "service_url",
@@ -5207,10 +5248,16 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
                 source=f"service_probe:{identifier_core.normalize_url(service_url)}",
                 locator=identifier_core.normalize_url(service_url),
                 method="html_link",
-                classification="confirmed",
-                eligible_for_auto_confirm=True,
+                classification="confirmed" if explicit_source_link else "candidate",
+                eligible_for_auto_confirm=explicit_source_link,
                 observed_at=project_record.iso_now(),
-                context={"link_text": str(link.get("text") or "")[:200]},
+                context={
+                    "link_text": str(link.get("text") or "")[:200],
+                    "aria_label": str(link.get("aria_label") or "")[:200],
+                    "link_title": str(link.get("title") or "")[:200],
+                    "page_title": str(result.get("title") or "")[:300],
+                    "page_description": str(result.get("description") or "")[:1000],
+                },
             )
         if trust_auto_confirm_identifier(project, "service_url", service_url).get("auto_confirm"):
             return True
@@ -5355,9 +5402,16 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
 
 def collect_first_party_links(project: dict[str, Any], base_url: str, links: list[dict[str, str]], source: str) -> list[str]:
     follow_up_urls: list[str] = []
+    trust_graph_core.remove_edges(
+        project,
+        predicate="service_links_repo",
+        source=source,
+        locator=identifier_core.normalize_url(base_url),
+        methods={"first_party_link", "first_party_repo_identity_match", "same_site_link"},
+    )
     for link in links:
         url = identifier_core.normalize_url(link.get("url", ""))
-        text = str(link.get("text", "") or "")
+        text = link_label(link)
         if not url:
             continue
         classification = classify_official_link(base_url, url, text)
@@ -5446,8 +5500,8 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
                 source=source,
                 locator=base_url,
                 method="first_party_repo_identity_match",
-                classification="confirmed",
-                eligible_for_auto_confirm=True,
+                classification="candidate",
+                eligible_for_auto_confirm=False,
                 observed_at=project_record.iso_now(),
                 context={"link_text": text[:200]},
             )
@@ -6957,6 +7011,42 @@ def build_llm_evidence_bundle(
             for url in project.get("candidate_source_code_urls", [])
             if repo_candidate_allowed_for_project(project, str(url or ""))
         ]
+    relationship_candidates: list[dict[str, str]] = []
+    relationship_indexes: set[tuple[str, str]] = set()
+    relevant_repos = {
+        repo_url_core.canonical_repo_url(str(value or ""))
+        for value in list(project_record.source_code_url_values(project))
+        + list(project.get("candidate_source_code_urls", []))
+        if repo_url_core.canonical_repo_url(str(value or ""))
+    }
+    for edge in trust_graph_core.graph(project).get("edges", []):
+        subject = edge.get("subject") if isinstance(edge.get("subject"), dict) else {}
+        obj = edge.get("object") if isinstance(edge.get("object"), dict) else {}
+        repo_url = repo_url_core.canonical_repo_url(str(obj.get("value") or ""))
+        service_url = identifier_core.normalize_url(str(subject.get("value") or ""))
+        if (
+            edge.get("predicate") != "service_links_repo"
+            or edge.get("classification") != "candidate"
+            or edge.get("eligible_for_auto_confirm")
+            or subject.get("kind") != "service_url"
+            or obj.get("kind") != "repo_url"
+            or not service_url
+            or not repo_url
+            or repo_url not in relevant_repos
+            or (service_url, repo_url) in relationship_indexes
+        ):
+            continue
+        context = edge.get("context") if isinstance(edge.get("context"), dict) else {}
+        relationship_indexes.add((service_url, repo_url))
+        relationship_candidates.append({
+            "service_url": service_url,
+            "repo_url": repo_url,
+            "link_text": str(context.get("link_text") or ""),
+            "aria_label": str(context.get("aria_label") or ""),
+            "link_title": str(context.get("link_title") or ""),
+            "page_title": str(context.get("page_title") or ""),
+            "page_description": str(context.get("page_description") or ""),
+        })
     evidence = {
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
@@ -6992,6 +7082,7 @@ def build_llm_evidence_bundle(
         "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
         "candidate_source_code_urls": candidate_repo_urls[:2],
+        "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
         "developer_accounts": project.get("developer_accounts", []),
@@ -7133,6 +7224,62 @@ def clean_human_string_list(values: Any, *, limit: int | None = None) -> list[st
     if limit is not None:
         output = output[:limit]
     return project_record.unique_list(output)
+
+
+def apply_repository_link_assessments(
+    project: dict[str, Any],
+    payload: dict[str, Any],
+    evidence: dict[str, Any],
+) -> None:
+    allowed_pairs = {
+        (
+            identifier_core.normalize_url(str(item.get("service_url") or "")),
+            repo_url_core.canonical_repo_url(str(item.get("repo_url") or "")),
+        )
+        for item in evidence.get("repository_link_candidates", [])
+        if isinstance(item, dict)
+    }
+    for service_url, _repo_url in allowed_pairs:
+        trust_graph_core.remove_edges(
+            project,
+            predicate="service_links_repo",
+            source=f"llm_repository_relationship:{service_url}",
+            locator=service_url,
+            methods={"llm_same_project"},
+        )
+    for item in payload.get("repository_link_assessments", []):
+        if not isinstance(item, dict) or str(item.get("relationship") or "") != "same_project":
+            continue
+        service_url = identifier_core.normalize_url(str(item.get("service_url") or ""))
+        repo_url = repo_url_core.canonical_repo_url(str(item.get("repo_url") or ""))
+        if not service_url or not repo_url or (service_url, repo_url) not in allowed_pairs:
+            continue
+        reason = project_record.normalize_ja_en_mixed_spacing(str(item.get("reason") or "").strip())
+        project_record.record_trust_edge(
+            project,
+            "service_url",
+            service_url,
+            "service_links_repo",
+            "repo_url",
+            repo_url,
+            source=f"llm_repository_relationship:{service_url}",
+            locator=service_url,
+            method="llm_same_project",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=project_record.iso_now(),
+            context={"relationship": "same_project", "reason": reason[:500]},
+        )
+        confirm_service_url_with_trust(project, service_url)
+        confirm_source_code_url_with_trust(
+            project,
+            repo_url,
+            "llm_repository_relationship",
+            relation="mutual_first_party_link",
+            reason=reason or "LLM classified the bounded service/repository evidence as the same project",
+            evidence_kind="llm_repository_relationship",
+            evidence_url=service_url,
+        )
 
 
 def clean_search_query(value: str) -> str:
@@ -7449,6 +7596,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         "evidence": evidence,
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
+    apply_repository_link_assessments(project, payload, evidence)
     name = str(payload.get("name") or "").strip()
     if name:
         add_name_candidate(project, name, "llm_output")

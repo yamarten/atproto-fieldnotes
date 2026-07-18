@@ -112,7 +112,7 @@ URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true`
 
 first-party page上の外部リンクは、通常はanchor textの`source` / `repository`等でsource repository候補と外部参照を区別します。iconだけでanchor textが空の場合も、対応providerのrepository URLで、repository名がproject名またはconfirmed service hostと一致する時だけcandidateとして記録します。この一致は候補化と`service -> repo`の観測にだけ使い、単独ではconfirmしません。
 
-candidate repositoryは通常のrepository enrich、project nameのidentity token、LLM triage evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。逆向きlinkが同じprojectのconfirmed serviceと一致して相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めてdescription、repository名、lexicon hint等を通常enrichへ適用します。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
+candidate repositoryは通常のrepository enrich、project nameのidentity token、紹介文生成用のLLM evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。service側のリンクが`Source`等で明示されていれば決定的な逆向きedgeとし、曖昧なら既に当該projectのconfirmed/candidate repoである組だけを通常triageの関係判定へ渡します。この専用入力にはURL、link text、`aria-label` / `title`、service pageのtitle/descriptionだけを含め、candidate repoのdescription、repository名、lexicon hint等は含めません。LLMの`same_project`判定とrepo側の現行逆リンクで相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めて通常repo contentを適用します。`related` / `uncertain`は昇格させません。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
 
 collection ownership は、manual NSID seed、または confirmed developer DID との相互 trust path がある場合だけ成立します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
 
@@ -378,7 +378,10 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。
   異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 - `service_probe_supports_project()` は `trust-graph-v1` の URL 相互信頼で判定します
-  - service page の GitHub repo link は `service_links_repo`
+  - service page の GitHub / Tangled repo link は `service_links_repo`
+  - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
+  - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
+  - service probe由来edgeは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
   - GitHub repository metadata の homepage は `repo_links_service`
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
   - manual service seed の host そのものは operator anchor として support します

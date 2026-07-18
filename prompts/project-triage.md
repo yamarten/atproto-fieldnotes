@@ -47,6 +47,12 @@ Output schema:
   "manual_review_kind": "other | editorial_refresh | deep_source_material | service_status_manual_check | identity_resolution | category_recheck",
   "manual_review_priority": "none | low | medium | high",
   "manual_review_reason": "string",
+  "repository_link_assessments": [{
+    "service_url": "string",
+    "repo_url": "string",
+    "relationship": "same_project | related | uncertain",
+    "reason": "string"
+  }],
   "confidence": 0.0
 }
 
@@ -71,6 +77,8 @@ Language requirements:
 - Compare `current_profile` with the strongest current evidence. Keep its wording when the evidence has not materially improved, but update it when stronger sources correct or substantially expand the previous explanation
 - `manual_review_priority`: use `high` for likely high-value manual review, `medium` for useful but not urgent review, `low` for optional review, `none` when no manual review is recommended
 - `manual_review_reason`: Japanese short explanation of what the human should inspect and why
+- `repository_link_assessments`: assess every item in `repository_link_candidates`; use `same_project` only when the page and repository identify the same project, `related` for dependencies, inspirations, extension listings, templates, special thanks, or source code of a containing website, and `uncertain` when the bounded evidence is insufficient
+- `repository_link_assessments`: copy `service_url` and `repo_url` exactly from the corresponding evidence item; do not add repositories that are not listed there
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
