@@ -8732,7 +8732,7 @@ def compute_showcase_signals(
         allowed_service_categories.add("personal_tool")
     if (
         category in allowed_service_categories
-        and service_status in {"live", "beta", "invite_only"}
+        and service_status in {"live", "beta", "invite_only", "unverified"}
     ):
         if service_is_derivative_bluesky_tool(shaped):
             return signals
@@ -8750,10 +8750,13 @@ def compute_showcase_signals(
                 "beta_text_detected",
             }
             surface_confirmed = (
-                service_status_confidence in {"medium", "high"}
+                service_status != "unverified"
+                and service_status_confidence in {"medium", "high"}
                 and bool(service_status_evidence & usable_surface_evidence)
             )
             validation_reasons: list[str] = []
+            if service_status == "unverified":
+                validation_reasons.append("service_status_unverified")
             if service_status_confidence not in {"medium", "high"}:
                 validation_reasons.append("low_service_status_confidence")
             if not service_status_evidence & usable_surface_evidence:

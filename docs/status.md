@@ -116,7 +116,7 @@
   - browser laneは表示中の匿名menu展開、auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceにし、link到達や作成CTAだけではservice surfaceを確定しない
   - promotion caseのうちout-of-scope除外、Echosky / Mathrのsurface-confirmed、Juntos / Moat / gmstn.systems / atShareのvalidation候補を確認。優先度を下げる判断は明示assertion後だけpriorityへ反映する
 - promotion queueの独立signal
-  - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。正本DBで160候補のうち前者78件、後者66件
+  - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。`unverified`でも確認済みwebsite/serviceを持つprojectは一覧から除外せず、必ず要validationに留める
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
   - application/Web APIのqueue itemはcandidate visibility、service evidence group、manual priority group、score breakdownを別fieldで返す
   - activeな`defer_promotion`はproject全体を期限付きで非表示にし、serviceのvalidation状態は候補を残したまま個別signalへ作用する

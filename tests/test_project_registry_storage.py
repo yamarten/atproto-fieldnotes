@@ -1585,6 +1585,24 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ["low_service_status_confidence", "usable_surface_unconfirmed"],
         )
 
+    def test_unverified_service_remains_validation_candidate_even_with_usable_surface_evidence(self) -> None:
+        project = self.make_project("proj:unverified", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "unverified",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["service_status_unverified"],
+        )
+
     def test_docs_only_service_is_validation_candidate(self) -> None:
         project = self.make_project("proj:docsonly", "service_url", "https://example.com")
         project.update({
