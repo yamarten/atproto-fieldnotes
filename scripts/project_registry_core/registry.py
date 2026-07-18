@@ -2900,7 +2900,9 @@ def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> 
     lowered = value.lower()
     normalized_token = identifier_core.normalize_alias_token(value)
     source_rank = 10
-    if source.startswith("service_title:"):
+    if source == "operator_edit":
+        source_rank = 100
+    elif source.startswith("service_title:"):
         source_rank = 90
     elif source == "llm_output":
         source_rank = 80
@@ -5400,7 +5402,95 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
     add_candidate_url(project, "website_url", final_url)
 
 
-def collect_first_party_links(project: dict[str, Any], base_url: str, links: list[dict[str, str]], source: str) -> list[str]:
+def service_observation_source_url(source: str, prefixes: set[str]) -> str:
+    prefix, separator, raw_url = str(source or "").partition(":")
+    if not separator or prefix not in prefixes:
+        return ""
+    return identifier_core.normalize_url(raw_url)
+
+
+def remove_unsupported_service_surface_evidence(project: dict[str, Any], service_url: str) -> None:
+    normalized_service_url = identifier_core.normalize_url(service_url)
+    service_path = urllib.parse.urlparse(normalized_service_url).path.rstrip("/")
+    remove_same_site_follow_ups = not service_path
+
+    def is_same_surface_source(source: str, prefixes: set[str], *, include_same_site: bool = False) -> bool:
+        source_url = service_observation_source_url(source, prefixes)
+        if not source_url:
+            return False
+        if source_url == normalized_service_url:
+            return True
+        return include_same_site and domain_policy_core.is_same_site_family(normalized_service_url, source_url)
+
+    project["resource_url_records"] = project_record.normalize_resource_url_records([
+        record
+        for record in project_record.normalize_resource_url_records(list(project.get("resource_url_records", [])))
+        if not is_same_surface_source(
+            str(record.get("source") or ""),
+            {"service_page", "service_follow_up"},
+            include_same_site=remove_same_site_follow_ups,
+        )
+    ])
+    removed_account_handles: set[str] = set()
+    for field_name in ("developer_accounts", "candidate_developer_accounts"):
+        accounts = project_record.normalize_developer_accounts(list(project.get(field_name, [])))
+        kept_accounts = [
+            account
+            for account in accounts
+            if not is_same_surface_source(
+                str(account.get("source") or ""),
+                {"service_raw_url", "service_page", "service_follow_up"},
+            )
+        ]
+        removed_account_handles.update(
+            str(account.get("handle") or "").strip().lower()
+            for account in accounts
+            if account not in kept_accounts and str(account.get("handle") or "").strip()
+        )
+        project[field_name] = project_record.normalize_developer_accounts(kept_accounts)
+    surviving_account_handles = {
+        str(account.get("handle") or "").strip().lower()
+        for field_name in ("developer_accounts", "candidate_developer_accounts")
+        for account in project.get(field_name, [])
+        if str(account.get("handle") or "").strip()
+    }
+    project["bluesky_handles"] = [
+        handle
+        for handle in project_record.unique_list(project.get("bluesky_handles", []))
+        if str(handle or "").strip().lower() not in removed_account_handles
+        or str(handle or "").strip().lower() in surviving_account_handles
+    ]
+    for field_name in ("name_candidates", "summary_candidates", "tagline_candidates"):
+        project[field_name] = [
+            item
+            for item in project.get(field_name, [])
+            if isinstance(item, dict)
+            and not is_same_surface_source(
+                str(item.get("source") or ""),
+                {"service_title", "service_meta"},
+            )
+        ]
+    project_record.sync_resource_url_records(project)
+
+
+def remove_related_repository_service_surfaces(project: dict[str, Any]) -> None:
+    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+    for item in llm_output.get("repository_link_assessments", []):
+        if not isinstance(item, dict) or str(item.get("relationship") or "") != "related":
+            continue
+        service_url = identifier_core.normalize_url(str(item.get("service_url") or ""))
+        if service_url:
+            remove_unsupported_service_surface_evidence(project, service_url)
+
+
+def collect_first_party_links(
+    project: dict[str, Any],
+    base_url: str,
+    links: list[dict[str, str]],
+    source: str,
+    *,
+    collect_surfaces: bool = True,
+) -> list[str]:
     follow_up_urls: list[str] = []
     trust_graph_core.remove_edges(
         project,
@@ -5413,6 +5503,8 @@ def collect_first_party_links(project: dict[str, Any], base_url: str, links: lis
         url = identifier_core.normalize_url(link.get("url", ""))
         text = link_label(link)
         if not url:
+            continue
+        if not collect_surfaces and not repo_url_core.is_supported_repo_url(url):
             continue
         classification = classify_official_link(base_url, url, text)
         if classification == "source_repo":
@@ -6490,6 +6582,8 @@ def apply_service_probe_result(
         if "supports_project" in result
         else service_probe_supports_project(project, service_url, result)
     )
+    if not supported:
+        remove_unsupported_service_surface_evidence(project, service_url)
     host = urllib.parse.urlparse(identifier_core.normalize_url(service_url)).netloc.lower()
     if supported:
         if title and host not in naming_core.GENERIC_PLATFORM_HOSTS:
@@ -6597,9 +6691,15 @@ def apply_service_probe_result(
         ]
         project["failed_service_urls"] = project_record.add_unique(project.get("failed_service_urls", []), normalized_service_url)
     for url in result["urls"]:
-        if project_record.is_bluesky_profile_url(url):
+        if supported and project_record.is_bluesky_profile_url(url):
             project_record.record_developer_profile_url(project, url, f"service_raw_url:{normalized_service_url}")
-    follow_ups = collect_first_party_links(project, normalized_service_url, result.get("links", []), f"service_page:{normalized_service_url}")
+    follow_ups = collect_first_party_links(
+        project,
+        normalized_service_url,
+        result.get("links", []),
+        f"service_page:{normalized_service_url}",
+        collect_surfaces=supported,
+    )
     for follow_url in follow_ups[:3] if collect_follow_ups else []:
         try:
             nested = probe_service_url(follow_url, timeout=follow_up_timeout)
@@ -7431,13 +7531,18 @@ def collect_service_evidence_with_followups(
     *,
     lane: str = "static",
 ) -> EvidenceBundle:
+    supports_project = service_probe_supports_project(project, service_url, result)
     bundle = service_core.collect_service_probe_evidence(
         str(project.get("project_key") or ""), service_url, result, observed_at=project_record.iso_now(), lane=lane,
-        supports_project=service_probe_supports_project(project, service_url, result),
+        supports_project=supports_project,
     )
     working = copy.deepcopy(project)
     follow_urls = collect_first_party_links(
-        working, identifier_core.normalize_url(service_url), result.get("links", []), f"service_page:{identifier_core.normalize_url(service_url)}"
+        working,
+        identifier_core.normalize_url(service_url),
+        result.get("links", []),
+        f"service_page:{identifier_core.normalize_url(service_url)}",
+        collect_surfaces=supports_project,
     )
     for follow_url in follow_urls[:3]:
         try:
@@ -9779,6 +9884,7 @@ def register_project_merge_alias(
 def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
+    remove_related_repository_service_surfaces(project)
     purge_supporting_page_service_observations(project)
     purge_guarded_service_observations(project)
     purge_guarded_service_relations(project)

@@ -1321,6 +1321,18 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(applied["detail"]["project"]["name"], "Edited App")
         self.assertEqual(applied["detail"]["project"]["introduced_url"], introduced_url)
         self.assertEqual(applied["detail"]["project"]["profile"]["core"]["notes"], "operator note")
+        conn = registry.open_db()
+        try:
+            edited_project = project_record.fetch_project(conn, "proj:111111111111")
+        finally:
+            conn.close()
+        self.assertIn(
+            {"value": "Edited App", "source": "operator_edit"},
+            [
+                {"value": item.get("value"), "source": item.get("source")}
+                for item in edited_project["name_candidates"]
+            ],
+        )
 
         status, stale, _ = self.request(
             "/api/projects/proj:111111111111/profile",

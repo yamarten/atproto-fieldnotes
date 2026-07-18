@@ -559,6 +559,17 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
 
         self.assertEqual(registry.choose_best_project_name(project), "atproto-visualizers")
 
+    def test_operator_edited_name_outranks_generated_candidates(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "mastrojs/atproto", "source": "operator_edit"},
+                {"value": "atproto", "source": "llm_output"},
+                {"value": "atproto", "source": "github_repo_name:mastrojs/atproto"},
+            ]
+        )
+
+        self.assertEqual(registry.choose_best_project_name(project), "mastrojs/atproto")
+
     def test_service_title_tagline_is_trimmed_for_name_selection(self) -> None:
         project = self.project_with_candidates(
             [
@@ -1577,6 +1588,93 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://example.com/docs"]["role"], "docs")
         self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
         self.assertEqual(records["https://example.attacker.net/docs"]["confidence"], "candidate")
+
+    def test_unsupported_service_only_contributes_repository_relationship_evidence(self) -> None:
+        project = project_record.default_project_record(
+            "proj:relatedsite", "repo_url", "https://github.com/example/adapter"
+        )
+        registry.confirm_source_code_url(project, "https://github.com/example/adapter", "test")
+        project["resource_url_records"] = [
+            {
+                "url": "https://framework.example/docs/adapter",
+                "role": "docs",
+                "source": "service_follow_up:https://framework.example/docs",
+                "confidence": "confirmed",
+            }
+        ]
+        project["candidate_developer_accounts"] = [
+            {"handle": "framework.bsky.social", "source": "service_raw_url:https://framework.example"}
+        ]
+        project["bluesky_handles"] = ["framework.bsky.social"]
+        project["summary_candidates"] = [
+            {"value": "Framework docs", "source": "service_meta:https://framework.example"}
+        ]
+
+        registry.apply_service_probe_result(
+            project,
+            "https://framework.example",
+            {
+                "supports_project": False,
+                "status_code": 200,
+                "final_url": "https://framework.example",
+                "title": "Framework",
+                "description": "Framework docs",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200"],
+                "redirected": False,
+                "urls": ["https://bsky.app/profile/framework.bsky.social"],
+                "links": [
+                    {"url": "https://github.com/example/adapter", "text": "Source code"},
+                    {"url": "https://framework.example/docs", "text": "Docs"},
+                    {"url": "https://bsky.app/profile/framework.bsky.social", "text": "Bluesky"},
+                ],
+            },
+        )
+
+        repo_edges = [
+            edge
+            for edge in registry.trust_graph_core.graph(project).get("edges", [])
+            if edge.get("predicate") == "service_links_repo"
+        ]
+        self.assertEqual(len(repo_edges), 1)
+        self.assertEqual(repo_edges[0]["object"]["value"], "https://github.com/example/adapter")
+        self.assertEqual(project["resource_url_records"], [])
+        self.assertEqual(project["candidate_developer_accounts"], [])
+        self.assertEqual(project["bluesky_handles"], [])
+        self.assertEqual(project["summary_candidates"], [])
+
+    def test_finalize_removes_public_surfaces_for_saved_related_repository_site(self) -> None:
+        project = project_record.default_project_record(
+            "proj:relatedsaved", "repo_url", "https://github.com/example/adapter"
+        )
+        project["resource_url_records"] = [
+            {
+                "url": "https://framework.example/docs",
+                "role": "docs",
+                "source": "service_page:https://framework.example",
+                "confidence": "confirmed",
+            }
+        ]
+        project["candidate_developer_accounts"] = [
+            {"handle": "framework.bsky.social", "source": "service_raw_url:https://framework.example"}
+        ]
+        project["bluesky_handles"] = ["framework.bsky.social"]
+        project["llm_output"] = {
+            "repository_link_assessments": [
+                {
+                    "service_url": "https://framework.example",
+                    "repo_url": "https://github.com/example/adapter",
+                    "relationship": "related",
+                }
+            ]
+        }
+
+        registry.finalize_project_shape(project)
+
+        self.assertEqual(project["resource_url_records"], [])
+        self.assertEqual(project["candidate_developer_accounts"], [])
+        self.assertEqual(project["bluesky_handles"], [])
 
     def test_first_party_link_collection_skips_same_site_content_pages_without_resource_role(self) -> None:
         project = project_record.default_project_record("proj:resourcecontent", "service_url", "https://example.com")

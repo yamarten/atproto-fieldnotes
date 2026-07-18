@@ -156,6 +156,13 @@ def apply_profile_edit(
     if not preview["changed"]:
         return {**preview, "mode": "no_change"}
     project = core.resolve_single_project(conn, project_key=project_key)
+    if preview["before"]["name"] != preview["after"]["name"]:
+        project["name_candidates"] = [
+            item
+            for item in project.get("name_candidates", [])
+            if isinstance(item, dict) and str(item.get("source") or "") != "operator_edit"
+        ]
+        core.add_name_candidate(project, preview["after"]["name"], "operator_edit")
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
     project["introduced_url"] = preview["after"]["introduced_url"]
