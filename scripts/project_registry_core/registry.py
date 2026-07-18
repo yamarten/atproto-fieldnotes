@@ -2677,6 +2677,13 @@ def unsupported_nsid_authority_title_candidate(project: dict[str, Any], value: s
     source_url = naming_core.source_url(source)
     if not source_url or source_url not in nsid_authority_service_origins(project):
         return False
+    supported_service_urls = {
+        identifier_core.normalize_url(str(url or ""))
+        for url in project.get("supported_service_urls", [])
+        if identifier_core.normalize_url(str(url or ""))
+    }
+    if identifier_core.normalize_url(source_url) in supported_service_urls:
+        return False
     return not name_value_matches_nsid_seed(project, value)
 
 
@@ -3050,7 +3057,13 @@ def add_tagline_candidate(project: dict[str, Any], value: str, source: str, *, p
     project["tagline_candidates"] = candidates
 
 
-def merge_project_tagline(project: dict[str, Any], value: str, *, provisional: bool) -> None:
+def merge_project_tagline(
+    project: dict[str, Any],
+    value: str,
+    *,
+    provisional: bool,
+    replace_provisional: bool = False,
+) -> None:
     normalized = normalize_tagline(value)
     if not normalized:
         return
@@ -3065,9 +3078,9 @@ def merge_project_tagline(project: dict[str, Any], value: str, *, provisional: b
         return
     if not existing_provisional:
         return
-    if provisional:
+    if provisional and not replace_provisional:
         return
-    set_project_tagline(project, normalized, provisional=False)
+    set_project_tagline(project, normalized, provisional=provisional)
 
 
 def tokenize_human_text(value: str) -> set[str]:
@@ -3077,12 +3090,12 @@ def tokenize_human_text(value: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text) if token}
 
 
-def merge_summary_value(current: str, new_value: str) -> str:
+def merge_summary_value(current: str, new_value: str, *, replace_existing: bool = False) -> str:
     current_text = project_record.normalize_ja_en_mixed_spacing(str(current or "").strip())
     new_text = project_record.normalize_ja_en_mixed_spacing(str(new_value or "").strip())
     if not new_text:
         return current_text
-    if not current_text:
+    if not current_text or replace_existing:
         return new_text
     if current_text == new_text:
         return current_text
@@ -6947,6 +6960,16 @@ def build_llm_evidence_bundle(
     evidence = {
         "project_key": project["project_key"],
         "name_hint": project.get("name") or "",
+        "current_profile": {
+            "tagline": llm_evidence_core.bounded_utf8_string(str(project.get("tagline") or ""), 1024),
+            "tagline_is_provisional": bool(project.get("tagline_is_provisional")),
+            "summary": llm_evidence_core.bounded_utf8_string(str(project.get("summary") or ""), 2048),
+            "features": [
+                llm_evidence_core.bounded_utf8_string(str(item or ""), 512)
+                for item in list(project.get("features", []))[:6]
+                if str(item or "").strip()
+            ],
+        },
         "manual_seeds": project.get("manual_seeds", []),
         "input_nsids": project.get("input_nsids", []),
         "resolved_nsids": project.get("resolved_nsids", []),
@@ -6981,6 +7004,61 @@ def build_llm_evidence_bundle(
         ],
     }
     return llm_evidence_core.bounded_llm_evidence(evidence)
+
+
+def profile_update_sources(evidence: Any) -> set[str]:
+    if not isinstance(evidence, dict):
+        return set()
+    sources: set[str] = set()
+    for value in evidence.get("supported_service_urls", []):
+        normalized = identifier_core.normalize_url(str(value or ""))
+        if normalized:
+            sources.add(f"supported_service:{normalized}")
+    for value in evidence.get("source_code_urls", []):
+        normalized = repo_url_core.canonical_repo_url(str(value or ""))
+        if normalized:
+            sources.add(f"repository:{normalized}")
+    for record in evidence.get("resource_url_records", []):
+        if not isinstance(record, dict) or str(record.get("confidence") or "") != "confirmed":
+            continue
+        role = str(record.get("role") or "unknown")
+        if role not in {"docs", "blog", "support"}:
+            continue
+        normalized = identifier_core.normalize_url(str(record.get("url") or ""))
+        if normalized:
+            sources.add(f"resource:{role}:{normalized}")
+    service_status = str(evidence.get("service_status_hint") or "unknown")
+    service_status_evidence = {
+        str(value or "") for value in evidence.get("service_status_evidence", [])
+    }
+    usable_surface_markers = {
+        "login_surface_detected",
+        "app_shell_detected",
+        "browser_password_form_detected",
+        "browser_identity_form_detected",
+        "browser_oauth_entry_detected",
+        "browser_public_app_surface_detected",
+    }
+    website_url = identifier_core.normalize_url(str(evidence.get("website_url") or ""))
+    supported_service_urls = {
+        identifier_core.normalize_url(str(value or ""))
+        for value in evidence.get("supported_service_urls", [])
+        if identifier_core.normalize_url(str(value or ""))
+    }
+    if (
+        website_url
+        and website_url in supported_service_urls
+        and service_status in {"live", "beta", "invite_only"}
+        and service_status_evidence.intersection(usable_surface_markers)
+    ):
+        sources.add(f"usable_service:{website_url}")
+    return sources
+
+
+def profile_has_new_strong_source(previous_evidence: Any, current_evidence: Any) -> bool:
+    previous_sources = profile_update_sources(previous_evidence)
+    current_sources = profile_update_sources(current_evidence)
+    return bool(current_sources - previous_sources)
 
 
 def load_triage_prompt_template() -> str:
@@ -7362,6 +7440,9 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
+    previous_llm_source = project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {}
+    previous_evidence = previous_llm_source.get("evidence") if isinstance(previous_llm_source, dict) else {}
+    replace_machine_profile = profile_has_new_strong_source(previous_evidence, evidence)
     project["llm_output"] = payload
     project["llm_source"] = {
         **meta,
@@ -7379,11 +7460,16 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
             project,
             str(payload.get("tagline") or ""),
             provisional=resolved_provisional,
+            replace_provisional=replace_machine_profile,
         )
     llm_summary = project_record.normalize_ja_en_mixed_spacing(str(payload.get("summary") or "").strip())
     if llm_summary:
         add_candidate_text(project, "summary", llm_summary, "llm_output")
-    project["summary"] = merge_summary_value(str(project.get("summary") or ""), llm_summary)
+    project["summary"] = merge_summary_value(
+        str(project.get("summary") or ""),
+        llm_summary,
+        replace_existing=replace_machine_profile,
+    )
     project["features"] = merge_feature_list(list(project.get("features", [])), clean_human_string_list(payload.get("features"), limit=6))
     project["inspired_by"] = clean_human_string_list(payload.get("inspired_by"), limit=6)
     project["category"] = str(payload.get("category") or "").strip()

@@ -661,6 +661,23 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 採用した理由は signal の `details.action_basis` に残します。
 `identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
 
+### 6.3 保存済みprofileの更新
+
+LLM triageのevidenceには、現在保存されている`tagline` / `summary` / `features`を
+`current_profile`として含めます。LLMは新しい根拠が以前の説明を実質的に改善する場合だけ内容を変え、
+根拠が変わらない時は現在の文面を維持します。
+
+前回の`llm_source.evidence`と今回のevidenceを比較し、新しいsupported service URL、confirmedな
+docs / blog / support URL、confirmed repository、または確認済みwebsiteで新たに観測した実利用面を、
+説明に使える強いsourceの追加とみなします。実利用面はlogin、app shell、browserで確認したformや
+public app surfaceに限り、beta等の文言だけでは認めません。この時だけ非空のsummaryと暫定taglineを
+新しいLLM提案へ更新します。同じsourceの再取得や文章差だけでは置き換えません。暫定でないtaglineは
+強いsourceが増えても自動更新しません。
+
+比較結果の専用fieldは保存しません。前回LLM入力は既存の`llm_source.evidence`に残り、今回の成功後は
+同fieldが新しい比較基準になります。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、
+内容を確認した上で個別に適用します。schema / serviceなど内容別の専用signalは設けません。
+
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です

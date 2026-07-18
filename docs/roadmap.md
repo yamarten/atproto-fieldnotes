@@ -156,7 +156,10 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - service verificationの後半強化
   - 認証後の利用可能性や複数surface統合が実際の誤判定原因になった時に、signalと匿名browser laneを拡張する
 - editorial qualityの洗い替え
-  - provisional taglineやservice/lexicon間のsummary競合がqueueで継続的に観測された場合に、prompt分離とreview導線を検討する
+  - 保存済みprofileと前回以降に追加された強いsourceの比較、summaryと暫定taglineの更新は通常enrichへ取り込み済み
+  - featuresや広い文章品質の問題が継続的に観測された場合、またはsummaryのoperator編集を追加する場合に、来歴の保持や専用編集導線を検討する
+  - 手動field編集とは別に、project単位の自然言語による訂正指示と現在のprofile・evidenceをLLMへ渡し、name / tagline / summary / featuresの更新案を作るmodeを追加する
+  - 更新案は保存前に差分previewし、採用時は訂正指示と生成元を来歴として残す。同種の個別訂正を通常triage promptの恒久ruleへ増やさない
 - syncの追加tuning
   - collection全件取得、GitHub broad query、screen-unmatched精度が実測のrequest量・誤候補で問題になったsourceだけを対象にする
 - typed aggregate / 用途別view

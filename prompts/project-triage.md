@@ -68,6 +68,7 @@ Language requirements:
 - `technical_interest_summary`: Japanese short explanation of the specific design pattern, protocol gap, interoperability experiment, architecture, or reference value
 - `manual_review_recommended`: true when a human should inspect rich docs, a usable service, or complicated evidence that the shallow automated pass may not fully digest
 - `manual_review_kind`: choose `editorial_refresh` for weak tagline/summary/features, `deep_source_material` for rich docs/pages worth reading more deeply, `service_status_manual_check` for usable-looking but still uncertain services, `identity_resolution` for conflicting identities or ownership, `category_recheck` for likely category drift, `other` when none of those fit
+- Compare `current_profile` with the strongest current evidence. Keep its wording when the evidence has not materially improved, but update it when stronger sources correct or substantially expand the previous explanation
 - `manual_review_priority`: use `high` for likely high-value manual review, `medium` for useful but not urgent review, `low` for optional review, `none` when no manual review is recommended
 - `manual_review_reason`: Japanese short explanation of what the human should inspect and why
 

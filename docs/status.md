@@ -101,7 +101,12 @@
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
+  - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - 最終prompt bytesはrun metricsで別に観測
+- 保存済みprofileの更新
+  - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
+  - 同じsourceでの言い換えと暫定でないtaglineは自動更新せず、内容別の専用review signalや保存fieldは追加しない
+  - 2026-07-18の正本DB read-only監査では、現在保存されている前回evidenceとの差による遡及更新は0件
 - replay regression corpus
   - 通常replay 6件とoperator correctionのblock/defer/confirm 3件をnetworkなしで評価
   - fixture exportはsanitizer v2を通し、commit前のmanual縮約を必須とする
