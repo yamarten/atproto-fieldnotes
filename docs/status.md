@@ -119,6 +119,7 @@
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
   - candidate visibility、service evidence、manual priority、score breakdownを分けて返す。`defer_promotion`は期限付き非表示、`lower_promotion_priority`は任意理由付きで通常候補より後ろへ送る
   - Webから根拠確認、優先度変更、解除ができ、manual gold evaluatorは通常queue生成処理のpolicyと相対順位をnetworkなしで検証する
+  - read-onlyのpromotion outcome分析は、紹介済みprojectから紹介済み除外だけを外して現行signalを再計算し、category別捕捉率とsignalなしの理由をJSONで報告する。未紹介projectを負例として扱わない
   - 2026-07-18の正本DB read-only sample reviewでは151候補。service確認済み66、要validation 69、lexicon 6、technical insight 10で、既知sampleの分類と相対順位を確認
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
