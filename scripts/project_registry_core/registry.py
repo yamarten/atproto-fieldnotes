@@ -7268,6 +7268,10 @@ def load_triage_prompt_template() -> str:
 
 def build_triage_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     evidence = build_llm_evidence_bundle(project)
+    return build_triage_prompt_from_evidence(evidence), evidence
+
+
+def build_triage_prompt_from_evidence(evidence: dict[str, Any]) -> str:
     evidence_json = llm_evidence_core.evidence_json(evidence)
     template = load_triage_prompt_template()
     prompt = template.replace("{{evidence_json}}", evidence_json)
@@ -7277,7 +7281,7 @@ def build_triage_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             "Keep schema enums, URLs, handles, DIDs, and NSIDs unchanged.\n\n"
             f"{prompt}"
         )
-    return prompt, evidence
+    return prompt
 
 
 def build_investigation_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:

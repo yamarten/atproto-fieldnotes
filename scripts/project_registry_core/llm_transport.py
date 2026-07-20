@@ -252,6 +252,7 @@ def run_local_llm_via_endpoint(
     api_key: str,
     reasoning_effort: str = "",
     api_style: str = "auto",
+    max_output_tokens: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     headers: dict[str, str] = {}
     if api_key:
@@ -279,6 +280,10 @@ def run_local_llm_via_endpoint(
         "prompt": prompt + "\n\nReturn JSON only.",
         "temperature": 0.2,
     }
+    if max_output_tokens is not None and max_output_tokens > 0:
+        for payload in chat_payloads:
+            payload["max_tokens"] = int(max_output_tokens)
+        completion_payload["max_tokens"] = int(max_output_tokens)
     if normalized_effort:
         for payload in chat_payloads:
             payload["reasoning_effort"] = normalized_effort
@@ -289,6 +294,9 @@ def run_local_llm_via_endpoint(
             "temperature": 0.2,
         }
     ]
+    if max_output_tokens is not None and max_output_tokens > 0:
+        for payload in responses_payloads:
+            payload["max_output_tokens"] = int(max_output_tokens)
     if normalized_effort:
         for payload in responses_payloads:
             payload["reasoning"] = {"effort": normalized_effort}
@@ -348,6 +356,8 @@ def run_local_llm_via_endpoint(
                 "reasoning_effort": normalized_effort,
                 "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
                 "generated_at": iso_now(),
+                "max_output_tokens": int(max_output_tokens or 0),
+                "usage": response_payload.get("usage") if isinstance(response_payload.get("usage"), dict) else {},
             }
             return parsed, meta
 
@@ -362,6 +372,7 @@ def run_local_llm(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_max_output_tokens: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     command = os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip()
     normalized_effort = normalize_llm_reasoning_effort(llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", ""))
@@ -370,6 +381,8 @@ def run_local_llm(
         env = dict(os.environ)
         if normalized_effort:
             env["ATPROTO_SURVEY_LLM_REASONING_EFFORT"] = normalized_effort
+        if llm_max_output_tokens is not None and llm_max_output_tokens > 0:
+            env["ATPROTO_SURVEY_LLM_MAX_OUTPUT_TOKENS"] = str(int(llm_max_output_tokens))
         env["ATPROTO_SURVEY_LLM_API_STYLE"] = normalized_api_style
         completed = subprocess.run(
             command,
@@ -397,6 +410,7 @@ def run_local_llm(
             "reasoning_effort": normalized_effort,
             "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
             "generated_at": iso_now(),
+            "max_output_tokens": int(llm_max_output_tokens or 0),
         }
         return payload, meta
 
@@ -404,6 +418,8 @@ def run_local_llm(
     model = (llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")).strip()
     api_key = (llm_api_key or os.getenv("ATPROTO_SURVEY_LLM_API_KEY", "")).strip()
     if endpoint:
-        return run_local_llm_via_endpoint(prompt, endpoint, model, api_key, normalized_effort, normalized_api_style)
+        return run_local_llm_via_endpoint(
+            prompt, endpoint, model, api_key, normalized_effort, normalized_api_style, llm_max_output_tokens
+        )
 
     raise RuntimeError("ATPROTO_SURVEY_LLM_COMMAND or ATPROTO_SURVEY_LLM_ENDPOINT is required")

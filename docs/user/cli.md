@@ -12,7 +12,9 @@
 - 多くのコマンドはstdoutへJSONを出す。`show`と`explain`はtext/JSON、`enrich`はJSON Lines。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
-`init-db`以外のCLIコマンドはDBのパスを指定するオプションを持たず、`data/survey.db`を使います。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
+通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助
+`export-llm-evaluation-corpus`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に
+`project-registry-web --db-path`で参照する検証用です。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -175,9 +177,16 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `replay-investigation` | 調査実行記録IDまたは登録プロジェクトの最新記録を読み、保存済みの根拠を現行規則で再評価してJSON出力 | なし。ネットワークや収集処理も使わない |
 | `benchmark-investigation` | fixture corpus pathを読み、semantic regressionをJSON出力 | なし |
 | `export-investigation-fixture` | 保存済み調査実行記録をsanitizationし、stdoutまたは`--output`へ出力 | DB変更なし。`--output`はファイル書き込み |
+| `export-llm-evaluation-corpus` | 指定DBの保存済みLLM evidenceから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
+| `evaluate-llm-corpus` | 固定corpus、LLM接続設定、repeat、output capを受け、構造化reportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、`static|deep|browser` lane | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 
 exportのsanitizationは機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
+
+LLM評価corpusも保存済みevidence、実プロジェクトキー、公開identifier、自由記述を含みます。通常は`.tmp/`へ
+出力し、そのままcommitしません。`reference_output`は保存済みmodel出力との比較用で、正解labelではありません。
+`evaluate-llm-corpus`はJSON/schema、evidence外identifier、`library`とsummaryの役割不整合、保存済み出力との差、
+latencyを記録します。peak memory、swap、prefill/decode内訳の自動取得は未接続です。
 
 `verify-service`の`static`はtop page、`deep`は同一siteの追加pageを確認します。`browser`はJavaScript描画後の匿名画面を開き、表示中のmenuを展開した事実、auth linkを辿った事実、passwordまたはhandle/email入力を持つform、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別々に記録します。linkや作成CTAだけではservice surface確認済みにしません。認証actionの実行、認証入力、form送信、登録、投稿は行いません。browser laneにはPlaywrightの任意依存が必要です。
 

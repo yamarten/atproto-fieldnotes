@@ -10,6 +10,7 @@ from .commands import decisions as decision_commands
 from .commands import enrichment as enrichment_commands
 from .commands import explain as explain_commands
 from .commands import investigation as investigation_commands
+from .commands import llm_evaluation as llm_evaluation_commands
 from .commands import maintenance as maintenance_commands
 from .commands import merge as merge_commands
 from .commands import projects as project_commands
@@ -227,6 +228,41 @@ def build_parser() -> argparse.ArgumentParser:
     export_fixture_parser.add_argument("--case-id")
     export_fixture_parser.add_argument("--output")
     export_fixture_parser.set_defaults(func=investigation_commands.cmd_export_investigation_fixture)
+
+    export_llm_corpus_parser = subparsers.add_parser(
+        "export-llm-evaluation-corpus",
+        help="Export fixed triage evidence from saved runs without modifying the database.",
+    )
+    export_llm_corpus_parser.add_argument("--db-path", required=True, help="Source SQLite DB opened read-only.")
+    export_llm_corpus_parser.add_argument("--output", required=True, help="Output corpus JSON path.")
+    export_llm_corpus_parser.add_argument("--limit", type=int, default=40, help="Maximum cases. Default: 40.")
+    export_llm_corpus_parser.add_argument(
+        "--library-min", type=int, default=8,
+        help="Minimum category=library cases to prioritize when available. Default: 8.",
+    )
+    export_llm_corpus_parser.add_argument(
+        "--category-min", type=int, default=2,
+        help="Minimum cases per available reference category. Default: 2.",
+    )
+    export_llm_corpus_parser.set_defaults(func=llm_evaluation_commands.cmd_export_llm_evaluation_corpus)
+
+    evaluate_llm_parser = subparsers.add_parser(
+        "evaluate-llm-corpus",
+        help="Run one model configuration against a fixed LLM evaluation corpus.",
+    )
+    evaluate_llm_parser.add_argument("--corpus", required=True, help="Fixed corpus JSON path.")
+    evaluate_llm_parser.add_argument("--output", required=True, help="Structured report JSON path.")
+    evaluate_llm_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
+    evaluate_llm_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
+    evaluate_llm_parser.add_argument("--output-cap", type=int, default=2048, help="Maximum output tokens. Default: 2048.")
+    evaluate_llm_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
+    evaluate_llm_parser.add_argument("--quantization", help="Quantization label recorded in the report.")
+    evaluate_llm_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
+    evaluate_llm_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
+    evaluate_llm_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
+    evaluate_llm_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference.")
+    evaluate_llm_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Reasoning/thinking effort.")
+    evaluate_llm_parser.set_defaults(func=llm_evaluation_commands.cmd_evaluate_llm_corpus)
 
     verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
     verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)

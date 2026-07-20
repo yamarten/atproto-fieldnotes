@@ -25,7 +25,7 @@
 
 ## 実施順の依存関係
 
-- LLM model comparison harness は、manual gold set と固定evidenceが増えてから実装する
+- LLM model comparisonは、実装済みの固定evidence harnessでmodel-only screeningを行ってから、prompt tuningとfull enrich比較へ進む
 - app record export は公開手段の第一候補だが、紹介用profileとconfirmed identifierのvalidation reportを先に作れる状態に留める
 
 ## 条件付き短期候補
@@ -188,7 +188,9 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - anonymous browser verificationの固有成果を確認できた場合だけ、実Playwright smoke testと複数surface統合を追加する
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
-- LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
+- 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
+  - corpus exportと1 model構成ごとのstructured reportは実装済み。peak memory / swap / prefill / decodeのrunner観測と、複数reportの比較集計は未接続
+  - 上位候補だけprompt variantを比較し、その後に複製DBでfull enrich差分を測る
   - 既存`category=library`の一括再分類はこの評価に依存する。現行modelはplugin / template / prototypeをsummaryで認識しても`library`を返す場合があるため、固定evidenceでcategory-summary整合性を満たすmodelとpromptを確認するまではbulk更新しない
 
 未決定:

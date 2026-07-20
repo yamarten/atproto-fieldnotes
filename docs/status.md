@@ -105,6 +105,12 @@
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
   - 最終prompt bytesはrun metricsで別に観測
+- fixed evidence LLM evaluation
+  - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
+  - corpus選抜はprompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する。保存済み出力は比較referenceでありgold labelとは扱わない
+  - `evaluate-llm-corpus`は同一prompt、output cap、reasoning設定で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latencyをJSON reportへ保存する
+  - 長時間実行では開始時と各request完了時にreportをcheckpointし、正常終了時だけ`status=complete`へ確定する
+  - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
   - 同じsourceでの言い換えと暫定でないtaglineは自動更新せず、内容別の専用review signalや保存fieldは追加しない
@@ -165,9 +171,9 @@
 
 ## 動作確認状況
 
-2026-07-16時点で確認済み:
+2026-07-20時点で確認済み:
 
-- 全unit test 420件
+- 全unit test 466件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -180,6 +186,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、category最低件数とlibrary重点caseを確認。現行modelの同一library不整合caseを2回実行し、report完了、JSON/schema、token usage、category-summary不整合検出を確認
 
 未検証:
 

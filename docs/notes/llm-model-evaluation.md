@@ -62,12 +62,23 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
 
 未接続:
 
-- 複数モデルを同じ evidence に対して一括実行する harness
-- LLM 出力差分を structured report として保存する仕組み
+- 複数のmodel reportを横断集計する比較writer
 - triage 直前の project snapshot 保存
 - Anthropic / Gemini などの first-party API adapter
   - 現状で使う場合は command wrapper か OpenAI-compatible gateway が必要
 - model/prompt/cost/latency の集計 dashboard
+- peak memory、swap、prefill、decodeのrunner別自動計測
+
+実装済み:
+
+- `export-llm-evaluation-corpus`
+  - 指定SQLite DBをread-onlyで開き、projectごとの最新保存runから固定evidenceをexportする
+  - prompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する
+- `evaluate-llm-corpus`
+  - 1つの`model + quantization + runtime + baseline_current prompt + reasoning + output cap`構成を固定corpusへ反復実行する
+  - schema/enum、evidence外identifier、libraryとsummaryの役割不整合、保存済み出力との差、latencyをreportする
+  - 開始時と各request完了時にreportをcheckpointし、途中停止時も完了済みresultを残す
+  - 保存済み出力はreferenceであってgold labelではない
 
 未検証:
 
@@ -77,6 +88,40 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
 - reasoning effort の差が JSON 安定性や過剰推測に与える影響
 - thinking / non-thinking 切替、出力 token 上限、prompt 縮約が全件 runtime に与える影響
 - prompt tuning の必要量が model 系列ごとにどれくらい違うか
+
+## 2026-07-20 initial corpus and baseline smoke
+
+実装済み / 実行済み:
+
+- 正本DBをread-onlyで開き、projectごとの最新保存run 3,635件から40件の固定corpusを
+  `.tmp/llm-evaluation-corpus-v1.json`へexportした
+- 選抜は`library_min=12`、`category_min=2`
+  - category: library 15、project 5、lexicon 5、infra_tool 5、name_only 4、
+    auth_only 2、personal_tool 2、reject 2
+  - prompt bucket: short 14、medium 17、upper_medium 9
+  - prompt chars: min 9,429、median 10,705、max 32,631
+- `category=library` 15件のうち、保存済みsummaryがplugin / template / CLI / app等を説明する
+  明白なcategory-summary不整合を12件検出した
+- 現行environmentの`qwen/qwen3.6-35b-a3b`、reasoning `none`、output cap 1,024で、
+  最短の不整合case `strapi-plugin-atproto`を実行した
+  - 初回: 19.577秒、input 2,402 tokens、output 399 tokens、cached input 0
+  - checkpoint実装後の同一case repeat: 10.297秒 / 9.974秒、inputはいずれも2,402 tokens、
+    output 416 / 399 tokens、cached inputはいずれも1,886、最新report `status=complete`
+  - JSON/schema必須field、enum、evidence外identifierは問題なし
+  - 3回ともsummaryとtaglineはStrapi pluginと説明したが、categoryは`library`を返した
+  - `category_summary_conflict:library_executable_role`として不合格になり、現行modelの既知問題を固定caseで再現した
+
+未検証 / 解釈:
+
+- 先行する2 case x 2 repeat試行は最終reportを生成できず、測定結果として採用していない。終了原因は
+  model timeout、runner、実行sessionのどこかを確定できていない
+- この失敗を受け、runnerは開始時と各request完了時にreportをcheckpointするよう変更した。変更後の
+  複数case長時間実行は未検証
+- 単一case 3回だけなので、category不整合率と広いrepeat varianceはまだ評価できない。repeatの短縮は
+  cached input増加と整合するが、model load、prefix cache、runner schedulingの寄与は分離していない
+- corpusの`reference_output`は保存済みmodel出力でありgold labelではない。特にlibrary 15件は人手で
+  expected categoryを付けてからmodel間の正解率比較に使う
+- peak memory、swap、prefill/decode内訳は未取得
 
 ## 2026-07-01 preliminary measurement
 
@@ -704,11 +749,12 @@ model と prompt を同時に変えると原因が分からなくなるため、
 - 重いsubsetでは full enrich ではなく、まず固定 evidence LLM replay を使う
 - その後に複製DBで30-50件の full enrich shadow runへ進む
 
-この順であれば、次に必要な実装は次の3点に絞れる。
+このうち、corpus manifest exporterとfixed evidence LLM runner、単一modelのstructured report writerは
+実装済み。次に必要な実装は次の3点。
 
-- corpus manifest exporter
-- fixed evidence LLM runner
-- structured comparison report writer
+- export済み40件corpusのlibrary重点caseを人手確認し、expected categoryを付けて固定する
+- baseline modelで全corpusのwarm/coldを分けたreportを取得する
+- peak memory / swap / prefill / decodeのrunner観測と、複数model reportの横断比較writerを接続する
 
 ## 採用判断
 
