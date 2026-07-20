@@ -151,6 +151,15 @@ class LLMOutputValidationTest(unittest.TestCase):
             "library", "NSID app.pkm.settingsは個人用設定データです。",
         ))
 
+    def test_validation_reports_mixed_script_spacing_as_warning(self) -> None:
+        payload = self.valid_payload()
+        payload["summary"] = "Grain.social の操作用CLIです。"
+
+        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["style_warnings"], ["mixed_script_spacing:summary"])
+
 
 class LLMOutputCapTest(unittest.TestCase):
     def test_endpoint_payload_uses_api_specific_output_cap(self) -> None:

@@ -51,6 +51,10 @@ STRING_OUTPUT_FIELDS = {
     "technical_interest_level", "technical_interest_summary", "manual_review_kind",
     "manual_review_priority", "manual_review_reason",
 }
+STYLE_TEXT_FIELDS = {
+    "tagline", "summary", "features", "why_keep", "why_reject", "watch_reason",
+    "technical_interest_summary", "manual_review_reason",
+}
 EXECUTABLE_ROLE_RE = re.compile(
     r"(?:(?<![A-Za-z0-9])(?:app|application|cli|command[- ]line|script|plugin|template|example|prototype)(?![A-Za-z0-9])|"
     r"アプリ|CLI|コマンドライン|スクリプト|プラグイン|テンプレート|サンプル|プロトタイプ)",
@@ -65,6 +69,10 @@ URL_RE = re.compile(r"https?://[^\s\]\[{}()<>\"']+")
 DID_RE = re.compile(r"(?<![A-Za-z0-9-])did:[a-z0-9]+:[A-Za-z0-9._:%-]+(?![A-Za-z0-9-])")
 NSID_RE = re.compile(
     r"(?<![A-Za-z0-9-])(?:[a-zA-Z][a-zA-Z0-9-]*\.){2,}[a-zA-Z][a-zA-Z0-9-]*(?![A-Za-z0-9-])"
+)
+MIXED_SCRIPT_SPACING_RE = re.compile(
+    r"(?:[A-Za-z0-9][ \t]+[\u3040-\u30ff\u3400-\u9fff]|"
+    r"[\u3040-\u30ff\u3400-\u9fff][ \t]+[A-Za-z0-9])"
 )
 
 
@@ -344,6 +352,24 @@ def _identifiers(value: Any) -> set[str]:
     return output
 
 
+def _style_warnings(payload: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    for field in sorted(STYLE_TEXT_FIELDS):
+        value = payload.get(field)
+        values = value if isinstance(value, list) else [value]
+        if any(isinstance(item, str) and MIXED_SCRIPT_SPACING_RE.search(item) for item in values):
+            warnings.append(f"mixed_script_spacing:{field}")
+    assessments = payload.get("repository_link_assessments")
+    if isinstance(assessments, list) and any(
+        isinstance(item, dict)
+        and isinstance(item.get("reason"), str)
+        and MIXED_SCRIPT_SPACING_RE.search(item["reason"])
+        for item in assessments
+    ):
+        warnings.append("mixed_script_spacing:repository_link_assessments.reason")
+    return warnings
+
+
 def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {
@@ -352,6 +378,7 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
             "missing_fields": sorted(REQUIRED_OUTPUT_FIELDS),
             "unsupported_identifiers": sorted(_identifiers(payload) - _identifiers(evidence)),
             "category_summary_consistent": True,
+            "style_warnings": [],
         }
     errors: list[str] = []
     missing = sorted(REQUIRED_OUTPUT_FIELDS - set(payload))
@@ -426,6 +453,7 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
         "missing_fields": missing,
         "unsupported_identifiers": unsupported,
         "category_summary_consistent": not conflict,
+        "style_warnings": _style_warnings(payload),
     }
 
 
@@ -520,6 +548,10 @@ def run_corpus(
         result for result in successes
         if not result.get("validation", {}).get("category_summary_consistent", True)
     ]
+    style_warnings = [
+        result for result in successes
+        if result.get("validation", {}).get("style_warnings")
+    ]
     bucket_summary: dict[str, dict[str, int]] = {}
     case_by_id = {str(case.get("case_id") or ""): case for case in cases}
     for result in results:
@@ -557,6 +589,7 @@ def run_corpus(
             "unsupported_identifier_result_count": sum(
                 bool(result.get("validation", {}).get("unsupported_identifiers")) for result in successes
             ),
+            "style_warning_result_count": len(style_warnings),
             "total_duration_ms": sum(int(result["duration_ms"]) for result in results),
             "prompt_buckets": bucket_summary,
         },

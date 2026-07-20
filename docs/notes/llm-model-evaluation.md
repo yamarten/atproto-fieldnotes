@@ -123,6 +123,70 @@ enrich で使う LLM を変更した時に、結果がどの程度変わるか�
   expected categoryを付けてからmodel間の正解率比較に使う
 - peak memory、swap、prefill/decode内訳は未取得
 
+## 2026-07-20 installed-model screening
+
+同一worktree、同一40件corpus、現行prompt、reasoning `none`、output cap 1,024で、まず
+library不整合12件を重点比較した。model固有prompt tuningは行っていない。
+
+### Qwen 3.6 35B A3B Q4_K_M baseline
+
+- LM Studio設定はcontext 262,144、parallel 4、flash attention有効
+- 12/12 request成功、schemaと意味guardを通過した出力は8/12
+- 4/12でsummaryがplugin / GitHub Actions / example等を説明しながら`category=library`を返した
+- evidence外identifierは0、mixed-script spacing警告は0
+- 合計173.050秒、1件あたりmin 12.657秒、median 14.391秒、max 15.679秒
+- この12件実行では各promptが異なり、endpoint usageのcached inputは全件0だった
+
+### Qwen 3.5 9B Q4_K_M
+
+- baselineと同時ロードし、context 32,768、parallel 4、flash attention有効で実行した
+- 12/12 request成功、schemaと意味guardを通過した出力も12/12
+- `category=library`不整合は0。11件を`project`、GitHub Actionsの1件を`infra_tool`とした
+- evidence外identifierは0
+- mixed-script spacing警告は10/12。`Grain.social の`、`atproto エージェント`のような、
+  日本語とASCII token間の空白が複数fieldで見られた。通常enrich適用時に正規化されるfieldもあるが、
+  model出力自体の文面品質差としてreportする
+- 合計275.738秒、1件あたりmin 20.436秒、median 22.956秒、max 24.853秒
+- 35Bと同時ロードし、system swapが約10.1 GiB使用中の測定なので、単独運用時の速度比較には使わない
+
+### Memory observation
+
+- LM Studioが報告したmodel file sizeは35Bが22,069,768,080 bytes、9Bが6,548,927,017 bytes
+- 両model同時ロード中のprocess RSSは35B約19.7 GiB、9B約5.4 GiBだった。別時点の35B単独RSSは
+  約22.9 GiBだったため、RSSはresident pageとswap状態で動く。model単独のpeak memoryではない
+- 同時ロード中のsystem swap使用量は約10.1 GiB。この同時load値は採用判断に使わず、下記の
+  単独loadでRSSを取り直した
+
+### Matched 32k single-model run
+
+同時loadの影響を外すため、両modelを順に単独loadし、context 32,768、parallel 4、flash attention有効、
+同じ評価対象外caseでwarm-upした後に12件を測定した。
+
+- 35B: 12/12成功、guard通過8/12、library不整合4、spacing警告0、合計134.942秒
+- 9B: 12/12成功、guard通過12/12、library不整合0、spacing警告8、合計211.575秒
+- 9Bは35Bより合計約56.8%遅かった。小型化による速度向上はこのruntimeでは確認できない
+- warm-up後のprocess RSSは35B約21.7 GiB、9B約7.6 GiBで、9Bは約65%小さかった
+- 同時点のsystem swapは35B時約9.6 GiB、9B時約9.5 GiB。OS全体の既存swapを含み、
+  unload後も直ちに解放されないため、model別swap deltaとしては解釈しない
+- 測定後、35Bを元のcontext 262,144、batch 2,048 / 512、parallel 4、flash attention、
+  8 experts、KV cache GPU offload設定へ復元した
+
+### Other installed candidates
+
+- Gemma 4 12B Q4_0をcontext 32,768で試した単一caseでは、初回29.039秒、repeat 16.891秒で、
+  どちらもStrapi pluginを`library`とした。単一caseでは品質改善を確認できなかった
+- Gemma 4 26B A4B 4bitは35Bとの同時loadをLM Studioのresource guardが拒否した。model単独の
+  不採用根拠ではなく、専用のmodel swap測定が必要
+- Qwen 3.6 27B Q4_K_Mもinstalled candidateだが、まだ実行していない
+
+現時点の解釈:
+
+- Qwen 3.5 9Bはlibrary判定と省メモリの第一候補。12件の狭いsubsetでは35Bより明確に整合した
+- ただしgold label未確定、他category未評価、文章品質差があり、単独測定でも35Bより遅いため、
+  bulk enrichの単純な置換候補にはまだならない
+- 次は12件のexpected categoryを固定し、27B / Gemma 26Bを同じruntime条件で単独loadする。
+  品質と速度の一方で9Bまたは35Bを上回る候補だけを40件全体へ進める
+
 ## 2026-07-01 preliminary measurement
 
 実装済み / 実行済み:
@@ -754,7 +818,7 @@ model と prompt を同時に変えると原因が分からなくなるため、
 
 - export済み40件corpusのlibrary重点caseを人手確認し、expected categoryを付けて固定する
 - baseline modelで全corpusのwarm/coldを分けたreportを取得する
-- peak memory / swap / prefill / decodeのrunner観測と、複数model reportの横断比較writerを接続する
+- peak memory / swap / prefill / decodeのrunner自動観測と、複数model reportの横断比較writerを接続する
 
 ## 採用判断
 

@@ -173,7 +173,7 @@
 
 2026-07-20時点で確認済み:
 
-- 全unit test 466件
+- 全unit test 467件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -186,7 +186,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、category最低件数とlibrary重点caseを確認。現行modelの同一library不整合caseを2回実行し、report完了、JSON/schema、token usage、category-summary不整合検出を確認
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、category最低件数とlibrary重点caseを確認。32k contextの単独loadによるlibrary不整合12件比較では、現行Qwen 35Bが不整合4件・134.9秒・RSS約21.7 GiB、Qwen 9Bが不整合0件・211.6秒・RSS約7.6 GiB。9Bはspacing警告8件で、品質と省メモリは改善したが速度は約56.8%低下
 
 未検証:
 
