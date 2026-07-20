@@ -103,6 +103,7 @@
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
+  - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
   - 最終prompt bytesはrun metricsで別に観測
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
@@ -115,12 +116,13 @@
   - browser calibrationは描画後page要約5件を固定入力にし、実URLの現在状態とは分離する
   - browser laneは表示中の匿名menu展開、auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceにし、link到達や作成CTAだけではservice surfaceを確定しない
 - promotion queueの独立signal
-  - service surface確認済みと要validationを別signalにし、後者を約100点下に表示。`unverified`でも確認済みwebsite/serviceを持つprojectは一覧から除外せず、必ず要validationに留める
+  - `project` / `infra_tool`のservice surface確認済みと要validationを別signalにし、後者を約100点下に表示。`unverified`でも確認済みwebsite/serviceを持つprojectは一覧から除外せず、必ず要validationに留める。`library`はdocs URL等をserviceと誤認しないよう対象外
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
   - candidate visibility、service evidence、manual priority、score breakdownを分けて返す。`defer_promotion`は期限付き非表示、`lower_promotion_priority`は任意理由付きで通常候補より後ろへ送る
   - Webから根拠確認、優先度変更、解除ができ、manual gold evaluatorは通常queue生成処理のpolicyと相対順位をnetworkなしで検証する
   - read-onlyのpromotion outcome分析は、紹介済みprojectから紹介済み除外だけを外して現行signalを再計算し、category別捕捉率とsignalなしの理由をJSONで報告する。未紹介projectを負例として扱わない
-  - 2026-07-18の正本DB read-only sample reviewでは151候補。service確認済み66、要validation 69、lexicon 6、technical insight 10で、既知sampleの分類と相対順位を確認
+  - 2026-07-20の正本DB read-only監査では177候補。`infra_tool`接続で未紹介候補が9件増え、service確認済み4、要validation 5。紹介済み`infra_tool`は46件中23件をsignalで捕捉
+  - category promptのread-only sampleでは、未紹介`library` 16件を`library` 8、`project` 2、`lexicon` 5、`personal_tool` 1へ分類した。一方、既存profileを持つplugin / template / prototypeではsummaryとcategoryの不整合が残り、正本DBの一括再分類は実施していない
 - LLM transport failure境界
   - command/endpointは共通の1 attempt timeoutを使用
   - endpoint互換性エラーだけ別payload/endpointを試し、timeout・transport・429/5xx・invalid responseは再送しない

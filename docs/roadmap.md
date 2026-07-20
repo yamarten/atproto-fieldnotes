@@ -189,6 +189,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
 - LLM model comparison harnessを追加し、品質・速度・メモリを、固定evidenceでのtriage差分と複製DBでのfull enrich差分に分けて測る
+  - 既存`category=library`の一括再分類はこの評価に依存する。現行modelはplugin / template / prototypeをsummaryで認識しても`library`を返す場合があるため、固定evidenceでcategory-summary整合性を満たすmodelとpromptを確認するまではbulk更新しない
 
 未決定:
 

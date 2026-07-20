@@ -113,6 +113,20 @@ class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
             {"service_status_not_candidate": 1},
         )
 
+    def test_infra_tool_uses_service_route(self) -> None:
+        infra_tool = self.introduced_project(
+            "proj:666666666666",
+            category="infra_tool",
+        )
+
+        payload = promotion_outcome_analysis.analyze_projects([infra_tool])
+
+        self.assertEqual(payload["summary"]["introduced_with_signal_count"], 1)
+        self.assertEqual(
+            payload["summary"]["signal_counts"],
+            {"service_surface_confirmed": 1},
+        )
+
     def test_database_analysis_opens_existing_schema_read_only(self) -> None:
         project = self.introduced_project("proj:555555555555")
         conn = sqlite3.connect(self.db_path)

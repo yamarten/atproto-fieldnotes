@@ -1049,9 +1049,18 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
 
 `category=lexicon` の project で `lexicon_scope=service_specific` になった場合は `category=project` へ戻します。`unknown` は無理に確定しません。LLM prompt にも、service URL 未発見を shared の根拠にしないことと、service の実態がある場合は schema 説明だけに縮退させないことを明記しています。
 
+`category=library` は、他のsoftwareからimport、link、またはpackageとして利用する再利用codeに限定します。
+repositoryを主な配布面とするだけではlibraryとせず、実行可能なapp、CLI、script、plugin、template、example、
+reference implementation、prototypeは実際の役割に応じて`project` / `infra_tool` / `personal_tool` / `lexicon`
+へ分類します。`personal_tool`はauthor-onlyまたは個人的用途の根拠がある場合に限り、単一用途のartifact全般の
+fallbackにはしません。この区別は成熟度、紹介価値、配布形態ではなく、projectが提供する利用面を表します。
+生成するsummaryがapp、CLI、plugin等と説明しているのにcategoryだけ`library`とする出力は不整合として扱います。
+`current_profile`は既存の編集文面でありcategoryの根拠にはせず、根拠から役割を決めた後に文面を維持するか
+判断させます。
+
 技術的な学習価値は、実用性や紹介準備とは別軸で `technical_interest_*` に保持します。LLM は evidence に基づいて `none / notable / high / exceptional` を暫定評価し、理由を enum と短い説明で残します。`promotion-queue` の `technical_insight_candidate` は `high` / `exceptional` だけを対象にします。`notable` は将来の再評価材料として保存しますが、推薦 signal にはしません。
 
-serviceの利用可否も独立軸として扱います。`service_status=live / beta / invite_only`でURLを持つもののうち、confidenceがmedium以上でlogin、app shell、browser到達、検証済みauthority surfaceなどを確認した候補は`service_surface_confirmed`とします。これはservice軸のevidenceであり、中核機能や編集上の紹介可否まで保証しません。
+serviceの利用可否も独立軸として扱います。`category=project / infra_tool`かつ`service_status=live / beta / invite_only`でURLを持つもののうち、confidenceがmedium以上でlogin、app shell、browser到達、検証済みauthority surfaceなどを確認した候補は`service_surface_confirmed`とします。これはservice軸のevidenceであり、中核機能や編集上の紹介可否まで保証しません。`library`はdocs URL等をserviceと誤認しないよう、このsignalの対象に含めません。
 
 `unverified`、HTTP 200だけ、docs / landing pageだけ、またはevidenceに矛盾がある候補も自動除外せず、`service_candidate_needs_validation`として約100点下の優先度で残します。backend障害とlanding-onlyは静的probeだけで安定して分けられないため、候補提示後のoperator reviewで扱います。これらのservice signalはatproto寄与度や`technical_insight_candidate`と独立です。
 

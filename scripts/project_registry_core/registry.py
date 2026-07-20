@@ -8727,7 +8727,7 @@ def compute_showcase_signals(
     }
     category = str(shaped.get("category") or "")
 
-    allowed_service_categories = {"project"}
+    allowed_service_categories = {"project", "infra_tool"}
     if include_personal_tools:
         allowed_service_categories.add("personal_tool")
     if (

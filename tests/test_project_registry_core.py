@@ -2460,6 +2460,16 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
             ["https://github.com/example/candidate"],
         )
 
+    def test_triage_prompt_defines_library_by_role(self) -> None:
+        prompt, _evidence = registry.build_triage_prompt(self.nsid_project())
+
+        self.assertIn("Category contract:", prompt)
+        self.assertIn("An executable app, CLI, script, plugin, template, example", prompt)
+        self.assertIn("`category=infra_tool`", prompt)
+        self.assertIn("The selected category must agree with `summary`", prompt)
+        self.assertIn("`current_profile` is previous editorial wording", prompt)
+        self.assertIn("Before returning JSON, check `category` against `summary`", prompt)
+
 
 class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_parse_chat_completion_message_content(self) -> None:

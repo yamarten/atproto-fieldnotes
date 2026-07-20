@@ -80,13 +80,25 @@ Language requirements:
 - `repository_link_assessments`: assess every item in `repository_link_candidates`; use `same_project` only when the page and repository identify the same project, `related` for dependencies, inspirations, extension listings, templates, special thanks, or source code of a containing website, and `uncertain` when the bounded evidence is insufficient
 - `repository_link_assessments`: copy `service_url` and `repo_url` exactly from the corresponding evidence item; do not add repositories that are not listed there
 
+Category contract:
+- Select a category for the artifact's actual role, not its maturity, editorial value, distribution through a repository, or lack of a hosted service
+- Use `category=library` only when the evidence supports reusable code intended to be imported, linked, or consumed as an SDK, framework, or package by other software
+- An executable app, CLI, script, plugin, template, example, reference application, or prototype is not a `library` merely because it is distributed primarily through a repository
+- Use `category=project` for an independently runnable or installable app, plugin, experiment, or reference implementation when no more specific category applies
+- Use `category=infra_tool` for operator-facing or deployable protocol infrastructure and for tooling whose primary role is operations, hosting, moderation, indexing, backup, or deployment
+- Use `category=personal_tool` only when evidence supports author-only or narrowly personal use; do not use it as a fallback for every single-purpose artifact
+- Use `category=lexicon` when the schema itself is the tracked subject
+- The selected category must agree with `summary`: if the summary identifies an app, CLI, script, plugin, template, example, reference application, or prototype, `category=library` is invalid unless the evidence separately shows that its primary role is a reusable imported dependency
+- `current_profile` is previous editorial wording, not evidence of the artifact's role or category. Resolve the role from the underlying evidence before deciding whether to preserve its wording
+- Apply the category rules in this order when more than one description could fit: schema tracked as the subject -> `lexicon`; operations or deployable infrastructure -> `infra_tool`; evidenced author-only use -> `personal_tool`; reusable imported dependency -> `library`; otherwise independently runnable or installable artifact -> `project`
+- Before returning JSON, check `category` against `summary` and the rules above. Do not return internally contradictory JSON; change the category when the summary describes a delivery form that the chosen category excludes
+
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
 - Use `category=lexicon` and `lexicon_scope=shared` only when evidence supports a shared schema convention intended for third parties to implement or interoperate with
 - Use `lexicon_scope=service_specific` when the lexicon appears to belong to a particular service or app
 - Use `lexicon_scope=unknown` when the evidence does not distinguish an undiscovered service from a deliberately shared lexicon
 - The absence of a discovered service URL is not evidence that a lexicon is shared
-- If it is just a library, prefer library
 - If it only uses atproto for sign-in and not data model / records, prefer auth_only
 - If evidence suggests only the author uses it, prefer personal_tool
 - If evidence is too thin but the name should be remembered, prefer name_only

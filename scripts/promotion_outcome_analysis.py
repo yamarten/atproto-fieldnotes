@@ -16,7 +16,7 @@ from project_registry_core import database, project_record, registry
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "data" / "survey.db"
 SERVICE_STATUSES = {"live", "beta", "invite_only", "unverified"}
-SERVICE_CATEGORIES = {"project"}
+SERVICE_CATEGORIES = {"project", "infra_tool"}
 TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only", "auth_only"}
 LEXICON_IGNORED_BLOCKERS = {
     "service_status is still unknown",
@@ -47,7 +47,7 @@ def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> 
     allowed_categories = set(SERVICE_CATEGORIES)
     if include_personal_tools:
         allowed_categories.add("personal_tool")
-    applicable = category in {"project", "personal_tool"}
+    applicable = category in SERVICE_CATEGORIES | {"personal_tool"}
     blockers: list[str] = []
     if applicable and category not in allowed_categories:
         blockers.append("personal_tool_disabled")
@@ -131,7 +131,7 @@ def _primary_no_signal_reason(
         return "derivative_bluesky_tool"
     if category == "personal_tool" and "personal_tool_disabled" in service_blockers:
         return "personal_tool_disabled"
-    if category in {"project", "personal_tool"} and routes["service"]["enabled"]:
+    if category in SERVICE_CATEGORIES | {"personal_tool"} and routes["service"]["enabled"]:
         if "service_status_not_candidate" in service_blockers:
             return "service_status_not_candidate"
         if "website_or_confirmed_service_url_missing" in service_blockers:

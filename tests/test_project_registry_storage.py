@@ -1621,6 +1621,47 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             ["usable_surface_unconfirmed"],
         )
 
+    def test_infra_tool_with_usable_surface_is_promoted_as_service(self) -> None:
+        project = self.make_project("proj:infraservice", "service_url", "https://infra.example")
+        project.update({
+            "category": "infra_tool",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://infra.example", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_surface_confirmed"])
+        self.assertEqual(signals[0]["details"]["category"], "infra_tool")
+
+    def test_unverified_infra_tool_remains_validation_candidate(self) -> None:
+        project = self.make_project("proj:infravalidation", "service_url", "https://infra.example")
+        project.update({
+            "category": "infra_tool",
+            "service_status": "unverified",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://infra.example", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+
+    def test_library_with_service_fields_does_not_receive_service_signal(self) -> None:
+        project = self.make_project("proj:librarydocs", "service_url", "https://library.example")
+        project.update({
+            "category": "library",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://library.example", source="test")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
     def test_validation_candidate_sorts_below_confirmed_service_surface(self) -> None:
         confirmed = self.make_project("proj:confirmed", "service_url", "https://confirmed.example")
         confirmed.update({
