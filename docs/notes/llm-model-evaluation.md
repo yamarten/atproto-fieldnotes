@@ -232,8 +232,14 @@ production promptは変更せず、評価時suffixとして既存category規則�
   suffix追加分のprefill / output差を含む
 - v2の残る不合格1件は、evidenceの`blue.poll.poll.vote` / `blue.poll.poll.option`を
   `poll.poll.vote` / `poll.poll.option`へ短縮したidentifier改変。categoryは正しかった
-- category改善は大きいがidentifier完全一致を満たさないため、v2をproduction promptへはまだ反映しない
-- 次はNSIDを省略しない一般則を加えた小差分variantを当該caseで反復し、次に21件、最後に40件へ広げる
+- `category_gates_v3`はNSIDの先頭domainを含む完全一致規則だけを追加した。v2で失敗したcaseは3/3成功、
+  21件では21/21 category一致・guard通過21/21・evidence外identifier 0・290.258秒だった
+- v3を全40件へ広げても、40/40 request成功・guard通過40/40・review済みcategory 21/21・
+  evidence外identifier 0・spacing警告2・574.565秒だった。prompt長bucketごとのguard通過も全件だった
+- Qwen 35B / currentの663.896秒に対してv3は約13%速く、warm-up後RSSの既測値も約21.7 GiBから
+  約13.6 GiBへ約37%小さい。固定corpus上では品質・速度・memoryの3条件を同時に改善した
+- variant本文は`tests/fixtures/llm_evaluation_prompt_category_gates_v3.txt`へ固定した。
+  production promptは未変更であり、次は文章品質のpairwise reviewと複製DBでのshadow enrichを行う
 
 ### Other installed candidates
 
@@ -244,10 +250,36 @@ production promptは変更せず、評価時suffixとして既存category規則�
 
 現時点の解釈:
 
-- Gemma 26Bは速度・RSSの第一候補だが、current promptではproject過分類があり、そのままの乗り換えは不可
-- category gate variantで主要な分類差は解消できたため、promptを含む候補として次段階へ残す
+- Gemma 26Bはcurrent promptのままではproject過分類があるが、category-gates v3との組み合わせでは
+  固定40件の構造・identifier guardとreview済みcategoryをすべて通過した
+- Gemma 26B + category-gates v3を、文章品質と重い入力を含むshadow enrichの第一候補とする
 - Qwen 9Bは最小memoryまたはlibrary再分類専用、Qwen 27Bは品質上限の比較対象としてのみ残す
-- identifier完全一致を安定させた後、Gemma variantの全40件、文章品質、repeat varianceを確認する
+- 固定corpusの満点は実DB全件での同等性を保証しない。特にsummary / tagline / featuresの情報保持、
+  数分級のlong-tail latency、repeat varianceは次段階で確認する
+
+### Cross-family download candidates
+
+2026-07-20時点の次回model-only screening候補。公開benchmarkの順位を採用根拠にはせず、現行と異なる
+architecture / active parameter帯を固定corpusへ追加するための候補として選ぶ。
+
+| 優先 | model | 構造 | 比較上の役割 | download目安 |
+| --- | --- | --- | --- | --- |
+| 1 | gpt-oss-20b | MoE 20.9B total / 3.6B active | Qwen A3B / Gemma A4Bと同じactive帯の別系列。structured output適性も確認する | `openai/gpt-oss-20b`由来のGGUFまたはruntime推奨MXFP4。checkpoint 12.8 GiB |
+| 2 | NVIDIA Nemotron 3 Nano 30B-A3B | hybrid Mamba-Transformer MoE 31.6B total / 約3.2-3.6B active | 同じactive帯でhybrid architectureとruntime差を見る | LM Studioが対応する4bit版がある場合だけ。公式配布の中心はFP8/BF16なので形式を先に確認する |
+| 3 | Granite 4.0 H-Tiny | hybrid Mamba-2/Transformer MoE 7B total / 1B active | 速度・memoryの下限と、品質低下が許容範囲かを見る | 公式`ibm-granite/granite-4.0-h-tiny-GGUF`の`Q4_K_M`、約4.23 GB |
+| 4 | Ministral 3 14B Instruct | dense 14B | 小型denseの別系列対照。active parameter増に速度が従うかを見る | 公式`mistralai/Ministral-3-14B-Instruct-2512-GGUF`の`Q4_K_M`、約8.24 GB |
+
+補助候補はGranite 4.0 H-Small 32B/9B activeとPhi-4 14B dense。ただし前者のQ4_K_Mは約19.5 GBで
+現行のmemory問題をあまり改善せず、後者は16k contextなので、上記4つより優先度を下げる。
+gpt-ossはreasoning effortを`low`に固定し、harmony/chat templateをruntime既定から変更しない。
+Nemotronは対応runtimeと量子化形式が揃わなければ無理に比較へ入れない。
+
+この候補表のtotal / active parameterと配布形式は、各開発元のmodel cardと公式配布repoで確認した:
+
+- [OpenAI gpt-oss architecture](https://deploymentsafety.openai.com/gpt-oss/architecture)
+- [NVIDIA Nemotron 3](https://research.nvidia.com/labs/nemotron/Nemotron-3/)
+- [IBM Granite 4.0](https://www.ibm.com/granite/docs/models/granite)
+- [Mistral Ministral 3 14B](https://docs.mistral.ai/models/model-cards/ministral-3-14b-25-12)
 
 ## 2026-07-01 preliminary measurement
 

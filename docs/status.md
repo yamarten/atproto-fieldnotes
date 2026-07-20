@@ -186,7 +186,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、review済みexpected category 21件をevidence hash付きで固定。32k単独loadの全40件比較は、Qwen 35Bが14/21・663.9秒・evidence外identifier 0、Gemma 26B current promptが12/21・537.5秒・evidence外identifier 1。Gemma category-gates v2は限定21件で21/21・288.7秒まで改善したが、NSID短縮1件が残りproduction prompt未反映
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、review済みexpected category 21件をevidence hash付きで固定。32k単独loadの全40件比較は、Qwen 35B currentが14/21・guard 34/40・663.9秒、Gemma 26B category-gates v3が21/21・guard 40/40・evidence外identifier 0・574.6秒。v3は評価fixtureへ固定したがproduction prompt未反映で、文章品質と複製DB shadow enrichは未検証
 
 未検証:
 
