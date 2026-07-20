@@ -108,7 +108,7 @@
 - fixed evidence LLM evaluation
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
   - corpus選抜はprompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する。保存済み出力は比較referenceでありgold labelとは扱わない
-  - `evaluate-llm-corpus`は同一prompt、output cap、reasoning設定で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latencyをJSON reportへ保存する
+  - `evaluate-llm-corpus`は同一prompt、output cap、reasoning設定で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latencyをJSON reportへ保存する。任意のreview済みlabelはevidence hash一致を必須にし、expected output差分とcategory正解率を集計する
   - 長時間実行では開始時と各request完了時にreportをcheckpointし、正常終了時だけ`status=complete`へ確定する
   - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
 - 保存済みprofileの更新
@@ -173,7 +173,7 @@
 
 2026-07-20時点で確認済み:
 
-- 全unit test 467件
+- 全unit test 469件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -186,7 +186,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、category最低件数とlibrary重点caseを確認。32k contextの単独loadによるlibrary不整合12件比較では、現行Qwen 35Bが不整合4件・134.9秒・RSS約21.7 GiB、Qwen 9Bが不整合0件・211.6秒・RSS約7.6 GiB。9Bはspacing警告8件で、品質と省メモリは改善したが速度は約56.8%低下
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、review済みexpected category 21件をevidence hash付きで固定。32k単独loadの全40件比較は、Qwen 35Bが14/21・663.9秒・evidence外identifier 0、Gemma 26B current promptが12/21・537.5秒・evidence外identifier 1。Gemma category-gates v2は限定21件で21/21・288.7秒まで改善したが、NSID短縮1件が残りproduction prompt未反映
 
 未検証:
 

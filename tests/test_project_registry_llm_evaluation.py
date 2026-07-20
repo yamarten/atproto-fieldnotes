@@ -53,6 +53,35 @@ class LLMCorpusExportTest(unittest.TestCase):
             self.assertEqual(app["source_run_id"], "new")
             self.assertTrue(corpus["source"]["read_only"])
 
+    def test_labels_require_matching_evidence_hash(self) -> None:
+        corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}
+        labels = {
+            "schema_version": 1,
+            "labels": [{
+                "case_id": "case", "evidence_hash": "wrong",
+                "expected_output": {"category": "project"},
+            }],
+        }
+
+        with self.assertRaisesRegex(ValueError, "evidence hash mismatch"):
+            evaluation.apply_labels(corpus, labels)
+
+    def test_labels_are_applied_without_mutating_corpus(self) -> None:
+        corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}
+        labels = {
+            "schema_version": 1,
+            "labels": [{
+                "case_id": "case", "evidence_hash": "abc", "status": "confirmed",
+                "expected_output": {"category": "project"},
+            }],
+        }
+
+        labeled = evaluation.apply_labels(corpus, labels)
+
+        self.assertNotIn("expected_output", corpus["cases"][0])
+        self.assertEqual(labeled["cases"][0]["expected_output"], {"category": "project"})
+        self.assertEqual(labeled["labels"]["label_count"], 1)
+
 
 class LLMOutputValidationTest(unittest.TestCase):
     def valid_payload(self) -> dict:
@@ -98,7 +127,12 @@ class LLMOutputValidationTest(unittest.TestCase):
         corpus = {
             "schema_version": 1,
             "cases": [
-                {"case_id": "ok", "evidence": {"source_code_urls": ["https://example.com/repo"]}},
+                {
+                    "case_id": "ok",
+                    "evidence": {"source_code_urls": ["https://example.com/repo"]},
+                    "expected_output": {"category": "project"},
+                    "label_status": "confirmed",
+                },
                 {"case_id": "fail", "evidence": {"name": "Failure"}},
             ],
         }
@@ -120,6 +154,8 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertEqual(report["summary"]["success_count"], 1)
         self.assertEqual(report["summary"]["failure_count"], 1)
         self.assertEqual(report["summary"]["schema_valid_count"], 1)
+        self.assertEqual(report["summary"]["expected_category_match_count"], 1)
+        self.assertEqual(report["summary"]["expected_category_accuracy"], 1.0)
         self.assertEqual(report["summary"]["prompt_buckets"]["short"]["requests"], 2)
         self.assertTrue(report["results"][0]["reference_is_gold"] is False)
         self.assertEqual(report["runtime_observation"]["measurement_status"], "not_connected")

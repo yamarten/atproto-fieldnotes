@@ -171,21 +171,83 @@ library不整合12件を重点比較した。model固有prompt tuningは行っ�
 - 測定後、35Bを元のcontext 262,144、batch 2,048 / 512、parallel 4、flash attention、
   8 experts、KV cache GPU offload設定へ復元した
 
+12件はrepository由来descriptionとsource URLを再確認し、evidence hash付きreview labelとして
+`tests/fixtures/llm_evaluation_category_labels_v1.json`へ固定した。最初の12件は、11件を独立実行・導入する
+artifactとして`project`、GitHub Actionsを提供する`lexicon-tools`を`infra_tool`とした。全40件比較後、
+model間でcategoryが分かれ、根拠から判定可能な9件にもlabelを追加して計21件とした。runnerはlabelの
+evidence hashがcorpusと一致しない場合に停止し、reference差分とは別にexpected category正解率を集計する。
+
+同じ32k単独load、評価対象外warm-up、現行promptで4 modelを比較した結果:
+
+| model | active構造 | category正解 | guard通過 | spacing警告 | 合計秒 | 平均秒 | warm-up後RSS |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B A3B Q4_K_M | MoE A3B | 8/12 | 8/12 | 0 | 134.942 | 11.245 | 約21.7 GiB |
+| Qwen 3.5 9B Q4_K_M | dense 9B | 12/12 | 12/12 | 8 | 211.575 | 17.631 | 約7.6 GiB |
+| Gemma 4 26B A4B 4bit | MoE A4B | 10/12 | 11/12 | 0 | 116.095 | 9.675 | 約13.6 GiB |
+| Qwen 3.6 27B Q4_K_M | dense 27B | 12/12 | 12/12 | 0 | 608.085 | 50.674 | 約15.4 GiB |
+
+- Gemma 26Bは35Bより約14%速く、RSSも約37%小さく、category正解は8/12から10/12へ改善した
+- Gemma 26Bの誤りはStrapi pluginを`library`、`atp-cli`を`infra_tool`とした2件。後者は
+  category-summary guardでは検出できず、review labelによって初めて誤りとして集計される
+- Qwen 27Bは12/12正解だが35Bの約4.5倍、Gemma 26Bの約5.2倍かかり、bulk enrich候補にはしない
+- Qwen 9Bは満点かつ最小RSSだが35Bより約57%遅く、spacing警告も多いため用途限定候補に留める
+- GemmaはMLX、QwenはGGUF backendであり、runtime差も含む実運用候補比較である。architecture単体の
+  benchmarkとは解釈しない
+
+### Full 40-case comparison
+
+model loadを測定から外すため、corpusに含まれない18-tokenのrequestでwarm-upしてから40件を実行した。
+両modelともcontext 32,768、parallel 4、reasoning `none`、output cap 1,024。21件labelのうち後から
+追加した9件は、保存済みpayloadを再採点した。
+
+| model / prompt | category正解 | guard通過 | spacing警告 | evidence外identifier | 合計秒 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen 35B / current | 14/21 | 34/40 | 1 | 0 | 663.896 |
+| Gemma 26B / current | 12/21 | 36/40 | 1 | 1 | 537.536 |
+
+prompt長bucket別の1件平均:
+
+| model | short 14件 | medium 17件 | upper-medium 9件 |
+| --- | ---: | ---: | ---: |
+| Qwen 35B | 10.305秒 | 16.247秒 | 27.047秒 |
+| Gemma 26B | 8.406秒 | 12.308秒 | 23.402秒 |
+
+- Gemmaは全体で約19%速く、すべてのbucketで35Bを上回った
+- 一方、Gemmaは`project`を22/40件返し、`name_only` / `auth_only` / `reject`を一度も選ばなかった。
+  追加label後の正解率は35Bの14/21に対して12/21で、current promptのままでは品質改善といえない
+- Gemmaはbare domainを`https://activity.atmogus.lol`へ変換し、evidence外URLを1件生成した。
+  35Bはevidence外identifier 0件
+- Gemmaのenum違反は`technical_interest_level=low`と`manual_review_kind=none`、35Bは
+  `status=live`が2件。guard通過数だけではcategory品質やidentifier安全性を代替できない
+
+### Gemma prompt variant screening
+
+production promptは変更せず、評価時suffixとして既存category規則をhard gate形式で再掲した。
+`--prompt-suffix-file`はvariant名と内容hashをreportへ記録する。
+
+- `category_gates_v1`: 21件中18件category一致、guard通過19件、evidence外identifier 0、285.074秒
+- `category_gates_v2`: plugin、一般利用CLI、author固有schemaの一般則を補足し、21/21 category一致、
+  guard通過20件、spacing警告0、288.744秒
+- v2は同じ21件の35B 339.943秒より約15%速い。Gemma current 265.673秒より約9%遅く、
+  suffix追加分のprefill / output差を含む
+- v2の残る不合格1件は、evidenceの`blue.poll.poll.vote` / `blue.poll.poll.option`を
+  `poll.poll.vote` / `poll.poll.option`へ短縮したidentifier改変。categoryは正しかった
+- category改善は大きいがidentifier完全一致を満たさないため、v2をproduction promptへはまだ反映しない
+- 次はNSIDを省略しない一般則を加えた小差分variantを当該caseで反復し、次に21件、最後に40件へ広げる
+
 ### Other installed candidates
 
 - Gemma 4 12B Q4_0をcontext 32,768で試した単一caseでは、初回29.039秒、repeat 16.891秒で、
   どちらもStrapi pluginを`library`とした。単一caseでは品質改善を確認できなかった
-- Gemma 4 26B A4B 4bitは35Bとの同時loadをLM Studioのresource guardが拒否した。model単独の
-  不採用根拠ではなく、専用のmodel swap測定が必要
-- Qwen 3.6 27B Q4_K_Mもinstalled candidateだが、まだ実行していない
+- Gemma 4 26B A4B 4bitは35Bとの同時loadをresource guardが拒否したが、単独loadでは上記の通り完走した
+- Qwen 3.6 27B Q4_K_Mも単独loadで完走したが、速度要件に合わなかった
 
 現時点の解釈:
 
-- Qwen 3.5 9Bはlibrary判定と省メモリの第一候補。12件の狭いsubsetでは35Bより明確に整合した
-- ただしgold label未確定、他category未評価、文章品質差があり、単独測定でも35Bより遅いため、
-  bulk enrichの単純な置換候補にはまだならない
-- 次は12件のexpected categoryを固定し、27B / Gemma 26Bを同じruntime条件で単独loadする。
-  品質と速度の一方で9Bまたは35Bを上回る候補だけを40件全体へ進める
+- Gemma 26Bは速度・RSSの第一候補だが、current promptではproject過分類があり、そのままの乗り換えは不可
+- category gate variantで主要な分類差は解消できたため、promptを含む候補として次段階へ残す
+- Qwen 9Bは最小memoryまたはlibrary再分類専用、Qwen 27Bは品質上限の比較対象としてのみ残す
+- identifier完全一致を安定させた後、Gemma variantの全40件、文章品質、repeat varianceを確認する
 
 ## 2026-07-01 preliminary measurement
 

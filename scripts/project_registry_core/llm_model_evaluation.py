@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -14,6 +15,7 @@ from typing import Any, Callable, Iterable
 
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
+LABEL_SCHEMA_VERSION = 1
 CATEGORY_VALUES = {
     "project", "lexicon", "infra_tool", "name_only", "library",
     "personal_tool", "auth_only", "reject",
@@ -93,6 +95,39 @@ def corpus_content_hash(corpus: dict[str, Any]) -> str:
         "schema_version": corpus.get("schema_version"),
         "cases": corpus.get("cases", []),
     })
+
+
+def apply_labels(corpus: dict[str, Any], label_set: dict[str, Any]) -> dict[str, Any]:
+    if int(label_set.get("schema_version") or 0) != LABEL_SCHEMA_VERSION:
+        raise ValueError("unsupported LLM evaluation label schema")
+    labeled = copy.deepcopy(corpus)
+    cases = {
+        str(case.get("case_id") or ""): case
+        for case in labeled.get("cases", [])
+        if isinstance(case, dict)
+    }
+    for label in label_set.get("labels", []):
+        if not isinstance(label, dict):
+            raise ValueError("LLM evaluation labels must be objects")
+        case_id = str(label.get("case_id") or "")
+        if case_id not in cases:
+            raise ValueError(f"unknown labeled case ID: {case_id}")
+        case = cases[case_id]
+        expected_hash = str(label.get("evidence_hash") or "")
+        if expected_hash and expected_hash != str(case.get("evidence_hash") or ""):
+            raise ValueError(f"evidence hash mismatch for labeled case: {case_id}")
+        expected_output = label.get("expected_output")
+        if not isinstance(expected_output, dict) or not expected_output:
+            raise ValueError(f"expected_output missing for labeled case: {case_id}")
+        case["expected_output"] = copy.deepcopy(expected_output)
+        case["label_status"] = str(label.get("status") or "")
+        case["label_basis"] = str(label.get("basis") or "")
+    labeled["labels"] = {
+        "schema_version": LABEL_SCHEMA_VERSION,
+        "content_hash": sha256_json(label_set),
+        "label_count": len(label_set.get("labels", [])),
+    }
+    return labeled
 
 
 def checkpoint_report(
@@ -534,6 +569,11 @@ def run_corpus(
                     "reference_diff": reference_diff(payload, case.get("reference_output"))
                     if isinstance(payload, dict) else [],
                     "reference_is_gold": False,
+                    "expected_output": case.get("expected_output")
+                    if isinstance(case.get("expected_output"), dict) else None,
+                    "expected_diff": reference_diff(payload, case.get("expected_output"))
+                    if isinstance(payload, dict) and isinstance(case.get("expected_output"), dict) else [],
+                    "label_status": str(case.get("label_status") or ""),
                 })
             except Exception as exc:
                 result.update({"error_type": type(exc).__name__, "error": str(exc)})
@@ -551,6 +591,15 @@ def run_corpus(
     style_warnings = [
         result for result in successes
         if result.get("validation", {}).get("style_warnings")
+    ]
+    category_labeled = [
+        result for result in successes
+        if isinstance(result.get("expected_output"), dict)
+        and "category" in result["expected_output"]
+    ]
+    category_matches = [
+        result for result in category_labeled
+        if result.get("payload", {}).get("category") == result["expected_output"].get("category")
     ]
     bucket_summary: dict[str, dict[str, int]] = {}
     case_by_id = {str(case.get("case_id") or ""): case for case in cases}
@@ -590,6 +639,12 @@ def run_corpus(
                 bool(result.get("validation", {}).get("unsupported_identifiers")) for result in successes
             ),
             "style_warning_result_count": len(style_warnings),
+            "expected_category_labeled_count": len(category_labeled),
+            "expected_category_match_count": len(category_matches),
+            "expected_category_mismatch_count": len(category_labeled) - len(category_matches),
+            "expected_category_accuracy": (
+                len(category_matches) / len(category_labeled) if category_labeled else None
+            ),
             "total_duration_ms": sum(int(result["duration_ms"]) for result in results),
             "prompt_buckets": bucket_summary,
         },

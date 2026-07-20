@@ -36,6 +36,12 @@ def cmd_export_llm_evaluation_corpus(args: argparse.Namespace) -> int:
 def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
     corpus_path = Path(args.corpus)
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+    if args.labels:
+        label_set = json.loads(Path(args.labels).read_text(encoding="utf-8"))
+        corpus = evaluation.apply_labels(corpus, label_set)
+    prompt_suffix = ""
+    if args.prompt_suffix_file:
+        prompt_suffix = Path(args.prompt_suffix_file).read_text(encoding="utf-8").strip()
     output_cap = int(args.output_cap)
     if output_cap < 1:
         raise ValueError("output-cap must be at least 1")
@@ -51,22 +57,30 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
             llm_max_output_tokens=output_cap,
         )
 
+    def build_prompt(evidence: dict) -> str:
+        prompt = _prompt_from_evidence(evidence)
+        if prompt_suffix:
+            prompt = f"{prompt}\n\nEvaluation prompt variant:\n{prompt_suffix}\n"
+        return prompt
+
     model_spec = {
         "model": str(args.llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")),
         "transport": "configured",
         "runtime": str(args.runtime or ""),
         "quantization": str(args.quantization or ""),
-        "prompt_variant": "baseline_current",
+        "prompt_variant": str(args.prompt_variant or "baseline_current"),
+        "prompt_suffix_hash": evaluation.sha256_json({"text": prompt_suffix}) if prompt_suffix else "",
         "reasoning_effort": str(args.llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", "")),
         "api_style": str(args.llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
         "output_cap": output_cap,
+        "labels": str(args.labels or ""),
     }
     output = Path(args.output)
     case_ids = set(args.case_id or [])
     _write_json(output, evaluation.checkpoint_report(corpus, model_spec, [], case_ids))
     report = evaluation.run_corpus(
         corpus,
-        build_prompt=_prompt_from_evidence,
+        build_prompt=build_prompt,
         run_llm=run_llm,
         model_spec=model_spec,
         repeat=int(args.repeat),

@@ -297,6 +297,9 @@ case "$cmd" in
   evaluate-llm-corpus)
     _arguments -S \
       '--corpus[Fixed corpus JSON path]:path:_files' \
+      '--labels[Reviewed expected-output labels JSON path]:path:_files' \
+      '--prompt-variant[Prompt variant label]:name:' \
+      '--prompt-suffix-file[Evaluation-only prompt suffix]:path:_files' \
       '--output[Structured report JSON path]:path:_files' \
       '*--case-id[Run only this case ID]:case id:' \
       '--repeat[Runs per case]:count:' \
