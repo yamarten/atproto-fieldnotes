@@ -265,7 +265,24 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_llm_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
     evaluate_llm_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference.")
     evaluate_llm_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Reasoning/thinking effort.")
+    evaluate_llm_parser.add_argument(
+        "--reasoning-observation", choices=["applied", "ignored", "not_checked"],
+        help="What the runtime log or model configuration showed for the requested reasoning setting.",
+    )
+    evaluate_llm_parser.add_argument(
+        "--reasoning-observation-note",
+        help="Short non-secret evidence for the reasoning observation, such as a runtime log message.",
+    )
     evaluate_llm_parser.set_defaults(func=llm_evaluation_commands.cmd_evaluate_llm_corpus)
+
+    compare_llm_reports_parser = subparsers.add_parser(
+        "compare-llm-evaluation-reports",
+        help="Compare two complete reports without selecting a production model.",
+    )
+    compare_llm_reports_parser.add_argument("--baseline", required=True, help="Baseline report JSON path.")
+    compare_llm_reports_parser.add_argument("--candidate", required=True, help="Candidate report JSON path.")
+    compare_llm_reports_parser.add_argument("--output", required=True, help="Comparison JSON path.")
+    compare_llm_reports_parser.set_defaults(func=llm_evaluation_commands.cmd_compare_llm_evaluation_reports)
 
     verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
     verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)

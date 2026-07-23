@@ -25,6 +25,7 @@ subcommands=(
   'export-investigation-fixture:Export a sanitized saved investigation fixture'
   'export-llm-evaluation-corpus:Export fixed triage evidence from saved runs'
   'evaluate-llm-corpus:Run one model configuration against a fixed corpus'
+  'compare-llm-evaluation-reports:Compare two complete LLM evaluation reports'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
@@ -310,7 +311,15 @@ case "$cmd" in
       '--llm-model[Model name for the LLM endpoint]:model:' \
       '--llm-api-key[Optional API key for the LLM endpoint]:api key:' \
       '--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles' \
-      '--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts'
+      '--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts' \
+      '--reasoning-observation[Runtime observation for the requested reasoning setting]:status:(applied ignored not_checked)' \
+      '--reasoning-observation-note[Short non-secret runtime evidence]:note:'
+    ;;
+  compare-llm-evaluation-reports)
+    _arguments -S \
+      '--baseline[Baseline report JSON path]:path:_files' \
+      '--candidate[Candidate report JSON path]:path:_files' \
+      '--output[Comparison JSON path]:path:_files'
     ;;
   verify-service)
     _arguments -S \

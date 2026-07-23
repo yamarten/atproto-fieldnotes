@@ -1,1035 +1,261 @@
-# LLM Model Evaluation Notes
+# LLM Model Evaluation
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。LLM の恒久的な位置づけは
-> [investigation-model.md](../developer/investigation-model.md)、`enrich` の接続状況は
-> [registry-internals.md](../developer/registry-internals.md) を参照してください。
+> 作業用・比較用文書です。LLMの恒久的な役割は
+> [investigation-model.md](../developer/investigation-model.md)、通常導線の接続状況は
+> [registry-internals.md](../developer/registry-internals.md)を正本とします。
 
 ## 目的
 
-enrich で使う LLM を変更した時に、結果がどの程度変わるかを再利用可能な形で測る。
-将来の新モデル移行判断では、単発の印象ではなく、固定 corpus、同一 prompt、同一 evidence、
-同じ採点軸で比較する。現時点の主目的は、ローカル運用で全件 enrich に 30 時間以上かかる状態を
-短縮し、メモリ逼迫を下げつつ、出力品質を維持または改善できるかを判断すること。
+次の二つを扱います。
 
-非目標:
+- 通常`enrich`で使うmodelを変更するか、確認結果に基づいて判断する
+- 新しいmodelや新versionを、同じ手順と観点で比較できるようにする
 
-- LLM 単独で ownership、confirmed identifier、service 到達確認を確定する
-- benchmark のために通常 DB を直接更新する
-- 最新モデル名を恒久仕様として固定する
-- 外部 API 利用を前提に通常運用を再設計する
-
-## 背景
-
-ユーザー報告:
-
-- 現在の主運用 LLM は `Qwen3.6 35B` の Q4 量子化
-- メモリが逼迫している
-- 全件 enrich には 30 時間以上かかっている
-- 優先評価軸は次の 3 つ
-  - 出力が良くなるか
-  - 速くなるか
-  - 省メモリになるか
-- 外部 API は主線ではない
-  - 低コストで劇的な改善が見込める場合だけ比較候補に入れる
-- 最悪は現状維持でよい
-  - したがって探索は、急いでQwen系の小型へ置き換えるより、現行baselineを維持しながら別系列も最初から比較対象に含める
-- 第一段階は固定 evidence の軽い比較でよい
-  - 将来は、全件ではなくても重い実運用相当の比較を行えるようにする
-- 現行の通常時は 1 project あたりおおむね 30 秒程度
-  - たまに数分止まることがある
-  - GC、memory pressure、swap、runner 側の stall など runtime-level 要因の可能性があるが未確認
-
-未検証:
-
-- 上記の実測値はこの文書作成時点では code / log / benchmark から再確認していない
-- `Qwen3.6 35B` の正確な model card、runner、quantization variant、context 設定、thinking 設定は未確認
-- 30 時間超の内訳が LLM decode、prompt prefill、外部 collector、service probe、DB write のどれに寄っているかは未計測
-- 数分単位の停止が GC、swap、runner 内部 queue、model reload、context/KV cache、外部 collector timeout のどれに由来するかは未計測
+model名や単一のscoreを採用条件にはしません。model、配布形式、runtime、chat template、prompt、
+reasoning設定を一つの実行構成として記録し、その構成で確認します。
 
 ## 現在地
 
 実装済み:
 
-- `enrich` は LLM を 2 箇所で使う
-  - investigation query planning
-  - 最終 triage / editorial 補完
-- LLM transport は command 方式または OpenAI-compatible endpoint 方式
-- endpoint 方式は `chat/completions`、`responses`、`completions` の順序付き候補を扱える
-- LLM meta は `transport`、`model`、`api_style`、`reasoning_effort`、`prompt_version`、
-  `generated_at` を保存する
-- 最終 triage の `llm_source.evidence` には prompt に渡した縮約 evidence を保存する
-- LLM failure 時も deterministic plan や他 collector は継続する
-
-未接続:
-
-- 複数のmodel reportを横断集計する比較writer
-- triage 直前の project snapshot 保存
-- Anthropic / Gemini などの first-party API adapter
-  - 現状で使う場合は command wrapper か OpenAI-compatible gateway が必要
-- model/prompt/cost/latency の集計 dashboard
-- peak memory、swap、prefill、decodeのrunner別自動計測
-
-実装済み:
-
 - `export-llm-evaluation-corpus`
-  - 指定SQLite DBをread-onlyで開き、projectごとの最新保存runから固定evidenceをexportする
-  - prompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する
+  - 指定DBをread-onlyで開き、保存済みLLM evidenceから固定caseを出力する
 - `evaluate-llm-corpus`
-  - 1つの`model + quantization + runtime + baseline_current prompt + reasoning + output cap`構成を固定corpusへ反復実行する
-  - schema/enum、evidence外identifier、libraryとsummaryの役割不整合、保存済み出力との差、latencyをreportする
-  - 開始時と各request完了時にreportをcheckpointし、途中停止時も完了済みresultを残す
-  - 保存済み出力はreferenceであってgold labelではない
-
-未検証:
-
-- 現在の通常 DB で、モデル差が category、service_status、technical_interest、promotion readiness に
-  どの程度影響するか
-- 同一モデル・同一 prompt の繰り返し実行での揺れ
-- reasoning effort の差が JSON 安定性や過剰推測に与える影響
-- thinking / non-thinking 切替、出力 token 上限、prompt 縮約が全件 runtime に与える影響
-- prompt tuning の必要量が model 系列ごとにどれくらい違うか
-
-## 2026-07-20 initial corpus and baseline smoke
-
-実装済み / 実行済み:
-
-- 正本DBをread-onlyで開き、projectごとの最新保存run 3,635件から40件の固定corpusを
-  `.tmp/llm-evaluation-corpus-v1.json`へexportした
-- 選抜は`library_min=12`、`category_min=2`
-  - category: library 15、project 5、lexicon 5、infra_tool 5、name_only 4、
-    auth_only 2、personal_tool 2、reject 2
-  - prompt bucket: short 14、medium 17、upper_medium 9
-  - prompt chars: min 9,429、median 10,705、max 32,631
-- `category=library` 15件のうち、保存済みsummaryがplugin / template / CLI / app等を説明する
-  明白なcategory-summary不整合を12件検出した
-- 現行environmentの`qwen/qwen3.6-35b-a3b`、reasoning `none`、output cap 1,024で、
-  最短の不整合case `strapi-plugin-atproto`を実行した
-  - 初回: 19.577秒、input 2,402 tokens、output 399 tokens、cached input 0
-  - checkpoint実装後の同一case repeat: 10.297秒 / 9.974秒、inputはいずれも2,402 tokens、
-    output 416 / 399 tokens、cached inputはいずれも1,886、最新report `status=complete`
-  - JSON/schema必須field、enum、evidence外identifierは問題なし
-  - 3回ともsummaryとtaglineはStrapi pluginと説明したが、categoryは`library`を返した
-  - `category_summary_conflict:library_executable_role`として不合格になり、現行modelの既知問題を固定caseで再現した
-
-未検証 / 解釈:
-
-- 先行する2 case x 2 repeat試行は最終reportを生成できず、測定結果として採用していない。終了原因は
-  model timeout、runner、実行sessionのどこかを確定できていない
-- この失敗を受け、runnerは開始時と各request完了時にreportをcheckpointするよう変更した。変更後の
-  複数case長時間実行は未検証
-- 単一case 3回だけなので、category不整合率と広いrepeat varianceはまだ評価できない。repeatの短縮は
-  cached input増加と整合するが、model load、prefix cache、runner schedulingの寄与は分離していない
-- corpusの`reference_output`は保存済みmodel出力でありgold labelではない。特にlibrary 15件は人手で
-  expected categoryを付けてからmodel間の正解率比較に使う
-- peak memory、swap、prefill/decode内訳は未取得
-
-## 2026-07-20 installed-model screening
-
-同一worktree、同一40件corpus、現行prompt、reasoning `none`、output cap 1,024で、まず
-library不整合12件を重点比較した。model固有prompt tuningは行っていない。
-
-### Qwen 3.6 35B A3B Q4_K_M baseline
-
-- LM Studio設定はcontext 262,144、parallel 4、flash attention有効
-- 12/12 request成功、schemaと意味guardを通過した出力は8/12
-- 4/12でsummaryがplugin / GitHub Actions / example等を説明しながら`category=library`を返した
-- evidence外identifierは0、mixed-script spacing警告は0
-- 合計173.050秒、1件あたりmin 12.657秒、median 14.391秒、max 15.679秒
-- この12件実行では各promptが異なり、endpoint usageのcached inputは全件0だった
-
-### Qwen 3.5 9B Q4_K_M
-
-- baselineと同時ロードし、context 32,768、parallel 4、flash attention有効で実行した
-- 12/12 request成功、schemaと意味guardを通過した出力も12/12
-- `category=library`不整合は0。11件を`project`、GitHub Actionsの1件を`infra_tool`とした
-- evidence外identifierは0
-- mixed-script spacing警告は10/12。`Grain.social の`、`atproto エージェント`のような、
-  日本語とASCII token間の空白が複数fieldで見られた。通常enrich適用時に正規化されるfieldもあるが、
-  model出力自体の文面品質差としてreportする
-- 合計275.738秒、1件あたりmin 20.436秒、median 22.956秒、max 24.853秒
-- 35Bと同時ロードし、system swapが約10.1 GiB使用中の測定なので、単独運用時の速度比較には使わない
-
-### Memory observation
-
-- LM Studioが報告したmodel file sizeは35Bが22,069,768,080 bytes、9Bが6,548,927,017 bytes
-- 両model同時ロード中のprocess RSSは35B約19.7 GiB、9B約5.4 GiBだった。別時点の35B単独RSSは
-  約22.9 GiBだったため、RSSはresident pageとswap状態で動く。model単独のpeak memoryではない
-- 同時ロード中のsystem swap使用量は約10.1 GiB。この同時load値は採用判断に使わず、下記の
-  単独loadでRSSを取り直した
-
-### Matched 32k single-model run
-
-同時loadの影響を外すため、両modelを順に単独loadし、context 32,768、parallel 4、flash attention有効、
-同じ評価対象外caseでwarm-upした後に12件を測定した。
-
-- 35B: 12/12成功、guard通過8/12、library不整合4、spacing警告0、合計134.942秒
-- 9B: 12/12成功、guard通過12/12、library不整合0、spacing警告8、合計211.575秒
-- 9Bは35Bより合計約56.8%遅かった。小型化による速度向上はこのruntimeでは確認できない
-- warm-up後のprocess RSSは35B約21.7 GiB、9B約7.6 GiBで、9Bは約65%小さかった
-- 同時点のsystem swapは35B時約9.6 GiB、9B時約9.5 GiB。OS全体の既存swapを含み、
-  unload後も直ちに解放されないため、model別swap deltaとしては解釈しない
-- 測定後、35Bを元のcontext 262,144、batch 2,048 / 512、parallel 4、flash attention、
-  8 experts、KV cache GPU offload設定へ復元した
-
-12件はrepository由来descriptionとsource URLを再確認し、evidence hash付きreview labelとして
-`tests/fixtures/llm_evaluation_category_labels_v1.json`へ固定した。最初の12件は、11件を独立実行・導入する
-artifactとして`project`、GitHub Actionsを提供する`lexicon-tools`を`infra_tool`とした。全40件比較後、
-model間でcategoryが分かれ、根拠から判定可能な9件にもlabelを追加して計21件とした。runnerはlabelの
-evidence hashがcorpusと一致しない場合に停止し、reference差分とは別にexpected category正解率を集計する。
-
-同じ32k単独load、評価対象外warm-up、現行promptで4 modelを比較した結果:
-
-| model | active構造 | category正解 | guard通過 | spacing警告 | 合計秒 | 平均秒 | warm-up後RSS |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Qwen 3.6 35B A3B Q4_K_M | MoE A3B | 8/12 | 8/12 | 0 | 134.942 | 11.245 | 約21.7 GiB |
-| Qwen 3.5 9B Q4_K_M | dense 9B | 12/12 | 12/12 | 8 | 211.575 | 17.631 | 約7.6 GiB |
-| Gemma 4 26B A4B 4bit | MoE A4B | 10/12 | 11/12 | 0 | 116.095 | 9.675 | 約13.6 GiB |
-| Qwen 3.6 27B Q4_K_M | dense 27B | 12/12 | 12/12 | 0 | 608.085 | 50.674 | 約15.4 GiB |
-
-- Gemma 26Bは35Bより約14%速く、RSSも約37%小さく、category正解は8/12から10/12へ改善した
-- Gemma 26Bの誤りはStrapi pluginを`library`、`atp-cli`を`infra_tool`とした2件。後者は
-  category-summary guardでは検出できず、review labelによって初めて誤りとして集計される
-- Qwen 27Bは12/12正解だが35Bの約4.5倍、Gemma 26Bの約5.2倍かかり、bulk enrich候補にはしない
-- Qwen 9Bは満点かつ最小RSSだが35Bより約57%遅く、spacing警告も多いため用途限定候補に留める
-- GemmaはMLX、QwenはGGUF backendであり、runtime差も含む実運用候補比較である。architecture単体の
-  benchmarkとは解釈しない
-
-### Full 40-case comparison
-
-model loadを測定から外すため、corpusに含まれない18-tokenのrequestでwarm-upしてから40件を実行した。
-両modelともcontext 32,768、parallel 4、reasoning `none`、output cap 1,024。21件labelのうち後から
-追加した9件は、保存済みpayloadを再採点した。
-
-| model / prompt | category正解 | guard通過 | spacing警告 | evidence外identifier | 合計秒 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Qwen 35B / current | 14/21 | 34/40 | 1 | 0 | 663.896 |
-| Gemma 26B / current | 12/21 | 36/40 | 1 | 1 | 537.536 |
-
-prompt長bucket別の1件平均:
-
-| model | short 14件 | medium 17件 | upper-medium 9件 |
-| --- | ---: | ---: | ---: |
-| Qwen 35B | 10.305秒 | 16.247秒 | 27.047秒 |
-| Gemma 26B | 8.406秒 | 12.308秒 | 23.402秒 |
-
-- Gemmaは全体で約19%速く、すべてのbucketで35Bを上回った
-- 一方、Gemmaは`project`を22/40件返し、`name_only` / `auth_only` / `reject`を一度も選ばなかった。
-  追加label後の正解率は35Bの14/21に対して12/21で、current promptのままでは品質改善といえない
-- Gemmaはbare domainを`https://activity.atmogus.lol`へ変換し、evidence外URLを1件生成した。
-  35Bはevidence外identifier 0件
-- Gemmaのenum違反は`technical_interest_level=low`と`manual_review_kind=none`、35Bは
-  `status=live`が2件。guard通過数だけではcategory品質やidentifier安全性を代替できない
-
-### Gemma prompt variant screening
-
-production promptは変更せず、評価時suffixとして既存category規則をhard gate形式で再掲した。
-`--prompt-suffix-file`はvariant名と内容hashをreportへ記録する。
-
-- `category_gates_v1`: 21件中18件category一致、guard通過19件、evidence外identifier 0、285.074秒
-- `category_gates_v2`: plugin、一般利用CLI、author固有schemaの一般則を補足し、21/21 category一致、
-  guard通過20件、spacing警告0、288.744秒
-- v2は同じ21件の35B 339.943秒より約15%速い。Gemma current 265.673秒より約9%遅く、
-  suffix追加分のprefill / output差を含む
-- v2の残る不合格1件は、evidenceの`blue.poll.poll.vote` / `blue.poll.poll.option`を
-  `poll.poll.vote` / `poll.poll.option`へ短縮したidentifier改変。categoryは正しかった
-- `category_gates_v3`はNSIDの先頭domainを含む完全一致規則だけを追加した。v2で失敗したcaseは3/3成功、
-  21件では21/21 category一致・guard通過21/21・evidence外identifier 0・290.258秒だった
-- v3を全40件へ広げても、40/40 request成功・guard通過40/40・review済みcategory 21/21・
-  evidence外identifier 0・spacing警告2・574.565秒だった。prompt長bucketごとのguard通過も全件だった
-- Qwen 35B / currentの663.896秒に対してv3は約13%速く、warm-up後RSSの既測値も約21.7 GiBから
-  約13.6 GiBへ約37%小さい。固定corpus上では品質・速度・memoryの3条件を同時に改善した
-- variant本文は`tests/fixtures/llm_evaluation_prompt_category_gates_v3.txt`へ固定した。
-  production promptは未変更であり、次は文章品質のpairwise reviewと複製DBでのshadow enrichを行う
-
-### Other installed candidates
-
-- Gemma 4 12B Q4_0をcontext 32,768で試した単一caseでは、初回29.039秒、repeat 16.891秒で、
-  どちらもStrapi pluginを`library`とした。単一caseでは品質改善を確認できなかった
-- Gemma 4 26B A4B 4bitは35Bとの同時loadをresource guardが拒否したが、単独loadでは上記の通り完走した
-- Qwen 3.6 27B Q4_K_Mも単独loadで完走したが、速度要件に合わなかった
-
-現時点の解釈:
-
-- Gemma 26Bはcurrent promptのままではproject過分類があるが、category-gates v3との組み合わせでは
-  固定40件の構造・identifier guardとreview済みcategoryをすべて通過した
-- Gemma 26B + category-gates v3を、文章品質と重い入力を含むshadow enrichの第一候補とする
-- Qwen 9Bは最小memoryまたはlibrary再分類専用、Qwen 27Bは品質上限の比較対象としてのみ残す
-- 固定corpusの満点は実DB全件での同等性を保証しない。特にsummary / tagline / featuresの情報保持、
-  数分級のlong-tail latency、repeat varianceは次段階で確認する
-
-### Cross-family download candidates
-
-2026-07-20時点の次回model-only screening候補。公開benchmarkの順位を採用根拠にはせず、現行と異なる
-architecture / active parameter帯を固定corpusへ追加するための候補として選ぶ。
-
-| 優先 | model | 構造 | 比較上の役割 | download目安 |
-| --- | --- | --- | --- | --- |
-| 1 | gpt-oss-20b | MoE 20.9B total / 3.6B active | Qwen A3B / Gemma A4Bと同じactive帯の別系列。structured output適性も確認する | `openai/gpt-oss-20b`由来のGGUFまたはruntime推奨MXFP4。checkpoint 12.8 GiB |
-| 2 | NVIDIA Nemotron 3 Nano 30B-A3B | hybrid Mamba-Transformer MoE 31.6B total / 約3.2-3.6B active | 同じactive帯でhybrid architectureとruntime差を見る | LM Studioが対応する4bit版がある場合だけ。公式配布の中心はFP8/BF16なので形式を先に確認する |
-| 3 | Granite 4.0 H-Tiny | hybrid Mamba-2/Transformer MoE 7B total / 1B active | 速度・memoryの下限と、品質低下が許容範囲かを見る | 公式`ibm-granite/granite-4.0-h-tiny-GGUF`の`Q4_K_M`、約4.23 GB |
-| 4 | Ministral 3 14B Instruct | dense 14B | 小型denseの別系列対照。active parameter増に速度が従うかを見る | 公式`mistralai/Ministral-3-14B-Instruct-2512-GGUF`の`Q4_K_M`、約8.24 GB |
-
-補助候補はGranite 4.0 H-Small 32B/9B activeとPhi-4 14B dense。ただし前者のQ4_K_Mは約19.5 GBで
-現行のmemory問題をあまり改善せず、後者は16k contextなので、上記4つより優先度を下げる。
-gpt-ossはreasoning effortを`low`に固定し、harmony/chat templateをruntime既定から変更しない。
-Nemotronは対応runtimeと量子化形式が揃わなければ無理に比較へ入れない。
-
-この候補表のtotal / active parameterと配布形式は、各開発元のmodel cardと公式配布repoで確認した:
-
-- [OpenAI gpt-oss architecture](https://deploymentsafety.openai.com/gpt-oss/architecture)
-- [NVIDIA Nemotron 3](https://research.nvidia.com/labs/nemotron/Nemotron-3/)
-- [IBM Granite 4.0](https://www.ibm.com/granite/docs/models/granite)
-- [Mistral Ministral 3 14B](https://docs.mistral.ai/models/model-cards/ministral-3-14b-25-12)
-
-### 2026-07-22 expanded local screening
-
-追加modelとbackend差を、32kを要求した単独load、評価対象外warm-up、baseline current prompt、12件で比較した。
-gpt-ossだけはmodel契約に合わせてreasoning `low`、他は`none`。output capは1,024で固定した。
-
-| model / backend | category正解 | guard通過 | spacing警告 | 合計秒 | memory観測 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Gemma 4 26B A4B / MLX 4bit | 10/12 | 11/12 | 0 | 116.095 | worker RSS約13.6 GiB |
-| Granite 4 H-Tiny / GGUF Q4_K_M | 11/12 | 5/12 | 3 | 121.523 | model file約4.23 GB、RSS未測定 |
-| Nemotron 3 Nano / MLX 4bit | 10/12 | 11/12 | 0 | 122.283 | model files約17.8 GB、RSS未測定 |
-| Qwen 3.6 35B A3B / GGUF Q4_K_M | 8/12 | 8/12 | 0 | 134.942 | worker RSS約21.7 GiB |
-| gpt-oss-20b / MLX MXFP4 | 11/12 | 11/12 | 0 | 165.238 | worker RSS約12.45 GiB |
-| Qwen 3.5 9B / MLX 4bit | 11/12 | 10/12 | 5 | 200.673 | worker RSS約6.83 GiB |
-| Agents A1 4B / GGUF Q8_0 | 11/12 | 11/12 | 3 | 201.461 | model file約4.48 GB、RSS未測定 |
-| Qwen 3.5 9B / GGUF Q4_K_M | 12/12 | 12/12 | 8 | 211.575 | worker RSS約7.6 GiB |
-
-- active parameterは大勢を説明するが、同程度のactive帯でも約116-165秒に分かれた。architecture、backend、
-  quantization、生成token数を含むため、active parameterだけで実運用速度は決まらない
-- Graniteは1B active相応に速くcategoryも11/12だが、必須field欠落、enum違反、tagline長超過でguardが5/12。
-  小メモリ用途のprompt tuning候補だが、そのままの置換候補ではない
-- Nemotronは速度とguardが良いが、category 10/12かつmodel files約17.8 GBで、Gemma 26Bに対する優位を
-  確認できなかった
-- gpt-ossはResponses payloadのreasoning itemとfinal messageを連結するとJSON parseに失敗した。
-  transportをfinal message優先へ修正した後は12/12 request成功したが、速度・品質ともGemmaを上回らなかった
-- Agents A1は4Bでも約201秒で、Qwen 9B denseと同程度。11/12のcategory品質は良いが、通常bulk enrichの
-  速度改善候補にはならない
-- Qwen 9BのMLXはGGUFより約5%速くRSSも約10%小さいが、category 12/12から11/12、guard 12/12から
-  10/12へ低下した。このmodelではbackend変更だけによる劇的な改善はない
-- ダウンロードされたMinistral 3 14BはInstructではなくReasoning版だった。単一caseで53.270秒後にJSONなしで
-  失敗したため、bulk enrich比較にはInstruct版が必要
-- LM Studio REST APIのmodel keyは同一modelの`selected_variant`をloadする。2026-07-22時点ではQwen 35B MLX、
-  Gemma 26B GGUF、gpt-oss GGUFが`.part`で、同一modelのbackend比較を完了できたのはQwen 9Bだけ
-
-Qwen 35BへGemmaと同じcategory-gates v3を適用した全40件では、categoryが14/21から18/21へ改善した。
-一方、guardは34/40のまま、evidence外identifierは0件から2件へ増えた。合計540.428秒はbaselineの
-663.896秒より約19%短いが、別runで生成内容も異なるためprompt自体の速度効果とは断定しない。
-残るcategory誤りはStrapi pluginの`library`、GitHub Actionsの`project`、独立appの`lexicon`の3件。
-Qwenにもprompt tuning余地はあるが、v3時点ではGemma v3の21/21・guard 40/40へは届かない。
-
-次段階ではGemma v3を第一候補に維持し、Qwenは残る3分類とidentifier完全一致を一般則で同時改善できる
-小差分v4が作れる場合だけ再比較する。Graniteはstrict schema suffix、gpt-ossはcategory-gates v3を
-限定21件で試す価値がある。Agents A1、Nemotron、Ministral Reasoningはここで足切りする。
-
-### 2026-07-24 MLX / GGUF format comparison
-
-2026-07-22に未完了だった同一model family内のformat差を、同じ12件、baseline current prompt、
-output cap 1,024、評価対象外warm-up、単独loadで追加測定した。GGUFはcontext 32,768、parallel 4を
-実適用できた。MLXにも32,768を要求したが、現行LM Studio MLX backendはQwen 35Bへ183,296、
-Gemma 26Bのspot checkでは226,304をfinal load configとして適用した。したがって固定promptと生成条件は
-同じだが、max contextまで厳密に一致したbackend benchmarkではない。
-
-| model | MLX category / guard / 秒 | GGUF category / guard / 秒 | 観測した差 |
-| --- | --- | --- | --- |
-| Gemma 4 26B A4B | 10/12 / 11/12 / 116.095 | 8/12 / 10/12 / 120.476 | GGUFは約3.8%遅く、categoryとguardも低下 |
-| Qwen 3.6 35B A3B | 9/12 / 9/12 / 121.585 | 8/12 / 8/12 / 134.942 | MLXは約9.9%速く、categoryとguardが各1件改善 |
-| Qwen 3.5 9B | 11/12 / 10/12 / 200.673 | 12/12 / 12/12 / 211.575 | MLXは約5.2%速いが、categoryとguardはGGUFが上 |
-| gpt-oss-20b MXFP4 | 11/12 / 11/12 / 165.238 | 0/12 / 0/12 / 272.888 | GGUFは12件全失敗。11件はfinal JSONなし、1件はJSON途中切れ |
-
-- Gemma GGUFのworker RSSは約16.4 GiBで、既測定MLX約13.6 GiBより大きかった
-- Qwen 35B MLXの測定後RSSは約10.3 GiB、既測定GGUFは約21.7 GiBだった。ただし異なる時点のresident
-  page / swap状態を含むため、peak memory差とは扱わない
-- gpt-oss GGUFのRSSは約12.55 GiB、既測定MLXは約12.45 GiBでほぼ同じだった。GGUFはreasoning `low`でも
-  1件約22-23秒を使い、warm-upを含めoutput cap到達後にusable JSONを返さなかった
-- formatによる一貫した品質順位はない。Qwen 35BではMLX、Qwen 9BではGGUFがguard上位で、GemmaはMLXが
-  速度・品質・RSSのすべてで上だった
-- 現行候補ではGemma MLX + category-gates v3を維持する。gpt-oss GGUFはprompt tuningへ進めず、
-  gpt-ossの追加評価はJSON成功済みMLXだけを対象にする
-
-## 2026-07-01 preliminary measurement
-
-実装済み / 実行済み:
-
-- 通常DBを `mode=ro` で開き、保存済み `investigation_runs.output_project_json` の
-  `llm_source.evidence` から固定 evidence prompt を再構成した
-- 現行 `.envrc` の local endpoint / `qwen/qwen3.6-35b-a3b` / reasoning effort `none` で、
-  短・中・長の3件を1回ずつ実行した
-- report は `.tmp/llm-fixed-evidence-microbench.json` と
-  `.tmp/llm-fixed-evidence-inventory.json` に保存した
-
-動作確認済み:
-
-- endpoint方式は現行環境では `responses` API として解決された
-- 3件すべて JSON parse は成功した
-- 直近500 run由来の候補 prompt 長:
-  - min: 6,734 chars
-  - median: 9,951 chars
-  - max: 128,961 chars
-- 全保存run由来の候補 prompt 長:
-  - candidate count: 9,109
-  - min: 6,567 chars
-  - median: 8,449 chars
-  - max: 161,798 chars
-  - `<10k`: 6,380
-  - `10k-19,999`: 1,848
-  - `20k-49,999`: 631
-  - `50k-99,999`: 191
-  - `>=100k`: 59
-- microbench結果:
-  - short: 6,734 chars, 21.75 sec, parse ok
-  - median: 9,951 chars, 12.18 sec, parse ok
-  - long: 128,961 chars, 164.60 sec, parse ok
-- warmup後の短・中 repeat:
-  - short: 6,734 chars, 11.80 sec -> 7.79 sec, parse ok
-  - median: 9,951 chars, 12.93 sec -> 6.54 sec, parse ok
-- warmup後の long repeat:
-  - same long prompt: 128,961 chars, 10.52 sec -> 9.18 sec, parse ok
-  - max long prompt: 161,798 chars, 180.02 sec timeout -> 23.93 sec, parse ok
-
-未検証 / 解釈:
-
-- 初回の short 21.75 sec は model load / runner warmup / cache初期化の影響を含んだ可能性がある
-- 同一promptの2回目が大きく短縮するため、KV / prefix cache の影響が強い可能性がある
-- max long prompt は1回目がclient timeoutした後、2回目は23.93 secで成功した。server側でprefillや
-  prefix cacheが残った可能性があるが、server内部状態は未確認
-- prompt chars と token 数は同じではない
-- 129k chars級で165秒かかったため、長大 evidence が数分停止の一因である可能性は高いが、
-  GC / swap / runner stall と確定したわけではない
-- current `projects.state_json` には `llm_source` はあるが、固定 evidence 比較に必要な
-  `llm_source.evidence` は current state からは取れない。比較 corpus は保存 run 由来で作る
-
-方針への影響:
-
-- model比較の前に、prompt/evidence長の上限と縮約方針を検討する価値がある
-- 重いタスク比較の subset は、`prompt_chars >= 50k` と `>=100k` の候補から作る
-- 現行モデルのJSON安定性は、この3件だけでは問題なし。ただし品質評価と繰り返し実行は未実施
-- 速度改善候補は model変更だけでなく、長大 evidence の cap / summarize / field selection を同時に見る
-- benchmarkでは warm/cold、同一prompt repeat、別prompt連続実行を分けないと判断を誤る
-
-## 2026-07-02 evidence compaction experiment
-
-実装済み / 実行済み:
-
-- 通常DBを `mode=ro` で開き、保存済み `investigation_runs.output_project_json` の
-  `llm_source.evidence` を集計した
-- `.tmp/llm_evidence_shrink_experiment.py` で、長大 evidence の field別サイズと縮約variantを検証した
-- report は `.tmp/llm-evidence-shrink-*.json` に保存した
-
-動作確認済み:
-
-- `prompt_chars >= 50k` の保存runは250件
-- 肥大の主因は `resource_url_records`
-  - 250件すべてに存在
-  - average size: 56,916 chars
-  - median size: 47,283 chars
-  - max size: 121,180 chars
-- 次に大きい field は桁が落ちる
-  - `candidate_developer_accounts`: average 1,572 chars、max 40,932 chars
-  - `summary_candidates`: average 1,332 chars、max 8,029 chars
-  - `tagline_candidates`: average 1,212 chars、max 7,908 chars
-- 最大case `Hypercerts` の `resource_url_records` は579件、約110,858 chars
-  - recordは主に `url`、`source`、`confidence`、`role`、`observed_at` の単純な繰り返し
-- 最大caseでのprompt削減:
-  - original: 161,798 chars
-  - `cap-heavy`: 22,866 chars、85.9% reduction、parse ok
-  - `resource-summary`: 13,381 chars、91.7% reduction、parse ok
-  - `summary-heavy`: 13,210 chars、91.8% reduction、parse ok
-  - `minimal`: 11,783 chars、92.7% reduction、parse ok
-- 別project `porxie` での `resource-summary`:
-  - original: 151,052 chars
-  - `resource-summary`: 9,090 chars、94.0% reduction、parse ok
-
-未検証 / 解釈:
-
-- LLM実行は最大caseと別project各1件中心で、品質評価や回帰評価としては不足
-- `resource-summary` は URL群の全列挙を捨て、host別countと代表URLへ畳むため、
-  特定URL pathが分類に必要なcaseでは情報を落とす可能性がある
-- この評価時点の長大caseでは、`resource_url_records` が旧形式由来の unknown URL を大量列挙しており、
-  LLM triageへ全件渡す価値は低い可能性が高かった
-- `candidate_developer_accounts` の最大40k級は別途個別に縮約が必要
-
-方針への影響:
-
-- 第一候補は、`resource_url_records` を host別summaryへ変換すること
-  - total count
-  - source / role / confidence counts
-  - top hosts with count
-  - hostごとの代表URL少数
-- `resource_url_records` を単純に先頭N件へ切るより、host別summaryの方が分布情報を保ちやすい
-- prompt長capは `resource_url_records` の後段ではなく、LLM evidence bundle生成時点に入れる
-- 次に見るべき縮約対象は `candidate_developer_accounts`、`summary_candidates`、`tagline_candidates`
-- モデル比較の前に、少なくとも `resource_url_records` summary化の実装を検討する価値がある
-
-## 2026-07-02 resource URL bloat root cause
-
-実装済み:
-
-- `collect_first_party_links()` の `same_site` 分岐で、repo候補でも既知の補助ページroleでもない
-  同一site URLを `resource_url_records` に保存しないようにした
-- これにより、投稿、profile、listなどのcontent URLが `role="unknown"` のconfirmed
-  resource recordとして蓄積される経路を止めた
-- 同一siteの `docs` / `blog` / `support` など、roleを判定できる補助ページは引き続き保存する
-- `resource_url_records` の正規化時に、URL+role単位のmergeと代表選抜budgetを適用する
-  - project全体は最大32件
-  - role別上限は docs 8、blog 4、support 4、status/privacy/terms 各2、unknown 3
-  - host+role別上限は docs 4、blog 2、support 3、status/privacy/terms 各1、unknown 2
-  - confirmed、直接source、root/入口URL、短いpathを優先し、tag/archive/post/profile系pathを低く扱う
-
-動作確認済み:
-
-- 通常DBをread-only集計した結果、肥大化は normalized child table ではなく
-  `projects.state_json.evidence.resource_url_records` に集中していた
-  - `project_identifiers` の `role='resource'` は0件
-  - active stateの `resource_url_records` は79,505件
-  - role別では `unknown` が62,625件で最多
-- 最大caseは `Longform` (`proj:1e87756b829c`) で13,947件
-  - `service_follow_up:https://longform.social/profile/rlsbb.ru.web.brid.gy` 由来だけで12,731件
-  - 例は `https://longform.social/post/...`、`/profile/...`、`/posts` などの同一site content URL
-- `.tmp/resource_url_bloat_dry_run.py` で、既存active DBを更新せずにcleanup候補の上限を見積もった
-  - `role` が空または `unknown`: 62,625件
-  - source URL と同一siteで、URL pathから補助ページroleを判定できないもの: 56,864件
-  - 多いpath kindは `/post` 13,224件、`/blog` 4,480件、root 2,591件、
-    `/books` 2,398件、`/specs` 1,686件
-- 後続snapshotでは active state が79,509件 / unknown 62,626件に増えていた。
-  同じread-only dry-runで現行の正規化budgetを適用した場合の `resource_url_records` は4,613件相当
-- 対象unit test:
-  - `PYTHONPATH=tests .venv/bin/python -m unittest test_project_registry_core.ProjectRegistryResourceUrlRecordTest -v`
-  - 23 tests OK
-- core test file:
-  - `PYTHONPATH=tests .venv/bin/python -m unittest discover -s tests -p 'test_project_registry_core.py' -v`
-  - 113 tests OK
-
-未検証 / 未実施:
-
-- 既存DBの `resource_url_records` はまだ削除・再構築していない
-- このguard後に通常enrichを回した時のprompt長分布、wall-clock、LLM latency低下は未測定
-- budget/ranking後の全件保存状態やLLM品質への影響は未測定
-- 4,613件は通常DBを更新した結果ではなく、read-onlyで現行正規化を適用した概算
-- role unknown の全recordが不要とは確定していない。削除する場合は、host/path/source/role/confidence
-  ごとのdry-run reportを先に作る
-- 56,864件のdry-run候補は削除対象の確定値ではない。保存時のlink textや
-  `classify_official_link()` の当時の分類結果は復元していないため、`/blog`、`/about`、
-  `/specs` のように残すべき補助ページ候補が混ざる
-- `resource-summary` 縮約は依然として有効な安全弁候補だが、根本原因の予防とは別物として扱う
-
-方針への影響:
-
-- まず過収集経路を止め、次に既存DB cleanupのdry-runで削除候補を確認する
-- cleanup実装では、`/post`、`/profile`、record id風pathなど明らかなcontent URLと、
-  docs/blog/spec/about系の補助ページを分ける
-- 同種大量への一次対策は、保存時のbudget/rankingで行う。LLM evidence縮約は二段目の安全弁にする
-- 縮約は、未知の肥大化や長期運用での上限超過に備える二段目の対策として設計する
-- モデル比較では、cleanup前後のprompt長分布を分けて記録しないと、モデル差と入力肥大差が混ざる
-
-## 評価軸
-
-優先度:
-
-1. 速度
-   - full enrich の wall-clock
-   - project 1 件あたりの LLM 秒数
-   - prompt prefill と decode の内訳
-   - prompt length bucket 別の latency / timeout 分布
-   - timeout / retry / JSON 再試行率
-2. 省メモリ
-   - peak RSS / unified memory pressure / swap 発生
-   - runner が落ちないこと
-   - 他の collector / Web UI と併用できる余裕
-3. 品質
-   - JSON schema 適合
-   - evidence にない URL / identifier を出さない
-   - `category`、`service_status`、`technical_interest_level` の妥当性
-   - tagline / summary / features の人手評価
-
-品質が少し良くても、全件 runtime と memory pressure が現状から大きく改善しないなら、通常運用の
-既定候補にはしない。逆に、品質が同等で 2-3 倍以上速い、または swap を避けられる候補は優先的に
-試す。
-
-prompt は model 変更ごとに多少の tuning が必要になる前提で扱う。ただし、model 比較の第一段階では
-prompt 変更を混ぜない。まず同一 prompt で素の相性を測り、その後に上位候補だけ prompt variant を
-比較する。
-
-## Prompt tuning の扱い
-
-model ごとの prompt tuning は必要になる可能性が高いが、最初から全候補へ深く行わない。
-比較の原因を分離するため、段階を固定する。
-
-1. `model-only` screening
-   - prompt は現行baselineに固定する
-   - model / quantization / runtime / reasoning setting だけを変える
-   - JSON安定性、evidence外の創作、速度、メモリ、短い人手品質確認で明らかに弱い候補を落とす
-2. `prompt-variant` screening
-   - baseline model と上位2-3候補だけを対象にする
-   - variant は小さく保つ
-     - `baseline_current`
-     - `strict_json`
-     - `compact_output`
-     - `no_reasoning`
-     - `evidence_guard_strict`
-   - model固有promptは、汎用variantで救えないが速度・メモリが有望な候補だけに限定する
-3. tuned heavy subset
-   - 採用候補の `model + quantization + runtime + prompt_variant` 組み合わせだけを重いsubsetで測る
-   - ここで初めて実運用候補として比較する
-
-report では必ず `prompt_variant` を保存する。最終判断の単位は model 単体ではなく
-`model + quantization + runtime + prompt_variant + reasoning_effort + output_cap` とする。
-ただし第一段階の足切りでは `prompt_variant=baseline_current` に固定する。
-
-model固有promptの深掘りをしない条件:
-
-- baseline promptでJSON/schemaが大きく崩れる
-- evidence外URL/identifierの創作が多い
-- 速度・メモリがbaselineから改善しない
-- 日本語summary/taglineが明確に弱く、用途限定でも使いにくい
-
-model固有promptを試す条件:
-
-- baseline promptでは一部不安定だが、速度またはメモリが大きく改善する
-- errorが形式面に寄っており、promptで修正できる見込みがある
-- Qwen以外の系列で、既存promptの語法と相性が悪い可能性が高い
-- query planning専用、final triage専用など用途限定なら有望
-
-## 分けて測るもの
-
-### 1. 固定 evidence に対する LLM 出力差
-
-目的:
-
-- model そのものの差を最小ノイズで見る
-- network、collector、外部検索結果の変化を入れない
-
-入力候補:
-
-- 保存済み project の `llm_source.evidence`
-- 保存済み investigation run の `output_project.llm_source.evidence`
-- 将来追加する `triage_input_project` snapshot
-
-測る項目:
-
-- JSON parse 成功率
-- enum 外値、必須 field 欠落、型不一致
-- evidence にない URL / NSID / handle / DID の提案数
-- `category`、`service_status`、`technical_interest_level`、`manual_review_*` の一致率
-- tagline / summary / features の空欄率、長さ、明らかな形式違反
-- 同一条件の repeated run variance
-- latency、timeout、token/cost 相当値
-- peak memory、swap、runner error
-
-制約:
-
-- 現状の保存 run には triage 直前の project snapshot がないため、LLM 出力を現在状態へ適用した
-  あとの差分は厳密には再現しづらい。
-
-### 2. LLM 出力を project へ適用した後の状態差
-
-目的:
-
-- operator が実際に見る保存状態や queue への影響を見る
-
-必要な追加:
-
-- triage 直前の base project snapshot
-- `apply_llm_output()` 後の project diff
-- `finalize_project_shape()`、`apply_promotion_state()`、merge/duplicate 計算後の evaluation diff
-
-測る項目:
-
-- materialized field の差分
-  - `summary`、`tagline`、`features`、`category`、`service_status`
-  - `technical_interest_*`
-  - candidate source/service URL
-  - manual review signal
-- `promotion_ready`、`promotion_blockers`、review queue signal の差分
-- operator decision や manual correction と衝突する提案
-
-### 3. full enrich A/B
-
-目的:
-
-- query planning の差が外部検索や最終保存結果まで含めてどの程度効くかを見る
-
-実行方針:
-
-- 通常 DB は直接使わず `.tmp/` 以下の複製 DB で実行する
-- 外部 API の状態変化を含むため、結果は「運用時の実差」として扱い、model 単体差とは混同しない
-- 同じ project subset、同じ tracking state、同じ prompt version、同じ reasoning effort を manifest に残す
-
-初期 subset:
-
-- まず 10 件で smoke test
-- 次に 30-50 件で候補を絞る
-- 100 件程度で通常運用候補を比較する
-- 全件 shadow run は、50 件比較で明確に勝った候補だけに行う
-
-### 4. 重いタスク / runtime stall 比較
-
-目的:
-
-- 通常の固定 evidence では見えない長時間運用時の stall、GC、swap、runner 側の詰まりを測る
-- 全件 enrich ではなく、重い project subset で再現性のある負荷を作る
-
-入力候補:
-
-- evidence が大きい project
-- service / repo / lexicon / recent record sample が多い project
-- 過去 run で LLM 秒数または wall-clock が長かった project
-- 数分停止が観測された project
-
-測る項目:
-
-- project 単位の wall-clock
-- LLM request 単位の prefill / decode / total
-- prompt token / output token
-- prompt length bucket 別の latency / timeout 分布
-- peak RSS、swap、memory pressure
-- model load / unload の有無
-- runner process の継続時間と crash / restart
-- 外部 collector timeout と LLM stall の切り分け
-
-制約:
-
-- GC や runner stall は現時点では仮説であり、観測されるまでは原因として確定しない
-- macOS / runner / model format / quantization / context length の組み合わせ依存が強いため、
-  model 品質比較とは別 report にする
-
-## Corpus 案
-
-最初は 30-50 件、移行判断前は 100 件程度を目安にする。
-
-含める軸:
-
-- seed 種別
-  - NSID seed
-  - service URL seed
-  - repo URL seed
-  - account/handle seed
-- evidence の濃さ
-  - service-heavy
-  - repo-heavy
-  - lexicon-only
-  - name-only / thin evidence
-  - conflicting identity
-- category
-  - project
-  - lexicon
-  - infra_tool
-  - library
-  - auth_only
-  - personal_tool
-  - reject / out_of_scope
-- 過去に誤判定・manual correction があったもの
-- 日本語/英語が混在するもの
-- service status が不安定なもの
-
-gold label は一つに固定しすぎない。operator decision、defer/block 履歴、fixture の期待評価、
-人手レビューのコメントを分けて保持する。
-
-## 候補モデルの考え方
-
-候補は個別モデル名より役割で選ぶ。
-
-- baseline
-  - 現在日常運用で使っている `Qwen3.6 35B Q4`
-  - 乗り換え判断では必ず比較軸に残す
-- same-family smaller
-  - Qwen 系の 14B / 8B / 4B 級
-  - 品質低下が許容範囲なら、速度とメモリ改善の第一候補
-- same-family MoE
-  - Qwen3-30B-A3B など、総parameterは大きいが active parameter が小さい MoE
-  - runner / quantization / kernel 対応次第で速度差が大きく出るため、実測を必須にする
-- local fast
-  - 安価で速い model
-  - bulk enrich の throughput と JSON 安定性を見る
-- local strong
-  - 現実的に常用できる範囲で強い model
-  - editorial 品質、曖昧分類、technical_interest の差を見る
-- external low-cost reference
-  - 主線ではない
-  - 50 件以下の固定 evidence benchmark で、品質または速度が劇的に良いかだけを見る
-  - 通常運用採用には privacy、cost、rate limit、再現性を別途評価する
-
-2026-06-30 時点で公式 docs を見る限り、Qwen3 は dense の 4B / 8B / 14B / 32B と MoE の
-30B-A3B / 235B-A22B を持ち、hybrid thinking / non-thinking を切り替えられる。Qwen の速度
-benchmark には Qwen3-4B / 8B / 14B / 32B / 30B-A3B の速度とメモリの表がある。ただし公式値は
-H20 GPU、Transformers、SGLang などの指定環境での結果であり、この repository のローカル runner
-でそのまま再現できる事実ではない。
-
-現時点の仮説:
-
-- 出力品質を大きく落とさず速くする第一候補は、同系統の 14B / 8B 級または non-thinking 設定
-- メモリ逼迫を下げる第一候補は、より小さい model、低い context、KV cache 量子化、出力 token 上限
-- 35B Q4 のまま劇的に速くするには、runner / quantization / prompt 長 / thinking 設定の見直しが必要
-- 外部 API は、品質上限の参照または局所的な fallback としてだけ評価する
-
-## 実験前の候補棚卸し
-
-通常 enrich 実行中でも、候補の大枠は絞れる。現状維持が許容できるため、最初から Qwen 系だけに
-閉じず、別系列も同じ benchmark に入れる。実験結果で変わるのは主に優先順位と採用可否であり、
-候補カテゴリ自体は大きく変わらない。
-
-最初から同じ土俵に載せる候補:
-
-- `Qwen3-14B` / `Qwen3-14B` 相当の instruct / non-thinking
-  - baseline からの速度・メモリ改善が見込める
-  - 品質低下が許容範囲なら bulk enrich の第一候補
-- `Qwen3-8B`
-  - 速度・省メモリの強い候補
-  - 最終紹介文品質より、query planning や低リスク triage で用途限定採用する可能性がある
-- `Qwen3-30B-A3B` / `Qwen3-30B-A3B-Instruct-2507`
-  - MoE なので active parameter は小さいが、全weightは読み込む
-  - Qwen公式benchmarkでは serving framework によって性能差が大きく、Transformers の GPTQ-INT4 は
-    MoE kernel unsupported とされる
-  - 現在の runner で速くなるかは未検証。実験なしでは第一候補にしない
-- `Qwen3-4B` / `Qwen3-4B-Instruct-2507`
-  - 省メモリと速度の下限確認用
-  - 品質が足りれば query planning 専用や retry/fallback 用に使える
-- Gemma 3 `12B` / `27B`、または Gemma 4 `4B` / `26B A4B` / `31B`
-  - Qwen以外のローカル候補
-  - 公式model overview、runner対応、GGUF/QAT availability を確認してから比較対象に入れる
-  - 日本語混在の editorial 品質、JSON安定性、Qwen promptとの相性は未検証
-- Phi-4 / Phi-4-mini 系
-  - 小型・省メモリ候補
-  - 日本語editorialと保守的分類が足りるかを確認する
-- Mistral Small / Ministral 系
-  - Qwen/Gemma以外の中小型候補
-  - license、ローカルrunner導線、日本語品質、JSON安定性を確認する
-- Llama 3.x / 4 系の小型または中型候補
-  - tooling と quantization の選択肢は広い
-  - 小型の品質、大型のメモリ消費を確認する
-
-後回しにする候補:
-
-- reasoning / thinking 専用 model
-  - enrich の分類・要約には過剰になりやすく、速度目標と衝突する可能性が高い
-- 32B dense 以上の local model
-  - 現状の 35B Q4 メモリ逼迫を解く主目的から外れやすい
-  - ただし品質上限のローカル参照として、余裕があれば固定evidence benchmarkだけに入れてよい
-- 235B級や大規模MoE
-  - ローカル通常運用候補ではない
-- 外部API
-  - 主線ではない。劇的な品質差または非常に低い運用コストが見込める場合だけ、固定evidenceで参照比較する
-
-### Qwen 以外の候補で起きるトレードオフ
-
-Qwen 系の枠外へ出ても、速度・メモリ・品質のトレードオフ自体は消えない。変わるのは
-「何を失いやすいか」と「どの runner / quantization で得をしやすいか」。
-
-- Gemma 系
-  - 公式に QAT / GGUF / llama.cpp / MLX 導線があり、ローカル運用の候補として見やすい
-  - Gemma 4 では小型、dense、MoE が用意され、公式docsも高parameter・高bitほど能力は上がるが
-    memory / processing / power cost も上がると明記している
-  - MoE は active parameter が小さくても全weightをmemoryへ載せる必要があるため、メモリ問題の万能解ではない
-  - Qwen promptとの相性、日本語混在の自然さ、JSON厳守は未検証
-- Phi 系
-  - Microsoft は edge / on-device を狙う小型モデル群として位置づけている
-  - Phi-4 は 14B、Phi-4-mini は多言語・function calling・instruction following を強化した小型候補
-  - ただし Phi は元々英語最適化寄りで、新しめのモデルでも対応言語は20超程度とされるため、日本語editorial品質は要確認
-- Mistral / Ministral / Small 系
-  - 小型・中型の実用候補になり得る
-  - ただし license、公式GGUF/MLX availability、Japanese editorial品質、JSON安定性を個別確認する必要がある
-- Llama 系
-  - runner対応と周辺 tooling は強い
-  - 小型は速いが分類・日本語要約の品質が足りない可能性があり、大型は現状のメモリ課題と衝突しやすい
-
-したがって、Qwen以外は「トレードオフがない候補」ではなく、「Qwenとは違う失敗モードを持つ候補」として扱う。
-最初の比較では、同じ corpus で次を重点的に見る。
-
-- JSON schema 違反
-- evidence にない URL / identifier の創作
-- 日本語 tagline / summary の自然さ
-- category / service_status の保守性
-- peak memory と swap
-- runner 導入コスト
-
-実験結果で調査方針が変わる点:
-
-- 現行runの時間内訳で LLM が支配的でなければ、model変更より collector timeout/cache/budget の改善を優先する
-- LLM が支配的で、prefill が重いなら prompt/evidence縮約、context設定、KV cacheを優先する
-- LLM が支配的で、decode が重いなら小型model、output cap、non-thinkingを優先する
-- memory pressure / swap が支配的なら、小型model、低context、別runner、QAT/GGUF/MLX形式の比較を優先する
-- Qwen小型が十分でも、別系列の固定evidence比較は行う
-- 別系列が明確に勝たなければ、導入コストの低いQwen内移行または現状維持を選ぶ
-- 別系列が品質・速度・省メモリのいずれかで明確に勝つ場合だけ、full enrich shadow runへ進める
-
-参照した公式ページ:
-
-- Qwen key concepts: https://qwen.readthedocs.io/en/latest/getting_started/concepts.html
-- Qwen speed benchmark: https://qwen.readthedocs.io/en/latest/getting_started/speed_benchmark.html
-- Qwen quantization benchmark: https://qwen.readthedocs.io/en/latest/getting_started/quantization_benchmark.html
-- Qwen3 GitHub README: https://github.com/QwenLM/Qwen3
-- Gemma 4 model overview: https://ai.google.dev/gemma/docs/core
-
-## 実験候補
-
-### A. モデル差だけを見る固定 evidence benchmark
-
-- 対象: 30-50 件
-- 入力: `llm_source.evidence`
-- 実行: 各 model 3 回
-- 出力 token 上限を固定する
-- thinking / non-thinking を明示する
-- Qwen 系、Gemma 系、Phi 系、Mistral 系、Llama 系を最初から同じ表に載せる
-- prompt length bucket を分ける
-  - short: `<10k chars`
-  - medium: `10k-20k chars`
-  - long: `50k-100k chars`
-  - extreme: `>=100k chars`
-- 評価:
-  - parse 成功率
-  - hallucinated identifier / URL
-  - category / service_status / technical_interest の差
-  - prompt length bucket 別の latency、timeout、peak memory、swap
-
-### B. 速度・メモリだけの micro benchmark
-
-- 対象: 実際の prompt から短/中/長の 3 種類
-- DB と collector を使わない
-- runner を固定し、model / quant / context / output cap だけを変える
-- prefill 秒、decode tokens/s、peak memory、swap を測る
-
-### C. full enrich shadow run
-
-- 対象: 10 件、30-50 件、100 件の段階実行
-- `.tmp/` に DB 複製を置く
-- 通常 DB へは書かない
-- 比較は wall-clock、失敗率、保存 field diff、review signal diff
-
-### D. 構成変更の切り分け
-
-model 変更と混ぜず、別実験として測る。
-
-- `ATPROTO_SURVEY_LLM_REASONING_EFFORT=none` 相当
-- max output tokens の制限
-- prompt evidence の縮約
-- query planning と final triage で別 model を使う
-- LLM 不要 project の skip 条件
-
-### E. Prompt variant 比較
-
-第一段階の model 比較では prompt を固定し、上位候補だけで prompt tuning を行う。
-
-- 既存 prompt
-- JSON schema をより強く短くした prompt
-- evidence の長文部分を縮約した prompt
-- category / service_status / technical_interest を分割した prompt
-- summary/tagline だけ別 pass にする prompt
-
-model と prompt を同時に変えると原因が分からなくなるため、report は `model-only`、`prompt-only`、
-`model+prompt` を分ける。
-
-## 最初に着手する実験手順
-
-実験実装に入る時は、まず固定 evidence benchmark だけを作る。通常DBはread-onlyで使い、
-結果は `.tmp/` か専用reportへ保存する。
-
-### 0. Corpus manifest 作成
-
-- 保存済み `investigation_runs.output_project_json.llm_source.evidence` から候補を抽出する
-- corpus manifest には少なくとも次を持たせる
-  - `case_id`
-  - `project_key`
-  - `project_name`
-  - `source_run_id`
-  - `prompt_chars`
-  - `prompt_bucket`
-  - `evidence_hash`
-  - `evidence_field_sizes`
-  - `known_manual_signal` があればその参照
-- 初回 corpus は30-50件
-  - short `<10k`: 10-15件
-  - medium `10k-20k`: 8-12件
-  - long `50k-100k`: 5-10件
-  - extreme `>=100k`: 3-5件
-  - thin/conflicting/manual-correction系を少数入れる
-
-### 1. Baseline 再測定
-
-- 現行modelを `baseline_current` promptで測る
-- coldに近い1回目と、warm repeatを分けて記録する
-- 同一prompt repeatと別prompt連続実行を分ける
-- timeoutしたcaseは、server側cacheの可能性があるため、失敗後repeatを別eventとして記録する
-
-### 2. Candidate model screening
-
-- 同じ corpus / 同じ prompt / 同じ output cap / 同じ reasoning setting で比較する
-- 各 model は原則1回、上位候補と不安定候補だけ3回repeatする
-- 初回で見る足切り条件
-  - parse失敗
-  - schema違反
-  - evidence外URL/identifier
-  - latencyの大幅悪化
-  - memory pressure / swap悪化
-
-### 3. Prompt variant screening
-
-- baseline model と上位2-3候補だけで実施する
-- `strict_json`、`compact_output`、`evidence_guard_strict` のような小さいvariantから試す
-- model固有promptは最後にし、report上も `model_specific:*` と明示する
-
-### 4. Heavy subset
-
-- cleanup / resource URL budget 前後の差が混ざらないよう、input snapshot と prompt hash を固定する
-- 重いsubsetでは full enrich ではなく、まず固定 evidence LLM replay を使う
-- その後に複製DBで30-50件の full enrich shadow runへ進む
-
-このうち、corpus manifest exporterとfixed evidence LLM runner、単一modelのstructured report writerは
-実装済み。次に必要な実装は次の3点。
-
-- export済み40件corpusのlibrary重点caseを人手確認し、expected categoryを付けて固定する
-- baseline modelで全corpusのwarm/coldを分けたreportを取得する
-- peak memory / swap / prefill / decodeのrunner自動観測と、複数model reportの横断比較writerを接続する
-
-## 採用判断
-
-最低条件:
-
-- JSON parse 失敗や schema 違反が baseline より悪化しない
-- evidence にない identifier / URL を提案する率が増えない
-- operator が過去に block/defer した対象を強く戻さない
-- `category` と `service_status` の重大な誤判定が増えない
-- latency と timeout が日常 enrich に耐える
-- peak memory と swap が baseline より悪化しない
-
-乗り換え候補:
-
-- 上記を満たした上で、summary/tagline/features の人手評価が改善する
-- technical_interest の high/exceptional が、具体根拠のある project に寄る
-- manual_review recommendation が review 負荷を増やすだけでなく、実際に拾う価値のある候補を増やす
-- 品質同等なら、全件 runtime 見積もりが baseline の半分以下になる
-- 品質がやや落ちても、candidate URL / identifier の安全性が保たれ、3 倍以上速いなら用途限定で採用候補にする
-
-移行手順:
-
-1. 固定 evidence benchmark で baseline と比較する
-2. `.tmp/` DB で full enrich shadow run を行う
-3. 差分 report を人手確認する
-4. 少数 project で通常導線に試験適用する
-5. 問題なければ環境変数または preset の既定を切り替える
-
-## 実装候補
-
-将来 command:
-
-```bash
-project-registry compare-llm-models --from-runs latest --models config/llm-models.json --repeat 3
-project-registry compare-llm-models --project-key proj:... --stage triage --output .tmp/llm-eval/run.json
+  - 一つの実行構成を固定caseへ適用し、各request完了時までの結果をreportへ書き出す
+  - JSON/schema、enum、evidence外identifier、categoryとsummaryの不整合、日英混在文の空白、
+    latency、同一入力を複数回実行した時のfield差を記録する
+  - reasoningは要求値とruntimeで確認した状態を分ける
+  - 期待categoryを人が確認したlabelは、prompt調整に使ったcaseと使っていないcaseを分けて集計する
+- `compare-llm-evaluation-reports`
+  - 同じcorpus、case、repeatで作ったbaselineとcandidateを比較する
+  - 機械検査で確認できる退行と、文章確認や複製DBでのenrich比較など未実施の確認を分けて返す
+
+現在の候補:
+
+- Qwen 3.6 35Bは現在の通常運用baseline
+- Gemma 4 26B A4B MLXは次の比較へ進める第一候補
+- `tests/fixtures/llm_evaluation_prompt_gemma4_26b_category_gates_v3.txt`はGemmaの既知誤分類を
+  見ながら調整した評価用suffixで、production promptには未反映
+
+未完了:
+
+- prompt調整に使っていない、期待categoryを人が確認したcaseでのGemma確認
+- summary、tagline、featuresのQwen/Gemma比較
+- 同じ入力を複数回実行した時の重要field差
+- 重い入力を含む比較
+- 複製DBでQwenとGemmaを別々にenrichした結果の比較
+- 少数projectでのGemma試用
+- peak memory、swap、prefill、decodeのrunner自動記録
+
+したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
+
+## 過去の測定を採用根拠にしない理由
+
+2026-07-20から2026-07-24までのscreeningでは、Gemma 26Bと評価用suffixの組み合わせが
+固定40件でschema・identifier検査を通り、期待categoryを人が確認した21件と一致しました。しかし、
+その21件はsuffixの調整にも使われています。調整後のmodel選定結果として同じ21件の一致数を使いません。
+
+gpt-oss-20b GGUFでは`reasoning low`を要求しましたが、LM Studioは次を記録しました。
+
+```text
+No valid custom reasoning fields found in model 'comparison/gpt-oss-20b-gguf/gpt-oss-20b-MXFP4.gguf'.
+Reasoning setting 'low' cannot be converted to any custom KVs.
 ```
 
-report には少なくとも次を保存する。
+旧reportの`reasoning_effort=low`は送信値の記録で、runtimeでの適用確認ではありません。
+このGGUF実行を`reasoning low`適用済みのMLX/GGUF比較として使いません。MLX側も既存reportだけでは
+適用を確認できないため、必要ならruntime logを確認した上で再実行します。
 
-- benchmark run id、日時、git commit、dirty 状態
-- prompt file hash、prompt version、evidence hash
-- prompt variant id
-- model spec、transport、api_style、reasoning_effort、temperature
-- quantization、context length、output token cap、runner、runner version
-- raw parsed payload、parse/schema error
-- normalized field diff
-- latency、prefill/decode 内訳、timeout、retry、token/cost 相当値
-- peak memory、swap、OOM / runner crash
-- stall marker、長時間停止区間、外部 collector 待ちとの切り分け
-- reviewer note 欄
+過去の個別reportは`.tmp/`に置く一時結果であり、現行仕様やmodel採用の正本ではありません。
 
-通常 DB への書込みはしない。full enrich A/B だけは複製 DB に対して実行する。
+## 実行構成の記録
+
+reportでは少なくとも次を固定します。
+
+- model IDと取得元
+- 配布形式、量子化、model fileまたはpackageの識別情報
+- runtime名、version、backend
+- chat templateまたはruntime既定template
+- context、parallel、最大出力token数
+- API style
+- prompt本体のhash、評価用suffixの名前とhash
+- reasoning要求値
+- reasoningをruntimeが適用したか、無視したか、未確認か
+- corpus hash、case ID、repeat回数
+- git commitとdirty状態
+
+`model + backend/format + runtime + template + prompt`のどれかが変わった結果を、同じ構成の継続測定として
+混ぜません。runtimeが最終的に適用したcontext等を確認できない場合は、その事実をreport外の説明で補わず、
+未確認のまま残します。
+
+## caseの扱い
+
+期待categoryを人が確認したlabelは`used_for_prompt_adjustment`を必須とします。
+
+- `true`
+  - model別promptの修正理由または確認に使ったcase
+  - prompt調整の回帰確認には使える
+  - 調整後のmodel選定結果には使わない
+- `false`
+  - 当該promptの文言を決める時に参照していないcase
+  - model選定時のcategory確認に使える
+
+caseを`false`として実行した後、その出力を見てpromptを変更した場合は`true`へ変更します。
+その後の確認には別の未使用caseを用意します。
+
+現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`にある21件は、すべてGemma用suffixの
+調整時に参照済みなので`true`です。次のmodel選定確認には、既存corpusの未label caseまたは新たにexportした
+caseをevidenceだけからreviewし、prompt修正前に期待categoryを固定します。
+
+## 確認の順序
+
+### 1. runtime設定
+
+最初にmodelが指定を受け付けるか確認します。
+
+- 同じ短い入力をreasoningなし、`low`、必要なら`high`で実行する
+- request payloadだけでなくruntime logを確認する
+- `applied`、`ignored`、`not_checked`をreportへ指定する
+- final JSONへ到達する前に最大出力token数へ達する場合は、category比較へ進めない
+- Responsesでreasoning itemとmessageが分かれる場合はmessageだけをJSONとして解析する
+
+reasoningの指定が無視された構成は、指定が効いた構成と同条件として比較しません。指定できないこと自体が
+そのmodel fileまたはruntime接続の制約なら、reasoning指定なしの別構成として記録します。
+
+### 2. prompt調整
+
+modelごとの失敗傾向に対して、小さいsuffixを作って比較します。
+
+- Gemma: categoryとidentifierの既知誤り
+- Qwen: Qwenで再現したcategoryまたはidentifierの誤りだけ
+- Granite: schema、enum、tagline長など、実際に多かった形式違反
+- gpt-oss: reasoningとfinal messageの接続を確認した後、MLX等の成功する構成だけ
+
+Gemma用suffixを他modelへそのまま適用して改善しなかったことを、そのmodelの限界とは扱いません。
+一方、model固有suffixが長く複雑になり、production promptとの差分維持が難しい場合は運用上の不利として残します。
+
+### 3. prompt調整に使っていないcase
+
+promptを固定した後、調整に使っていない、期待categoryを人が確認したcaseを実行します。
+
+確認項目:
+
+- request成功
+- schemaとenum
+- evidence外URL、handle、DID、NSID
+- categoryとreview結果の一致
+- categoryとsummaryの整合
+- service statusやtechnical interestの根拠外確定
+
+一致数だけでなく、どのfieldがどう誤ったかを確認します。重大なidentifier追加やoperator判断の逆転は、
+平均値で相殺しません。
+
+### 4. 同じ入力の複数回実行
+
+上位構成は同じcaseを複数回実行し、reportの`repeat_comparison`で次を確認します。
+
+- categoryが変わらないか
+- identifier集合が変わらないか
+- schema成否が変わらないか
+- summary、tagline、featuresがどの程度変わるか
+
+文章の言い換えと、事実・category・identifierの変更を同じ差として扱いません。
+
+### 5. 文章と重い入力
+
+Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagline、featuresを人が比較します。
+少なくとも次を見ます。
+
+- evidenceにある主要機能を落としていない
+- schemaだけの説明へ不必要に縮退していない
+- 日本語として読みやすい
+- 断定の強さが根拠に合う
+- current profileを維持すべき時に不要な書換えをしていない
+
+短いcaseだけでなく、promptが長いcaseと以前数分かかったcaseを含め、中央値だけでなく最長時間と失敗も確認します。
+
+### 6. 複製DBでのenrich比較
+
+正本DBへ書き込まず、同じproject集合をQwenとcandidateで実行します。
+
+- project選択、source設定、prompt version、reasoning、最大出力token数を揃える
+- collectorの外部状態差を避けるため、可能な範囲で同じ保存evidenceまたは近接した複製を使う
+- category、service status、technical interest、manual review、profile更新、promotion blockerの差を確認する
+- LLM以外のcollector失敗をmodel差として数えない
+
+この確認で一括再分類や正本DB更新は行いません。
+
+## 通常運用modelを変更する判断
+
+判断は次の三段階に分けます。
+
+### 比較を続ける
+
+次を満たした構成だけ、文章確認と複製DBでのenrich比較へ進めます。
+
+- runtime設定の適用状態が分かっている
+- requestとJSONが安定して完了する
+- schema、enum、identifierでbaselineより重大な退行がない
+- prompt調整に使っていない、期待categoryを人が確認したcaseでcategoryを確認できる
+- 日常運用に耐えない時間またはmemory増加が見えていない
+
+### 少数projectで試す
+
+固定caseと複製DBでのenrich比較を通ったcandidateだけを、選んだ少数projectへ明示的に適用します。
+Qwenとcandidateを同じ正本projectへ同時保存しません。比較出力はreportまたは複製DBに分け、candidateを
+適用するprojectを明示します。
+
+試用中はQwenを直ちに使える状態で残します。次のいずれかが起きた場合はcandidate適用を止めます。
+
+- evidence外identifierまたはoperator guardの逆転
+- categoryやservice statusの重大な誤判定
+- profileの情報欠落または不自然な大量書換え
+- timeout、final JSON欠落、memory pressureの運用上の悪化
+
+### 既定modelを変更する
+
+試用対象の結果を人が確認し、上記の停止条件がなく、品質が同等以上で、速度またはmemoryに運用上の改善が
+確認できた時だけ既定を変更します。変更後も、あらかじめ選んだproject群の`enrich`を完了して結果を確認するまで
+Qwen設定をrollback用に残します。
+
+常時二つのmodelを実行する運用は既定にしません。二重実行の時間と比較作業が継続的な価値を持つ具体例が
+見つかった場合だけ再検討します。
+
+## report比較の限界
+
+`compare-llm-evaluation-reports`は次だけを機械比較します。
+
+- corpus hashとcase/repeat集合
+- 成功数
+- schema通過数
+- evidence外identifier件数
+- prompt調整に使っていない、期待categoryを人が確認したcaseのcategory一致数
+- 所要時間
+
+文章品質、正本DBへ適用してよいか、通常運用modelを変更してよいかは自動決定しません。runtimeでのreasoning確認、
+複数回実行、memory観測、文章確認、複製DBでのenrich比較、少数project試用が無ければ、その項目を未実施として返します。
+
+## 新しいmodelまたはversionを試す時
+
+1. model file、runtime、template、context、reasoning対応を確認する
+2. production promptのまま少数caseを実行する
+3. 既知の安全検査を通らない構成を外す
+4. 必要な構成だけmodel別suffixを調整する
+5. prompt調整に使っていない、期待categoryを人が確認したcaseを実行する
+6. 同じ入力を複数回実行する
+7. baselineとの文章比較と重い入力を確認する
+8. 複製DBでQwenと候補modelを別々にenrichし、結果を比較する
+9. 少数projectで試す
+10. 通常運用modelを変更するか判断する
+
+新しい誤りをfixtureへ追加する時は、再現に必要な最小evidenceと期待値を保存します。そのcaseをprompt修正に使った
+場合は`used_for_prompt_adjustment=true`とし、次のmodel選定確認には別caseを使います。
+
+## 文書への反映
+
+- 実装済みの評価機能と確認済み範囲: `docs/status.md`
+- 未完了の比較、複製DBでのenrich比較、試用: `docs/roadmap.md`
+- 比較途中の条件、結果、解釈: 本文書
+- 次スレッドが直ちに実行する作業: `docs/thread-handoff.md`
+
+モデル変更後は、通常運用model、確認した範囲、rollback用設定を`docs/status.md`へ短く記録します。

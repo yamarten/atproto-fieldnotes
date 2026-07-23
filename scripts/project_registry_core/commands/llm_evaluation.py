@@ -63,6 +63,17 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
             prompt = f"{prompt}\n\nEvaluation prompt variant:\n{prompt_suffix}\n"
         return prompt
 
+    requested_reasoning = str(
+        args.llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", "")
+    )
+    reasoning_status = str(args.reasoning_observation or "not_checked")
+    if not requested_reasoning:
+        reasoning_status = "not_requested"
+    reasoning_note = str(args.reasoning_observation_note or "").strip()
+    if reasoning_status in {"applied", "ignored"} and not reasoning_note:
+        raise ValueError(
+            "--reasoning-observation-note is required when reasoning was observed as applied or ignored"
+        )
     model_spec = {
         "model": str(args.llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")),
         "transport": "configured",
@@ -70,7 +81,9 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
         "quantization": str(args.quantization or ""),
         "prompt_variant": str(args.prompt_variant or "baseline_current"),
         "prompt_suffix_hash": evaluation.sha256_json({"text": prompt_suffix}) if prompt_suffix else "",
-        "reasoning_effort": str(args.llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", "")),
+        "reasoning_effort_requested": requested_reasoning,
+        "reasoning_observation": reasoning_status,
+        "reasoning_observation_note": reasoning_note,
         "api_style": str(args.llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
         "output_cap": output_cap,
         "labels": str(args.labels or ""),
@@ -93,3 +106,19 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
     _write_json(output, report)
     print(json.dumps({"output": str(output), **report["summary"]}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["summary"]["failure_count"] == 0 else 1
+
+
+def cmd_compare_llm_evaluation_reports(args: argparse.Namespace) -> int:
+    baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+    candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
+    comparison = evaluation.compare_reports(baseline, candidate)
+    output = Path(args.output)
+    _write_json(output, comparison)
+    print(json.dumps({
+        "output": str(output),
+        "automatic_checks_pass": comparison["automatic_checks_pass"],
+        "comparison_issues": comparison["comparison_issues"],
+        "automatic_regressions": comparison["automatic_regressions"],
+        "remaining_checks": comparison["remaining_checks"],
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if comparison["automatic_checks_pass"] else 1

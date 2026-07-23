@@ -14,8 +14,8 @@ from typing import Any, Callable, Iterable
 
 
 CORPUS_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 1
-LABEL_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
+LABEL_SCHEMA_VERSION = 2
 CATEGORY_VALUES = {
     "project", "lexicon", "infra_tool", "name_only", "library",
     "personal_tool", "auth_only", "reject",
@@ -119,9 +119,15 @@ def apply_labels(corpus: dict[str, Any], label_set: dict[str, Any]) -> dict[str,
         expected_output = label.get("expected_output")
         if not isinstance(expected_output, dict) or not expected_output:
             raise ValueError(f"expected_output missing for labeled case: {case_id}")
+        used_for_prompt_adjustment = label.get("used_for_prompt_adjustment")
+        if not isinstance(used_for_prompt_adjustment, bool):
+            raise ValueError(
+                f"used_for_prompt_adjustment must be boolean for labeled case: {case_id}"
+            )
         case["expected_output"] = copy.deepcopy(expected_output)
         case["label_status"] = str(label.get("status") or "")
         case["label_basis"] = str(label.get("basis") or "")
+        case["used_for_prompt_adjustment"] = used_for_prompt_adjustment
     labeled["labels"] = {
         "schema_version": LABEL_SCHEMA_VERSION,
         "content_hash": sha256_json(label_set),
@@ -145,7 +151,9 @@ def checkpoint_report(
         "status": "running",
         "corpus_hash": corpus_content_hash(corpus),
         "corpus_case_count": len(cases),
+        "labels": copy.deepcopy(corpus.get("labels", {})),
         "model_spec": model_spec,
+        "reasoning_observation": reasoning_observation(model_spec),
         "runtime_observation": {
             "peak_memory_bytes": None,
             "swap_delta_bytes": None,
@@ -154,6 +162,22 @@ def checkpoint_report(
             "measurement_status": "not_connected",
         },
         "results": list(results),
+    }
+
+
+def reasoning_observation(model_spec: dict[str, Any]) -> dict[str, Any]:
+    requested = str(
+        model_spec.get("reasoning_effort_requested")
+        or model_spec.get("reasoning_effort")
+        or ""
+    ).strip()
+    status = str(model_spec.get("reasoning_observation") or "not_checked").strip()
+    if not requested:
+        status = "not_requested"
+    return {
+        "requested": requested,
+        "runtime_status": status,
+        "note": str(model_spec.get("reasoning_observation_note") or ""),
     }
 
 
@@ -507,6 +531,138 @@ def reference_diff(payload: dict[str, Any], reference: Any) -> list[dict[str, An
     return changes
 
 
+def repeat_comparison(results: list[dict[str, Any]]) -> dict[str, Any]:
+    by_case: dict[str, list[dict[str, Any]]] = {}
+    for result in results:
+        if result.get("status") != "success" or not isinstance(result.get("payload"), dict):
+            continue
+        by_case.setdefault(str(result.get("case_id") or ""), []).append(result)
+    comparisons: list[dict[str, Any]] = []
+    compared_fields = (
+        "category", "lexicon_scope", "status", "name", "tagline", "summary", "features",
+        "source_code_urls", "service_urls", "service_status", "lexicons",
+        "technical_interest_level", "manual_review_recommended", "manual_review_kind",
+        "manual_review_priority", "repository_link_assessments",
+    )
+    for case_id, case_results in sorted(by_case.items()):
+        if len(case_results) < 2:
+            continue
+        first_payload = case_results[0]["payload"]
+        different_fields = sorted(
+            field
+            for field in compared_fields
+            if any(result["payload"].get(field) != first_payload.get(field) for result in case_results[1:])
+        )
+        identifier_sets = [_identifiers(result["payload"]) for result in case_results]
+        validation_states = [
+            (
+                bool(result.get("validation", {}).get("valid")),
+                tuple(result.get("validation", {}).get("errors", [])),
+            )
+            for result in case_results
+        ]
+        comparisons.append({
+            "case_id": case_id,
+            "successful_run_count": len(case_results),
+            "different_fields": different_fields,
+            "identifiers_differ": any(value != identifier_sets[0] for value in identifier_sets[1:]),
+            "validation_differs": any(value != validation_states[0] for value in validation_states[1:]),
+        })
+    return {
+        "compared_case_count": len(comparisons),
+        "different_output_case_count": sum(bool(item["different_fields"]) for item in comparisons),
+        "category_difference_case_count": sum("category" in item["different_fields"] for item in comparisons),
+        "identifier_difference_case_count": sum(bool(item["identifiers_differ"]) for item in comparisons),
+        "validation_difference_case_count": sum(bool(item["validation_differs"]) for item in comparisons),
+        "cases": comparisons,
+    }
+
+
+def _report_result_keys(report: dict[str, Any]) -> set[tuple[str, int]]:
+    return {
+        (str(result.get("case_id") or ""), int(result.get("repeat_index") or 0))
+        for result in report.get("results", [])
+        if isinstance(result, dict)
+    }
+
+
+def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    for name, report in (("baseline", baseline), ("candidate", candidate)):
+        if int(report.get("schema_version") or 0) != REPORT_SCHEMA_VERSION:
+            raise ValueError(f"unsupported {name} LLM evaluation report schema")
+        if report.get("status") != "complete":
+            raise ValueError(f"{name} LLM evaluation report is not complete")
+    comparison_issues: list[str] = []
+    if baseline.get("corpus_hash") != candidate.get("corpus_hash"):
+        comparison_issues.append("corpus_hash_differs")
+    if baseline.get("labels") != candidate.get("labels"):
+        comparison_issues.append("reviewed_labels_differ")
+    if _report_result_keys(baseline) != _report_result_keys(candidate):
+        comparison_issues.append("case_or_repeat_set_differs")
+
+    baseline_summary = baseline.get("summary") if isinstance(baseline.get("summary"), dict) else {}
+    candidate_summary = candidate.get("summary") if isinstance(candidate.get("summary"), dict) else {}
+    metrics = (
+        "success_count",
+        "schema_valid_count",
+        "unsupported_identifier_result_count",
+        "reviewed_not_used_for_prompt_adjustment_match_count",
+        "reviewed_not_used_for_prompt_adjustment_mismatch_count",
+        "total_duration_ms",
+    )
+    metric_comparison = {
+        metric: {
+            "baseline": baseline_summary.get(metric),
+            "candidate": candidate_summary.get(metric),
+            "difference": (
+                candidate_summary[metric] - baseline_summary[metric]
+                if isinstance(baseline_summary.get(metric), (int, float))
+                and isinstance(candidate_summary.get(metric), (int, float))
+                else None
+            ),
+        }
+        for metric in metrics
+    }
+    automatic_regressions: list[str] = []
+    for metric in ("success_count", "schema_valid_count", "reviewed_not_used_for_prompt_adjustment_match_count"):
+        values = metric_comparison[metric]
+        if isinstance(values["difference"], (int, float)) and values["difference"] < 0:
+            automatic_regressions.append(f"{metric}_decreased")
+    for metric in ("unsupported_identifier_result_count", "reviewed_not_used_for_prompt_adjustment_mismatch_count"):
+        values = metric_comparison[metric]
+        if isinstance(values["difference"], (int, float)) and values["difference"] > 0:
+            automatic_regressions.append(f"{metric}_increased")
+
+    remaining_checks: list[str] = []
+    reasoning_status = candidate.get("reasoning_observation", {}).get("runtime_status")
+    if reasoning_status == "not_checked":
+        remaining_checks.append("reasoning_request_not_checked_in_runtime")
+    elif reasoning_status == "ignored":
+        remaining_checks.append("reasoning_request_ignored_by_runtime")
+    if not candidate_summary.get("reviewed_not_used_for_prompt_adjustment_case_count"):
+        remaining_checks.append("no_reviewed_cases_outside_prompt_adjustment")
+    if not candidate.get("repeat_comparison", {}).get("compared_case_count"):
+        remaining_checks.append("same_input_not_run_multiple_times")
+    if candidate.get("runtime_observation", {}).get("measurement_status") != "measured":
+        remaining_checks.append("memory_and_runtime_breakdown_not_measured")
+    remaining_checks.extend([
+        "summary_tagline_features_not_reviewed_by_operator",
+        "copied_database_enrich_comparison_not_reviewed",
+        "limited_project_trial_not_completed",
+    ])
+    return {
+        "schema_version": 1,
+        "created_at": iso_now(),
+        "baseline": baseline.get("model_spec", {}),
+        "candidate": candidate.get("model_spec", {}),
+        "comparison_issues": comparison_issues,
+        "metric_comparison": metric_comparison,
+        "automatic_regressions": automatic_regressions,
+        "remaining_checks": remaining_checks,
+        "automatic_checks_pass": not comparison_issues and not automatic_regressions,
+    }
+
+
 def git_state(root: Path) -> dict[str, Any]:
     try:
         commit = subprocess.run(
@@ -574,6 +730,8 @@ def run_corpus(
                     "expected_diff": reference_diff(payload, case.get("expected_output"))
                     if isinstance(payload, dict) and isinstance(case.get("expected_output"), dict) else [],
                     "label_status": str(case.get("label_status") or ""),
+                    "used_for_prompt_adjustment": case.get("used_for_prompt_adjustment")
+                    if isinstance(case.get("used_for_prompt_adjustment"), bool) else None,
                 })
             except Exception as exc:
                 result.update({"error_type": type(exc).__name__, "error": str(exc)})
@@ -601,6 +759,25 @@ def run_corpus(
         result for result in category_labeled
         if result.get("payload", {}).get("category") == result["expected_output"].get("category")
     ]
+    reviewed_case_ids = {
+        str(result.get("case_id") or "") for result in category_labeled
+    }
+    reviewed_adjustment_case_ids = {
+        str(result.get("case_id") or "")
+        for result in category_labeled
+        if result.get("used_for_prompt_adjustment") is True
+    }
+    reviewed_unadjusted = [
+        result for result in category_labeled
+        if result.get("used_for_prompt_adjustment") is False
+    ]
+    reviewed_unadjusted_matches = [
+        result for result in reviewed_unadjusted
+        if result.get("payload", {}).get("category") == result["expected_output"].get("category")
+    ]
+    reviewed_unadjusted_case_ids = {
+        str(result.get("case_id") or "") for result in reviewed_unadjusted
+    }
     bucket_summary: dict[str, dict[str, int]] = {}
     case_by_id = {str(case.get("case_id") or ""): case for case in cases}
     for result in results:
@@ -614,14 +791,17 @@ def run_corpus(
             summary["library_conflicts"] += int(
                 not result.get("validation", {}).get("category_summary_consistent", True)
             )
+    repetition = repeat_comparison(results)
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "created_at": iso_now(),
         "status": "complete",
         "corpus_hash": corpus_content_hash(corpus),
         "corpus_case_count": len(cases),
+        "labels": copy.deepcopy(corpus.get("labels", {})),
         "git": git_state(root) if root else {"commit": "", "dirty": None},
         "model_spec": model_spec,
+        "reasoning_observation": reasoning_observation(model_spec),
         "runtime_observation": {
             "peak_memory_bytes": None,
             "swap_delta_bytes": None,
@@ -645,8 +825,21 @@ def run_corpus(
             "expected_category_accuracy": (
                 len(category_matches) / len(category_labeled) if category_labeled else None
             ),
+            "reviewed_case_count": len(reviewed_case_ids),
+            "reviewed_used_for_prompt_adjustment_case_count": len(reviewed_adjustment_case_ids),
+            "reviewed_not_used_for_prompt_adjustment_case_count": len(reviewed_unadjusted_case_ids),
+            "reviewed_not_used_for_prompt_adjustment_result_count": len(reviewed_unadjusted),
+            "reviewed_not_used_for_prompt_adjustment_match_count": len(reviewed_unadjusted_matches),
+            "reviewed_not_used_for_prompt_adjustment_mismatch_count": (
+                len(reviewed_unadjusted) - len(reviewed_unadjusted_matches)
+            ),
+            "reviewed_not_used_for_prompt_adjustment_accuracy": (
+                len(reviewed_unadjusted_matches) / len(reviewed_unadjusted)
+                if reviewed_unadjusted else None
+            ),
             "total_duration_ms": sum(int(result["duration_ms"]) for result in results),
             "prompt_buckets": bucket_summary,
         },
+        "repeat_comparison": repetition,
         "results": results,
     }

@@ -189,11 +189,12 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
 - 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
-  - corpus exportと1 model構成ごとのstructured reportは実装済み。peak memory / swap / prefill / decodeのrunner観測と、複数reportの比較集計は未接続
-  - Gemma 26B + category-gates v3は固定40件でreview済みcategoryとguardを全件通過。次は文章品質のpairwise review、重いsubset、複製DBでfull enrich差分を測る
-  - 別系列の12件screening後、gpt-oss-20bとGranite 4 H-Tinyだけをprompt variant候補に残した。Agents A1、Nemotron 3 Nano、Ministral 3 14B Reasoningは速度・品質・memoryまたはoutput互換性から足切りした
-  - MLX/GGUFの同一model比較はGemma 26B、Qwen 35B、Qwen 9B、gpt-oss-20bで実施済み。速度差は約4-10%に留まり品質順位はmodelごとに異なる。gpt-oss GGUFは固定12件でusable JSON 0件のため候補外
-  - 既存`category=library`の一括再分類はこの評価に依存する。現行modelはplugin / template / prototypeをsummaryで認識しても`library`を返す場合があるため、固定evidenceでcategory-summary整合性を満たすmodelとpromptを確認するまではbulk更新しない
+  - corpus export、1 model構成のstructured report、同一入力の複数回差分、2 reportの機械比較は実装済み。peak memory / swap / prefill / decodeのrunner観測は未接続
+  - reasoning要求をruntimeが適用したか確認してから比較する。過去のgpt-oss GGUF実行は`low`が無視されたため、reasoning条件を揃えた形式比較には使わない
+  - 既存21 labelはGemma用suffixの調整に使ったことを明示済み。次はprompt調整に使っていないcaseをevidenceだけからreviewし、Gemma候補のcategoryとidentifierを確認する
+  - その後、同じ入力の複数回実行、Qwen/Gemmaの文章比較、重い入力、複製DBで両modelを別々にenrichした結果の比較、少数project試用の順で確認し、通常運用modelを変更するか判断する
+  - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
+  - 既存`category=library`の一括再分類はmodel変更の確認に依存する。prompt調整に使っていないcaseと複製DBでのenrich比較を確認するまではbulk更新しない
 
 未決定:
 

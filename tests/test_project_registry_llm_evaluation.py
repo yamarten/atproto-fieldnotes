@@ -56,10 +56,11 @@ class LLMCorpusExportTest(unittest.TestCase):
     def test_labels_require_matching_evidence_hash(self) -> None:
         corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}
         labels = {
-            "schema_version": 1,
+            "schema_version": 2,
             "labels": [{
                 "case_id": "case", "evidence_hash": "wrong",
                 "expected_output": {"category": "project"},
+                "used_for_prompt_adjustment": False,
             }],
         }
 
@@ -69,10 +70,11 @@ class LLMCorpusExportTest(unittest.TestCase):
     def test_labels_are_applied_without_mutating_corpus(self) -> None:
         corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}
         labels = {
-            "schema_version": 1,
+            "schema_version": 2,
             "labels": [{
                 "case_id": "case", "evidence_hash": "abc", "status": "confirmed",
                 "expected_output": {"category": "project"},
+                "used_for_prompt_adjustment": False,
             }],
         }
 
@@ -80,7 +82,21 @@ class LLMCorpusExportTest(unittest.TestCase):
 
         self.assertNotIn("expected_output", corpus["cases"][0])
         self.assertEqual(labeled["cases"][0]["expected_output"], {"category": "project"})
+        self.assertFalse(labeled["cases"][0]["used_for_prompt_adjustment"])
         self.assertEqual(labeled["labels"]["label_count"], 1)
+
+    def test_labels_require_prompt_adjustment_disclosure(self) -> None:
+        corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}
+        labels = {
+            "schema_version": 2,
+            "labels": [{
+                "case_id": "case", "evidence_hash": "abc",
+                "expected_output": {"category": "project"},
+            }],
+        }
+
+        with self.assertRaisesRegex(ValueError, "used_for_prompt_adjustment must be boolean"):
+            evaluation.apply_labels(corpus, labels)
 
 
 class LLMOutputValidationTest(unittest.TestCase):
@@ -132,6 +148,7 @@ class LLMOutputValidationTest(unittest.TestCase):
                     "evidence": {"source_code_urls": ["https://example.com/repo"]},
                     "expected_output": {"category": "project"},
                     "label_status": "confirmed",
+                    "used_for_prompt_adjustment": False,
                 },
                 {"case_id": "fail", "evidence": {"name": "Failure"}},
             ],
@@ -147,7 +164,12 @@ class LLMOutputValidationTest(unittest.TestCase):
             corpus,
             build_prompt=build_prompt,
             run_llm=run_llm,
-            model_spec={"model": "test"},
+            model_spec={
+                "model": "test",
+                "reasoning_effort_requested": "low",
+                "reasoning_observation": "applied",
+                "reasoning_observation_note": "runtime log confirmed it",
+            },
             progress_callback=lambda results: checkpoints.append(len(results)),
         )
 
@@ -156,6 +178,9 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertEqual(report["summary"]["schema_valid_count"], 1)
         self.assertEqual(report["summary"]["expected_category_match_count"], 1)
         self.assertEqual(report["summary"]["expected_category_accuracy"], 1.0)
+        self.assertEqual(report["summary"]["reviewed_not_used_for_prompt_adjustment_case_count"], 1)
+        self.assertEqual(report["summary"]["reviewed_not_used_for_prompt_adjustment_match_count"], 1)
+        self.assertEqual(report["reasoning_observation"]["runtime_status"], "applied")
         self.assertEqual(report["summary"]["prompt_buckets"]["short"]["requests"], 2)
         self.assertTrue(report["results"][0]["reference_is_gold"] is False)
         self.assertEqual(report["runtime_observation"]["measurement_status"], "not_connected")
@@ -165,6 +190,64 @@ class LLMOutputValidationTest(unittest.TestCase):
         checkpoint = evaluation.checkpoint_report(corpus, {"model": "test"}, report["results"][:1])
         self.assertEqual(checkpoint["status"], "running")
         self.assertEqual(len(checkpoint["results"]), 1)
+
+    def test_repeat_comparison_reports_field_and_identifier_differences(self) -> None:
+        corpus = {
+            "schema_version": 1,
+            "cases": [{"case_id": "case", "evidence": {"name": "Example"}}],
+        }
+        calls = 0
+
+        def run_llm(_prompt: str) -> tuple[dict, dict]:
+            nonlocal calls
+            calls += 1
+            payload = self.valid_payload()
+            payload["category"] = "project" if calls == 1 else "infra_tool"
+            payload["source_code_urls"] = [] if calls == 1 else ["https://new.example/repo"]
+            return payload, {"model": "test"}
+
+        report = evaluation.run_corpus(
+            corpus,
+            build_prompt=build_prompt,
+            run_llm=run_llm,
+            model_spec={"model": "test"},
+            repeat=2,
+        )
+
+        comparison = report["repeat_comparison"]
+        self.assertEqual(comparison["compared_case_count"], 1)
+        self.assertEqual(comparison["category_difference_case_count"], 1)
+        self.assertEqual(comparison["identifier_difference_case_count"], 1)
+        self.assertIn("category", comparison["cases"][0]["different_fields"])
+
+    def test_report_comparison_keeps_non_automatic_checks_explicit(self) -> None:
+        def report(model: str, *, unsupported: int = 0) -> dict:
+            return {
+                "schema_version": 2,
+                "status": "complete",
+                "corpus_hash": "same",
+                "model_spec": {"model": model},
+                "reasoning_observation": {"runtime_status": "not_checked"},
+                "runtime_observation": {"measurement_status": "not_connected"},
+                "repeat_comparison": {"compared_case_count": 0},
+                "summary": {
+                    "success_count": 1,
+                    "schema_valid_count": 1,
+                    "unsupported_identifier_result_count": unsupported,
+                    "reviewed_not_used_for_prompt_adjustment_case_count": 0,
+                    "reviewed_not_used_for_prompt_adjustment_match_count": 0,
+                    "reviewed_not_used_for_prompt_adjustment_mismatch_count": 0,
+                    "total_duration_ms": 10,
+                },
+                "results": [{"case_id": "case", "repeat_index": 0}],
+            }
+
+        comparison = evaluation.compare_reports(report("baseline"), report("candidate", unsupported=1))
+
+        self.assertFalse(comparison["automatic_checks_pass"])
+        self.assertIn("unsupported_identifier_result_count_increased", comparison["automatic_regressions"])
+        self.assertIn("reasoning_request_not_checked_in_runtime", comparison["remaining_checks"])
+        self.assertIn("copied_database_enrich_comparison_not_reviewed", comparison["remaining_checks"])
 
     def test_runner_rejects_unknown_case_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown corpus case IDs"):
@@ -210,14 +293,18 @@ class LLMOutputCapTest(unittest.TestCase):
         try:
             _payload, meta = llm_transport.run_local_llm_via_endpoint(
                 "prompt", "http://localhost:1234", "test", "",
-                api_style="responses", max_output_tokens=321,
+                reasoning_effort="low", api_style="responses", max_output_tokens=321,
             )
         finally:
             llm_transport.request_json_post_raw = original
 
         self.assertEqual(observed[0]["max_output_tokens"], 321)
+        self.assertEqual(observed[0]["reasoning"], {"effort": "low"})
         self.assertEqual(meta["max_output_tokens"], 321)
         self.assertEqual(meta["usage"]["output_tokens"], 12)
+        self.assertEqual(meta["reasoning_effort_requested"], "low")
+        self.assertEqual(meta["reasoning_effort_applied"], "")
+        self.assertEqual(meta["reasoning_effort_application_status"], "not_reported_by_endpoint")
 
 
 if __name__ == "__main__":

@@ -108,9 +108,12 @@
 - fixed evidence LLM evaluation
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
   - corpus選抜はprompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する。保存済み出力は比較referenceでありgold labelとは扱わない
-  - `evaluate-llm-corpus`は同一prompt、output cap、reasoning設定で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latencyをJSON reportへ保存する。任意のreview済みlabelはevidence hash一致を必須にし、expected output差分とcategory正解率を集計する
+  - `evaluate-llm-corpus`は同一prompt、最大出力token数、reasoning要求で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latency、同一入力のfield差をJSON reportへ保存する
+  - reasoning要求値とruntime log等で確認した`applied / ignored / not_checked`を分ける。endpoint metadataは要求値を返すだけなので適用確認には使わない
+  - 期待categoryを人が確認したlabelはevidence hash一致と`used_for_prompt_adjustment`を必須にし、prompt調整に使ったcaseと使っていないcaseを別集計する
+  - `compare-llm-evaluation-reports`は同じcorpusとcase/repeat集合のbaseline/candidateを比較し、機械検査の退行と文章確認・複製DB・少数project試用等の未実施項目を分けて返す。通常運用modelは自動選定しない
   - OpenAI Responsesの`output`にreasoningとmessageが併存する場合はmessageだけをmodel出力として解析し、Harmony control tokenを含むtextではfinal channelだけをJSON候補にする
-  - 長時間実行では開始時と各request完了時にreportをcheckpointし、正常終了時だけ`status=complete`へ確定する
+  - 長時間実行では開始時と各request完了時までの結果をreportへ書き出し、正常終了時だけ`status=complete`へ確定する
   - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
@@ -174,7 +177,7 @@
 
 2026-07-24時点で確認済み:
 
-- 全unit test 471件
+- 全unit test 474件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -187,7 +190,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、review済みexpected category 21件をevidence hash付きで固定。32k単独loadの全40件比較は、Qwen 35B currentが14/21・guard 34/40・663.9秒、Qwen 35B category-gates v3が18/21・guard 34/40・evidence外identifier 2・540.4秒、Gemma 26B category-gates v3が21/21・guard 40/40・evidence外identifier 0・574.6秒。追加12件screeningではGranite H-Tinyが11/12・121.5秒だがguard 5/12、gpt-oss-20b MLXが11/12・guard 11/12・165.2秒、Agents A1が11/12・guard 11/12・201.5秒。同一modelのMLX/GGUF比較ではGemma MLXがGGUFより約3.8%速くguard 11対10、Qwen 35B MLXが約9.9%速くguard 9対8、Qwen 9B MLXが約5.2%速い一方guardは10対12。gpt-oss GGUFは12件すべてusable JSONを返さず対象外。現行MLX backendは要求32kをfinal load configへ厳密適用しないため、固定promptでのruntime比較として扱う。Gemma v3を第一候補とし、production prompt反映、文章品質、複製DB shadow enrichは未検証
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、期待categoryを人が確認した21件をevidence hash付きで固定。ただし21件はすべてGemma用suffixの調整時に参照済みで、model選定用の未使用caseではない。Gemma 4 26B A4B MLXを次の比較候補とするが、通常運用modelの変更は未決定。gpt-oss GGUFの過去実行はLM Studioが`reasoning low`をmodel設定へ変換できなかったため、reasoning条件を揃えた形式比較として扱わない。prompt調整に使っていないcase、文章、複数回実行、複製DBでのenrich比較、少数project試用は未確認
 
 未検証:
 
