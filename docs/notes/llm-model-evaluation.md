@@ -281,6 +281,74 @@ Nemotronは対応runtimeと量子化形式が揃わなければ無理に比較�
 - [IBM Granite 4.0](https://www.ibm.com/granite/docs/models/granite)
 - [Mistral Ministral 3 14B](https://docs.mistral.ai/models/model-cards/ministral-3-14b-25-12)
 
+### 2026-07-22 expanded local screening
+
+追加modelとbackend差を、32kを要求した単独load、評価対象外warm-up、baseline current prompt、12件で比較した。
+gpt-ossだけはmodel契約に合わせてreasoning `low`、他は`none`。output capは1,024で固定した。
+
+| model / backend | category正解 | guard通過 | spacing警告 | 合計秒 | memory観測 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 26B A4B / MLX 4bit | 10/12 | 11/12 | 0 | 116.095 | worker RSS約13.6 GiB |
+| Granite 4 H-Tiny / GGUF Q4_K_M | 11/12 | 5/12 | 3 | 121.523 | model file約4.23 GB、RSS未測定 |
+| Nemotron 3 Nano / MLX 4bit | 10/12 | 11/12 | 0 | 122.283 | model files約17.8 GB、RSS未測定 |
+| Qwen 3.6 35B A3B / GGUF Q4_K_M | 8/12 | 8/12 | 0 | 134.942 | worker RSS約21.7 GiB |
+| gpt-oss-20b / MLX MXFP4 | 11/12 | 11/12 | 0 | 165.238 | worker RSS約12.45 GiB |
+| Qwen 3.5 9B / MLX 4bit | 11/12 | 10/12 | 5 | 200.673 | worker RSS約6.83 GiB |
+| Agents A1 4B / GGUF Q8_0 | 11/12 | 11/12 | 3 | 201.461 | model file約4.48 GB、RSS未測定 |
+| Qwen 3.5 9B / GGUF Q4_K_M | 12/12 | 12/12 | 8 | 211.575 | worker RSS約7.6 GiB |
+
+- active parameterは大勢を説明するが、同程度のactive帯でも約116-165秒に分かれた。architecture、backend、
+  quantization、生成token数を含むため、active parameterだけで実運用速度は決まらない
+- Graniteは1B active相応に速くcategoryも11/12だが、必須field欠落、enum違反、tagline長超過でguardが5/12。
+  小メモリ用途のprompt tuning候補だが、そのままの置換候補ではない
+- Nemotronは速度とguardが良いが、category 10/12かつmodel files約17.8 GBで、Gemma 26Bに対する優位を
+  確認できなかった
+- gpt-ossはResponses payloadのreasoning itemとfinal messageを連結するとJSON parseに失敗した。
+  transportをfinal message優先へ修正した後は12/12 request成功したが、速度・品質ともGemmaを上回らなかった
+- Agents A1は4Bでも約201秒で、Qwen 9B denseと同程度。11/12のcategory品質は良いが、通常bulk enrichの
+  速度改善候補にはならない
+- Qwen 9BのMLXはGGUFより約5%速くRSSも約10%小さいが、category 12/12から11/12、guard 12/12から
+  10/12へ低下した。このmodelではbackend変更だけによる劇的な改善はない
+- ダウンロードされたMinistral 3 14BはInstructではなくReasoning版だった。単一caseで53.270秒後にJSONなしで
+  失敗したため、bulk enrich比較にはInstruct版が必要
+- LM Studio REST APIのmodel keyは同一modelの`selected_variant`をloadする。2026-07-22時点ではQwen 35B MLX、
+  Gemma 26B GGUF、gpt-oss GGUFが`.part`で、同一modelのbackend比較を完了できたのはQwen 9Bだけ
+
+Qwen 35BへGemmaと同じcategory-gates v3を適用した全40件では、categoryが14/21から18/21へ改善した。
+一方、guardは34/40のまま、evidence外identifierは0件から2件へ増えた。合計540.428秒はbaselineの
+663.896秒より約19%短いが、別runで生成内容も異なるためprompt自体の速度効果とは断定しない。
+残るcategory誤りはStrapi pluginの`library`、GitHub Actionsの`project`、独立appの`lexicon`の3件。
+Qwenにもprompt tuning余地はあるが、v3時点ではGemma v3の21/21・guard 40/40へは届かない。
+
+次段階ではGemma v3を第一候補に維持し、Qwenは残る3分類とidentifier完全一致を一般則で同時改善できる
+小差分v4が作れる場合だけ再比較する。Graniteはstrict schema suffix、gpt-ossはcategory-gates v3を
+限定21件で試す価値がある。Agents A1、Nemotron、Ministral Reasoningはここで足切りする。
+
+### 2026-07-24 MLX / GGUF format comparison
+
+2026-07-22に未完了だった同一model family内のformat差を、同じ12件、baseline current prompt、
+output cap 1,024、評価対象外warm-up、単独loadで追加測定した。GGUFはcontext 32,768、parallel 4を
+実適用できた。MLXにも32,768を要求したが、現行LM Studio MLX backendはQwen 35Bへ183,296、
+Gemma 26Bのspot checkでは226,304をfinal load configとして適用した。したがって固定promptと生成条件は
+同じだが、max contextまで厳密に一致したbackend benchmarkではない。
+
+| model | MLX category / guard / 秒 | GGUF category / guard / 秒 | 観測した差 |
+| --- | --- | --- | --- |
+| Gemma 4 26B A4B | 10/12 / 11/12 / 116.095 | 8/12 / 10/12 / 120.476 | GGUFは約3.8%遅く、categoryとguardも低下 |
+| Qwen 3.6 35B A3B | 9/12 / 9/12 / 121.585 | 8/12 / 8/12 / 134.942 | MLXは約9.9%速く、categoryとguardが各1件改善 |
+| Qwen 3.5 9B | 11/12 / 10/12 / 200.673 | 12/12 / 12/12 / 211.575 | MLXは約5.2%速いが、categoryとguardはGGUFが上 |
+| gpt-oss-20b MXFP4 | 11/12 / 11/12 / 165.238 | 0/12 / 0/12 / 272.888 | GGUFは12件全失敗。11件はfinal JSONなし、1件はJSON途中切れ |
+
+- Gemma GGUFのworker RSSは約16.4 GiBで、既測定MLX約13.6 GiBより大きかった
+- Qwen 35B MLXの測定後RSSは約10.3 GiB、既測定GGUFは約21.7 GiBだった。ただし異なる時点のresident
+  page / swap状態を含むため、peak memory差とは扱わない
+- gpt-oss GGUFのRSSは約12.55 GiB、既測定MLXは約12.45 GiBでほぼ同じだった。GGUFはreasoning `low`でも
+  1件約22-23秒を使い、warm-upを含めoutput cap到達後にusable JSONを返さなかった
+- formatによる一貫した品質順位はない。Qwen 35BではMLX、Qwen 9BではGGUFがguard上位で、GemmaはMLXが
+  速度・品質・RSSのすべてで上だった
+- 現行候補ではGemma MLX + category-gates v3を維持する。gpt-oss GGUFはprompt tuningへ進めず、
+  gpt-ossの追加評価はJSON成功済みMLXだけを対象にする
+
 ## 2026-07-01 preliminary measurement
 
 実装済み / 実行済み:

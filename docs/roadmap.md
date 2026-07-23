@@ -191,7 +191,8 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
   - corpus exportと1 model構成ごとのstructured reportは実装済み。peak memory / swap / prefill / decodeのrunner観測と、複数reportの比較集計は未接続
   - Gemma 26B + category-gates v3は固定40件でreview済みcategoryとguardを全件通過。次は文章品質のpairwise review、重いsubset、複製DBでfull enrich差分を測る
-  - 別系列はgpt-oss-20b、Nemotron 3 Nano、Granite 4.0 H-Tiny、Ministral 3 14Bをmodel-only screening候補とし、上位だけprompt variantへ進める
+  - 別系列の12件screening後、gpt-oss-20bとGranite 4 H-Tinyだけをprompt variant候補に残した。Agents A1、Nemotron 3 Nano、Ministral 3 14B Reasoningは速度・品質・memoryまたはoutput互換性から足切りした
+  - MLX/GGUFの同一model比較はGemma 26B、Qwen 35B、Qwen 9B、gpt-oss-20bで実施済み。速度差は約4-10%に留まり品質順位はmodelごとに異なる。gpt-oss GGUFは固定12件でusable JSON 0件のため候補外
   - 既存`category=library`の一括再分類はこの評価に依存する。現行modelはplugin / template / prototypeをsummaryで認識しても`library`を返す場合があるため、固定evidenceでcategory-summary整合性を満たすmodelとpromptを確認するまではbulk更新しない
 
 未決定:

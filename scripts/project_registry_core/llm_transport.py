@@ -35,12 +35,20 @@ def iso_now() -> str:
 
 
 def strip_json_fence(text: str) -> str:
-    stripped = text.strip()
+    stripped = strip_harmony_final_channel(text).strip()
     if stripped.startswith("```"):
         match = re.search(r"```(?:json)?\s*(.*?)```", stripped, re.DOTALL)
         if match:
             return match.group(1).strip()
     return stripped
+
+
+def strip_harmony_final_channel(text: str) -> str:
+    marker = "<|channel|>final<|message|>"
+    if marker not in text:
+        return text
+    final = text.rsplit(marker, 1)[1]
+    return final.split("<|end|>", 1)[0]
 
 
 def normalize_llm_api_style(value: str | None) -> str:
@@ -126,6 +134,14 @@ def parse_openai_compatible_response(payload: dict[str, Any]) -> str:
     if output_text:
         return output_text
     output = payload.get("output")
+    if isinstance(output, list):
+        message_output = [
+            item for item in output
+            if isinstance(item, dict) and item.get("type") == "message"
+        ]
+        extracted_message = extract_text_from_openai_content(message_output)
+        if extracted_message:
+            return extracted_message
     extracted_output = extract_text_from_openai_content(output)
     if extracted_output:
         return extracted_output

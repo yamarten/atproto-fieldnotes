@@ -2472,6 +2472,18 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
 
 class ProjectRegistryLlmParserTest(unittest.TestCase):
+    def test_strip_json_fence_extracts_harmony_final_channel(self) -> None:
+        content = (
+            "<|channel|>analysis<|message|>Reasoning"
+            "<|end|><|start|>assistant<|channel|>final<|message|>"
+            "{\"category\":\"project\"}<|end|>"
+        )
+
+        self.assertEqual(
+            llm_transport_core.strip_json_fence(content),
+            '{"category":"project"}',
+        )
+
     def test_parse_chat_completion_message_content(self) -> None:
         payload = {"choices": [{"message": {"content": "chat text"}}]}
 
@@ -2486,6 +2498,16 @@ class ProjectRegistryLlmParserTest(unittest.TestCase):
         payload = {"output": [{"content": [{"type": "output_text", "text": "nested text"}]}]}
 
         self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), "nested text")
+
+    def test_parse_responses_ignores_reasoning_output(self) -> None:
+        payload = {
+            "output": [
+                {"type": "reasoning", "content": [{"type": "reasoning_text", "text": "analysis"}]},
+                {"type": "message", "content": [{"type": "output_text", "text": '{"ok":true}'}]},
+            ]
+        }
+
+        self.assertEqual(llm_transport_core.parse_openai_compatible_response(payload), '{"ok":true}')
 
     def test_parse_completion_text(self) -> None:
         payload = {"choices": [{"text": "completion text"}]}
