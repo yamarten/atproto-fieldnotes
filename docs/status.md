@@ -191,7 +191,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、期待categoryを人が確認した39件をevidence hash付きで固定。Qwen production prompt、Gemma production prompt、Gemma category-gates v3を再計測し、代表10件の2回実行と8件のmodel名を伏せた文章比較を実施した。文章比較はQwen 4件、Gemma 2件、同等2件。共有Lexicon規則を`project-triage-v2`へ修正し、Gemma用category-gates v4を追加したため、39件はすべてprompt調整に使用済みとして扱う。新しい未使用case、複製DBでのenrich比較、少数project試用は未確認で、通常運用modelの変更は未決定
+- 正本DBからread-onlyでLLM評価corpusをexportし、期待categoryを人が確認した56件をevidence hash付きで固定。Qwen production prompt、Gemma production prompt、Gemma category-gates v3を40件で再計測し、代表10件の2回実行と8件のmodel名を伏せた文章比較を実施した。文章比較はQwen 4件、Gemma 2件、同等2件。共有Lexicon規則を`project-triage-v2`へ修正し、Gemma用category-gates v4を追加したため、旧39件はprompt調整に使用済み、新17件は未使用として扱う。GitHub README本文が固定evidenceへ保存されない不足も確認した。新17件のmodel計測、複製DBでのenrich比較、少数project試用は未確認で、通常運用modelの変更は未決定
 
 未検証:
 

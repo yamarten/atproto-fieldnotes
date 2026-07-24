@@ -313,6 +313,142 @@
       "status": "confirmed",
       "used_for_prompt_adjustment": true,
       "basis": "The repository explicitly describes Possum as a reusable AT Protocol library for Gleam."
+    },
+    {
+      "case_id": "proj:2c5045bf0ad5:9e36c4dbf91b",
+      "evidence_hash": "9e36c4dbf91bd2b650ff98233c65e25e0ace2aa4ecd028139221a45a71dd7f31",
+      "expected_output": {"category": "project"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The GitHub description identifies a Go AT Protocol CLI tool."
+    },
+    {
+      "case_id": "proj:3c98c9e8a9ac:7283cdd8b139",
+      "evidence_hash": "7283cdd8b139f31f97b230eefe56acc3b73c5968513696d4844c48a930113457",
+      "expected_output": {"category": "project"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The GitHub description identifies a Rust ATProto app."
+    },
+    {
+      "case_id": "proj:9dfd435e65fc:37c2a1bb156d",
+      "evidence_hash": "37c2a1bb156d0e62259668d0e52b883be9bf5e3bbcc61b5b730e18b540d76896",
+      "expected_output": {"category": "library"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly identifies a public client library shared by sifa-web and sifa-app."
+    },
+    {
+      "case_id": "proj:07235c469a43:e28a6f76a2b4",
+      "evidence_hash": "e28a6f76a2b408d677cba3cd1ed858e4b1651b530dd52203dda6ea0305c5a11c",
+      "expected_output": {"category": "project"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence identifies a live ATProto cannabis strain database; library refers to the data collection, not an imported dependency."
+    },
+    {
+      "case_id": "proj:72ae05e894a4:f74fef060521",
+      "evidence_hash": "f74fef060521acb0b7f8e5c3169530b2b2c49366348ea03d3aba3889af621ddc",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Detailed schema samples exist, but the fixed evidence has no documentation of a shared convention or concrete project surface."
+    },
+    {
+      "case_id": "proj:8ecaa489e758:4c676151b22e",
+      "evidence_hash": "4c676151b22e6356642d7f2f006b07ec125b154db76cac5b8c502d415da72d7b",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only the app.data.collection NSID is evidenced; the saved scope heuristic is not documentation of a shared convention."
+    },
+    {
+      "case_id": "proj:27cd7a4237e7:0305d18bd76a",
+      "evidence_hash": "0305d18bd76a9c123976dc71380b22503e580a709380a7ff89d5eafa8f44e2cd",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "An NSID and record samples are known, but no documented shared convention or concrete project surface is evidenced."
+    },
+    {
+      "case_id": "proj:680c3282ec22:9aece83b0a24",
+      "evidence_hash": "9aece83b0a243dd855765537aee5174646b40b08aee7ef51627f1b0f23517674",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Schema descriptions and records are known, but no documentation of a shared convention or concrete receiver project is evidenced."
+    },
+    {
+      "case_id": "proj:16848dea70b2:513273779b7f",
+      "evidence_hash": "513273779b7f282f1351ee25f4ae30549d73ce9681b7ee72934a8d9eceb44c6d",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The fixed evidence has a repository URL but no description establishing a relay executable or current infrastructure surface."
+    },
+    {
+      "case_id": "proj:51763715a069:5379db186f08",
+      "evidence_hash": "5379db186f08e5c9911d16f7e2ff3d6acfbf5d0d63c8c92ba0dc839b66fd6387",
+      "expected_output": {"category": "infra_tool"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The live service automates Jetstream subscriptions, webhooks, record creation, and Bluesky posting."
+    },
+    {
+      "case_id": "proj:261c9bcdea93:9e4355dc599e",
+      "evidence_hash": "9e4355dc599ee4906c85ddf352534ed531533f793b5ee577e8152751c29ab654",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only a repository candidate URL and name are evidenced; the artifact role is not described."
+    },
+    {
+      "case_id": "proj:1b8140737b75:600ab4407820",
+      "evidence_hash": "600ab44078208018c1cf2eb791a62eec60e22ff56d7d4227542b0a46198105bb",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only the com.atmosshogi.profile NSID is evidenced; no schema, service, or repository surface is known."
+    },
+    {
+      "case_id": "proj:6b986b615094:c12442920440",
+      "evidence_hash": "c12442920440ee5fbd009fe29b4f45c392b210a4999d69137582eb78a823c335",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The authverify NSID alone does not establish an AT Protocol OAuth or sign-in integration."
+    },
+    {
+      "case_id": "proj:1522a470445c:9216cc88c10d",
+      "evidence_hash": "9216cc88c10de3121427101219275fff1044bfa5efacadffa14150808465c646",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only collection NSIDs are evidenced; no concrete artifact or documented shared convention is known."
+    },
+    {
+      "case_id": "proj:272ad74427ff:863e9bd83477",
+      "evidence_hash": "863e9bd834778d6eb7844a0026ca3468ba929d4ccf268c263514b8c8d76ab141",
+      "expected_output": {"category": "name_only"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The recipe NSID is the usable signal; an unrelated same-name ceramics description is treated as polluted evidence rather than the tracked artifact."
+    },
+    {
+      "case_id": "proj:0b9750d6550b:66dc4a36b260",
+      "evidence_hash": "66dc4a36b2607e1adadec085ea22ffa20202b8c39acacb0f6946d5d562188f74",
+      "expected_output": {"category": "library"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The repository identifies an ATProto OAuth plugin consumed by the Better Auth framework."
+    },
+    {
+      "case_id": "proj:2ee606062a5a:c53635617dfb",
+      "evidence_hash": "c53635617dfb36dabaf15ccee41c80e6d3a3e85d392af9855ee4edeaf3b9d7a9",
+      "expected_output": {"category": "personal_tool"},
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The personal-domain live blog, personal project name, and matching blog-post NSID establish narrowly personal use."
     }
   ]
 }

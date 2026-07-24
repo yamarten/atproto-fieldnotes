@@ -191,7 +191,8 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
   - corpus export、1 model構成のstructured report、同一入力の複数回差分、2 reportの機械比較は実装済み。peak memory / swap / prefill / decodeのrunner観測は未接続
   - reasoning要求をruntimeが適用したか確認してから比較する。過去のgpt-oss GGUF実行は`low`が無視されたため、reasoning条件を揃えた形式比較には使わない
-  - 既存39 labelはprompt調整に使ったことを明示済み。次は`project-triage-v2`とGemma用category-gates v4の文言を変える前に、新しいcaseをevidenceだけからreviewし、categoryとidentifierを確認する
+  - 旧39 labelはprompt調整に使ったことを明示済み。新17 labelはevidenceだけからreviewして未使用として固定済み。次は`project-triage-v2`とGemma用category-gates v4をこの17件で確認する
+  - GitHub collectorはREADME本文を取得するが、本文をsummary候補や固定evidenceへ保存しない。repository descriptionが空のprojectでartifact roleを判断できないため、本文を通常enrichへどう渡すか検討する
   - 代表10件の複数回実行と8件の文章比較は旧prompt構成で実施済み。新しい未使用caseの確認後、必要な再実行、重い入力、複製DBで両modelを別々にenrichした結果の比較、少数project試用の順で確認し、通常運用modelを変更するか判断する
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
   - 既存`category=library`の一括再分類はmodel変更の確認に依存する。prompt調整に使っていないcaseと複製DBでのenrich比較を確認するまではbulk更新しない

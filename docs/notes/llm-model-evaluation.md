@@ -153,10 +153,15 @@ reportでは少なくとも次を固定します。
 caseを`false`として実行した後、その出力を見てpromptを変更した場合は`true`へ変更します。
 その後の確認には別の未使用caseを用意します。
 
-現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`にある39件は、すべてprompt調整時に参照済みなので
-`true`です。最初の21件はcategory-gates v3、追加18件は共有Lexicon規則を`project-triage-v2`と
-category-gates v4へ反映する際に参照しました。次のmodel選定確認には新たにexportしたcaseをevidenceだけから
-reviewし、prompt修正前に期待categoryを固定します。
+現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`には56件あります。最初の39件はprompt調整時に
+参照済みなので`true`です。最初の21件はcategory-gates v3、追加18件は共有Lexicon規則を
+`project-triage-v2`とcategory-gates v4へ反映する際に参照しました。2026-07-25に新たなcorpusから
+evidenceだけを確認した17件は`false`として固定し、次のmodel選定確認に使います。
+
+候補の`bluesky-backup-webapp`はREADMEにPDS backup用途が明記されている一方、固定evidenceにはrepository URLと
+名前しかありませんでした。GitHub collectorはREADME本文を取得しますが、保存するのはREADME内URLで、本文は
+summary候補や固定evidenceへ渡しません。このcaseは正解を入力から導けないため17件から外しました。これは
+model性能ではなくevidence不足の論点であり、GitHub README本文を通常のenrichへどう渡すかは未解決です。
 
 ## 確認の順序
 
