@@ -128,7 +128,7 @@ command方式のLLM:
 export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
-export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v2'
 ```
 
 OpenAI互換endpoint方式:
@@ -138,7 +138,7 @@ export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
 export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
 export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
-export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v1'
+export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v2'
 export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 ```

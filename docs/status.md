@@ -104,6 +104,7 @@
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
+  - `category=lexicon`は、第三者実装または相互運用を意図した共有schemaであることを文書等から確認できる場合に限定する。NSID、schema sample、record sample、namespace名だけでは`lexicon`へ進めない
   - 最終prompt bytesはrun metricsで別に観測
 - fixed evidence LLM evaluation
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
@@ -190,7 +191,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpus 40件をexportし、期待categoryを人が確認した21件をevidence hash付きで固定。ただし21件はすべてGemma用suffixの調整時に参照済みで、model選定用の未使用caseではない。Gemma 4 26B A4B MLXを次の比較候補とするが、通常運用modelの変更は未決定。gpt-oss GGUFの過去実行はLM Studioが`reasoning low`をmodel設定へ変換できなかったため、reasoning条件を揃えた形式比較として扱わない。prompt調整に使っていないcase、文章、複数回実行、複製DBでのenrich比較、少数project試用は未確認
+- 正本DBからread-onlyでLLM評価corpus 40件をexportし、期待categoryを人が確認した39件をevidence hash付きで固定。Qwen production prompt、Gemma production prompt、Gemma category-gates v3を再計測し、代表10件の2回実行と8件のmodel名を伏せた文章比較を実施した。文章比較はQwen 4件、Gemma 2件、同等2件。共有Lexicon規則を`project-triage-v2`へ修正し、Gemma用category-gates v4を追加したため、39件はすべてprompt調整に使用済みとして扱う。新しい未使用case、複製DBでのenrich比較、少数project試用は未確認で、通常運用modelの変更は未決定
 
 未検証:
 

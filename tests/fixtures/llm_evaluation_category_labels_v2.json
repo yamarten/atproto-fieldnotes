@@ -175,7 +175,7 @@
       "evidence_hash": "0eb527cd5388edfe590446cbff654df626392901a62c4793a2319eade693545f",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only the blue.zio.atirc.topic NSID is evidenced; its function and project surface are unknown."
     },
     {
@@ -183,7 +183,7 @@
       "evidence_hash": "8a52a81c7600c409d13ea4ddda1fc24b32fb0dafda21d89a3c0afdf8c89b0ec4",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Resume-related NSIDs are known, but no documented shared lexicon or concrete project surface is evidenced."
     },
     {
@@ -191,7 +191,7 @@
       "evidence_hash": "c3462a05e768741f6f1aaa729b43f3ad7dff431dac7e78289f44fdaba7f8dd81",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only a compute-event NSID is evidenced; the containing infrastructure project is not identified."
     },
     {
@@ -199,7 +199,7 @@
       "evidence_hash": "80dc1898f9051b196a95282ea4c8dcfba289ff9f7d7b260fd2aa9026f6169b51",
       "expected_output": {"category": "infra_tool"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The related agent, market, and VM lifecycle schemas describe a coherent operations and compute platform."
     },
     {
@@ -207,7 +207,7 @@
       "evidence_hash": "9e3b3c594623ba5a89e319ca1d8d2a9d79cbeb3f2ff4e5324222c5fdfe3cb0b0",
       "expected_output": {"category": "project"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The repository describes lira as a social coding platform."
     },
     {
@@ -215,7 +215,7 @@
       "evidence_hash": "2182de42943ae6e162d9b0ab7a43af87ced1711ecca66a4c9d806461def35bbf",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The evaluation evidence contains only the Bluemark name and repository identity; its removed introduction is not present in this corpus."
     },
     {
@@ -223,7 +223,7 @@
       "evidence_hash": "a183f5f7f499852d5aaa4ddf21b36e137493faf930458754c8a6caa01acd5ac2",
       "expected_output": {"category": "library"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The repository provides an AdonisJS integration package for AT Protocol OAuth."
     },
     {
@@ -231,7 +231,7 @@
       "evidence_hash": "02d646bb85885def32a8cdcb3f0ae6369425e2fe5a7c5bb2a18c341c2bb4347b",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only the run.tiles.chat.sessionsnapshot NSID is evidenced."
     },
     {
@@ -239,7 +239,7 @@
       "evidence_hash": "b3d45177afd889f32132fee67fef73c0a776ce62d0d66967e4b58f386b59e72e",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only the chat.senera.pds.sign NSID and inferred name are evidenced."
     },
     {
@@ -247,7 +247,7 @@
       "evidence_hash": "7f78fd6a7e1fa2ba25a16e9aac89dfc7d782699cdf5faf36259157bba2001979",
       "expected_output": {"category": "project"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Repositories, service URLs, and application-specific feed schemas identify a coherent runnable project."
     },
     {
@@ -255,7 +255,7 @@
       "evidence_hash": "21fec0c4f0dc2f75b1e123af60e1ec1a93a75940d4865d05ea558b6ac6f1193a",
       "expected_output": {"category": "project"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The repository and schemas describe a reader application with lists, bookmarks, subscriptions, and read state."
     },
     {
@@ -263,7 +263,7 @@
       "evidence_hash": "b63fef4f02beb5e4e47121c9195d1d8da1ecdb9afba41a945281810e84d22a76",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only two configuration NSIDs are evidenced; no schema definition or concrete project surface is known."
     },
     {
@@ -271,7 +271,7 @@
       "evidence_hash": "d5d3c0430995320181dbc3a8d5a5200e43065051a90cab5babeac32c087a7cdf",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "A recipe record schema is known, but no documented shared lexicon or concrete project surface is evidenced."
     },
     {
@@ -279,7 +279,7 @@
       "evidence_hash": "963a696dcd3ac38498936fa76f3e8afba573613cfd4e598461436492b19d27c1",
       "expected_output": {"category": "lexicon"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The site documents shared long-form publishing schemas intended for third-party implementation and interoperability."
     },
     {
@@ -287,7 +287,7 @@
       "evidence_hash": "369c2b27bc73e44a6b171b33dc21b78e9fe42795fccdfd85650ab8ba5803e2ef",
       "expected_output": {"category": "name_only"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Only the Hayes Relay name, URL, and a point-in-time connection result are evidenced; no documented relay surface or current operation is established."
     },
     {
@@ -295,7 +295,7 @@
       "evidence_hash": "68f26c526d6a2997d1a222861e9cadd8dc4fe3f33181a4f49602dbd6c8177dc1",
       "expected_output": {"category": "infra_tool"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "Sequoia is an operator-facing CLI for publishing an existing blog into AT Protocol records."
     },
     {
@@ -303,7 +303,7 @@
       "evidence_hash": "2e76387b845b1042a5abdbc1105c559282446531652520239fbb5469c5cf558f",
       "expected_output": {"category": "project"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The repository preserves a runnable AT Protocol reference implementation; archival status does not change its artifact category."
     },
     {
@@ -311,7 +311,7 @@
       "evidence_hash": "db06c9883d79bcad250076b9abae78d68aa77fa67b5c7619b13032cd02a953d1",
       "expected_output": {"category": "library"},
       "status": "confirmed",
-      "used_for_prompt_adjustment": false,
+      "used_for_prompt_adjustment": true,
       "basis": "The repository explicitly describes Possum as a reusable AT Protocol library for Gleam."
     }
   ]

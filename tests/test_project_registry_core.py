@@ -2470,6 +2470,13 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertIn("`current_profile` is previous editorial wording", prompt)
         self.assertIn("Before returning JSON, check `category` against `summary`", prompt)
 
+    def test_triage_prompt_limits_lexicon_category_to_documented_shared_schema(self) -> None:
+        prompt, _evidence = registry.build_triage_prompt(self.nsid_project())
+
+        self.assertIn("shared convention intended for third-party implementation", prompt)
+        self.assertIn("schema sample, record sample, or unresolved schema namespace alone", prompt)
+        self.assertIn("schema structure and namespace naming alone are insufficient", prompt)
+
 
 class ProjectRegistryLlmParserTest(unittest.TestCase):
     def test_strip_json_fence_extracts_harmony_final_channel(self) -> None:

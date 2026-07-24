@@ -39,10 +39,10 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 未完了:
 
-- prompt調整に使っていない、期待categoryを人が確認したcaseでのGemma確認
-- summary、tagline、featuresのQwen/Gemma比較
-- 同じ入力を複数回実行した時の重要field差
-- 重い入力を含む比較
+- `project-triage-v2`とGemma用category-gates v4を、prompt調整に使っていない新しいcaseで確認
+- summary、tagline、featuresの比較は8件で一度実施済み。必要なら複製DB比較の対象でも確認
+- 同じ入力の複数回実行は代表10件で一度実施済み。新しいprompt構成では未確認
+- 重い入力は代表caseに含めたが、最長時間とmemoryの十分な確認は未完了
 - 複製DBでQwenとGemmaを別々にenrichした結果の比較
 - 少数projectでのGemma試用
 - peak memory、swap、prefill、decodeのrunner自動記録
@@ -86,6 +86,18 @@ promptは「schema自体が追跡対象なら`lexicon`」としており、NSID�
 両modelがNSID-only候補を繰り返し`lexicon`へ分類した主因は、この規則の差と考えられる。
 今回の18件を見てpromptを修正すると、それらは以後prompt調整に未使用の評価caseとして使えない。
 規則を直す場合は今回のcaseを調整用へ移し、別の未使用caseを用意してから再評価する。
+
+### model名を伏せた文章確認
+
+同じ8件について、QwenとGemma category-gates v3のtagline、summary、featuresをmodel名を伏せて
+人が比較した。caseごとにA/Bの順を入れ替え、総合的に好ましい方を選んだ結果は次の通り。
+
+- Qwenが好ましい: 4件
+- Gemmaが好ましい: 2件
+- 同等: 2件
+
+個別観点の採点や自由記述は行っていないため、事実性、情報量、日本語の読みやすさを分けた評価ではない。
+この範囲ではGemmaの文章品質がQwenより高いとは確認できず、Qwenがやや好まれた。
 
 ## 過去の測定を採用根拠にしない理由
 
@@ -141,9 +153,10 @@ reportでは少なくとも次を固定します。
 caseを`false`として実行した後、その出力を見てpromptを変更した場合は`true`へ変更します。
 その後の確認には別の未使用caseを用意します。
 
-現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`にある21件は、すべてGemma用suffixの
-調整時に参照済みなので`true`です。次のmodel選定確認には、既存corpusの未label caseまたは新たにexportした
-caseをevidenceだけからreviewし、prompt修正前に期待categoryを固定します。
+現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`にある39件は、すべてprompt調整時に参照済みなので
+`true`です。最初の21件はcategory-gates v3、追加18件は共有Lexicon規則を`project-triage-v2`と
+category-gates v4へ反映する際に参照しました。次のmodel選定確認には新たにexportしたcaseをevidenceだけから
+reviewし、prompt修正前に期待categoryを固定します。
 
 ## 確認の順序
 

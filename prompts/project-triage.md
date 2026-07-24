@@ -87,15 +87,17 @@ Category contract:
 - Use `category=project` for an independently runnable or installable app, plugin, experiment, or reference implementation when no more specific category applies
 - Use `category=infra_tool` for operator-facing or deployable protocol infrastructure and for tooling whose primary role is operations, hosting, moderation, indexing, backup, or deployment
 - Use `category=personal_tool` only when evidence supports author-only or narrowly personal use; do not use it as a fallback for every single-purpose artifact
-- Use `category=lexicon` when the schema itself is the tracked subject
+- Use `category=lexicon` only when the schema itself is the tracked subject and evidence documents a shared convention intended for third-party implementation or interoperability
+- An NSID, schema sample, record sample, or unresolved schema namespace alone does not establish `category=lexicon`; when no concrete app, service, library, personal tool, or infrastructure surface is evidenced, use `category=name_only`
 - The selected category must agree with `summary`: if the summary identifies an app, CLI, script, plugin, template, example, reference application, or prototype, `category=library` is invalid unless the evidence separately shows that its primary role is a reusable imported dependency
 - `current_profile` is previous editorial wording, not evidence of the artifact's role or category. Resolve the role from the underlying evidence before deciding whether to preserve its wording
-- Apply the category rules in this order when more than one description could fit: schema tracked as the subject -> `lexicon`; operations or deployable infrastructure -> `infra_tool`; evidenced author-only use -> `personal_tool`; reusable imported dependency -> `library`; otherwise independently runnable or installable artifact -> `project`
+- Apply the category rules in this order when more than one description could fit: documented shared schema intended for third-party use -> `lexicon`; operations or deployable infrastructure -> `infra_tool`; evidenced author-only use -> `personal_tool`; reusable imported dependency -> `library`; otherwise independently runnable or installable artifact -> `project`
 - Before returning JSON, check `category` against `summary` and the rules above. Do not return internally contradictory JSON; change the category when the summary describes a delivery form that the chosen category excludes
 
 Decision hints:
 - If it mainly exposes a new service, app, or infra component on atproto, prefer keep
 - Use `category=lexicon` and `lexicon_scope=shared` only when evidence supports a shared schema convention intended for third parties to implement or interoperate with
+- Documentation or similarly explicit positioning is required for that shared-schema judgment; schema structure and namespace naming alone are insufficient
 - Use `lexicon_scope=service_specific` when the lexicon appears to belong to a particular service or app
 - Use `lexicon_scope=unknown` when the evidence does not distinguish an undiscovered service from a deliberately shared lexicon
 - The absence of a discovered service URL is not evidence that a lexicon is shared
