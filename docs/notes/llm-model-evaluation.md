@@ -49,6 +49,44 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
 
+## 2026-07-24の一次計測
+
+LM Studio 0.4.20+1、MLX 4bit、Chat Completions、最大出力2048 token、
+`reasoning_effort=none`で固定corpus 40件を各1回実行した。Qwen、GemmaともAPI応答の
+`completion_tokens_details.reasoning_tokens=0`を確認した。
+
+load APIへは両modelともcontext 32,768を要求したが、LM Studioが返した実際のload configは
+Qwenがcontext 183,296、Gemmaが226,304で、いずれもparallel 4だった。要求値は反映されておらず、
+context設定まで同一の比較ではない。今回のpromptはどちらの実値よりも十分小さいが、このruntime差は
+未解消として残す。
+
+| 構成 | request成功 | schema等の完全通過 | prompt調整に使っていない18件のcategory一致 | evidence外identifier | 累積時間 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B、production prompt | 40/40 | 32/40 | 7/18 | 0件 | 512.5秒 |
+| Gemma 4 26B、production prompt | 40/40 | 37/40 | 9/18 | 2件 | 545.9秒 |
+| Gemma 4 26B、category-gates v3 | 40/40 | 40/40 | 9/18 | 0件 | 554.3秒 |
+
+Gemmaのproduction promptで追加されたevidence外identifierは、入力NSIDの親namespace 1件と、
+根拠にないservice URL 1件だった。category-gates v3では両方とも解消した。未調整18件の
+category一致数はproduction promptとcategory-gates v3で同じだが、Bluemarkは改善し、Sequoiaは
+`infra_tool`から`project`へ変わって不一致になった。
+
+代表10件を各2回実行した結果は次の通り。
+
+| 構成 | categoryが2回で変わったcase | identifier集合が変わったcase | 片方だけ検査結果が変わったcase | evidence外identifier | 累積時間 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B、production prompt | 0/10 | 3/10 | 1/10 | 1件 | 237.0秒 |
+| Gemma 4 26B、category-gates v3 | 0/10 | 0/10 | 2/10 | 0件 | 281.2秒 |
+
+どちらもcategoryは安定した一方、schema等の検査は再実行時に揺れた。1回目の40件だけを根拠に
+Gemmaを完全通過と扱わない。
+
+今回の人によるcategory確認では、`lexicon`を文書化された共有Lexiconに限定した。一方、production
+promptは「schema自体が追跡対象なら`lexicon`」としており、NSIDしかない候補にも広く適用できる。
+両modelがNSID-only候補を繰り返し`lexicon`へ分類した主因は、この規則の差と考えられる。
+今回の18件を見てpromptを修正すると、それらは以後prompt調整に未使用の評価caseとして使えない。
+規則を直す場合は今回のcaseを調整用へ移し、別の未使用caseを用意してから再評価する。
+
 ## 過去の測定を採用根拠にしない理由
 
 2026-07-20から2026-07-24までのscreeningでは、Gemma 26Bと評価用suffixの組み合わせが
