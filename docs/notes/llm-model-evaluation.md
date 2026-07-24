@@ -99,6 +99,25 @@ promptは「schema自体が追跡対象なら`lexicon`」としており、NSID�
 個別観点の採点や自由記述は行っていないため、事実性、情報量、日本語の読みやすさを分けた評価ではない。
 この範囲ではGemmaの文章品質がQwenより高いとは確認できず、Qwenがやや好まれた。
 
+## 2026-07-25の未調整17件
+
+`project-triage-v2`とGemma用category-gates v4の文言を決める際に参照していない17件を、
+model出力を見る前に人が確認して固定した。LM Studioとreasoning条件は一次計測と同じ。
+
+| 構成 | request成功 | schema等の完全通過 | category一致 | evidence外identifier | 累積時間 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B、`project-triage-v2` | 17/17 | 12/17 | 6/17 | 1件 | 231.4秒 |
+| Gemma 4 26B、`project-triage-v2` + category-gates v4 | 17/17 | 16/17 | 11/17 | 0件 | 307.2秒 |
+
+Gemmaはcategory一致が5件、完全通過が4件多く、機械検査ではQwenより良かった。一方、75.8秒遅く、
+17件全体で約33%の時間増だった。Gemmaの不一致6件は、SDKを`project`、説明のないrelayを
+`infra_tool`、OAuth pluginを`auth_only`、文書化されていないschema 3件を`lexicon`としたもの。
+Qwenも文書化されていないschemaを`lexicon`へ寄せ、加えてCLIを`library`、個人blogを`project`、
+汚染された同名説明を`reject`などとした。Gemmaの唯一の完全通過失敗は`status=live`というenum外の値だった。
+
+比較reportの機械条件は通ったが、これはmodel変更の決定ではない。旧prompt構成の文章比較ではQwenが
+やや好まれており、複製DBで通常のenrich結果を比較してから少数project試用へ進む。
+
 ## 過去の測定を採用根拠にしない理由
 
 2026-07-20から2026-07-24までのscreeningでは、Gemma 26Bと評価用suffixの組み合わせが
