@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -74,6 +75,14 @@ from project_registry_core.project_record import (
 )
 
 
+def append_triage_prompt_suffix(prompt: str, suffix: str | None) -> tuple[str, str]:
+    normalized_suffix = str(suffix or "").strip()
+    if not normalized_suffix:
+        return prompt, ""
+    rendered = f"{prompt}\n\nEvaluation prompt variant:\n{normalized_suffix}\n"
+    return rendered, hashlib.sha256(normalized_suffix.encode("utf-8")).hexdigest()
+
+
 def enrich_project(
     conn: sqlite3.Connection,
     project: dict[str, Any],
@@ -83,6 +92,7 @@ def enrich_project(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_triage_prompt_suffix: str | None = None,
     deep_investigation: bool = False,
 ) -> dict[str, Any]:
     run_clock_started = time.perf_counter()
@@ -389,6 +399,7 @@ def enrich_project(
     phase_started = time.perf_counter()
     try:
         prompt, evidence = build_triage_prompt(project)
+        prompt, prompt_suffix_hash = append_triage_prompt_suffix(prompt, llm_triage_prompt_suffix)
         payload, meta = llm_transport.run_llm_with_metrics(
             prompt,
             purpose="triage",
@@ -399,6 +410,12 @@ def enrich_project(
             llm_reasoning_effort=llm_reasoning_effort,
             llm_api_style=llm_api_style,
         )
+        if prompt_suffix_hash:
+            meta["prompt_suffix_hash"] = prompt_suffix_hash
+            for request_metrics in reversed(llm_requests):
+                if request_metrics.get("purpose") == "triage":
+                    request_metrics["prompt_suffix_hash"] = prompt_suffix_hash
+                    break
         apply_llm_output(project, payload, meta, evidence)
     except Exception as exc:
         note_failure(project, f"LLM review failed: {exc}")

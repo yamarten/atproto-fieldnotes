@@ -150,7 +150,8 @@ case "$cmd" in
       "--llm-model[Model name for the LLM endpoint]:model:" \
       "--llm-api-key[Optional API key for the LLM endpoint]:api key:" \
       "--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles" \
-      "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts"
+      "--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts" \
+      '--llm-triage-prompt-suffix-file[Append triage rules and record their content hash]:path:_files'
     ;;
   show)
     _arguments -S \

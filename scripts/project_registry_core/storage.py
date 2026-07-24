@@ -37,6 +37,7 @@ LLM_REQUEST_FIELDS = {
     "api_style",
     "reasoning_effort",
     "prompt_version",
+    "prompt_suffix_hash",
 }
 
 

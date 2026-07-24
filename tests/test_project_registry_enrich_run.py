@@ -44,6 +44,12 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
     def test_operation_request_and_checkpoint_omit_api_key_value(self) -> None:
         checkpoint_path = Path(self.tempdir.name) / "run.json"
         request = self.request(checkpoint_path)
+        request = OperationRequest.create(
+            "enrich",
+            operation_id=request.operation_id,
+            execute=True,
+            parameters={**request.parameters, "llm_triage_prompt_suffix_file": "/tmp/category-gates.txt"},
+        )
         options = enrichment.EnrichmentOptions.from_request(request)
         checkpoint = enrichment.new_checkpoint(
             [{"project_key": "proj:111111111111"}],
@@ -55,6 +61,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         self.assertEqual(written, checkpoint_path)
         self.assertEqual(loaded["options"]["llm_endpoint"], "https://llm.example")
+        self.assertEqual(loaded["options"]["llm_triage_prompt_suffix_file"], "/tmp/category-gates.txt")
         self.assertTrue(loaded["options"]["llm_api_key_configured"])
         self.assertNotIn("secret-value", checkpoint_path.read_text())
         self.assertEqual(request.to_dict()["parameters"]["llm_api_key"], "<configured>")
@@ -226,6 +233,42 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         args = cli.build_parser().parse_args(["enrich", "--all", "--fail-fast"])
         request = enrichment_commands.request_from_args(args)
         self.assertFalse(request.parameters["continue_on_error"])
+
+    def test_cli_triage_prompt_suffix_file_is_forwarded(self) -> None:
+        args = cli.build_parser().parse_args([
+            "enrich", "-p", "proj:111111111111",
+            "--llm-triage-prompt-suffix-file", "category-gates.txt",
+        ])
+        request = enrichment_commands.request_from_args(args)
+
+        self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "category-gates.txt")
+
+    def test_run_reads_triage_prompt_suffix_once_and_forwards_content(self) -> None:
+        self.seed_projects()
+        suffix_path = Path(self.tempdir.name) / "category-gates.txt"
+        suffix_path.write_text("  category gate\n", encoding="utf-8")
+        request = OperationRequest.create(
+            "enrich",
+            execute=True,
+            parameters={
+                "project_key": "proj:111111111111",
+                "llm_triage_prompt_suffix_file": str(suffix_path),
+            },
+        )
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(
+                enrichment.enrichment_pipeline,
+                "enrich_project",
+                side_effect=lambda _conn, project, **_kwargs: project,
+            ) as enrich_project:
+                result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(enrich_project.call_args.kwargs["llm_triage_prompt_suffix"], "category gate")
 
 
 if __name__ == "__main__":

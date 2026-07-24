@@ -39,6 +39,7 @@ class EnrichmentOptions:
     llm_api_key: str = ""
     llm_api_style: str = ""
     llm_reasoning_effort: str = ""
+    llm_triage_prompt_suffix_file: str = ""
 
     @classmethod
     def from_request(cls, request: OperationRequest) -> EnrichmentOptions:
@@ -66,6 +67,7 @@ class EnrichmentOptions:
             "llm_model",
             "llm_api_style",
             "llm_reasoning_effort",
+            "llm_triage_prompt_suffix_file",
         )
         values = {name: getattr(self, name) for name in names}
         values["tracking_states"] = list(self.tracking_states)
@@ -312,6 +314,13 @@ def run(
             checkpoint = new_checkpoint(projects, request, options)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
 
+    llm_triage_prompt_suffix = ""
+    if options.llm_triage_prompt_suffix_file:
+        suffix_path = Path(options.llm_triage_prompt_suffix_file).expanduser()
+        llm_triage_prompt_suffix = suffix_path.read_text(encoding="utf-8").strip()
+        if not llm_triage_prompt_suffix:
+            raise ValueError(f"LLM triage prompt suffix file is empty: {suffix_path}")
+
     selected_total = len(checkpoint.get("selected_project_keys", [])) if checkpoint else len(projects)
     completed_before = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}) if checkpoint else 0
     run_started = dt.datetime.now(dt.timezone.utc)
@@ -368,6 +377,7 @@ def run(
                 llm_api_key=options.llm_api_key or None,
                 llm_reasoning_effort=options.llm_reasoning_effort or None,
                 llm_api_style=options.llm_api_style or None,
+                llm_triage_prompt_suffix=llm_triage_prompt_suffix or None,
                 deep_investigation=options.deep_investigation,
             )
             project_record.save_project(conn, enriched, enriched=True)

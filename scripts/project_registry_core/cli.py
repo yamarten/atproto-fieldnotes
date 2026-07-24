@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference. Default: auto.")
     enrich_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Optional reasoning/thinking effort for LLM calls.")
+    enrich_parser.add_argument("--llm-triage-prompt-suffix-file", help="Append model/configuration-specific triage rules from this UTF-8 file; the content hash is saved with the LLM run.")
     enrich_parser.set_defaults(func=enrichment_commands.cmd_enrich)
 
     show_parser = subparsers.add_parser("show", help="Show registered projects.")

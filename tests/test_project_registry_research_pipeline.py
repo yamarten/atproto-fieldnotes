@@ -27,6 +27,18 @@ from project_registry_core import project_record
 
 
 class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
+    def test_triage_prompt_suffix_is_bounded_and_hashed(self) -> None:
+        prompt, suffix_hash = enrichment_pipeline.append_triage_prompt_suffix(
+            "base prompt", "  category gate\n"
+        )
+        expected_hash = hashlib.sha256(b"category gate").hexdigest()
+        self.assertEqual(prompt, "base prompt\n\nEvaluation prompt variant:\ncategory gate\n")
+        self.assertEqual(suffix_hash, expected_hash)
+
+        unchanged, empty_hash = enrichment_pipeline.append_triage_prompt_suffix("base prompt", "")
+        self.assertEqual(unchanged, "base prompt")
+        self.assertEqual(empty_hash, "")
+
     def test_project_patch_applies_resource_url_budget_immediately(self) -> None:
         project = project_record.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
         records = [
