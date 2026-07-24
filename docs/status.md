@@ -191,7 +191,7 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpusをexportし、期待categoryを人が確認した56件をevidence hash付きで固定。旧39件はprompt調整に使用済み、新17件は未使用として扱う。新17件ではQwen `project-triage-v2`がcategory 6/17・完全通過12/17・231.4秒、Gemma category-gates v4が11/17・16/17・307.2秒で、Gemmaの機械検査結果が良かった。旧prompt構成の8件の文章比較はQwen 4件、Gemma 2件、同等2件。GitHub README本文が固定evidenceへ保存されない不足も確認した。複製DBでのenrich比較、少数project試用は未確認で、通常運用modelの変更は未決定
+- 正本DBからread-onlyでLLM評価corpusをexportし、期待categoryを人が確認した56件をevidence hash付きで固定。旧39件はprompt調整に使用済み、新17件は未使用として扱う。同じcategory-gates v4ではQwenがcategory 8/17・完全通過13/17・358.4秒、Gemmaが11/17・16/17・307.2秒でGemmaが良かった。一方、正本DBの複製で6 projectを通常enrichした保存categoryは5件同一で、goatだけQwen=`project`、Gemma=`infra_tool`となりQwenが規則に合った。URL集合は全件一致、累積時間はQwen 280.9秒、Gemma 401.2秒。旧prompt構成の文章比較はQwen 4件、Gemma 2件、同等2件。GitHub README本文が固定evidenceへ保存されない不足も確認した。少数project試用は未確認で、通常運用modelの変更は未決定
 
 未検証:
 

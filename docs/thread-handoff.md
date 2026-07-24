@@ -8,14 +8,14 @@
 
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
-- Gemma 4 26B A4B MLXは比較継続候補ですが、通常運用modelの変更は未決定です。未調整17件ではQwenがcategory 6/17・完全通過12/17、Gemma category-gates v4が11/17・16/17でした。Gemmaは75.8秒遅く、旧prompt構成の文章比較ではQwenがやや好まれています。
+- Gemma 4 26B A4B MLXは比較継続候補ですが、通常運用modelの変更は未決定です。同じcategory-gates v4の未調整17件ではQwenがcategory 8/17・完全通過13/17、Gemmaが11/17・16/17でした。複製DB 6件の通常enrichでは保存categoryが5件同一、goatだけQwen=`project`、Gemma=`infra_tool`で、保存品質のGemma優位は確認できませんでした。累積時間はQwen 280.9秒、Gemma 401.2秒です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 正本DBを複製し、同じprojectをQwen `project-triage-v2`とGemma category-gates v4で別々にenrichして、保存結果と調査時間を比較する。
+- Gemmaを正本DBの少数projectで期間を区切って試用するか判断する。実施する場合はcategory-gates v4を明示指定し、Qwenへ戻せる状態と終了条件を先に決める。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
 - gpt-ossを再評価する場合は、最初に同じ短い入力をreasoningなし/`low`で実行し、LM Studio logで設定の適用または無視を確認する。過去のGGUF結果は`low`適用済み比較へ再利用しない。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。

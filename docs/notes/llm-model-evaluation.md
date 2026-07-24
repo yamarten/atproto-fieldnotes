@@ -107,16 +107,41 @@ model出力を見る前に人が確認して固定した。LM Studioとreasoning
 | 構成 | request成功 | schema等の完全通過 | category一致 | evidence外identifier | 累積時間 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Qwen 3.6 35B、`project-triage-v2` | 17/17 | 12/17 | 6/17 | 1件 | 231.4秒 |
+| Gemma 4 26B、`project-triage-v2` | 17/17 | 13/17 | 6/17 | 0件 | 295.3秒 |
+| Qwen 3.6 35B、`project-triage-v2` + category-gates v4 | 17/17 | 13/17 | 8/17 | 0件 | 358.4秒 |
 | Gemma 4 26B、`project-triage-v2` + category-gates v4 | 17/17 | 16/17 | 11/17 | 0件 | 307.2秒 |
 
-Gemmaはcategory一致が5件、完全通過が4件多く、機械検査ではQwenより良かった。一方、75.8秒遅く、
-17件全体で約33%の時間増だった。Gemmaの不一致6件は、SDKを`project`、説明のないrelayを
+Gemmaは共通promptだけではQwenと同じ6/17で、category-gates v4が性能に必須だった。同じv4をQwenへ
+付けると8/17へ改善したが、Gemmaはさらに3件多く、完全通過も3件多かった。同じv4同士ではGemmaが
+51.2秒早かったため、この17件ではGemmaとv4の組み合わせが最良だった。Gemmaの不一致6件は、SDKを`project`、説明のないrelayを
 `infra_tool`、OAuth pluginを`auth_only`、文書化されていないschema 3件を`lexicon`としたもの。
 Qwenも文書化されていないschemaを`lexicon`へ寄せ、加えてCLIを`library`、個人blogを`project`、
 汚染された同名説明を`reject`などとした。Gemmaの唯一の完全通過失敗は`status=live`というenum外の値だった。
 
-比較reportの機械条件は通ったが、これはmodel変更の決定ではない。旧prompt構成の文章比較ではQwenが
-やや好まれており、複製DBで通常のenrich結果を比較してから少数project試用へ進む。
+### 複製DBの通常enrich比較
+
+同じ正本DB snapshotを2つ作り、goat、Sifa ID、cocore、better-auth-atproto、CannaDB、Airglowを
+QwenとGemmaで別々に通常の`enrich`へ通した。両方に同じcategory-gates v4を指定し、suffix本文のhashが
+investigation runへ保存されたことを確認した。正本DBは更新していない。
+
+| project | Qwen保存category | Gemma保存category | 判定 |
+| --- | --- | --- | --- |
+| goat | `project` | `infra_tool` | 一般的な開発用CLIなのでQwenが規則に合う |
+| Sifa ID | `project` | `project` | 一致。両modelの生出力は`lexicon`だが、稼働serviceの保存規則で補正 |
+| cocore | `lexicon` | `lexicon` | 一致。ただし共有Lexiconの外部文書がない固定evidenceでは`name_only`が期待値 |
+| better-auth-atproto | `auth_only` | `auth_only` | 一致。人の期待値`library`とは不一致 |
+| CannaDB | `project` | `project` | 一致 |
+| Airglow | `infra_tool` | `infra_tool` | 一致 |
+
+保存後のtagline、summary、featuresは4/6件で同一だった。差はAirglowのsummaryの言い回しと、Gemmaが
+cocoreのfeaturesを3件多く挙げたこと。source code URLとservice URLの集合は6/6件で一致した。
+累積時間はQwen 280.9秒、Gemma 401.2秒で、Gemmaが120.3秒遅かった。Gemmaのgoatで調査計画だけに
+75.3秒かかった単発値の影響が大きく、恒常的な43%差とはまだ扱わない。両コピーはintegrity `ok`、
+foreign key違反0を確認し、比較後に削除した。
+
+固定evidenceではGemmaが優位だった一方、通常enrichの6件では保存品質の優位を確認できず、goatはQwenの
+方が規則に合った。旧prompt構成の文章比較でもQwenがやや好まれているため、この時点で通常運用modelを
+Gemmaへ置き換えない。次へ進む場合は正本DBの少数projectで期間を区切った試用とし、Qwenを戻せる状態を保つ。
 
 ## 過去の測定を採用根拠にしない理由
 
