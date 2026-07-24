@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import sqlite3
 import sys
 import time
@@ -242,11 +243,15 @@ def authority_probe_all_urls(chains: list[list[str]]) -> list[str]:
     return project_record.unique_list([url for chain in chains for url in chain])
 
 
-def authority_probe_result_allows_parent_fallback(result: dict[str, Any] | None) -> bool:
+def authority_probe_parent_fallback_reason(result: dict[str, Any] | None) -> str:
     if not isinstance(result, dict):
-        return False
+        return ""
     status_code = int(result.get("status_code") or 0)
-    return 400 <= status_code < 500
+    if 400 <= status_code < 500:
+        return "http_4xx"
+    if str(result.get("fetch_error") or "") == "dns_failed":
+        return "dns_failed"
+    return ""
 
 
 def authority_probe_result_is_success(result: dict[str, Any] | None) -> bool:
@@ -269,9 +274,13 @@ def select_authority_probe_urls(
                 if index > 0 and previous_result is not None:
                     result["authority_fallback_from"] = chain[index - 1]
                     result["authority_fallback_status_code"] = int(previous_result.get("status_code") or 0)
+                    fallback_fetch_error = str(previous_result.get("fetch_error") or "")
+                    if fallback_fetch_error:
+                        result["authority_fallback_fetch_error"] = fallback_fetch_error
                 selected.add(url)
                 break
-            if not authority_probe_result_allows_parent_fallback(result):
+            fallback_reason = authority_probe_parent_fallback_reason(result)
+            if not fallback_reason:
                 break
             previous_result = result
     return selected
@@ -4556,7 +4565,23 @@ def classify_service_probe_error(exc: Exception) -> str:
     if isinstance(exc, urllib.error.URLError):
         reason = exc.reason
     lowered = str(reason or "").lower()
-    if "name or service not known" in lowered or "nodename nor servname provided" in lowered or "temporary failure in name resolution" in lowered:
+    if isinstance(reason, socket.gaierror):
+        if reason.errno == getattr(socket, "EAI_AGAIN", None):
+            return "dns_temporary_failure"
+        permanent_dns_errors = {
+            value
+            for value in (getattr(socket, "EAI_NONAME", None), getattr(socket, "EAI_NODATA", None))
+            if value is not None
+        }
+        if reason.errno in permanent_dns_errors:
+            return "dns_failed"
+    if "temporary failure in name resolution" in lowered:
+        return "dns_temporary_failure"
+    if (
+        "name or service not known" in lowered
+        or "nodename nor servname provided" in lowered
+        or "no address associated with hostname" in lowered
+    ):
         return "dns_failed"
     if "tls" in lowered or "ssl" in lowered or "certificate" in lowered:
         return "tls_failed"
@@ -4601,7 +4626,7 @@ def service_probe_redirect_metadata(requested_url: str, final_url: str) -> dict[
 def service_probe_canonical_url(requested_url: str, result: dict[str, Any]) -> str:
     requested = identifier_core.normalize_url(requested_url)
     final = identifier_core.normalize_url(str(result.get("final_url") or ""))
-    if result.get("redirect_http_to_https") and final:
+    if (result.get("redirect_http_to_https") or result.get("redirect_same_site_family")) and final:
         return final
     return requested
 
@@ -5282,7 +5307,13 @@ def authority_service_probe_is_parent_fallback(project: dict[str, Any], service_
     normalized = identifier_core.normalize_url(service_url)
     fallback_from = identifier_core.normalize_url(str(result.get("authority_fallback_from") or ""))
     fallback_status_code = int(result.get("authority_fallback_status_code") or 0)
-    if not normalized or not fallback_from or not (400 <= fallback_status_code < 500):
+    if not normalized or not fallback_from:
+        return False
+    fallback_result = {
+        "status_code": fallback_status_code,
+        "fetch_error": str(result.get("authority_fallback_fetch_error") or ""),
+    }
+    if not authority_probe_parent_fallback_reason(fallback_result):
         return False
     for authority_domain in project.get("authority_domains", []):
         authority = str(authority_domain or "").strip().lower().rstrip(".")
@@ -5300,6 +5331,9 @@ def authority_service_probe_is_parent_fallback(project: dict[str, Any], service_
 def authority_service_probe_candidate_allowed(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
     normalized = project_record.normalize_service_candidate_url(service_url)
     if not normalized or service_url_is_guarded(project, normalized):
+        return False
+    redirect_final = project_record.normalize_service_candidate_url(str(result.get("final_url") or ""))
+    if result.get("redirect_same_site_family") and redirect_final and redirect_final != normalized:
         return False
     status_code = int(result.get("status_code") or 0)
     if not (0 < status_code < 400):
@@ -5396,7 +5430,9 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
             eligible_for_auto_confirm=True,
             observed_at=project_record.iso_now(),
         )
-        confirm_service_url_with_trust(project, final_url)
+        if not confirm_service_url_with_trust(project, final_url):
+            add_candidate_url(project, "service_url", final_url)
+            add_candidate_url(project, "website_url", final_url)
         return
     add_candidate_url(project, "service_url", final_url)
     add_candidate_url(project, "website_url", final_url)

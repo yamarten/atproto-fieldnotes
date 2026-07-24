@@ -320,7 +320,8 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - 保守的な点:
   - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
   - authority domain 由来の service URL は、NSIDから直接candidate保存せず、probe結果を見てから候補化します
-  - authority probe は完全一致hostと registrable parent を同一chainとして並列fetchします。完全一致hostが2xx/3xxなら親は捨て、完全一致hostが4xxで親が2xx/3xxの時だけ親をfallback候補として扱います
+  - authority probe は完全一致hostと registrable parent を同一chainとして並列fetchします。完全一致hostが2xx/3xxなら親は捨て、完全一致hostが4xxまたは恒久的なDNS不在で、親が2xx/3xxの時だけ親をfallback候補として扱います。timeout、DNSの一時障害、5xx、TLS失敗、接続拒否、その他のnetwork errorでは親へ広げません
+  - 完全一致hostがregistrable parentへsame-site redirectする場合は、内容比較ではなく明示的なredirectを根拠に最終URLをcanonical candidateとして扱い、redirect元を独立したauthority candidateとして重複保存しません
   - authority domain 由来probeが成功し、実service surfaceらしく、record sample URLによるhost一致、または上記fallback条件がある場合だけ `service_url_candidates` に残します
   - authority domain 由来の失敗probe URLや、record sample URLによる補強がない旧candidateは、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
 
@@ -472,6 +473,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 
 - `http_<code>`
 - `dns_failed`
+- `dns_temporary_failure`
 - `tls_failed`
 - `timeout`
 - `connection_refused`
