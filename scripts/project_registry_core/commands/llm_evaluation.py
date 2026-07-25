@@ -80,6 +80,7 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
         "runtime": str(args.runtime or ""),
         "quantization": str(args.quantization or ""),
         "prompt_variant": str(args.prompt_variant or "baseline_current"),
+        "current_profile_mode": str(args.current_profile_mode),
         "prompt_suffix_hash": evaluation.sha256_json({"text": prompt_suffix}) if prompt_suffix else "",
         "reasoning_effort_requested": requested_reasoning,
         "reasoning_observation": reasoning_status,
@@ -97,6 +98,7 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
         run_llm=run_llm,
         model_spec=model_spec,
         repeat=int(args.repeat),
+        current_profile_mode=str(args.current_profile_mode),
         case_ids=case_ids,
         root=core.ROOT,
         progress_callback=lambda results: _write_json(

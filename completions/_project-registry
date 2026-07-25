@@ -305,6 +305,7 @@ case "$cmd" in
       '--output[Structured report JSON path]:path:_files' \
       '*--case-id[Run only this case ID]:case id:' \
       '--repeat[Runs per case]:count:' \
+      '--current-profile-mode[Include saved Qwen profile in evidence]:mode:(without with)' \
       '--output-cap[Maximum output tokens]:count:' \
       '--runtime[Runner name and version]:runtime:' \
       '--quantization[Quantization label]:quantization:' \

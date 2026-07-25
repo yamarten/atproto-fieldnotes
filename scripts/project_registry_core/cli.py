@@ -258,6 +258,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_llm_parser.add_argument("--output", required=True, help="Structured report JSON path.")
     evaluate_llm_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
     evaluate_llm_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
+    evaluate_llm_parser.add_argument(
+        "--current-profile-mode", choices=["without", "with"], default="without",
+        help="Exclude or include the saved Qwen profile in triage evidence. Default: without.",
+    )
     evaluate_llm_parser.add_argument("--output-cap", type=int, default=2048, help="Maximum output tokens. Default: 2048.")
     evaluate_llm_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
     evaluate_llm_parser.add_argument("--quantization", help="Quantization label recorded in the report.")

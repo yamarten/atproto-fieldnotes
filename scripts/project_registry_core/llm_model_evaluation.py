@@ -153,6 +153,9 @@ def checkpoint_report(
         "corpus_case_count": len(cases),
         "labels": copy.deepcopy(corpus.get("labels", {})),
         "model_spec": model_spec,
+        "input_condition": {
+            "current_profile": str(model_spec.get("current_profile_mode") or "without"),
+        },
         "reasoning_observation": reasoning_observation(model_spec),
         "runtime_observation": {
             "peak_memory_bytes": None,
@@ -222,9 +225,17 @@ def _candidate_from_row(
     if not isinstance(project, dict):
         return None
     llm_source = project.get("llm_source")
-    evidence = llm_source.get("evidence") if isinstance(llm_source, dict) else None
-    if not isinstance(evidence, dict) or not evidence:
+    saved_evidence = llm_source.get("evidence") if isinstance(llm_source, dict) else None
+    if not isinstance(saved_evidence, dict) or not saved_evidence:
         return None
+    evidence = copy.deepcopy(saved_evidence)
+    evidence.pop("current_profile", None)
+    current_profile = {
+        "tagline": str(project.get("tagline") or ""),
+        "tagline_is_provisional": bool(project.get("tagline_is_provisional")),
+        "summary": str(project.get("summary") or ""),
+        "features": [str(item) for item in project.get("features", []) if str(item).strip()][:6],
+    }
     prompt = build_prompt(evidence)
     category = str(project.get("category") or "")
     summary = str(project.get("summary") or "")
@@ -248,10 +259,12 @@ def _candidate_from_row(
         "evidence_field_sizes": evidence_field_sizes(evidence),
         "selection_tags": tags,
         "known_manual_signal": None,
+        "current_profile": current_profile,
+        "current_profile_hash": sha256_json(current_profile),
         "reference_output": {
             key: project.get(key)
             for key in (
-                "category", "lexicon_scope", "service_status", "technical_interest_level",
+                "category", "atproto_auth_only", "lexicon_scope", "service_status", "technical_interest_level",
                 "name", "tagline", "summary", "features",
             )
         },
@@ -597,6 +610,8 @@ def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict
         comparison_issues.append("corpus_hash_differs")
     if baseline.get("labels") != candidate.get("labels"):
         comparison_issues.append("reviewed_labels_differ")
+    if baseline.get("input_condition") != candidate.get("input_condition"):
+        comparison_issues.append("input_condition_differs")
     if _report_result_keys(baseline) != _report_result_keys(candidate):
         comparison_issues.append("case_or_repeat_set_differs")
 
@@ -683,6 +698,7 @@ def run_corpus(
     run_llm: Callable[[str], tuple[dict[str, Any], dict[str, Any]]],
     model_spec: dict[str, Any],
     repeat: int = 1,
+    current_profile_mode: str = "without",
     case_ids: set[str] | None = None,
     root: Path | None = None,
     progress_callback: Callable[[list[dict[str, Any]]], None] | None = None,
@@ -691,6 +707,8 @@ def run_corpus(
         raise ValueError("unsupported LLM evaluation corpus schema")
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
+    if current_profile_mode not in {"without", "with"}:
+        raise ValueError("current_profile_mode must be 'without' or 'with'")
     cases = [case for case in corpus.get("cases", []) if isinstance(case, dict)]
     if case_ids:
         available_ids = {str(case.get("case_id") or "") for case in cases}
@@ -700,9 +718,16 @@ def run_corpus(
         cases = [case for case in cases if str(case.get("case_id")) in case_ids]
     results: list[dict[str, Any]] = []
     for case in cases:
-        evidence = case.get("evidence")
-        if not isinstance(evidence, dict):
+        base_evidence = case.get("evidence")
+        if not isinstance(base_evidence, dict):
             continue
+        evidence = copy.deepcopy(base_evidence)
+        evidence.pop("current_profile", None)
+        if current_profile_mode == "with":
+            profile = case.get("current_profile")
+            if not isinstance(profile, dict):
+                raise ValueError(f"current_profile missing for corpus case: {case.get('case_id', '')}")
+            evidence["current_profile"] = copy.deepcopy(profile)
         prompt = build_prompt(evidence)
         for repeat_index in range(repeat):
             started = time.perf_counter()
@@ -801,6 +826,7 @@ def run_corpus(
         "labels": copy.deepcopy(corpus.get("labels", {})),
         "git": git_state(root) if root else {"commit": "", "dirty": None},
         "model_spec": model_spec,
+        "input_condition": {"current_profile": current_profile_mode},
         "reasoning_observation": reasoning_observation(model_spec),
         "runtime_observation": {
             "peak_memory_bytes": None,

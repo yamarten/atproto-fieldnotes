@@ -8,7 +8,7 @@
 
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
-- categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。prompt、保存、評価検査まで実装し、全482 testを確認済みです。正本DBの旧`category=auth_only` 35件は内容が混在するため未移行です。
+- categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。prompt、保存、評価検査と、元profileなし／ありを明示する評価入力まで実装し、全484 testを確認済みです。正本DBの旧`category=auth_only` 35件は内容が混在するため未移行です。
 - 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 

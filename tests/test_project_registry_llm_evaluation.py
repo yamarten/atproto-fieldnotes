@@ -26,7 +26,14 @@ class LLMCorpusExportTest(unittest.TestCase):
             )
             rows = [
                 ("old", "proj:app", "2026-01-01", {"name": "Old", "llm_source": {"evidence": {"name": "old"}}}),
-                ("new", "proj:app", "2026-01-02", {"name": "App", "category": "project", "llm_source": {"evidence": {"name": "app"}}}),
+                (
+                    "new", "proj:app", "2026-01-02",
+                    {
+                        "name": "App", "category": "project", "tagline": "保存済みアプリ",
+                        "summary": "Qwenが作成した説明。", "features": ["保存済み機能"],
+                        "llm_source": {"evidence": {"name": "app", "current_profile": {"summary": "以前の説明"}}},
+                    },
+                ),
                 (
                     "lib", "proj:lib", "2026-01-03",
                     {
@@ -51,6 +58,16 @@ class LLMCorpusExportTest(unittest.TestCase):
             self.assertIn("category_summary_conflict", corpus["cases"][0]["selection_tags"])
             app = next(case for case in corpus["cases"] if case["project_key"] == "proj:app")
             self.assertEqual(app["source_run_id"], "new")
+            self.assertNotIn("current_profile", app["evidence"])
+            self.assertEqual(
+                app["current_profile"],
+                {
+                    "tagline": "保存済みアプリ",
+                    "tagline_is_provisional": False,
+                    "summary": "Qwenが作成した説明。",
+                    "features": ["保存済み機能"],
+                },
+            )
             self.assertTrue(corpus["source"]["read_only"])
 
     def test_labels_require_matching_evidence_hash(self) -> None:
@@ -238,6 +255,42 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertEqual(comparison["category_difference_case_count"], 1)
         self.assertEqual(comparison["identifier_difference_case_count"], 1)
         self.assertIn("category", comparison["cases"][0]["different_fields"])
+
+    def test_runner_controls_current_profile_condition(self) -> None:
+        corpus = {
+            "schema_version": 1,
+            "cases": [{
+                "case_id": "case",
+                "evidence": {"name": "Example", "current_profile": {"summary": "stale"}},
+                "current_profile": {"summary": "Qwen profile", "tagline": "", "features": []},
+            }],
+        }
+        prompts: list[str] = []
+
+        def run_llm(prompt: str) -> tuple[dict, dict]:
+            prompts.append(prompt)
+            return self.valid_payload(), {"model": "test"}
+
+        without = evaluation.run_corpus(
+            corpus,
+            build_prompt=build_prompt,
+            run_llm=run_llm,
+            model_spec={"model": "test", "current_profile_mode": "without"},
+            current_profile_mode="without",
+        )
+        with_profile = evaluation.run_corpus(
+            corpus,
+            build_prompt=build_prompt,
+            run_llm=run_llm,
+            model_spec={"model": "test", "current_profile_mode": "with"},
+            current_profile_mode="with",
+        )
+
+        self.assertNotIn("current_profile", prompts[0])
+        self.assertIn("Qwen profile", prompts[1])
+        self.assertNotIn("stale", prompts[1])
+        self.assertEqual(without["input_condition"], {"current_profile": "without"})
+        self.assertEqual(with_profile["input_condition"], {"current_profile": "with"})
 
     def test_report_comparison_keeps_non_automatic_checks_explicit(self) -> None:
         def report(model: str, *, unsupported: int = 0) -> dict:
