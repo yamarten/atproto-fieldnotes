@@ -9,6 +9,7 @@ from pathlib import Path
 from helpers import ROOT  # noqa: F401 - initializes the repository import path
 from project_registry_core import llm_model_evaluation as evaluation
 from project_registry_core import llm_transport
+from project_registry_core import repository_analysis_evaluation
 
 
 def build_prompt(evidence: dict) -> str:
@@ -469,6 +470,127 @@ class LLMOutputCapTest(unittest.TestCase):
         self.assertEqual(meta["reasoning_effort_requested"], "low")
         self.assertEqual(meta["reasoning_effort_applied"], "")
         self.assertEqual(meta["reasoning_effort_application_status"], "not_reported_by_endpoint")
+
+
+class RepositoryAnalysisEvaluationTest(unittest.TestCase):
+    def material(self) -> dict:
+        return {
+            "version": 4,
+            "policy_version": "repository-analysis-v3",
+            "repo_url": "https://github.com/example/tool",
+            "provider": "github",
+            "source_revision": "abc123",
+            "material_hash": "sha256:" + "a" * 64,
+            "coverage": {"readme": "complete"},
+            "metadata": {"name": "tool"},
+            "readme_excerpt": "Reads app.example.record records from a PDS.",
+            "manifest_hints": [],
+            "configuration_hints": [],
+            "lexicon_hints": [],
+            "source_evidence": [],
+            "tree_paths": ["README.md"],
+            "observations": [],
+            "collection_usages": [],
+        }
+
+    def payload(self) -> dict:
+        return {
+            "summary": "PDSのレコードを読むツール。",
+            "observations": [],
+            "capabilities": [{
+                "text": "レコードを読み取る",
+                "evidence": [{"path": "README", "line": 0, "json_pointer": ""}],
+            }],
+            "collections": [{
+                "nsid": "app.example.record",
+                "operation": "read",
+                "evidence": [{"path": "README", "line": 0, "json_pointer": ""}],
+            }],
+        }
+
+    def test_validation_accepts_supported_locators_and_case_sensitive_nsid(self) -> None:
+        result = repository_analysis_evaluation.validate_output(self.payload(), self.material())
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["normalized_result"]["collections"][0]["nsid"], "app.example.record")
+
+    def test_validation_rejects_unknown_locator_and_collection(self) -> None:
+        payload = self.payload()
+        payload["capabilities"][0]["evidence"][0]["path"] = "missing.py"
+        payload["collections"][0]["nsid"] = "app.example.hallucinated"
+
+        result = repository_analysis_evaluation.validate_output(payload, self.material())
+
+        self.assertFalse(result["valid"])
+        self.assertEqual(len(result["unsupported_locators"]), 1)
+        self.assertEqual(result["unsupported_collections"], ["app.example.hallucinated"])
+        self.assertEqual(result["normalized_result"]["collections"], [])
+
+    def test_export_reads_saved_material_without_writing_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "survey.db"
+            conn = sqlite3.connect(path)
+            conn.execute(
+                "CREATE TABLE investigation_runs ("
+                "run_id TEXT PRIMARY KEY, project_key TEXT, started_at TEXT, completed_at TEXT, "
+                "output_project_json TEXT, bundle_json TEXT)"
+            )
+            material = self.material()
+            result = {
+                "summary": "保存済み解析", "observations": [], "capabilities": [], "collections": [],
+            }
+            bundle = {"records": [
+                {"kind": "repository_analysis_material", "value": material},
+                {"kind": "repository_analysis", "value": {
+                    "repo_url": material["repo_url"],
+                    "material_hash": material["material_hash"],
+                    "result": result,
+                }},
+            ]}
+            conn.execute(
+                "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "run", "proj:tool", "2026-01-01", "2026-01-02",
+                    json.dumps({"name": "Tool", "resolved_nsids": ["app.example.record"]}),
+                    json.dumps(bundle),
+                ),
+            )
+            conn.commit()
+            before = path.stat().st_mtime_ns
+            conn.close()
+
+            corpus = repository_analysis_evaluation.export_corpus(path, limit=2)
+
+            self.assertEqual(corpus["selection"]["selected_count"], 1)
+            self.assertEqual(corpus["cases"][0]["project_name"], "Tool")
+            self.assertEqual(corpus["cases"][0]["reference_result"], result)
+            self.assertTrue(corpus["source"]["read_only"])
+            self.assertEqual(path.stat().st_mtime_ns, before)
+
+    def test_runner_and_comparison_keep_human_review_explicit(self) -> None:
+        material = self.material()
+        corpus = {
+            "schema_version": 1,
+            "cases": [{
+                "case_id": "case",
+                "project_context": {"project_key": "proj:tool", "name": "Tool", "resolved_nsids": []},
+                "material": material,
+                "reference_result": {},
+            }],
+        }
+        report = repository_analysis_evaluation.run_corpus(
+            corpus,
+            run_llm=lambda _prompt: (self.payload(), {"model": "fixture"}),
+            model_spec={"model": "fixture"},
+        )
+
+        self.assertEqual(report["summary"]["valid_count"], 1)
+        comparison = repository_analysis_evaluation.compare_reports(report, report)
+        self.assertTrue(comparison["automatic_checks_pass"])
+        self.assertIn(
+            "summary_capabilities_and_observations_not_reviewed_by_operator",
+            comparison["remaining_checks"],
+        )
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import llm_model_evaluation as evaluation
 from .. import llm_transport
+from .. import repository_analysis_evaluation
 from .. import registry as core
 
 
@@ -114,6 +115,95 @@ def cmd_compare_llm_evaluation_reports(args: argparse.Namespace) -> int:
     baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
     candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
     comparison = evaluation.compare_reports(baseline, candidate)
+    output = Path(args.output)
+    _write_json(output, comparison)
+    print(json.dumps({
+        "output": str(output),
+        "automatic_checks_pass": comparison["automatic_checks_pass"],
+        "comparison_issues": comparison["comparison_issues"],
+        "automatic_regressions": comparison["automatic_regressions"],
+        "remaining_checks": comparison["remaining_checks"],
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if comparison["automatic_checks_pass"] else 1
+
+
+def cmd_export_repository_analysis_corpus(args: argparse.Namespace) -> int:
+    corpus = repository_analysis_evaluation.export_corpus(
+        Path(args.db_path), limit=int(args.limit),
+    )
+    output = Path(args.output)
+    _write_json(output, corpus)
+    print(json.dumps({"output": str(output), **corpus["selection"]}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_evaluate_repository_analysis_corpus(args: argparse.Namespace) -> int:
+    corpus = json.loads(Path(args.corpus).read_text(encoding="utf-8"))
+    output_cap = int(args.output_cap)
+    if output_cap < 1:
+        raise ValueError("output-cap must be at least 1")
+
+    def run_llm(prompt: str) -> tuple[dict, dict]:
+        return llm_transport.run_local_llm(
+            prompt,
+            llm_endpoint=args.llm_endpoint,
+            llm_model=args.llm_model,
+            llm_api_key=args.llm_api_key,
+            llm_reasoning_effort=args.llm_reasoning_effort,
+            llm_api_style=args.llm_api_style,
+            llm_max_output_tokens=output_cap,
+        )
+
+    requested_reasoning = str(
+        args.llm_reasoning_effort or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", "")
+    )
+    reasoning_status = str(args.reasoning_observation or "not_checked")
+    if not requested_reasoning:
+        reasoning_status = "not_requested"
+    reasoning_note = str(args.reasoning_observation_note or "").strip()
+    if reasoning_status in {"applied", "ignored"} and not reasoning_note:
+        raise ValueError(
+            "--reasoning-observation-note is required when reasoning was observed as applied or ignored"
+        )
+    model_spec = {
+        "model": str(args.llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")),
+        "transport": "configured",
+        "runtime": str(args.runtime or ""),
+        "quantization": str(args.quantization or ""),
+        "prompt_version": "repository-analysis-v3",
+        "reasoning_effort_requested": requested_reasoning,
+        "reasoning_observation": reasoning_status,
+        "reasoning_observation_note": reasoning_note,
+        "api_style": str(args.llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
+        "output_cap": output_cap,
+    }
+    output = Path(args.output)
+    case_ids = set(args.case_id or [])
+    _write_json(
+        output,
+        repository_analysis_evaluation.checkpoint_report(corpus, model_spec, [], case_ids),
+    )
+    report = repository_analysis_evaluation.run_corpus(
+        corpus,
+        run_llm=run_llm,
+        model_spec=model_spec,
+        repeat=int(args.repeat),
+        case_ids=case_ids,
+        root=core.ROOT,
+        progress_callback=lambda results: _write_json(
+            output,
+            repository_analysis_evaluation.checkpoint_report(corpus, model_spec, results, case_ids),
+        ),
+    )
+    _write_json(output, report)
+    print(json.dumps({"output": str(output), **report["summary"]}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["summary"]["failure_count"] == 0 else 1
+
+
+def cmd_compare_repository_analysis_reports(args: argparse.Namespace) -> int:
+    baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+    candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
+    comparison = repository_analysis_evaluation.compare_reports(baseline, candidate)
     output = Path(args.output)
     _write_json(output, comparison)
     print(json.dumps({

@@ -385,6 +385,16 @@ def _locator_catalog(material: dict[str, Any]) -> dict[tuple[str, int, str], dic
     return catalog
 
 
+def supported_locator_keys(material: dict[str, Any]) -> set[tuple[str, int, str]]:
+    """Return exact evidence locators accepted from one bounded material snapshot."""
+    return set(_locator_catalog(material))
+
+
+def material_supports_collection_nsid(material: dict[str, Any], nsid: str) -> bool:
+    """Return whether the case-sensitive NSID occurs in the supplied material."""
+    return bool(nsid) and nsid in json.dumps(material, ensure_ascii=False, sort_keys=True)
+
+
 def _resolve_evidence(values: Any, catalog: dict[tuple[str, int, str], dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for value in list(values or [])[:4] if isinstance(values, list) else []:
@@ -536,7 +546,12 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
         nsid = identifier_core.normalize_nsid(str(item.get("nsid") or ""))
         operation = str(item.get("operation") or "")
         evidence = _resolve_evidence(item.get("evidence"), catalog)
-        if identifier_core.is_valid_nsid(nsid) and operation in ALLOWED_OPERATIONS and evidence:
+        if (
+            identifier_core.is_valid_nsid(nsid)
+            and operation in ALLOWED_OPERATIONS
+            and evidence
+            and material_supports_collection_nsid(material, nsid)
+        ):
             collections.append({"nsid": nsid, "operation": operation, "evidence": evidence})
     success = {
         "version": ANALYSIS_VERSION,

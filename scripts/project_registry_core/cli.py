@@ -289,6 +289,56 @@ def build_parser() -> argparse.ArgumentParser:
     compare_llm_reports_parser.add_argument("--output", required=True, help="Comparison JSON path.")
     compare_llm_reports_parser.set_defaults(func=llm_evaluation_commands.cmd_compare_llm_evaluation_reports)
 
+    export_repository_analysis_parser = subparsers.add_parser(
+        "export-repository-analysis-corpus",
+        help="Export fixed repository analysis material from saved runs without modifying the database.",
+    )
+    export_repository_analysis_parser.add_argument("--db-path", required=True, help="Source SQLite DB opened read-only.")
+    export_repository_analysis_parser.add_argument("--output", required=True, help="Output corpus JSON path.")
+    export_repository_analysis_parser.add_argument("--limit", type=int, default=12, help="Maximum cases. Default: 12.")
+    export_repository_analysis_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_export_repository_analysis_corpus
+    )
+
+    evaluate_repository_analysis_parser = subparsers.add_parser(
+        "evaluate-repository-analysis-corpus",
+        help="Run one model configuration against fixed repository analysis material.",
+    )
+    evaluate_repository_analysis_parser.add_argument("--corpus", required=True, help="Fixed corpus JSON path.")
+    evaluate_repository_analysis_parser.add_argument("--output", required=True, help="Structured report JSON path.")
+    evaluate_repository_analysis_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
+    evaluate_repository_analysis_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
+    evaluate_repository_analysis_parser.add_argument("--output-cap", type=int, default=2048, help="Maximum output tokens. Default: 2048.")
+    evaluate_repository_analysis_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
+    evaluate_repository_analysis_parser.add_argument("--quantization", help="Quantization label recorded in the report.")
+    evaluate_repository_analysis_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
+    evaluate_repository_analysis_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
+    evaluate_repository_analysis_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
+    evaluate_repository_analysis_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference.")
+    evaluate_repository_analysis_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Reasoning/thinking effort.")
+    evaluate_repository_analysis_parser.add_argument(
+        "--reasoning-observation", choices=["applied", "ignored", "not_checked"],
+        help="What the runtime log or model configuration showed for the requested reasoning setting.",
+    )
+    evaluate_repository_analysis_parser.add_argument(
+        "--reasoning-observation-note",
+        help="Short non-secret evidence for the reasoning observation, such as a runtime log message.",
+    )
+    evaluate_repository_analysis_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_evaluate_repository_analysis_corpus
+    )
+
+    compare_repository_analysis_parser = subparsers.add_parser(
+        "compare-repository-analysis-reports",
+        help="Compare two complete repository analysis reports without selecting a production model.",
+    )
+    compare_repository_analysis_parser.add_argument("--baseline", required=True, help="Baseline report JSON path.")
+    compare_repository_analysis_parser.add_argument("--candidate", required=True, help="Candidate report JSON path.")
+    compare_repository_analysis_parser.add_argument("--output", required=True, help="Comparison JSON path.")
+    compare_repository_analysis_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_compare_repository_analysis_reports
+    )
+
     verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
     verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)
     verify_target.add_argument("-p", "--project-key")

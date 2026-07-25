@@ -183,6 +183,9 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 - `export-llm-evaluation-corpus`: 固定corpusを作る。DBはread-only
 - `evaluate-llm-corpus`: 一つの実行構成を固定caseへ適用し、構造化reportを作る
 - `compare-llm-evaluation-reports`: 同じcorpus、case、repeatの機械検査結果を比較する
+- `export-repository-analysis-corpus`: 保存済みrunからrevision固定のrepository materialをread-onlyで取り出す
+- `evaluate-repository-analysis-corpus`: 一つの実行構成でrepository解析と保存前検査を行う
+- `compare-repository-analysis-reports`: 同じmaterialとrepeatの機械検査結果を比較する
 
 機械比較が扱うのは成功、schema、根拠外identifier、確認用caseのcategory一致、所要時間です。文章品質、正本DBへ
 適用してよいか、既定modelを変更してよいかは自動決定しません。peak memory、swap、prefill、decodeのrunner自動記録も

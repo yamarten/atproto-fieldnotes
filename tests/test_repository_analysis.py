@@ -107,13 +107,19 @@ class RepositoryAnalysisTest(unittest.TestCase):
                 "nsid": "com.atproto.repo.getRecord",
                 "operation": "read",
                 "evidence": [{"path": "src/client.ts", "line": 12}],
+            }, {
+                "nsid": "com.example.hallucinated",
+                "operation": "read",
+                "evidence": [{"path": "src/client.ts", "line": 12}],
             }],
         }, {"model": "test", "transport": "test"}, "2026-07-25T01:00:00+00:00")
         predicates = {item["predicate"] for item in result["observations"]}
         self.assertNotIn("contains_service_entrypoint", predicates)
         self.assertNotIn("declares_browser_extension", predicates)
         self.assertEqual(result["capabilities"][0]["evidence"][0]["excerpt"], "client.call('com.atproto.repo.getRecord')")
-        self.assertEqual(result["collections"][0]["nsid"], "com.atproto.repo.getRecord")
+        collection_nsids = {item["nsid"] for item in result["collections"]}
+        self.assertIn("com.atproto.repo.getRecord", collection_nsids)
+        self.assertNotIn("com.example.hallucinated", collection_nsids)
         self.assertNotIn("artifact_kind", result)
 
     def test_documentation_url_requires_the_url_in_supplied_evidence(self) -> None:

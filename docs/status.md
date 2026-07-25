@@ -117,6 +117,7 @@
   - reasoning要求値とruntime log等で確認した`applied / ignored / not_checked`を分ける。endpoint metadataは要求値を返すだけなので適用確認には使わない
   - 期待categoryを人が確認したlabelはevidence hash一致と`used_for_prompt_adjustment`を必須にし、prompt調整に使ったcaseと使っていないcaseを別集計する
   - `compare-llm-evaluation-reports`は同じcorpusとcase/repeat集合のbaseline/candidateを比較し、機械検査の退行と文章確認・複製DB・少数project試用等の未実施項目を分けて返す。通常運用modelは自動選定しない
+  - repository analysisはtriageと別corpusにし、保存済みrunのrevision固定materialをread-onlyでexportする。評価reportはschema、根拠位置、materialにないNSID、保存前の正規化結果、時間を記録し、二構成を同じcase/repeatで比較する
   - OpenAI Responsesの`output`にreasoningとmessageが併存する場合はmessageだけをmodel出力として解析し、Harmony control tokenを含むtextではfinal channelだけをJSON候補にする
   - 長時間実行では開始時と各request完了時までの結果をreportへ書き出し、正常終了時だけ`status=complete`へ確定する
   - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
@@ -189,7 +190,7 @@
 
 2026-07-26時点で確認済み:
 
-- 全unit test 522件
+- 全unit test 526件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

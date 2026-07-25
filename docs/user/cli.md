@@ -180,6 +180,9 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `export-llm-evaluation-corpus` | 指定DBの保存済みLLM evidenceから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
 | `evaluate-llm-corpus` | 固定corpus、任意の`--labels`、LLM接続設定、繰り返し回数、最大出力token数を受け、構造化reportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-llm-evaluation-reports` | 同じcaseとrepeatで作ったbaseline/candidate reportを比較し、機械検査の差と未実施確認を`--output`へ出力 | DB・LLM接続なし。指定ファイルへ書き込み |
+| `export-repository-analysis-corpus` | 指定DBの保存済みrepository materialから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
+| `evaluate-repository-analysis-corpus` | 固定repository materialを一つのmodel構成で解析し、保存前検査を含むreportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
+| `compare-repository-analysis-reports` | 同じrepository caseとrepeatのbaseline/candidate reportを比較 | DB・LLM接続なし。指定ファイルへ書き込み |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、`static|deep|browser` lane | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 
 exportのsanitizationは機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
@@ -203,6 +206,10 @@ endpoint responseは通常、実際に適用したreasoning設定を返さない
 category結果を比較します。これは通常運用モデルの自動選定commandではありません。文章の人間確認、複製DBで両modelを別々にenrichした結果の比較、少数projectでの試用など、
 reportだけでは完了しない確認を`remaining_checks`へ残します。
 peak memory、swap、prefill/decode内訳の自動取得は未接続です。
+
+repository analysis用corpusは、保存済みrunからrevisionへ固定したmaterialを取り出します。実行reportはJSON/schema、
+materialに存在しない根拠位置とNSID、保存前の正規化結果、所要時間を記録します。summary、capability、observationの
+内容と、解析結果を受けた後段triageは人が別に確認します。triage用のmodel別suffixはこの解析には適用しません。
 
 `verify-service`の`static`はtop page、`deep`は同一siteの追加pageを確認します。`browser`はJavaScript描画後の匿名画面を開き、表示中のmenuを展開した事実、auth linkを辿った事実、passwordまたはhandle/email入力を持つform、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別々に記録します。linkや作成CTAだけではservice surface確認済みにしません。認証actionの実行、認証入力、form送信、登録、投稿は行いません。browser laneにはPlaywrightの任意依存が必要です。
 
