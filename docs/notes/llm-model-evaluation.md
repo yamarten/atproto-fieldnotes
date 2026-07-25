@@ -100,6 +100,16 @@ Bluesky CLI skillを`library`、GemmaはTitleGraphを`project`とした。
 この段階では、安全検査でGemma、速度でQwenが優位で、category一致は同点である。Gemmaを既定へ変更する判断は
 まだ下さない。次は同一入力の複数回実行、文章比較、memory、複製DBの順に確認する。
 
+速度は累積時間だけで判断しない。元profileなし21件では、Qwenは中央値12.6秒、Gemmaは15.2秒で、21件すべて
+Qwenの方が短かった。最初の1件を除いてもQwen 237.1秒、Gemma 301.7秒なので、この組ではmodel読み込みだけで
+生じた差ではない。prompt tokenはQwen 111,780、Gemma 116,265、completion tokenはそれぞれ10,415、10,884で、
+生成量にも小差がある。reportはprefillとdecodeを分けていないためtoken毎の推論性能までは断定しない。
+
+一方、旧category-gates v4の未調整17件でGemmaの累積時間が短かったのは、Qwenの最初の1件だけが131.5秒
+かかったためだった。最初の1件を除くとQwen 226.9秒、Gemma 293.2秒で、16/17件はQwenの方が短い。
+したがって旧結果も、処理中の速度はQwenが優位で、最初のrequestにmodel読み込み等の一時費用が混ざったものと
+読み直す。以後は最初のrequest、最初を除いた累積時間、中央値、最長時間を分けて記録する。
+
 ### 未使用caseの反復とmemory
 
 未使用21件のうち、単発でidentifierまたはcategory差が出た7件と正常なlibrary 1件を各2回実行した。
@@ -135,6 +145,21 @@ caseごとにA/Bの順を入れ替え、主要機能、根拠外の断定、日�
 Ozoneは両modelのtaglineとsummaryが完全に一致し、featuresだけが軽い言い換えだった。atproto.dartもほぼ同じ
 内容へ収束した。一方、evidenceが名前とrepository URLだけのatproto-healthは、両modelともmonitoring・診断機能を
 断定しており、同等は同等に妥当という意味ではない。今回の文章比較では、どちらか一方の明確な優位は確認できない。
+
+### 現時点の判断表
+
+| 観点 | 現在の観測 | 判断への影響 |
+| --- | --- | --- |
+| category | 元profileなしは両model 17/21。ありはQwen 16/21、Gemma 17/21 | 決め手なし |
+| schema・identifier | 単発と反復の両方でGemmaが安定。Qwenは根拠外identifierと再実行時の変化あり | Gemmaを次段階へ進める主な理由 |
+| 文章 | 伏せた8件でGemma 3、Qwen 2、同等3 | 明確な差なし |
+| 処理時間 | 今回21件は全件Qwenが短い。旧17件のGemma優位はQwen最初の1件の外れ値による | Qwen優位。重い入力と通常enrichで再確認 |
+| 常駐memory | 手動観測はQwen 20 GB、Gemma 16 GB | Gemma優位。ただし同一workloadの自動測定ではない |
+| 元profile | どちらも分類を安定化せず、Gemmaも4件でcategoryが変化 | 移行時は保存結果を別途確認 |
+| prompt保守 | 両modelで別suffixが必要 | suffixの複雑化を運用費として扱う |
+
+Gemmaは安全性とmemory、Qwenは処理時間で優位であり、現時点では既定modelを変更しない。重い入力と複製DBで
+安全面の優位が保存後にも残り、Gemmaの遅さが通常運用で許容できる場合にだけ少数project試用へ進む。
 
 2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。
@@ -204,8 +229,9 @@ model出力を見る前に人が確認して固定した。LM Studioとreasoning
 | Gemma 4 26B、`project-triage-v2` + category-gates v4 | 17/17 | 16/17 | 11/17 | 0件 | 307.2秒 |
 
 Gemmaは共通promptだけではQwenと同じ6/17で、category-gates v4が性能に必須だった。同じv4をQwenへ
-付けると8/17へ改善したが、Gemmaはさらに3件多く、完全通過も3件多かった。同じv4同士ではGemmaが
-51.2秒早かったため、この17件ではGemmaとv4の組み合わせが最良だった。Gemmaの不一致6件は、SDKを`project`、説明のないrelayを
+付けると8/17へ改善したが、Gemmaはさらに3件多く、完全通過も3件多かった。累積時間はGemmaが51.2秒
+短いが、Qwenの最初の1件に131.5秒の一時費用が含まれる。これを除く16件ではQwen 226.9秒、Gemma
+293.2秒で、個別にも16件すべてQwenが短かった。Gemmaの不一致6件は、SDKを`project`、説明のないrelayを
 `infra_tool`、OAuth pluginを`auth_only`、文書化されていないschema 3件を`lexicon`としたもの。
 Qwenも文書化されていないschemaを`lexicon`へ寄せ、加えてCLIを`library`、個人blogを`project`、
 汚染された同名説明を`reject`などとした。Gemmaの唯一の完全通過失敗は`status=live`というenum外の値だった。
@@ -438,6 +464,22 @@ Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagli
 通常処理候補ではpeak memoryとforeground利用への影響、常駐background候補ではidle時と連続処理時のmemoryも
 確認します。
 
+次の重い入力は、LM Studioと定期jobが空いた時に元profileなしで各2回実行する。case順はcorpus順になるため、
+最初のrequestは処理中の速度集計から分離する。
+
+| case | prompt bytes | 選定理由 |
+| --- | ---: | --- |
+| sifa-sdk (`proj:9dfd435e65fc:37c2a1bb156d`) | 34,307 | 最長級。旧Qwenで最初のrequestが131.5秒だったため、一時費用の再現確認 |
+| Chive API (`proj:2617bd65b02d:71f51c5b1dbc`) | 34,302 | 未使用case中の最長。直近21件でも両modelの最長級 |
+| game (`proj:ef465b04c876:5e621b6483db`) | 34,267 | labelに依存しない最長級case。長さによる失敗確認 |
+| cocore (`proj:72ae05e894a4:0382d41c1c9d`) | 33,857 | 長い入力と根拠不足時の安全性を同時に確認 |
+| Scott Polhemus Personal Blog Media (`proj:f55a50d13d8e:103099567e8b`) | 25,422 | 未使用caseで両modelとも遅め。`personal_tool`境界も確認 |
+
+各modelについて、最初のrequest、最初を除いた中央値と累積時間、最長時間、成功・schema・identifier、promptと
+completion tokenを記録する。model packageの小ささは常駐memoryには有利だが、そのまま処理時間の短さを意味しない。
+現在のmodel IDもQwenはA3B、GemmaはA4Bを示しており、少なくともpackage全体の容量だけからGemmaの方が速いとは
+予想しない。prefill/decode内訳が取れない間は、入力長と生成量のどちらが差を作ったかは未確認とする。
+
 ### 9. 複製DBでのenrich比較
 
 正本DBへ書き込まず、同じproject集合をQwenとcandidateで実行します。
@@ -448,6 +490,27 @@ Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagli
 - LLM以外のcollector失敗をmodel差として数えない
 
 この確認で一括再分類や正本DB更新は行いません。
+
+次回は複製を実行直前に2つ作り、次の8 projectを同じsnapshotから比較する。`goodfeeds`は同名projectがあるため
+project keyを固定する。
+
+| project | project key | 主な確認点 |
+| --- | --- | --- |
+| goodfeeds | `proj:58bb49f7d6fb` | Qwenで出た根拠外identifierが保存前検査で止まるか |
+| ChartID | `proj:16fad81dda9d` | Qwenで出た根拠外NSIDと、元profileありの影響 |
+| TitleGraph | `proj:0eebecf6994f` | Gemmaのcategory不一致と再実行時の文章差 |
+| leaflet-md | `proj:a37ab47fe843` | `library` / `infra_tool`境界 |
+| corvus | `proj:289b39e3d947` | schema sampleから`lexicon`へ過剰昇格しないか |
+| Ozone | `proj:4a8e71e4fc29` | 両modelの文章が同じになる正常対照 |
+| atproto.dart | `proj:8829cf936560` | `library`の正常対照 |
+| Chive API | `proj:2617bd65b02d` | 長いevidenceでの通常enrich時間と保存結果 |
+
+合格条件は、Gemmaで根拠外identifier、operator guardの逆転、重大なcategory・status誤判定が0件で、Qwenより
+profileの情報欠落を増やさないこととする。処理時間はcollector時間とLLM時間を分け、最初のrequestを別記する。
+Gemmaが安全検査で優位でも、8件の通常enrichでLLM処理時間が恒常的にQwenの1.5倍を超え、定期jobや手動
+`enrich`の待ち時間として許容できないか、memory pressureによる失敗が出る場合は、既定変更ではなく現状維持
+または対象を限定した役割別利用を検討する。1.5倍はこの8件で試用可否を見直すための暫定目安で、一般的な
+性能基準とは扱わない。
 
 ### 10. 少数projectで試す
 

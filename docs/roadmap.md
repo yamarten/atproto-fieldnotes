@@ -195,7 +195,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - 元profileなし／ありの生出力比較は実測済み。次は保存規則適用後を分けて確認する
   - GitHub collectorはREADME本文を取得するが、本文をsummary候補や固定evidenceへ保存しない。repository descriptionが空のprojectでartifact roleを判断できないため、本文を通常enrichへどう渡すか検討する
   - 少数選別では通常処理候補をQwenとGemmaに絞った。Agents A1は常駐background候補としてidle/処理中memory、連続処理、foreground modelへの影響を確認する
-  - QwenとGemmaの未使用8件×2回とmodel名を伏せた文章比較は実測済み。次は重い入力、複製DB比較へ進める。全面移行、期間限定試用、役割別併用、現状維持を比較する
+  - QwenとGemmaの未使用8件×2回とmodel名を伏せた文章比較は実測済み。旧17件のGemma速度優位はQwen最初の1件にmodel読み込み等の一時費用が混ざった累積値で、処理中は新旧ともQwenが速い。次は評価メモで固定した重い5件、複製DBの8件比較へ進める。全面移行、期間限定試用、役割別併用、現状維持を比較する
   - 手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1のfootprint要求は23時台の定期jobと競合して2回`Model unloaded`となったため、idle時に切替信頼性とmemoryを再確認する
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
   - 既存`category=library`の一括再分類はmodel変更の確認に依存する。prompt調整に使っていないcaseと複製DBでのenrich比較を確認するまではbulk更新しない
