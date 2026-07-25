@@ -260,7 +260,7 @@ def github_repo_configuration_paths(tree: list[dict[str, Any]]) -> list[str]:
             score += 6
         if basename == "manifest.json" and (is_root_or_shallow or is_extension_path):
             score += 6
-        if "/.vitepress/" in f"/{lowered}/" or "/docs/" in f"/{lowered}/":
+        if "/.vitepress/" in f"/{lowered}/":
             score += 2
         if lowered.startswith(".github/workflows/") and any(token in basename for token in ("docs", "pages")):
             score += 5

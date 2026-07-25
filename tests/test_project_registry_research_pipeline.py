@@ -765,7 +765,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(docs_records[0]["confidence"], "candidate")
         self.assertEqual(
             enriched["repository_analysis_results"][0]["prompt_version"],
-            "repository-analysis-v6",
+            "repository-analysis-v7",
         )
         self.assertGreaterEqual(run_llm.call_count, 2)
         self.assertTrue(all(

@@ -100,6 +100,21 @@ class RepositoryAnalysisTest(unittest.TestCase):
             "uses_documentation_generator",
         }.issubset(predicates))
 
+    def test_configuration_paths_do_not_treat_documentation_pages_as_deployment(self) -> None:
+        tree = [
+            {"type": "blob", "path": "website/docusaurus.config.js", "size": 1000},
+            {"type": "blob", "path": "website/docs/intro.md", "size": 1000},
+            {"type": "blob", "path": "website/docs/getting_started/_category_.json", "size": 1000},
+            {"type": "blob", "path": "Dockerfile", "size": 1000},
+        ]
+
+        paths = repository_material.github_repo_configuration_paths(tree)
+
+        self.assertIn("website/docusaurus.config.js", paths)
+        self.assertIn("Dockerfile", paths)
+        self.assertNotIn("website/docs/intro.md", paths)
+        self.assertNotIn("website/docs/getting_started/_category_.json", paths)
+
     def test_normalized_result_accepts_only_supplied_locators(self) -> None:
         material = repository_analysis.build_material(
             "https://github.com/example/app", self.github_bundle()

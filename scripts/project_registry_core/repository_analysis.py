@@ -13,7 +13,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 5
-POLICY_VERSION = "repository-analysis-v6"
+POLICY_VERSION = "repository-analysis-v7"
 MAX_TRIAGE_RESULTS = 6
 ALLOWED_PREDICATES = {
     "declares_browser_extension",
