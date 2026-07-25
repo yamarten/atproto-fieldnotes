@@ -13,8 +13,8 @@
       "basis": "The evidence explicitly identifies a public client library shared by sifa-web and sifa-app."
     },
     {
-      "case_id": "proj:72ae05e894a4:65f0efea1872",
-      "evidence_hash": "65f0efea18727ae1364f876220241e85202ce69169f2f4752ab7688a8219b089",
+      "case_id": "proj:72ae05e894a4:0382d41c1c9d",
+      "evidence_hash": "0382d41c1c9da8e6ed4a5d2f8c2b4972731f3a5c483f78bd6110e06a57619945",
       "expected_output": {
         "category": "name_only"
       },
@@ -33,8 +33,8 @@
       "basis": "The related agent, market, and VM lifecycle schemas describe a coherent operations and compute platform."
     },
     {
-      "case_id": "proj:31261c9e4777:490935f3ec0d",
-      "evidence_hash": "490935f3ec0d58870748e1a422eb6b26321fc1dee838b983f8a55a04b7076f52",
+      "case_id": "proj:31261c9e4777:b3f3ed977ddb",
+      "evidence_hash": "b3f3ed977ddbcba2e3114ce3aa11a845d90dbe999addca05b826b82f74df3ac0",
       "expected_output": {
         "category": "name_only"
       },
@@ -73,8 +73,8 @@
       "basis": "The recipe NSID is the usable signal; an unrelated same-name ceramics description is treated as polluted evidence rather than the tracked artifact."
     },
     {
-      "case_id": "proj:2b44feb2c3bd:8a52a81c7600",
-      "evidence_hash": "8a52a81c7600c409d13ea4ddda1fc24b32fb0dafda21d89a3c0afdf8c89b0ec4",
+      "case_id": "proj:2b44feb2c3bd:fdb90f554095",
+      "evidence_hash": "fdb90f5540952a134652c7d17f34c1e2997ae374a84e9ce1c9452edb41aa36bc",
       "expected_output": {
         "category": "name_only"
       },
@@ -93,8 +93,8 @@
       "basis": "Repository and service provide identity and group-management infrastructure for AT Protocol PDS use."
     },
     {
-      "case_id": "proj:cf79163aecc6:963a696dcd3a",
-      "evidence_hash": "963a696dcd3ac38498936fa76f3e8afba573613cfd4e598461436492b19d27c1",
+      "case_id": "proj:cf79163aecc6:8dcaffe7d005",
+      "evidence_hash": "8dcaffe7d0059a8f0308e5646f17f697d352874c5b6fc11d1031dfd13cdfc168",
       "expected_output": {
         "category": "lexicon"
       },
@@ -113,8 +113,8 @@
       "basis": "Sequoia is an operator-facing CLI for publishing an existing blog into AT Protocol records."
     },
     {
-      "case_id": "proj:27cd7a4237e7:0305d18bd76a",
-      "evidence_hash": "0305d18bd76a9c123976dc71380b22503e580a709380a7ff89d5eafa8f44e2cd",
+      "case_id": "proj:27cd7a4237e7:8dd7a8b48f47",
+      "evidence_hash": "8dd7a8b48f4714f95c35943b6dbc2ca4584eec43589175c4c0485b0d4396652c",
       "expected_output": {
         "category": "name_only"
       },
@@ -153,8 +153,8 @@
       "basis": "The repository and schemas describe a reader application with lists, bookmarks, subscriptions, and read state."
     },
     {
-      "case_id": "proj:409fca306dcf:d5d3c0430995",
-      "evidence_hash": "d5d3c0430995320181dbc3a8d5a5200e43065051a90cab5babeac32c087a7cdf",
+      "case_id": "proj:409fca306dcf:588efd036f41",
+      "evidence_hash": "588efd036f413bb4bd25fa2a446ddc97cc6268397aa683e893a34646be5ca58a",
       "expected_output": {
         "category": "name_only"
       },
@@ -163,8 +163,8 @@
       "basis": "A recipe record schema is known, but no documented shared lexicon or concrete project surface is evidenced."
     },
     {
-      "case_id": "proj:680c3282ec22:c64addbdd6bd",
-      "evidence_hash": "c64addbdd6bd223f5e7225eac3179e064289887b91fb99aa0baa798ccfcba166",
+      "case_id": "proj:680c3282ec22:f8fdcc71d15f",
+      "evidence_hash": "f8fdcc71d15f35538ed71f84577d2642fb920632a140156550358ae1ea1a26f3",
       "expected_output": {
         "category": "name_only"
       },
@@ -253,8 +253,8 @@
       "basis": "Repositories, service URLs, and application-specific feed schemas identify a coherent runnable project."
     },
     {
-      "case_id": "proj:07235c469a43:e28a6f76a2b4",
-      "evidence_hash": "e28a6f76a2b408d677cba3cd1ed858e4b1651b530dd52203dda6ea0305c5a11c",
+      "case_id": "proj:07235c469a43:58edc5f7e99e",
+      "evidence_hash": "58edc5f7e99e7f5a613e4e10e8a4e6b325a4f0a0a2afb237b1deac2a63e628bd",
       "expected_output": {
         "category": "project"
       },
@@ -303,8 +303,8 @@
       "basis": "goat is a developer CLI that directly operates and inspects AT Protocol."
     },
     {
-      "case_id": "proj:e861819388f6:b63fef4f02be",
-      "evidence_hash": "b63fef4f02beb5e4e47121c9195d1d8da1ecdb9afba41a945281810e84d22a76",
+      "case_id": "proj:e861819388f6:34f41836ca71",
+      "evidence_hash": "34f41836ca71e87d282a159d967f2f37cacbc70b38741dc0599384563e1f9722",
       "expected_output": {
         "category": "name_only"
       },
@@ -313,8 +313,8 @@
       "basis": "Only two configuration NSIDs are evidenced; no schema definition or concrete project surface is known."
     },
     {
-      "case_id": "proj:8ecaa489e758:4c676151b22e",
-      "evidence_hash": "4c676151b22e6356642d7f2f006b07ec125b154db76cac5b8c502d415da72d7b",
+      "case_id": "proj:8ecaa489e758:29b8ac80e5bc",
+      "evidence_hash": "29b8ac80e5bc1846ae25e2655b6100375e05c0df3ec868ddf6398963a623755e",
       "expected_output": {
         "category": "name_only"
       },

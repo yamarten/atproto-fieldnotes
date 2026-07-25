@@ -12,6 +12,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import llm_evidence as llm_evidence_core
+
 
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 2
@@ -228,7 +230,7 @@ def _candidate_from_row(
     saved_evidence = llm_source.get("evidence") if isinstance(llm_source, dict) else None
     if not isinstance(saved_evidence, dict) or not saved_evidence:
         return None
-    evidence = copy.deepcopy(saved_evidence)
+    evidence = llm_evidence_core.without_prior_llm_derived_state(saved_evidence)
     evidence.pop("current_profile", None)
     current_profile = {
         "tagline": str(project.get("tagline") or ""),

@@ -2362,6 +2362,16 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         )
         self.assertNotIn("evidence_budget", evidence)
 
+    def test_llm_evidence_does_not_feed_prior_llm_scope_back_into_prompt(self) -> None:
+        project = self.nsid_project()
+        project["lexicon_scope"] = "shared"
+        project["lexicon_scope_evidence"] = ["llm_output:shared"]
+
+        evidence = registry.build_llm_evidence_bundle(project)
+
+        self.assertEqual(evidence["lexicon_scope"], "unknown")
+        self.assertEqual(evidence["lexicon_scope_evidence"], [])
+
     def test_llm_evidence_exposes_current_saved_profile(self) -> None:
         project = self.nsid_project()
         project.update(

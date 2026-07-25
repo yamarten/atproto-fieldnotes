@@ -7194,7 +7194,9 @@ def build_llm_evidence_bundle(
             if not is_bsky_post_url(url)
         ],
     }
-    return llm_evidence_core.bounded_llm_evidence(evidence)
+    return llm_evidence_core.bounded_llm_evidence(
+        llm_evidence_core.without_prior_llm_derived_state(evidence)
+    )
 
 
 def profile_update_sources(evidence: Any) -> set[str]:

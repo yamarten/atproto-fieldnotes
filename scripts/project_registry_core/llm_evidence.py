@@ -82,6 +82,22 @@ def evidence_bytes(value: dict[str, Any]) -> int:
     return len(evidence_json(value).encode("utf-8"))
 
 
+def without_prior_llm_derived_state(value: dict[str, Any]) -> dict[str, Any]:
+    """Remove derived state that explicitly came from an earlier LLM output."""
+    evidence = copy.deepcopy(value)
+    scope_evidence = evidence.get("lexicon_scope_evidence")
+    if isinstance(scope_evidence, list):
+        retained = [
+            item for item in scope_evidence
+            if not str(item or "").startswith("llm_output:")
+        ]
+        if retained != scope_evidence:
+            evidence["lexicon_scope_evidence"] = retained
+            if not retained:
+                evidence["lexicon_scope"] = "unknown"
+    return evidence
+
+
 def bounded_utf8_string(value: str, max_bytes: int = LLM_EVIDENCE_STRING_MAX_BYTES) -> str:
     encoded = str(value or "").encode("utf-8")
     if len(encoded) <= max_bytes:

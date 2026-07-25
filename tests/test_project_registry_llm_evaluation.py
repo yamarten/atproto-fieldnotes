@@ -61,7 +61,12 @@ class LLMCorpusExportTest(unittest.TestCase):
                     {
                         "name": "App", "category": "project", "tagline": "保存済みアプリ",
                         "summary": "Qwenが作成した説明。", "features": ["保存済み機能"],
-                        "llm_source": {"evidence": {"name": "app", "current_profile": {"summary": "以前の説明"}}},
+                        "llm_source": {"evidence": {
+                            "name": "app",
+                            "current_profile": {"summary": "以前の説明"},
+                            "lexicon_scope": "shared",
+                            "lexicon_scope_evidence": ["llm_output:shared"],
+                        }},
                     },
                 ),
                 (
@@ -89,6 +94,8 @@ class LLMCorpusExportTest(unittest.TestCase):
             app = next(case for case in corpus["cases"] if case["project_key"] == "proj:app")
             self.assertEqual(app["source_run_id"], "new")
             self.assertNotIn("current_profile", app["evidence"])
+            self.assertEqual(app["evidence"]["lexicon_scope"], "unknown")
+            self.assertEqual(app["evidence"]["lexicon_scope_evidence"], [])
             self.assertEqual(
                 app["current_profile"],
                 {
@@ -99,6 +106,40 @@ class LLMCorpusExportTest(unittest.TestCase):
                 },
             )
             self.assertTrue(corpus["source"]["read_only"])
+
+    def test_export_preserves_non_llm_lexicon_scope_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "survey.db"
+            conn = sqlite3.connect(path)
+            conn.execute(
+                "CREATE TABLE investigation_runs ("
+                "run_id TEXT PRIMARY KEY, project_key TEXT, completed_at TEXT, output_project_json TEXT)"
+            )
+            project = {
+                "name": "Shared schema",
+                "category": "lexicon",
+                "llm_source": {"evidence": {
+                    "name": "Shared schema",
+                    "lexicon_scope": "shared",
+                    "lexicon_scope_evidence": ["shared_lexicon_positioning"],
+                }},
+            }
+            conn.execute(
+                "INSERT INTO investigation_runs VALUES (?, ?, ?, ?)",
+                ("run", "proj:lexicon", "2026-01-01", json.dumps(project)),
+            )
+            conn.commit()
+            conn.close()
+
+            corpus = evaluation.export_corpus(
+                path, build_prompt=build_prompt, limit=1, library_min=0, category_min=0,
+            )
+
+            self.assertEqual(corpus["cases"][0]["evidence"]["lexicon_scope"], "shared")
+            self.assertEqual(
+                corpus["cases"][0]["evidence"]["lexicon_scope_evidence"],
+                ["shared_lexicon_positioning"],
+            )
 
     def test_labels_require_matching_evidence_hash(self) -> None:
         corpus = {"schema_version": 1, "cases": [{"case_id": "case", "evidence_hash": "abc"}]}

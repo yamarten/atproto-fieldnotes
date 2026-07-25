@@ -13,8 +13,8 @@
       "basis": "A generic block description and NSID do not establish a concrete project or documented shared schema."
     },
     {
-      "case_id": "proj:58bb49f7d6fb:500b94b07100",
-      "evidence_hash": "500b94b07100fdc2cde4b5fbf23a0382cf2b7be8b1db3ca2476435aab65fe66d",
+      "case_id": "proj:58bb49f7d6fb:2980dd720f27",
+      "evidence_hash": "2980dd720f2774f341af38956a8137709c1ad64f1402ce40df65f4e3eaf1998c",
       "expected_output": {
         "category": "project"
       },
@@ -23,8 +23,8 @@
       "basis": "The evidence identifies an end-user service for discovering and sharing Bluesky feeds."
     },
     {
-      "case_id": "proj:2617bd65b02d:bc547919426b",
-      "evidence_hash": "bc547919426b3d4845c4cfe4daa8c42a7eef25501a9c1007adfb051cc448ed1e",
+      "case_id": "proj:2617bd65b02d:71f51c5b1dbc",
+      "evidence_hash": "71f51c5b1dbcfd5579df8dfc80c42bb3eb6f25a1c29f5c8887878910b1ec497c",
       "expected_output": {
         "category": "project"
       },
@@ -43,8 +43,8 @@
       "basis": "The evidence identifies a user-facing domain registrar built on AT Protocol."
     },
     {
-      "case_id": "proj:94b493aae1eb:1738df2322f8",
-      "evidence_hash": "1738df2322f837e3b85343ac6b51c39a09d038f065668a04503472b8cb5b5f5d",
+      "case_id": "proj:94b493aae1eb:525b8b67760b",
+      "evidence_hash": "525b8b67760bd54a72f126acb1a3b4cb1d298c7936d0e8573528c53e78f1b6c5",
       "expected_output": {
         "category": "lexicon"
       },
