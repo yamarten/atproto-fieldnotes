@@ -318,6 +318,28 @@ class RepositoryAnalysisTest(unittest.TestCase):
                 "collections": [],
             }, {}, "2026-07-25T00:00:00+00:00")
 
+    def test_web_framework_does_not_establish_host_integration(self) -> None:
+        material = repository_analysis.build_material(
+            "https://github.com/example/app", self.github_bundle()
+        )
+
+        result = repository_analysis.normalize_result(material, {
+            "summary": "AT Protocolアプリケーション。",
+            "summary_evidence": [self.evidence_id(material, "README")],
+            "observations": [{
+                "predicate": "contains_host_integration_code",
+                "basis": "observed",
+                "value": "Axum web framework",
+                "evidence": [self.evidence_id(material, "README")],
+            }],
+            "capabilities": [],
+            "collections": [],
+        }, {}, "2026-07-25T00:00:00+00:00")
+
+        self.assertNotIn("contains_host_integration_code", {
+            item["predicate"] for item in result["observations"]
+        })
+
     def test_triage_evidence_includes_only_confirmed_repository_analysis(self) -> None:
         project = project_record.default_project_record(
             "proj:repo-analysis", "repo_url", "https://github.com/example/app"

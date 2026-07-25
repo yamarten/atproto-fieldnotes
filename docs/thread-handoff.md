@@ -9,7 +9,7 @@
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
 - categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。前回LLM由来のscopeを次のpromptへ戻すfeedback loopも除去し、全492 testを確認済みです。正本DBの旧`category=auth_only` 35件も個別移行済みです。
-- masterのrepository取得・material化・LLM解析を取り込み、repository解析用の固定corpus export・実行・比較も追加しました。最初の比較で根拠位置の不正確な出力が両modelに多かったため、利用可能な根拠位置の明示、summaryの根拠必須化、tree pathのLLM根拠からの除外まで行い、全528 testを確認しました。confirmed repositoryの解析結果が通常triageへ入るため、追加前のQwen/Gemma比較だけでは現行pipeline全体を確認済みとは扱いません。
+- masterのrepository取得・material化・LLM解析を取り込み、repository解析用の固定corpus export・実行・比較も追加しました。最初の比較で根拠位置の不正確な出力が両modelに多かったため、prompt内だけの根拠番号、summaryの根拠必須化、tree pathのLLM根拠からの除外、host integrationの意味検査まで行い、全529 testを確認しました。confirmed repositoryの解析結果が通常triageへ入るため、追加前のQwen/Gemma比較だけでは現行pipeline全体を確認済みとは扱いません。
 - 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 

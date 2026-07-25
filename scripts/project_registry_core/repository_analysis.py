@@ -13,7 +13,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 5
-POLICY_VERSION = "repository-analysis-v5"
+POLICY_VERSION = "repository-analysis-v6"
 MAX_TRIAGE_RESULTS = 6
 ALLOWED_PREDICATES = {
     "declares_browser_extension",
@@ -474,6 +474,18 @@ def _observation_evidence_supported(
             pointers.intersection({"/exports", "/main", "/module", "/types", "/typings", "/lib"})
             or _evidence_declares(evidence, r"\bsdk\b|\blibrary\b|\bpackage\b|\bdependency\b|\bimport\b|ライブラリ")
         )
+    if predicate == "contains_host_integration_code":
+        return bool(
+            any(
+                segment in f"/{path.lower()}/"
+                for path in paths
+                for segment in ("/plugins/", "/extensions/", "/webpackmodules/")
+            )
+            or _evidence_declares(
+                evidence,
+                r"\bplugin\b|host\s+(?:application|app)\s+integration|extends?\s+(?:a\s+)?host",
+            )
+        )
     if predicate == "declares_example_or_template":
         return bool(
             "/is_template" in pointers
@@ -520,6 +532,8 @@ def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
         "A package manifest alone does not establish a reusable library. A Dockerfile does not establish a live service. "
         "A plugins or webpackModules path alone is only a weak host-integration signal and never establishes a browser extension. "
         "Use declares_browser_extension only when a browser extension manifest or explicit README statement supports it. "
+        "contains_host_integration_code means code that plugs into or extends another host application; "
+        "using a web framework or an AT Protocol client is not host integration. "
         "Documentation source, generator configuration, declared site URL, and deployment are separate observations. "
         "The summary must describe implemented software when the material supports it.\n\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)

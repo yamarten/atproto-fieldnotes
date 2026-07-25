@@ -190,7 +190,7 @@
 
 2026-07-26時点で確認済み:
 
-- 全unit test 528件
+- 全unit test 529件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
