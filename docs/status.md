@@ -105,6 +105,9 @@
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
   - 最終prompt bytesはrun metricsで別に観測
+  - confirmed repositoryはrevision単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHubはmetadata / README / lexicon / 限定source抜粋、Tangledはmetadata / READMEを対象とし、candidate repositoryはconfirm前に解析しない
+  - repository analysis失敗時は前回結果をstaleとして保持し、同じrevisionの再試行を24時間抑制する
+  - repository analysisがapp / service / plugin / toolを示す場合、triageの`library`誤分類は`project`へ決定的に補正する
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
   - 同じsourceでの言い換えと暫定でないtaglineは自動更新せず、内容別の専用review signalや保存fieldは追加しない

@@ -3132,6 +3132,64 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
             },
         )
 
+    def test_new_repository_analysis_revision_is_an_editorial_source(self) -> None:
+        previous_evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [],
+        }
+        current_evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/service",
+                "revision": "abc123",
+                "summary": "Repository implementation analysis.",
+                "stale": False,
+            }],
+        }
+
+        self.assertTrue(registry.profile_has_new_strong_source(previous_evidence, current_evidence))
+        self.assertFalse(registry.profile_has_new_strong_source(current_evidence, current_evidence))
+
+    def test_repository_analysis_saved_before_policy_v2_refreshes_profile_once(self) -> None:
+        project = self.project()
+        evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/service",
+                "revision": "abc123",
+                "summary": "Repository implementation analysis.",
+                "stale": False,
+            }],
+        }
+        project["llm_source"] = {"evidence": evidence}
+
+        registry.apply_llm_output(project, {"summary": "実装を反映した説明。"}, {}, evidence)
+        self.assertEqual(project["summary"], "実装を反映した説明。")
+        self.assertEqual(
+            project["llm_source"]["editorial_source_policy_version"],
+            registry.EDITORIAL_SOURCE_POLICY_VERSION,
+        )
+
+        registry.apply_llm_output(project, {"summary": "同じ根拠による別表現。"}, {}, evidence)
+        self.assertEqual(project["summary"], "実装を反映した説明。")
+
+    def test_plugin_repository_analysis_rejects_llm_library_category(self) -> None:
+        evidence = {
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/plugin",
+                "revision": "abc123",
+                "summary": "Browser plugin implementation.",
+                "artifact_kind": "plugin",
+                "stale": False,
+            }],
+        }
+        project = self.project()
+
+        registry.apply_llm_output(project, {"category": "library"}, {}, evidence)
+
+        self.assertEqual(project["category"], "project")
+        self.assertEqual(project["llm_output"]["category"], "project")
+
     def test_same_service_becoming_usable_is_an_editorial_source(self) -> None:
         project = self.project()
         previous_evidence = {

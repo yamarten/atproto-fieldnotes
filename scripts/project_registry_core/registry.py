@@ -45,6 +45,7 @@ from project_registry_core import http_transport
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import repository_analysis as repository_analysis_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 
@@ -65,6 +66,7 @@ REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
+EDITORIAL_SOURCE_POLICY_VERSION = 2
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
@@ -5718,17 +5720,19 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     except Exception:
         readme_text = ""
     repo_tree: list[dict[str, Any]] = []
+    revision = ""
     default_branch = str(payload.get("default_branch") or "")
     if default_branch:
         try:
             branch_ref = urllib.parse.quote(default_branch, safe="")
             tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
+            revision = str(tree_payload.get("sha") or "")
             tree = tree_payload.get("tree", [])
             if isinstance(tree, list):
                 repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
         except Exception:
             repo_tree = []
-    result = {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
+    result = {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch, "revision": revision}
     _GITHUB_REPO_FETCH_CACHE.set(repo_url, copy.deepcopy(result), ttl=300)
     return result
 
@@ -6003,6 +6007,46 @@ def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -
     return hints
 
 
+def repo_manifest_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    paths = [
+        str(item.get("path") or "")
+        for item in tree
+        if str(item.get("type") or "") == "blob"
+        and str(item.get("path") or "").lower().rsplit("/", 1)[-1] == "package.json"
+        and int(item.get("size") or 0) <= 200_000
+    ]
+    paths.sort(key=lambda path: (path.count("/"), path))
+    hints: list[dict[str, Any]] = []
+    for path in paths[:4]:
+        text = github_repo_file_text(repo_url, path, ref=ref)
+        try:
+            payload = json.loads(text)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        dependencies: dict[str, str] = {}
+        for field_name in ("dependencies", "devDependencies", "peerDependencies"):
+            values = payload.get(field_name)
+            if not isinstance(values, dict):
+                continue
+            dependencies.update({
+                str(name): str(version)
+                for name, version in values.items()
+                if "atproto" in str(name).lower() or "bluesky" in str(name).lower()
+            })
+        scripts = payload.get("scripts") if isinstance(payload.get("scripts"), dict) else {}
+        hints.append({
+            "path": path,
+            "name": str(payload.get("name") or ""),
+            "description": str(payload.get("description") or "")[:1000],
+            "private": bool(payload.get("private")),
+            "scripts": sorted(str(name) for name in scripts)[:24],
+            "protocol_dependencies": dependencies,
+        })
+    return hints
+
+
 def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
     scored: list[tuple[int, str]] = []
     extensions = (".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".swift", ".kt", ".java")
@@ -6025,6 +6069,12 @@ def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
 
 def github_repo_implementation_role(tree: list[dict[str, Any]]) -> str:
     paths = {str(item.get("path") or "").lower() for item in tree}
+    if any(
+        segment in f"/{path}/"
+        for path in paths
+        for segment in ("/plugins/", "/plugin/", "/extensions/", "/extension/", "/webpackmodules/")
+    ):
+        return "plugin"
     if any(path.endswith(("dockerfile", "docker-compose.yml", "fly.toml")) or "/server/" in f"/{path}" for path in paths):
         return "service"
     if any(path.endswith(("package.json", "pyproject.toml", "cargo.toml", "go.mod")) for path in paths):
@@ -6046,12 +6096,19 @@ def repo_semantic_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) 
         write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
         read = any(token in lowered for token in ("getrecord", "listrecords", "query", "subscribe", "searchposts", "gettimeline"))
         for nsid in nsids:
+            match = re.search(re.escape(nsid), text)
+            excerpt = ""
+            if match:
+                start = max(0, text.rfind("\n", 0, match.start()) + 1)
+                end = text.find("\n", match.end())
+                excerpt = text[start:(end if end >= 0 else len(text))].strip()[:1200]
             hints.append({
                 "nsid": nsid,
                 "path": path,
                 "predicate": "uses_collection" if write or read else "mentions_collection",
                 "operation": "write" if write else "read" if read else "mention",
                 "implementation_role": role,
+                "excerpt": excerpt,
             })
     return hints[:60]
 
@@ -6544,6 +6601,7 @@ def collect_github_repo_evidence(
             repo_lexicon_hints=repo_lexicon_hints,
             extract_urls=extract_urls,
             repo_semantic_hints=repo_semantic_hints,
+            repo_manifest_hints=repo_manifest_hints,
         ),
         trust_only=trust_only,
     )
@@ -7217,6 +7275,9 @@ def build_llm_evidence_bundle(
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
+        "repository_analysis_results": repository_analysis_core.normalize_results(
+            project.get("repository_analysis_results", [])
+        )[:6],
         "candidate_source_code_urls": candidate_repo_urls[:2],
         "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
@@ -7245,6 +7306,14 @@ def profile_update_sources(evidence: Any) -> set[str]:
         normalized = repo_url_core.canonical_repo_url(str(value or ""))
         if normalized:
             sources.add(f"repository:{normalized}")
+    for item in evidence.get("repository_analysis_results", []):
+        if not isinstance(item, dict) or item.get("stale") or not str(item.get("summary") or "").strip():
+            continue
+        normalized = repo_url_core.canonical_repo_url(str(item.get("repo_url") or ""))
+        revision = str(item.get("revision") or "").strip()
+        if normalized and revision:
+            version = str(item.get("version") or "0")
+            sources.add(f"repository_analysis:v{version}:{normalized}@{revision}")
     for record in evidence.get("resource_url_records", []):
         if not isinstance(record, dict) or str(record.get("confidence") or "") != "confirmed":
             continue
@@ -7286,6 +7355,24 @@ def profile_has_new_strong_source(previous_evidence: Any, current_evidence: Any)
     previous_sources = profile_update_sources(previous_evidence)
     current_sources = profile_update_sources(current_evidence)
     return bool(current_sources - previous_sources)
+
+
+def reconcile_llm_category(category: str, evidence: Any) -> str:
+    normalized = str(category or "").strip()
+    if normalized != "library" or not isinstance(evidence, dict):
+        return normalized
+    artifact_kinds = {
+        str(item.get("artifact_kind") or "")
+        for item in evidence.get("repository_analysis_results", [])
+        if isinstance(item, dict) and not item.get("stale") and str(item.get("summary") or "").strip()
+    }
+    if artifact_kinds.intersection({"app", "service", "plugin", "tool"}):
+        return "project"
+    if "infrastructure" in artifact_kinds:
+        return "infra_tool"
+    if artifact_kinds == {"schema"}:
+        return "lexicon"
+    return normalized
 
 
 def load_triage_prompt_template() -> str:
@@ -7728,13 +7815,19 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
+    payload = dict(payload)
+    payload["category"] = reconcile_llm_category(str(payload.get("category") or ""), evidence)
     previous_llm_source = project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {}
     previous_evidence = previous_llm_source.get("evidence") if isinstance(previous_llm_source, dict) else {}
+    if previous_llm_source.get("editorial_source_policy_version") != EDITORIAL_SOURCE_POLICY_VERSION:
+        previous_evidence = dict(previous_evidence) if isinstance(previous_evidence, dict) else {}
+        previous_evidence.pop("repository_analysis_results", None)
     replace_machine_profile = profile_has_new_strong_source(previous_evidence, evidence)
     project["llm_output"] = payload
     project["llm_source"] = {
         **meta,
         "evidence": evidence,
+        "editorial_source_policy_version": EDITORIAL_SOURCE_POLICY_VERSION,
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
     apply_repository_link_assessments(project, payload, evidence)
@@ -9826,6 +9919,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["source_repo_records"] = project_record.normalize_source_repo_records(
         list(merged.get("source_repo_records", [])) + list(source.get("source_repo_records", []))
     )
+    merged["repository_analysis_results"] = repository_analysis_core.normalize_results(
+        list(merged.get("repository_analysis_results", []))
+        + list(source.get("repository_analysis_results", []))
+    )
     project_record.sync_source_repo_provider_views(merged)
 
     merged["bluesky_handles"] = project_record.unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))
@@ -10053,6 +10150,12 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_code_urls"] = repo_url_core.normalize_repo_collection(
         project_record.unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
     )
+    confirmed_repo_set = set(project["source_code_urls"])
+    project["repository_analysis_results"] = [
+        item
+        for item in repository_analysis_core.normalize_results(project.get("repository_analysis_results", []))
+        if item.get("repo_url") in confirmed_repo_set
+    ]
     project["candidate_source_code_urls"] = [
         url for url in repo_url_core.normalize_repo_collection(project_record.unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
         if url not in project.get("source_code_urls", [])

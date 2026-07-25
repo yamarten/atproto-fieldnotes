@@ -266,6 +266,7 @@ class GitHubRepoCollectorDependencies:
     extract_urls: Callable[[str], list[str]]
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     repo_semantic_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
+    repo_manifest_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
 
 
 @dataclass(frozen=True)
@@ -633,6 +634,24 @@ def collect_github_repo_evidence(
     semantic_hints = [] if trust_only else dependencies.repo_semantic_hints(
         repo_url, ref=default_branch, tree=repo_tree
     )
+    manifest_hints = [] if trust_only else dependencies.repo_manifest_hints(
+        repo_url, ref=default_branch, tree=repo_tree
+    )
+    known_nsids = {
+        str(item)
+        for item in list(project.get("input_nsids") or []) + list(project.get("resolved_nsids") or [])
+        if str(item)
+    }
+    cleaned_readme_excerpt = readme_excerpt(readme_text, limit=6000)
+    repo_description = str(repo.get("description") or "").strip()
+    source_evidence_needed = len(cleaned_readme_excerpt) < 800 or len(repo_description) < 80
+    analysis_source_evidence = [
+        item for item in semantic_hints
+        if source_evidence_needed and (
+            str(item.get("nsid") or "") in known_nsids
+            or str(item.get("nsid") or "").startswith(("com.atproto.", "app.bsky.", "chat.bsky."))
+        )
+    ][:8]
     readme_urls = dependencies.extract_urls(readme_text)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
@@ -651,6 +670,20 @@ def collect_github_repo_evidence(
                 "default_branch": default_branch,
                 "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
                 "semantic_hint_count": len(semantic_hints),
+                "source_evidence": [
+                    {
+                        "nsid": str(item.get("nsid") or ""),
+                        "path": str(item.get("path") or ""),
+                        "operation": str(item.get("operation") or ""),
+                        "implementation_role": str(item.get("implementation_role") or "unknown"),
+                        "excerpt": str(item.get("excerpt") or ""),
+                    }
+                    for item in analysis_source_evidence
+                    if item.get("excerpt")
+                ],
+                "manifest_hints": [dict(item) for item in manifest_hints[:4] if isinstance(item, dict)],
+                "revision": str(data.get("revision") or ""),
+                "readme_excerpt": cleaned_readme_excerpt,
                 "readme_urls": bounded_github_readme_urls(readme_urls),
                 "readme_url_count": len(readme_urls),
             },
@@ -750,6 +783,7 @@ def collect_tangled_repo_evidence(
                 "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
                 "readme_urls": dependencies.extract_urls(readme_text),
                 "readme_excerpt": readme_excerpt(readme_text),
+                "revision": str(data.get("revision") or ""),
             },
         ))
     normalized_repo_url = str(repo_url).rstrip("/")

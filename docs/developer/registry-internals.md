@@ -162,10 +162,11 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 1. seed由来の事実収集
 2. service / repo / lexicon の確認済み情報を更新
 3. lexicon repository単位で namespace 集約
-4. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
-5. evidence を project へ統合し、rule-based evaluation / finalize を実行
-6. local LLM による summary / category / status 補完
-7. 再度 finalize し、duplicate / merge / 昇格判定を更新
+4. confirmed repositoryの解析素材を収集し、revisionごとのrepository analysisを更新
+5. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
+6. evidence を project へ統合し、rule-based evaluation / finalize を実行
+7. local LLM による summary / category / status 補完
+8. 再度 finalize し、duplicate / merge / 昇格判定を更新
 
 ### 調査 pipeline の実装状況
 
@@ -186,6 +187,9 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - `project_registry_core/integration.py`
   - GitHub / Bluesky / service / Tangled / collector snapshot evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
+- `project_registry_core/repository_analysis.py`
+  - confirmed repositoryのmetadata、README、lexicon、限定的なsource抜粋をprovider共通の解析素材へ縮約する
+  - repository revision単位で解析結果を再利用し、triageへ渡すcurrent stateを管理する
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/storage.py` / `replay.py`
@@ -284,6 +288,12 @@ collector reliability と replay の設計途中の論点は
 [evidence-replay.md](../notes/evidence-replay.md) に分離しています。
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
+
+confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い、結果を`state_json.evidence.repository_analysis_results`へ保存します。candidate repositoryは相互trust確認の専用導線以外では内容を解析せず、confirm後に初めて対象にします。GitHubではmetadata、README、lexiconと、既知collectionまたは標準AT Protocol APIを含む行の限定的なsource抜粋を使います。Tangledは現行取得能力に合わせてmetadataとREADME中心で、`source_inspected=false`として保存します。
+
+同じrevisionの成功結果は再利用します。解析失敗時は直前の成功結果を`stale=true`で保持し、同じrevisionへの再試行を24時間抑制します。run evidenceには解析素材と使用した解析結果を残し、current stateには最新結果だけを残します。repository本文はuntrusted dataとして扱い、READMEやsource内の指示に従わないことを専用promptとtriage promptの両方で明示します。
+
+repository analysisが実装形態を`app` / `service` / `plugin` / `tool`と判定しているのにtriageが`library`を返した場合は、prompt違反として`project`へ補正します。`infrastructure`は`infra_tool`、解析対象が`schema`だけなら`lexicon`へ補正します。これはrepository配布というだけで実行物をlibraryへ寄せないcategory契約の決定的な検査です。
 
 `enrich --all` は既定で `tracking_state=active` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
@@ -860,7 +870,9 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
     - `GET /repos/{owner}/{repo}/readme`
     - `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
   - さらに lexicon hint を精査する時は `contents/<path>` を最大 16 件追加
-  - つまり 1 repo あたり概ね 3、最大で 19 request 程度です
+  - source semantic hintを精査する時は`contents/<path>`を最大12件追加
+  - root寄りの`package.json`から関連fieldを読む時は最大4件追加
+  - つまり 1 repo あたり概ね 3、最大で35 request程度です
 - service URL probe:
   - 1 URL あたり 1 request
   - same-site docs/blog など follow-up を最大 3 URL まで追加
@@ -879,8 +891,9 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
     - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、
       operatorが設定したtrusted local commandだけを使います
-  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POST
+  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - investigation plan
+    - repository analysis（revision一致の保存済み結果があれば省略）
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します

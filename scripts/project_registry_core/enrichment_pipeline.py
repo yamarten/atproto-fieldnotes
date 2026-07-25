@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from project_registry_core import EvidenceBundle
+from project_registry_core import CollectorResult, EvidenceBundle
 from project_registry_core import storage as investigation_storage
 from project_registry_core import relations as relation_core
 from project_registry_core import collector_adapters as collector_adapter_core
@@ -16,6 +16,7 @@ from project_registry_core import runtime_view
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import repository_analysis as repository_analysis_core
 
 from project_registry_core.registry import (
     ENRICH_IO_MAX_WORKERS,
@@ -140,6 +141,7 @@ def enrich_project(
     initial_repo_urls = unique_list(source_code_url_values(project))
     collected_github_repo_urls: set[str] = set()
     collected_tangled_repo_urls: set[str] = set()
+    collected_repo_evidence: dict[str, EvidenceBundle] = {}
     trust_inspected_repo_urls: set[str] = set()
     for repo_url in initial_repo_urls:
         if repo_url_core.extract_github_slug(repo_url) is not None:
@@ -150,6 +152,7 @@ def enrich_project(
                 repo_evidence = collect_github_repo_evidence(project, repo_url)
                 apply_github_repo_evidence(project, repo_evidence)
                 run_evidence.extend(repo_evidence)
+                collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
             except Exception as exc:
                 note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
                 run_evidence.extend(failed_collector_bundle(
@@ -161,6 +164,7 @@ def enrich_project(
                 repo_evidence = collect_tangled_repo_evidence(project, repo_url)
                 apply_tangled_evidence(project, repo_evidence)
                 run_evidence.extend(repo_evidence)
+                collected_repo_evidence[normalized_tangled_repo_url] = repo_evidence
             except Exception as exc:
                 note_failure(project, f"tangled repo enrichment failed for {repo_url}: {exc}")
                 run_evidence.extend(failed_collector_bundle(
@@ -285,6 +289,7 @@ def enrich_project(
                 repo_evidence = collect_tangled_repo_evidence(project, repo_url)
                 apply_tangled_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
+            collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
         except Exception as exc:
             note_failure(project, f"candidate repository trust inspection failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
@@ -301,6 +306,7 @@ def enrich_project(
             repo_evidence = collect_github_repo_evidence(project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
+            collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
         except Exception as exc:
             note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
@@ -316,10 +322,60 @@ def enrich_project(
             repo_evidence = collect_tangled_repo_evidence(project, repo_url)
             apply_tangled_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
+            collected_repo_evidence[repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url] = repo_evidence
         except Exception as exc:
             note_failure(project, f"tangled secondary enrichment failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
                 project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
+            ))
+
+    for repo_url, repo_evidence in collected_repo_evidence.items():
+        observed_at = iso_now()
+        material = repository_analysis_core.build_material(repo_url, repo_evidence)
+        run_evidence.add_record(repository_analysis_core.material_record(material, observed_at))
+        cached = repository_analysis_core.cached_result(project, material)
+        if cached is not None:
+            run_evidence.add_record(repository_analysis_core.evidence_record(
+                material, cached, observed_at, cache_hit=True,
+            ))
+            run_evidence.add_collector_result(CollectorResult(
+                source="repository_analysis", operation="analyze", status="skipped",
+                observed_at=observed_at, request_count=0, result_count=1,
+            ))
+            continue
+        if repository_analysis_core.retry_deferred(project, material, observed_at):
+            run_evidence.add_collector_result(CollectorResult(
+                source="repository_analysis", operation="analyze", status="skipped",
+                observed_at=observed_at, request_count=0, result_count=0,
+            ))
+            continue
+        try:
+            payload, meta = llm_transport.run_llm_with_metrics(
+                repository_analysis_core.build_prompt(project, material),
+                purpose="repository_analysis",
+                requests=llm_requests,
+                llm_endpoint=llm_endpoint,
+                llm_model=llm_model,
+                llm_api_key=llm_api_key,
+                llm_reasoning_effort=llm_reasoning_effort,
+                llm_api_style=llm_api_style,
+            )
+            result = repository_analysis_core.normalize_result(material, payload, meta, observed_at)
+            repository_analysis_core.store_result(project, result)
+            run_evidence.add_record(repository_analysis_core.evidence_record(
+                material, result, observed_at, cache_hit=False,
+            ))
+            run_evidence.add_collector_result(CollectorResult(
+                source="repository_analysis", operation="analyze", status="success",
+                observed_at=observed_at, request_count=1, result_count=1,
+            ))
+        except Exception as exc:
+            category = llm_transport.classify_llm_request_error(exc)
+            repository_analysis_core.mark_failure(project, material, observed_at, category)
+            note_failure(project, f"repository analysis failed for {repo_url}: {category}")
+            run_evidence.add_collector_result(CollectorResult(
+                source="repository_analysis", operation="analyze", status="failed",
+                observed_at=observed_at, request_count=1, result_count=0,
             ))
 
     if deep_investigation:

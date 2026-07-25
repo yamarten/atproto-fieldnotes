@@ -202,7 +202,7 @@ def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
         if key in RUN_PHASE_NAMES
     }
     requests: list[dict[str, Any]] = []
-    for item in list(value.get("llm_requests") or [])[:4]:
+    for item in list(value.get("llm_requests") or [])[:16]:
         if not isinstance(item, dict):
             continue
         requests.append({key: item[key] for key in LLM_REQUEST_FIELDS if key in item})
