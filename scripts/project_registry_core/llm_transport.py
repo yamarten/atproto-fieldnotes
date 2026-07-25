@@ -228,6 +228,7 @@ def run_llm_with_metrics(
     *,
     purpose: str,
     requests: list[dict[str, Any]],
+    prompt_version: str | None = None,
     **kwargs: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     started = time.perf_counter()
@@ -242,6 +243,8 @@ def run_llm_with_metrics(
     }
     try:
         payload, meta = run_local_llm(prompt, **kwargs)
+        if prompt_version:
+            meta = {**meta, "prompt_version": prompt_version}
         request_metrics.update({
             "status": "success",
             "error_category": "",

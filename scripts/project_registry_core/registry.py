@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 import datetime as dt
 import json
 import os
 import re
 import shlex
+import socket
 import sqlite3
 import sys
 import time
 import urllib.error
 import urllib.parse
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from html import unescape
 from html.parser import HTMLParser
@@ -44,6 +43,9 @@ from project_registry_core import http_transport
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import repository_analysis as repository_analysis_core
+from project_registry_core import repository_material as repository_material_core
+from project_registry_core import repository_sources as repository_source_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 
@@ -64,6 +66,7 @@ REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
+EDITORIAL_SOURCE_POLICY_VERSION = 3
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
@@ -72,8 +75,6 @@ UFOS_API = "https://ufos-api.microcosm.blue"
 SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
-_GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
-_TANGLED_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
 SEMBLE_TRACKED_COLLECTIONS = (
@@ -242,11 +243,15 @@ def authority_probe_all_urls(chains: list[list[str]]) -> list[str]:
     return project_record.unique_list([url for chain in chains for url in chain])
 
 
-def authority_probe_result_allows_parent_fallback(result: dict[str, Any] | None) -> bool:
+def authority_probe_parent_fallback_reason(result: dict[str, Any] | None) -> str:
     if not isinstance(result, dict):
-        return False
+        return ""
     status_code = int(result.get("status_code") or 0)
-    return 400 <= status_code < 500
+    if 400 <= status_code < 500:
+        return "http_4xx"
+    if str(result.get("fetch_error") or "") == "dns_failed":
+        return "dns_failed"
+    return ""
 
 
 def authority_probe_result_is_success(result: dict[str, Any] | None) -> bool:
@@ -269,9 +274,13 @@ def select_authority_probe_urls(
                 if index > 0 and previous_result is not None:
                     result["authority_fallback_from"] = chain[index - 1]
                     result["authority_fallback_status_code"] = int(previous_result.get("status_code") or 0)
+                    fallback_fetch_error = str(previous_result.get("fetch_error") or "")
+                    if fallback_fetch_error:
+                        result["authority_fallback_fetch_error"] = fallback_fetch_error
                 selected.add(url)
                 break
-            if not authority_probe_result_allows_parent_fallback(result):
+            fallback_reason = authority_probe_parent_fallback_reason(result)
+            if not fallback_reason:
                 break
             previous_result = result
     return selected
@@ -4556,7 +4565,23 @@ def classify_service_probe_error(exc: Exception) -> str:
     if isinstance(exc, urllib.error.URLError):
         reason = exc.reason
     lowered = str(reason or "").lower()
-    if "name or service not known" in lowered or "nodename nor servname provided" in lowered or "temporary failure in name resolution" in lowered:
+    if isinstance(reason, socket.gaierror):
+        if reason.errno == getattr(socket, "EAI_AGAIN", None):
+            return "dns_temporary_failure"
+        permanent_dns_errors = {
+            value
+            for value in (getattr(socket, "EAI_NONAME", None), getattr(socket, "EAI_NODATA", None))
+            if value is not None
+        }
+        if reason.errno in permanent_dns_errors:
+            return "dns_failed"
+    if "temporary failure in name resolution" in lowered:
+        return "dns_temporary_failure"
+    if (
+        "name or service not known" in lowered
+        or "nodename nor servname provided" in lowered
+        or "no address associated with hostname" in lowered
+    ):
         return "dns_failed"
     if "tls" in lowered or "ssl" in lowered or "certificate" in lowered:
         return "tls_failed"
@@ -4601,7 +4626,7 @@ def service_probe_redirect_metadata(requested_url: str, final_url: str) -> dict[
 def service_probe_canonical_url(requested_url: str, result: dict[str, Any]) -> str:
     requested = identifier_core.normalize_url(requested_url)
     final = identifier_core.normalize_url(str(result.get("final_url") or ""))
-    if result.get("redirect_http_to_https") and final:
+    if (result.get("redirect_http_to_https") or result.get("redirect_same_site_family")) and final:
         return final
     return requested
 
@@ -5282,7 +5307,13 @@ def authority_service_probe_is_parent_fallback(project: dict[str, Any], service_
     normalized = identifier_core.normalize_url(service_url)
     fallback_from = identifier_core.normalize_url(str(result.get("authority_fallback_from") or ""))
     fallback_status_code = int(result.get("authority_fallback_status_code") or 0)
-    if not normalized or not fallback_from or not (400 <= fallback_status_code < 500):
+    if not normalized or not fallback_from:
+        return False
+    fallback_result = {
+        "status_code": fallback_status_code,
+        "fetch_error": str(result.get("authority_fallback_fetch_error") or ""),
+    }
+    if not authority_probe_parent_fallback_reason(fallback_result):
         return False
     for authority_domain in project.get("authority_domains", []):
         authority = str(authority_domain or "").strip().lower().rstrip(".")
@@ -5300,6 +5331,9 @@ def authority_service_probe_is_parent_fallback(project: dict[str, Any], service_
 def authority_service_probe_candidate_allowed(project: dict[str, Any], service_url: str, result: dict[str, Any]) -> bool:
     normalized = project_record.normalize_service_candidate_url(service_url)
     if not normalized or service_url_is_guarded(project, normalized):
+        return False
+    redirect_final = project_record.normalize_service_candidate_url(str(result.get("final_url") or ""))
+    if result.get("redirect_same_site_family") and redirect_final and redirect_final != normalized:
         return False
     status_code = int(result.get("status_code") or 0)
     if not (0 < status_code < 400):
@@ -5396,7 +5430,9 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
             eligible_for_auto_confirm=True,
             observed_at=project_record.iso_now(),
         )
-        confirm_service_url_with_trust(project, final_url)
+        if not confirm_service_url_with_trust(project, final_url):
+            add_candidate_url(project, "service_url", final_url)
+            add_candidate_url(project, "website_url", final_url)
         return
     add_candidate_url(project, "service_url", final_url)
     add_candidate_url(project, "website_url", final_url)
@@ -5664,174 +5700,6 @@ def collect_first_party_links(
     return project_record.unique_list(follow_up_urls)
 
 
-def fetch_github_repo(repo_url: str) -> dict[str, Any]:
-    cached = _GITHUB_REPO_FETCH_CACHE.get(repo_url)
-    if isinstance(cached, dict):
-        return copy.deepcopy(cached)
-    slug = repo_url_core.extract_github_slug(repo_url)
-    if slug is None:
-        raise ValueError(f"not a GitHub repo URL: {repo_url}")
-    headers = github_headers()
-    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}", headers=headers)
-    readme_text = ""
-    try:
-        readme_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/readme", headers=headers)
-        content = readme_payload.get("content", "")
-        if content:
-            readme_text = base64.b64decode(content).decode("utf-8", errors="replace")
-    except Exception:
-        readme_text = ""
-    repo_tree: list[dict[str, Any]] = []
-    default_branch = str(payload.get("default_branch") or "")
-    if default_branch:
-        try:
-            branch_ref = urllib.parse.quote(default_branch, safe="")
-            tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
-            tree = tree_payload.get("tree", [])
-            if isinstance(tree, list):
-                repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
-        except Exception:
-            repo_tree = []
-    result = {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch}
-    _GITHUB_REPO_FETCH_CACHE.set(repo_url, copy.deepcopy(result), ttl=300)
-    return result
-
-
-def decode_http_text(body: bytes, headers: dict[str, str]) -> str:
-    charset = "utf-8"
-    content_type = headers.get("content-type", "")
-    charset_match = re.search(r"charset=([A-Za-z0-9_-]+)", content_type)
-    if charset_match:
-        charset = charset_match.group(1)
-    return body.decode(charset, errors="replace")
-
-
-def tangled_repo_segments(repo_url: str) -> tuple[str, str]:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    parsed = urllib.parse.urlparse(normalized)
-    segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
-    if len(segments) < 2:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    return segments[0], segments[1]
-
-
-def extract_tangled_default_branch(html: str) -> str:
-    title_match = re.search(r"<title>.*?\sat\s+([^<·]+)\s+&middot;\s+Tangled</title>", html, flags=re.I | re.S)
-    if title_match:
-        branch = unescape(title_match.group(1)).strip()
-        if branch:
-            return branch
-    href_match = re.search(r"/(?:[^/]+)/(?:[^/]+)/(?:tree|blob)/([^/\"?#]+)", html)
-    if href_match:
-        return urllib.parse.unquote(href_match.group(1))
-    return "main"
-
-
-def extract_tangled_repo_description(html: str) -> str:
-    patterns = [
-        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']',
-        r'<meta[^>]+name=["\']twitter:description["\'][^>]+content=["\'](.*?)["\']',
-        r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
-        if match:
-            return unescape(re.sub(r"\s+", " ", match.group(1)).strip())
-    return ""
-
-
-def extract_tangled_repo_tree(repo_url: str, html: str) -> list[dict[str, Any]]:
-    owner, repo = tangled_repo_segments(repo_url)
-    parser = HrefHTMLParser()
-    try:
-        parser.feed(html)
-    except Exception:
-        return []
-    output: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    base = repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url
-    for href in parser.hrefs:
-        parsed = urllib.parse.urlparse(urllib.parse.urljoin(base.rstrip("/") + "/", href))
-        segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
-        if len(segments) < 5 or segments[0] != owner or segments[1] != repo:
-            continue
-        kind = segments[2]
-        if kind not in {"blob", "tree"}:
-            continue
-        path = "/".join(segments[4:]).strip("/")
-        if not path:
-            continue
-        item_type = "blob" if kind == "blob" else "tree"
-        key = (item_type, path)
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append({"path": path, "type": item_type, "size": 0})
-    return output
-
-
-def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> str:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        return ""
-    owner, repo = tangled_repo_segments(normalized)
-    normalized_path = str(path or "").strip().lstrip("/")
-    if not normalized_path:
-        return ""
-    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    raw_url = (
-        f"https://tangled.org/{urllib.parse.quote(owner, safe='._:-')}/"
-        f"{urllib.parse.quote(repo, safe='._-')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
-    )
-    try:
-        _status, body, headers = http_transport.request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
-        return decode_http_text(body, headers)
-    except Exception:
-        return ""
-
-
-def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    cached = _TANGLED_REPO_FETCH_CACHE.get(normalized)
-    if isinstance(cached, dict):
-        return copy.deepcopy(cached)
-    status, body, headers, final_url = http_transport.request_bytes_with_final_url(normalized, timeout=REQUEST_TIMEOUT_DEFAULT)
-    html = decode_http_text(body, headers) if status < 400 else ""
-    owner, repo = tangled_repo_segments(normalized)
-    default_branch = extract_tangled_default_branch(html)
-    tree = extract_tangled_repo_tree(normalized, html)
-    readme_candidates = [
-        str(item.get("path") or "")
-        for item in tree
-        if str(item.get("path") or "").lower().rsplit("/", 1)[-1] in {"readme.md", "readme"}
-    ]
-    readme_candidates.extend(["README.md", "README", "readme.md"])
-    readme_text = ""
-    for path in project_record.unique_list([path for path in readme_candidates if path]):
-        readme_text = tangled_repo_file_text(normalized, path, ref=default_branch)
-        if readme_text:
-            break
-    result = {
-        "repo": {
-            "full_name": f"{owner}/{repo}",
-            "name": repo,
-            "owner": owner,
-            "description": extract_tangled_repo_description(html),
-            "html_url": normalized,
-            "final_url": final_url,
-        },
-        "readme_text": readme_text,
-        "tree": tree,
-        "default_branch": default_branch,
-    }
-    _TANGLED_REPO_FETCH_CACHE.set(normalized, copy.deepcopy(result), ttl=300)
-    return result
-
-
 def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
     cached = _GITHUB_REPO_SEARCH_CACHE.get(repr(cache_key))
@@ -5874,150 +5742,6 @@ def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_T
             }
         )
     return results
-
-
-def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
-    slug = repo_url_core.extract_github_slug(repo_url)
-    if slug is None:
-        return ""
-    normalized_path = str(path or "").strip().lstrip("/")
-    if not normalized_path:
-        return ""
-    headers = github_headers()
-    query = f"?{urllib.parse.urlencode({'ref': ref})}" if ref else ""
-    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=headers)
-    content = str(payload.get("content") or "")
-    if not content:
-        return ""
-    try:
-        return base64.b64decode(content).decode("utf-8", errors="replace")
-    except Exception:
-        return ""
-
-
-def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]:
-    scored: list[tuple[int, str]] = []
-    for item in tree:
-        if str(item.get("type") or "") != "blob":
-            continue
-        path = str(item.get("path") or "").strip()
-        lowered = path.lower()
-        if not path or not lowered.endswith(".json"):
-            continue
-        if int(item.get("size") or 0) > 200_000:
-            continue
-        score = 0
-        if "/lexicon/" in f"/{lowered}/" or "/lexicons/" in f"/{lowered}/":
-            score += 5
-        if "/schema/" in f"/{lowered}/" or "/schemas/" in f"/{lowered}/":
-            score += 2
-        if any(token in lowered for token in (".lexicon.json", "lexicon.", "/lexicon", "/lexicons")):
-            score += 3
-        if lowered.count(".") >= 3:
-            score += 1
-        if score <= 0:
-            continue
-        scored.append((score, path))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return project_record.unique_list([path for _, path in scored[:16]])
-
-
-def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) -> bool:
-    lowered = str(path or "").lower()
-    nsid = identifier_core.normalize_nsid(nsid)
-    if not nsid or not re.fullmatch(project_record.LOOSE_NSID_PATTERN, nsid):
-        return False
-    if isinstance(payload.get("lexicon"), int) and isinstance(payload.get("defs"), dict):
-        return True
-    if isinstance(payload.get("defs"), dict) and ("/lexicon" in lowered or "/lexicons" in lowered):
-        return True
-    basename = lowered.rsplit("/", 1)[-1]
-    nsid_tail = nsid.split(".")[-1].lower()
-    nsid_pathish = nsid.lower().replace(".", "/")
-    if basename.endswith(f"{nsid_tail}.json"):
-        return True
-    if nsid.lower().replace(".", ".") in basename:
-        return True
-    if nsid_pathish.replace("/", ".") in lowered.replace("/", "."):
-        return True
-    return False
-
-
-def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    hints: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for path in github_repo_candidate_lexicon_paths(tree):
-        text = github_repo_file_text(repo_url, path, ref=ref)
-        if not text:
-            continue
-        try:
-            payload = json.loads(text)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        nsid = identifier_core.normalize_nsid(str(payload.get("id") or ""))
-        if not repo_json_looks_like_lexicon(path, payload, nsid):
-            continue
-        if nsid in seen:
-            continue
-        seen.add(nsid)
-        hints.append({"nsid": nsid, "path": path, "schema": payload})
-    return hints
-
-
-def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
-    scored: list[tuple[int, str]] = []
-    extensions = (".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".swift", ".kt", ".java")
-    for item in tree:
-        if str(item.get("type") or "") != "blob":
-            continue
-        path = str(item.get("path") or "")
-        lowered = path.lower()
-        if not lowered.endswith(extensions) or int(item.get("size") or 0) > 120_000:
-            continue
-        score = 3 if any(segment in f"/{lowered}" for segment in ("/src/", "/app/", "/server/", "/packages/")) else 0
-        if any(segment in f"/{lowered}" for segment in ("/vendor/", "/node_modules/", "/generated/")):
-            score -= 10
-        if any(segment in f"/{lowered}" for segment in ("/test/", "/tests/", "/fixtures/", "/examples/")):
-            score -= 2
-        scored.append((score, path))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [path for score, path in scored if score > -10][:12]
-
-
-def github_repo_implementation_role(tree: list[dict[str, Any]]) -> str:
-    paths = {str(item.get("path") or "").lower() for item in tree}
-    if any(path.endswith(("dockerfile", "docker-compose.yml", "fly.toml")) or "/server/" in f"/{path}" for path in paths):
-        return "service"
-    if any(path.endswith(("package.json", "pyproject.toml", "cargo.toml", "go.mod")) for path in paths):
-        return "package_or_library"
-    return "unknown"
-
-
-def repo_semantic_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    hints: list[dict[str, Any]] = []
-    role = github_repo_implementation_role(tree)
-    for path in github_repo_semantic_paths(tree):
-        text = github_repo_file_text(repo_url, path, ref=ref)
-        if not text:
-            continue
-        nsids = project_record.unique_list([identifier_core.normalize_nsid(item) for item in re.findall(project_record.LOOSE_NSID_PATTERN, text) if identifier_core.normalize_nsid(item)])[:20]
-        if not nsids:
-            continue
-        lowered = text.lower()
-        write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
-        read = any(token in lowered for token in ("getrecord", "listrecords", "query", "subscribe", "searchposts", "gettimeline"))
-        for nsid in nsids:
-            hints.append({
-                "nsid": nsid,
-                "path": path,
-                "predicate": "uses_collection" if write or read else "mentions_collection",
-                "operation": "write" if write else "read" if read else "mention",
-                "implementation_role": role,
-            })
-    return hints[:60]
 
 
 def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
@@ -6499,15 +6223,48 @@ def collect_github_repo_evidence(
     *,
     trust_only: bool = False,
 ) -> EvidenceBundle:
-    return investigation_core.collect_github_repo_evidence(
+    return investigation_core.collect_repository_evidence(
         project,
         repo_url,
-        investigation_core.GitHubRepoCollectorDependencies(
+        investigation_core.RepositoryCollectorDependencies(
             now=project_record.iso_now,
-            fetch_github_repo=fetch_github_repo,
-            repo_lexicon_hints=repo_lexicon_hints,
+            fetch_repo=repository_source_core.fetch_github_repo,
+            repo_lexicon_hints=repository_material_core.repo_lexicon_hints,
             extract_urls=extract_urls,
-            repo_semantic_hints=repo_semantic_hints,
+            repo_semantic_hints=repository_material_core.repo_semantic_hints,
+            repo_manifest_hints=repository_material_core.repo_manifest_hints,
+            repo_configuration_hints=repository_material_core.repo_configuration_hints,
+        ),
+        trust_only=trust_only,
+    )
+
+
+def collect_codeberg_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    *,
+    trust_only: bool = False,
+) -> EvidenceBundle:
+    return investigation_core.collect_repository_evidence(
+        project,
+        repo_url,
+        investigation_core.RepositoryCollectorDependencies(
+            now=project_record.iso_now,
+            fetch_repo=repository_source_core.fetch_codeberg_repo,
+            repo_lexicon_hints=lambda url, **kwargs: repository_material_core.repo_lexicon_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
+            ),
+            extract_urls=extract_urls,
+            repo_semantic_hints=lambda url, **kwargs: repository_material_core.repo_semantic_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
+            ),
+            repo_manifest_hints=lambda url, **kwargs: repository_material_core.repo_manifest_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
+            ),
+            repo_configuration_hints=lambda url, **kwargs: repository_material_core.repo_configuration_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
+            ),
+            provider="codeberg",
         ),
         trust_only=trust_only,
     )
@@ -6524,7 +6281,7 @@ def collect_tangled_repo_evidence(
         repo_url,
         investigation_core.TangledRepoCollectorDependencies(
             now=project_record.iso_now,
-            fetch_tangled_repo=fetch_tangled_repo,
+            fetch_tangled_repo=repository_source_core.fetch_tangled_repo,
             extract_urls=extract_urls,
         ),
         trust_only=trust_only,
@@ -7181,6 +6938,7 @@ def build_llm_evidence_bundle(
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
+        "repository_analysis_results": repository_analysis_core.select_for_triage(project),
         "candidate_source_code_urls": candidate_repo_urls[:2],
         "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
@@ -7211,6 +6969,14 @@ def profile_update_sources(evidence: Any) -> set[str]:
         normalized = repo_url_core.canonical_repo_url(str(value or ""))
         if normalized:
             sources.add(f"repository:{normalized}")
+    for item in evidence.get("repository_analysis_results", []):
+        if not isinstance(item, dict) or item.get("stale") or not str(item.get("summary") or "").strip():
+            continue
+        normalized = repo_url_core.canonical_repo_url(str(item.get("repo_url") or ""))
+        revision = str(item.get("source_revision") or item.get("revision") or item.get("material_hash") or "").strip()
+        if normalized and revision:
+            policy_version = str(item.get("policy_version") or f"v{item.get('version') or '0'}")
+            sources.add(f"repository_analysis:{policy_version}:{normalized}@{revision}")
     for record in evidence.get("resource_url_records", []):
         if not isinstance(record, dict) or str(record.get("confidence") or "") != "confirmed":
             continue
@@ -7698,13 +7464,18 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
+    payload = dict(payload)
     previous_llm_source = project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {}
     previous_evidence = previous_llm_source.get("evidence") if isinstance(previous_llm_source, dict) else {}
+    if previous_llm_source.get("editorial_source_policy_version") != EDITORIAL_SOURCE_POLICY_VERSION:
+        previous_evidence = dict(previous_evidence) if isinstance(previous_evidence, dict) else {}
+        previous_evidence.pop("repository_analysis_results", None)
     replace_machine_profile = profile_has_new_strong_source(previous_evidence, evidence)
     project["llm_output"] = payload
     project["llm_source"] = {
         **meta,
         "evidence": evidence,
+        "editorial_source_policy_version": EDITORIAL_SOURCE_POLICY_VERSION,
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
     apply_repository_link_assessments(project, payload, evidence)
@@ -9805,6 +9576,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["source_repo_records"] = project_record.normalize_source_repo_records(
         list(merged.get("source_repo_records", [])) + list(source.get("source_repo_records", []))
     )
+    merged["repository_analysis_results"] = repository_analysis_core.normalize_results(
+        list(merged.get("repository_analysis_results", []))
+        + list(source.get("repository_analysis_results", []))
+    )
     project_record.sync_source_repo_provider_views(merged)
 
     merged["bluesky_handles"] = project_record.unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))
@@ -10033,6 +9808,12 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_code_urls"] = repo_url_core.normalize_repo_collection(
         project_record.unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
     )
+    confirmed_repo_set = set(project["source_code_urls"])
+    project["repository_analysis_results"] = [
+        item
+        for item in repository_analysis_core.normalize_results(project.get("repository_analysis_results", []))
+        if item.get("repo_url") in confirmed_repo_set
+    ]
     project["candidate_source_code_urls"] = [
         url for url in repo_url_core.normalize_repo_collection(project_record.unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
         if url not in project.get("source_code_urls", [])

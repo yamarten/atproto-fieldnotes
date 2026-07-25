@@ -19,6 +19,7 @@ from project_registry_core import evaluation as evaluation_core
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import relations as relation_core
 from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import repository_analysis as repository_analysis_core
 from project_registry_core import runtime_view
 from project_registry_core import storage as investigation_storage
 from project_registry_core import trust_graph as trust_graph_core
@@ -178,6 +179,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "bluesky_handles",
         "tangled_handles",
         "source_repo_records",
+        "repository_analysis_results",
         "llm_source",
         "llm_output",
         "classification_reason",
@@ -718,6 +720,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "source_code_urls": [],
         "candidate_source_code_urls": [],
         "source_repo_records": [],
+        "repository_analysis_results": [],
         "bluesky_handles": [],
         "tangled_handles": [],
         "developer_accounts": [],
@@ -1030,6 +1033,9 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         defaults["source_code_urls"] = [defaults["source_code_url"], *defaults["source_code_urls"]]
     defaults["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
+    defaults["repository_analysis_results"] = repository_analysis_core.normalize_results(
+        defaults.get("repository_analysis_results", [])
+    )
     sync_source_repo_provider_views(defaults)
     set_service_url_candidate_values(defaults, service_url_candidate_values(defaults))
     defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
@@ -1514,6 +1520,9 @@ def save_project(
     project["source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
     project["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
+    project["repository_analysis_results"] = repository_analysis_core.normalize_results(
+        project.get("repository_analysis_results", [])
+    )
     sync_source_repo_provider_views(project)
     project["bluesky_handles"] = unique_list(project.get("bluesky_handles", []))
     project["tangled_handles"] = unique_list(project.get("tangled_handles", []))

@@ -11,7 +11,8 @@ Gemma 4 26B A4B MLXは、現在のQwen 3.6 35B A3Bより約30%遅い一方、JSO
 結果でした。
 
 GemmaはQwenを直ちに置き換えるほど圧倒的ではありませんが、正本DBの少数projectで試す価値があります。
-正本DBでの試用と既定modelの変更は未実施です。Qwenは通常運用の既定modelのままです。
+正本DBでの試用と既定modelの変更は未実施です。Qwenは通常運用の既定modelのままです。比較後に通常`enrich`へ
+repository analysisが追加されたため、その処理と変更後のtriage promptを再確認してから試用対象を確定します。
 
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
@@ -29,6 +30,11 @@ runtimeはLM Studio 0.4.20+1、Chat Completions、最大出力2,048 token、reas
 API応答の`reasoning_tokens=0`を確認しました。LM Studioが返したload configはQwen context 183,296、Gemma
 226,304、いずれもparallel 4で、要求した32,768は反映されませんでした。今回のpromptは実際のcontextより十分
 小さいものの、contextまで同一の比較ではありません。
+
+この比較の固定corpusと複製DB実行は、project-level triageを主な対象とし、repository analysis追加前に行いました。
+2026-07-26にmasterを取り込み、confirmed repositoryのbounded materialを別のLLM requestで解析してから、その
+保存結果をtriageへ渡すようになりました。既存のschema・identifier・category・速度の比較値はtriageの観測として
+残しますが、repository analysisの出力品質と追加時間、および変更後promptでの最終保存結果は未測定です。
 
 ## 評価前に直したこと
 
@@ -182,7 +188,8 @@ Qwen 3.5 9Bのpackageは約6 GBですがfootprintは未測定です。低優先�
 
 未完了:
 
-- masterのGitHub evidence取得変更を取り込み、比較条件への影響を確認する
+- 同じrepository materialをQwenとGemmaへ渡し、schema、根拠位置、観測、capability、collection、時間を比較する
+- repository analysis結果を含む現行triage promptで、固定caseの安全検査とcategoryを再確認する
 - 試用対象を、既知の保存確認用projectとmodel調整に使っていないprojectへ分けて選び直す
 - 正本DBでGemmaを少数projectへ適用する
 - peak memory、swap、prefill、decodeをrunnerから自動記録する

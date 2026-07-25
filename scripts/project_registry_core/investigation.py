@@ -40,10 +40,11 @@ def compact_github_repo_snapshot(repo: dict[str, Any]) -> dict[str, Any]:
         "name": str(repo.get("name") or ""),
         "full_name": str(repo.get("full_name") or ""),
         "description": str(repo.get("description") or ""),
-        "homepage": str(repo.get("homepage") or ""),
+        "homepage": str(repo.get("homepage") or repo.get("website") or ""),
         "html_url": str(repo.get("html_url") or ""),
         "updated_at": str(repo.get("updated_at") or ""),
         "fork": bool(repo.get("fork")),
+        "is_template": bool(repo.get("is_template")),
         "parent": {
             "html_url": str(parent.get("html_url") or ""),
             "full_name": str(parent.get("full_name") or ""),
@@ -259,13 +260,16 @@ class SearchCollectorDependencies:
 
 
 @dataclass(frozen=True)
-class GitHubRepoCollectorDependencies:
+class RepositoryCollectorDependencies:
     now: Callable[[], str]
-    fetch_github_repo: Callable[[str], dict[str, Any]]
+    fetch_repo: Callable[[str], dict[str, Any]]
     repo_lexicon_hints: Callable[..., list[dict[str, Any]]]
     extract_urls: Callable[[str], list[str]]
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     repo_semantic_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
+    repo_manifest_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
+    repo_configuration_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
+    provider: str = "github"
 
 
 @dataclass(frozen=True)
@@ -610,29 +614,51 @@ def collect_investigation_evidence(
     return bundle
 
 
-def collect_github_repo_evidence(
+def collect_repository_evidence(
     project: dict[str, Any],
     repo_url: str,
-    dependencies: GitHubRepoCollectorDependencies,
+    dependencies: RepositoryCollectorDependencies,
     *,
     trust_only: bool = False,
 ) -> EvidenceBundle:
     data, _attempts = run_with_retry(
-        lambda: dependencies.fetch_github_repo(repo_url),
+        lambda: dependencies.fetch_repo(repo_url),
         policy=dependencies.retry_policy,
     )
     repo = dict(data["repo"])
     readme_text = str(data.get("readme_text") or "")
     repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
     default_branch = str(data.get("default_branch") or "")
+    inspection_ref = str(data.get("revision") or default_branch)
+    cleaned_readme_excerpt = readme_excerpt(readme_text, limit=6000)
+    repo_description = str(repo.get("description") or "").strip()
+    source_evidence_needed = len(cleaned_readme_excerpt) < 800 and len(repo_description) < 80
     repo_lexicons = [] if trust_only else dependencies.repo_lexicon_hints(
         repo_url,
-        ref=default_branch,
+        ref=inspection_ref,
         tree=repo_tree,
     )
-    semantic_hints = [] if trust_only else dependencies.repo_semantic_hints(
-        repo_url, ref=default_branch, tree=repo_tree
+    semantic_hints = [] if trust_only or not source_evidence_needed else dependencies.repo_semantic_hints(
+        repo_url, ref=inspection_ref, tree=repo_tree
     )
+    manifest_hints = [] if trust_only else dependencies.repo_manifest_hints(
+        repo_url, ref=inspection_ref, tree=repo_tree
+    )
+    configuration_hints = [] if trust_only else dependencies.repo_configuration_hints(
+        repo_url, ref=inspection_ref, tree=repo_tree
+    )
+    known_nsids = {
+        str(item)
+        for item in list(project.get("input_nsids") or []) + list(project.get("resolved_nsids") or [])
+        if str(item)
+    }
+    analysis_source_evidence = [
+        item for item in semantic_hints
+        if source_evidence_needed and (
+            str(item.get("nsid") or "") in known_nsids
+            or str(item.get("nsid") or "").startswith(("com.atproto.", "app.bsky.", "chat.bsky."))
+        )
+    ][:8]
     readme_urls = dependencies.extract_urls(readme_text)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
@@ -640,17 +666,42 @@ def collect_github_repo_evidence(
         collected_at=observed_at,
     )
     if not trust_only:
+        provider = str(dependencies.provider or "github")
         bundle.add_record(evidence_record(
-            kind="github_repo_snapshot",
-            source=f"github_repo:{repo_url}",
+            kind="github_repo_snapshot" if provider == "github" else f"{provider}_repo_snapshot",
+            source=f"{provider}_repo:{repo_url}",
             classification="confirmed",
             observed_at=observed_at,
             value={
+                "provider": provider,
                 "repo_url": repo_url,
                 "repo": compact_github_repo_snapshot(repo),
                 "default_branch": default_branch,
                 "lexicon_hints": [dict(item) for item in repo_lexicons if isinstance(item, dict)],
                 "semantic_hint_count": len(semantic_hints),
+                "source_selection_performed": source_evidence_needed,
+                "source_evidence": [
+                    {
+                        "nsid": str(item.get("nsid") or ""),
+                        "path": str(item.get("path") or ""),
+                        "line": int(item.get("line") or 0),
+                        "operation": str(item.get("operation") or ""),
+                        "excerpt": str(item.get("excerpt") or ""),
+                    }
+                    for item in analysis_source_evidence
+                    if item.get("excerpt")
+                ],
+                "manifest_hints": [dict(item) for item in manifest_hints[:4] if isinstance(item, dict)],
+                "configuration_hints": [
+                    dict(item) for item in configuration_hints[:6] if isinstance(item, dict)
+                ],
+                "tree_paths": [
+                    str(item.get("path") or "")
+                    for item in repo_tree[:200]
+                    if str(item.get("path") or "")
+                ],
+                "revision": str(data.get("revision") or ""),
+                "readme_excerpt": cleaned_readme_excerpt,
                 "readme_urls": bounded_github_readme_urls(readme_urls),
                 "readme_url_count": len(readme_urls),
             },
@@ -670,7 +721,7 @@ def collect_github_repo_evidence(
         path = str(item.get("path") or "")
         predicate, classification = classify_lexicon_path(path, dict(item.get("schema") or {}))
         bundle.add_record(relation_record(
-            source=f"github_repo:{repo_url}", classification=classification, observed_at=observed_at,
+            source=f"{dependencies.provider}_repo:{repo_url}", classification=classification, observed_at=observed_at,
             subject_type="repo", subject_value=normalized_repo_url, predicate=predicate,
             object_type="nsid", object_value=nsid, locator=path, method="lexicon_json",
         ))
@@ -680,24 +731,24 @@ def collect_github_repo_evidence(
         if not nsid:
             continue
         bundle.add_record(relation_record(
-            source=f"github_source:{repo_url}", classification="derived", observed_at=observed_at,
+            source=f"{dependencies.provider}_source:{repo_url}", classification="derived", observed_at=observed_at,
             subject_type="repo", subject_value=normalized_repo_url, predicate=predicate,
             object_type="nsid", object_value=nsid, locator=str(item.get("path") or ""),
             method=f"source_{item.get('operation') or 'mention'}",
-            context={"implementation_role": str(item.get("implementation_role") or "unknown")},
+            context={"line": int(item.get("line") or 0)},
         ))
     for url in readme_urls:
         parsed = urllib.parse.urlparse(url)
-        object_type = "repo" if parsed.netloc in {"github.com", "tangled.org"} else "website"
+        object_type = "repo" if parsed.netloc in {"github.com", "tangled.org", "codeberg.org", "gitlab.com", "git.sr.ht"} else "website"
         bundle.add_record(relation_record(
-            source=f"github_readme:{repo_url}", classification="candidate", observed_at=observed_at,
+            source=f"{dependencies.provider}_readme:{repo_url}", classification="candidate", observed_at=observed_at,
             subject_type="repo", subject_value=normalized_repo_url,
             predicate="source_repository" if object_type == "website" else "mentions_collection",
             object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
         ))
     add_collector_result_summary(
         bundle,
-        source="github_repo",
+        source=f"{dependencies.provider}_repo",
         operation="inspect",
         observed_at=observed_at,
         request_count=1,
@@ -749,7 +800,8 @@ def collect_tangled_repo_evidence(
                 "default_branch": default_branch,
                 "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
                 "readme_urls": dependencies.extract_urls(readme_text),
-                "readme_excerpt": readme_excerpt(readme_text),
+                "readme_excerpt": readme_excerpt(readme_text, limit=6000),
+                "revision": str(data.get("revision") or ""),
             },
         ))
     normalized_repo_url = str(repo_url).rstrip("/")

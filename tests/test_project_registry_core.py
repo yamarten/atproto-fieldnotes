@@ -21,6 +21,8 @@ from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import naming as naming_core
 from project_registry_core import project_record
+from project_registry_core import repository_material
+from project_registry_core import repository_sources
 
 
 class ProjectRegistryCompletionTest(unittest.TestCase):
@@ -91,7 +93,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
         self.assertEqual(registry.parse_text_seed_line_values(nsid), [nsid])
         self.assertTrue(
-            registry.repo_json_looks_like_lexicon(
+            repository_material.repo_json_looks_like_lexicon(
                 "lexicons/com/bartenderSky/preferences/profileMusic.json",
                 {"lexicon": 1, "defs": {}},
                 nsid,
@@ -760,6 +762,18 @@ class ProjectRegistryServiceStatusTest(unittest.TestCase):
 
     def test_probe_errors_are_classified(self) -> None:
         self.assertEqual(registry.classify_service_probe_error(urllib.error.URLError("Name or service not known")), "dns_failed")
+        self.assertEqual(
+            registry.classify_service_probe_error(urllib.error.URLError(socket.gaierror(socket.EAI_NONAME, "not known"))),
+            "dns_failed",
+        )
+        self.assertEqual(
+            registry.classify_service_probe_error(urllib.error.URLError("Temporary failure in name resolution")),
+            "dns_temporary_failure",
+        )
+        self.assertEqual(
+            registry.classify_service_probe_error(urllib.error.URLError(socket.gaierror(socket.EAI_AGAIN, "try again"))),
+            "dns_temporary_failure",
+        )
         self.assertEqual(registry.classify_service_probe_error(urllib.error.URLError("TLS certificate verify failed")), "tls_failed")
         self.assertEqual(registry.classify_service_probe_error(socket.timeout("timed out")), "timeout")
         self.assertEqual(registry.classify_service_probe_error(urllib.error.URLError("Connection refused")), "connection_refused")
@@ -1070,6 +1084,93 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertEqual(parent_200["authority_fallback_from"], "https://actor.thermals.cloud")
         self.assertEqual(parent_200["authority_fallback_status_code"], 404)
 
+    def test_authority_probe_chain_selects_parent_after_exact_dns_failure(self) -> None:
+        chains = [["https://compute.cocore.dev", "https://cocore.dev"]]
+        parent_200 = {"status_code": 200}
+
+        selected = registry.select_authority_probe_urls(
+            chains,
+            {
+                "https://compute.cocore.dev": {"status_code": 0, "fetch_error": "dns_failed"},
+                "https://cocore.dev": parent_200,
+            },
+        )
+
+        self.assertEqual(selected, {"https://cocore.dev"})
+        self.assertEqual(parent_200["authority_fallback_from"], "https://compute.cocore.dev")
+        self.assertEqual(parent_200["authority_fallback_status_code"], 0)
+        self.assertEqual(parent_200["authority_fallback_fetch_error"], "dns_failed")
+
+    def test_authority_probe_chain_does_not_select_parent_after_exact_timeout(self) -> None:
+        for exact_result in (
+            {"status_code": 0, "fetch_error": "timeout"},
+            {"status_code": 0, "fetch_error": "dns_temporary_failure"},
+            {"status_code": 0, "fetch_error": "tls_failed"},
+            {"status_code": 0, "fetch_error": "connection_refused"},
+            {"status_code": 0, "fetch_error": "network_error"},
+            {"status_code": 503, "fetch_error": ""},
+        ):
+            with self.subTest(exact_result=exact_result):
+                selected = registry.select_authority_probe_urls(
+                    [["https://compute.cocore.dev", "https://cocore.dev"]],
+                    {
+                        "https://compute.cocore.dev": exact_result,
+                        "https://cocore.dev": {"status_code": 200},
+                    },
+                )
+
+                self.assertEqual(selected, set())
+
+    def test_authority_probe_chain_uses_normal_dns_failure_probe_result(self) -> None:
+        with mock.patch.object(
+            registry.http_transport,
+            "request_bytes_with_final_url",
+            side_effect=urllib.error.URLError("Name or service not known"),
+        ):
+            exact_result = registry.probe_service_url("https://missing-authority.cocore.test")
+
+        selected = registry.select_authority_probe_urls(
+            [["https://missing-authority.cocore.test", "https://cocore.test"]],
+            {
+                "https://missing-authority.cocore.test": exact_result,
+                "https://cocore.test": {"status_code": 200},
+            },
+        )
+
+        self.assertEqual(exact_result["fetch_error"], "dns_failed")
+        self.assertEqual(selected, {"https://cocore.test"})
+
+    def test_authority_same_site_parent_redirect_keeps_only_final_candidate(self) -> None:
+        project = project_record.default_project_record("proj:authorityredirect", "nsid", "dev.cocore.compute.profile")
+        project["authority_domains"] = ["compute.cocore.dev"]
+        project["recent_record_samples"] = [{"record": {"url": "https://compute.cocore.dev/item/1"}}]
+        result = {
+            "status_code": 200,
+            "final_url": "https://cocore.dev",
+            "redirected": True,
+            "redirect_same_host": False,
+            "redirect_same_site_family": True,
+            "redirect_http_to_https": False,
+            "redirect_cross_host": True,
+            "title": "Cocore",
+            "description": "AT Protocol service",
+            "html": "<title>Cocore</title>",
+            "links": [],
+            "urls": [],
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "redirect_detected", "redirect_same_site_family"],
+            "fetch_error": "",
+            "supports_project": True,
+            "lane": "authority",
+        }
+
+        registry.apply_service_probe_result(project, "https://compute.cocore.dev", result, collect_follow_ups=False)
+        registry.apply_authority_service_probe_result(project, "https://compute.cocore.dev", result)
+
+        self.assertIn("https://cocore.dev", project["service_url_candidates"])
+        self.assertNotIn("https://compute.cocore.dev", project["service_url_candidates"])
+
     def test_authority_probe_chain_discards_parent_when_exact_succeeds(self) -> None:
         selected = registry.select_authority_probe_urls(
             [["https://actor.thermals.cloud", "https://thermals.cloud"]],
@@ -1227,6 +1328,33 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         project = registry.finalize_project_shape(project)
 
         self.assertIn("https://thermals.cloud", project["service_url_candidates"])
+
+    def test_finalize_restores_parent_authority_candidate_from_saved_dns_fallback_probe(self) -> None:
+        project = project_record.default_project_record("proj:authoritydnsfallback", "nsid", "dev.cocore.compute.profile")
+        project["input_nsids"] = ["dev.cocore.compute.profile"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "dev.cocore.compute.profile"}]
+        project["authority_domains"] = ["compute.cocore.dev"]
+        project["service_url_candidates"] = ["https://cocore.dev"]
+        project["service_verification_results"] = [
+            {
+                "requested_url": "https://cocore.dev",
+                "final_url": "https://cocore.dev",
+                "status_code": 200,
+                "title": "cocore",
+                "description": "AT Protocol service",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "app_shell_detected"],
+                "authority_fallback_from": "https://compute.cocore.dev",
+                "authority_fallback_status_code": 0,
+                "authority_fallback_fetch_error": "dns_failed",
+                "html_extract": "<title>cocore</title>",
+            }
+        ]
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://cocore.dev", project["service_url_candidates"])
 
     def test_nsid_mention_authority_root_does_not_survive_unverified_guess_prune(self) -> None:
         project = project_record.default_project_record("proj:authorityroot", "nsid", "xyz.tz2at.raw.observation")
@@ -1846,7 +1974,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         }, evidence)
 
         with mock.patch.object(
-            registry,
+            repository_sources,
             "fetch_tangled_repo",
             return_value={
                 "repo": {
@@ -2478,6 +2606,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertIn("`infra_tool` is not limited to hosted or continuously running infrastructure", prompt)
         self.assertIn("A plugin is `project` when end users use it directly", prompt)
         self.assertIn("The selected category must agree with `summary`", prompt)
+        self.assertIn("Do not use `category=lexicon` merely because the seed is an NSID", prompt)
         self.assertIn("`current_profile` is previous editorial wording", prompt)
         self.assertIn("independent app or service only uses ATProto", prompt)
         self.assertIn("Before returning JSON, check `category` against `summary`", prompt)
@@ -3098,6 +3227,67 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
                 "repository:https://github.com/example/service",
             },
         )
+
+    def test_new_repository_analysis_revision_is_an_editorial_source(self) -> None:
+        previous_evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [],
+        }
+        current_evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/service",
+                "revision": "abc123",
+                "summary": "Repository implementation analysis.",
+                "stale": False,
+            }],
+        }
+
+        self.assertTrue(registry.profile_has_new_strong_source(previous_evidence, current_evidence))
+        self.assertFalse(registry.profile_has_new_strong_source(current_evidence, current_evidence))
+
+    def test_repository_analysis_saved_before_current_policy_refreshes_profile_once(self) -> None:
+        project = self.project()
+        evidence = {
+            "source_code_urls": ["https://github.com/example/service"],
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/service",
+                "revision": "abc123",
+                "summary": "Repository implementation analysis.",
+                "stale": False,
+            }],
+        }
+        project["llm_source"] = {"evidence": evidence}
+
+        registry.apply_llm_output(project, {"summary": "実装を反映した説明。"}, {}, evidence)
+        self.assertEqual(project["summary"], "実装を反映した説明。")
+        self.assertEqual(
+            project["llm_source"]["editorial_source_policy_version"],
+            registry.EDITORIAL_SOURCE_POLICY_VERSION,
+        )
+
+        registry.apply_llm_output(project, {"summary": "同じ根拠による別表現。"}, {}, evidence)
+        self.assertEqual(project["summary"], "実装を反映した説明。")
+
+    def test_repository_observations_do_not_directly_override_llm_category(self) -> None:
+        evidence = {
+            "repository_analysis_results": [{
+                "repo_url": "https://github.com/example/plugin",
+                "source_revision": "abc123",
+                "summary": "Browser plugin implementation.",
+                "observations": [{
+                    "predicate": "contains_host_integration_code",
+                    "basis": "inferred",
+                    "evidence": [{"path": "src/webpackModules/plugin.ts"}],
+                }],
+            }],
+        }
+        project = self.project()
+
+        registry.apply_llm_output(project, {"category": "library"}, {}, evidence)
+
+        self.assertEqual(project["category"], "library")
+        self.assertEqual(project["llm_output"]["category"], "library")
 
     def test_same_service_becoming_usable_is_an_editorial_source(self) -> None:
         project = self.project()

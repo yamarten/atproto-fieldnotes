@@ -56,6 +56,14 @@ requestへreasoning値を送っただけでは適用済みと扱いません。r
 判断できても固定evidenceから導けないcaseは、modelのcategory成績には使いません。外部情報不足はcollector契約の
 問題として分けます。
 
+通常`enrich`が複数の処理でLLMを使う場合、入力と出力schemaが異なる処理を一つの成績へまとめません。現在の
+`evaluate-llm-corpus`が固定しているのはproject-level triageです。repository analysisは、revisionへ固定した
+repository material、出力内の根拠位置、観測、capability、collectionを別の固定caseで確認します。category用の
+model別suffixはrepository analysisへ適用しません。
+
+LLMを使う処理を追加した時、またはそのpromptや後段の利用方法を変えた時は、その処理の出力と、後段のtriage・
+保存結果への影響を試用前に確認します。以前のtriage比較だけで新しい処理まで確認済みとは扱いません。
+
 ## 確認の順序
 
 ### 1. category契約を確認する
@@ -96,6 +104,10 @@ memoryを見ます。通常処理候補と低優先度処理候補は、同じ�
 
 重大なidentifier追加や、人が確定した判断の逆転は、平均値で相殺しません。
 
+repository analysisでは、request成功とschemaに加えて、根拠位置が入力material内に存在すること、NSIDの大文字・
+小文字を変えないこと、根拠のない観測やdocumentation URLが保存されないことを確認します。同じmaterialを
+baselineとcandidateへ渡し、解析結果を含むtriageも比較します。
+
 ### 7. 同じ入力を複数回実行する
 
 category、identifier集合、検査成否、tagline、summary、featuresの変化を確認します。文章の言い換えと、事実、
@@ -116,7 +128,8 @@ runtime cacheが効く可能性があるため、1巡目と2巡目も分けま�
 
 - project、source設定、prompt version、reasoning、最大出力token数を揃える
 - category、service status、technical interest、manual review、profile、identifier、promotion blockerを比較する
-- LLM時間とcollector時間を分ける
+- planning、repository analysis、triageのrequest数と時間を分け、collector時間とも分離する
+- repository analysisが走る場合は同じrevisionとmaterial hashを使い、保存された観測、capability、collectionと後段のtriageを比較する
 - 外部collectorの取得失敗や応答時間差をmodel差に数えない
 - 正本DBは更新しない
 
@@ -152,6 +165,7 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 ### 少数試用へ進む条件
 
 - 固定caseと複製DBの両方で保存上の重大な退行がない
+- 保存結果へ影響する全LLM処理について、現在のpromptと出力schemaで重大な退行がない
 - 品質上の改善理由が具体的にある
 - 速度とmemoryが許容範囲にある
 - 試用対象、停止条件、baselineへ戻す方法が決まっている

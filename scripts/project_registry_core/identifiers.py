@@ -22,6 +22,9 @@ GENERIC_ALIAS_TOKENS = {
 }
 
 
+NSID_SEGMENT_RE = re.compile(r"^[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+
+
 def normalize_url(url: str) -> str:
     try:
         parsed = urllib.parse.urlparse(str(url or "").strip())
@@ -57,6 +60,16 @@ def normalize_nsid(nsid: str) -> str:
         value = value.removeprefix("at://")
     value = value.split("#", 1)[0]
     return value.strip("/")
+
+
+def is_valid_nsid(nsid: str) -> bool:
+    value = normalize_nsid(nsid)
+    if not value or len(value) > 317:
+        return False
+    segments = value.split(".")
+    if len(segments) < 3 or any(not segment or len(segment) > 63 for segment in segments):
+        return False
+    return all(NSID_SEGMENT_RE.fullmatch(segment) for segment in segments)
 
 
 def derive_authority_domain(nsid: str) -> str:

@@ -13,7 +13,7 @@ from .runtime_view import sanitize_runtime_snapshot
 
 EVALUATION_VERSION = "investigation-evaluation-v2"
 RUN_METRICS_KEY = "_run_metrics"
-RUN_METRICS_VERSION = 1
+RUN_METRICS_VERSION = 2
 RUN_PHASE_NAMES = {
     "initial_collection_ms",
     "planning_ms",
@@ -202,16 +202,42 @@ def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
         for key, raw_value in dict(value.get("phases") or {}).items()
         if key in RUN_PHASE_NAMES
     }
-    requests: list[dict[str, Any]] = []
-    for item in list(value.get("llm_requests") or [])[:4]:
+    all_requests: list[dict[str, Any]] = []
+    for item in list(value.get("llm_requests") or []):
         if not isinstance(item, dict):
             continue
-        requests.append({key: item[key] for key in LLM_REQUEST_FIELDS if key in item})
+        all_requests.append({key: item[key] for key in LLM_REQUEST_FIELDS if key in item})
+    essential_indexes = [
+        index for index, item in enumerate(all_requests)
+        if str(item.get("purpose") or "") != "repository_analysis"
+    ]
+    retained_indexes = set(essential_indexes[:16])
+    for index in range(len(all_requests)):
+        if len(retained_indexes) >= 16:
+            break
+        retained_indexes.add(index)
+    requests = [all_requests[index] for index in sorted(retained_indexes)]
+    request_summary: dict[str, dict[str, int]] = {}
+    for item in all_requests:
+        purpose = str(item.get("purpose") or "unknown")
+        aggregate = request_summary.setdefault(purpose, {
+            "count": 0,
+            "success_count": 0,
+            "failure_count": 0,
+            "duration_ms": 0,
+            "prompt_bytes": 0,
+            "response_bytes": 0,
+        })
+        aggregate["count"] += 1
+        aggregate["success_count" if item.get("status") == "success" else "failure_count"] += 1
+        for field_name in ("duration_ms", "prompt_bytes", "response_bytes"):
+            aggregate[field_name] += max(0, int(item.get(field_name) or 0))
     return {
         "version": RUN_METRICS_VERSION,
         "total_ms": max(0, int(value.get("total_ms") or 0)),
         "phases": phases,
         "llm_requests": requests,
+        "llm_request_summary": request_summary,
     }
 
 

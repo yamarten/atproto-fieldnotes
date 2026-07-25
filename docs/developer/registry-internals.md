@@ -16,7 +16,7 @@ registry schema version 2の内部仕様と運用メモです。利用手順は[
 - `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
 - `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
 - `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
-- `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する
+- `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する。repositoryのprovider別取得や解析素材抽出は所有しない
 
 `source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。
 `project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
@@ -162,10 +162,11 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 1. seed由来の事実収集
 2. service / repo / lexicon の確認済み情報を更新
 3. lexicon repository単位で namespace 集約
-4. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
-5. evidence を project へ統合し、rule-based evaluation / finalize を実行
-6. local LLM による summary / category / status 補完
-7. 再度 finalize し、duplicate / merge / 昇格判定を更新
+4. confirmed repositoryの解析素材を収集し、revisionごとのrepository analysisを更新
+5. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
+6. evidence を project へ統合し、rule-based evaluation / finalize を実行
+7. local LLM による summary / category / status 補完
+8. 再度 finalize し、duplicate / merge / 昇格判定を更新
 
 ### 調査 pipeline の実装状況
 
@@ -179,13 +180,22 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - `EvidenceRecord`, relation、`CollectorFailure`, `CollectorResult`
 - `project_registry_core/investigation.py`
   - deterministic / LLM query planning
-  - GitHub repository snapshot collector
+  - provider共通repository snapshot collectorとGitHub / Codeberg adapter
   - GitHub repository search、Bluesky actor/post/feed collector
   - collector は project dict を変更せず evidence bundle を返す
   - source別 retry、request budget、rate-limit stop
 - `project_registry_core/integration.py`
   - GitHub / Bluesky / service / Tangled / collector snapshot evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
+- `project_registry_core/repository_analysis.py`
+  - confirmed repositoryのmetadata、README、tree、manifest、configuration、Lexicon、限定source抜粋をprovider共通の解析素材へ縮約する
+  - repository revisionと解析policy単位で結果を再利用し、成功結果と最新試行を分けてcurrent stateへ保存する
+- `project_registry_core/repository_sources.py`
+  - GitHub / Codeberg / Tangledのmetadata、README、tree、個別file取得と短期cacheを所有する
+  - provider固有のHTTP契約を閉じ込め、projectへの適用判断は行わない
+- `project_registry_core/repository_material.py`
+  - 取得済みtreeとfileからmanifest、configuration、Lexicon、限定source hintを決定的に抽出する
+  - network取得、LLM判定、project mutationは行わない
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/storage.py` / `replay.py`
@@ -285,6 +295,16 @@ collector reliability と replay の設計途中の論点は
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
+confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い、結果を`state_json.evidence.repository_analysis_results`へ保存します。candidate repositoryは相互trust確認に必要な限定取得以外では解析せず、confirm後に初めて対象にします。GitHubとCodebergはmetadata、README、tree、主要manifest、documentation / deployment設定、Lexiconを取得し、READMEとdescriptionだけでは目的を説明できない場合に限ってsource候補を最大4 file、各file最大2 excerptへ絞ります。Tangledは現行取得能力に合わせてmetadata、README、限定treeを使い、取得できない範囲を`coverage`で`unavailable`とします。未対応providerも黙って欠落させず`coverage.reason=unsupported_provider`を保存します。
+
+repository analysisはrepo全体を単一`artifact_kind`へ分類しません。出力は短いsummary、複数の`observations`、証跡付き`capabilities`、caseを保持したcollection利用です。観測述語はCLI entrypoint、import可能package、service entrypoint、deployment設定、Lexicon定義、host integration、documentation source / generator / site URL / deploymentなどの非排他的な事実です。`basis=declared|observed|inferred`はrepo内の観測方法でありtrust classificationではありません。pathだけのhost integrationは`inferred`に留まり、browser extension宣言にはmanifestまたはREADMEの明示を必要とします。Lexicon JSONの存在はcollection ownershipを確定しません。
+
+証跡は別のfact IDを作らず、解析対象`source_revision`へ結び付く`path + line`または`path + json_pointer`とbounded excerptを結果へ直接保存します。LLMが返したlocatorは入力materialに存在するものだけを受理します。repository本文はuntrusted dataとして扱い、READMEやsource内の指示に従わないことを専用promptとtriage promptの両方で明示します。
+
+cache identityはcanonical repo URL、`source_revision`（取得できないproviderでは`material_hash`）、`policy_version`の組です。成功結果と`last_attempt`は分離し、失敗時に旧成功結果のrevisionやpolicyを書き換えません。直前の成功結果はtriageへ`stale=true`で渡します。timeout、rate limit、HTTP系など一時的な外部失敗だけは同じmaterialとpolicyへの再試行を24時間抑制し、LLM未設定、endpoint非互換、invalid response、local command失敗は設定修正後の手動再実行を妨げません。run evidenceにはbounded materialとそれを参照する解析結果を別recordで残し、current stateにはrepoごとの最新成功結果と最新試行だけを残します。
+
+triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、manual repo seed、代表repo、coverageの順で優先します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
+
 `enrich --all` は既定で `tracking_state=active` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
 `enrich`のproject選択、保存、checkpoint、再開は`project_registry_core.application.enrichment`へ接続済みです。CLIは`project_registry_core.commands.enrichment`で引数を`OperationRequest`へ変換し、serviceのevent dataをJSON linesへ変換します。
@@ -320,7 +340,8 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - 保守的な点:
   - lexicon schema が取れても、それだけで `website_url` や `service_url` は confirmed にしません
   - authority domain 由来の service URL は、NSIDから直接candidate保存せず、probe結果を見てから候補化します
-  - authority probe は完全一致hostと registrable parent を同一chainとして並列fetchします。完全一致hostが2xx/3xxなら親は捨て、完全一致hostが4xxで親が2xx/3xxの時だけ親をfallback候補として扱います
+  - authority probe は完全一致hostと registrable parent を同一chainとして並列fetchします。完全一致hostが2xx/3xxなら親は捨て、完全一致hostが4xxまたは恒久的なDNS不在で、親が2xx/3xxの時だけ親をfallback候補として扱います。timeout、DNSの一時障害、5xx、TLS失敗、接続拒否、その他のnetwork errorでは親へ広げません
+  - 完全一致hostがregistrable parentへsame-site redirectする場合は、内容比較ではなく明示的なredirectを根拠に最終URLをcanonical candidateとして扱い、redirect元を独立したauthority candidateとして重複保存しません
   - authority domain 由来probeが成功し、実service surfaceらしく、record sample URLによるhost一致、または上記fallback条件がある場合だけ `service_url_candidates` に残します
   - authority domain 由来の失敗probe URLや、record sample URLによる補強がない旧candidateは、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
 
@@ -472,6 +493,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 
 - `http_<code>`
 - `dns_failed`
+- `dns_temporary_failure`
 - `tls_failed`
 - `timeout`
 - `connection_refused`
@@ -853,13 +875,17 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - 1 request
   - `https://ufos-api.microcosm.blue/records`
   - 最大 6 collection をまとめて引きます
-- GitHub repo enrich:
-  - 1 repo あたり通常 3 request
+- GitHub / Codeberg repo enrich:
+  - 1 repo あたり通常 4 request
     - `GET /repos/{owner}/{repo}`
     - `GET /repos/{owner}/{repo}/readme`
-    - `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
+    - branch commit取得
+    - revision固定tree取得
   - さらに lexicon hint を精査する時は `contents/<path>` を最大 16 件追加
-  - つまり 1 repo あたり概ね 3、最大で 19 request 程度です
+  - README / descriptionだけでは目的を説明しにくい時だけ、source semantic hintを最大4 file追加
+  - root寄りの`package.json`から関連fieldを読む時は最大4件追加
+  - documentation / deployment設定を最大6件追加
+  - つまり 1 repo あたり基本4 requestで、追加素材を全て取得する場合は最大34 request程度です
 - service URL probe:
   - 1 URL あたり 1 request
   - same-site docs/blog など follow-up を最大 3 URL まで追加
@@ -878,8 +904,9 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
     - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、
       operatorが設定したtrusted local commandだけを使います
-  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POST
+  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - investigation plan
+    - repository analysis（revision一致の保存済み結果があれば省略）
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
