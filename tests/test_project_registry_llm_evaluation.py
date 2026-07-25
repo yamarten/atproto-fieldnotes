@@ -16,6 +16,18 @@ def build_prompt(evidence: dict) -> str:
 
 
 class LLMCorpusExportTest(unittest.TestCase):
+    def test_revised_category_labels_are_all_prompt_adjustment_cases(self) -> None:
+        label_set = json.loads(
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3.json").read_text()
+        )
+
+        self.assertEqual(len(label_set["labels"]), 56)
+        self.assertTrue(all(label["used_for_prompt_adjustment"] for label in label_set["labels"]))
+        self.assertNotIn(
+            "auth_only",
+            {label["expected_output"]["category"] for label in label_set["labels"]},
+        )
+
     def test_export_is_read_only_latest_per_project_and_prioritizes_library(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = Path(tempdir) / "survey.db"

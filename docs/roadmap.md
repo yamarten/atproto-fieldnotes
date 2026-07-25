@@ -191,7 +191,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
   - corpus export、1 model構成のstructured report、同一入力の複数回差分、2 reportの機械比較は実装済み。peak memory / swap / prefill / decodeのrunner観測は未接続
   - reasoning要求をruntimeが適用したか確認してから比較する。過去のgpt-oss GGUF実行は`low`が無視されたため、reasoning条件を揃えた形式比較には使わない
-  - category契約を見直したため、旧56 labelを再確認し、変更caseを調整用へ移す。prompt固定後の確認には、その調整に使っていない別caseを用意する
+  - category契約を見直した旧56 labelは全件を調整用のv3 fixtureへ移行済み。prompt固定後の確認には、その調整に使っていない別caseを用意する
   - 元profileなしを新規projectでのmodel比較、元profileありを現行Qwen profileからの移行適性として分け、生出力と保存後結果も別集計する
   - GitHub collectorはREADME本文を取得するが、本文をsummary候補や固定evidenceへ保存しない。repository descriptionが空のprojectでartifact roleを判断できないため、本文を通常enrichへどう渡すか検討する
   - QwenとGemmaを基準に、Granite、gpt-oss MLX、Agents A1、必要ならQwen 9Bを少数caseで再選別する。Agents A1は常駐background候補としてidle/処理中memory、連続処理、foreground modelへの影響を確認する

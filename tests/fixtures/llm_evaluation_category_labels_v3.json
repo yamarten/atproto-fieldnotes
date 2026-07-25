@@ -1,0 +1,567 @@
+{
+  "schema_version": 2,
+  "policy": "Artifact role classification and independent-app authentication-only signal in prompts/project-triage.md",
+  "labels": [
+    {
+      "case_id": "proj:9dfd435e65fc:37c2a1bb156d",
+      "evidence_hash": "37c2a1bb156d0e62259668d0e52b883be9bf5e3bbcc61b5b730e18b540d76896",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The evidence explicitly identifies a public client library shared by sifa-web and sifa-app."
+    },
+    {
+      "case_id": "proj:72ae05e894a4:65f0efea1872",
+      "evidence_hash": "65f0efea18727ae1364f876220241e85202ce69169f2f4752ab7688a8219b089",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Detailed schema samples exist, but the fixed evidence has no documentation of a shared convention or concrete project surface."
+    },
+    {
+      "case_id": "proj:e8f62df5fa63:7587bffcffab",
+      "evidence_hash": "7587bffcffabd7d2ba53bd62c3237a5f3ec860887490836d0080be539d2c413b",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The related agent, market, and VM lifecycle schemas describe a coherent operations and compute platform."
+    },
+    {
+      "case_id": "proj:31261c9e4777:490935f3ec0d",
+      "evidence_hash": "490935f3ec0d58870748e1a422eb6b26321fc1dee838b983f8a55a04b7076f52",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The schema is not documented as a shared convention and no runnable project surface is evidenced."
+    },
+    {
+      "case_id": "proj:44be08b3f8f7:de22127a3af8",
+      "evidence_hash": "de22127a3af837714f100070ea4e090649c2360fc2ab3d799785970bcb74e2b7",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository explicitly describes Possum as a reusable AT Protocol library for Gleam."
+    },
+    {
+      "case_id": "proj:2b02dcad4beb:019f839feac9",
+      "evidence_hash": "019f839feac97626d110f2253a80850d1b7eb2dcbc648e7a95f87b57341c488d",
+      "expected_output": {
+        "category": "personal_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Namespace and schema descriptions identify one author's personal autonomous-agent state."
+    },
+    {
+      "case_id": "proj:272ad74427ff:863e9bd83477",
+      "evidence_hash": "863e9bd834778d6eb7844a0026ca3468ba929d4ccf268c263514b8c8d76ab141",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The recipe NSID is the usable signal; an unrelated same-name ceramics description is treated as polluted evidence rather than the tracked artifact."
+    },
+    {
+      "case_id": "proj:2b44feb2c3bd:8a52a81c7600",
+      "evidence_hash": "8a52a81c7600c409d13ea4ddda1fc24b32fb0dafda21d89a3c0afdf8c89b0ec4",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Resume-related NSIDs are known, but no documented shared lexicon or concrete project surface is evidenced."
+    },
+    {
+      "case_id": "proj:7f0a8e14dbd1:4592e0e864da",
+      "evidence_hash": "4592e0e864daf1cc85486cd619a71df026199b5990271d18ed7fcbbc3206d8d6",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository and service provide identity and group-management infrastructure for AT Protocol PDS use."
+    },
+    {
+      "case_id": "proj:cf79163aecc6:963a696dcd3a",
+      "evidence_hash": "963a696dcd3ac38498936fa76f3e8afba573613cfd4e598461436492b19d27c1",
+      "expected_output": {
+        "category": "lexicon"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The site documents shared long-form publishing schemas intended for third-party implementation and interoperability."
+    },
+    {
+      "case_id": "proj:c63bb1758158:68f26c526d6a",
+      "evidence_hash": "68f26c526d6a2997d1a222861e9cadd8dc4fe3f33181a4f49602dbd6c8177dc1",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Sequoia is an operator-facing CLI for publishing an existing blog into AT Protocol records."
+    },
+    {
+      "case_id": "proj:27cd7a4237e7:0305d18bd76a",
+      "evidence_hash": "0305d18bd76a9c123976dc71380b22503e580a709380a7ff89d5eafa8f44e2cd",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "An NSID and record samples are known, but no documented shared convention or concrete project surface is evidenced."
+    },
+    {
+      "case_id": "proj:fc3e9d852971:8a21cd212748",
+      "evidence_hash": "8a21cd212748e90ee8ac3e23722e782fc7f502771c39b1396a49b7213e590394",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Confirmed service and repository are surfaces of the GainForest project, not a standalone schema subject."
+    },
+    {
+      "case_id": "proj:51763715a069:5379db186f08",
+      "evidence_hash": "5379db186f08e5c9911d16f7e2ff3d6acfbf5d0d63c8c92ba0dc839b66fd6387",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The live service automates Jetstream subscriptions, webhooks, record creation, and Bluesky posting."
+    },
+    {
+      "case_id": "proj:a0829428bee8:5da70c407969",
+      "evidence_hash": "5da70c40796926f9fa4e67b9616355965942e44b1c9f3b3ffa25b54803c880e7",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository and schemas describe a reader application with lists, bookmarks, subscriptions, and read state."
+    },
+    {
+      "case_id": "proj:409fca306dcf:d5d3c0430995",
+      "evidence_hash": "d5d3c0430995320181dbc3a8d5a5200e43065051a90cab5babeac32c087a7cdf",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "A recipe record schema is known, but no documented shared lexicon or concrete project surface is evidenced."
+    },
+    {
+      "case_id": "proj:680c3282ec22:c64addbdd6bd",
+      "evidence_hash": "c64addbdd6bd223f5e7225eac3179e064289887b91fb99aa0baa798ccfcba166",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Schema descriptions and records are known, but no documentation of a shared convention or concrete receiver project is evidenced."
+    },
+    {
+      "case_id": "proj:750f63c4ac7b:8ecd97ff5009",
+      "evidence_hash": "8ecd97ff500988a0b9d34b25709956c9c45674459c66fff5cca6c6aac12641db",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository preserves a runnable AT Protocol reference implementation, which is protocol-facing infrastructure."
+    },
+    {
+      "case_id": "proj:2ee606062a5a:c53635617dfb",
+      "evidence_hash": "c53635617dfb36dabaf15ccee41c80e6d3a3e85d392af9855ee4edeaf3b9d7a9",
+      "expected_output": {
+        "category": "personal_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The personal-domain live blog, personal project name, and matching blog-post NSID establish narrowly personal use."
+    },
+    {
+      "case_id": "proj:772030abe789:0ae04114b1fa",
+      "evidence_hash": "0ae04114b1fad2bcd70c96e7eba962308b7a644f22e9b0c888cbb9038a6a03c2",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository provides an AdonisJS integration package for AT Protocol OAuth."
+    },
+    {
+      "case_id": "proj:99593d2382a0:375416e0dc3c",
+      "evidence_hash": "375416e0dc3c516786dcad54376d0e318610b7567a92eee802d3bf58aad88d17",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only a seeded NSID and inferred name are present; no function or project surface is evidenced."
+    },
+    {
+      "case_id": "proj:1b8140737b75:600ab4407820",
+      "evidence_hash": "600ab44078208018c1cf2eb791a62eec60e22ff56d7d4227542b0a46198105bb",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the com.atmosshogi.profile NSID is evidenced; no schema, service, or repository surface is known."
+    },
+    {
+      "case_id": "proj:261c9bcdea93:9e4355dc599e",
+      "evidence_hash": "9e4355dc599ee4906c85ddf352534ed531533f793b5ee577e8152751c29ab654",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only a repository candidate URL and name are evidenced; the artifact role is not described."
+    },
+    {
+      "case_id": "proj:0d784726dfae:b5a1da5c2a97",
+      "evidence_hash": "b5a1da5c2a9758de9f3b9d53683a233c7768a82ff0baae3b0f31976a2a8d8f1d",
+      "expected_output": {
+        "category": "reject"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Evidence combines many unrelated Bluesky repositories and does not identify one coherent project."
+    },
+    {
+      "case_id": "proj:18de0af3ebc7:7f78fd6a7e1f",
+      "evidence_hash": "7f78fd6a7e1fa2ba25a16e9aac89dfc7d782699cdf5faf36259157bba2001979",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repositories, service URLs, and application-specific feed schemas identify a coherent runnable project."
+    },
+    {
+      "case_id": "proj:07235c469a43:e28a6f76a2b4",
+      "evidence_hash": "e28a6f76a2b408d677cba3cd1ed858e4b1651b530dd52203dda6ea0305c5a11c",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The evidence identifies a live ATProto cannabis strain database; library refers to the data collection, not an imported dependency."
+    },
+    {
+      "case_id": "proj:837b205fce24:369c2b27bc73",
+      "evidence_hash": "369c2b27bc73e44a6b171b33dc21b78e9fe42795fccdfd85650ab8ba5803e2ef",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the Hayes Relay name, URL, and a point-in-time connection result are evidenced; no documented relay surface or current operation is established."
+    },
+    {
+      "case_id": "proj:16848dea70b2:513273779b7f",
+      "evidence_hash": "513273779b7f282f1351ee25f4ae30549d73ce9681b7ee72934a8d9eceb44c6d",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The fixed evidence has a repository URL but no description establishing a relay executable or current infrastructure surface."
+    },
+    {
+      "case_id": "proj:a7c523e0b7e3:c3462a05e768",
+      "evidence_hash": "c3462a05e768741f6f1aaa729b43f3ad7dff431dac7e78289f44fdaba7f8dd81",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only a compute-event NSID is evidenced; the containing infrastructure project is not identified."
+    },
+    {
+      "case_id": "proj:2c5045bf0ad5:9e36c4dbf91b",
+      "evidence_hash": "9e36c4dbf91bd2b650ff98233c65e25e0ace2aa4ecd028139221a45a71dd7f31",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "goat is a developer CLI that directly operates and inspects AT Protocol."
+    },
+    {
+      "case_id": "proj:e861819388f6:b63fef4f02be",
+      "evidence_hash": "b63fef4f02beb5e4e47121c9195d1d8da1ecdb9afba41a945281810e84d22a76",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only two configuration NSIDs are evidenced; no schema definition or concrete project surface is known."
+    },
+    {
+      "case_id": "proj:8ecaa489e758:4c676151b22e",
+      "evidence_hash": "4c676151b22e6356642d7f2f006b07ec125b154db76cac5b8c502d415da72d7b",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the app.data.collection NSID is evidenced; the saved scope heuristic is not documentation of a shared convention."
+    },
+    {
+      "case_id": "proj:db5ed79b50e1:9f5fa7ad101f",
+      "evidence_hash": "9f5fa7ad101f6550d0dc019690e4dbdfc154ecc0ffb30cd493a266c37f2ca02a",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only schema namespaces are evidenced; no documented shared convention or concrete project surface is present."
+    },
+    {
+      "case_id": "proj:3c98c9e8a9ac:7283cdd8b139",
+      "evidence_hash": "7283cdd8b139f31f97b230eefe56acc3b73c5968513696d4844c48a930113457",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The GitHub description identifies a Rust ATProto app."
+    },
+    {
+      "case_id": "proj:4b46efaaa174:1e10315c409f",
+      "evidence_hash": "1e10315c409fc863c34196e40d070331d229f885c257a85ee7804c47e13c2b69",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The CLI directly operates and inspects AT Protocol."
+    },
+    {
+      "case_id": "proj:14834a433e0e:d535a62a84c7",
+      "evidence_hash": "d535a62a84c737d4746f214b1e489557b8c2e3ee50daa8ca2038f976e312bf5c",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The CLI lets agents operate Bluesky and AT Protocol rather than acting as a general end-user client."
+    },
+    {
+      "case_id": "proj:302f615cb586:61ff3616dbfd",
+      "evidence_hash": "61ff3616dbfd3c281e979f3158af132c74f222e3bec2aedafa1b3518ac229906",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository description identifies the independently deployable Tap frontend."
+    },
+    {
+      "case_id": "proj:1947f807e9fc:585b8856d1c0",
+      "evidence_hash": "585b8856d1c062a5b049cf5e9dd74afc73123ce54caacb8ee163aa158ae0b67e",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository description identifies a .NET console application."
+    },
+    {
+      "case_id": "proj:e2123d84f352:612afb78d0d8",
+      "evidence_hash": "612afb78d0d847c377773fc6cac731fb3b1c891d0d91225935d7f513549b0043",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository description identifies a Dillo browser plugin, not an imported dependency."
+    },
+    {
+      "case_id": "proj:af37c7da931d:e31129fb87c0",
+      "evidence_hash": "e31129fb87c0854c2c9a27e66a21907500aba1dc91eab9a2b86f2a43d0dc5e2b",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The plugin is installed into Strapi to add ATProto integration, so it is service-supporting infrastructure rather than an imported library."
+    },
+    {
+      "case_id": "proj:2a55b1bde00f:27d47d0fa6c8",
+      "evidence_hash": "27d47d0fa6c89c3a73a128de4010eaa6fb0d09f6d739bf95dfb2f7ad4daaec0a",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository is an ATProto agent development template, so it supports development rather than serving end users directly."
+    },
+    {
+      "case_id": "proj:942f68ebddca:a8b7bd617aa3",
+      "evidence_hash": "a8b7bd617aa36b4774b7428ee5e38bac196a8bb4a9cff638cec5c7a2269a6106",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository name is known but no function, service, or technical role is evidenced."
+    },
+    {
+      "case_id": "proj:1522a470445c:9216cc88c10d",
+      "evidence_hash": "9216cc88c10de3121427101219275fff1044bfa5efacadffa14150808465c646",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only collection NSIDs are evidenced; no concrete artifact or documented shared convention is known."
+    },
+    {
+      "case_id": "proj:016628ee4cc7:02d646bb8588",
+      "evidence_hash": "02d646bb85885def32a8cdcb3f0ae6369425e2fe5a7c5bb2a18c341c2bb4347b",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the run.tiles.chat.sessionsnapshot NSID is evidenced."
+    },
+    {
+      "case_id": "proj:5a4905b19649:2182de42943a",
+      "evidence_hash": "2182de42943ae6e162d9b0ab7a43af87ced1711ecca66a4c9d806461def35bbf",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The evaluation evidence contains only the Bluemark name and repository identity; its removed introduction is not present in this corpus."
+    },
+    {
+      "case_id": "proj:ad8a5619c792:ce9083646fc9",
+      "evidence_hash": "ce9083646fc9c9bb0fb54dea9d889203c3694fed19945b6decc6a7eaaa74d13b",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository describes lira as a social coding platform."
+    },
+    {
+      "case_id": "proj:7f9aca83b1ca:25679022ed47",
+      "evidence_hash": "25679022ed4725cb09c81f7056fd79e701770b03a5f0649525be5ed312aac195",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The CLI directly operates AT Protocol social-graph data."
+    },
+    {
+      "case_id": "proj:652295da5be8:50eb91a6d4f6",
+      "evidence_hash": "50eb91a6d4f637004689b87b728d16ae98c6f261cb78b4799040df2e1e011060",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository provides ATProto development examples and scripts."
+    },
+    {
+      "case_id": "proj:55baa21bb9f8:29fb986a8f71",
+      "evidence_hash": "29fb986a8f71b66d100f855dddfecc3209b840c1e68463af99c80abe7017953f",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository description identifies GitHub Actions for lexicon operations."
+    },
+    {
+      "case_id": "proj:9a4316481bd3:98e375a27694",
+      "evidence_hash": "98e375a27694d44a8dc112e878daeda53591786ad281e793ab4037d2efd1f406",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository provides ATProto development examples and scripts."
+    },
+    {
+      "case_id": "proj:7159ed0d6a76:d8c8198275ff",
+      "evidence_hash": "d8c8198275ffb1a56864f662faf5fe70f4524e34ec77da337f7340d0edda67c0",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Repository description identifies an independently run CLI for Grain.social galleries."
+    },
+    {
+      "case_id": "proj:1a4d973bbba1:b3d45177afd8",
+      "evidence_hash": "b3d45177afd889f32132fee67fef73c0a776ce62d0d66967e4b58f386b59e72e",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the chat.senera.pds.sign NSID and inferred name are evidenced."
+    },
+    {
+      "case_id": "proj:ae723a107b4d:0eb527cd5388",
+      "evidence_hash": "0eb527cd5388edfe590446cbff654df626392901a62c4793a2319eade693545f",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "Only the blue.zio.atirc.topic NSID is evidenced; its function and project surface are unknown."
+    },
+    {
+      "case_id": "proj:5c444946dcba:60da2138da69",
+      "evidence_hash": "60da2138da6909b25726cb8142d1d467e8b19ec80189988555f2fec1284f9aa7",
+      "expected_output": {
+        "category": "infra_tool",
+        "atproto_auth_only": false
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository is AT Protocol OAuth reference code. It is a developer artifact, not an independent app whose only ATProto integration is login."
+    },
+    {
+      "case_id": "proj:0b9750d6550b:66dc4a36b260",
+      "evidence_hash": "66dc4a36b2607e1adadec085ea22ffa20202b8c39acacb0f6946d5d562188f74",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The repository identifies an ATProto OAuth plugin consumed by the Better Auth framework."
+    },
+    {
+      "case_id": "proj:6b986b615094:c12442920440",
+      "evidence_hash": "c12442920440ee5fbd009fe29b4f45c392b210a4999d69137582eb78a823c335",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": true,
+      "basis": "The authverify NSID alone does not establish an AT Protocol OAuth or sign-in integration."
+    }
+  ]
+}
