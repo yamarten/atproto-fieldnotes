@@ -255,6 +255,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_llm_parser.add_argument("--labels", help="Optional reviewed expected-output labels JSON path.")
     evaluate_llm_parser.add_argument("--prompt-variant", help="Prompt variant label recorded in the report.")
     evaluate_llm_parser.add_argument("--prompt-suffix-file", help="Append an evaluation-only instruction suffix from this file.")
+    evaluate_llm_parser.add_argument(
+        "--repository-analysis-report",
+        help="Overlay repeat-zero normalized repository results from this complete report onto matching triage cases.",
+    )
     evaluate_llm_parser.add_argument("--output", required=True, help="Structured report JSON path.")
     evaluate_llm_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
     evaluate_llm_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")

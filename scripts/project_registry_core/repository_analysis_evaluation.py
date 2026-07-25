@@ -411,3 +411,49 @@ def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict
         ],
         "automatic_checks_pass": not issues and not regressions,
     }
+
+
+def overlay_on_triage_corpus(corpus: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    """Overlay repeat-zero normalized repository results onto matching triage cases."""
+    if int(report.get("schema_version") or 0) != REPORT_SCHEMA_VERSION:
+        raise ValueError("unsupported repository analysis report schema")
+    if report.get("status") != "complete":
+        raise ValueError("repository analysis report is not complete")
+    by_project: dict[str, list[dict[str, Any]]] = {}
+    for result in report.get("results", []):
+        if not isinstance(result, dict) or result.get("status") != "success":
+            continue
+        if int(result.get("repeat_index") or 0) != 0:
+            continue
+        case_id = str(result.get("case_id") or "")
+        project_key = str(result.get("project_key") or case_id.rsplit(":", 1)[0])
+        validation = result.get("validation") if isinstance(result.get("validation"), dict) else {}
+        normalized = validation.get("normalized_result") if isinstance(validation.get("normalized_result"), dict) else {}
+        if not project_key or not str(normalized.get("summary") or "").strip():
+            continue
+        values = by_project.setdefault(project_key, [])
+        repo_url = str(normalized.get("repo_url") or "")
+        if repo_url and all(str(value.get("repo_url") or "") != repo_url for value in values):
+            values.append(copy.deepcopy(normalized))
+
+    overlaid = copy.deepcopy(corpus)
+    applied_case_count = 0
+    applied_result_count = 0
+    for case in overlaid.get("cases", []):
+        if not isinstance(case, dict):
+            continue
+        evidence = case.get("evidence") if isinstance(case.get("evidence"), dict) else None
+        values = by_project.get(str(case.get("project_key") or ""), [])
+        if evidence is None or not values:
+            continue
+        evidence["repository_analysis_results"] = copy.deepcopy(values)
+        applied_case_count += 1
+        applied_result_count += len(values)
+    overlaid["repository_analysis_overlay"] = {
+        "report_hash": llm_evaluation.sha256_json(report),
+        "source_model": str(dict(report.get("model_spec") or {}).get("model") or ""),
+        "applied_case_count": applied_case_count,
+        "applied_result_count": applied_result_count,
+        "repeat_index": 0,
+    }
+    return overlaid

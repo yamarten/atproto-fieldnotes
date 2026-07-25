@@ -38,6 +38,15 @@ def cmd_export_llm_evaluation_corpus(args: argparse.Namespace) -> int:
 def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
     corpus_path = Path(args.corpus)
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+    repository_overlay: dict = {}
+    if args.repository_analysis_report:
+        repository_report = json.loads(
+            Path(args.repository_analysis_report).read_text(encoding="utf-8")
+        )
+        corpus = repository_analysis_evaluation.overlay_on_triage_corpus(
+            corpus, repository_report
+        )
+        repository_overlay = dict(corpus.get("repository_analysis_overlay") or {})
     if args.labels:
         label_set = json.loads(Path(args.labels).read_text(encoding="utf-8"))
         corpus = evaluation.apply_labels(corpus, label_set)
@@ -90,6 +99,10 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
         "api_style": str(args.llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
         "output_cap": output_cap,
         "labels": str(args.labels or ""),
+        "repository_analysis_report": str(args.repository_analysis_report or ""),
+        "repository_analysis_report_hash": str(repository_overlay.get("report_hash") or ""),
+        "repository_analysis_source_model": str(repository_overlay.get("source_model") or ""),
+        "repository_analysis_applied_case_count": int(repository_overlay.get("applied_case_count") or 0),
     }
     output = Path(args.output)
     case_ids = set(args.case_id or [])

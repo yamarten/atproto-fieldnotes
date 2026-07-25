@@ -607,6 +607,40 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
         self.assertIn("prompt_hash_differs", comparison["comparison_issues"])
         self.assertFalse(comparison["automatic_checks_pass"])
 
+    def test_repository_report_overlay_connects_normalized_result_to_triage_case(self) -> None:
+        repository_corpus = {
+            "schema_version": 1,
+            "cases": [{
+                "case_id": "proj:tool:material",
+                "project_context": {"project_key": "proj:tool", "name": "Tool"},
+                "material": self.material(),
+                "reference_result": {},
+            }],
+        }
+        report = repository_analysis_evaluation.run_corpus(
+            repository_corpus,
+            run_llm=lambda _prompt: (self.payload(), {"model": "fixture"}),
+            model_spec={"model": "fixture"},
+        )
+        triage_corpus = {
+            "schema_version": 1,
+            "cases": [{
+                "case_id": "proj:tool:triage",
+                "project_key": "proj:tool",
+                "evidence": {"project_key": "proj:tool"},
+            }],
+        }
+
+        overlaid = repository_analysis_evaluation.overlay_on_triage_corpus(
+            triage_corpus, report
+        )
+
+        result = overlaid["cases"][0]["evidence"]["repository_analysis_results"][0]
+        self.assertEqual(result["summary"], "PDSのレコードを読むツール。")
+        self.assertEqual(result["summary_evidence"][0]["path"], "README")
+        self.assertEqual(overlaid["repository_analysis_overlay"]["applied_case_count"], 1)
+        self.assertNotIn("repository_analysis_results", triage_corpus["cases"][0]["evidence"])
+
 
 if __name__ == "__main__":
     unittest.main()

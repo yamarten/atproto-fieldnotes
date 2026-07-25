@@ -61,6 +61,10 @@ requestへreasoning値を送っただけでは適用済みと扱いません。r
 repository material、出力内の根拠位置、観測、capability、collectionを別の固定caseで確認します。category用の
 model別suffixはrepository analysisへ適用しません。
 
+repository analysisを含む二段階の確認では、`evaluate-llm-corpus --repository-analysis-report REPORT`を使います。
+completeなrepository analysis reportのrepeat 0にある正規化済み結果を、同じproject keyのtriage caseへ一時的に
+重ねます。正本DBと元corpusは変更しません。report hash、上流model、適用case数をtriage reportへ記録します。
+
 LLMを使う処理を追加した時、またはそのpromptや後段の利用方法を変えた時は、その処理の出力と、後段のtriage・
 保存結果への影響を試用前に確認します。以前のtriage比較だけで新しい処理まで確認済みとは扱いません。
 
