@@ -17,7 +17,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - 未使用21件の元profileなし／ありは実測済み。元profileなしではQwen/Gemmaともcategory 17/21だが、全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。
-- 重い5件×2回と複製DBの通常`enrich` 8件は完了。Gemmaは固定入力でQwenの1.30〜1.36倍、複製DBのLLM時間は最初のprojectを除いて1.29倍だが、暫定停止目安1.5倍以内。重い入力の全検査はGemma 9/10、Qwen 7/10、複製DBではgoodfeedsとleaflet-mdのcategoryをGemmaだけが期待どおり保存し、identifier、profile本文、promotion判定の退行はなかった。Gemmaは少数project試用へ進める条件を満たしたが、正本DBへの試用は未実施。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1のfootprint要求は23時台の定期jobと競合して2回`Model unloaded`となったため、idle時にbackground用途の切替信頼性とmemoryを再確認する。
+- 重い5件×2回と複製DBの通常`enrich` 8件は完了。Gemmaは固定入力でQwenの1.30〜1.36倍、複製DBのLLM時間は最初のprojectを除いて1.29倍だが、暫定停止目安1.5倍以内。重い入力の全検査はGemma 9/10、Qwen 7/10、複製DBではgoodfeedsとleaflet-mdのcategoryをGemmaだけが期待どおり保存し、identifier、profile本文、promotion判定の退行はなかった。Gemmaは少数project試用へ進める条件を満たしたが、正本DBへの試用は未実施。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1はidle時6/6成功、footprint 9.7 GBだったが、処理が遅く、自動切替でTTL中のQwenを退避させたため、現runtimeのままbackground試用へ進めない。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
 - 現行gpt-oss MLXはruntime APIで`low / medium / high`対応と既定`low`を確認済み。過去のGGUF結果は`low`適用済み比較へ再利用しない。
 - category移行前backup `data/survey.db.backup-20260725-auth-category-migration`は移行直後のrollback専用。2026-07-28まで通常利用で問題がなければ削除する。

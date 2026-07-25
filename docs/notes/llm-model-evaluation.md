@@ -39,14 +39,13 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 - Qwen 3.6 35Bは現在の通常運用baseline
 - Gemma 4 26B A4B MLXは少数project試用へ進める第一候補
-- Agents A1 4Bは、小さいmodelを常駐させる低優先度background処理の候補
+- Agents A1 4Bは、現runtimeの自動切替ではQwenと共存せず、低優先度background処理の試用へ進めない
 - `tests/fixtures/llm_evaluation_prompt_gemma4_26b_category_gates_v6.txt`はGemmaの既知誤分類を
   見ながら調整した評価用suffixで、production promptには未反映
 
 未完了:
 
 - 通常処理候補の少数project試用
-- Agents A1のidle時切替、memory、連続background処理確認
 - peak memory、swap、prefill、decodeのrunner自動記録
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
@@ -209,6 +208,24 @@ LLM requestの累積時間はQwen 198.8秒、Gemma 236.2秒だった。最初の
 複製DBでも保存identifierや人が確定した判断を失わず、期待に合うcategoryがQwenより2件多かった。
 LLM処理時間も暫定停止目安の1.5倍以内だった。固定caseと複製DBの範囲では、期間と停止条件を決めた少数project
 試用へ進める条件を満たした。
+
+### Agents A1のidle時再確認
+
+定期jobが動いていない2026-07-26に、Agents A1 4Bを通常APIの自動切替で実行した。goodfeeds、Chive API、
+atproto.dartを元profileなしで各2回実行し、6/6 request成功、全検査6/6、根拠外identifier 0件だった。
+categoryも3件とも2回同じで、期待値と一致した。前回の`Model unloaded`は再現せず、前回2回の失敗は定期jobとの
+競合によるものという解釈と整合する。
+
+1巡目96.3秒、2巡目66.7秒、累積163.0秒だった。同じ3件の既存Qwen/Gemma単発値は52.7秒と73.1秒である。
+model別suffixとruntime cacheが違うため精密な速度比には使わないが、Agentsに処理時間の利点は見えなかった。
+処理後の`llama-server`はphysical footprint 9,744 MB、process lifetime peak 9,821 MBだった。packageは4.48 GBだが、
+runtimeの自動設定はcontext 262,144、parallel 4で、常駐memoryはpackage容量の約2倍になった。それでも手動観測の
+Gemma 16 GB、Qwen 20 GBより小さい。
+
+Agents実行前のruntime APIではQwenだけがload済みでTTLも残っていたが、実行後はAgentsだけがload済みだった。
+現在の自動切替は小さいmodelをQwenと同時に常駐させず、background処理がforeground用Qwenを退避させる。
+background処理とforeground処理が交互に来るとmodel切替が増えるため、現runtime設定のままAgentsを役割別試用へ
+進めない。自動load時のcontext・parallelを小さくでき、明示loadに依存せずQwenとの同居を維持できる場合だけ再検討する。
 
 2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。
