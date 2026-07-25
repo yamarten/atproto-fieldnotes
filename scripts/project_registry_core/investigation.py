@@ -211,6 +211,7 @@ def plan_investigation_queries(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
     seed_plan = seed_investigation_queries(project)
     try:
@@ -222,6 +223,7 @@ def plan_investigation_queries(
             llm_api_key=llm_api_key,
             llm_reasoning_effort=llm_reasoning_effort,
             llm_api_style=llm_api_style,
+            llm_max_output_tokens=llm_max_output_tokens,
         )
         return {
             "repo_search_queries": unique_strings(

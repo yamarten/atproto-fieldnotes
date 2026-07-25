@@ -7190,6 +7190,7 @@ def plan_investigation_queries(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_max_output_tokens: int | None = None,
     llm_runner: Callable[..., tuple[dict[str, Any], dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     return investigation_core.plan_investigation_queries(
@@ -7204,6 +7205,7 @@ def plan_investigation_queries(
         llm_api_key=llm_api_key,
         llm_reasoning_effort=llm_reasoning_effort,
         llm_api_style=llm_api_style,
+        llm_max_output_tokens=llm_max_output_tokens,
     )
 
 

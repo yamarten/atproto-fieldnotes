@@ -39,6 +39,7 @@ class EnrichmentOptions:
     llm_api_key: str = ""
     llm_api_style: str = ""
     llm_reasoning_effort: str = ""
+    llm_max_output_tokens: int = 0
     llm_triage_prompt_suffix_file: str = ""
 
     @classmethod
@@ -48,6 +49,7 @@ class EnrichmentOptions:
         allowed = {item.name for item in fields(cls)}
         values = {key: value for key, value in request.parameters.items() if key in allowed}
         values["tracking_states"] = tuple(str(item) for item in values.get("tracking_states") or ())
+        values["llm_max_output_tokens"] = int(values.get("llm_max_output_tokens") or 0)
         return cls(**values)
 
     def checkpoint_options(self) -> dict[str, Any]:
@@ -67,6 +69,7 @@ class EnrichmentOptions:
             "llm_model",
             "llm_api_style",
             "llm_reasoning_effort",
+            "llm_max_output_tokens",
             "llm_triage_prompt_suffix_file",
         )
         values = {name: getattr(self, name) for name in names}
@@ -279,6 +282,8 @@ def run(
     cancellation: CancellationToken | None = None,
 ) -> OperationResult:
     options = EnrichmentOptions.from_request(request)
+    if options.llm_max_output_tokens < 0:
+        raise ValueError("llm_max_output_tokens must be zero or greater")
     if options.resume_run and not options.all_projects:
         raise ValueError("resume_run requires all_projects")
     if options.resume_run and options.no_checkpoint:
@@ -377,6 +382,7 @@ def run(
                 llm_api_key=options.llm_api_key or None,
                 llm_reasoning_effort=options.llm_reasoning_effort or None,
                 llm_api_style=options.llm_api_style or None,
+                llm_max_output_tokens=options.llm_max_output_tokens or None,
                 llm_triage_prompt_suffix=llm_triage_prompt_suffix or None,
                 deep_investigation=options.deep_investigation,
             )

@@ -42,6 +42,7 @@ def request_from_args(args: argparse.Namespace) -> OperationRequest:
             "llm_api_key": str(args.llm_api_key or ""),
             "llm_api_style": str(args.llm_api_style or ""),
             "llm_reasoning_effort": str(args.llm_reasoning_effort or ""),
+            "llm_max_output_tokens": int(args.llm_max_output_tokens or 0),
             "llm_triage_prompt_suffix_file": str(args.llm_triage_prompt_suffix_file or ""),
         },
     )

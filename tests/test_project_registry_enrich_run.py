@@ -37,6 +37,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
                 "llm_model": "example-model",
                 "llm_api_style": "chat",
                 "llm_reasoning_effort": "low",
+                "llm_max_output_tokens": 2048,
                 "llm_api_key": "secret-value",
             },
         )
@@ -62,6 +63,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(written, checkpoint_path)
         self.assertEqual(loaded["options"]["llm_endpoint"], "https://llm.example")
         self.assertEqual(loaded["options"]["llm_triage_prompt_suffix_file"], "/tmp/category-gates.txt")
+        self.assertEqual(loaded["options"]["llm_max_output_tokens"], 2048)
         self.assertTrue(loaded["options"]["llm_api_key_configured"])
         self.assertNotIn("secret-value", checkpoint_path.read_text())
         self.assertEqual(request.to_dict()["parameters"]["llm_api_key"], "<configured>")
@@ -243,6 +245,15 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "category-gates.txt")
 
+    def test_cli_llm_max_output_tokens_is_forwarded(self) -> None:
+        args = cli.build_parser().parse_args([
+            "enrich", "-p", "proj:111111111111",
+            "--llm-max-output-tokens", "2048",
+        ])
+        request = enrichment_commands.request_from_args(args)
+
+        self.assertEqual(request.parameters["llm_max_output_tokens"], 2048)
+
     def test_run_reads_triage_prompt_suffix_once_and_forwards_content(self) -> None:
         self.seed_projects()
         suffix_path = Path(self.tempdir.name) / "category-gates.txt"
@@ -269,6 +280,46 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(enrich_project.call_args.kwargs["llm_triage_prompt_suffix"], "category gate")
+        self.assertIsNone(enrich_project.call_args.kwargs["llm_max_output_tokens"])
+
+    def test_run_forwards_llm_max_output_tokens(self) -> None:
+        self.seed_projects()
+        request = OperationRequest.create(
+            "enrich",
+            execute=True,
+            parameters={
+                "project_key": "proj:111111111111",
+                "llm_max_output_tokens": 2048,
+            },
+        )
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(
+                enrichment.enrichment_pipeline,
+                "enrich_project",
+                side_effect=lambda _conn, project, **_kwargs: project,
+            ) as enrich_project:
+                result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(enrich_project.call_args.kwargs["llm_max_output_tokens"], 2048)
+
+    def test_run_rejects_negative_llm_max_output_tokens(self) -> None:
+        request = OperationRequest.create(
+            "enrich",
+            execute=True,
+            parameters={"project_key": "proj:111111111111", "llm_max_output_tokens": -1},
+        )
+
+        conn = registry.open_db()
+        try:
+            with self.assertRaisesRegex(ValueError, "llm_max_output_tokens"):
+                enrichment.run(conn, request)
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":

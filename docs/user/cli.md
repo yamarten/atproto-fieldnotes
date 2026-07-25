@@ -67,6 +67,9 @@ project-registry enrich --all --resume-run weekly-20260714
 
 既定対象外の追跡状態は`--include-*`、明示列挙は`--tracking-states`、全状態は`--all-tracking-states`で含めます。
 
+`--llm-max-output-tokens`は、1回のplanning、confirmed repository解析、triageの各LLM requestに同じ最大出力token数を指定します。
+省略時はendpoint側の設定を使います。model比較では、固定corpus評価と通常`enrich`で同じ値を明示してください。
+
 ## 要レビュー一覧と紹介候補一覧
 
 | コマンド | 主な入力 | 出力 | 副作用 |

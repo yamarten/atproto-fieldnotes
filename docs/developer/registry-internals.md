@@ -907,6 +907,7 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - investigation plan
     - repository analysis（revision一致の保存済み結果があれば省略）
+  - `enrich --llm-max-output-tokens`を指定した場合、planning、repository analysis、triageの全POSTへ同じ出力上限を渡す。省略時はendpoint既定値
     - triage
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します

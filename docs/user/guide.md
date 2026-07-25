@@ -147,6 +147,8 @@ export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 特定のmodel構成だけに追加のtriage規則を適用する場合は、`enrich`へ
 `--llm-triage-prompt-suffix-file PATH`を指定します。これは共通promptの末尾へUTF-8文書を追加する設定で、
 通常運用で暗黙に切り替わるものではありません。使用した本文のhashはinvestigation runへ保存されます。
+固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。
+この値はplanning、confirmed repositoryの解析、triageの各LLM requestへ共通して適用されます。省略時はendpoint側の設定を使います。
 
 Bluesky検索、GitHub検索、Web UI token:
 

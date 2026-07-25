@@ -104,6 +104,7 @@ def enrich_project(
     llm_api_key: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_api_style: str | None = None,
+    llm_max_output_tokens: int | None = None,
     llm_triage_prompt_suffix: str | None = None,
     deep_investigation: bool = False,
 ) -> dict[str, Any]:
@@ -404,6 +405,7 @@ def enrich_project(
                 llm_api_key=llm_api_key,
                 llm_reasoning_effort=llm_reasoning_effort,
                 llm_api_style=llm_api_style,
+                llm_max_output_tokens=llm_max_output_tokens,
             )
             result = repository_analysis_core.normalize_result(material, payload, meta, observed_at)
             repository_analysis_core.store_result(project, result)
@@ -480,6 +482,7 @@ def enrich_project(
         llm_api_key=llm_api_key,
         llm_reasoning_effort=llm_reasoning_effort,
         llm_api_style=llm_api_style,
+        llm_max_output_tokens=llm_max_output_tokens,
         llm_runner=lambda prompt, **kwargs: llm_transport.run_llm_with_metrics(
             prompt, purpose="planning", requests=llm_requests, **kwargs
         ),
@@ -526,6 +529,7 @@ def enrich_project(
             llm_api_key=llm_api_key,
             llm_reasoning_effort=llm_reasoning_effort,
             llm_api_style=llm_api_style,
+            llm_max_output_tokens=llm_max_output_tokens,
         )
         if prompt_suffix_hash:
             meta["prompt_suffix_hash"] = prompt_suffix_hash

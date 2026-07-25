@@ -746,9 +746,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
                 mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
                 mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result) as run_llm,
             ):
-                enriched = enrichment_pipeline.enrich_project(conn, project)
+                enriched = enrichment_pipeline.enrich_project(
+                    conn, project, llm_max_output_tokens=2048
+                )
         finally:
             conn.close()
 
@@ -765,6 +767,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             enriched["repository_analysis_results"][0]["prompt_version"],
             "repository-analysis-v6",
         )
+        self.assertGreaterEqual(run_llm.call_count, 2)
+        self.assertTrue(all(
+            call.kwargs["llm_max_output_tokens"] == 2048
+            for call in run_llm.call_args_list
+        ))
 
     def test_repository_collection_failure_preserves_previous_success(self) -> None:
         project = self.make_project(
