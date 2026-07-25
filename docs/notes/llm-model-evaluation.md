@@ -15,7 +15,8 @@ repository analysisを含む最新DB複製の確認で、同じ`goat` material�
 通常`enrich`全体をGemmaへ置き換える正本試用は停止し、既定modelはQwenのまま維持します。
 
 repository materialの誤分類と後段への過大な入力も複製DB確認で見つけ、modelに依存しない共通処理として修正しました。
-Gemmaを再び通常処理候補にするには、現行repository解析でJSON失敗を診断・解消し、別の未調整repositoryを含む
+失敗後に同じmaterialをもう一度実行したところrepository analysisを含む3 requestは成功したため、常に起きる形式不一致ではなく
+間欠的な失敗と判断します。Gemmaを再び通常処理候補にするには、同一入力の反復で安定性を確認し、別の未調整repositoryを含む
 確認用caseと最新DB複製をもう一度通す必要があります。
 
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
@@ -237,10 +238,14 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 3. 現行policy v8で作り直した複製では、`goat`のrepository analysisが2回とも`invalid_response`になりました。
    planningとtriageは成功し、categoryは`infra_tool`になりましたが、repository解析結果は保存できませんでした。
    以前のpolicyでも同caseは初回失敗後の再試行で成功しており、常に失敗する相性ではない一方、通常運用へ進める
-   安定性とは扱えません。失敗時のmodel本文は現transportが保存しないため、JSON切断かschema外出力かは未診断です。
+   安定性とは扱えません。
+4. 失敗応答の本文を残さず、失敗段階、byte数、SHA-256、JSON構文エラー位置、開始・終了記号、code fenceの有無を
+   run metricsへ保存する診断を追加しました。その後の同じ`goat`ではrepository analysis 624 bytes、planning、triageが
+   すべて成功し、categoryも`infra_tool`でした。2,048 token上限による切断はこの成功回では起きていませんが、直前2回の
+   失敗本文は保存されていないため原因は確定できません。
 
-共通処理の修正は全535 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは、
-停止判断後には追加実行していません。したがってv6の固定5件結果を現行v8全体の成功実績へ読み替えません。
+共通処理の修正と診断追加は全536 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは
+`goat` 1回です。失敗2回に対する成功1回なので、v6の固定5件結果や今回の成功を現行v8全体の安定性へ読み替えません。
 
 ## 採用判断と残件
 
@@ -253,12 +258,12 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 | 処理時間 | Qwenが優位。Gemmaは約1.3倍 |
 | 常駐memory | 手動観測ではGemmaが約4 GB小さい |
 | prompt保守 | 両modelで別suffixが必要 |
-| 正本試用 | repository analysisのJSON失敗が2回続いたため停止。Qwenを維持 |
+| 正本試用 | repository analysisが2回失敗後に1回成功したが、間欠失敗が未解消のため停止。Qwenを維持 |
 
 未完了:
 
-- Gemmaのrepository analysisが返した利用不能なJSONを、機密や巨大本文を残さない診断方法で確認する
-- 修正後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
+- 現行診断を有効にした同一`goat` materialの反復で、次の失敗時に切断か形式違反かを区別し、成功率も確認する
+- 原因を解消した後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
 - その条件を通った場合だけ、下記7件を正本DBの少数試用候補として再利用する
 - peak memory、swap、prefill、decodeをrunnerから自動記録する
 

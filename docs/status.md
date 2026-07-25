@@ -213,9 +213,9 @@
 - 問題が出た未使用case中心の8件×2回では、category変化は両model 0件。identifier集合／検査成否の変化はQwen 2件／3件、Gemma 0件／0件。手動footprintはQwen 20 GB、Gemma 16 GBだったが、runnerによる同一workload memory計測は未接続
 - 元profileなし未使用8件のmodel名を伏せた文章比較は、Gemma 3件、Qwen 2件、同等3件。文章品質では一方の明確な優位を確認していない
 - 調整用5 repositoryの現行解析policyでは、request成功は両model 5/5、根拠位置不備は両model 0件。全claimが保存規則を通ったresultはGemma 3/5、Qwen 0/5で、materialにないcollectionはGemma 0件、Qwen 1件。解析結果を重ねた後段triageも両model 5/5でschema有効、根拠外identifier 0件。調整用caseのため未知repositoryへの一般化成績には使わない
-- 固定評価と通常`enrich`の最大出力条件を揃える入口を追加し、planning、repository analysis、triageへの伝播を確認。全535 testを通過
-- 最新DB複製の`atproto.dart`で一般の`/docs/`文書がdeployment設定になる誤抽出を確認して修正。`goat`では重複excerptでrepository結果が20,732文字となり後段24 KiB上限を超えたため、保存とtriage投影を縮約した。既存の実結果5件はtriage投影1,930〜3,536文字に収まり、全535 testを通過
-- 現行repository analysis policy v8では、Gemmaの`goat`解析が2回連続で`invalid_response`となった。planningとtriageは成功したが、通常`enrich`全体の置換試用は停止し、既定modelはQwenを維持。正本DBは未変更
+- 固定評価と通常`enrich`の最大出力条件を揃える入口を追加し、planning、repository analysis、triageへの伝播を確認
+- 最新DB複製の`atproto.dart`で一般の`/docs/`文書がdeployment設定になる誤抽出を確認して修正。`goat`では重複excerptでrepository結果が20,732文字となり後段24 KiB上限を超えたため、保存とtriage投影を縮約した。既存の実結果5件はtriage投影1,930〜3,536文字に収まった
+- 現行repository analysis policy v8では、Gemmaの`goat`解析が2回連続で`invalid_response`となった後、診断追加後の1回はrepository analysis、planning、triageのすべてに成功した。利用不能な本文は保存せず、byte数、hash、JSON error位置等をrun metricsへ残す。間欠失敗は未解消なので通常`enrich`全体の置換試用は停止し、既定modelはQwenを維持。正本DBは未変更。全536 testを通過
 
 未検証:
 

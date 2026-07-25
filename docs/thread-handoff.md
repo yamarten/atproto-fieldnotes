@@ -11,7 +11,7 @@
 - categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。前回LLM由来のscopeを次のpromptへ戻すfeedback loopも除去し、全492 testを確認済みです。正本DBの旧`category=auth_only` 35件も個別移行済みです。
 - masterのrepository取得・material化・LLM解析を取り込み、repository解析用の固定corpus export・実行・比較も追加しました。最初の比較で根拠位置の不正確な出力が両modelに多かったため、prompt内だけの根拠番号、summaryの根拠必須化、tree pathのLLM根拠からの除外、host integrationの意味検査まで行いました。解析reportを固定triage caseへ一時的に重ねる評価経路も追加しています。
 - 修正後の調整用5 repositoryではGemmaが保存規則3/5、Qwenが0/5、後段triageは両model 5/5成功・根拠外identifier 0件でした。通常`enrich`にも最大出力token数を渡す入口を追加し、repository解析を含む全LLM requestへ伝播することを確認しました。
-- 最新DB複製では、一般の`/docs/`文書をdeployment設定とする誤抽出と、同じexcerptの複製で後段24 KiB上限を超える問題を確認して修正しました。既存の実結果5件はtriage投影1,930〜3,536文字に収まり、全535 testを通しています。一方、現行policy v8のGemmaによる`goat` repository解析が2回連続`invalid_response`となったため試用を停止し、正本DBは変更していません。
+- 最新DB複製では、一般の`/docs/`文書をdeployment設定とする誤抽出と、同じexcerptの複製で後段24 KiB上限を超える問題を確認して修正しました。既存の実結果5件はtriage投影1,930〜3,536文字に収まります。現行policy v8のGemmaによる`goat` repository解析は2回連続`invalid_response`の後に1回成功しましたが、間欠失敗が未解消のため試用を停止しています。利用不能な本文を残さない診断を追加し、全536 testを通しています。正本DBは変更していません。
 - 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
@@ -21,7 +21,7 @@
 
 - 未使用21件の元profileなし／ありは実測済み。元profileなしではQwen/Gemmaともcategory 17/21だが、全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。
 - 重い5件×2回とrepository analysis追加前の複製DB通常`enrich` 8件は完了。Gemmaは固定入力でQwenの1.30〜1.36倍、複製DBのLLM時間は最初のprojectを除いて1.29倍だが、暫定停止目安1.5倍以内。重い入力の全検査はGemma 9/10、Qwen 7/10、複製DBではgoodfeedsとleaflet-mdのcategoryをGemmaだけが期待どおり保存し、identifier、profile本文、promotion判定の退行はなかった。この時点のproject-level triageでは少数試用条件を満たしたが、現行pipeline全体では後述のrepository解析失敗により停止した。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1はidle時6/6成功、footprint 9.7 GBだったが、処理が遅く、自動切替でTTL中のQwenを退避させたため、現runtimeのままbackground試用へ進めない。
-- Gemmaのrepository analysisが返した利用不能なJSONを、機密や巨大本文を残さない方法で診断する。修正後は別の未調整repositoryを加え、固定caseと最新DB複製を再実行する。
+- 診断を有効にした同一`goat` materialの反復で、Gemma repository analysisの次の失敗を切断か形式違反かに分け、成功率も確認する。原因解消後は別の未調整repositoryを加え、固定caseと最新DB複製を再実行する。
 - その条件を通った場合だけ、既知のgoat、atproto.dart、AT Backup、marque.atと、固定corpusにないatplay.games、Postcards Social、publicdomainrelay.comの7件を正本試用候補として再利用する。Afrilingua AIは重複候補の判断後へ回す。
 - 正本DBへのGemma試用は未承認・未実施。既定modelと定期jobはQwenのまま。
 - 現行gpt-oss MLXはruntime APIで`low / medium / high`対応と既定`low`を確認済み。過去のGGUF結果は`low`適用済み比較へ再利用しない。

@@ -195,7 +195,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - 元profileなし／ありの生出力と、複製DBで保存規則を適用した結果は実測済み。既存profile本文は8/8件で両modelとも維持されたため、Gemmaによる文章改善は少数project試用で別に確認する
   - confirmed repositoryのREADME、manifest、configuration、Lexicon、必要時のsource抜粋をbounded materialとして解析し、結果をtriageへ渡す経路は実装済み。根拠位置の初回比較を受け、利用可能なlocatorの明示、summaryの根拠必須化、内容のないtree pathのLLM根拠からの除外も実装済み。修正後の調整用5件ではGemmaが保存規則3/5、Qwenが0/5で、変更後triageも両model 5/5成功・根拠外identifier 0件。未知repositoryへの一般化は少数試用で確認する
   - 少数選別では通常処理候補をQwenとGemmaに絞った。Agents A1はidle時の連続6 requestに成功しfootprint 9.7 GBだったが、Qwen/Gemmaより遅く、自動切替でTTL中のQwenを退避させた。自動load時のcontext・parallelを小さくでき、明示loadなしでQwenと同居できるruntime構成が得られる場合だけbackground候補として再検討する
-  - QwenとGemmaの反復、model名を伏せた文章比較、重い5件、複製DBの8件比較は実測済み。project-level triageではGemmaが少数試用の条件を満たしたが、追加されたrepository analysisを含む最新DB複製では`goat`が現行policyで2回連続`invalid_response`となったため停止した。利用不能なJSONの診断と、未調整repositoryを加えた再確認を通るまで正本試用へ進めず、Qwenを維持する
+  - QwenとGemmaの反復、model名を伏せた文章比較、重い5件、複製DBの8件比較は実測済み。project-level triageではGemmaが少数試用の条件を満たしたが、追加されたrepository analysisを含む最新DB複製では`goat`が現行policyで2回連続`invalid_response`となった。本文を残さない診断追加後の1回は成功したため間欠失敗と判断し、同一入力の反復で原因と成功率を確認してから未調整repositoryを加えて再確認する。それまでは正本試用へ進めず、Qwenを維持する
   - 手動footprintはQwen 20 GB、Gemma 16 GB、Agents A1 9.7 GB。Agents A1の23時台の失敗は定期jobとの競合で、idle時には再現しなかった
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
   - 既存`category=library`の一括再分類はmodel変更の確認に依存する。少数project試用と既定modelの判断が終わるまではbulk更新しない
