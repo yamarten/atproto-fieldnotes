@@ -24,6 +24,7 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 - `export-llm-evaluation-corpus`
   - 指定DBをread-onlyで開き、保存済みLLM evidenceから固定caseを出力する
   - 現在のQwen由来profileをevidenceから外して別に保持し、元profileなし／ありを同じcaseから作れる
+  - 前回LLM出力だけを根拠とする`lexicon_scope`も除き、前回分類を入力へ戻さない
 - `evaluate-llm-corpus`
   - 一つの実行構成を固定caseへ適用し、各request完了時までの結果をreportへ書き出す
   - JSON/schema、enum、evidence外identifier、categoryとsummaryの不整合、日英混在文の空白、
@@ -44,14 +45,60 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 未完了:
 
-- prompt調整に使っていない、調整後確認用caseの選定と人による期待値確認
-- 元profileなし／ありの両条件による実測と、生出力／保存後結果を分けた比較
-- Qwen、Gemma、Granite、gpt-oss、Agents A1等の少数caseによる再選別
+- 生出力と保存規則適用後を分けた比較
 - 上位構成の複数回実行、文章比較、重い入力、memory確認
 - 複製DBでの通常`enrich`再比較と、通常処理またはbackground処理での少数project試用
 - peak memory、swap、prefill、decodeのrunner自動記録
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
+
+## 2026-07-25の新category契約による再計測
+
+### runtimeと少数選別
+
+LM Studio 0.4.20+1の`/api/v1/models`で、選択variant、format、量子化、reasoning対応を確認した。
+現在のgpt-oss 20Bは旧GGUFではなくMLX MXFP4で、runtimeが`low / medium / high`を許容し、既定値も
+`low`と報告した。この構成の`low`は適用済みとして扱う。旧GGUFで`low`が無視された結果とは混ぜない。
+
+調整用case 8件のproduction promptによる少数選別では、Granite 4 H Tinyは全検査1/8、gpt-oss MLXは
+category 2/8と根拠外identifier 1件、Qwen 3.5 9Bは全検査5/8だったため、通常処理の次段階へ進めなかった。
+Agents A1 4Bはcategory 5/8、全検査7/8だったが216.4秒かかり、通常処理の速度上の利点はなかった。
+一方、model packageは4.48 GBなので、常駐background用途のmemory候補としては残す。
+
+この少数選別中、元profileを除いたcorpusにも前回Qwen出力由来の`lexicon_scope=shared`が残っていることを
+確認した。通常enrichとcorpus exportの両方で、`lexicon_scope_evidence`が`llm_output:*`だけの場合はscopeを
+`unknown`へ戻すよう修正した。外部またはheuristic根拠を持つscopeは維持する。新corpus 3,635件では13件の
+evidence hashが変わり、調整用56件と未使用21件のlabelをproject単位で対応づけ直した。汚染corpus上のcategory
+scoreは採用判断へ使わない。
+
+Qwen用category-gates v3とGemma用category-gates v6は、調整用caseで実際に確認した誤りだけを対象にした。
+両modelとも、schema sampleだけでも対象領域が詳細で一貫している場合に、文書化された共有lexiconまたは
+実装済みinfraへ昇格させる傾向が残った。強い指示を重ねても解消しなかったため、個別caseに合わせた追加調整は
+止め、既知の不一致として未使用caseへ進んだ。
+
+### prompt調整に使っていない21件
+
+model出力を見る前に期待categoryを確認した21件を、clean corpusと固定suffixで各1回実行した。
+Chat Completions、最大出力2,048 token、reasoningなしで、元profileなし／ありを分けた。
+
+| 構成 | 元profile | request成功 | 全検査通過 | category一致 | 根拠外identifier | 累積時間 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B、category-gates v3 | なし | 21/21 | 17/21 | 17/21 | 2件 | 250.4秒 |
+| Gemma 4 26B、category-gates v6 | なし | 21/21 | 21/21 | 17/21 | 0件 | 330.8秒 |
+| Qwen 3.6 35B、category-gates v3 | あり | 21/21 | 19/21 | 16/21 | 1件 | 255.5秒 |
+| Gemma 4 26B、category-gates v6 | あり | 21/21 | 19/21 | 17/21 | 0件 | 338.0秒 |
+
+元profileなしではcategory一致数が同じだったが、Gemmaは全21件でschemaとidentifier検査を通った。Qwenは
+GoodfeedsとChartIDでevidenceにないNSIDを生成した。category不一致は両modelに共通して、Markdown同期CLIを
+`library`、根拠の薄いhealth projectを`infra_tool`、schema sample中心のcorvusを`lexicon`とした。加えてQwenは
+Bluesky CLI skillを`library`、GemmaはTitleGraphを`project`とした。
+
+元profileありは両modelとも改善しなかった。Qwenはcategory一致が1件減り、Gemmaは一致数を維持したが全検査が
+2件減った。profileなし／ありでcategoryが変わったcaseはQwen 1件、Gemma 4件だった。現在profileを渡すことは
+既存文章の更新適性を確認する条件ではあるが、分類の安定化策とは扱わない。
+
+この段階では、安全検査でGemma、速度でQwenが優位で、category一致は同点である。Gemmaを既定へ変更する判断は
+まだ下さない。次は同一入力の複数回実行、文章比較、memory、複製DBの順に確認する。
 
 2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。

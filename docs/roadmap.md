@@ -188,14 +188,14 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - anonymous browser verificationの固有成果を確認できた場合だけ、実Playwright smoke testと複数surface統合を追加する
 - repo contents、PDS、Bluesky sessionを含む全collectorへbudget/cache policyを統一する
 - investigation viewerのbounded evidenceで不足する具体例を収集する
-- 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
+- 固定evidence harnessで上位modelの反復、文章、重い入力、memoryを比較する
   - corpus export、1 model構成のstructured report、同一入力の複数回差分、2 reportの機械比較は実装済み。peak memory / swap / prefill / decodeのrunner観測は未接続
-  - reasoning要求をruntimeが適用したか確認してから比較する。過去のgpt-oss GGUF実行は`low`が無視されたため、reasoning条件を揃えた形式比較には使わない
-  - category契約を見直した旧56 labelは全件を調整用のv3 fixtureへ移行済み。prompt固定後の確認には、その調整に使っていない別caseを用意する
-  - 元profileなしを新規projectでのmodel比較、元profileありを現行Qwen profileからの移行適性として分け、生出力と保存後結果も別集計する
+  - 過去のgpt-oss GGUF実行は`low`が無視されたため再利用しない。現行gpt-oss MLXはruntime APIで`low`対応と既定値を確認済み
+  - category契約を見直した旧56 labelは調整用、別の21件は未使用caseとして固定・実測済み。結果を見た後はsuffixを変更していない
+  - 元profileなし／ありの生出力比較は実測済み。次は保存規則適用後を分けて確認する
   - GitHub collectorはREADME本文を取得するが、本文をsummary候補や固定evidenceへ保存しない。repository descriptionが空のprojectでartifact roleを判断できないため、本文を通常enrichへどう渡すか検討する
-  - QwenとGemmaを基準に、Granite、gpt-oss MLX、Agents A1、必要ならQwen 9Bを少数caseで再選別する。Agents A1は常駐background候補としてidle/処理中memory、連続処理、foreground modelへの影響を確認する
-  - 上位構成だけ複数回実行、文章比較、重い入力、複製DB比較へ進める。全面移行、期間限定試用、役割別併用、現状維持を比較する
+  - 少数選別では通常処理候補をQwenとGemmaに絞った。Agents A1は常駐background候補としてidle/処理中memory、連続処理、foreground modelへの影響を確認する
+  - QwenとGemmaを複数回実行、文章比較、重い入力、複製DB比較へ進める。全面移行、期間限定試用、役割別併用、現状維持を比較する
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
   - 既存`category=library`の一括再分類はmodel変更の確認に依存する。prompt調整に使っていないcaseと複製DBでのenrich比較を確認するまではbulk更新しない
 
