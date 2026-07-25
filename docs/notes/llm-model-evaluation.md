@@ -215,7 +215,9 @@ evidenceだけを確認した17件は当時`false`として固定しました。
 新category契約で全56件を再確認したlabelは
 `tests/fixtures/llm_evaluation_category_labels_v3.json`です。旧結果とcategory境界を見ながら契約とpromptを
 変更したため、56件すべてを`used_for_prompt_adjustment=true`としました。prompt固定後のmodel選定には、
-この56件とは別のcaseを用意します。
+この56件とは重ならない21件を`tests/fixtures/llm_evaluation_category_labels_v3_holdout.json`へ固定しました。
+21件はmodel出力を確認する前に人が期待categoryを確認し、`used_for_prompt_adjustment=false`としています。
+今後この21件の結果を見てpromptを変更した場合は調整用へ移し、別の未使用caseを用意します。
 
 候補の`bluesky-backup-webapp`はREADMEにPDS backup用途が明記されている一方、固定evidenceにはrepository URLと
 名前しかありませんでした。GitHub collectorはREADME本文を取得しますが、保存するのはREADME内URLで、本文は
@@ -259,7 +261,7 @@ integrity `ok`、foreign key違反0を確認し、category以外の変更は寄�
 ### 2. 評価caseと元profile条件を作り直す
 
 正本DBの保存済みevidence 3,635件をread-onlyでexportし、全caseでQwen由来profileを入力evidenceから分離しました。
-旧56 labelの新契約による再確認は完了しました。全件が調整用になったため、調整後確認用の新規caseを選定します。
+旧56 labelの新契約による再確認と、調整後確認用21件の固定は完了しました。
 
 既存labelを新category契約で確認し、prompt調整に使うcaseと、調整後の確認に使うcaseを分け直します。
 同じevidenceについて次の二条件を用意します。

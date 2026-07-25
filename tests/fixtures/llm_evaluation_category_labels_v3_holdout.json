@@ -1,0 +1,216 @@
+{
+  "schema_version": 2,
+  "policy": "Held-out artifact role classification in prompts/project-triage.md",
+  "labels": [
+    {
+      "case_id": "proj:289b39e3d947:fd6bcdd6e2c8",
+      "evidence_hash": "fd6bcdd6e2c8bf88562e1ffeb147200c459494e18faa00b234f27a62755c84d0",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "A generic block description and NSID do not establish a concrete project or documented shared schema."
+    },
+    {
+      "case_id": "proj:58bb49f7d6fb:500b94b07100",
+      "evidence_hash": "500b94b07100fdc2cde4b5fbf23a0382cf2b7be8b1db3ca2476435aab65fe66d",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence identifies an end-user service for discovering and sharing Bluesky feeds."
+    },
+    {
+      "case_id": "proj:2617bd65b02d:bc547919426b",
+      "evidence_hash": "bc547919426b3d4845c4cfe4daa8c42a7eef25501a9c1007adfb051cc448ed1e",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence identifies the user-facing Chive scholarly eprint service and its AppView."
+    },
+    {
+      "case_id": "proj:58a6d64e19a9:7bfa50b6e820",
+      "evidence_hash": "7bfa50b6e820dbc609c9459e9637331f2a31ad5738d06e02d3194d2c00d951fa",
+      "expected_output": {
+        "category": "project"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence identifies a user-facing domain registrar built on AT Protocol."
+    },
+    {
+      "case_id": "proj:94b493aae1eb:1738df2322f8",
+      "evidence_hash": "1738df2322f837e3b85343ac6b51c39a09d038f065668a04503472b8cb5b5f5d",
+      "expected_output": {
+        "category": "lexicon"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence documents composable, interoperable lexicons intended for linguistic annotation sharing."
+    },
+    {
+      "case_id": "proj:4a8e71e4fc29:21e29285c392",
+      "evidence_hash": "21e29285c3920c46fb470e12237de2031ecd0f598c04debfb17ecc74cd4d3392",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Ozone is an operator-facing moderation and labeling interface for AT Protocol content."
+    },
+    {
+      "case_id": "proj:9ac089e00b94:d1422dfcf5e4",
+      "evidence_hash": "d1422dfcf5e4d3a1562e2443e158f7a62d57899423db73c97b19f862fad9a580",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only the app.plannd.status NSID is evidenced."
+    },
+    {
+      "case_id": "proj:f55a50d13d8e:103099567e8b",
+      "evidence_hash": "103099567e8b5374017f8f2774a4563800a978d8416d707c94aee65feb6b8319",
+      "expected_output": {
+        "category": "personal_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The records and descriptions are explicitly for one author personal blog."
+    },
+    {
+      "case_id": "proj:8829cf936560:52bdbdb183ac",
+      "evidence_hash": "52bdbdb183ac572dac1c2e4325d6063a1dd46f66effc159a99f267b5fd54936c",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly identifies production-ready Dart and Flutter SDK packages."
+    },
+    {
+      "case_id": "proj:3c762a09854d:40d64f8cac2a",
+      "evidence_hash": "40d64f8cac2a10eb01c1edd0d47cae8f931e3cf09d6e013e59d2f35b674c3dfe",
+      "expected_output": {
+        "category": "personal_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The repository explicitly describes a single-user lifelogging application."
+    },
+    {
+      "case_id": "proj:e2b9668114fa:f54dc663c9fb",
+      "evidence_hash": "f54dc663c9fb68a4bd7ca933eccf5845a42f15af8fec2a62d05160bcad2326a5",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly identifies reusable Rust crates for ATProto development."
+    },
+    {
+      "case_id": "proj:0eebecf6994f:465adc52cd32",
+      "evidence_hash": "465adc52cd32c5f6cfc7d175ce79e15cee9161efe3548850e9b7a5ead12692f8",
+      "expected_output": {
+        "category": "lexicon"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly presents an open decentralized schema for third-party television catalog interoperability."
+    },
+    {
+      "case_id": "proj:f9a4c3238ea0:9e27b113b582",
+      "evidence_hash": "9e27b113b5825e144a556a4689881660c694acd8a3ff0c09ac9451c381e3bc18",
+      "expected_output": {
+        "category": "library"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly identifies a type-safe JavaScript automation library."
+    },
+    {
+      "case_id": "proj:e9a659ac13c6:1eddc9de3e00",
+      "evidence_hash": "1eddc9de3e003c147fa922e6447b8f20c1433efa16cd35c9767a4c958240be83",
+      "expected_output": {
+        "category": "personal_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence explicitly identifies one person personal site."
+    },
+    {
+      "case_id": "proj:ca196e3df3c5:07572e1e3634",
+      "evidence_hash": "07572e1e3634134d1d371fc9d33330476352519b60c496a4ed1e442679f06491",
+      "expected_output": {
+        "category": "reject"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidenced repository is a Solana treasury protocol unrelated to AT Protocol."
+    },
+    {
+      "case_id": "proj:0a7da3167411:d586c27c0b02",
+      "evidence_hash": "d586c27c0b02f93f7cf18af34729d4809382d6050b2b761bd02ae2cafbc35d29",
+      "expected_output": {
+        "category": "reject"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidenced repository is an unrelated cryptographic authorization protocol, not AT Protocol."
+    },
+    {
+      "case_id": "proj:16fad81dda9d:b83712473bb5",
+      "evidence_hash": "b83712473bb55a05939e6e4da75d8c04984612f3ce4d3abde86f67ca82d4e334",
+      "expected_output": {
+        "category": "lexicon"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidence presents an open AT Protocol lexicon and RFC for interoperable astrological chart records."
+    },
+    {
+      "case_id": "proj:a37ab47fe843:3f145921c438",
+      "evidence_hash": "3f145921c43870ed995375eefe2f090cc4609412d69600959af9316d6bb48be4",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The CLI synchronizes Markdown into Leaflet records and supports publishing operations."
+    },
+    {
+      "case_id": "proj:a0590251544c:fb56cb7d3e00",
+      "evidence_hash": "fb56cb7d3e0097b433d4cec8f2bfd71bed25b677aa6cf03ac8b6c1abe6b78e9b",
+      "expected_output": {
+        "category": "reject"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The evidenced repository is a Solana payment-gated agent API unrelated to AT Protocol."
+    },
+    {
+      "case_id": "proj:936e927552e6:6fb59e683fe5",
+      "evidence_hash": "6fb59e683fe5d97d3b145acde8260785635fdac2f0ac95bd5d532eb3af2a9f61",
+      "expected_output": {
+        "category": "name_only"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "Only a repository URL and suggestive name are present; its actual role is not evidenced."
+    },
+    {
+      "case_id": "proj:b205c0a79d8d:5498ad2bcc6a",
+      "evidence_hash": "5498ad2bcc6a2e75aceedd9c318940196008de31783fb65ccf34d34ed416a438",
+      "expected_output": {
+        "category": "infra_tool"
+      },
+      "status": "confirmed",
+      "used_for_prompt_adjustment": false,
+      "basis": "The artifact is a Clawdbot CLI skill that directly operates Bluesky through AT Protocol."
+    }
+  ]
+}

@@ -28,6 +28,24 @@ class LLMCorpusExportTest(unittest.TestCase):
             {label["expected_output"]["category"] for label in label_set["labels"]},
         )
 
+    def test_holdout_labels_are_disjoint_from_prompt_adjustment_cases(self) -> None:
+        adjusted = json.loads(
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3.json").read_text()
+        )
+        holdout = json.loads(
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3_holdout.json").read_text()
+        )
+        adjusted_projects = {
+            label["case_id"].rsplit(":", 1)[0] for label in adjusted["labels"]
+        }
+        holdout_projects = {
+            label["case_id"].rsplit(":", 1)[0] for label in holdout["labels"]
+        }
+
+        self.assertEqual(len(holdout["labels"]), 21)
+        self.assertTrue(all(not label["used_for_prompt_adjustment"] for label in holdout["labels"]))
+        self.assertFalse(adjusted_projects & holdout_projects)
+
     def test_export_is_read_only_latest_per_project_and_prioritizes_library(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = Path(tempdir) / "survey.db"

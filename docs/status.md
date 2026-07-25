@@ -194,7 +194,8 @@
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
 - 旧category契約でのLLM評価では、未調整17件のcategory一致がQwen 8/17、Gemma 11/17、複製DB 6件の保存categoryは5件同一だった。category契約を見直したため、この一致数とgoatの旧判定は次のmodel選定へ直接使わない。速度、JSON/schema、identifier、文章比較の観測は履歴として残し、新契約でlabelと評価条件を作り直す。通常運用modelの変更は未決定
-- 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全489 testを確認。正本DBの旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6へ移行し、旧category 0件、integrity `ok`、foreign key違反0を確認
+- 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全490 testを確認。正本DBの旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6へ移行し、旧category 0件、integrity `ok`、foreign key違反0を確認
+- 新category契約で確認した旧56 labelは全件をprompt調整用とし、重複しない21件を調整後確認用として固定済み
 
 未検証:
 
