@@ -12,7 +12,9 @@ Gemma 4 26B A4B MLXは、現在のQwen 3.6 35B A3Bより約30%遅い一方、JSO
 
 GemmaはQwenを直ちに置き換えるほど圧倒的ではありませんが、正本DBの少数projectで試す価値があります。
 正本DBでの試用と既定modelの変更は未実施です。Qwenは通常運用の既定modelのままです。比較後に通常`enrich`へ
-repository analysisが追加されたため、その処理と変更後のtriage promptを再確認してから試用対象を確定します。
+repository analysisが追加されたため、その処理と変更後のtriage promptも再確認しました。修正後のrepository解析では
+Gemmaの方が保存規則を多く満たし、後段triageにも重大な保存上の退行はありませんでした。試用対象は確定し、
+正本DBへ書く前の複製DB確認を残しています。
 
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
@@ -31,10 +33,10 @@ API応答の`reasoning_tokens=0`を確認しました。LM Studioが返したloa
 226,304、いずれもparallel 4で、要求した32,768は反映されませんでした。今回のpromptは実際のcontextより十分
 小さいものの、contextまで同一の比較ではありません。
 
-この比較の固定corpusと複製DB実行は、project-level triageを主な対象とし、repository analysis追加前に行いました。
+最初の固定corpusと複製DB実行は、project-level triageを主な対象とし、repository analysis追加前に行いました。
 2026-07-26にmasterを取り込み、confirmed repositoryのbounded materialを別のLLM requestで解析してから、その
 保存結果をtriageへ渡すようになりました。既存のschema・identifier・category・速度の比較値はtriageの観測として
-残しますが、repository analysisの出力品質と追加時間、および変更後promptでの最終保存結果は未測定です。
+残し、repository analysisの出力品質と追加時間、および変更後promptへの影響は後述の固定5件で追加確認しました。
 
 ## 評価前に直したこと
 
@@ -175,13 +177,13 @@ runtime APIが返しました。これは通常APIの自動切替がQwenを残�
 Qwen 3.5 9Bのpackageは約6 GBですがfootprintは未測定です。低優先度処理を再検討する場合は、処理内容を決めた
 上で、AgentsとQwen 9Bを同じcontext、parallel、連続処理、同居条件で比較する必要があります。
 
-## repository analysisの初回確認
+## repository analysisの確認
 
 master取り込み後、保存済みrunから5 repositoryのrevision固定materialをread-onlyで取り出し、QwenとGemmaへ
 各1回渡しました。この5件はmaster側の実装・調整に使われた可能性があり、今回の失敗を受けたprompt修正にも
 使ったため、今後は互換性とprompt調整の確認用です。未知projectでの性能には数えません。
 
-| 構成 | request成功 | 保存規則を全claimが通過 | 根拠位置に不備があるresult | materialにないNSIDがあるresult |
+| 構成 | request成功 | 保存規則を全claimが通過 | 根拠位置に不備があるresult | materialにないcollection NSIDがあるresult |
 | --- | ---: | ---: | ---: | ---: |
 | Qwen | 5/5 | 1/5 | 2/5 | 1/5 |
 | Gemma | 4/5 | 0/5 | 2/4 | 1/4 |
@@ -192,7 +194,32 @@ Gemmaは1件が不正JSONで失敗しました。
 
 この結果を受け、LLMへ利用可能な根拠位置をprompt内だけの短い番号で示し、番号だけを返させて保存前にlocatorへ
 戻すよう変更し、summaryにも根拠を必須化しました。内容を持たないtree pathはLLMの根拠から外し、treeから安全に判断できる観測は決定的な抽出処理だけに残しました。
-解析policyを更新したため、旧解析結果は再利用せず、修正後の再測定を行います。
+host integrationは、一般的なWeb frameworkの利用だけでは成立しないよう意味検査も追加しました。
+
+修正後の同じ5件を各modelへ1回ずつ渡した結果は次の通りです。
+
+| 構成 | request成功 | 保存規則を全claimが通過 | 根拠位置に不備があるresult | materialにないcollection NSIDがあるresult | 正規化でclaimを落としたresult | 累積時間 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen | 5/5 | 0/5 | 0/5 | 1/5 | 4/5 | 68.4秒 |
+| Gemma | 5/5 | 3/5 | 0/5 | 0/5 | 2/5 | 67.1秒 |
+
+QwenはSmoke Signalでmaterialにないcollectionを1件生成し、複数caseで`capabilities`をschema外の文字列として返しました。
+Gemmaの残る不備は、rolldの重複または根拠との意味不一致の観測と、statusphereのexample判定のbasis不一致です。
+Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが、READMEの現行Next.js実装より古いExpressJS説明へ寄っており、
+根拠付きであることと情報の新しさは別に確認する必要があります。
+
+この5件は実装・prompt調整に使ったため、3/5という値を未知repositoryへの一般化性能には使いません。一方、両modelの
+根拠位置不備を0件にした共通契約と、GemmaがQwenより保存可能な構造を多く返したことは、現行経路の互換性確認に使います。
+
+正規化済みrepository解析を同じ5件のtriage入力へ重ねる二段階確認では、両modelとも5/5 request成功、schema有効、
+根拠外identifier 0件でした。categoryはAT-Proto-SDK、Smoke Signal、rolld、statusphere-example-appの4件で両modelが
+期待どおりでした。外部hostへ組み込むatmogusは`infra_tool`が期待ですが、Qwenは`library`、Gemmaは`name_only`でした。
+入力materialが薄く、個別case向けの追加規則は作っていません。Qwenはstatusphereを`service_status=live`、
+`technical_interest_level=high`まで進め、Gemmaの`unknown`、`notable`より断定が強すぎるため、後段の安全性ではGemmaが妥当でした。
+
+通常`enrich`には固定評価で使った最大出力2,048 tokenを渡す入口がなかったため、`--llm-max-output-tokens`を追加しました。
+この値はplanning、repository analysis、triageへ共通して渡します。次の複製DBと正本DB試用は2,048を明示し、固定評価と
+実行条件を揃えます。
 
 ## 採用判断と残件
 
@@ -200,6 +227,7 @@ Gemmaは1件が不正JSONで失敗しました。
 | --- | --- |
 | category | 固定21件は同点。複製DBではGemmaが2件優位 |
 | schema・identifier | Gemmaが優位 |
+| repository analysis | 調整用5件ではGemmaが保存規則3/5、Qwen 0/5。未知repositoryの成績ではない |
 | 文章 | 明確な差なし |
 | 処理時間 | Qwenが優位。Gemmaは約1.3倍 |
 | 常駐memory | 手動観測ではGemmaが約4 GB小さい |
@@ -207,11 +235,25 @@ Gemmaは1件が不正JSONで失敗しました。
 
 未完了:
 
-- 同じrepository materialをQwenとGemmaへ渡し、schema、根拠位置、観測、capability、collection、時間を比較する
-- repository analysis結果を含む現行triage promptで、固定caseの安全検査とcategoryを再確認する
-- 試用対象を、既知の保存確認用projectとmodel調整に使っていないprojectへ分けて選び直す
+- 下記7件を正本DBの複製でGemmaの通常`enrich`へ通し、repository analysis、planning、triageのrequest数と保存差分を確認する
 - 正本DBでGemmaを少数projectへ適用する
 - peak memory、swap、prefill、decodeをrunnerから自動記録する
+
+試用対象は次のように分けます。
+
+| 区分 | project | 主な確認 |
+| --- | --- | --- |
+| 既知 | goat | `library`から合意済みの`infra_tool`へ直るか。confirmed GitHub repositoryの新規解析も走る |
+| 既知 | atproto.dart | `library`を維持できるか。confirmed GitHub repositoryの新規解析も走る |
+| 既知 | AT Backup | `infra_tool`を維持できるか。confirmed GitHub repositoryの新規解析も走る |
+| 既知 | marque.at | schema説明だけでなく、確認済みの利用面を踏まえて`project`として扱えるか |
+| 未見 | atplay.games | schema sample中心で稼働面のないcaseを過剰に`project`または`lexicon`へ進めないか |
+| 未見 | Postcards Social | privateな旅行記録という固定利用者向けの性質を`personal_tool`候補として扱えるか |
+| 未見 | publicdomainrelay.com | 用途の狭いschemaだけの根拠から実装済みprojectを作らないか |
+
+既知3件は固定corpusに含まれ、marque.atは利用実態を人が確認済みです。未見3件とmarque.atは7月25日追加分で、
+3,635件の固定triage corpusにも5件のrepository corpusにも含まれません。Afrilingua AIは既知caseとして有用ですが、
+正本DBに重複候補が残るため、mergeまたはseparateの判断後へ回します。
 
 正本DBの試用は通常`enrich`を書き込む実運用試用です。対象、停止条件、backupの保持期限を決め、別途承認を得てから
 行います。既定modelと定期jobは、試用結果を確認するまでQwenのままにします。

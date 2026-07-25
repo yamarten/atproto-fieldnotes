@@ -129,6 +129,7 @@
   - repository observationからcategoryやidentifierを直接補正しない。categoryはproject-level triageで決め、NSID seedやLexicon JSONの存在だけでは`lexicon`にしない
   - repository analysis由来の明示的なdocumentation site URLは`docs` roleのcandidate resourceとして保存し、confirmedへ直接昇格しない
   - run metrics v2はrepository analysisのように複数回発生するLLM requestをpurpose別に集計し、planning / triageの個別requestを上限内で優先保持する
+  - `enrich --llm-max-output-tokens`はplanning、repository analysis、triageの全requestへ同じ最大出力token数を渡す。省略時はendpoint既定値を使う
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
   - 同じsourceでの言い換えと暫定でないtaglineは自動更新せず、内容別の専用review signalや保存fieldは追加しない
@@ -191,7 +192,7 @@
 
 2026-07-26時点で確認済み:
 
-- 全unit test 530件
+- 全unit test 533件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -210,6 +211,8 @@
 - 未使用21件の元profileなし実測は、QwenとGemmaがともにcategory 17/21。全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。元profileありでもcategoryはQwen 16/21、Gemma 17/21で、既定model変更は未決定
 - 問題が出た未使用case中心の8件×2回では、category変化は両model 0件。identifier集合／検査成否の変化はQwen 2件／3件、Gemma 0件／0件。手動footprintはQwen 20 GB、Gemma 16 GBだったが、runnerによる同一workload memory計測は未接続
 - 元profileなし未使用8件のmodel名を伏せた文章比較は、Gemma 3件、Qwen 2件、同等3件。文章品質では一方の明確な優位を確認していない
+- 調整用5 repositoryの現行解析policyでは、request成功は両model 5/5、根拠位置不備は両model 0件。全claimが保存規則を通ったresultはGemma 3/5、Qwen 0/5で、materialにないcollectionはGemma 0件、Qwen 1件。解析結果を重ねた後段triageも両model 5/5でschema有効、根拠外identifier 0件。調整用caseのため未知repositoryへの一般化成績には使わない
+- 固定評価と通常`enrich`の最大出力条件を揃える入口を追加し、planning、repository analysis、triageへの伝播を確認。全533 testを通過
 
 未検証:
 
