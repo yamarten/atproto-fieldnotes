@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -27,7 +28,24 @@ class LLMEndpointIncompatibleError(RuntimeError):
 
 
 class LLMResponseError(ValueError):
-    pass
+    def __init__(self, message: str, *, diagnostics: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.diagnostics = dict(diagnostics or {})
+
+
+def invalid_json_diagnostics(content: str, exc: json.JSONDecodeError, *, stage: str) -> dict[str, Any]:
+    stripped = content.strip()
+    return {
+        "response_stage": stage,
+        "response_content_bytes": len(content.encode("utf-8")),
+        "response_content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "json_error_line": max(0, int(exc.lineno)),
+        "json_error_column": max(0, int(exc.colno)),
+        "json_error_position": max(0, int(exc.pos)),
+        "content_starts_with_json": stripped.startswith(("{", "[")),
+        "content_ends_with_json": stripped.endswith(("}", "]")),
+        "content_had_code_fence": "```" in content,
+    }
 
 
 def iso_now() -> str:
@@ -258,6 +276,8 @@ def run_llm_with_metrics(
         return payload, meta
     except Exception as exc:
         request_metrics["error_category"] = classify_llm_request_error(exc)
+        if isinstance(exc, LLMResponseError):
+            request_metrics.update(exc.diagnostics)
         raise
     finally:
         request_metrics["duration_ms"] = max(0, round((time.perf_counter() - started) * 1000))
@@ -351,7 +371,10 @@ def run_local_llm_via_endpoint(
             except (TimeoutError, subprocess.TimeoutExpired):
                 raise
             except json.JSONDecodeError as exc:
-                raise LLMResponseError(f"{url} returned invalid JSON: {exc}") from exc
+                diagnostics = invalid_json_diagnostics(str(exc.doc or ""), exc, stage="endpoint_json")
+                raise LLMResponseError(
+                    f"{url} returned invalid JSON: {exc}", diagnostics=diagnostics
+                ) from exc
             except Exception as exc:
                 raise LLMTransportError(f"{url} request failed: {exc}") from exc
 
@@ -361,10 +384,19 @@ def run_local_llm_via_endpoint(
                     if endpoint_kind in {"chat", "responses"}
                     else parse_completion_text(response_payload)
                 )
-                content = strip_json_fence(raw_content)
-                parsed = json.loads(content)
             except Exception as exc:
-                raise LLMResponseError(f"{url} returned unusable model content: {exc}") from exc
+                raise LLMResponseError(
+                    f"{url} returned unusable model content: {exc}",
+                    diagnostics={"response_stage": "extract_content"},
+                ) from exc
+            content = strip_json_fence(raw_content)
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise LLMResponseError(
+                    f"{url} returned unusable model content: {exc}",
+                    diagnostics=invalid_json_diagnostics(content, exc, stage="model_json"),
+                ) from exc
             meta = {
                 "transport": "openai_compatible_endpoint",
                 "endpoint": endpoint,
@@ -423,7 +455,10 @@ def run_local_llm(
         try:
             payload = json.loads(stdout)
         except json.JSONDecodeError as exc:
-            raise LLMResponseError(f"LLM command returned invalid JSON: {exc}") from exc
+            raise LLMResponseError(
+                f"LLM command returned invalid JSON: {exc}",
+                diagnostics=invalid_json_diagnostics(stdout, exc, stage="command_json"),
+            ) from exc
         meta = {
             "transport": "command",
             "command": command,

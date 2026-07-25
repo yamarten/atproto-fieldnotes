@@ -38,6 +38,15 @@ LLM_REQUEST_FIELDS = {
     "reasoning_effort",
     "prompt_version",
     "prompt_suffix_hash",
+    "response_stage",
+    "response_content_bytes",
+    "response_content_sha256",
+    "json_error_line",
+    "json_error_column",
+    "json_error_position",
+    "content_starts_with_json",
+    "content_ends_with_json",
+    "content_had_code_fence",
 }
 
 

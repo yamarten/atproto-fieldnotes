@@ -117,6 +117,33 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(requests[0]["status"], "failed")
         self.assertEqual(requests[0]["error_category"], "timeout")
 
+    def test_llm_metrics_record_invalid_json_shape_without_content(self) -> None:
+        requests: list[dict] = []
+        error = llm_transport_core.LLMResponseError(
+            "invalid model JSON",
+            diagnostics={
+                "response_stage": "model_json",
+                "response_content_bytes": 321,
+                "response_content_sha256": "a" * 64,
+                "json_error_line": 4,
+                "json_error_column": 9,
+                "json_error_position": 123,
+                "content_starts_with_json": True,
+                "content_ends_with_json": False,
+                "content_had_code_fence": False,
+            },
+        )
+        with mock.patch.object(llm_transport_core, "run_local_llm", side_effect=error):
+            with self.assertRaises(llm_transport_core.LLMResponseError):
+                llm_transport_core.run_llm_with_metrics(
+                    "prompt", purpose="repository_analysis", requests=requests
+                )
+
+        self.assertEqual(requests[0]["response_stage"], "model_json")
+        self.assertEqual(requests[0]["response_content_bytes"], 321)
+        self.assertFalse(requests[0]["content_ends_with_json"])
+        self.assertNotIn("response_content", requests[0])
+
     def test_llm_metric_budget_preserves_triage_and_aggregates_repository_calls(self) -> None:
         requests = [
             {"purpose": "repository_analysis", "status": "success", "duration_ms": 10, "prompt_bytes": 100}
@@ -125,6 +152,12 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             {"purpose": "planning", "status": "success", "duration_ms": 20, "prompt_bytes": 200},
             {"purpose": "triage", "status": "success", "duration_ms": 30, "prompt_bytes": 300},
         ]
+        requests[0].update({
+            "response_stage": "model_json",
+            "response_content_bytes": 321,
+            "response_content_sha256": "a" * 64,
+            "content_ends_with_json": False,
+        })
 
         metrics = storage_core.normalize_run_metrics({"llm_requests": requests})
 
@@ -133,6 +166,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(metrics["llm_requests"][-1]["purpose"], "triage")
         self.assertEqual(metrics["llm_request_summary"]["repository_analysis"]["count"], 20)
         self.assertEqual(metrics["llm_request_summary"]["repository_analysis"]["prompt_bytes"], 2000)
+        self.assertEqual(metrics["llm_requests"][0]["response_stage"], "model_json")
+        self.assertEqual(metrics["llm_requests"][0]["response_content_bytes"], 321)
+        self.assertFalse(metrics["llm_requests"][0]["content_ends_with_json"])
 
     def test_command_llm_transport_invokes_configured_command(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -203,6 +239,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 )
         self.assertEqual(request.call_count, 1)
         self.assertEqual(llm_transport_core.classify_llm_request_error(raised.exception), "invalid_response")
+        self.assertEqual(raised.exception.diagnostics["response_stage"], "model_json")
+        self.assertEqual(raised.exception.diagnostics["response_content_bytes"], 8)
+        self.assertFalse(raised.exception.diagnostics["content_starts_with_json"])
+        self.assertFalse(raised.exception.diagnostics["content_ends_with_json"])
 
     def test_endpoint_transport_failure_and_rate_limit_are_not_retried(self) -> None:
         with mock.patch.object(
