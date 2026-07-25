@@ -20,6 +20,8 @@ from project_registry_core import investigation as investigation_core
 from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import relations as relation_core
 from project_registry_core import repository_analysis
+from project_registry_core import repository_material
+from project_registry_core import repository_sources
 from project_registry_core import runtime_view
 from project_registry_core import service as service_core
 from project_registry_core import storage as storage_core
@@ -577,8 +579,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         ]
 
         with (
-            mock.patch.object(registry, "fetch_github_repo", return_value=repo_payload),
-            mock.patch.object(registry, "repo_lexicon_hints", return_value=lexicons),
+            mock.patch.object(repository_sources, "fetch_github_repo", return_value=repo_payload),
+            mock.patch.object(repository_material, "repo_lexicon_hints", return_value=lexicons),
             mock.patch.object(
                 registry,
                 "project_owned_lexicon_nsid",

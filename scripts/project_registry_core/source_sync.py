@@ -17,6 +17,8 @@ from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
+from project_registry_core import repository_material as repository_material_core
+from project_registry_core import repository_sources as repository_source_core
 
 from project_registry_core.registry import (
     GITHUB_API,
@@ -40,17 +42,14 @@ from project_registry_core.registry import (
     enrich_from_github_repo,
     ensure_project_for_seed,
     fetch_bsky_profile,
-    fetch_github_repo,
     finalize_project_shape,
     find_project_key_by_collection_namespace,
     github_headers,
-    github_repo_candidate_lexicon_paths,
     import_collection_inventory_payload,
     load_config,
     parse_iso_datetime,
     read_sync_state,
     registrable_namespace_from_namespace,
-    repo_lexicon_hints,
     resolve_semble_project_key_for_seed_value,
     search_bsky_posts_payload,
     sync_match_is_auto_attach_safe,
@@ -897,7 +896,7 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
     if not repo_url:
         return {"allow": False, "reasons": ["missing_repo_url"]}
     try:
-        data = fetch_github_repo(repo_url)
+        data = repository_source_core.fetch_github_repo(repo_url)
     except Exception as exc:
         return {"allow": False, "reasons": ["fetch_failed"], "error": str(exc)}
 
@@ -909,8 +908,10 @@ def screen_github_repo_sync_candidate(entry: dict[str, Any]) -> dict[str, Any]:
     homepage = normalize_service_candidate_url(str(repo.get("homepage") or ""))
     lowered_text = "\n".join([description, readme_text]).lower()
     keyword_hits = [keyword for keyword in ATPROTO_REPO_SCREEN_KEYWORDS if keyword in lowered_text]
-    repo_lexicons = repo_lexicon_hints(repo_url, ref=default_branch, tree=repo_tree)
-    lexicon_paths = github_repo_candidate_lexicon_paths(repo_tree)
+    repo_lexicons = repository_material_core.repo_lexicon_hints(
+        repo_url, ref=default_branch, tree=repo_tree
+    )
+    lexicon_paths = repository_material_core.github_repo_candidate_lexicon_paths(repo_tree)
 
     temp_project = default_project_record("proj:screen", "repo_url", repo_url)
     enrich_from_github_repo(temp_project, repo_url)

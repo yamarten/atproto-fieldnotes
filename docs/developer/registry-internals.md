@@ -16,7 +16,7 @@ registry schema version 2の内部仕様と運用メモです。利用手順は[
 - `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
 - `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
 - `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
-- `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する
+- `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する。repositoryのprovider別取得や解析素材抽出は所有しない
 
 `source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。
 `project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
@@ -190,6 +190,12 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - `project_registry_core/repository_analysis.py`
   - confirmed repositoryのmetadata、README、tree、manifest、configuration、Lexicon、限定source抜粋をprovider共通の解析素材へ縮約する
   - repository revisionと解析policy単位で結果を再利用し、成功結果と最新試行を分けてcurrent stateへ保存する
+- `project_registry_core/repository_sources.py`
+  - GitHub / Codeberg / Tangledのmetadata、README、tree、個別file取得と短期cacheを所有する
+  - provider固有のHTTP契約を閉じ込め、projectへの適用判断は行わない
+- `project_registry_core/repository_material.py`
+  - 取得済みtreeとfileからmanifest、configuration、Lexicon、限定source hintを決定的に抽出する
+  - network取得、LLM判定、project mutationは行わない
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/storage.py` / `replay.py`

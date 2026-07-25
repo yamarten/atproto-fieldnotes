@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 import datetime as dt
 import json
@@ -13,11 +12,9 @@ import socket
 import sqlite3
 import sys
 import time
-import tomllib
 import urllib.error
 import urllib.parse
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from html import unescape
 from html.parser import HTMLParser
@@ -47,6 +44,8 @@ from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
+from project_registry_core import repository_material as repository_material_core
+from project_registry_core import repository_sources as repository_source_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 
@@ -76,9 +75,6 @@ UFOS_API = "https://ufos-api.microcosm.blue"
 SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
-_GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
-_CODEBERG_REPO_FETCH_CACHE = reliability_core.TTLCache()
-_TANGLED_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
 SEMBLE_TRACKED_COLLECTIONS = (
@@ -5704,277 +5700,6 @@ def collect_first_party_links(
     return project_record.unique_list(follow_up_urls)
 
 
-def fetch_github_repo(repo_url: str) -> dict[str, Any]:
-    cached = _GITHUB_REPO_FETCH_CACHE.get(repo_url)
-    if isinstance(cached, dict):
-        return copy.deepcopy(cached)
-    slug = repo_url_core.extract_github_slug(repo_url)
-    if slug is None:
-        raise ValueError(f"not a GitHub repo URL: {repo_url}")
-    headers = github_headers()
-    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}", headers=headers)
-    readme_text = ""
-    try:
-        readme_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/readme", headers=headers)
-        content = readme_payload.get("content", "")
-        if content:
-            readme_text = base64.b64decode(content).decode("utf-8", errors="replace")
-    except Exception:
-        readme_text = ""
-    repo_tree: list[dict[str, Any]] = []
-    revision = ""
-    tree_revision = ""
-    default_branch = str(payload.get("default_branch") or "")
-    if default_branch:
-        try:
-            branch_ref = urllib.parse.quote(default_branch, safe="")
-            branch_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/branches/{branch_ref}", headers=headers)
-            branch_commit = branch_payload.get("commit") if isinstance(branch_payload.get("commit"), dict) else {}
-            revision = str(branch_commit.get("sha") or "")
-            tree_ref = urllib.parse.quote(revision or default_branch, safe="")
-            tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{tree_ref}?recursive=1", headers=headers)
-            tree_revision = str(tree_payload.get("sha") or "")
-            revision = revision or tree_revision
-            tree = tree_payload.get("tree", [])
-            if isinstance(tree, list):
-                repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
-        except Exception:
-            repo_tree = []
-    result = {
-        "repo": payload, "readme_text": readme_text, "tree": repo_tree,
-        "default_branch": default_branch, "revision": revision, "tree_revision": tree_revision,
-    }
-    _GITHUB_REPO_FETCH_CACHE.set(repo_url, copy.deepcopy(result), ttl=300)
-    return result
-
-
-def codeberg_repo_segments(repo_url: str) -> tuple[str, str]:
-    normalized = repo_url_core.normalize_forge_repo_url(repo_url)
-    parsed = urllib.parse.urlparse(normalized or "")
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if parsed.netloc != "codeberg.org" or len(segments) != 2:
-        raise ValueError(f"not a Codeberg repo URL: {repo_url}")
-    return segments[0], segments[1]
-
-
-def codeberg_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
-    try:
-        owner, repo = codeberg_repo_segments(repo_url)
-    except ValueError:
-        return ""
-    normalized_path = str(path or "").strip().lstrip("/")
-    if not normalized_path:
-        return ""
-    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    raw_url = (
-        f"https://codeberg.org/api/v1/repos/{urllib.parse.quote(owner, safe='')}/"
-        f"{urllib.parse.quote(repo, safe='')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
-    )
-    try:
-        status, body, headers = http_transport.request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
-        return decode_http_text(body, headers) if status < 400 else ""
-    except Exception:
-        return ""
-
-
-def fetch_codeberg_repo(repo_url: str) -> dict[str, Any]:
-    normalized = repo_url_core.normalize_forge_repo_url(repo_url)
-    if not normalized or repo_url_core.infer_repo_provider(normalized) != "codeberg.org":
-        raise ValueError(f"not a Codeberg repo URL: {repo_url}")
-    cached = _CODEBERG_REPO_FETCH_CACHE.get(normalized)
-    if isinstance(cached, dict):
-        return copy.deepcopy(cached)
-    owner, repo = codeberg_repo_segments(normalized)
-    api_root = f"https://codeberg.org/api/v1/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
-    payload = http_transport.request_json(api_root, timeout=REQUEST_TIMEOUT_DEFAULT)
-    default_branch = str(payload.get("default_branch") or "main")
-    tree: list[dict[str, Any]] = []
-    revision = ""
-    tree_revision = ""
-    branch_payload: dict[str, Any] = {}
-    readme_text = ""
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        branch_future = executor.submit(
-            http_transport.request_json,
-            f"{api_root}/branches/{urllib.parse.quote(default_branch, safe='')}",
-            timeout=REQUEST_TIMEOUT_DEFAULT,
-        )
-        readme_future = executor.submit(
-            codeberg_repo_file_text, normalized, "README.md", ref=default_branch,
-        )
-        try:
-            branch_result = branch_future.result()
-            branch_payload = dict(branch_result) if isinstance(branch_result, dict) else {}
-        except Exception:
-            branch_payload = {}
-        try:
-            readme_text = str(readme_future.result() or "")
-        except Exception:
-            readme_text = ""
-    try:
-        branch_commit = branch_payload.get("commit") if isinstance(branch_payload.get("commit"), dict) else {}
-        revision = str(branch_commit.get("id") or branch_commit.get("sha") or "")
-        tree_payload = http_transport.request_json(
-            f"{api_root}/git/trees/{urllib.parse.quote(revision or default_branch, safe='')}?recursive=true",
-            timeout=REQUEST_TIMEOUT_DEFAULT,
-        )
-        tree_revision = str(tree_payload.get("sha") or "")
-        revision = revision or tree_revision
-        if isinstance(tree_payload.get("tree"), list):
-            tree = [dict(item) for item in tree_payload["tree"] if isinstance(item, dict)]
-    except Exception:
-        tree = []
-    for path in (() if readme_text else ("README", "readme.md")):
-        readme_text = codeberg_repo_file_text(normalized, path, ref=default_branch)
-        if readme_text:
-            break
-    result = {
-        "repo": payload,
-        "readme_text": readme_text,
-        "tree": tree,
-        "default_branch": default_branch,
-        "revision": revision,
-        "tree_revision": tree_revision,
-    }
-    _CODEBERG_REPO_FETCH_CACHE.set(normalized, copy.deepcopy(result), ttl=300)
-    return result
-
-
-def decode_http_text(body: bytes, headers: dict[str, str]) -> str:
-    charset = "utf-8"
-    content_type = headers.get("content-type", "")
-    charset_match = re.search(r"charset=([A-Za-z0-9_-]+)", content_type)
-    if charset_match:
-        charset = charset_match.group(1)
-    return body.decode(charset, errors="replace")
-
-
-def tangled_repo_segments(repo_url: str) -> tuple[str, str]:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    parsed = urllib.parse.urlparse(normalized)
-    segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
-    if len(segments) < 2:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    return segments[0], segments[1]
-
-
-def extract_tangled_default_branch(html: str) -> str:
-    title_match = re.search(r"<title>.*?\sat\s+([^<·]+)\s+&middot;\s+Tangled</title>", html, flags=re.I | re.S)
-    if title_match:
-        branch = unescape(title_match.group(1)).strip()
-        if branch:
-            return branch
-    href_match = re.search(r"/(?:[^/]+)/(?:[^/]+)/(?:tree|blob)/([^/\"?#]+)", html)
-    if href_match:
-        return urllib.parse.unquote(href_match.group(1))
-    return "main"
-
-
-def extract_tangled_repo_description(html: str) -> str:
-    patterns = [
-        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']',
-        r'<meta[^>]+name=["\']twitter:description["\'][^>]+content=["\'](.*?)["\']',
-        r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
-        if match:
-            return unescape(re.sub(r"\s+", " ", match.group(1)).strip())
-    return ""
-
-
-def extract_tangled_repo_tree(repo_url: str, html: str) -> list[dict[str, Any]]:
-    owner, repo = tangled_repo_segments(repo_url)
-    parser = HrefHTMLParser()
-    try:
-        parser.feed(html)
-    except Exception:
-        return []
-    output: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    base = repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url
-    for href in parser.hrefs:
-        parsed = urllib.parse.urlparse(urllib.parse.urljoin(base.rstrip("/") + "/", href))
-        segments = [urllib.parse.unquote(segment) for segment in parsed.path.split("/") if segment]
-        if len(segments) < 5 or segments[0] != owner or segments[1] != repo:
-            continue
-        kind = segments[2]
-        if kind not in {"blob", "tree"}:
-            continue
-        path = "/".join(segments[4:]).strip("/")
-        if not path:
-            continue
-        item_type = "blob" if kind == "blob" else "tree"
-        key = (item_type, path)
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append({"path": path, "type": item_type, "size": 0})
-    return output
-
-
-def tangled_repo_file_text(repo_url: str, path: str, *, ref: str = "main") -> str:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        return ""
-    owner, repo = tangled_repo_segments(normalized)
-    normalized_path = str(path or "").strip().lstrip("/")
-    if not normalized_path:
-        return ""
-    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    raw_url = (
-        f"https://tangled.org/{urllib.parse.quote(owner, safe='._:-')}/"
-        f"{urllib.parse.quote(repo, safe='._-')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
-    )
-    try:
-        _status, body, headers = http_transport.request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
-        return decode_http_text(body, headers)
-    except Exception:
-        return ""
-
-
-def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
-    normalized = repo_url_core.normalize_tangled_repo_url(repo_url)
-    if not normalized:
-        raise ValueError(f"not a Tangled repo URL: {repo_url}")
-    cached = _TANGLED_REPO_FETCH_CACHE.get(normalized)
-    if isinstance(cached, dict):
-        return copy.deepcopy(cached)
-    status, body, headers, final_url = http_transport.request_bytes_with_final_url(normalized, timeout=REQUEST_TIMEOUT_DEFAULT)
-    html = decode_http_text(body, headers) if status < 400 else ""
-    owner, repo = tangled_repo_segments(normalized)
-    default_branch = extract_tangled_default_branch(html)
-    tree = extract_tangled_repo_tree(normalized, html)
-    readme_candidates = [
-        str(item.get("path") or "")
-        for item in tree
-        if str(item.get("path") or "").lower().rsplit("/", 1)[-1] in {"readme.md", "readme"}
-    ]
-    readme_candidates.extend(["README.md", "README", "readme.md"])
-    readme_text = ""
-    for path in project_record.unique_list([path for path in readme_candidates if path]):
-        readme_text = tangled_repo_file_text(normalized, path, ref=default_branch)
-        if readme_text:
-            break
-    result = {
-        "repo": {
-            "full_name": f"{owner}/{repo}",
-            "name": repo,
-            "owner": owner,
-            "description": extract_tangled_repo_description(html),
-            "html_url": normalized,
-            "final_url": final_url,
-        },
-        "readme_text": readme_text,
-        "tree": tree,
-        "default_branch": default_branch,
-    }
-    _TANGLED_REPO_FETCH_CACHE.set(normalized, copy.deepcopy(result), ttl=300)
-    return result
-
-
 def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
     cached = _GITHUB_REPO_SEARCH_CACHE.get(repr(cache_key))
@@ -6017,398 +5742,6 @@ def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_T
             }
         )
     return results
-
-
-def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
-    slug = repo_url_core.extract_github_slug(repo_url)
-    if slug is None:
-        return ""
-    normalized_path = str(path or "").strip().lstrip("/")
-    if not normalized_path:
-        return ""
-    headers = github_headers()
-    query = f"?{urllib.parse.urlencode({'ref': ref})}" if ref else ""
-    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=headers)
-    content = str(payload.get("content") or "")
-    if not content:
-        return ""
-    try:
-        return base64.b64decode(content).decode("utf-8", errors="replace")
-    except Exception:
-        return ""
-
-
-def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]:
-    scored: list[tuple[int, str]] = []
-    for item in tree:
-        if str(item.get("type") or "") != "blob":
-            continue
-        path = str(item.get("path") or "").strip()
-        lowered = path.lower()
-        if not path or not lowered.endswith(".json"):
-            continue
-        if int(item.get("size") or 0) > 200_000:
-            continue
-        score = 0
-        if "/lexicon/" in f"/{lowered}/" or "/lexicons/" in f"/{lowered}/":
-            score += 5
-        if "/schema/" in f"/{lowered}/" or "/schemas/" in f"/{lowered}/":
-            score += 2
-        if any(token in lowered for token in (".lexicon.json", "lexicon.", "/lexicon", "/lexicons")):
-            score += 3
-        basename = path.rsplit("/", 1)[-1]
-        basename_nsid = basename[:-5] if basename.lower().endswith(".json") else ""
-        if identifier_core.is_valid_nsid(basename_nsid):
-            score += 2
-        if score <= 0:
-            continue
-        scored.append((score, path))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return project_record.unique_list([path for _, path in scored[:16]])
-
-
-def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) -> bool:
-    lowered = str(path or "").lower()
-    nsid = identifier_core.normalize_nsid(nsid)
-    if not identifier_core.is_valid_nsid(nsid):
-        return False
-    if isinstance(payload.get("lexicon"), int) and isinstance(payload.get("defs"), dict):
-        return True
-    if isinstance(payload.get("defs"), dict) and ("/lexicon" in lowered or "/lexicons" in lowered):
-        return True
-    basename = lowered.rsplit("/", 1)[-1]
-    nsid_tail = nsid.split(".")[-1].lower()
-    nsid_pathish = nsid.lower().replace(".", "/")
-    if basename.endswith(f"{nsid_tail}.json"):
-        return True
-    if nsid.lower().replace(".", ".") in basename:
-        return True
-    if nsid_pathish.replace("/", ".") in lowered.replace("/", "."):
-        return True
-    return False
-
-
-def load_repo_files(
-    repo_url: str,
-    paths: list[str],
-    *,
-    ref: str,
-    file_text: Callable[..., str],
-) -> dict[str, str]:
-    ordered_paths = project_record.unique_list([str(path or "") for path in paths if str(path or "")])
-    if not ordered_paths:
-        return {}
-    with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(ordered_paths))) as executor:
-        futures = {
-            path: executor.submit(file_text, repo_url, path, ref=ref)
-            for path in ordered_paths
-        }
-        output: dict[str, str] = {}
-        for path in ordered_paths:
-            try:
-                output[path] = str(futures[path].result() or "")
-            except Exception:
-                output[path] = ""
-        return output
-
-
-def repo_lexicon_hints(
-    repo_url: str,
-    *,
-    ref: str,
-    tree: list[dict[str, Any]],
-    file_text: Callable[..., str] | None = None,
-) -> list[dict[str, Any]]:
-    load_file = file_text or github_repo_file_text
-    hints: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    paths = github_repo_candidate_lexicon_paths(tree)
-    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
-    for path in paths:
-        text = texts.get(path, "")
-        if not text:
-            continue
-        try:
-            payload = json.loads(text)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        nsid = identifier_core.normalize_nsid(str(payload.get("id") or ""))
-        if not repo_json_looks_like_lexicon(path, payload, nsid):
-            continue
-        if nsid in seen:
-            continue
-        seen.add(nsid)
-        hints.append({"nsid": nsid, "path": path, "schema": payload})
-    return hints
-
-
-def repo_manifest_hints(
-    repo_url: str,
-    *,
-    ref: str,
-    tree: list[dict[str, Any]],
-    file_text: Callable[..., str] | None = None,
-) -> list[dict[str, Any]]:
-    load_file = file_text or github_repo_file_text
-    manifest_names = {"package.json", "pyproject.toml", "cargo.toml"}
-    paths = [
-        str(item.get("path") or "")
-        for item in tree
-        if str(item.get("type") or "") == "blob"
-        and str(item.get("path") or "").lower().rsplit("/", 1)[-1] in manifest_names
-        and int(item.get("size") or 0) <= 200_000
-    ]
-    paths.sort(key=lambda path: (path.count("/"), path))
-    hints: list[dict[str, Any]] = []
-    texts = load_repo_files(repo_url, paths[:4], ref=ref, file_text=load_file)
-    for path in paths[:4]:
-        text = texts.get(path, "")
-        basename = path.lower().rsplit("/", 1)[-1]
-        if basename == "package.json":
-            try:
-                payload = json.loads(text)
-            except Exception:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            project_payload = payload
-            dependency_fields = ("dependencies", "devDependencies", "peerDependencies")
-            scripts = payload.get("scripts") if isinstance(payload.get("scripts"), dict) else {}
-            bin_value = payload.get("bin")
-            bin_names = (
-                sorted(str(name) for name in bin_value)[:24]
-                if isinstance(bin_value, dict)
-                else ([str(payload.get("name") or "")] if isinstance(bin_value, str) else [])
-            )
-            import_pointer = next((
-                f"/{key}" for key in ("exports", "main", "module", "types", "typings")
-                if payload.get(key)
-            ), "")
-            manifest_hint = {
-                "path": path,
-                "manifest_kind": "npm",
-                "name": str(payload.get("name") or ""),
-                "description": str(payload.get("description") or "")[:1000],
-                "private": bool(payload.get("private")),
-                "scripts": sorted(str(name) for name in scripts)[:24],
-                "bin": bin_names,
-                "bin_pointer": "/bin" if bin_names else "",
-                "exports": bool(payload.get("exports")),
-                "main": str(payload.get("main") or "")[:500],
-                "module": str(payload.get("module") or "")[:500],
-                "types": str(payload.get("types") or payload.get("typings") or "")[:500],
-                "browser": bool(payload.get("browser")),
-                "import_pointer": import_pointer,
-            }
-        else:
-            try:
-                payload = tomllib.loads(text)
-            except Exception:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            if basename == "pyproject.toml":
-                project_payload = payload.get("project") if isinstance(payload.get("project"), dict) else {}
-                tool = payload.get("tool") if isinstance(payload.get("tool"), dict) else {}
-                poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
-                scripts = project_payload.get("scripts") if isinstance(project_payload.get("scripts"), dict) else {}
-                bin_pointer = "/project/scripts"
-                if not scripts and isinstance(poetry.get("scripts"), dict):
-                    scripts = poetry["scripts"]
-                    bin_pointer = "/tool/poetry/scripts"
-                bin_names = sorted(str(name) for name in scripts)[:24]
-                dependency_fields = ("dependencies",)
-                manifest_hint = {
-                    "path": path,
-                    "manifest_kind": "python",
-                    "name": str(project_payload.get("name") or poetry.get("name") or ""),
-                    "description": str(project_payload.get("description") or poetry.get("description") or "")[:1000],
-                    "private": False,
-                    "scripts": bin_names,
-                    "bin": bin_names,
-                    "bin_pointer": bin_pointer if bin_names else "",
-                }
-            else:
-                project_payload = payload.get("package") if isinstance(payload.get("package"), dict) else {}
-                scripts = {}
-                bins = payload.get("bin") if isinstance(payload.get("bin"), list) else []
-                bin_names = [str(item.get("name") or "") for item in bins if isinstance(item, dict) and item.get("name")]
-                library = payload.get("lib") if isinstance(payload.get("lib"), dict) else {}
-                dependency_fields = ("dependencies", "dev-dependencies", "build-dependencies")
-                manifest_hint = {
-                    "path": path,
-                    "manifest_kind": "cargo",
-                    "name": str(project_payload.get("name") or ""),
-                    "description": str(project_payload.get("description") or "")[:1000],
-                    "private": bool(project_payload.get("publish") is False),
-                    "scripts": [],
-                    "bin": bin_names[:24],
-                    "bin_pointer": "/bin" if bin_names else "",
-                    "exports": bool(library),
-                    "main": str(library.get("path") or "")[:500],
-                    "import_pointer": "/lib" if library else "",
-                }
-        dependencies: dict[str, str] = {}
-        dependency_sources = [payload, project_payload]
-        if basename == "pyproject.toml":
-            dependency_sources.append(poetry)
-        for source in dependency_sources:
-            for field_name in dependency_fields:
-                values = source.get(field_name) if isinstance(source, dict) else None
-                if isinstance(values, dict):
-                    candidates = values.items()
-                elif isinstance(values, list):
-                    candidates = ((str(value).split(maxsplit=1)[0], value) for value in values)
-                else:
-                    continue
-                dependencies.update({
-                    str(name): str(version)
-                    for name, version in candidates
-                    if "atproto" in str(name).lower() or "bluesky" in str(name).lower()
-                })
-        manifest_hint["protocol_dependencies"] = dependencies
-        hints.append(manifest_hint)
-    return hints
-
-
-def github_repo_configuration_paths(tree: list[dict[str, Any]]) -> list[str]:
-    candidates: list[tuple[int, str]] = []
-    exact_names = {
-        "mkdocs.yml", "mkdocs.yaml", "docusaurus.config.js", "docusaurus.config.ts",
-        "vite.config.js", "vite.config.ts", "astro.config.mjs", "astro.config.ts",
-        "conf.py", "_config.yml", "_config.yaml", "cname", "manifest.json",
-    }
-    for item in tree:
-        if str(item.get("type") or "") != "blob" or int(item.get("size") or 0) > 200_000:
-            continue
-        path = str(item.get("path") or "")
-        lowered = path.lower()
-        basename = lowered.rsplit("/", 1)[-1]
-        score = 0
-        is_root_or_shallow = lowered.count("/") <= 1
-        is_extension_path = any(segment in f"/{lowered}/" for segment in ("/plugin/", "/plugins/", "/extension/", "/extensions/"))
-        if basename in exact_names and basename != "manifest.json":
-            score += 6
-        if basename == "manifest.json" and (is_root_or_shallow or is_extension_path):
-            score += 6
-        if "/.vitepress/" in f"/{lowered}/" or "/docs/" in f"/{lowered}/":
-            score += 2
-        if lowered.startswith(".github/workflows/") and any(token in basename for token in ("docs", "pages")):
-            score += 5
-        if basename in {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "fly.toml", "netlify.toml", "vercel.json"}:
-            score += 4
-        if score:
-            candidates.append((score, path))
-    candidates.sort(key=lambda item: (-item[0], item[1].count("/"), item[1]))
-    return [path for _, path in candidates[:6]]
-
-
-def repo_configuration_hints(
-    repo_url: str,
-    *,
-    ref: str,
-    tree: list[dict[str, Any]],
-    file_text: Callable[..., str] | None = None,
-) -> list[dict[str, Any]]:
-    load_file = file_text or github_repo_file_text
-    hints: list[dict[str, Any]] = []
-    paths = github_repo_configuration_paths(tree)
-    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
-    for path in paths:
-        text = texts.get(path, "")
-        if not text:
-            continue
-        lowered = path.lower()
-        hint: dict[str, Any] = {"path": path, "content_excerpt": text[:4000]}
-        if lowered.endswith("manifest.json"):
-            try:
-                payload = json.loads(text)
-            except Exception:
-                payload = {}
-            if isinstance(payload, dict) and isinstance(payload.get("manifest_version"), int):
-                hint["kind"] = "browser_extension_manifest"
-                hint["manifest_version"] = int(payload["manifest_version"])
-                hint["name"] = str(payload.get("name") or "")[:500]
-        elif lowered.rsplit("/", 1)[-1] == "cname":
-            hint["kind"] = "documentation_cname"
-            hint["url_or_host"] = text.strip().splitlines()[0][:500] if text.strip() else ""
-        elif any(token in lowered for token in ("mkdocs.", "docusaurus.config", ".vitepress/", "conf.py", "_config.", "astro.config")):
-            hint["kind"] = "documentation_config"
-        elif lowered.startswith(".github/workflows/") and any(token in lowered for token in ("docs", "pages")):
-            hint["kind"] = "documentation_deployment"
-        else:
-            hint["kind"] = "deployment_config"
-        hints.append(hint)
-    return hints
-
-
-def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
-    scored: list[tuple[int, str]] = []
-    extensions = (".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".swift", ".kt", ".java")
-    for item in tree:
-        if str(item.get("type") or "") != "blob":
-            continue
-        path = str(item.get("path") or "")
-        lowered = path.lower()
-        if not lowered.endswith(extensions) or int(item.get("size") or 0) > 120_000:
-            continue
-        score = 3 if any(segment in f"/{lowered}" for segment in ("/src/", "/app/", "/server/", "/packages/")) else 0
-        if any(segment in f"/{lowered}" for segment in ("/vendor/", "/node_modules/", "/generated/")):
-            score -= 10
-        if any(segment in f"/{lowered}" for segment in ("/test/", "/tests/", "/fixtures/", "/examples/")):
-            score -= 2
-        scored.append((score, path))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [path for score, path in scored if score > -10][:4]
-
-
-def repo_semantic_hints(
-    repo_url: str,
-    *,
-    ref: str,
-    tree: list[dict[str, Any]],
-    file_text: Callable[..., str] | None = None,
-) -> list[dict[str, Any]]:
-    load_file = file_text or github_repo_file_text
-    hints: list[dict[str, Any]] = []
-    paths = github_repo_semantic_paths(tree)
-    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
-    for path in paths:
-        text = texts.get(path, "")
-        if not text:
-            continue
-        per_file_count = 0
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            nsids = project_record.unique_list([
-                candidate
-                for candidate in re.findall(project_record.LOOSE_NSID_PATTERN, line)
-                if identifier_core.is_valid_nsid(candidate)
-            ])
-            if not nsids:
-                continue
-            lowered = line.lower()
-            write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
-            read = any(token in lowered for token in ("getrecord", "listrecords", "subscribe", "searchposts", "gettimeline"))
-            operation = "write" if write else "read" if read else "mention"
-            for nsid in nsids:
-                if per_file_count >= 2:
-                    break
-                excerpt = line.strip()[:1200]
-                hints.append({
-                    "nsid": nsid,
-                    "path": path,
-                    "line": line_number,
-                    "predicate": "uses_collection" if operation in {"read", "write"} else "mentions_collection",
-                    "operation": operation,
-                    "excerpt": excerpt,
-                })
-                per_file_count += 1
-            if per_file_count >= 2:
-                break
-    return hints[:8]
 
 
 def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
@@ -6895,12 +6228,12 @@ def collect_github_repo_evidence(
         repo_url,
         investigation_core.RepositoryCollectorDependencies(
             now=project_record.iso_now,
-            fetch_repo=fetch_github_repo,
-            repo_lexicon_hints=repo_lexicon_hints,
+            fetch_repo=repository_source_core.fetch_github_repo,
+            repo_lexicon_hints=repository_material_core.repo_lexicon_hints,
             extract_urls=extract_urls,
-            repo_semantic_hints=repo_semantic_hints,
-            repo_manifest_hints=repo_manifest_hints,
-            repo_configuration_hints=repo_configuration_hints,
+            repo_semantic_hints=repository_material_core.repo_semantic_hints,
+            repo_manifest_hints=repository_material_core.repo_manifest_hints,
+            repo_configuration_hints=repository_material_core.repo_configuration_hints,
         ),
         trust_only=trust_only,
     )
@@ -6917,19 +6250,19 @@ def collect_codeberg_repo_evidence(
         repo_url,
         investigation_core.RepositoryCollectorDependencies(
             now=project_record.iso_now,
-            fetch_repo=fetch_codeberg_repo,
-            repo_lexicon_hints=lambda url, **kwargs: repo_lexicon_hints(
-                url, **kwargs, file_text=codeberg_repo_file_text,
+            fetch_repo=repository_source_core.fetch_codeberg_repo,
+            repo_lexicon_hints=lambda url, **kwargs: repository_material_core.repo_lexicon_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
             extract_urls=extract_urls,
-            repo_semantic_hints=lambda url, **kwargs: repo_semantic_hints(
-                url, **kwargs, file_text=codeberg_repo_file_text,
+            repo_semantic_hints=lambda url, **kwargs: repository_material_core.repo_semantic_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
-            repo_manifest_hints=lambda url, **kwargs: repo_manifest_hints(
-                url, **kwargs, file_text=codeberg_repo_file_text,
+            repo_manifest_hints=lambda url, **kwargs: repository_material_core.repo_manifest_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
-            repo_configuration_hints=lambda url, **kwargs: repo_configuration_hints(
-                url, **kwargs, file_text=codeberg_repo_file_text,
+            repo_configuration_hints=lambda url, **kwargs: repository_material_core.repo_configuration_hints(
+                url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
             provider="codeberg",
         ),
@@ -6948,7 +6281,7 @@ def collect_tangled_repo_evidence(
         repo_url,
         investigation_core.TangledRepoCollectorDependencies(
             now=project_record.iso_now,
-            fetch_tangled_repo=fetch_tangled_repo,
+            fetch_tangled_repo=repository_source_core.fetch_tangled_repo,
             extract_urls=extract_urls,
         ),
         trust_only=trust_only,

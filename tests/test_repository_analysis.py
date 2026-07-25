@@ -7,6 +7,7 @@ from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import identifiers
 from project_registry_core import project_record
 from project_registry_core import repository_analysis
+from project_registry_core import repository_material
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 
@@ -292,14 +293,14 @@ class RepositoryAnalysisTest(unittest.TestCase):
 
     def test_package_manifest_extracts_distribution_fields(self) -> None:
         tree = [{"path": "package.json", "type": "blob", "size": 100}]
-        with mock.patch.object(registry, "github_repo_file_text", return_value='''{
+        with mock.patch.object(repository_material, "github_repo_file_text", return_value='''{
           "name": "example-app",
           "bin": {"example": "cli.js"},
           "exports": {".": "index.js"},
           "scripts": {"start": "node index.js"},
           "dependencies": {"@atproto/api": "1.0.0", "unrelated": "2.0.0"}
         }'''):
-            hints = registry.repo_manifest_hints(
+            hints = repository_material.repo_manifest_hints(
                 "https://github.com/example/app", ref="main", tree=tree
             )
         self.assertEqual(hints[0]["scripts"], ["start"])
@@ -318,7 +319,7 @@ dependencies = ["atproto>=0.0.1"]
 [project.scripts]
 example = "example.cli:main"
 '''
-        hints = registry.repo_manifest_hints(
+        hints = repository_material.repo_manifest_hints(
             "https://github.com/example/cli",
             ref="main",
             tree=tree,
@@ -361,8 +362,8 @@ example = "example.cli:main"
             "client.getRecord({ collection: 'dev.example.Record' })",
             "client.putRecord({ collection: 'dev.example.OtherRecord' })",
         ])
-        with mock.patch.object(registry, "github_repo_file_text", return_value=source):
-            hints = registry.repo_semantic_hints(
+        with mock.patch.object(repository_material, "github_repo_file_text", return_value=source):
+            hints = repository_material.repo_semantic_hints(
                 "https://github.com/example/app", ref="main", tree=tree
             )
         self.assertEqual(

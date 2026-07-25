@@ -21,6 +21,8 @@ from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import naming as naming_core
 from project_registry_core import project_record
+from project_registry_core import repository_material
+from project_registry_core import repository_sources
 
 
 class ProjectRegistryCompletionTest(unittest.TestCase):
@@ -91,7 +93,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
         self.assertEqual(registry.parse_text_seed_line_values(nsid), [nsid])
         self.assertTrue(
-            registry.repo_json_looks_like_lexicon(
+            repository_material.repo_json_looks_like_lexicon(
                 "lexicons/com/bartenderSky/preferences/profileMusic.json",
                 {"lexicon": 1, "defs": {}},
                 nsid,
@@ -1972,7 +1974,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         }, evidence)
 
         with mock.patch.object(
-            registry,
+            repository_sources,
             "fetch_tangled_repo",
             return_value={
                 "repo": {
