@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
 import tempfile
@@ -497,16 +498,16 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
     def payload(self) -> dict:
         return {
             "summary": "PDSのレコードを読むツール。",
-            "summary_evidence": [{"path": "README"}],
+            "summary_evidence": ["E01"],
             "observations": [],
             "capabilities": [{
                 "text": "レコードを読み取る",
-                "evidence": [{"path": "README", "line": 0, "json_pointer": ""}],
+                "evidence": ["E01"],
             }],
             "collections": [{
                 "nsid": "app.example.record",
                 "operation": "read",
-                "evidence": [{"path": "README", "line": 0, "json_pointer": ""}],
+                "evidence": ["E01"],
             }],
         }
 
@@ -521,7 +522,7 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
 
     def test_validation_rejects_unknown_locator_and_collection(self) -> None:
         payload = self.payload()
-        payload["capabilities"][0]["evidence"][0]["path"] = "missing.py"
+        payload["capabilities"][0]["evidence"][0] = "E99"
         payload["collections"][0]["nsid"] = "app.example.hallucinated"
 
         result = repository_analysis_evaluation.validate_output(payload, self.material())
@@ -599,6 +600,12 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
             "summary_capabilities_and_observations_not_reviewed_by_operator",
             comparison["remaining_checks"],
         )
+
+        different_prompt = copy.deepcopy(report)
+        different_prompt["results"][0]["prompt_hash"] = "different"
+        comparison = repository_analysis_evaluation.compare_reports(report, different_prompt)
+        self.assertIn("prompt_hash_differs", comparison["comparison_issues"])
+        self.assertFalse(comparison["automatic_checks_pass"])
 
 
 if __name__ == "__main__":

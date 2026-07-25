@@ -135,16 +135,6 @@ def export_corpus(db_path: Path, *, limit: int = 12) -> dict[str, Any]:
     }
 
 
-def _locator_key(value: Any) -> tuple[str, int, str]:
-    if not isinstance(value, dict):
-        return ("", 0, "")
-    return (
-        str(value.get("path") or ""),
-        max(0, int(value.get("line") or 0)),
-        str(value.get("json_pointer") or ""),
-    )
-
-
 def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     unsupported_locators: list[dict[str, Any]] = []
@@ -169,13 +159,13 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
         if field in payload and not isinstance(payload.get(field), list):
             errors.append(f"invalid_type:{field}:list")
 
-    locator_keys = set(repository_analysis.supported_locator_keys(material))
+    evidence_ids = repository_analysis.supported_evidence_ids(material)
     summary_evidence = payload.get("summary_evidence") if isinstance(payload.get("summary_evidence"), list) else []
     if not summary_evidence:
         errors.append("missing_evidence:summary")
-    for locator in summary_evidence:
-        if _locator_key(locator) not in locator_keys:
-            unsupported_locators.append({"field": "summary_evidence", "index": 0, "locator": locator})
+    for evidence_id in summary_evidence:
+        if not isinstance(evidence_id, str) or evidence_id not in evidence_ids:
+            unsupported_locators.append({"field": "summary_evidence", "index": 0, "evidence_id": evidence_id})
     for field in ("observations", "capabilities", "collections"):
         values = payload.get(field) if isinstance(payload.get(field), list) else []
         for index, item in enumerate(values):
@@ -186,9 +176,9 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(evidence, list) or not evidence:
                 errors.append(f"missing_evidence:{field}[{index}]")
                 continue
-            for locator in evidence:
-                if _locator_key(locator) not in locator_keys:
-                    unsupported_locators.append({"field": field, "index": index, "locator": locator})
+            for evidence_id in evidence:
+                if not isinstance(evidence_id, str) or evidence_id not in evidence_ids:
+                    unsupported_locators.append({"field": field, "index": index, "evidence_id": evidence_id})
     for item in payload.get("collections", []) if isinstance(payload.get("collections"), list) else []:
         if not isinstance(item, dict):
             continue
@@ -356,6 +346,15 @@ def _result_keys(report: dict[str, Any]) -> set[tuple[str, int]]:
     }
 
 
+def _prompt_hashes(report: dict[str, Any]) -> dict[tuple[str, int], str]:
+    return {
+        (str(item.get("case_id") or ""), int(item.get("repeat_index") or 0)): str(
+            item.get("prompt_hash") or ""
+        )
+        for item in report.get("results", []) if isinstance(item, dict)
+    }
+
+
 def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     for name, report in (("baseline", baseline), ("candidate", candidate)):
         if int(report.get("schema_version") or 0) != REPORT_SCHEMA_VERSION:
@@ -367,6 +366,8 @@ def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict
         issues.append("corpus_hash_differs")
     if _result_keys(baseline) != _result_keys(candidate):
         issues.append("case_or_repeat_set_differs")
+    if _prompt_hashes(baseline) != _prompt_hashes(candidate):
+        issues.append("prompt_hash_differs")
     baseline_summary = baseline.get("summary") if isinstance(baseline.get("summary"), dict) else {}
     candidate_summary = candidate.get("summary") if isinstance(candidate.get("summary"), dict) else {}
     metrics = (

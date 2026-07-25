@@ -12,6 +12,20 @@ from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 
 class RepositoryAnalysisTest(unittest.TestCase):
+    def evidence_id(
+        self, material: dict, path: str, *, line: int = 0, json_pointer: str = ""
+    ) -> str:
+        expected = {"path": path}
+        if line:
+            expected["line"] = line
+        if json_pointer:
+            expected["json_pointer"] = json_pointer
+        return next(
+            evidence_id
+            for evidence_id, locator in repository_analysis.evidence_locator_catalog(material).items()
+            if locator == expected
+        )
+
     def github_bundle(self, *, manifest_hints: list[dict] | None = None) -> EvidenceBundle:
         bundle = EvidenceBundle(project_key="proj:repo-analysis", collected_at="2026-07-25T00:00:00+00:00")
         bundle.add_record(EvidenceRecord(
@@ -67,10 +81,10 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertLessEqual(len(material["source_evidence"]), 8)
         prompt = repository_analysis.build_prompt({}, material)
         self.assertIn("untrusted", prompt)
-        self.assertIn('"allowed_evidence_locators"', prompt)
+        self.assertIn('"evidence_locators"', prompt)
         self.assertNotIn(
             {"path": "docs/index.md"},
-            repository_analysis.allowed_evidence_locators(material),
+            repository_analysis.evidence_locator_catalog(material).values(),
         )
 
     def test_deterministic_observations_are_non_exclusive(self) -> None:
@@ -92,32 +106,32 @@ class RepositoryAnalysisTest(unittest.TestCase):
         )
         result = repository_analysis.normalize_result(material, {
             "summary": "AT Protocolレコードを読むCLI。",
-            "summary_evidence": [{"path": "README"}],
+            "summary_evidence": [self.evidence_id(material, "README")],
             "observations": [{
                 "predicate": "declares_cli_entrypoint",
                 "basis": "declared",
-                "evidence": [{"path": "package.json", "json_pointer": "/bin"}],
+                "evidence": [self.evidence_id(material, "package.json", json_pointer="/bin")],
             }, {
                 "predicate": "declares_browser_extension",
                 "basis": "inferred",
-                "evidence": [{"path": "src/client.ts", "line": 12}],
+                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
             }, {
                 "predicate": "contains_service_entrypoint",
                 "basis": "declared",
-                "evidence": [{"path": "invented/server.ts", "line": 99}],
+                "evidence": ["E99"],
             }],
             "capabilities": [{
                 "text": "レコードを読む",
-                "evidence": [{"path": "src/client.ts", "line": 12}],
+                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
             }],
             "collections": [{
                 "nsid": "com.atproto.repo.getRecord",
                 "operation": "read",
-                "evidence": [{"path": "src/client.ts", "line": 12}],
+                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
             }, {
                 "nsid": "com.example.hallucinated",
                 "operation": "read",
-                "evidence": [{"path": "src/client.ts", "line": 12}],
+                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
             }],
         }, {"model": "test", "transport": "test"}, "2026-07-25T01:00:00+00:00")
         predicates = {item["predicate"] for item in result["observations"]}
@@ -135,17 +149,17 @@ class RepositoryAnalysisTest(unittest.TestCase):
         )
         result = repository_analysis.normalize_result(material, {
             "summary": "ドキュメントを持つAT Protocolプロジェクト。",
-            "summary_evidence": [{"path": "mkdocs.yml"}],
+            "summary_evidence": [self.evidence_id(material, "mkdocs.yml")],
             "observations": [{
                 "predicate": "declares_documentation_site_url",
                 "basis": "declared",
                 "value": "https://docs.example.com",
-                "evidence": [{"path": "mkdocs.yml"}],
+                "evidence": [self.evidence_id(material, "mkdocs.yml")],
             }, {
                 "predicate": "declares_documentation_site_url",
                 "basis": "declared",
                 "value": "https://invented.example",
-                "evidence": [{"path": "mkdocs.yml"}],
+                "evidence": [self.evidence_id(material, "mkdocs.yml")],
             }],
         }, {}, "2026-07-25T01:00:00+00:00")
         self.assertEqual(repository_analysis.documentation_urls(result), ["https://docs.example.com"])
@@ -274,11 +288,11 @@ class RepositoryAnalysisTest(unittest.TestCase):
 
         result = repository_analysis.normalize_result(material, {
             "summary": "Rustアプリケーション。",
-            "summary_evidence": [{"path": "README"}],
+            "summary_evidence": [self.evidence_id(material, "README")],
             "observations": [{
                 "predicate": "declares_importable_package",
                 "basis": "observed",
-                "evidence": [{"path": "Cargo.toml"}],
+                "evidence": ["E99"],
             }],
         }, {}, "2026-07-25T00:00:00+00:00")
 
@@ -287,7 +301,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         })
         self.assertNotIn(
             {"path": "Cargo.toml"},
-            repository_analysis.allowed_evidence_locators(material),
+            repository_analysis.evidence_locator_catalog(material).values(),
         )
 
     def test_summary_requires_a_supported_locator(self) -> None:
@@ -298,7 +312,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "summary evidence is required"):
             repository_analysis.normalize_result(material, {
                 "summary": "根拠のない要約。",
-                "summary_evidence": [{"path": "missing.md"}],
+                "summary_evidence": ["E99"],
                 "observations": [],
                 "capabilities": [],
                 "collections": [],
