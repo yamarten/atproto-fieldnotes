@@ -728,6 +728,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             if "Analyze a confirmed source repository" in prompt:
                 return ({
                     "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
+                    "summary_evidence": [{"path": "mkdocs.yml"}],
                     "observations": [{
                         "predicate": "declares_documentation_site_url",
                         "basis": "declared",
@@ -762,7 +763,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(docs_records[0]["confidence"], "candidate")
         self.assertEqual(
             enriched["repository_analysis_results"][0]["prompt_version"],
-            "repository-analysis-v3",
+            "repository-analysis-v4",
         )
 
     def test_repository_collection_failure_preserves_previous_success(self) -> None:

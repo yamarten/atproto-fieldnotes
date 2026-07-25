@@ -15,7 +15,7 @@ from . import repository_analysis
 
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
-REQUIRED_OUTPUT_FIELDS = {"summary", "observations", "capabilities", "collections"}
+REQUIRED_OUTPUT_FIELDS = {"summary", "summary_evidence", "observations", "capabilities", "collections"}
 
 
 def corpus_content_hash(corpus: dict[str, Any]) -> str:
@@ -30,7 +30,7 @@ def _analysis_value(record: dict[str, Any]) -> dict[str, Any]:
     result = value.get("result") if isinstance(value.get("result"), dict) else {}
     return {
         key: copy.deepcopy(result.get(key))
-        for key in ("summary", "observations", "capabilities", "collections")
+        for key in ("summary", "summary_evidence", "observations", "capabilities", "collections")
         if key in result
     }
 
@@ -163,11 +163,19 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
         errors.append(f"missing_fields:{','.join(missing)}")
     if "summary" in payload and not isinstance(payload.get("summary"), str):
         errors.append("invalid_type:summary:string")
+    if "summary_evidence" in payload and not isinstance(payload.get("summary_evidence"), list):
+        errors.append("invalid_type:summary_evidence:list")
     for field in ("observations", "capabilities", "collections"):
         if field in payload and not isinstance(payload.get(field), list):
             errors.append(f"invalid_type:{field}:list")
 
     locator_keys = set(repository_analysis.supported_locator_keys(material))
+    summary_evidence = payload.get("summary_evidence") if isinstance(payload.get("summary_evidence"), list) else []
+    if not summary_evidence:
+        errors.append("missing_evidence:summary")
+    for locator in summary_evidence:
+        if _locator_key(locator) not in locator_keys:
+            unsupported_locators.append({"field": "summary_evidence", "index": 0, "locator": locator})
     for field in ("observations", "capabilities", "collections"):
         values = payload.get(field) if isinstance(payload.get(field), list) else []
         for index, item in enumerate(values):

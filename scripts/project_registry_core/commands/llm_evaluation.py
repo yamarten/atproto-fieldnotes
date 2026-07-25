@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import llm_model_evaluation as evaluation
 from .. import llm_transport
+from .. import repository_analysis
 from .. import repository_analysis_evaluation
 from .. import registry as core
 
@@ -170,7 +171,7 @@ def cmd_evaluate_repository_analysis_corpus(args: argparse.Namespace) -> int:
         "transport": "configured",
         "runtime": str(args.runtime or ""),
         "quantization": str(args.quantization or ""),
-        "prompt_version": "repository-analysis-v3",
+        "prompt_version": repository_analysis.POLICY_VERSION,
         "reasoning_effort_requested": requested_reasoning,
         "reasoning_observation": reasoning_status,
         "reasoning_observation_note": reasoning_note,

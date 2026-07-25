@@ -208,7 +208,7 @@ reportだけでは完了しない確認を`remaining_checks`へ残します。
 peak memory、swap、prefill/decode内訳の自動取得は未接続です。
 
 repository analysis用corpusは、保存済みrunからrevisionへ固定したmaterialを取り出します。実行reportはJSON/schema、
-materialに存在しない根拠位置とNSID、保存前の正規化結果、所要時間を記録します。summary、capability、observationの
+summaryと各claimの根拠位置、materialに存在しないNSID、保存前の正規化結果、所要時間を記録します。summary、capability、observationの
 内容と、解析結果を受けた後段triageは人が別に確認します。triage用のmodel別suffixはこの解析には適用しません。
 
 `verify-service`の`static`はtop page、`deep`は同一siteの追加pageを確認します。`browser`はJavaScript描画後の匿名画面を開き、表示中のmenuを展開した事実、auth linkを辿った事実、passwordまたはhandle/email入力を持つform、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別々に記録します。linkや作成CTAだけではservice surface確認済みにしません。認証actionの実行、認証入力、form送信、登録、投稿は行いません。browser laneにはPlaywrightの任意依存が必要です。

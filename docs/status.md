@@ -123,8 +123,8 @@
   - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
 - repository analysis
   - confirmed repositoryはrevisionまたはmaterial hashと解析policy単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHub / Codebergはmetadata、README、tree、主要manifest、configuration、Lexicon、必要時だけ最大4 fileのsource抜粋を対象とし、Tangledはmetadata / README / 限定treeを対象とする。candidate repositoryはconfirm前に通常解析しない
-  - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、直接locator、capability、case-preserving collection利用を保存する。未対応providerとcoverage不足も状態として残す
-  - 解析失敗時は前回成功結果と最新試行を分離し、前回結果をstaleとしてtriageへ渡す。timeout、rate limit、HTTP系など一時的な外部失敗だけ同じmaterial / policyの再試行を24時間抑制し、LLM設定・互換性・response・local commandの修正後は即時再実行できる
+  - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、根拠付きsummary、capability、case-preserving collection利用を保存する。LLMへ利用可能な根拠位置を明示し、完全一致したlocatorだけを受理する。内容のないtree pathはLLMの根拠に使わず、決定的な抽出処理に限って利用する。未対応providerとcoverage不足も状態として残す
+  - 解析失敗時は前回成功結果と最新試行を分離し、根拠付きの前回結果だけをstaleとしてtriageへ渡す。旧形式の根拠なしsummaryは渡さない。timeout、rate limit、HTTP系など一時的な外部失敗だけ同じmaterial / policyの再試行を24時間抑制し、LLM設定・互換性・response・local commandの修正後は即時再実行できる
   - repository observationからcategoryやidentifierを直接補正しない。categoryはproject-level triageで決め、NSID seedやLexicon JSONの存在だけでは`lexicon`にしない
   - repository analysis由来の明示的なdocumentation site URLは`docs` roleのcandidate resourceとして保存し、confirmedへ直接昇格しない
   - run metrics v2はrepository analysisのように複数回発生するLLM requestをpurpose別に集計し、planning / triageの個別requestを上限内で優先保持する
@@ -190,7 +190,7 @@
 
 2026-07-26時点で確認済み:
 
-- 全unit test 526件
+- 全unit test 528件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

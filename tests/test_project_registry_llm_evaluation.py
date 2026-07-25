@@ -9,6 +9,7 @@ from pathlib import Path
 from helpers import ROOT  # noqa: F401 - initializes the repository import path
 from project_registry_core import llm_model_evaluation as evaluation
 from project_registry_core import llm_transport
+from project_registry_core import repository_analysis
 from project_registry_core import repository_analysis_evaluation
 
 
@@ -475,8 +476,8 @@ class LLMOutputCapTest(unittest.TestCase):
 class RepositoryAnalysisEvaluationTest(unittest.TestCase):
     def material(self) -> dict:
         return {
-            "version": 4,
-            "policy_version": "repository-analysis-v3",
+            "version": repository_analysis.ANALYSIS_VERSION,
+            "policy_version": repository_analysis.POLICY_VERSION,
             "repo_url": "https://github.com/example/tool",
             "provider": "github",
             "source_revision": "abc123",
@@ -496,6 +497,7 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
     def payload(self) -> dict:
         return {
             "summary": "PDSのレコードを読むツール。",
+            "summary_evidence": [{"path": "README"}],
             "observations": [],
             "capabilities": [{
                 "text": "レコードを読み取る",
@@ -542,7 +544,8 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
             )
             material = self.material()
             result = {
-                "summary": "保存済み解析", "observations": [], "capabilities": [], "collections": [],
+                "summary": "保存済み解析", "summary_evidence": [{"path": "README"}],
+                "observations": [], "capabilities": [], "collections": [],
             }
             bundle = {"records": [
                 {"kind": "repository_analysis_material", "value": material},

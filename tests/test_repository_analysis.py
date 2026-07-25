@@ -65,7 +65,13 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertEqual(material["source_evidence"][0]["line"], 12)
         self.assertEqual(material["lexicon_hints"][0]["def_types"], ["record"])
         self.assertLessEqual(len(material["source_evidence"]), 8)
-        self.assertIn("untrusted", repository_analysis.build_prompt({}, material))
+        prompt = repository_analysis.build_prompt({}, material)
+        self.assertIn("untrusted", prompt)
+        self.assertIn('"allowed_evidence_locators"', prompt)
+        self.assertNotIn(
+            {"path": "docs/index.md"},
+            repository_analysis.allowed_evidence_locators(material),
+        )
 
     def test_deterministic_observations_are_non_exclusive(self) -> None:
         material = repository_analysis.build_material(
@@ -86,6 +92,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         )
         result = repository_analysis.normalize_result(material, {
             "summary": "AT Protocolレコードを読むCLI。",
+            "summary_evidence": [{"path": "README"}],
             "observations": [{
                 "predicate": "declares_cli_entrypoint",
                 "basis": "declared",
@@ -128,6 +135,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         )
         result = repository_analysis.normalize_result(material, {
             "summary": "ドキュメントを持つAT Protocolプロジェクト。",
+            "summary_evidence": [{"path": "mkdocs.yml"}],
             "observations": [{
                 "predicate": "declares_documentation_site_url",
                 "basis": "declared",
@@ -165,6 +173,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
             "source_revision": material["source_revision"],
             "material_hash": material["material_hash"],
             "summary": "cached",
+            "summary_evidence": [{"path": "README"}],
         }]}
         self.assertEqual(repository_analysis.cached_result(project, material)["summary"], "cached")
 
@@ -265,6 +274,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
 
         result = repository_analysis.normalize_result(material, {
             "summary": "Rustアプリケーション。",
+            "summary_evidence": [{"path": "README"}],
             "observations": [{
                 "predicate": "declares_importable_package",
                 "basis": "observed",
@@ -275,6 +285,24 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertNotIn("declares_importable_package", {
             item["predicate"] for item in result["observations"]
         })
+        self.assertNotIn(
+            {"path": "Cargo.toml"},
+            repository_analysis.allowed_evidence_locators(material),
+        )
+
+    def test_summary_requires_a_supported_locator(self) -> None:
+        material = repository_analysis.build_material(
+            "https://github.com/example/app", self.github_bundle()
+        )
+
+        with self.assertRaisesRegex(ValueError, "summary evidence is required"):
+            repository_analysis.normalize_result(material, {
+                "summary": "根拠のない要約。",
+                "summary_evidence": [{"path": "missing.md"}],
+                "observations": [],
+                "capabilities": [],
+                "collections": [],
+            }, {}, "2026-07-25T00:00:00+00:00")
 
     def test_triage_evidence_includes_only_confirmed_repository_analysis(self) -> None:
         project = project_record.default_project_record(
@@ -285,10 +313,12 @@ class RepositoryAnalysisTest(unittest.TestCase):
             "repo_url": "https://github.com/example/candidate",
             "source_revision": "candidate",
             "summary": "candidate repository analysis",
+            "summary_evidence": [{"path": "README"}],
         }, {
             "repo_url": "https://github.com/example/app",
             "source_revision": "abc123",
             "summary": "confirmed repository analysis",
+            "summary_evidence": [{"path": "README"}],
         }]
         evidence = registry.build_llm_evidence_bundle(project)
         self.assertEqual(len(evidence["repository_analysis_results"]), 1)
@@ -296,6 +326,19 @@ class RepositoryAnalysisTest(unittest.TestCase):
             evidence["repository_analysis_results"][0]["summary"],
             "confirmed repository analysis",
         )
+
+    def test_triage_evidence_excludes_legacy_summary_without_evidence(self) -> None:
+        project = project_record.default_project_record(
+            "proj:repo-analysis", "repo_url", "https://github.com/example/app"
+        )
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["repository_analysis_results"] = [{
+            "repo_url": "https://github.com/example/app",
+            "source_revision": "abc123",
+            "summary": "legacy repository analysis",
+        }]
+
+        self.assertEqual(repository_analysis.select_for_triage(project), [])
 
     def test_package_manifest_extracts_distribution_fields(self) -> None:
         tree = [{"path": "package.json", "type": "blob", "size": 100}]

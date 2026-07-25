@@ -175,6 +175,25 @@ runtime APIが返しました。これは通常APIの自動切替がQwenを残�
 Qwen 3.5 9Bのpackageは約6 GBですがfootprintは未測定です。低優先度処理を再検討する場合は、処理内容を決めた
 上で、AgentsとQwen 9Bを同じcontext、parallel、連続処理、同居条件で比較する必要があります。
 
+## repository analysisの初回確認
+
+master取り込み後、保存済みrunから5 repositoryのrevision固定materialをread-onlyで取り出し、QwenとGemmaへ
+各1回渡しました。この5件はmaster側の実装・調整に使われた可能性があり、今回の失敗を受けたprompt修正にも
+使ったため、今後は互換性とprompt調整の確認用です。未知projectでの性能には数えません。
+
+| 構成 | request成功 | 保存規則を全claimが通過 | 根拠位置に不備があるresult | materialにないNSIDがあるresult |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen | 5/5 | 1/5 | 2/5 | 1/5 |
+| Gemma | 4/5 | 0/5 | 2/4 | 1/4 |
+
+両modelとも、入力materialのJSON内の位置を新しく組み立てたり、ファイル一覧のpathだけを内容の根拠にしたりする
+出力が多く、model差を決める前に共通契約の修正が必要と判断しました。Qwenでも完全に保存可能だったのは1件だけで、
+Gemmaは1件が不正JSONで失敗しました。
+
+この結果を受け、LLMへ利用可能な根拠位置を明示して完全一致で返させ、summaryにも根拠を必須化しました。内容を
+持たないtree pathはLLMの根拠から外し、treeから安全に判断できる観測は決定的な抽出処理だけに残しました。
+解析policyを更新したため、旧解析結果は再利用せず、修正後の再測定を行います。
+
 ## 採用判断と残件
 
 | 観点 | 現在の判断 |

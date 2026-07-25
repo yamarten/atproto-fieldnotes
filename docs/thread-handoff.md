@@ -9,7 +9,7 @@
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
 - categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。前回LLM由来のscopeを次のpromptへ戻すfeedback loopも除去し、全492 testを確認済みです。正本DBの旧`category=auth_only` 35件も個別移行済みです。
-- masterのrepository取得・material化・LLM解析を取り込み、repository解析用の固定corpus export・実行・比較も追加して全526 testを確認しました。confirmed repositoryの解析結果が通常triageへ入るため、追加前のQwen/Gemma比較だけでは現行pipeline全体を確認済みとは扱いません。
+- masterのrepository取得・material化・LLM解析を取り込み、repository解析用の固定corpus export・実行・比較も追加しました。最初の比較で根拠位置の不正確な出力が両modelに多かったため、利用可能な根拠位置の明示、summaryの根拠必須化、tree pathのLLM根拠からの除外まで行い、全528 testを確認しました。confirmed repositoryの解析結果が通常triageへ入るため、追加前のQwen/Gemma比較だけでは現行pipeline全体を確認済みとは扱いません。
 - 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
@@ -19,7 +19,7 @@
 
 - 未使用21件の元profileなし／ありは実測済み。元profileなしではQwen/Gemmaともcategory 17/21だが、全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。
 - 重い5件×2回と複製DBの通常`enrich` 8件は完了。Gemmaは固定入力でQwenの1.30〜1.36倍、複製DBのLLM時間は最初のprojectを除いて1.29倍だが、暫定停止目安1.5倍以内。重い入力の全検査はGemma 9/10、Qwen 7/10、複製DBではgoodfeedsとleaflet-mdのcategoryをGemmaだけが期待どおり保存し、identifier、profile本文、promotion判定の退行はなかった。Gemmaは少数project試用へ進める条件を満たしたが、正本DBへの試用は未実施。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1はidle時6/6成功、footprint 9.7 GBだったが、処理が遅く、自動切替でTTL中のQwenを退避させたため、現runtimeのままbackground試用へ進めない。
-- 同じrepository materialでQwen/Gemmaのrepository analysisを比較し、解析結果を含む現行triage promptの安全検査とcategoryを再確認してから、正本DBの試用対象を確定する。
+- 修正後の同じrepository materialでQwen/Gemmaのrepository analysisを再比較し、解析結果を含む現行triage promptの安全検査とcategoryを再確認してから、正本DBの試用対象を確定する。
 - 現行gpt-oss MLXはruntime APIで`low / medium / high`対応と既定`low`を確認済み。過去のGGUF結果は`low`適用済み比較へ再利用しない。
 - category移行前backup `data/survey.db.backup-20260725-auth-category-migration`は移行直後のrollback専用。2026-07-28まで通常利用で問題がなければ削除する。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。

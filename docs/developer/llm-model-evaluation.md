@@ -104,8 +104,8 @@ memoryを見ます。通常処理候補と低優先度処理候補は、同じ�
 
 重大なidentifier追加や、人が確定した判断の逆転は、平均値で相殺しません。
 
-repository analysisでは、request成功とschemaに加えて、根拠位置が入力material内に存在すること、NSIDの大文字・
-小文字を変えないこと、根拠のない観測やdocumentation URLが保存されないことを確認します。同じmaterialを
+repository analysisでは、request成功とschemaに加えて、summaryと各claimの根拠位置が入力時に列挙した利用可能な
+根拠位置と完全一致すること、NSIDの大文字・小文字を変えないこと、根拠のない観測やdocumentation URLが保存されないことを確認します。同じmaterialを
 baselineとcandidateへ渡し、解析結果を含むtriageも比較します。
 
 ### 7. 同じ入力を複数回実行する
