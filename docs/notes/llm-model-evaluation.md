@@ -10,11 +10,13 @@ Gemma 4 26B A4B MLXは、現在のQwen 3.6 35B A3Bより約30%遅い一方、JSO
 安定性と一部categoryで優位でした。文章品質には明確な差がなく、手動観測のfootprintはGemmaが約4 GB小さい
 結果でした。
 
-GemmaはQwenを直ちに置き換えるほど圧倒的ではありませんが、正本DBの少数projectで試す価値があります。
-正本DBでの試用と既定modelの変更は未実施です。Qwenは通常運用の既定modelのままです。比較後に通常`enrich`へ
-repository analysisが追加されたため、その処理と変更後のtriage promptも再確認しました。修正後のrepository解析では
-Gemmaの方が保存規則を多く満たし、後段triageにも重大な保存上の退行はありませんでした。試用対象は確定し、
-正本DBへ書く前の複製DB確認を残しています。
+Gemmaはproject-level triageでは正本DBの少数projectで試す価値がある候補でしたが、通常`enrich`へ追加された
+repository analysisを含む最新DB複製の確認で、同じ`goat` materialへのJSON応答が2回連続で失敗しました。
+通常`enrich`全体をGemmaへ置き換える正本試用は停止し、既定modelはQwenのまま維持します。
+
+repository materialの誤分類と後段への過大な入力も複製DB確認で見つけ、modelに依存しない共通処理として修正しました。
+Gemmaを再び通常処理候補にするには、現行repository解析でJSON失敗を診断・解消し、別の未調整repositoryを含む
+確認用caseと最新DB複製をもう一度通す必要があります。
 
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
@@ -161,7 +163,7 @@ collectorだけで約60秒の差があり、model速度には使いません。
 
 両コピーは実行後にintegrity `ok`、foreign key違反0を確認して削除しました。Gemmaは固定入力で根拠外identifierを
 生成せず、複製DBでも保存identifierや人が確定した判断を失いませんでした。期待に合うcategoryがQwenより2件多く、
-処理時間は暫定停止目安の1.5倍以内だったため、正本DBの少数試用へ進める条件を満たしました。
+処理時間は暫定停止目安の1.5倍以内だったため、この時点のproject-level triageでは少数試用へ進める条件を満たしました。
 
 ## Agents A1の再確認
 
@@ -218,8 +220,27 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 `technical_interest_level=high`まで進め、Gemmaの`unknown`、`notable`より断定が強すぎるため、後段の安全性ではGemmaが妥当でした。
 
 通常`enrich`には固定評価で使った最大出力2,048 tokenを渡す入口がなかったため、`--llm-max-output-tokens`を追加しました。
-この値はplanning、repository analysis、triageへ共通して渡します。次の複製DBと正本DB試用は2,048を明示し、固定評価と
-実行条件を揃えます。
+この値はplanning、repository analysis、triageへ共通して渡します。最新DB複製の確認では2,048を明示しました。
+正本DB試用を再検討する場合も同じ値を使い、固定評価と実行条件を揃えます。
+
+## 最新DB複製で見つかった問題
+
+確定した7件の試用対象を正本DBから作った複製へ通し始めましたが、confirmed repositoryを持つ既知caseの段階で
+次の問題が見つかったため、正本DB試用と残りcaseの実行を止めました。
+
+1. `atproto.dart`の`website/docs/*.md`や`_category_.json`が、pathだけを理由にdeployment configurationとして
+   決定的に抽出されていました。設定ファイル候補から一般の`/docs/`文書を外し、実データの再実行で誤観測が消えたことを確認しました。
+2. `goat`では同じREADME excerptがsummaryと8 capabilityへ複製され、repository解析結果が20,732文字になりました。
+   その結果、後段planningとtriageは24 KiBの入力上限に収まらず、LLM request前に失敗しました。claimには根拠位置だけを残し、
+   本文は重複を除いた`evidence_excerpts`へ分離しました。既存の実結果5件を新しい保存形へ通すと、保存結果は
+   2,276〜3,922文字、triage投影は1,930〜3,536文字に収まりました。
+3. 現行policy v8で作り直した複製では、`goat`のrepository analysisが2回とも`invalid_response`になりました。
+   planningとtriageは成功し、categoryは`infra_tool`になりましたが、repository解析結果は保存できませんでした。
+   以前のpolicyでも同caseは初回失敗後の再試行で成功しており、常に失敗する相性ではない一方、通常運用へ進める
+   安定性とは扱えません。失敗時のmodel本文は現transportが保存しないため、JSON切断かschema外出力かは未診断です。
+
+共通処理の修正は全535 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは、
+停止判断後には追加実行していません。したがってv6の固定5件結果を現行v8全体の成功実績へ読み替えません。
 
 ## 採用判断と残件
 
@@ -232,11 +253,13 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 | 処理時間 | Qwenが優位。Gemmaは約1.3倍 |
 | 常駐memory | 手動観測ではGemmaが約4 GB小さい |
 | prompt保守 | 両modelで別suffixが必要 |
+| 正本試用 | repository analysisのJSON失敗が2回続いたため停止。Qwenを維持 |
 
 未完了:
 
-- 下記7件を正本DBの複製でGemmaの通常`enrich`へ通し、repository analysis、planning、triageのrequest数と保存差分を確認する
-- 正本DBでGemmaを少数projectへ適用する
+- Gemmaのrepository analysisが返した利用不能なJSONを、機密や巨大本文を残さない診断方法で確認する
+- 修正後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
+- その条件を通った場合だけ、下記7件を正本DBの少数試用候補として再利用する
 - peak memory、swap、prefill、decodeをrunnerから自動記録する
 
 試用対象は次のように分けます。
@@ -255,8 +278,9 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 3,635件の固定triage corpusにも5件のrepository corpusにも含まれません。Afrilingua AIは既知caseとして有用ですが、
 正本DBに重複候補が残るため、mergeまたはseparateの判断後へ回します。
 
-正本DBの試用は通常`enrich`を書き込む実運用試用です。対象、停止条件、backupの保持期限を決め、別途承認を得てから
-行います。既定modelと定期jobは、試用結果を確認するまでQwenのままにします。
+正本DBの試用は通常`enrich`を書き込む実運用試用です。今回の複製DB確認は停止条件に該当したため実施しません。
+再評価で条件を満たした場合も、対象、停止条件、backupの保持期限を決め、別途承認を得てから行います。
+既定modelと定期jobはQwenのままにします。
 
 ## 旧測定を採用根拠にしない理由
 
