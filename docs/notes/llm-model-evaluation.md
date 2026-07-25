@@ -18,8 +18,12 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 実装済み:
 
+- category契約
+  - 主な利用者と利用形態による定義を正本文書、production prompt、保存、評価検査へ反映した
+  - `auth_only`をcategoryから外し、独立した`atproto_auth_only`へ分けた
 - `export-llm-evaluation-corpus`
   - 指定DBをread-onlyで開き、保存済みLLM evidenceから固定caseを出力する
+  - 現在のQwen由来profileをevidenceから外して別に保持し、元profileなし／ありを同じcaseから作れる
 - `evaluate-llm-corpus`
   - 一つの実行構成を固定caseへ適用し、各request完了時までの結果をreportへ書き出す
   - JSON/schema、enum、evidence外identifier、categoryとsummaryの不整合、日英混在文の空白、
@@ -40,9 +44,9 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 未完了:
 
-- 見直したcategory契約の実装、既存`auth_only`の移行確認、正本文書への反映
+- 既存`category=auth_only` 35件の個別移行先の確認と、承認後の正本DB更新
 - 新category契約による既存labelの再確認と、調整用／調整後確認用caseの再分離
-- 元profileなし／ありの両条件と、生出力／保存後結果を分けた評価
+- 元profileなし／ありの両条件による実測と、生出力／保存後結果を分けた比較
 - Qwen、Gemma、Granite、gpt-oss、Agents A1等の少数caseによる再選別
 - 上位構成の複数回実行、文章比較、重い入力、memory確認
 - 複製DBでの通常`enrich`再比較と、通常処理またはbackground処理での少数project試用
@@ -50,10 +54,10 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
 
-2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録しました。
-`auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定などを現行実装へ
-反映するまでは、この文書にある旧category一致数を次のmodel選定根拠として直接使いません。過去の実行結果は
-速度、memory、JSON/schemaの挙動を知る材料として残し、categoryは新しい契約でlabelを確認して計り直します。
+2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
+`auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。
+この文書にある旧category一致数は次のmodel選定根拠として直接使いません。過去の実行結果は速度、memory、
+JSON/schemaの挙動を知る材料として残し、categoryは新しい契約でlabelを確認して計り直します。
 
 ## 2026-07-24の一次計測
 
@@ -132,7 +136,7 @@ investigation runへ保存されたことを確認した。正本DBは更新し�
 
 | project | Qwen保存category | Gemma保存category | 判定 |
 | --- | --- | --- | --- |
-| goat | `project` | `infra_tool` | 一般的な開発用CLIなのでQwenが規則に合う |
+| goat | `project` | `infra_tool` | 旧契約ではQwenを妥当としたが、現契約ではATProto自体を扱うため`infra_tool` |
 | Sifa ID | `project` | `project` | 一致。両modelの生出力は`lexicon`だが、稼働serviceの保存規則で補正 |
 | cocore | `lexicon` | `lexicon` | 一致。ただし共有Lexiconの外部文書がない固定evidenceでは`name_only`が期待値 |
 | better-auth-atproto | `auth_only` | `auth_only` | 一致。人の期待値`library`とは不一致 |
@@ -145,9 +149,10 @@ cocoreのfeaturesを3件多く挙げたこと。source code URLとservice URLの
 75.3秒かかった単発値の影響が大きく、恒常的な43%差とはまだ扱わない。両コピーはintegrity `ok`、
 foreign key違反0を確認し、比較後に削除した。
 
-固定evidenceではGemmaが優位だった一方、通常enrichの6件では保存品質の優位を確認できず、goatはQwenの
-方が規則に合った。旧prompt構成の文章比較でもQwenがやや好まれているため、この時点で通常運用modelを
-Gemmaへ置き換えない。次へ進む場合は正本DBの少数projectで期間を区切った試用とし、Qwenを戻せる状態を保つ。
+固定evidenceではGemmaが優位だった一方、通常enrichの6件では保存品質の優位を確認できなかった。
+goatの当時の解釈も現category契約では採用しない。旧prompt構成の文章比較ではQwenがやや好まれているため、
+この時点で通常運用modelをGemmaへ置き換えない。次へ進む場合は正本DBの少数projectで期間を区切った試用とし、
+Qwenを戻せる状態を保つ。
 
 ## 過去の測定を採用根拠にしない理由
 
@@ -220,6 +225,9 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 
 ### 1. category契約を実装する
 
+production prompt、保存、評価検査、正本文書への反映は完了しました。正本DBの旧`category=auth_only` 35件は、
+役割と認証限定signalを個別に確認中です。
+
 [project-record.md](../developer/project-record.md#category)の契約を、先にprompt、検査、テストへ反映します。
 
 - `auth_only`をcategoryから外し、認証だけという関係は`atproto_auth_only`で保持する
@@ -233,6 +241,9 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 この段階が終わるまでmodelのcategory成績を再集計しません。
 
 ### 2. 評価caseと元profile条件を作り直す
+
+正本DBの保存済みevidence 3,635件をread-onlyでexportし、全caseでQwen由来profileを入力evidenceから分離しました。
+旧56 labelの新契約による再確認と、調整後確認用の新規case選定を進めています。
 
 既存labelを新category契約で確認し、prompt調整に使うcaseと、調整後の確認に使うcaseを分け直します。
 同じevidenceについて次の二条件を用意します。
