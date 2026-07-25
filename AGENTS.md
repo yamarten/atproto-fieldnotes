@@ -83,6 +83,7 @@
   - [docs/developer/investigation-model.md](docs/developer/investigation-model.md)
   - [docs/developer/background-jobs.md](docs/developer/background-jobs.md)
   - [docs/developer/project-record.md](docs/developer/project-record.md)
+  - [docs/developer/llm-model-evaluation.md](docs/developer/llm-model-evaluation.md)
 - 設計途中の比較・検討メモ:
   - [docs/notes/](docs/notes/)
 - 直近の残件・引き継ぎ:

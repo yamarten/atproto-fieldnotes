@@ -211,7 +211,8 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - service verification: [service-verification.md](notes/service-verification.md)
 - replay / fixture corpus: [evidence-replay.md](notes/evidence-replay.md)
 - collector failure policy: [collector-reliability.md](notes/collector-reliability.md)
-- LLM model comparison: [llm-model-evaluation.md](notes/llm-model-evaluation.md)
+- LLM model評価手順: [llm-model-evaluation.md](developer/llm-model-evaluation.md)
+- Qwen / Gemma比較結果: [llm-model-evaluation.md](notes/llm-model-evaluation.md)
 
 ## ステータス系
 

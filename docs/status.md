@@ -108,6 +108,7 @@
   - `auth_only`はcategoryから外した。独立appまたはserviceのATProto利用がaccount認証だけの場合は`atproto_auth_only`として保存し、強いprotocol surfaceが無ければ`atproto_contribution_level=auth_only`へ投影する。認証実装自体を提供するlibrary、plugin、proxy、reference codeには付けない
   - 最終prompt bytesはrun metricsで別に観測
 - fixed evidence LLM evaluation
+  - 新しいmodelまたはversionを比較する手順と採用判断は[LLM model評価](developer/llm-model-evaluation.md)を正本とする
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
   - corpus選抜はprompt長bucketと保存済みcategoryを分け、既存`category=library`を既定で最低8件優先する。保存済み出力は比較referenceでありgold labelとは扱わない
   - corpusは保存済みQwen profileをbase evidenceと分離して保持する。`evaluate-llm-corpus --current-profile-mode without|with`で新規project相当と既存profile更新相当を同じcaseから実行し、reportの入力条件を分ける
