@@ -107,7 +107,7 @@
   - 最終prompt bytesはrun metricsで別に観測
   - confirmed repositoryはrevisionまたはmaterial hashと解析policy単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHub / Codebergはmetadata、README、tree、主要manifest、configuration、Lexicon、必要時だけ最大4 fileのsource抜粋を対象とし、Tangledはmetadata / README / 限定treeを対象とする。candidate repositoryはconfirm前に通常解析しない
   - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、直接locator、capability、case-preserving collection利用を保存する。未対応providerとcoverage不足も状態として残す
-  - 解析失敗時は前回成功結果と最新試行を分離し、前回結果をstaleとしてtriageへ渡しつつ、同じmaterial / policyの再試行を24時間抑制する
+  - 解析失敗時は前回成功結果と最新試行を分離し、前回結果をstaleとしてtriageへ渡す。timeout、rate limit、HTTP系など一時的な外部失敗だけ同じmaterial / policyの再試行を24時間抑制し、LLM設定・互換性・response・local commandの修正後は即時再実行できる
   - repository observationからcategoryやidentifierを直接補正しない。categoryはproject-level triageで決め、NSID seedやLexicon JSONの存在だけでは`lexicon`にしない
   - repository analysis由来の明示的なdocumentation site URLは`docs` roleのcandidate resourceとして保存し、confirmedへ直接昇格しない
   - run metrics v2はrepository analysisのように複数回発生するLLM requestをpurpose別に集計し、planning / triageの個別requestを上限内で優先保持する

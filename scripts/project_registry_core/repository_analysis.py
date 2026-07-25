@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 import urllib.parse
 from typing import Any
 
@@ -12,7 +13,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 4
-POLICY_VERSION = "repository-analysis-v1"
+POLICY_VERSION = "repository-analysis-v3"
 MAX_TRIAGE_RESULTS = 6
 ALLOWED_PREDICATES = {
     "declares_browser_extension",
@@ -36,6 +37,7 @@ DECLARED_ONLY_PREDICATES = {
     "declares_example_or_template",
     "declares_documentation_site_url",
 }
+DEFERRED_RETRY_ERROR_CATEGORIES = {"timeout", "rate_limited", "http_error", "request_error"}
 
 
 def _snapshot(bundle: EvidenceBundle) -> tuple[str, dict[str, Any]]:
@@ -410,6 +412,57 @@ def _validated_observation_value(predicate: str, value: Any, evidence: list[dict
     return normalized if normalized in supporting_text or parsed.netloc in supporting_text else ""
 
 
+def _evidence_declares(evidence: list[dict[str, Any]], pattern: str) -> bool:
+    for item in evidence:
+        if str(item.get("path") or "").lower() != "readme":
+            continue
+        if re.search(pattern, str(item.get("excerpt") or ""), flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _observation_evidence_supported(
+    predicate: str,
+    evidence: list[dict[str, Any]],
+    material: dict[str, Any],
+) -> bool:
+    pointers = {str(item.get("json_pointer") or "") for item in evidence}
+    paths = {str(item.get("path") or "") for item in evidence}
+    configurations = {
+        str(item.get("path") or ""): str(item.get("kind") or "")
+        for item in material.get("configuration_hints", [])
+        if isinstance(item, dict)
+    }
+    if predicate == "declares_browser_extension":
+        return (
+            any(configurations.get(path) == "browser_extension_manifest" for path in paths)
+            or _evidence_declares(evidence, r"browser\s+extension|chrome\s+extension|firefox\s+extension|ブラウザ拡張")
+        )
+    if predicate == "declares_cli_entrypoint":
+        return bool(
+            pointers.intersection({"/bin", "/project/scripts", "/tool/poetry/scripts"})
+            or _evidence_declares(evidence, r"\bcli\b|command[- ]line|コマンドライン")
+        )
+    if predicate == "declares_importable_package":
+        return bool(
+            pointers.intersection({"/exports", "/main", "/module", "/types", "/typings", "/lib"})
+            or _evidence_declares(evidence, r"\bsdk\b|\blibrary\b|\bpackage\b|\bdependency\b|\bimport\b|ライブラリ")
+        )
+    if predicate == "declares_example_or_template":
+        return bool(
+            "/is_template" in pointers
+            or _evidence_declares(evidence, r"\bexample\b|\btemplate\b|reference\s+(?:app|application)|サンプル|テンプレート")
+        )
+    if predicate == "defines_lexicons":
+        lexicon_paths = {
+            str(item.get("path") or "")
+            for item in material.get("lexicon_hints", [])
+            if isinstance(item, dict)
+        }
+        return bool(paths.intersection(lexicon_paths))
+    return True
+
+
 def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
     context = {
         "project_key": str(project.get("project_key") or ""),
@@ -458,10 +511,13 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
             or basis not in ALLOWED_BASES
             or not evidence
             or (predicate in DECLARED_ONLY_PREDICATES and basis != "declared")
+            or not _observation_evidence_supported(predicate, evidence, material)
         ):
             continue
         observation: dict[str, Any] = {"predicate": predicate, "basis": basis, "evidence": evidence}
         value = _validated_observation_value(predicate, item.get("value"), evidence)
+        if predicate == "declares_documentation_site_url" and not value:
+            continue
         if value:
             observation["value"] = value
         observations.append(observation)
@@ -581,6 +637,7 @@ def retry_deferred(project: dict[str, Any], material: dict[str, Any], now: str) 
         return bool(
             attempt.get("version") == ANALYSIS_VERSION
             and attempt.get("policy_version") == POLICY_VERSION
+            and attempt.get("error_category") in DEFERRED_RETRY_ERROR_CATEGORIES
             and attempted_identity == identity
             and retry_at
             and retry_at > now
@@ -605,7 +662,7 @@ def mark_failure(project: dict[str, Any], material: dict[str, Any], observed_at:
         "repo_url": str(material.get("repo_url") or ""),
         "provider": str(material.get("provider") or "unknown"),
     }
-    result["last_attempt"] = {
+    last_attempt = {
         "status": "failed",
         "version": ANALYSIS_VERSION,
         "policy_version": POLICY_VERSION,
@@ -613,10 +670,12 @@ def mark_failure(project: dict[str, Any], material: dict[str, Any], observed_at:
         "material_hash": str(material.get("material_hash") or ""),
         "error_category": category,
         "attempted_at": observed_at,
-        "next_retry_at": (
-            dt.datetime.fromisoformat(observed_at.replace("Z", "+00:00")) + dt.timedelta(days=1)
-        ).isoformat(),
     }
+    if category in DEFERRED_RETRY_ERROR_CATEGORIES:
+        last_attempt["next_retry_at"] = (
+            dt.datetime.fromisoformat(observed_at.replace("Z", "+00:00")) + dt.timedelta(days=1)
+        ).isoformat()
+    result["last_attempt"] = last_attempt
     store_result(project, result)
 
 
@@ -649,6 +708,11 @@ def store_unavailable(project: dict[str, Any], material: dict[str, Any], observe
 
 def result_is_stale(result: dict[str, Any]) -> bool:
     if result.get("stale"):
+        return True
+    if str(result.get("summary") or "").strip() and (
+        result.get("version") != ANALYSIS_VERSION
+        or result.get("policy_version") != POLICY_VERSION
+    ):
         return True
     attempt = result.get("last_attempt") if isinstance(result.get("last_attempt"), dict) else {}
     return bool(

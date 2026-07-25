@@ -134,6 +134,18 @@ class RepositoryAnalysisTest(unittest.TestCase):
             }],
         }, {}, "2026-07-25T01:00:00+00:00")
         self.assertEqual(repository_analysis.documentation_urls(result), ["https://docs.example.com"])
+        self.assertEqual(
+            [
+                item for item in result["observations"]
+                if item["predicate"] == "declares_documentation_site_url"
+            ],
+            [{
+                "predicate": "declares_documentation_site_url",
+                "basis": "declared",
+                "evidence": [{"path": "mkdocs.yml", "excerpt": "site_url: https://docs.example.com"}],
+                "value": "https://docs.example.com",
+            }],
+        )
 
     def test_matching_revision_and_policy_reuses_current_result(self) -> None:
         material = repository_analysis.build_material(
@@ -195,6 +207,67 @@ class RepositoryAnalysisTest(unittest.TestCase):
         )
         self.assertIsNone(repository_analysis.cached_result(project, material))
         self.assertTrue(repository_analysis.result_is_stale(result))
+
+    def test_previous_policy_success_is_stale(self) -> None:
+        self.assertTrue(repository_analysis.result_is_stale({
+            "version": repository_analysis.ANALYSIS_VERSION,
+            "policy_version": "repository-analysis-old",
+            "summary": "previous policy result",
+            "last_attempt": {"status": "success"},
+        }))
+
+    def test_configuration_failure_does_not_defer_retry(self) -> None:
+        material = repository_analysis.build_material(
+            "https://github.com/example/app", self.github_bundle()
+        )
+        project = {"repository_analysis_results": []}
+        now = "2026-07-25T00:00:00+00:00"
+
+        repository_analysis.mark_failure(project, material, now, "unconfigured")
+
+        attempt = project["repository_analysis_results"][0]["last_attempt"]
+        self.assertNotIn("next_retry_at", attempt)
+        self.assertFalse(repository_analysis.retry_deferred(project, material, now))
+
+    def test_legacy_configuration_failure_with_retry_time_is_not_deferred(self) -> None:
+        material = repository_analysis.build_material(
+            "https://github.com/example/app", self.github_bundle()
+        )
+        project = {"repository_analysis_results": [{
+            "repo_url": material["repo_url"],
+            "last_attempt": {
+                "status": "failed",
+                "version": repository_analysis.ANALYSIS_VERSION,
+                "policy_version": repository_analysis.POLICY_VERSION,
+                "source_revision": material["source_revision"],
+                "material_hash": material["material_hash"],
+                "error_category": "unconfigured",
+                "next_retry_at": "2026-07-26T00:00:00+00:00",
+            },
+        }]}
+
+        self.assertFalse(repository_analysis.retry_deferred(
+            project, material, "2026-07-25T00:00:00+00:00"
+        ))
+
+    def test_tree_only_cargo_path_does_not_declare_importable_package(self) -> None:
+        material = repository_analysis.build_material(
+            "https://tangled.org/example/repo",
+            self._bundle_with_tree(["Cargo.toml", "src/main.rs"]),
+        )
+
+        result = repository_analysis.normalize_result(material, {
+            "summary": "Rustアプリケーション。",
+            "observations": [{
+                "predicate": "declares_importable_package",
+                "basis": "observed",
+                "evidence": [{"path": "Cargo.toml"}],
+            }],
+        }, {}, "2026-07-25T00:00:00+00:00")
+
+        self.assertNotIn("declares_importable_package", {
+            item["predicate"] for item in result["observations"]
+        })
 
     def test_triage_evidence_includes_only_confirmed_repository_analysis(self) -> None:
         project = project_record.default_project_record(
