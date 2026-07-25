@@ -100,6 +100,29 @@ Bluesky CLI skillを`library`、GemmaはTitleGraphを`project`とした。
 この段階では、安全検査でGemma、速度でQwenが優位で、category一致は同点である。Gemmaを既定へ変更する判断は
 まだ下さない。次は同一入力の複数回実行、文章比較、memory、複製DBの順に確認する。
 
+### 未使用caseの反復とmemory
+
+未使用21件のうち、単発でidentifierまたはcategory差が出た7件と正常なlibrary 1件を各2回実行した。
+
+| 構成 | request成功 | 全検査通過 | categoryが変わったcase | identifier集合が変わったcase | 検査成否が変わったcase | 累積時間 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen 3.6 35B、category-gates v3 | 16/16 | 12/16 | 0/8 | 2/8 | 3/8 | 159.5秒 |
+| Gemma 4 26B、category-gates v6 | 16/16 | 16/16 | 0/8 | 0/8 | 0/8 | 206.3秒 |
+
+両modelともcategoryは2回で変わらなかった。QwenはGoodfeedsとTitleGraphでidentifier集合が変わり、3件で
+検査成否も変わった。Gemmaは文章、features、manual review等の差は7件にあったが、安全検査に関係する差は
+なかった。単発21件で見えたGemmaの安全面の優位は反復でも維持された。
+
+LM Studio workerをmacOSの`footprint`で手動観測した。Gemmaは反復完了後にphysical footprint 16 GB、
+process lifetime peak 19 GB、Qwenは通常1件完了後に20 GB、peak 22 GBだった。load packageはGemma
+15.64 GB、Qwen 20.43 GBである。runnerへ接続した同一workloadの自動計測ではないため精密なpeak比較には
+使わないが、今回の通常構成ではGemmaの常駐memoryが小さいという観測には使う。
+
+Agents A1はpackage 4.48 GBだが、footprint確認用の通常API要求は2回ともHTTP 500となった。同時刻には23:13開始の
+定期workerが動いており、LM Studio logの直接原因も予測開始時の`Model unloaded`と直後のinstance消失だった。
+Agents A1固有の失敗またはresource不足とは判定せず、この2回は競合した測定として採用しない。定期jobが動いて
+いない時に、明示loadを使わない同じ経路で切替信頼性とfootprintを再測定する。
+
 2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。
 この文書にある旧category一致数は次のmodel選定根拠として直接使いません。過去の実行結果は速度、memory、

@@ -198,6 +198,7 @@
 - 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全492 testを確認。正本DBの旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6へ移行し、旧category 0件、integrity `ok`、foreign key違反0を確認
 - 新category契約で確認した旧56 labelは全件をprompt調整用とし、重複しない21件を調整後確認用として固定済み
 - 未使用21件の元profileなし実測は、QwenとGemmaがともにcategory 17/21。全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。元profileありでもcategoryはQwen 16/21、Gemma 17/21で、既定model変更は未決定
+- 問題が出た未使用case中心の8件×2回では、category変化は両model 0件。identifier集合／検査成否の変化はQwen 2件／3件、Gemma 0件／0件。手動footprintはQwen 20 GB、Gemma 16 GBだったが、runnerによる同一workload memory計測は未接続
 
 未検証:
 
