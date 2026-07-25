@@ -34,20 +34,26 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 - Qwen 3.6 35Bは現在の通常運用baseline
 - Gemma 4 26B A4B MLXは次の比較へ進める第一候補
+- Agents A1 4Bは、小さいmodelを常駐させる低優先度background処理の候補
 - `tests/fixtures/llm_evaluation_prompt_gemma4_26b_category_gates_v3.txt`はGemmaの既知誤分類を
   見ながら調整した評価用suffixで、production promptには未反映
 
 未完了:
 
-- `project-triage-v2`とGemma用category-gates v4を、prompt調整に使っていない新しいcaseで確認
-- summary、tagline、featuresの比較は8件で一度実施済み。必要なら複製DB比較の対象でも確認
-- 同じ入力の複数回実行は代表10件で一度実施済み。新しいprompt構成では未確認
-- 重い入力は代表caseに含めたが、最長時間とmemoryの十分な確認は未完了
-- 複製DBでQwenとGemmaを別々にenrichした結果の比較
-- 少数projectでのGemma試用
+- 見直したcategory契約の実装、既存`auth_only`の移行確認、正本文書への反映
+- 新category契約による既存labelの再確認と、調整用／調整後確認用caseの再分離
+- 元profileなし／ありの両条件と、生出力／保存後結果を分けた評価
+- Qwen、Gemma、Granite、gpt-oss、Agents A1等の少数caseによる再選別
+- 上位構成の複数回実行、文章比較、重い入力、memory確認
+- 複製DBでの通常`enrich`再比較と、通常処理またはbackground処理での少数project試用
 - peak memory、swap、prefill、decodeのrunner自動記録
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
+
+2026-07-25にcategoryの意味を見直し、[project-categories.md](project-categories.md)へ記録しました。
+`auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定などを現行実装へ
+反映するまでは、この文書にある旧category一致数を次のmodel選定根拠として直接使いません。過去の実行結果は
+速度、memory、JSON/schemaの挙動を知る材料として残し、categoryは新しい契約でlabelを確認して計り直します。
 
 ## 2026-07-24の一次計測
 
@@ -200,7 +206,10 @@ caseを`false`として実行した後、その出力を見てpromptを変更し
 現在の`tests/fixtures/llm_evaluation_category_labels_v2.json`には56件あります。最初の39件はprompt調整時に
 参照済みなので`true`です。最初の21件はcategory-gates v3、追加18件は共有Lexicon規則を
 `project-triage-v2`とcategory-gates v4へ反映する際に参照しました。2026-07-25に新たなcorpusから
-evidenceだけを確認した17件は`false`として固定し、次のmodel選定確認に使います。
+evidenceだけを確認した17件は当時`false`として固定しました。
+
+ただし、これらは旧category契約のlabelです。新しい契約をpromptへ反映する前に全labelを確認し、変更したcaseは
+新しい契約の調整用として扱います。prompt固定後のmodel選定には、その調整に使っていない別caseを用意します。
 
 候補の`bluesky-backup-webapp`はREADMEにPDS backup用途が明記されている一方、固定evidenceにはrepository URLと
 名前しかありませんでした。GitHub collectorはREADME本文を取得しますが、保存するのはREADME内URLで、本文は
@@ -209,7 +218,32 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 
 ## 確認の順序
 
-### 1. runtime設定
+### 1. category契約を実装する
+
+[project-categories.md](project-categories.md)の合意内容を、先に保存契約、prompt、検査、テストへ反映します。
+
+- `auth_only`をcategoryから外し、認証だけという関係は`atproto_contribution_level`で保持する
+- `project`は一般利用者が直接使うもの、`library`と`lexicon`は開発者が組み込む・実装するものとして分ける
+- `infra_tool`はonline infrastructureに限定せず、projectの背後で動くものとATProto自体を扱う実行物を含める
+- `personal_tool`は用途の狭さではなく、想定利用者が作者本人または固定集団に限定される場合に使う
+- URL混入はcategoryではなくidentifier関係の欠陥として扱う
+- 停止・削除だけではcategoryを変えず、過去情報を復元できない古い対象では`name_only`を許容する
+
+既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、移行先を決めてから別途承認を得て更新します。
+この段階が終わるまでmodelのcategory成績を再集計しません。
+
+### 2. 評価caseと元profile条件を作り直す
+
+既存labelを新category契約で確認し、prompt調整に使うcaseと、調整後の確認に使うcaseを分け直します。
+同じevidenceについて次の二条件を用意します。
+
+- 元profileなし: 新規登録時の分類と文章生成を確認する。model自体の比較ではこちらを主に使う
+- 元profileあり: 現在のQwen由来profileを維持または改善できるか確認する。現行DBからの移行適性に使う
+
+どちらもmodelの生出力と保存規則を通した結果を分けます。元profileありの保存結果が似ていることだけを、
+model出力が似ている根拠にはしません。
+
+### 3. runtime設定
 
 最初にmodelが指定を受け付けるか確認します。
 
@@ -222,7 +256,23 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 reasoningの指定が無視された構成は、指定が効いた構成と同条件として比較しません。指定できないこと自体が
 そのmodel fileまたはruntime接続の制約なら、reasoning指定なしの別構成として記録します。
 
-### 2. prompt調整
+### 4. 少数caseで候補を選別する
+
+共通promptと少数の調整用caseで、明らかに次段階へ進めない構成を先に分けます。旧category契約の一致数は
+使わず、新しい契約、JSON/schema、identifier、速度、memoryで確認します。
+
+- Qwen 3.6 35B: 現在の通常運用baseline
+- Gemma 4 26B A4B MLX: 通常処理の第一候補
+- Granite H-Tiny: 小memory・高速側の候補
+- gpt-oss MLX: reasoningの適用を確認する別系列候補
+- Agents A1 4B: 常駐background処理の候補
+- Qwen 3.5 9B: 必要なら省memory側の比較対象
+
+Agents A1は1件の応答速度だけで外しません。load後、処理中、長いprompt、idle時のmemory、別modelとの
+同居によるmemory pressure、連続処理の処理量と失敗率を確認します。通常処理modelと同じ速度要件ではなく、
+低優先度処理を小さいmemoryで継続できるかを判断します。
+
+### 5. model別promptを調整する
 
 modelごとの失敗傾向に対して、小さいsuffixを作って比較します。
 
@@ -234,7 +284,7 @@ modelごとの失敗傾向に対して、小さいsuffixを作って比較しま
 Gemma用suffixを他modelへそのまま適用して改善しなかったことを、そのmodelの限界とは扱いません。
 一方、model固有suffixが長く複雑になり、production promptとの差分維持が難しい場合は運用上の不利として残します。
 
-### 3. prompt調整に使っていないcase
+### 6. prompt調整に使っていないcase
 
 promptを固定した後、調整に使っていない、期待categoryを人が確認したcaseを実行します。
 
@@ -250,7 +300,7 @@ promptを固定した後、調整に使っていない、期待categoryを人が
 一致数だけでなく、どのfieldがどう誤ったかを確認します。重大なidentifier追加やoperator判断の逆転は、
 平均値で相殺しません。
 
-### 4. 同じ入力の複数回実行
+### 7. 同じ入力の複数回実行
 
 上位構成は同じcaseを複数回実行し、reportの`repeat_comparison`で次を確認します。
 
@@ -261,7 +311,7 @@ promptを固定した後、調整に使っていない、期待categoryを人が
 
 文章の言い換えと、事実・category・identifierの変更を同じ差として扱いません。
 
-### 5. 文章と重い入力
+### 8. 文章、重い入力、memory
 
 Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagline、featuresを人が比較します。
 少なくとも次を見ます。
@@ -273,8 +323,10 @@ Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagli
 - current profileを維持すべき時に不要な書換えをしていない
 
 短いcaseだけでなく、promptが長いcaseと以前数分かかったcaseを含め、中央値だけでなく最長時間と失敗も確認します。
+通常処理候補ではpeak memoryとforeground利用への影響、常駐background候補ではidle時と連続処理時のmemoryも
+確認します。
 
-### 6. 複製DBでのenrich比較
+### 9. 複製DBでのenrich比較
 
 正本DBへ書き込まず、同じproject集合をQwenとcandidateで実行します。
 
@@ -285,7 +337,13 @@ Qwenとcandidateへ同じevidenceを渡し、model名を伏せてsummary、tagli
 
 この確認で一括再分類や正本DB更新は行いません。
 
-## 通常運用modelを変更する判断
+### 10. 少数projectで試す
+
+固定caseと複製DBでの比較を通った構成だけを、期間、対象project、停止条件を決めて試します。通常modelの
+置換候補と、background処理だけを担当する候補を分けます。Qwenへ戻せる設定を維持し、試用結果を確認するまで
+既定modelを変更しません。
+
+## model構成を変更する判断
 
 判断は次の三段階に分けます。
 
@@ -318,8 +376,9 @@ Qwenとcandidateを同じ正本projectへ同時保存しません。比較出力
 確認できた時だけ既定を変更します。変更後も、あらかじめ選んだproject群の`enrich`を完了して結果を確認するまで
 Qwen設定をrollback用に残します。
 
-常時二つのmodelを実行する運用は既定にしません。二重実行の時間と比較作業が継続的な価値を持つ具体例が
-見つかった場合だけ再検討します。
+同じ処理を常時二つのmodelへ重複実行する運用は既定にしません。一方、通常の調査と低優先度background処理を
+別modelへ分ける構成は、常駐memory、処理量、品質、foregroundへの影響を確認できた場合に採用候補とします。
+全面移行、Qwenとの期間限定試用、役割別併用、現状維持を明示的に比較して決めます。
 
 ## report比較の限界
 
@@ -337,16 +396,18 @@ Qwen設定をrollback用に残します。
 
 ## 新しいmodelまたはversionを試す時
 
-1. model file、runtime、template、context、reasoning対応を確認する
-2. production promptのまま少数caseを実行する
-3. 既知の安全検査を通らない構成を外す
-4. 必要な構成だけmodel別suffixを調整する
-5. prompt調整に使っていない、期待categoryを人が確認したcaseを実行する
-6. 同じ入力を複数回実行する
-7. baselineとの文章比較と重い入力を確認する
-8. 複製DBでQwenと候補modelを別々にenrichし、結果を比較する
-9. 少数projectで試す
-10. 通常運用modelを変更するか判断する
+1. 現行category契約と評価labelが一致していることを確認する
+2. 元profileなし／ありの評価入力を用意する
+3. model file、runtime、template、context、reasoning対応を確認する
+4. production promptのまま少数caseを実行する
+5. 既知の安全検査を通らない構成を外す
+6. 必要な構成だけmodel別suffixを調整する
+7. prompt調整に使っていない、期待categoryを人が確認したcaseを実行する
+8. 同じ入力を複数回実行する
+9. baselineとの文章比較、重い入力、memoryを確認する
+10. 複製DBでQwenと候補modelを別々にenrichし、結果を比較する
+11. 通常処理またはbackground処理として少数projectで試す
+12. 全面移行、期間限定試用、役割別併用、現状維持を判断する
 
 新しい誤りをfixtureへ追加する時は、再現に必要な最小evidenceと期待値を保存します。そのcaseをprompt修正に使った
 場合は`used_for_prompt_adjustment=true`とし、次のmodel選定確認には別caseを使います。
