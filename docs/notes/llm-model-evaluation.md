@@ -230,7 +230,8 @@ production prompt、保存、評価検査、正本文書への反映は完了し
 
 [project-record.md](../developer/project-record.md#category)の契約を、先にprompt、検査、テストへ反映します。
 
-- `auth_only`をcategoryから外し、認証だけという関係は`atproto_auth_only`で保持する
+- `auth_only`をcategoryから外し、独立appまたはserviceのATProto利用がaccount認証だけの場合は
+  `atproto_auth_only`で保持する。認証実装自体を提供するlibraryや運用componentには付けない
 - `project`は一般利用者が直接使うもの、`library`と`lexicon`は開発者が組み込む・実装するものとして分ける
 - `infra_tool`はonline infrastructureに限定せず、projectの背後で動くものとATProto自体を扱う実行物を含める
 - `personal_tool`は用途の狭さではなく、想定利用者が作者本人または固定集団に限定される場合に使う

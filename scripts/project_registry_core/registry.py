@@ -7733,7 +7733,10 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     if llm_category in project_record.PROJECT_CATEGORY_VALUES:
         project["category"] = llm_category
     if isinstance(payload.get("atproto_auth_only"), bool):
-        project["atproto_auth_only"] = payload["atproto_auth_only"]
+        project["atproto_auth_only"] = bool(
+            payload["atproto_auth_only"]
+            and str(project.get("category") or "") in {"project", "personal_tool"}
+        )
     project["classification_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
     project["exclude_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
@@ -8446,7 +8449,9 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def auth_only_out_of_scope_reasons(project: dict[str, Any]) -> list[str]:
-    if not bool(project.get("atproto_auth_only")) and str(project.get("category") or "") != "auth_only":
+    category = str(project.get("category") or "")
+    has_current_signal = bool(project.get("atproto_auth_only")) and category in {"project", "personal_tool"}
+    if not has_current_signal and category != "auth_only":
         return []
     if project_has_owned_protocol_surface(project):
         return []

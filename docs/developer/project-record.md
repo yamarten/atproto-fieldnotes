@@ -98,7 +98,8 @@ idempotentに作成できます。
   - 登録しようとしている対象そのものが調査範囲外、無関係、または候補として成立しない
 
 CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が
-組み込むpluginは`library`、ATProto自体を扱うCLIや運用componentは`infra_tool`です。既存projectに別物の
+依存packageとしてcodeへ組み込むpluginは`library`、既存serviceや外部toolへ導入してATProto連携を追加する
+pluginは`infra_tool`です。ATProto自体を扱うCLIや運用componentも`infra_tool`です。既存projectに別物の
 URLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。
 
 停止、削除、archiveはcategoryを変える理由にしません。過去のcategoryを確認できる場合は維持し、削除後に
@@ -108,11 +109,11 @@ URLが混入した場合はidentifier関係の欠陥であり、projectを`rejec
 `personal_tool`、文書化された共有schemaなら`lexicon`、組み込む部品なら`library`、projectの背後で動くか
 ATProto自体を扱う実行物なら`infra_tool`、一般利用者が直接使うものなら`project`の順で確認します。
 
-`auth_only`はcategoryではありません。認証packageは`library`、認証を使う利用者向けappは`project`、
-認証proxy等の運用componentは`infra_tool`に分類します。ATProto利用がsign-inまたはOAuth認証だけに限定され、
-records、schema、repository、protocol dataを扱わないことを根拠から確認できた場合は、独立した
-`atproto_auth_only=true`を保存します。強いprotocol利用の根拠があれば、`atproto_contribution_level`は
-そちらを優先します。
+`auth_only`はcategoryではありません。認証packageは`library`、認証proxyや外部toolへ導入する認証pluginは
+`infra_tool`に分類します。`atproto_auth_only=true`は、独立したappまたはserviceがATProtoをaccountの
+sign-inまたはOAuth認証にだけ利用し、records、schema、repository、protocol dataを扱わない場合に保存します。
+ATProto認証機能そのものを実装・提供するlibrary、plugin、proxy、reference codeには付けません。それらの役割は
+categoryで表します。強いprotocol利用の根拠があれば、`atproto_contribution_level`はそちらを優先します。
 
 旧`category=auth_only`は正本DBの個別移行が終わるまで読み取り互換として扱います。LLM出力のcategoryとしては
 受け付けず、新しい分類には使いません。

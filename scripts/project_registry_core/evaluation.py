@@ -103,7 +103,7 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
         level, score = "core", 90
     elif recent_records or collection_observations or "uses_collection" in relation_predicates:
         level, score = "substantial", 70
-    elif bool(project.get("atproto_auth_only")):
+    elif bool(project.get("atproto_auth_only")) and str(project.get("category") or "") in {"project", "personal_tool"}:
         level, score = "auth_only", 20
         evidence.append({"kind": "atproto_auth_only", "count": 1})
     elif str(project.get("category") or "") == "auth_only":

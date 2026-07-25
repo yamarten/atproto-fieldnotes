@@ -512,6 +512,8 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
     if len(str(payload.get("tagline") or "")) > 30:
         errors.append("tagline_too_long")
     category = str(payload.get("category") or "")
+    if payload.get("atproto_auth_only") is True and category not in {"project", "personal_tool"}:
+        errors.append("atproto_auth_only_requires_independent_app_or_service")
     summary = str(payload.get("summary") or "")
     conflict = category_summary_conflict(category, summary)
     if conflict:

@@ -176,6 +176,16 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("invalid_type:atproto_auth_only:bool", result["errors"])
 
+    def test_validation_rejects_auth_only_signal_for_auth_library(self) -> None:
+        payload = self.valid_payload()
+        payload["category"] = "library"
+        payload["atproto_auth_only"] = True
+
+        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+
+        self.assertFalse(result["valid"])
+        self.assertIn("atproto_auth_only_requires_independent_app_or_service", result["errors"])
+
     def test_runner_records_failures_without_aborting_other_cases(self) -> None:
         corpus = {
             "schema_version": 1,
