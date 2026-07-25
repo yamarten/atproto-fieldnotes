@@ -105,7 +105,7 @@
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - categoryは主な利用者と利用形態で分類する。一般利用者が直接使うものは`project`、組み込む部品は`library`、projectの背後で動くものまたはATProto自体を扱う実行物は`infra_tool`とする。CLIやplugin等の形式だけでは決めない
   - `category=lexicon`は、第三者実装または相互運用を意図した共有schemaであることを文書等から確認できる場合に限定する。NSID、schema sample、record sample、namespace名だけでは`lexicon`へ進めない
-  - `auth_only`はcategoryから外した。独立appまたはserviceのATProto利用がaccount認証だけの場合は`atproto_auth_only`として保存し、強いprotocol surfaceが無ければ`atproto_contribution_level=auth_only`へ投影する。認証実装自体を提供するlibrary、plugin、proxy、reference codeには付けない。正本DBの旧`category=auth_only`は個別移行前のため読み取り互換を残している
+  - `auth_only`はcategoryから外した。独立appまたはserviceのATProto利用がaccount認証だけの場合は`atproto_auth_only`として保存し、強いprotocol surfaceが無ければ`atproto_contribution_level=auth_only`へ投影する。認証実装自体を提供するlibrary、plugin、proxy、reference codeには付けない
   - 最終prompt bytesはrun metricsで別に観測
 - fixed evidence LLM evaluation
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
@@ -194,7 +194,7 @@
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
 - 旧category契約でのLLM評価では、未調整17件のcategory一致がQwen 8/17、Gemma 11/17、複製DB 6件の保存categoryは5件同一だった。category契約を見直したため、この一致数とgoatの旧判定は次のmodel選定へ直接使わない。速度、JSON/schema、identifier、文章比較の観測は履歴として残し、新契約でlabelと評価条件を作り直す。通常運用modelの変更は未決定
-- 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全490 testを確認。正本DBには旧`category=auth_only`が35件あり、library、app、service、独自recordを持つものが混在するため未移行
+- 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全489 testを確認。正本DBの旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6へ移行し、旧category 0件、integrity `ok`、foreign key違反0を確認
 
 未検証:
 

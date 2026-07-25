@@ -8,7 +8,7 @@
 
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
-- categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。prompt、保存、評価検査と、元profileなし／ありを明示する評価入力まで実装し、全490 testを確認済みです。正本DBの旧`category=auth_only` 35件は内容が混在するため未移行です。
+- categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。prompt、保存、評価検査と、元profileなし／ありを明示する評価入力まで実装し、全489 testを確認済みです。正本DBの旧`category=auth_only` 35件も個別移行済みです。
 - 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
@@ -16,7 +16,6 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6として複製DBで移行確認済み。`atproto_auth_only`は全件false、integrity `ok`、foreign key違反0。正本DBへは承認を得るまで書かない。
 - 新category契約で旧56 labelを確認し直し、すべてprompt調整用としてv3 fixtureへ移行済み。正本DBの保存済みevidence 3,635件から、調整後確認用の別caseを選ぶ。
 - その後、Qwen、Gemma、Granite、gpt-oss MLX、Agents A1等を少数caseから順に比較する。Agents A1は常駐background用途のmemoryと処理量も確認する。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。

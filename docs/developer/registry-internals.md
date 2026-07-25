@@ -639,7 +639,7 @@ rule-based に再計算します。
   - input NSID または external lexicon hint だけがある
 - `auth_only` / `20`
   - `atproto_auth_only=true`で、上記の強いprotocol surfaceが無い
-  - 既存`category=auth_only`は正本DBの移行完了まで読み取り時だけ同じ値へ投影する
+  - 旧`category=auth_only`は正本DBで個別移行済みであり、読み取り互換を持たない
 - `unknown` / `0`
   - rule-based evidence が無い
 

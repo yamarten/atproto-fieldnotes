@@ -8451,7 +8451,7 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
 def auth_only_out_of_scope_reasons(project: dict[str, Any]) -> list[str]:
     category = str(project.get("category") or "")
     has_current_signal = bool(project.get("atproto_auth_only")) and category in {"project", "personal_tool"}
-    if not has_current_signal and category != "auth_only":
+    if not has_current_signal:
         return []
     if project_has_owned_protocol_surface(project):
         return []

@@ -44,8 +44,7 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 未完了:
 
-- 既存`category=auth_only` 35件の個別移行先の確認と、承認後の正本DB更新
-- 新category契約による既存labelの再確認と、調整用／調整後確認用caseの再分離
+- prompt調整に使っていない、調整後確認用caseの選定と人による期待値確認
 - 元profileなし／ありの両条件による実測と、生出力／保存後結果を分けた比較
 - Qwen、Gemma、Granite、gpt-oss、Agents A1等の少数caseによる再選別
 - 上位構成の複数回実行、文章比較、重い入力、memory確認
@@ -239,7 +238,8 @@ production prompt、保存、評価検査、正本文書への反映は完了し
 
 この35件はいずれも、独立した別用途のappまたはserviceがATProtoをaccount loginにだけ利用することを
 確認できた対象ではありません。そのため`atproto_auth_only`は全件falseとしました。複製DBでは旧category 0件、
-integrity `ok`、foreign key違反0を確認し、category以外の変更は寄与度の再計算fieldだけでした。正本DBは未更新です。
+integrity `ok`、foreign key違反0を確認し、category以外の変更は寄与度の再計算fieldだけでした。
+承認後に同じ移行を正本DBへ適用し、別のread-only接続でも件数と検査結果を再確認しました。
 
 [project-record.md](../developer/project-record.md#category)の契約を、先にprompt、検査、テストへ反映します。
 
@@ -251,8 +251,8 @@ integrity `ok`、foreign key違反0を確認し、category以外の変更は寄�
 - URL混入はcategoryではなくidentifier関係の欠陥として扱う
 - 停止・削除だけではcategoryを変えず、過去情報を復元できない古い対象では`name_only`を許容する
 
-既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、上記の複製DB検証まで完了しました。
-正本DBは別途承認を得て更新します。
+既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、複製DB検証後に承認を得て正本DBへ適用しました。
+適用前backupは`data/survey.db.backup-20260725-auth-category-migration`です。
 この段階が終わるまでmodelのcategory成績を再集計しません。
 
 ### 2. 評価caseと元profile条件を作り直す

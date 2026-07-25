@@ -2810,12 +2810,6 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         self.assertEqual(project["category"], "library")
         self.assertTrue(project["atproto_auth_only"])
 
-    def test_legacy_auth_only_category_is_read_until_migration(self) -> None:
-        result = project_record.compute_atproto_contribution(dict(self.project(), category="auth_only"))
-
-        self.assertEqual(result["atproto_contribution_level"], "auth_only")
-        self.assertEqual(result["atproto_contribution_evidence"], [{"kind": "legacy_category_auth_only", "count": 1}])
-
     def test_strong_evidence_overrides_auth_only_signal(self) -> None:
         result = project_record.compute_atproto_contribution(
             dict(self.project(), atproto_auth_only=True, recent_record_samples=[{"collection": "app.example.post"}])

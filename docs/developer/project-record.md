@@ -115,8 +115,8 @@ sign-inまたはOAuth認証にだけ利用し、records、schema、repository、
 ATProto認証機能そのものを実装・提供するlibrary、plugin、proxy、reference codeには付けません。それらの役割は
 categoryで表します。強いprotocol利用の根拠があれば、`atproto_contribution_level`はそちらを優先します。
 
-旧`category=auth_only`は正本DBの個別移行が終わるまで読み取り互換として扱います。LLM出力のcategoryとしては
-受け付けず、新しい分類には使いません。
+旧`category=auth_only`の正本DB rowは個別移行済みです。読み取り互換は持たず、LLM出力のcategoryとしても
+受け付けません。
 
 ### `state_json`
 
