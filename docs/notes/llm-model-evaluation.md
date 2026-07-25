@@ -123,6 +123,19 @@ Agents A1はpackage 4.48 GBだが、footprint確認用の通常API要求は2回�
 Agents A1固有の失敗またはresource不足とは判定せず、この2回は競合した測定として採用しない。定期jobが動いて
 いない時に、明示loadを使わない同じ経路で切替信頼性とfootprintを再測定する。
 
+### model名を伏せた文章確認
+
+元profileなしの未使用8件について、QwenとGemmaのtagline、summary、featuresをmodel名を伏せて人が比較した。
+caseごとにA/Bの順を入れ替え、主要機能、根拠外の断定、日本語、情報量をまとめて判定した。
+
+- Gemmaが好ましい: 3件
+- Qwenが好ましい: 2件
+- 同等: 3件
+
+Ozoneは両modelのtaglineとsummaryが完全に一致し、featuresだけが軽い言い換えだった。atproto.dartもほぼ同じ
+内容へ収束した。一方、evidenceが名前とrepository URLだけのatproto-healthは、両modelともmonitoring・診断機能を
+断定しており、同等は同等に妥当という意味ではない。今回の文章比較では、どちらか一方の明確な優位は確認できない。
+
 2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録した上で、
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定を現行実装へ反映しました。
 この文書にある旧category一致数は次のmodel選定根拠として直接使いません。過去の実行結果は速度、memory、

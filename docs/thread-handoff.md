@@ -17,7 +17,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - 未使用21件の元profileなし／ありは実測済み。元profileなしではQwen/Gemmaともcategory 17/21だが、全検査はQwen 17/21、Gemma 21/21、根拠外identifierはQwen 2件、Gemma 0件。
-- Qwen/Gemmaの未使用8件×2回は完了。次はmodel名を伏せた文章比較、重い入力、複製DB比較の順。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1のfootprint要求は23時台の定期jobと競合して2回`Model unloaded`となったため、idle時にbackground用途の切替信頼性とmemoryを再確認する。
+- Qwen/Gemmaの未使用8件×2回とmodel名を伏せた文章比較は完了。文章比較はGemma 3、Qwen 2、同等3。次は重い入力、複製DB比較の順。手動footprintはQwen 20 GB、Gemma 16 GB。Agents A1のfootprint要求は23時台の定期jobと競合して2回`Model unloaded`となったため、idle時にbackground用途の切替信頼性とmemoryを再確認する。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
 - 現行gpt-oss MLXはruntime APIで`low / medium / high`対応と既定`low`を確認済み。過去のGGUF結果は`low`適用済み比較へ再利用しない。
 - category移行前backup `data/survey.db.backup-20260725-auth-category-migration`は移行直後のrollback専用。2026-07-28まで通常利用で問題がなければ削除する。
