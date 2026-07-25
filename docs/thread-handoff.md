@@ -20,6 +20,7 @@
 - その後、Qwen、Gemma、Granite、gpt-oss MLX、Agents A1等を少数caseから順に比較する。Agents A1は常駐background用途のmemoryと処理量も確認する。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
 - gpt-ossを再評価する場合は、最初に同じ短い入力をreasoningなし/`low`で実行し、LM Studio logで設定の適用または無視を確認する。過去のGGUF結果は`low`適用済み比較へ再利用しない。
+- category移行前backup `data/survey.db.backup-20260725-auth-category-migration`は移行直後のrollback専用。2026-07-28まで通常利用で問題がなければ削除する。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
 
 ## DB 操作メモ

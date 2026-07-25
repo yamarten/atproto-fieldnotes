@@ -252,7 +252,8 @@ integrity `ok`、foreign key違反0を確認し、category以外の変更は寄�
 - 停止・削除だけではcategoryを変えず、過去情報を復元できない古い対象では`name_only`を許容する
 
 既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、複製DB検証後に承認を得て正本DBへ適用しました。
-適用前backupは`data/survey.db.backup-20260725-auth-category-migration`です。
+適用前backupは`data/survey.db.backup-20260725-auth-category-migration`です。このbackupは移行直後に意味上の誤りが
+見つかった場合のrollback専用で、長期保存しません。2026-07-28まで通常利用で問題がなければ削除します。
 この段階が終わるまでmodelのcategory成績を再集計しません。
 
 ### 2. 評価caseと元profile条件を作り直す
