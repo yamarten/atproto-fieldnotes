@@ -2593,6 +2593,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertIn("An executable app, CLI, script, plugin, template, example", prompt)
         self.assertIn("`category=infra_tool`", prompt)
         self.assertIn("The selected category must agree with `summary`", prompt)
+        self.assertIn("Do not use `category=lexicon` merely because the seed is an NSID", prompt)
         self.assertIn("`current_profile` is previous editorial wording", prompt)
         self.assertIn("Before returning JSON, check `category` against `summary`", prompt)
 
@@ -3150,7 +3151,7 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
         self.assertTrue(registry.profile_has_new_strong_source(previous_evidence, current_evidence))
         self.assertFalse(registry.profile_has_new_strong_source(current_evidence, current_evidence))
 
-    def test_repository_analysis_saved_before_policy_v2_refreshes_profile_once(self) -> None:
+    def test_repository_analysis_saved_before_current_policy_refreshes_profile_once(self) -> None:
         project = self.project()
         evidence = {
             "source_code_urls": ["https://github.com/example/service"],
@@ -3173,22 +3174,25 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
         registry.apply_llm_output(project, {"summary": "同じ根拠による別表現。"}, {}, evidence)
         self.assertEqual(project["summary"], "実装を反映した説明。")
 
-    def test_plugin_repository_analysis_rejects_llm_library_category(self) -> None:
+    def test_repository_observations_do_not_directly_override_llm_category(self) -> None:
         evidence = {
             "repository_analysis_results": [{
                 "repo_url": "https://github.com/example/plugin",
-                "revision": "abc123",
+                "source_revision": "abc123",
                 "summary": "Browser plugin implementation.",
-                "artifact_kind": "plugin",
-                "stale": False,
+                "observations": [{
+                    "predicate": "contains_host_integration_code",
+                    "basis": "inferred",
+                    "evidence": [{"path": "src/webpackModules/plugin.ts"}],
+                }],
             }],
         }
         project = self.project()
 
         registry.apply_llm_output(project, {"category": "library"}, {}, evidence)
 
-        self.assertEqual(project["category"], "project")
-        self.assertEqual(project["llm_output"]["category"], "project")
+        self.assertEqual(project["category"], "library")
+        self.assertEqual(project["llm_output"]["category"], "library")
 
     def test_same_service_becoming_usable_is_an_editorial_source(self) -> None:
         project = self.project()

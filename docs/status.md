@@ -105,9 +105,12 @@
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
   - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
   - 最終prompt bytesはrun metricsで別に観測
-  - confirmed repositoryはrevision単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHubはmetadata / README / lexicon / 限定source抜粋、Tangledはmetadata / READMEを対象とし、candidate repositoryはconfirm前に解析しない
-  - repository analysis失敗時は前回結果をstaleとして保持し、同じrevisionの再試行を24時間抑制する
-  - repository analysisがapp / service / plugin / toolを示す場合、triageの`library`誤分類は`project`へ決定的に補正する
+  - confirmed repositoryはrevisionまたはmaterial hashと解析policy単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHub / Codebergはmetadata、README、tree、主要manifest、configuration、Lexicon、必要時だけ最大4 fileのsource抜粋を対象とし、Tangledはmetadata / README / 限定treeを対象とする。candidate repositoryはconfirm前に通常解析しない
+  - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、直接locator、capability、case-preserving collection利用を保存する。未対応providerとcoverage不足も状態として残す
+  - 解析失敗時は前回成功結果と最新試行を分離し、前回結果をstaleとしてtriageへ渡しつつ、同じmaterial / policyの再試行を24時間抑制する
+  - repository observationからcategoryやidentifierを直接補正しない。categoryはproject-level triageで決め、NSID seedやLexicon JSONの存在だけでは`lexicon`にしない
+  - repository analysis由来の明示的なdocumentation site URLは`docs` roleのcandidate resourceとして保存し、confirmedへ直接昇格しない
+  - run metrics v2はrepository analysisのように複数回発生するLLM requestをpurpose別に集計し、planning / triageの個別requestを上限内で優先保持する
 - 保存済みprofileの更新
   - 前回LLM評価後にsupported service、confirmedなdocs / blog / support、confirmed repositoryが増えた時、または確認済みwebsiteでloginやapp shell等の実利用面を新たに観測した時だけ、非空summaryと暫定taglineを最新提案へ更新する
   - 同じsourceでの言い換えと暫定でないtaglineは自動更新せず、内容別の専用review signalや保存fieldは追加しない

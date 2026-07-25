@@ -131,6 +131,8 @@ candidate生成はbudget適用前の全取得結果から行います。
 run 保存は project row の代替ではありません。再評価可能な調査成果と、その時点の materialized
 record を対応づける履歴です。
 
+repository analysisでは、revisionへ固定したbounded materialを`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、source revision、material hashでそのmaterialを参照します。current project stateはrepoごとの最新成功結果と`last_attempt`を分けて持ち、provider取得またはLLM解析の失敗で前回成功resultを上書きしません。project-level triageへ渡すのはconfirmed repositoryの保存済み成功結果だけです。
+
 既定retention policyは完了から90日以内の全runとprojectごとの最新3 runを保持します。`prune-investigation-history`はそれより古いrunをdry-runで列挙し、`--execute`時だけ対応するcollector runとまとめて削除します。fixtureへexportしたcaseはDB runとは独立して保持します。
 
 ## 調査状態

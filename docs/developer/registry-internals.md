@@ -180,7 +180,7 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - `EvidenceRecord`, relation、`CollectorFailure`, `CollectorResult`
 - `project_registry_core/investigation.py`
   - deterministic / LLM query planning
-  - GitHub repository snapshot collector
+  - provider共通repository snapshot collectorとGitHub / Codeberg adapter
   - GitHub repository search、Bluesky actor/post/feed collector
   - collector は project dict を変更せず evidence bundle を返す
   - source別 retry、request budget、rate-limit stop
@@ -188,8 +188,8 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - GitHub / Bluesky / service / Tangled / collector snapshot evidence を既存 project field へ適用する
   - GitHub lexicon hint の owned / reference 判定は収集後に行う
 - `project_registry_core/repository_analysis.py`
-  - confirmed repositoryのmetadata、README、lexicon、限定的なsource抜粋をprovider共通の解析素材へ縮約する
-  - repository revision単位で解析結果を再利用し、triageへ渡すcurrent stateを管理する
+  - confirmed repositoryのmetadata、README、tree、manifest、configuration、Lexicon、限定source抜粋をprovider共通の解析素材へ縮約する
+  - repository revisionと解析policy単位で結果を再利用し、成功結果と最新試行を分けてcurrent stateへ保存する
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/storage.py` / `replay.py`
@@ -289,11 +289,15 @@ collector reliability と replay の設計途中の論点は
 
 lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮約サンプルも入ります。さらに `ufos-api.microcosm.blue/records` から recent record sample を取得できた場合は、それも判断材料に含めます。
 
-confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い、結果を`state_json.evidence.repository_analysis_results`へ保存します。candidate repositoryは相互trust確認の専用導線以外では内容を解析せず、confirm後に初めて対象にします。GitHubではmetadata、README、lexiconと、既知collectionまたは標準AT Protocol APIを含む行の限定的なsource抜粋を使います。Tangledは現行取得能力に合わせてmetadataとREADME中心で、`source_inspected=false`として保存します。
+confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い、結果を`state_json.evidence.repository_analysis_results`へ保存します。candidate repositoryは相互trust確認に必要な限定取得以外では解析せず、confirm後に初めて対象にします。GitHubとCodebergはmetadata、README、tree、主要manifest、documentation / deployment設定、Lexiconを取得し、READMEとdescriptionだけでは目的を説明できない場合に限ってsource候補を最大4 file、各file最大2 excerptへ絞ります。Tangledは現行取得能力に合わせてmetadata、README、限定treeを使い、取得できない範囲を`coverage`で`unavailable`とします。未対応providerも黙って欠落させず`coverage.reason=unsupported_provider`を保存します。
 
-同じrevisionの成功結果は再利用します。解析失敗時は直前の成功結果を`stale=true`で保持し、同じrevisionへの再試行を24時間抑制します。run evidenceには解析素材と使用した解析結果を残し、current stateには最新結果だけを残します。repository本文はuntrusted dataとして扱い、READMEやsource内の指示に従わないことを専用promptとtriage promptの両方で明示します。
+repository analysisはrepo全体を単一`artifact_kind`へ分類しません。出力は短いsummary、複数の`observations`、証跡付き`capabilities`、caseを保持したcollection利用です。観測述語はCLI entrypoint、import可能package、service entrypoint、deployment設定、Lexicon定義、host integration、documentation source / generator / site URL / deploymentなどの非排他的な事実です。`basis=declared|observed|inferred`はrepo内の観測方法でありtrust classificationではありません。pathだけのhost integrationは`inferred`に留まり、browser extension宣言にはmanifestまたはREADMEの明示を必要とします。Lexicon JSONの存在はcollection ownershipを確定しません。
 
-repository analysisが実装形態を`app` / `service` / `plugin` / `tool`と判定しているのにtriageが`library`を返した場合は、prompt違反として`project`へ補正します。`infrastructure`は`infra_tool`、解析対象が`schema`だけなら`lexicon`へ補正します。これはrepository配布というだけで実行物をlibraryへ寄せないcategory契約の決定的な検査です。
+証跡は別のfact IDを作らず、解析対象`source_revision`へ結び付く`path + line`または`path + json_pointer`とbounded excerptを結果へ直接保存します。LLMが返したlocatorは入力materialに存在するものだけを受理します。repository本文はuntrusted dataとして扱い、READMEやsource内の指示に従わないことを専用promptとtriage promptの両方で明示します。
+
+cache identityはcanonical repo URL、`source_revision`（取得できないproviderでは`material_hash`）、`policy_version`の組です。成功結果と`last_attempt`は分離し、失敗時に旧成功結果のrevisionやpolicyを書き換えません。直前の成功結果はtriageへ`stale=true`で渡し、同じmaterialとpolicyへの再試行を24時間抑制します。run evidenceにはbounded materialとそれを参照する解析結果を別recordで残し、current stateにはrepoごとの最新成功結果と最新試行だけを残します。
+
+triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、manual repo seed、代表repo、coverageの順で優先します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
 
 `enrich --all` は既定で `tracking_state=active` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
@@ -864,15 +868,17 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - 1 request
   - `https://ufos-api.microcosm.blue/records`
   - 最大 6 collection をまとめて引きます
-- GitHub repo enrich:
-  - 1 repo あたり通常 3 request
+- GitHub / Codeberg repo enrich:
+  - 1 repo あたり通常 4 request
     - `GET /repos/{owner}/{repo}`
     - `GET /repos/{owner}/{repo}/readme`
-    - `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
+    - branch commit取得
+    - revision固定tree取得
   - さらに lexicon hint を精査する時は `contents/<path>` を最大 16 件追加
-  - source semantic hintを精査する時は`contents/<path>`を最大12件追加
+  - README / descriptionだけでは目的を説明しにくい時だけ、source semantic hintを最大4 file追加
   - root寄りの`package.json`から関連fieldを読む時は最大4件追加
-  - つまり 1 repo あたり概ね 3、最大で35 request程度です
+  - documentation / deployment設定を最大6件追加
+  - つまり 1 repo あたり基本4 requestで、追加素材を全て取得する場合は最大34 request程度です
 - service URL probe:
   - 1 URL あたり 1 request
   - same-site docs/blog など follow-up を最大 3 URL まで追加

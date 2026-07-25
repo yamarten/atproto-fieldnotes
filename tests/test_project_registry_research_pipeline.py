@@ -19,6 +19,7 @@ from project_registry_core import integration as integration_core
 from project_registry_core import investigation as investigation_core
 from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import relations as relation_core
+from project_registry_core import repository_analysis
 from project_registry_core import runtime_view
 from project_registry_core import service as service_core
 from project_registry_core import storage as storage_core
@@ -101,6 +102,23 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 llm_transport_core.run_llm_with_metrics("prompt", purpose="planning", requests=requests)
         self.assertEqual(requests[0]["status"], "failed")
         self.assertEqual(requests[0]["error_category"], "timeout")
+
+    def test_llm_metric_budget_preserves_triage_and_aggregates_repository_calls(self) -> None:
+        requests = [
+            {"purpose": "repository_analysis", "status": "success", "duration_ms": 10, "prompt_bytes": 100}
+            for _index in range(20)
+        ] + [
+            {"purpose": "planning", "status": "success", "duration_ms": 20, "prompt_bytes": 200},
+            {"purpose": "triage", "status": "success", "duration_ms": 30, "prompt_bytes": 300},
+        ]
+
+        metrics = storage_core.normalize_run_metrics({"llm_requests": requests})
+
+        self.assertEqual(len(metrics["llm_requests"]), 16)
+        self.assertEqual(metrics["llm_requests"][-2]["purpose"], "planning")
+        self.assertEqual(metrics["llm_requests"][-1]["purpose"], "triage")
+        self.assertEqual(metrics["llm_request_summary"]["repository_analysis"]["count"], 20)
+        self.assertEqual(metrics["llm_request_summary"]["repository_analysis"]["prompt_bytes"], 2000)
 
     def test_command_llm_transport_invokes_configured_command(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -250,9 +268,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_github_repo_collector_returns_snapshot_without_mutating_project(self) -> None:
         project = self.make_project("proj:researchreposnapshot", "repo_url", "https://github.com/example/app")
         original = copy.deepcopy(project)
-        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+        dependencies = investigation_core.RepositoryCollectorDependencies(
             now=lambda: "2026-06-13T00:00:00+00:00",
-            fetch_github_repo=lambda repo_url: {
+            fetch_repo=lambda repo_url: {
                 "repo": {
                     "full_name": "example/app",
                     "description": "Example App",
@@ -271,11 +289,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 "path": "src/client.ts",
                 "predicate": "uses_collection",
                 "operation": "write",
-                "implementation_role": "service",
             }],
         )
 
-        bundle = investigation_core.collect_github_repo_evidence(
+        bundle = investigation_core.collect_repository_evidence(
             project,
             "https://github.com/example/app",
             dependencies,
@@ -295,9 +312,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         project = self.make_project("proj:githubtrustonly", "service_url", "https://app.example.com")
         lexicon_hints = mock.Mock(return_value=[{"nsid": "app.example.post"}])
         semantic_hints = mock.Mock(return_value=[{"nsid": "app.example.post"}])
-        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+        dependencies = investigation_core.RepositoryCollectorDependencies(
             now=lambda: "2026-07-18T00:00:00+00:00",
-            fetch_github_repo=lambda _repo_url: {
+            fetch_repo=lambda _repo_url: {
                 "repo": {
                     "name": "app",
                     "full_name": "example/app",
@@ -313,7 +330,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             repo_semantic_hints=semantic_hints,
         )
 
-        bundle = investigation_core.collect_github_repo_evidence(
+        bundle = investigation_core.collect_repository_evidence(
             project,
             "https://github.com/example/app",
             dependencies,
@@ -344,9 +361,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         urls = [f"https://noise-{index}.invalid/path" for index in range(100)] + [
             "https://exampleapp.example.com"
         ]
-        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+        dependencies = investigation_core.RepositoryCollectorDependencies(
             now=lambda: "2026-07-10T00:00:00+00:00",
-            fetch_github_repo=lambda repo_url: {
+            fetch_repo=lambda repo_url: {
                 "repo": {"name": "app", "full_name": "example/app", "description": "Example App"},
                 "readme_text": "fixture",
                 "tree": [],
@@ -355,7 +372,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             repo_lexicon_hints=lambda repo_url, **kwargs: [],
             extract_urls=lambda text: urls,
         )
-        bundle = investigation_core.collect_github_repo_evidence(
+        bundle = investigation_core.collect_repository_evidence(
             project, "https://github.com/example/app", dependencies
         )
         snapshot = bundle.records[0].value
@@ -376,9 +393,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             relation="mutual_first_party_link",
             evidence_kind="candidate_repo_trust_inspection",
         )
-        dependencies = investigation_core.GitHubRepoCollectorDependencies(
+        dependencies = investigation_core.RepositoryCollectorDependencies(
             now=lambda: "2026-07-18T00:00:00+00:00",
-            fetch_github_repo=lambda _repo_url: {
+            fetch_repo=lambda _repo_url: {
                 "repo": {"name": "app", "full_name": "example/app", "description": "Confirmed app"},
                 "readme_text": "",
                 "tree": [],
@@ -387,7 +404,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             repo_lexicon_hints=lambda _repo_url, **_kwargs: [],
             extract_urls=lambda _text: [],
         )
-        bundle = investigation_core.collect_github_repo_evidence(project, repo_url, dependencies)
+        bundle = investigation_core.collect_repository_evidence(project, repo_url, dependencies)
 
         registry.apply_github_repo_evidence(project, bundle, confirm_repo_snapshot=False)
 
@@ -620,7 +637,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             conn.close()
         self.assertIsNotNone(run)
         assert run is not None
-        self.assertEqual(run["metrics"]["version"], 1)
+        self.assertEqual(run["metrics"]["version"], 2)
         self.assertEqual(
             set(run["metrics"]["phases"]),
             {
@@ -663,6 +680,100 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
         self.assertEqual(collect_repo.call_count, 1)
         self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
+
+    def test_repository_analysis_adds_declared_docs_site_as_candidate_resource(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:repo-docs", "repo_url", "https://github.com/example/app")
+        project["source_code_urls"] = ["https://github.com/example/app"]
+        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-26T00:00:00+00:00")
+        repo_bundle.add_record(EvidenceRecord(
+            kind="github_repo_snapshot",
+            source="github_repo:https://github.com/example/app",
+            classification="confirmed",
+            observed_at=repo_bundle.collected_at,
+            value={
+                "provider": "github",
+                "repo": {"name": "app", "description": "Example application"},
+                "revision": "abc123",
+                "readme_excerpt": "Example application.",
+                "configuration_hints": [{
+                    "path": "mkdocs.yml",
+                    "kind": "documentation_config",
+                    "content_excerpt": "site_url: https://docs.example.com",
+                }],
+                "tree_paths": ["mkdocs.yml", "docs/index.md", "docs/setup.md"],
+            },
+        ))
+        repo_bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success",
+            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
+        ))
+        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+
+        def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
+            if "Analyze a confirmed source repository" in prompt:
+                return ({
+                    "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
+                    "observations": [{
+                        "predicate": "declares_documentation_site_url",
+                        "basis": "declared",
+                        "value": "https://docs.example.com",
+                        "evidence": [{"path": "mkdocs.yml"}],
+                    }],
+                }, {"model": "fixture", "transport": "fixture"})
+            return ({}, {"model": "fixture", "transport": "fixture"})
+
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle),
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result),
+            ):
+                enriched = enrichment_pipeline.enrich_project(conn, project)
+        finally:
+            conn.close()
+
+        docs_records = [
+            item for item in enriched["resource_url_records"]
+            if item.get("role") == "docs" and item.get("url") == "https://docs.example.com"
+        ]
+        self.assertEqual(
+            len(docs_records), 1,
+            {"resources": enriched["resource_url_records"], "analysis": enriched["repository_analysis_results"]},
+        )
+        self.assertEqual(docs_records[0]["confidence"], "candidate")
+        self.assertEqual(
+            enriched["repository_analysis_results"][0]["prompt_version"],
+            "repository-analysis-v1",
+        )
+
+    def test_repository_collection_failure_preserves_previous_success(self) -> None:
+        project = self.make_project(
+            "proj:repo-collection-failure", "repo_url", "https://github.com/example/app"
+        )
+        project["repository_analysis_results"] = [{
+            "version": repository_analysis.ANALYSIS_VERSION,
+            "policy_version": repository_analysis.POLICY_VERSION,
+            "repo_url": "https://github.com/example/app",
+            "provider": "github",
+            "source_revision": "old-revision",
+            "summary": "previous success",
+        }]
+
+        enrichment_pipeline.record_repository_collection_failure(
+            project, "https://github.com/example/app"
+        )
+
+        result = project["repository_analysis_results"][0]
+        self.assertEqual(result["summary"], "previous success")
+        self.assertEqual(result["source_revision"], "old-revision")
+        self.assertEqual(result["last_attempt"]["status"], "failed")
+        self.assertEqual(result["last_attempt"]["error_category"], "provider_fetch_failed")
+        self.assertTrue(repository_analysis.result_is_stale(result))
 
     def test_enrich_candidate_repo_collects_trust_before_full_content(self) -> None:
         conn = registry.open_db()

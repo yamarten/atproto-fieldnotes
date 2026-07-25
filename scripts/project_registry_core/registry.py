@@ -13,6 +13,7 @@ import socket
 import sqlite3
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import uuid
@@ -66,7 +67,7 @@ REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
-EDITORIAL_SOURCE_POLICY_VERSION = 2
+EDITORIAL_SOURCE_POLICY_VERSION = 3
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
@@ -76,6 +77,7 @@ SEMBLE_API = "https://api.semble.so"
 _BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
 _GITHUB_REPO_FETCH_CACHE = reliability_core.TTLCache()
+_CODEBERG_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _TANGLED_REPO_FETCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 _COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
@@ -5721,19 +5723,120 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
         readme_text = ""
     repo_tree: list[dict[str, Any]] = []
     revision = ""
+    tree_revision = ""
     default_branch = str(payload.get("default_branch") or "")
     if default_branch:
         try:
             branch_ref = urllib.parse.quote(default_branch, safe="")
-            tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{branch_ref}?recursive=1", headers=headers)
-            revision = str(tree_payload.get("sha") or "")
+            branch_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/branches/{branch_ref}", headers=headers)
+            branch_commit = branch_payload.get("commit") if isinstance(branch_payload.get("commit"), dict) else {}
+            revision = str(branch_commit.get("sha") or "")
+            tree_ref = urllib.parse.quote(revision or default_branch, safe="")
+            tree_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/git/trees/{tree_ref}?recursive=1", headers=headers)
+            tree_revision = str(tree_payload.get("sha") or "")
+            revision = revision or tree_revision
             tree = tree_payload.get("tree", [])
             if isinstance(tree, list):
                 repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
         except Exception:
             repo_tree = []
-    result = {"repo": payload, "readme_text": readme_text, "tree": repo_tree, "default_branch": default_branch, "revision": revision}
+    result = {
+        "repo": payload, "readme_text": readme_text, "tree": repo_tree,
+        "default_branch": default_branch, "revision": revision, "tree_revision": tree_revision,
+    }
     _GITHUB_REPO_FETCH_CACHE.set(repo_url, copy.deepcopy(result), ttl=300)
+    return result
+
+
+def codeberg_repo_segments(repo_url: str) -> tuple[str, str]:
+    normalized = repo_url_core.normalize_forge_repo_url(repo_url)
+    parsed = urllib.parse.urlparse(normalized or "")
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if parsed.netloc != "codeberg.org" or len(segments) != 2:
+        raise ValueError(f"not a Codeberg repo URL: {repo_url}")
+    return segments[0], segments[1]
+
+
+def codeberg_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
+    try:
+        owner, repo = codeberg_repo_segments(repo_url)
+    except ValueError:
+        return ""
+    normalized_path = str(path or "").strip().lstrip("/")
+    if not normalized_path:
+        return ""
+    encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
+    raw_url = (
+        f"https://codeberg.org/api/v1/repos/{urllib.parse.quote(owner, safe='')}/"
+        f"{urllib.parse.quote(repo, safe='')}/raw/{urllib.parse.quote(ref or 'main', safe='')}/{encoded_path}"
+    )
+    try:
+        status, body, headers = http_transport.request_bytes(raw_url, timeout=REQUEST_TIMEOUT_SHORT)
+        return decode_http_text(body, headers) if status < 400 else ""
+    except Exception:
+        return ""
+
+
+def fetch_codeberg_repo(repo_url: str) -> dict[str, Any]:
+    normalized = repo_url_core.normalize_forge_repo_url(repo_url)
+    if not normalized or repo_url_core.infer_repo_provider(normalized) != "codeberg.org":
+        raise ValueError(f"not a Codeberg repo URL: {repo_url}")
+    cached = _CODEBERG_REPO_FETCH_CACHE.get(normalized)
+    if isinstance(cached, dict):
+        return copy.deepcopy(cached)
+    owner, repo = codeberg_repo_segments(normalized)
+    api_root = f"https://codeberg.org/api/v1/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
+    payload = http_transport.request_json(api_root, timeout=REQUEST_TIMEOUT_DEFAULT)
+    default_branch = str(payload.get("default_branch") or "main")
+    tree: list[dict[str, Any]] = []
+    revision = ""
+    tree_revision = ""
+    branch_payload: dict[str, Any] = {}
+    readme_text = ""
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        branch_future = executor.submit(
+            http_transport.request_json,
+            f"{api_root}/branches/{urllib.parse.quote(default_branch, safe='')}",
+            timeout=REQUEST_TIMEOUT_DEFAULT,
+        )
+        readme_future = executor.submit(
+            codeberg_repo_file_text, normalized, "README.md", ref=default_branch,
+        )
+        try:
+            branch_result = branch_future.result()
+            branch_payload = dict(branch_result) if isinstance(branch_result, dict) else {}
+        except Exception:
+            branch_payload = {}
+        try:
+            readme_text = str(readme_future.result() or "")
+        except Exception:
+            readme_text = ""
+    try:
+        branch_commit = branch_payload.get("commit") if isinstance(branch_payload.get("commit"), dict) else {}
+        revision = str(branch_commit.get("id") or branch_commit.get("sha") or "")
+        tree_payload = http_transport.request_json(
+            f"{api_root}/git/trees/{urllib.parse.quote(revision or default_branch, safe='')}?recursive=true",
+            timeout=REQUEST_TIMEOUT_DEFAULT,
+        )
+        tree_revision = str(tree_payload.get("sha") or "")
+        revision = revision or tree_revision
+        if isinstance(tree_payload.get("tree"), list):
+            tree = [dict(item) for item in tree_payload["tree"] if isinstance(item, dict)]
+    except Exception:
+        tree = []
+    for path in (() if readme_text else ("README", "readme.md")):
+        readme_text = codeberg_repo_file_text(normalized, path, ref=default_branch)
+        if readme_text:
+            break
+    result = {
+        "repo": payload,
+        "readme_text": readme_text,
+        "tree": tree,
+        "default_branch": default_branch,
+        "revision": revision,
+        "tree_revision": tree_revision,
+    }
+    _CODEBERG_REPO_FETCH_CACHE.set(normalized, copy.deepcopy(result), ttl=300)
     return result
 
 
@@ -5954,8 +6057,10 @@ def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]
             score += 2
         if any(token in lowered for token in (".lexicon.json", "lexicon.", "/lexicon", "/lexicons")):
             score += 3
-        if lowered.count(".") >= 3:
-            score += 1
+        basename = path.rsplit("/", 1)[-1]
+        basename_nsid = basename[:-5] if basename.lower().endswith(".json") else ""
+        if identifier_core.is_valid_nsid(basename_nsid):
+            score += 2
         if score <= 0:
             continue
         scored.append((score, path))
@@ -5966,7 +6071,7 @@ def github_repo_candidate_lexicon_paths(tree: list[dict[str, Any]]) -> list[str]
 def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) -> bool:
     lowered = str(path or "").lower()
     nsid = identifier_core.normalize_nsid(nsid)
-    if not nsid or not re.fullmatch(project_record.LOOSE_NSID_PATTERN, nsid):
+    if not identifier_core.is_valid_nsid(nsid):
         return False
     if isinstance(payload.get("lexicon"), int) and isinstance(payload.get("defs"), dict):
         return True
@@ -5984,11 +6089,44 @@ def repo_json_looks_like_lexicon(path: str, payload: dict[str, Any], nsid: str) 
     return False
 
 
-def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def load_repo_files(
+    repo_url: str,
+    paths: list[str],
+    *,
+    ref: str,
+    file_text: Callable[..., str],
+) -> dict[str, str]:
+    ordered_paths = project_record.unique_list([str(path or "") for path in paths if str(path or "")])
+    if not ordered_paths:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(ordered_paths))) as executor:
+        futures = {
+            path: executor.submit(file_text, repo_url, path, ref=ref)
+            for path in ordered_paths
+        }
+        output: dict[str, str] = {}
+        for path in ordered_paths:
+            try:
+                output[path] = str(futures[path].result() or "")
+            except Exception:
+                output[path] = ""
+        return output
+
+
+def repo_lexicon_hints(
+    repo_url: str,
+    *,
+    ref: str,
+    tree: list[dict[str, Any]],
+    file_text: Callable[..., str] | None = None,
+) -> list[dict[str, Any]]:
+    load_file = file_text or github_repo_file_text
     hints: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for path in github_repo_candidate_lexicon_paths(tree):
-        text = github_repo_file_text(repo_url, path, ref=ref)
+    paths = github_repo_candidate_lexicon_paths(tree)
+    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
+    for path in paths:
+        text = texts.get(path, "")
         if not text:
             continue
         try:
@@ -6007,43 +6145,203 @@ def repo_lexicon_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -
     return hints
 
 
-def repo_manifest_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def repo_manifest_hints(
+    repo_url: str,
+    *,
+    ref: str,
+    tree: list[dict[str, Any]],
+    file_text: Callable[..., str] | None = None,
+) -> list[dict[str, Any]]:
+    load_file = file_text or github_repo_file_text
+    manifest_names = {"package.json", "pyproject.toml", "cargo.toml"}
     paths = [
         str(item.get("path") or "")
         for item in tree
         if str(item.get("type") or "") == "blob"
-        and str(item.get("path") or "").lower().rsplit("/", 1)[-1] == "package.json"
+        and str(item.get("path") or "").lower().rsplit("/", 1)[-1] in manifest_names
         and int(item.get("size") or 0) <= 200_000
     ]
     paths.sort(key=lambda path: (path.count("/"), path))
     hints: list[dict[str, Any]] = []
+    texts = load_repo_files(repo_url, paths[:4], ref=ref, file_text=load_file)
     for path in paths[:4]:
-        text = github_repo_file_text(repo_url, path, ref=ref)
-        try:
-            payload = json.loads(text)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        dependencies: dict[str, str] = {}
-        for field_name in ("dependencies", "devDependencies", "peerDependencies"):
-            values = payload.get(field_name)
-            if not isinstance(values, dict):
+        text = texts.get(path, "")
+        basename = path.lower().rsplit("/", 1)[-1]
+        if basename == "package.json":
+            try:
+                payload = json.loads(text)
+            except Exception:
                 continue
-            dependencies.update({
-                str(name): str(version)
-                for name, version in values.items()
-                if "atproto" in str(name).lower() or "bluesky" in str(name).lower()
-            })
-        scripts = payload.get("scripts") if isinstance(payload.get("scripts"), dict) else {}
-        hints.append({
-            "path": path,
-            "name": str(payload.get("name") or ""),
-            "description": str(payload.get("description") or "")[:1000],
-            "private": bool(payload.get("private")),
-            "scripts": sorted(str(name) for name in scripts)[:24],
-            "protocol_dependencies": dependencies,
-        })
+            if not isinstance(payload, dict):
+                continue
+            project_payload = payload
+            dependency_fields = ("dependencies", "devDependencies", "peerDependencies")
+            scripts = payload.get("scripts") if isinstance(payload.get("scripts"), dict) else {}
+            bin_value = payload.get("bin")
+            bin_names = (
+                sorted(str(name) for name in bin_value)[:24]
+                if isinstance(bin_value, dict)
+                else ([str(payload.get("name") or "")] if isinstance(bin_value, str) else [])
+            )
+            import_pointer = next((
+                f"/{key}" for key in ("exports", "main", "module", "types", "typings")
+                if payload.get(key)
+            ), "")
+            manifest_hint = {
+                "path": path,
+                "manifest_kind": "npm",
+                "name": str(payload.get("name") or ""),
+                "description": str(payload.get("description") or "")[:1000],
+                "private": bool(payload.get("private")),
+                "scripts": sorted(str(name) for name in scripts)[:24],
+                "bin": bin_names,
+                "bin_pointer": "/bin" if bin_names else "",
+                "exports": bool(payload.get("exports")),
+                "main": str(payload.get("main") or "")[:500],
+                "module": str(payload.get("module") or "")[:500],
+                "types": str(payload.get("types") or payload.get("typings") or "")[:500],
+                "browser": bool(payload.get("browser")),
+                "import_pointer": import_pointer,
+            }
+        else:
+            try:
+                payload = tomllib.loads(text)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if basename == "pyproject.toml":
+                project_payload = payload.get("project") if isinstance(payload.get("project"), dict) else {}
+                tool = payload.get("tool") if isinstance(payload.get("tool"), dict) else {}
+                poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
+                scripts = project_payload.get("scripts") if isinstance(project_payload.get("scripts"), dict) else {}
+                bin_pointer = "/project/scripts"
+                if not scripts and isinstance(poetry.get("scripts"), dict):
+                    scripts = poetry["scripts"]
+                    bin_pointer = "/tool/poetry/scripts"
+                bin_names = sorted(str(name) for name in scripts)[:24]
+                dependency_fields = ("dependencies",)
+                manifest_hint = {
+                    "path": path,
+                    "manifest_kind": "python",
+                    "name": str(project_payload.get("name") or poetry.get("name") or ""),
+                    "description": str(project_payload.get("description") or poetry.get("description") or "")[:1000],
+                    "private": False,
+                    "scripts": bin_names,
+                    "bin": bin_names,
+                    "bin_pointer": bin_pointer if bin_names else "",
+                }
+            else:
+                project_payload = payload.get("package") if isinstance(payload.get("package"), dict) else {}
+                scripts = {}
+                bins = payload.get("bin") if isinstance(payload.get("bin"), list) else []
+                bin_names = [str(item.get("name") or "") for item in bins if isinstance(item, dict) and item.get("name")]
+                library = payload.get("lib") if isinstance(payload.get("lib"), dict) else {}
+                dependency_fields = ("dependencies", "dev-dependencies", "build-dependencies")
+                manifest_hint = {
+                    "path": path,
+                    "manifest_kind": "cargo",
+                    "name": str(project_payload.get("name") or ""),
+                    "description": str(project_payload.get("description") or "")[:1000],
+                    "private": bool(project_payload.get("publish") is False),
+                    "scripts": [],
+                    "bin": bin_names[:24],
+                    "bin_pointer": "/bin" if bin_names else "",
+                    "exports": bool(library),
+                    "main": str(library.get("path") or "")[:500],
+                    "import_pointer": "/lib" if library else "",
+                }
+        dependencies: dict[str, str] = {}
+        dependency_sources = [payload, project_payload]
+        if basename == "pyproject.toml":
+            dependency_sources.append(poetry)
+        for source in dependency_sources:
+            for field_name in dependency_fields:
+                values = source.get(field_name) if isinstance(source, dict) else None
+                if isinstance(values, dict):
+                    candidates = values.items()
+                elif isinstance(values, list):
+                    candidates = ((str(value).split(maxsplit=1)[0], value) for value in values)
+                else:
+                    continue
+                dependencies.update({
+                    str(name): str(version)
+                    for name, version in candidates
+                    if "atproto" in str(name).lower() or "bluesky" in str(name).lower()
+                })
+        manifest_hint["protocol_dependencies"] = dependencies
+        hints.append(manifest_hint)
+    return hints
+
+
+def github_repo_configuration_paths(tree: list[dict[str, Any]]) -> list[str]:
+    candidates: list[tuple[int, str]] = []
+    exact_names = {
+        "mkdocs.yml", "mkdocs.yaml", "docusaurus.config.js", "docusaurus.config.ts",
+        "vite.config.js", "vite.config.ts", "astro.config.mjs", "astro.config.ts",
+        "conf.py", "_config.yml", "_config.yaml", "cname", "manifest.json",
+    }
+    for item in tree:
+        if str(item.get("type") or "") != "blob" or int(item.get("size") or 0) > 200_000:
+            continue
+        path = str(item.get("path") or "")
+        lowered = path.lower()
+        basename = lowered.rsplit("/", 1)[-1]
+        score = 0
+        is_root_or_shallow = lowered.count("/") <= 1
+        is_extension_path = any(segment in f"/{lowered}/" for segment in ("/plugin/", "/plugins/", "/extension/", "/extensions/"))
+        if basename in exact_names and basename != "manifest.json":
+            score += 6
+        if basename == "manifest.json" and (is_root_or_shallow or is_extension_path):
+            score += 6
+        if "/.vitepress/" in f"/{lowered}/" or "/docs/" in f"/{lowered}/":
+            score += 2
+        if lowered.startswith(".github/workflows/") and any(token in basename for token in ("docs", "pages")):
+            score += 5
+        if basename in {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "fly.toml", "netlify.toml", "vercel.json"}:
+            score += 4
+        if score:
+            candidates.append((score, path))
+    candidates.sort(key=lambda item: (-item[0], item[1].count("/"), item[1]))
+    return [path for _, path in candidates[:6]]
+
+
+def repo_configuration_hints(
+    repo_url: str,
+    *,
+    ref: str,
+    tree: list[dict[str, Any]],
+    file_text: Callable[..., str] | None = None,
+) -> list[dict[str, Any]]:
+    load_file = file_text or github_repo_file_text
+    hints: list[dict[str, Any]] = []
+    paths = github_repo_configuration_paths(tree)
+    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
+    for path in paths:
+        text = texts.get(path, "")
+        if not text:
+            continue
+        lowered = path.lower()
+        hint: dict[str, Any] = {"path": path, "content_excerpt": text[:4000]}
+        if lowered.endswith("manifest.json"):
+            try:
+                payload = json.loads(text)
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict) and isinstance(payload.get("manifest_version"), int):
+                hint["kind"] = "browser_extension_manifest"
+                hint["manifest_version"] = int(payload["manifest_version"])
+                hint["name"] = str(payload.get("name") or "")[:500]
+        elif lowered.rsplit("/", 1)[-1] == "cname":
+            hint["kind"] = "documentation_cname"
+            hint["url_or_host"] = text.strip().splitlines()[0][:500] if text.strip() else ""
+        elif any(token in lowered for token in ("mkdocs.", "docusaurus.config", ".vitepress/", "conf.py", "_config.", "astro.config")):
+            hint["kind"] = "documentation_config"
+        elif lowered.startswith(".github/workflows/") and any(token in lowered for token in ("docs", "pages")):
+            hint["kind"] = "documentation_deployment"
+        else:
+            hint["kind"] = "deployment_config"
+        hints.append(hint)
     return hints
 
 
@@ -6064,53 +6362,53 @@ def github_repo_semantic_paths(tree: list[dict[str, Any]]) -> list[str]:
             score -= 2
         scored.append((score, path))
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return [path for score, path in scored if score > -10][:12]
+    return [path for score, path in scored if score > -10][:4]
 
 
-def github_repo_implementation_role(tree: list[dict[str, Any]]) -> str:
-    paths = {str(item.get("path") or "").lower() for item in tree}
-    if any(
-        segment in f"/{path}/"
-        for path in paths
-        for segment in ("/plugins/", "/plugin/", "/extensions/", "/extension/", "/webpackmodules/")
-    ):
-        return "plugin"
-    if any(path.endswith(("dockerfile", "docker-compose.yml", "fly.toml")) or "/server/" in f"/{path}" for path in paths):
-        return "service"
-    if any(path.endswith(("package.json", "pyproject.toml", "cargo.toml", "go.mod")) for path in paths):
-        return "package_or_library"
-    return "unknown"
-
-
-def repo_semantic_hints(repo_url: str, *, ref: str, tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def repo_semantic_hints(
+    repo_url: str,
+    *,
+    ref: str,
+    tree: list[dict[str, Any]],
+    file_text: Callable[..., str] | None = None,
+) -> list[dict[str, Any]]:
+    load_file = file_text or github_repo_file_text
     hints: list[dict[str, Any]] = []
-    role = github_repo_implementation_role(tree)
-    for path in github_repo_semantic_paths(tree):
-        text = github_repo_file_text(repo_url, path, ref=ref)
+    paths = github_repo_semantic_paths(tree)
+    texts = load_repo_files(repo_url, paths, ref=ref, file_text=load_file)
+    for path in paths:
+        text = texts.get(path, "")
         if not text:
             continue
-        nsids = project_record.unique_list([identifier_core.normalize_nsid(item) for item in re.findall(project_record.LOOSE_NSID_PATTERN, text) if identifier_core.normalize_nsid(item)])[:20]
-        if not nsids:
-            continue
-        lowered = text.lower()
-        write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
-        read = any(token in lowered for token in ("getrecord", "listrecords", "query", "subscribe", "searchposts", "gettimeline"))
-        for nsid in nsids:
-            match = re.search(re.escape(nsid), text)
-            excerpt = ""
-            if match:
-                start = max(0, text.rfind("\n", 0, match.start()) + 1)
-                end = text.find("\n", match.end())
-                excerpt = text[start:(end if end >= 0 else len(text))].strip()[:1200]
-            hints.append({
-                "nsid": nsid,
-                "path": path,
-                "predicate": "uses_collection" if write or read else "mentions_collection",
-                "operation": "write" if write else "read" if read else "mention",
-                "implementation_role": role,
-                "excerpt": excerpt,
-            })
-    return hints[:60]
+        per_file_count = 0
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            nsids = project_record.unique_list([
+                candidate
+                for candidate in re.findall(project_record.LOOSE_NSID_PATTERN, line)
+                if identifier_core.is_valid_nsid(candidate)
+            ])
+            if not nsids:
+                continue
+            lowered = line.lower()
+            write = any(token in lowered for token in ("createrecord", "putrecord", "deleterecord", "applywrites"))
+            read = any(token in lowered for token in ("getrecord", "listrecords", "subscribe", "searchposts", "gettimeline"))
+            operation = "write" if write else "read" if read else "mention"
+            for nsid in nsids:
+                if per_file_count >= 2:
+                    break
+                excerpt = line.strip()[:1200]
+                hints.append({
+                    "nsid": nsid,
+                    "path": path,
+                    "line": line_number,
+                    "predicate": "uses_collection" if operation in {"read", "write"} else "mentions_collection",
+                    "operation": operation,
+                    "excerpt": excerpt,
+                })
+                per_file_count += 1
+            if per_file_count >= 2:
+                break
+    return hints[:8]
 
 
 def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
@@ -6592,16 +6890,48 @@ def collect_github_repo_evidence(
     *,
     trust_only: bool = False,
 ) -> EvidenceBundle:
-    return investigation_core.collect_github_repo_evidence(
+    return investigation_core.collect_repository_evidence(
         project,
         repo_url,
-        investigation_core.GitHubRepoCollectorDependencies(
+        investigation_core.RepositoryCollectorDependencies(
             now=project_record.iso_now,
-            fetch_github_repo=fetch_github_repo,
+            fetch_repo=fetch_github_repo,
             repo_lexicon_hints=repo_lexicon_hints,
             extract_urls=extract_urls,
             repo_semantic_hints=repo_semantic_hints,
             repo_manifest_hints=repo_manifest_hints,
+            repo_configuration_hints=repo_configuration_hints,
+        ),
+        trust_only=trust_only,
+    )
+
+
+def collect_codeberg_repo_evidence(
+    project: dict[str, Any],
+    repo_url: str,
+    *,
+    trust_only: bool = False,
+) -> EvidenceBundle:
+    return investigation_core.collect_repository_evidence(
+        project,
+        repo_url,
+        investigation_core.RepositoryCollectorDependencies(
+            now=project_record.iso_now,
+            fetch_repo=fetch_codeberg_repo,
+            repo_lexicon_hints=lambda url, **kwargs: repo_lexicon_hints(
+                url, **kwargs, file_text=codeberg_repo_file_text,
+            ),
+            extract_urls=extract_urls,
+            repo_semantic_hints=lambda url, **kwargs: repo_semantic_hints(
+                url, **kwargs, file_text=codeberg_repo_file_text,
+            ),
+            repo_manifest_hints=lambda url, **kwargs: repo_manifest_hints(
+                url, **kwargs, file_text=codeberg_repo_file_text,
+            ),
+            repo_configuration_hints=lambda url, **kwargs: repo_configuration_hints(
+                url, **kwargs, file_text=codeberg_repo_file_text,
+            ),
+            provider="codeberg",
         ),
         trust_only=trust_only,
     )
@@ -7275,9 +7605,7 @@ def build_llm_evidence_bundle(
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
         "source_code_urls": project.get("source_code_urls", []),
-        "repository_analysis_results": repository_analysis_core.normalize_results(
-            project.get("repository_analysis_results", [])
-        )[:6],
+        "repository_analysis_results": repository_analysis_core.select_for_triage(project),
         "candidate_source_code_urls": candidate_repo_urls[:2],
         "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
@@ -7310,10 +7638,10 @@ def profile_update_sources(evidence: Any) -> set[str]:
         if not isinstance(item, dict) or item.get("stale") or not str(item.get("summary") or "").strip():
             continue
         normalized = repo_url_core.canonical_repo_url(str(item.get("repo_url") or ""))
-        revision = str(item.get("revision") or "").strip()
+        revision = str(item.get("source_revision") or item.get("revision") or item.get("material_hash") or "").strip()
         if normalized and revision:
-            version = str(item.get("version") or "0")
-            sources.add(f"repository_analysis:v{version}:{normalized}@{revision}")
+            policy_version = str(item.get("policy_version") or f"v{item.get('version') or '0'}")
+            sources.add(f"repository_analysis:{policy_version}:{normalized}@{revision}")
     for record in evidence.get("resource_url_records", []):
         if not isinstance(record, dict) or str(record.get("confidence") or "") != "confirmed":
             continue
@@ -7355,24 +7683,6 @@ def profile_has_new_strong_source(previous_evidence: Any, current_evidence: Any)
     previous_sources = profile_update_sources(previous_evidence)
     current_sources = profile_update_sources(current_evidence)
     return bool(current_sources - previous_sources)
-
-
-def reconcile_llm_category(category: str, evidence: Any) -> str:
-    normalized = str(category or "").strip()
-    if normalized != "library" or not isinstance(evidence, dict):
-        return normalized
-    artifact_kinds = {
-        str(item.get("artifact_kind") or "")
-        for item in evidence.get("repository_analysis_results", [])
-        if isinstance(item, dict) and not item.get("stale") and str(item.get("summary") or "").strip()
-    }
-    if artifact_kinds.intersection({"app", "service", "plugin", "tool"}):
-        return "project"
-    if "infrastructure" in artifact_kinds:
-        return "infra_tool"
-    if artifact_kinds == {"schema"}:
-        return "lexicon"
-    return normalized
 
 
 def load_triage_prompt_template() -> str:
@@ -7816,7 +8126,6 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
     payload = dict(payload)
-    payload["category"] = reconcile_llm_category(str(payload.get("category") or ""), evidence)
     previous_llm_source = project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {}
     previous_evidence = previous_llm_source.get("evidence") if isinstance(previous_llm_source, dict) else {}
     if previous_llm_source.get("editorial_source_policy_version") != EDITORIAL_SOURCE_POLICY_VERSION:
