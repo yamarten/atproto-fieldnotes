@@ -228,7 +228,18 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 ### 1. category契約を実装する
 
 production prompt、保存、評価検査、正本文書への反映は完了しました。正本DBの旧`category=auth_only` 35件は、
-役割と認証限定signalを個別に確認中です。
+役割を個別に確認し、正本DBの複製へ次の移行案を適用しました。
+
+| 移行先 | 件数 | 主な対象 |
+| --- | ---: | --- |
+| `infra_tool` | 17 | OAuth reference/demo、OIDC provider、外部serviceへ導入するplugin、atpassport |
+| `library` | 9 | OAuth client、importして使う認証package、Better Auth plugin |
+| `project` | 3 | ATAuth、atauth、独自recordを持つBeacon |
+| `name_only` | 6 | NSIDまたは汎用READMEだけで役割を確定できない対象 |
+
+この35件はいずれも、独立した別用途のappまたはserviceがATProtoをaccount loginにだけ利用することを
+確認できた対象ではありません。そのため`atproto_auth_only`は全件falseとしました。複製DBでは旧category 0件、
+integrity `ok`、foreign key違反0を確認し、category以外の変更は寄与度の再計算fieldだけでした。正本DBは未更新です。
 
 [project-record.md](../developer/project-record.md#category)の契約を、先にprompt、検査、テストへ反映します。
 
@@ -240,7 +251,8 @@ production prompt、保存、評価検査、正本文書への反映は完了し
 - URL混入はcategoryではなくidentifier関係の欠陥として扱う
 - 停止・削除だけではcategoryを変えず、過去情報を復元できない古い対象では`name_only`を許容する
 
-既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、移行先を決めてから別途承認を得て更新します。
+既存`category=auth_only`の正本DB rowはread-onlyで内容を確認し、上記の複製DB検証まで完了しました。
+正本DBは別途承認を得て更新します。
 この段階が終わるまでmodelのcategory成績を再集計しません。
 
 ### 2. 評価caseと元profile条件を作り直す

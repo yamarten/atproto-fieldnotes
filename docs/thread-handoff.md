@@ -16,7 +16,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- 旧`category=auth_only` 35件の移行先をevidenceから個別に確認し、正本DB更新案を作る。正本DBへは承認を得るまで書かない。
+- 旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6として複製DBで移行確認済み。`atproto_auth_only`は全件false、integrity `ok`、foreign key違反0。正本DBへは承認を得るまで書かない。
 - 新category契約で旧56 labelを確認し直し、すべてprompt調整用としてv3 fixtureへ移行済み。正本DBの保存済みevidence 3,635件から、調整後確認用の別caseを選ぶ。
 - その後、Qwen、Gemma、Granite、gpt-oss MLX、Agents A1等を少数caseから順に比較する。Agents A1は常駐background用途のmemoryと処理量も確認する。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
