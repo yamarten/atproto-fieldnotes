@@ -13,7 +13,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 5
-POLICY_VERSION = "repository-analysis-v7"
+POLICY_VERSION = "repository-analysis-v8"
 MAX_TRIAGE_RESULTS = 6
 ALLOWED_PREDICATES = {
     "declares_browser_extension",
@@ -68,6 +68,65 @@ def _clean_evidence(value: Any, *, include_excerpt: bool = True) -> dict[str, An
         if excerpt:
             evidence["excerpt"] = excerpt[:1200]
     return evidence if path else {}
+
+
+def _evidence_references(values: Any) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values if isinstance(values, list) else []:
+        evidence = _clean_evidence(value, include_excerpt=False)
+        if not evidence:
+            continue
+        key = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(evidence)
+    return output
+
+
+def _claim_without_evidence_excerpts(value: dict[str, Any]) -> dict[str, Any]:
+    output = dict(value)
+    output["evidence"] = _evidence_references(value.get("evidence"))
+    return output
+
+
+def _evidence_excerpt_catalog(values: list[dict[str, Any]], *, limit: int = 6) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values:
+        evidence = _clean_evidence(value)
+        excerpt = str(evidence.get("excerpt") or "")
+        if not excerpt:
+            continue
+        evidence["excerpt"] = excerpt[:600]
+        reference = _clean_evidence(evidence, include_excerpt=False)
+        key = json.dumps(reference, ensure_ascii=False, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(evidence)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _result_evidence_values(result: dict[str, Any]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for value in result.get("summary_evidence", []) if isinstance(result.get("summary_evidence"), list) else []:
+        if isinstance(value, dict):
+            output.append(value)
+    for field_name in ("observations", "capabilities", "collections"):
+        for item in result.get(field_name, []) if isinstance(result.get(field_name), list) else []:
+            if not isinstance(item, dict):
+                continue
+            for value in item.get("evidence", []) if isinstance(item.get("evidence"), list) else []:
+                if isinstance(value, dict):
+                    output.append(value)
+    for value in result.get("evidence_excerpts", []) if isinstance(result.get("evidence_excerpts"), list) else []:
+        if isinstance(value, dict):
+            output.append(value)
+    return output
 
 
 def _observation(predicate: str, basis: str, evidence: dict[str, Any], *, value: str = "") -> dict[str, Any]:
@@ -548,7 +607,12 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
     summary_evidence = _resolve_evidence(payload.get("summary_evidence"), catalog)
     if not summary_evidence:
         raise ValueError("repository analysis summary evidence is required")
-    observations = list(material.get("observations") or [])
+    evidence_values = list(summary_evidence)
+    observations = [
+        _claim_without_evidence_excerpts(item)
+        for item in material.get("observations", []) if isinstance(item, dict)
+    ]
+    evidence_values.extend(_result_evidence_values({"observations": material.get("observations", [])}))
     for item in list(payload.get("observations") or [])[:16] if isinstance(payload.get("observations"), list) else []:
         if not isinstance(item, dict):
             continue
@@ -563,7 +627,12 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
             or not _observation_evidence_supported(predicate, evidence, material)
         ):
             continue
-        observation: dict[str, Any] = {"predicate": predicate, "basis": basis, "evidence": evidence}
+        evidence_values.extend(evidence)
+        observation: dict[str, Any] = {
+            "predicate": predicate,
+            "basis": basis,
+            "evidence": _evidence_references(evidence),
+        }
         value = _validated_observation_value(predicate, item.get("value"), evidence)
         if predicate == "declares_documentation_site_url" and not value:
             continue
@@ -577,8 +646,13 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
         text = str(item.get("text") or "").strip()
         evidence = _resolve_evidence(item.get("evidence"), catalog)
         if text and evidence:
-            capabilities.append({"text": text[:500], "evidence": evidence})
-    collections = list(material.get("collection_usages") or [])
+            evidence_values.extend(evidence)
+            capabilities.append({"text": text[:500], "evidence": _evidence_references(evidence)})
+    collections = [
+        _claim_without_evidence_excerpts(item)
+        for item in material.get("collection_usages", []) if isinstance(item, dict)
+    ]
+    evidence_values.extend(_result_evidence_values({"collections": material.get("collection_usages", [])}))
     for item in list(payload.get("collections") or [])[:24] if isinstance(payload.get("collections"), list) else []:
         if not isinstance(item, dict):
             continue
@@ -591,7 +665,12 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
             and evidence
             and material_supports_collection_nsid(material, nsid)
         ):
-            collections.append({"nsid": nsid, "operation": operation, "evidence": evidence})
+            evidence_values.extend(evidence)
+            collections.append({
+                "nsid": nsid,
+                "operation": operation,
+                "evidence": _evidence_references(evidence),
+            })
     success = {
         "version": ANALYSIS_VERSION,
         "policy_version": POLICY_VERSION,
@@ -602,10 +681,11 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
         "observed_at": observed_at,
         "coverage": dict(material.get("coverage") or {}),
         "summary": summary[:3000],
-        "summary_evidence": summary_evidence,
+        "summary_evidence": _evidence_references(summary_evidence),
         "observations": _dedupe_observations(observations),
         "capabilities": capabilities,
         "collections": _dedupe_dicts(collections, limit=32),
+        "evidence_excerpts": _evidence_excerpt_catalog(evidence_values),
         "model": str(meta.get("model") or ""),
         "transport": str(meta.get("transport") or ""),
         "prompt_version": str(meta.get("prompt_version") or POLICY_VERSION),
@@ -787,7 +867,21 @@ def result_is_stale(result: dict[str, Any]) -> bool:
 
 
 def triage_view(result: dict[str, Any]) -> dict[str, Any]:
-    view = dict(result)
+    view = {
+        key: result[key]
+        for key in (
+            "version", "policy_version", "repo_url", "provider", "source_revision", "material_hash",
+            "coverage", "summary", "model",
+        )
+        if key in result
+    }
+    view["summary_evidence"] = _evidence_references(result.get("summary_evidence"))
+    for field_name in ("observations", "capabilities", "collections"):
+        view[field_name] = [
+            _claim_without_evidence_excerpts(item)
+            for item in result.get(field_name, []) if isinstance(item, dict)
+        ]
+    view["evidence_excerpts"] = _evidence_excerpt_catalog(_result_evidence_values(result))
     view["stale"] = result_is_stale(result)
     return view
 

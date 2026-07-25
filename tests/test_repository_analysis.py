@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest import mock
 
@@ -152,7 +153,11 @@ class RepositoryAnalysisTest(unittest.TestCase):
         predicates = {item["predicate"] for item in result["observations"]}
         self.assertNotIn("contains_service_entrypoint", predicates)
         self.assertNotIn("declares_browser_extension", predicates)
-        self.assertEqual(result["capabilities"][0]["evidence"][0]["excerpt"], "client.call('com.atproto.repo.getRecord')")
+        self.assertNotIn("excerpt", result["capabilities"][0]["evidence"][0])
+        self.assertIn(
+            "client.call('com.atproto.repo.getRecord')",
+            {item["excerpt"] for item in result["evidence_excerpts"]},
+        )
         collection_nsids = {item["nsid"] for item in result["collections"]}
         self.assertIn("com.atproto.repo.getRecord", collection_nsids)
         self.assertNotIn("com.example.hallucinated", collection_nsids)
@@ -186,9 +191,13 @@ class RepositoryAnalysisTest(unittest.TestCase):
             [{
                 "predicate": "declares_documentation_site_url",
                 "basis": "declared",
-                "evidence": [{"path": "mkdocs.yml", "excerpt": "site_url: https://docs.example.com"}],
+                "evidence": [{"path": "mkdocs.yml"}],
                 "value": "https://docs.example.com",
             }],
+        )
+        self.assertIn(
+            "site_url: https://docs.example.com",
+            {item["excerpt"] for item in result["evidence_excerpts"]},
         )
 
     def test_matching_revision_and_policy_reuses_current_result(self) -> None:
@@ -377,6 +386,35 @@ class RepositoryAnalysisTest(unittest.TestCase):
             evidence["repository_analysis_results"][0]["summary"],
             "confirmed repository analysis",
         )
+
+    def test_triage_view_deduplicates_repeated_evidence_excerpts(self) -> None:
+        excerpt = "general purpose AT Protocol CLI " * 80
+        result = {
+            "version": repository_analysis.ANALYSIS_VERSION,
+            "policy_version": repository_analysis.POLICY_VERSION,
+            "repo_url": "https://github.com/example/goat",
+            "source_revision": "abc123",
+            "summary": "AT Protocol CLI.",
+            "summary_evidence": [{"path": "README", "excerpt": excerpt}],
+            "capabilities": [
+                {"text": f"capability {index}", "evidence": [{"path": "README", "excerpt": excerpt}]}
+                for index in range(8)
+            ],
+            "observations": [],
+            "collections": [],
+            "last_attempt": {"status": "success"},
+        }
+
+        view = repository_analysis.triage_view(result)
+
+        self.assertEqual(len(view["evidence_excerpts"]), 1)
+        self.assertLessEqual(len(view["evidence_excerpts"][0]["excerpt"]), 600)
+        self.assertTrue(all(
+            "excerpt" not in item["evidence"][0]
+            for item in view["capabilities"]
+        ))
+        self.assertNotIn("last_attempt", view)
+        self.assertLess(len(json.dumps(view, ensure_ascii=False)), 4000)
 
     def test_triage_evidence_excludes_legacy_summary_without_evidence(self) -> None:
         project = project_record.default_project_record(
