@@ -58,8 +58,8 @@ STYLE_TEXT_FIELDS = {
     "technical_interest_summary", "manual_review_reason",
 }
 EXECUTABLE_ROLE_RE = re.compile(
-    r"(?:(?<![A-Za-z0-9])(?:app|application|cli|command[- ]line|script|plugin|template|example|prototype)(?![A-Za-z0-9])|"
-    r"アプリ|CLI|コマンドライン|スクリプト|プラグイン|テンプレート|サンプル|プロトタイプ)",
+    r"(?:(?<![A-Za-z0-9])(?:app|application|cli|command[- ]line|script)(?![A-Za-z0-9])|"
+    r"アプリ|CLI|コマンドライン|スクリプト)",
     re.IGNORECASE,
 )
 REUSABLE_LIBRARY_RE = re.compile(

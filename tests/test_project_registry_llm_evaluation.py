@@ -55,7 +55,7 @@ class LLMCorpusExportTest(unittest.TestCase):
 
             self.assertEqual(len(corpus["cases"]), 2)
             self.assertEqual(corpus["cases"][0]["source_run_id"], "lib")
-            self.assertIn("category_summary_conflict", corpus["cases"][0]["selection_tags"])
+            self.assertNotIn("category_summary_conflict", corpus["cases"][0]["selection_tags"])
             app = next(case for case in corpus["cases"] if case["project_key"] == "proj:app")
             self.assertEqual(app["source_run_id"], "new")
             self.assertNotIn("current_profile", app["evidence"])
@@ -150,6 +150,7 @@ class LLMOutputValidationTest(unittest.TestCase):
     def test_validation_detects_library_conflict_and_unsupported_identifier(self) -> None:
         payload = self.valid_payload()
         payload["category"] = "library"
+        payload["summary"] = "PDSを保守するCLIです。"
 
         result = evaluation.validate_output(payload, {"name": "Example"})
 
@@ -340,6 +341,16 @@ class LLMOutputValidationTest(unittest.TestCase):
     def test_library_conflict_ignores_app_segment_inside_nsid(self) -> None:
         self.assertFalse(evaluation.category_summary_conflict(
             "library", "NSID app.pkm.settingsは個人用設定データです。",
+        ))
+
+    def test_library_conflict_does_not_infer_role_from_plugin_word(self) -> None:
+        self.assertFalse(evaluation.category_summary_conflict(
+            "library", "AT Protocol用pluginです。",
+        ))
+
+    def test_library_conflict_detects_standalone_cli_without_reuse_role(self) -> None:
+        self.assertTrue(evaluation.category_summary_conflict(
+            "library", "PDSを保守するCLIです。",
         ))
 
     def test_validation_reports_mixed_script_spacing_as_warning(self) -> None:
