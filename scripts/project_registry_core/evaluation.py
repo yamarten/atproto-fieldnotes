@@ -103,9 +103,13 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
         level, score = "core", 90
     elif recent_records or collection_observations or "uses_collection" in relation_predicates:
         level, score = "substantial", 70
-    elif str(project.get("category") or "") == "auth_only":
+    elif bool(project.get("atproto_auth_only")):
         level, score = "auth_only", 20
-        evidence.append({"kind": "category_auth_only", "count": 1})
+        evidence.append({"kind": "atproto_auth_only", "count": 1})
+    elif str(project.get("category") or "") == "auth_only":
+        # Temporary read compatibility until existing category=auth_only rows are migrated.
+        level, score = "auth_only", 20
+        evidence.append({"kind": "legacy_category_auth_only", "count": 1})
     elif input_nsids or external_lexicons or "requests_permission" in relation_predicates or "mentions_collection" in relation_predicates:
         level, score = "optional", 40
     else:

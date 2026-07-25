@@ -7729,7 +7729,11 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     )
     project["features"] = merge_feature_list(list(project.get("features", [])), clean_human_string_list(payload.get("features"), limit=6))
     project["inspired_by"] = clean_human_string_list(payload.get("inspired_by"), limit=6)
-    project["category"] = str(payload.get("category") or "").strip()
+    llm_category = str(payload.get("category") or "").strip()
+    if llm_category in project_record.PROJECT_CATEGORY_VALUES:
+        project["category"] = llm_category
+    if isinstance(payload.get("atproto_auth_only"), bool):
+        project["atproto_auth_only"] = payload["atproto_auth_only"]
     project["classification_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("why_keep") or payload.get("classification_reason") or "").strip())
     project["exclude_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("why_reject") or payload.get("exclude_reason") or "").strip())
     project["watch_reason"] = project_record.normalize_ja_en_mixed_spacing(str(payload.get("watch_reason") or "").strip())
@@ -8442,7 +8446,7 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def auth_only_out_of_scope_reasons(project: dict[str, Any]) -> list[str]:
-    if str(project.get("category") or "") != "auth_only":
+    if not bool(project.get("atproto_auth_only")) and str(project.get("category") or "") != "auth_only":
         return []
     if project_has_owned_protocol_surface(project):
         return []
@@ -8810,7 +8814,7 @@ def compute_showcase_signals(
         technical_interest_level in {"high", "exceptional"}
         and technical_interest_reasons
         and technical_interest_summary
-        and category not in {"reject", "name_only", "auth_only"}
+        and category not in {"reject", "name_only"}
     ):
         signals.append(
             {
@@ -9807,6 +9811,7 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
 
     merged["app_category"] = choose_preferred_scalar(merged.get("app_category"), source.get("app_category"))
     merged["category"] = choose_preferred_scalar(merged.get("category"), source.get("category"))
+    merged["atproto_auth_only"] = bool(merged.get("atproto_auth_only") or source.get("atproto_auth_only"))
     merged["project_state"] = choose_preferred_scalar(merged.get("project_state"), source.get("project_state"))
     merged["brand_did"] = choose_preferred_scalar(merged.get("brand_did"), source.get("brand_did"))
     merged["ownership_signal"] = choose_preferred_scalar(

@@ -8,14 +8,17 @@
 
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - LLM評価reportはreasoning要求とruntime確認、prompt調整に使ったcase、同一入力の複数回差分を区別し、2 reportを比較できる形へ更新しました。
-- Gemma 4 26B A4B MLXは比較継続候補ですが、通常運用modelの変更は未決定です。同じcategory-gates v4の未調整17件ではQwenがcategory 8/17・完全通過13/17、Gemmaが11/17・16/17でした。複製DB 6件の通常enrichでは保存categoryが5件同一、goatだけQwen=`project`、Gemma=`infra_tool`で、保存品質のGemma優位は確認できませんでした。累積時間はQwen 280.9秒、Gemma 401.2秒です。
+- categoryを主な利用者と利用形態で定義し直し、`auth_only`をcategoryから外して`atproto_auth_only`へ分離しました。prompt、保存、評価検査まで実装し、全482 testを確認済みです。正本DBの旧`category=auth_only` 35件は内容が混在するため未移行です。
+- 旧category契約でのQwen/Gemma一致数とgoat判定は次のmodel選定へ直接使いません。通常運用modelの変更は未決定です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
 ## 次に必要な作業
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- Gemmaを正本DBの少数projectで期間を区切って試用するか判断する。実施する場合はcategory-gates v4を明示指定し、Qwenへ戻せる状態と終了条件を先に決める。
+- 旧`category=auth_only` 35件の移行先をevidenceから個別に確認し、正本DB更新案を作る。正本DBへは承認を得るまで書かない。
+- 新category契約で旧評価labelを確認し直し、prompt調整用と調整後確認用を分ける。元profileなし／ありの両条件も評価できるようにする。
+- その後、Qwen、Gemma、Granite、gpt-oss MLX、Agents A1等を少数caseから順に比較する。Agents A1は常駐background用途のmemoryと処理量も確認する。
 - GitHub README本文が通常enrichのevidenceへ保存されないため、repository descriptionが空のprojectでartifact roleを判断できない。model比較とは分けて収集契約の修正要否を決める。
 - gpt-ossを再評価する場合は、最初に同じ短い入力をreasoningなし/`low`で実行し、LM Studio logで設定の適用または無視を確認する。過去のGGUF結果は`low`適用済み比較へ再利用しない。
 - 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。

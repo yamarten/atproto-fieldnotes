@@ -638,7 +638,8 @@ rule-based に再計算します。
 - `optional` / `40`
   - input NSID または external lexicon hint だけがある
 - `auth_only` / `20`
-  - `category=auth_only` で、上記の強い protocol surface が無い
+  - `atproto_auth_only=true`で、上記の強いprotocol surfaceが無い
+  - 既存`category=auth_only`は正本DBの移行完了まで読み取り時だけ同じ値へ投影する
 - `unknown` / `0`
   - rule-based evidence が無い
 
@@ -1359,7 +1360,7 @@ schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`�
 `review-out-of-scope` は関連性を否定せず、現在のsurvey対象から外す候補を返します。
 
 - `auth_only_without_owned_protocol_surface`
-  - `category=auth_only`
+  - `atproto_auth_only=true`
   - owned protocol surfaceがない
 - `derivative_bluesky_utility`
   - `service_is_derivative_bluesky_tool()` が真

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "data" / "survey.db"
 SERVICE_STATUSES = {"live", "beta", "invite_only", "unverified"}
 SERVICE_CATEGORIES = {"project", "infra_tool"}
-TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only", "auth_only"}
+TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only"}
 LEXICON_IGNORED_BLOCKERS = {
     "service_status is still unknown",
     "fewer than 3 features",

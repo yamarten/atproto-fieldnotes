@@ -73,6 +73,50 @@ idempotentに作成できます。
 
 `links`で現在使うroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`です。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
 
+### Category
+
+`category`は成熟度、稼働状態、発見経路ではなく、主な利用者と利用形態を表します。現行値は
+`project`, `lexicon`, `library`, `infra_tool`, `personal_tool`, `name_only`, `reject`です。
+
+- `project`
+  - 一般利用者が直接利用するservice、app、client、bot、利用者向け拡張機能
+- `lexicon`
+  - 第三者による実装または相互運用を意図し、共有規約として公開・文書化されたlexicon
+  - NSID、schema sample、record sample、namespace名だけでは該当しない
+- `library`
+  - 開発者が他のsoftwareへ組み込むSDK、package、framework、adapter、開発用plugin
+- `infra_tool`
+  - projectやserviceの背後で動き、その提供・保守・運用を支える実行物またはservice
+  - ATProtoのprotocol、data、network、repository、運用環境自体を操作・検査・保存する実行物またはservice
+  - online infrastructureに限定せず、`goat`、comail、AT Backup、Airglowのような開発・調査・backup用toolを含む
+- `personal_tool`
+  - 想定利用者が作者本人、特定PDSのmember、または固定された小集団に限定されるtoolやservice
+  - 利用者の少なさ、単機能、特定の趣味への特化だけでは該当しない
+- `name_only`
+  - 記録する価値はあるが、対象の実体または主な役割を判断できない場合の暫定値
+- `reject`
+  - 登録しようとしている対象そのものが調査範囲外、無関係、または候補として成立しない
+
+CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が
+組み込むpluginは`library`、ATProto自体を扱うCLIや運用componentは`infra_tool`です。既存projectに別物の
+URLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。
+
+停止、削除、archiveはcategoryを変える理由にしません。過去のcategoryを確認できる場合は維持し、削除後に
+初めて発見して元の役割を復元できない古い対象では`name_only`を許容します。
+
+複数の説明が当てはまる場合は、対象外なら`reject`、役割不明なら`name_only`、固定利用者なら
+`personal_tool`、文書化された共有schemaなら`lexicon`、組み込む部品なら`library`、projectの背後で動くか
+ATProto自体を扱う実行物なら`infra_tool`、一般利用者が直接使うものなら`project`の順で確認します。
+
+`auth_only`はcategoryではありません。認証packageは`library`、認証を使う利用者向けappは`project`、
+認証proxy等の運用componentは`infra_tool`に分類します。ATProto利用がsign-inまたはOAuth認証だけに限定され、
+records、schema、repository、protocol dataを扱わないことを根拠から確認できた場合は、独立した
+`atproto_auth_only=true`を保存します。強いprotocol利用の根拠があれば、`atproto_contribution_level`は
+そちらを優先します。
+
+旧`category=auth_only`は正本DBの個別移行が終わるまで読み取り互換として扱います。LLM出力のcategoryとしては
+受け付けず、新しい分類には使いません。
+
 ### `state_json`
 
 機械による評価・調査のcurrent stateを保持します。内部は概ね次の責務に分かれます。

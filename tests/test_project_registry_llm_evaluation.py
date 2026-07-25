@@ -103,6 +103,7 @@ class LLMOutputValidationTest(unittest.TestCase):
     def valid_payload(self) -> dict:
         return {
             "category": "project",
+            "atproto_auth_only": False,
             "lexicon_scope": "unknown",
             "status": "candidate",
             "name": "Example",
@@ -138,6 +139,24 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertFalse(result["category_summary_consistent"])
         self.assertEqual(result["unsupported_identifiers"], ["https://example.com/repo"])
+
+    def test_validation_rejects_removed_auth_only_category(self) -> None:
+        payload = self.valid_payload()
+        payload["category"] = "auth_only"
+
+        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+
+        self.assertFalse(result["valid"])
+        self.assertIn("invalid_enum:category:auth_only", result["errors"])
+
+    def test_validation_requires_boolean_auth_only_signal(self) -> None:
+        payload = self.valid_payload()
+        payload["atproto_auth_only"] = "false"
+
+        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+
+        self.assertFalse(result["valid"])
+        self.assertIn("invalid_type:atproto_auth_only:bool", result["errors"])
 
     def test_runner_records_failures_without_aborting_other_cases(self) -> None:
         corpus = {

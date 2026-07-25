@@ -50,7 +50,7 @@ reasoning設定を一つの実行構成として記録し、その構成で確�
 
 したがって、現時点ではGemmaを通常運用modelとして採用済みとは扱いません。
 
-2026-07-25にcategoryの意味を見直し、[project-categories.md](project-categories.md)へ記録しました。
+2026-07-25にcategoryの意味を見直し、[project-record.md](../developer/project-record.md#category)へ記録しました。
 `auth_only`の削除、`infra_tool`の範囲拡大、`personal_tool`の利用者範囲による判定などを現行実装へ
 反映するまでは、この文書にある旧category一致数を次のmodel選定根拠として直接使いません。過去の実行結果は
 速度、memory、JSON/schemaの挙動を知る材料として残し、categoryは新しい契約でlabelを確認して計り直します。
@@ -220,9 +220,9 @@ model性能ではなくevidence不足の論点であり、GitHub README本文を
 
 ### 1. category契約を実装する
 
-[project-categories.md](project-categories.md)の合意内容を、先に保存契約、prompt、検査、テストへ反映します。
+[project-record.md](../developer/project-record.md#category)の契約を、先にprompt、検査、テストへ反映します。
 
-- `auth_only`をcategoryから外し、認証だけという関係は`atproto_contribution_level`で保持する
+- `auth_only`をcategoryから外し、認証だけという関係は`atproto_auth_only`で保持する
 - `project`は一般利用者が直接使うもの、`library`と`lexicon`は開発者が組み込む・実装するものとして分ける
 - `infra_tool`はonline infrastructureに限定せず、projectの背後で動くものとATProto自体を扱う実行物を含める
 - `personal_tool`は用途の狭さではなく、想定利用者が作者本人または固定集団に限定される場合に使う

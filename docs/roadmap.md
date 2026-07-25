@@ -191,9 +191,11 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - 固定evidence harnessでmodel-only screeningを実施し、品質・速度・メモリを比較する
   - corpus export、1 model構成のstructured report、同一入力の複数回差分、2 reportの機械比較は実装済み。peak memory / swap / prefill / decodeのrunner観測は未接続
   - reasoning要求をruntimeが適用したか確認してから比較する。過去のgpt-oss GGUF実行は`low`が無視されたため、reasoning条件を揃えた形式比較には使わない
-  - 旧39 labelはprompt調整に使ったことを明示済み。新17 labelはevidenceだけからreviewして未使用として固定。同じcategory-gates v4でQwen 8/17、Gemma 11/17を確認済み
+  - category契約を見直したため、旧56 labelを再確認し、変更caseを調整用へ移す。prompt固定後の確認には、その調整に使っていない別caseを用意する
+  - 元profileなしを新規projectでのmodel比較、元profileありを現行Qwen profileからの移行適性として分け、生出力と保存後結果も別集計する
   - GitHub collectorはREADME本文を取得するが、本文をsummary候補や固定evidenceへ保存しない。repository descriptionが空のprojectでartifact roleを判断できないため、本文を通常enrichへどう渡すか検討する
-  - 代表10件の複数回実行、8件の文章比較、複製DB 6件の通常enrich比較は実施済み。Gemmaは固定evidenceで優位だが、通常enrichの保存品質では優位を確認できていない。次へ進む場合は正本DBの少数projectで期間を区切って試用し、Qwenへ戻せる状態を保つ
+  - QwenとGemmaを基準に、Granite、gpt-oss MLX、Agents A1、必要ならQwen 9Bを少数caseで再選別する。Agents A1は常駐background候補としてidle/処理中memory、連続処理、foreground modelへの影響を確認する
+  - 上位構成だけ複数回実行、文章比較、重い入力、複製DB比較へ進める。全面移行、期間限定試用、役割別併用、現状維持を比較する
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
   - 既存`category=library`の一括再分類はmodel変更の確認に依存する。prompt調整に使っていないcaseと複製DBでのenrich比較を確認するまではbulk更新しない
 

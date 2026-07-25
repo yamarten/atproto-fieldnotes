@@ -2464,10 +2464,12 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         prompt, _evidence = registry.build_triage_prompt(self.nsid_project())
 
         self.assertIn("Category contract:", prompt)
-        self.assertIn("An executable app, CLI, script, plugin, template, example", prompt)
-        self.assertIn("`category=infra_tool`", prompt)
+        self.assertIn("primary use is importing, linking, or embedding reusable code", prompt)
+        self.assertIn("`infra_tool` is not limited to hosted or continuously running infrastructure", prompt)
+        self.assertIn("A plugin is `project` when end users install", prompt)
         self.assertIn("The selected category must agree with `summary`", prompt)
         self.assertIn("`current_profile` is previous editorial wording", prompt)
+        self.assertIn("set `atproto_auth_only=true`", prompt)
         self.assertIn("Before returning JSON, check `category` against `summary`", prompt)
 
     def test_triage_prompt_limits_lexicon_category_to_documented_shared_schema(self) -> None:
@@ -2752,15 +2754,47 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         self.assertEqual(result["atproto_contribution_level"], "optional")
         self.assertEqual(result["atproto_contribution_score"], 40)
 
-    def test_auth_only_category_is_kept_without_protocol_surface(self) -> None:
-        result = project_record.compute_atproto_contribution(dict(self.project(), category="auth_only"))
+    def test_auth_only_signal_is_kept_without_protocol_surface(self) -> None:
+        result = project_record.compute_atproto_contribution(dict(self.project(), atproto_auth_only=True))
 
         self.assertEqual(result["atproto_contribution_level"], "auth_only")
         self.assertEqual(result["atproto_contribution_score"], 20)
+        self.assertEqual(result["atproto_contribution_evidence"], [{"kind": "atproto_auth_only", "count": 1}])
 
-    def test_strong_evidence_overrides_auth_only_category(self) -> None:
+    def test_llm_output_stores_auth_only_separately_from_category(self) -> None:
+        project = self.project()
+
+        registry.apply_llm_output(
+            project,
+            {"category": "library", "atproto_auth_only": True},
+            {},
+            {},
+        )
+        project_record.apply_atproto_contribution_state(project)
+
+        self.assertEqual(project["category"], "library")
+        self.assertTrue(project["atproto_auth_only"])
+        self.assertEqual(project["atproto_contribution_level"], "auth_only")
+
+    def test_llm_output_does_not_restore_removed_auth_only_category(self) -> None:
+        project = self.project()
+        project["category"] = "library"
+        project["atproto_auth_only"] = True
+
+        registry.apply_llm_output(project, {"category": "auth_only"}, {}, {})
+
+        self.assertEqual(project["category"], "library")
+        self.assertTrue(project["atproto_auth_only"])
+
+    def test_legacy_auth_only_category_is_read_until_migration(self) -> None:
+        result = project_record.compute_atproto_contribution(dict(self.project(), category="auth_only"))
+
+        self.assertEqual(result["atproto_contribution_level"], "auth_only")
+        self.assertEqual(result["atproto_contribution_evidence"], [{"kind": "legacy_category_auth_only", "count": 1}])
+
+    def test_strong_evidence_overrides_auth_only_signal(self) -> None:
         result = project_record.compute_atproto_contribution(
-            dict(self.project(), category="auth_only", recent_record_samples=[{"collection": "app.example.post"}])
+            dict(self.project(), atproto_auth_only=True, recent_record_samples=[{"collection": "app.example.post"}])
         )
 
         self.assertEqual(result["atproto_contribution_level"], "substantial")
@@ -2777,7 +2811,8 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
 class ProjectRegistryOutOfScopeTest(unittest.TestCase):
     def test_auth_only_without_owned_protocol_surface_is_candidate(self) -> None:
         project = project_record.default_project_record("proj:authonly", "repo_url", "https://github.com/example/auth")
-        project["category"] = "auth_only"
+        project["category"] = "library"
+        project["atproto_auth_only"] = True
 
         entry = registry.out_of_scope_review_entry(project)
 
@@ -2787,7 +2822,8 @@ class ProjectRegistryOutOfScopeTest(unittest.TestCase):
 
     def test_auth_only_with_owned_protocol_surface_is_not_automatic_candidate(self) -> None:
         project = project_record.default_project_record("proj:authwithnsid", "nsid", "app.example.record")
-        project["category"] = "auth_only"
+        project["category"] = "library"
+        project["atproto_auth_only"] = True
         project["resolved_nsids"] = ["app.example.record"]
 
         self.assertIsNone(registry.out_of_scope_review_entry(project))

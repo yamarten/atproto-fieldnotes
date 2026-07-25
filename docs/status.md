@@ -103,8 +103,9 @@
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
   - triageにはboundedな現在の保存済みprofileも渡し、根拠が実質的に改善した場合だけ説明を更新するよう指示
-  - categoryはartifactの役割で分類し、importされる再利用codeだけを`library`とする。実行app、CLI、plugin、template、example、prototypeはrepository配布だけを理由に`library`へ寄せない
+  - categoryは主な利用者と利用形態で分類する。一般利用者が直接使うものは`project`、組み込む部品は`library`、projectの背後で動くものまたはATProto自体を扱う実行物は`infra_tool`とする。CLIやplugin等の形式だけでは決めない
   - `category=lexicon`は、第三者実装または相互運用を意図した共有schemaであることを文書等から確認できる場合に限定する。NSID、schema sample、record sample、namespace名だけでは`lexicon`へ進めない
+  - `auth_only`はcategoryから外した。認証限定は`atproto_auth_only`として保存し、強いprotocol surfaceが無い場合に`atproto_contribution_level=auth_only`へ投影する。正本DBの旧`category=auth_only`は個別移行前のため読み取り互換を残している
   - 最終prompt bytesはrun metricsで別に観測
 - fixed evidence LLM evaluation
   - `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、projectごとの最新保存runから固定triage evidenceをexportする
@@ -191,7 +192,8 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
-- 正本DBからread-onlyでLLM評価corpusをexportし、期待categoryを人が確認した56件をevidence hash付きで固定。旧39件はprompt調整に使用済み、新17件は未使用として扱う。同じcategory-gates v4ではQwenがcategory 8/17・完全通過13/17・358.4秒、Gemmaが11/17・16/17・307.2秒でGemmaが良かった。一方、正本DBの複製で6 projectを通常enrichした保存categoryは5件同一で、goatだけQwen=`project`、Gemma=`infra_tool`となりQwenが規則に合った。URL集合は全件一致、累積時間はQwen 280.9秒、Gemma 401.2秒。旧prompt構成の文章比較はQwen 4件、Gemma 2件、同等2件。GitHub README本文が固定evidenceへ保存されない不足も確認した。少数project試用は未確認で、通常運用modelの変更は未決定
+- 旧category契約でのLLM評価では、未調整17件のcategory一致がQwen 8/17、Gemma 11/17、複製DB 6件の保存categoryは5件同一だった。category契約を見直したため、この一致数とgoatの旧判定は次のmodel選定へ直接使わない。速度、JSON/schema、identifier、文章比較の観測は履歴として残し、新契約でlabelと評価条件を作り直す。通常運用modelの変更は未決定
+- 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止を実装し、全482 testを確認。正本DBには旧`category=auth_only`が35件あり、library、app、service、独自recordを持つものが混在するため未移行
 
 未検証:
 

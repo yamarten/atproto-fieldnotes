@@ -20,11 +20,12 @@ Classify this candidate.
 Goal:
 - Keep independent atproto projects
 - Keep infra tools separately
-- Exclude libraries, auth-only services, and personal-only tools unless name-only tracking is useful
+- Classify libraries, authentication integrations, and personal tools by their actual audience and use
 
 Output schema:
 {
-  "category": "project | lexicon | infra_tool | name_only | library | personal_tool | auth_only | reject",
+  "category": "project | lexicon | infra_tool | name_only | library | personal_tool | reject",
+  "atproto_auth_only": true,
   "lexicon_scope": "shared | service_specific | unknown",
   "status": "candidate | tracked | published | invite_only | beta | inactive | rejected",
   "name": "string",
@@ -77,21 +78,26 @@ Language requirements:
 - Compare `current_profile` with the strongest current evidence. Keep its wording when the evidence has not materially improved, but update it when stronger sources correct or substantially expand the previous explanation
 - `manual_review_priority`: use `high` for likely high-value manual review, `medium` for useful but not urgent review, `low` for optional review, `none` when no manual review is recommended
 - `manual_review_reason`: Japanese short explanation of what the human should inspect and why
+- `atproto_auth_only`: true only when the evidence establishes that AT Protocol use is limited to sign-in or OAuth authentication and the artifact does not use AT Protocol records, schemas, repositories, or protocol data; false when broader use is evidenced or authentication-only use is not established
 - `repository_link_assessments`: assess every item in `repository_link_candidates`; use `same_project` only when the page and repository identify the same project, `related` for dependencies, inspirations, extension listings, templates, special thanks, or source code of a containing website, and `uncertain` when the bounded evidence is insufficient
 - `repository_link_assessments`: copy `service_url` and `repo_url` exactly from the corresponding evidence item; do not add repositories that are not listed there
 
 Category contract:
 - Select a category for the artifact's actual role, not its maturity, editorial value, distribution through a repository, or lack of a hosted service
-- Use `category=library` only when the evidence supports reusable code intended to be imported, linked, or consumed as an SDK, framework, or package by other software
-- An executable app, CLI, script, plugin, template, example, reference application, or prototype is not a `library` merely because it is distributed primarily through a repository
-- Use `category=project` for an independently runnable or installable app, plugin, experiment, or reference implementation when no more specific category applies
-- Use `category=infra_tool` for operator-facing or deployable protocol infrastructure and for tooling whose primary role is operations, hosting, moderation, indexing, backup, or deployment
-- Use `category=personal_tool` only when evidence supports author-only or narrowly personal use; do not use it as a fallback for every single-purpose artifact
+- Use `category=project` for a service, app, client, bot, or extension whose primary audience uses it directly
+- Use `category=library` only when the primary use is importing, linking, or embedding reusable code as an SDK, framework, package, adapter, or developer plugin
+- A plugin is `project` when end users install and use it as a product feature, `library` when developers embed it, and `infra_tool` when it is deployed to operate protocol or service infrastructure
+- Use `category=infra_tool` for an executable or service that runs behind a user-facing project, or directly operates on, inspects, stores, indexes, backs up, moderates, hosts, or deploys AT Protocol data, repositories, networks, and runtime environments
+- `infra_tool` is not limited to hosted or continuously running infrastructure; developer and operator CLIs such as protocol inspection or backup tools belong here when AT Protocol itself is their subject
+- Use `category=personal_tool` only when evidence supports an intended audience limited to the author, members of a specific PDS, or another fixed small group
+- A niche subject, a single purpose, low adoption, or unknown audience does not establish `personal_tool`
 - Use `category=lexicon` only when the schema itself is the tracked subject and evidence documents a shared convention intended for third-party implementation or interoperability
 - An NSID, schema sample, record sample, or unresolved schema namespace alone does not establish `category=lexicon`; when no concrete app, service, library, personal tool, or infrastructure surface is evidenced, use `category=name_only`
-- The selected category must agree with `summary`: if the summary identifies an app, CLI, script, plugin, template, example, reference application, or prototype, `category=library` is invalid unless the evidence separately shows that its primary role is a reusable imported dependency
+- Use `category=reject` only when the candidate artifact itself is out of scope, unrelated, or not a valid artifact; an unrelated URL attached to an otherwise valid project is an identifier relationship error, not a reason to reject the project
+- Inactive, archived, or deleted status does not change a known category; use `name_only` for an old deleted artifact only when its former role cannot be recovered
+- The selected category must agree with `summary`: decide from the primary audience and use, not from words such as CLI, plugin, app, or repository alone
 - `current_profile` is previous editorial wording, not evidence of the artifact's role or category. Resolve the role from the underlying evidence before deciding whether to preserve its wording
-- Apply the category rules in this order when more than one description could fit: documented shared schema intended for third-party use -> `lexicon`; operations or deployable infrastructure -> `infra_tool`; evidenced author-only use -> `personal_tool`; reusable imported dependency -> `library`; otherwise independently runnable or installable artifact -> `project`
+- Apply the category rules in this order: invalid or out-of-scope artifact -> `reject`; role cannot be determined -> `name_only`; fixed private audience -> `personal_tool`; documented shared schema -> `lexicon`; embedded reusable code -> `library`; project-supporting or protocol-facing executable -> `infra_tool`; direct end-user product -> `project`
 - Before returning JSON, check `category` against `summary` and the rules above. Do not return internally contradictory JSON; change the category when the summary describes a delivery form that the chosen category excludes
 
 Decision hints:
@@ -101,7 +107,7 @@ Decision hints:
 - Use `lexicon_scope=service_specific` when the lexicon appears to belong to a particular service or app
 - Use `lexicon_scope=unknown` when the evidence does not distinguish an undiscovered service from a deliberately shared lexicon
 - The absence of a discovered service URL is not evidence that a lexicon is shared
-- If it only uses atproto for sign-in and not data model / records, prefer auth_only
+- If it only uses atproto for sign-in or OAuth, set `atproto_auth_only=true` and select `project`, `library`, or `infra_tool` from its delivery form
 - If evidence suggests only the author uses it, prefer personal_tool
 - If evidence is too thin but the name should be remembered, prefer name_only
 - If it is PDS / relay / moderation / dashboard / hosting / indexing infra, prefer infra_tool

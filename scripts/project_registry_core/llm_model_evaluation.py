@@ -18,11 +18,11 @@ REPORT_SCHEMA_VERSION = 2
 LABEL_SCHEMA_VERSION = 2
 CATEGORY_VALUES = {
     "project", "lexicon", "infra_tool", "name_only", "library",
-    "personal_tool", "auth_only", "reject",
+    "personal_tool", "reject",
 }
 CATEGORY_ORDER = (
     "project", "lexicon", "infra_tool", "name_only", "library",
-    "personal_tool", "auth_only", "reject",
+    "personal_tool", "reject",
 )
 PROMPT_BUCKET_ORDER = ("short", "medium", "upper_medium", "long", "extreme")
 LEXICON_SCOPE_VALUES = {"shared", "service_specific", "unknown"}
@@ -40,7 +40,7 @@ MANUAL_REVIEW_KIND_VALUES = {
 MANUAL_REVIEW_PRIORITY_VALUES = {"none", "low", "medium", "high"}
 REPOSITORY_RELATIONSHIP_VALUES = {"same_project", "related", "uncertain"}
 REQUIRED_OUTPUT_FIELDS = {
-    "category", "lexicon_scope", "status", "name", "tagline", "tagline_is_provisional",
+    "category", "atproto_auth_only", "lexicon_scope", "status", "name", "tagline", "tagline_is_provisional",
     "summary", "features", "inspired_by", "source_code_urls", "service_urls",
     "service_status", "lexicons", "why_keep", "why_reject", "watch_reason",
     "technical_interest_level", "technical_interest_reasons", "technical_interest_summary",
@@ -469,7 +469,7 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
         value = payload.get(field)
         if isinstance(value, list) and any(not isinstance(item, str) for item in value):
             errors.append(f"invalid_item_type:{field}:string")
-    for field in ("tagline_is_provisional", "manual_review_recommended"):
+    for field in ("atproto_auth_only", "tagline_is_provisional", "manual_review_recommended"):
         if field in payload and not isinstance(payload.get(field), bool):
             errors.append(f"invalid_type:{field}:bool")
     if "confidence" in payload and (
@@ -502,7 +502,7 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
     summary = str(payload.get("summary") or "")
     conflict = category_summary_conflict(category, summary)
     if conflict:
-        errors.append("category_summary_conflict:library_executable_role")
+        errors.append("category_summary_conflict:library_nonembedded_role")
     unsupported = sorted(_identifiers(payload) - _identifiers(evidence))
     if unsupported:
         errors.append("unsupported_identifiers")
@@ -521,7 +521,7 @@ def reference_diff(payload: dict[str, Any], reference: Any) -> list[dict[str, An
         return []
     changes: list[dict[str, Any]] = []
     for field in (
-        "category", "lexicon_scope", "service_status", "technical_interest_level",
+        "category", "atproto_auth_only", "lexicon_scope", "service_status", "technical_interest_level",
         "name", "tagline", "summary", "features",
     ):
         before = reference.get(field)
@@ -539,7 +539,7 @@ def repeat_comparison(results: list[dict[str, Any]]) -> dict[str, Any]:
         by_case.setdefault(str(result.get("case_id") or ""), []).append(result)
     comparisons: list[dict[str, Any]] = []
     compared_fields = (
-        "category", "lexicon_scope", "status", "name", "tagline", "summary", "features",
+        "category", "atproto_auth_only", "lexicon_scope", "status", "name", "tagline", "summary", "features",
         "source_code_urls", "service_urls", "service_status", "lexicons",
         "technical_interest_level", "manual_review_recommended", "manual_review_kind",
         "manual_review_priority", "repository_link_assessments",
