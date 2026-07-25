@@ -155,6 +155,7 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
             "errors": ["invalid_type:top_level:object"],
             "unsupported_locators": [],
             "unsupported_collections": [],
+            "filtered_claims": {},
             "normalized_result": None,
         }
     missing = sorted(REQUIRED_OUTPUT_FIELDS - set(payload))
@@ -192,6 +193,7 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
         errors.append(f"unsupported_collections:{len(set(unsupported_collections))}")
 
     normalized: dict[str, Any] | None = None
+    filtered_claims: dict[str, int] = {}
     try:
         normalized = repository_analysis.normalize_result(
             material,
@@ -199,6 +201,28 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
             {"model": "evaluation", "transport": "evaluation", "prompt_version": repository_analysis.POLICY_VERSION},
             "1970-01-01T00:00:00+00:00",
         )
+        model_only_material = copy.deepcopy(material)
+        model_only_material["observations"] = []
+        model_only_material["collection_usages"] = []
+        model_only = repository_analysis.normalize_result(
+            model_only_material,
+            payload,
+            {"model": "evaluation", "transport": "evaluation", "prompt_version": repository_analysis.POLICY_VERSION},
+            "1970-01-01T00:00:00+00:00",
+        )
+        for raw_field, normalized_field in (
+            ("observations", "observations"),
+            ("capabilities", "capabilities"),
+            ("collections", "collections"),
+        ):
+            raw_count = sum(
+                isinstance(item, dict)
+                for item in payload.get(raw_field, []) if isinstance(payload.get(raw_field), list)
+            )
+            filtered_count = max(0, raw_count - len(model_only.get(normalized_field, [])))
+            filtered_claims[raw_field] = filtered_count
+            if filtered_count:
+                errors.append(f"filtered_{raw_field}:{filtered_count}")
     except Exception as exc:
         errors.append(f"normalization_failed:{type(exc).__name__}:{exc}")
     return {
@@ -206,6 +230,7 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
         "errors": errors,
         "unsupported_locators": unsupported_locators,
         "unsupported_collections": sorted(set(unsupported_collections)),
+        "filtered_claims": filtered_claims,
         "normalized_result": normalized,
     }
 
@@ -306,6 +331,10 @@ def run_corpus(
             "unsupported_collection_result_count": sum(
                 bool(result.get("validation", {}).get("unsupported_collections")) for result in successes
             ),
+            "filtered_claim_result_count": sum(
+                any(result.get("validation", {}).get("filtered_claims", {}).values())
+                for result in successes
+            ),
             "total_duration_ms": sum(int(result.get("duration_ms") or 0) for result in results),
         },
         "results": results,
@@ -334,7 +363,7 @@ def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict
     candidate_summary = candidate.get("summary") if isinstance(candidate.get("summary"), dict) else {}
     metrics = (
         "success_count", "valid_count", "unsupported_locator_result_count",
-        "unsupported_collection_result_count", "total_duration_ms",
+        "unsupported_collection_result_count", "filtered_claim_result_count", "total_duration_ms",
     )
     comparison = {
         metric: {
@@ -353,7 +382,10 @@ def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict
     for metric in ("success_count", "valid_count"):
         if isinstance(comparison[metric]["difference"], (int, float)) and comparison[metric]["difference"] < 0:
             regressions.append(f"{metric}_decreased")
-    for metric in ("unsupported_locator_result_count", "unsupported_collection_result_count"):
+    for metric in (
+        "unsupported_locator_result_count", "unsupported_collection_result_count",
+        "filtered_claim_result_count",
+    ):
         if isinstance(comparison[metric]["difference"], (int, float)) and comparison[metric]["difference"] > 0:
             regressions.append(f"{metric}_increased")
     return {

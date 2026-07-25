@@ -512,6 +512,9 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
         result = repository_analysis_evaluation.validate_output(self.payload(), self.material())
 
         self.assertTrue(result["valid"])
+        self.assertEqual(result["filtered_claims"], {
+            "observations": 0, "capabilities": 0, "collections": 0,
+        })
         self.assertEqual(result["normalized_result"]["collections"][0]["nsid"], "app.example.record")
 
     def test_validation_rejects_unknown_locator_and_collection(self) -> None:
@@ -524,6 +527,8 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertEqual(len(result["unsupported_locators"]), 1)
         self.assertEqual(result["unsupported_collections"], ["app.example.hallucinated"])
+        self.assertEqual(result["filtered_claims"]["capabilities"], 1)
+        self.assertEqual(result["filtered_claims"]["collections"], 1)
         self.assertEqual(result["normalized_result"]["collections"], [])
 
     def test_export_reads_saved_material_without_writing_database(self) -> None:
