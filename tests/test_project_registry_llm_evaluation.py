@@ -21,7 +21,7 @@ def build_prompt(evidence: dict) -> str:
 class LLMCorpusExportTest(unittest.TestCase):
     def test_revised_category_labels_are_all_prompt_adjustment_cases(self) -> None:
         label_set = json.loads(
-            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3.json").read_text()
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_adjustment.json").read_text()
         )
 
         self.assertEqual(len(label_set["labels"]), 56)
@@ -31,23 +31,25 @@ class LLMCorpusExportTest(unittest.TestCase):
             {label["expected_output"]["category"] for label in label_set["labels"]},
         )
 
-    def test_holdout_labels_are_disjoint_from_prompt_adjustment_cases(self) -> None:
+    def test_confirmation_labels_are_disjoint_from_prompt_adjustment_cases(self) -> None:
         adjusted = json.loads(
-            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3.json").read_text()
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_adjustment.json").read_text()
         )
-        holdout = json.loads(
-            (ROOT / "tests/fixtures/llm_evaluation_category_labels_v3_holdout.json").read_text()
+        confirmation = json.loads(
+            (ROOT / "tests/fixtures/llm_evaluation_category_labels_confirmation.json").read_text()
         )
         adjusted_projects = {
             label["case_id"].rsplit(":", 1)[0] for label in adjusted["labels"]
         }
-        holdout_projects = {
-            label["case_id"].rsplit(":", 1)[0] for label in holdout["labels"]
+        confirmation_projects = {
+            label["case_id"].rsplit(":", 1)[0] for label in confirmation["labels"]
         }
 
-        self.assertEqual(len(holdout["labels"]), 21)
-        self.assertTrue(all(not label["used_for_prompt_adjustment"] for label in holdout["labels"]))
-        self.assertFalse(adjusted_projects & holdout_projects)
+        self.assertEqual(len(confirmation["labels"]), 21)
+        self.assertTrue(all(
+            not label["used_for_prompt_adjustment"] for label in confirmation["labels"]
+        ))
+        self.assertFalse(adjusted_projects & confirmation_projects)
 
     def test_export_is_read_only_latest_per_project_and_prioritizes_library(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

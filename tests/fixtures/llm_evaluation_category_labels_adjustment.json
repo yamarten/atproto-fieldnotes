@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy": "Artifact role classification and independent-app authentication-only signal in prompts/project-triage.md",
+  "policy": "Prompt-adjustment cases for artifact role classification and the independent-app authentication-only signal in prompts/project-triage.md",
   "labels": [
     {
       "case_id": "proj:9dfd435e65fc:37c2a1bb156d",

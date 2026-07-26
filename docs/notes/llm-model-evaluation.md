@@ -31,8 +31,8 @@ Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補と
 
 | 役割 | model | 配布形式 | 評価用suffix |
 | --- | --- | --- | --- |
-| baseline | Qwen 3.6 35B A3B | MLX 4bit、20.43 GB | category-gates v3 |
-| 通常処理candidate | Gemma 4 26B A4B | MLX 4bit QAT、15.64 GB | category-gates v6 |
+| baseline | Qwen 3.6 35B A3B | MLX 4bit、20.43 GB | Qwen用category補助suffix |
+| 通常処理candidate | Gemma 4 26B A4B | MLX 4bit QAT、15.64 GB | Gemma用category補助suffix |
 | 低優先度処理candidate | Agents A1 4B | GGUF Q8_0、4.48 GB | なし |
 
 runtimeはLM Studio 0.4.20+1、Chat Completions、最大出力2,048 token、reasoningなしです。QwenとGemmaは
@@ -74,7 +74,7 @@ prompt固定後の確認用としてlabelしました。全492 unit testを通�
 これらは通常`enrich`の次段階へ進めず、QwenとGemmaを比較対象に残しました。gpt-ossは現在のMLX MXFP4で
 `low / medium / high`対応をruntime APIから確認していますが、品質上の理由で進めていません。
 
-Qwen用category-gates v3とGemma用category-gates v6は、各modelで再現した誤りだけを対象にしました。強い指示を
+Qwen用とGemma用のcategory補助suffixは、各modelで再現した誤りだけを対象にしました。強い指示を
 追加しても、schema sampleだけで文書化された共有Lexiconまたは実装済みinfraへ昇格させる傾向が残ったため、
 個別caseに合わせた追加調整は止めました。
 
@@ -239,7 +239,7 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    その結果、後段planningとtriageは24 KiBの入力上限に収まらず、LLM request前に失敗しました。claimには根拠位置だけを残し、
    本文は重複を除いた`evidence_excerpts`へ分離しました。既存の実結果5件を新しい保存形へ通すと、保存結果は
    2,276〜3,922文字、triage投影は1,930〜3,536文字に収まりました。
-3. 現行policy v8で作り直した複製では、`goat`のrepository analysisが2回とも`invalid_response`になりました。
+3. 現行repository analysis policyで作り直した複製では、`goat`の解析が2回とも`invalid_response`になりました。
    planningとtriageは成功し、categoryは`infra_tool`になりましたが、repository解析結果は保存できませんでした。
    以前のpolicyでも同caseは初回失敗後の再試行で成功しており、常に失敗する相性ではない一方、通常運用へ進める
    安定性とは扱えません。
@@ -250,14 +250,14 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    失敗3でした。診断付きの失敗3件はすべて`{`で始まり`}`で終わる819〜1,613 bytesの応答で、JSON error位置は
    503〜623でした。末尾切断ではなく、完成形に見える応答内部の構文違反です。成功5件もREADMEだけを根拠に
    `declares_cli_entrypoint`を確定する観測が除外され、保存規則をすべて通る結果は0/10でした。
-6. 同じmaterial、policy v8、Chat Completions、reasoningなし、最大出力2,048 tokenでQwenも5回ずつ2巡しました。
+6. 同じmaterialと現行policy、Chat Completions、reasoningなし、最大出力2,048 tokenでQwenも5回ずつ2巡しました。
    JSONは10/10成功しましたが、全件で`declares_importable_package`と`defines_lexicons`が根拠不足として除外され、
    6/10件では1〜7個のmaterialにないcollectionも除外されました。保存規則をすべて通る結果は0/10です。
    request累積時間はQwen 147.2秒、Gemma 53.2秒でした。Qwen 1巡目の最初の27.0秒を除いても平均13.4秒、
    Gemmaは全10回平均5.3秒で、このrepository解析入力ではQwenの方が遅い結果です。
 
-共通処理の修正と診断追加は全537 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは
-`goat` 2回ですが、固定反復が上記の結果なので、v6の固定5件結果や通常`enrich`の成功を現行v8全体の安定性へ読み替えません。
+共通処理の修正と診断追加は全537 unit testを通しています。現行repository analysis policyで解析から後段triageまで成功する実DB caseは
+`goat` 2回ですが、固定反復が上記の結果なので、調整後の固定5件や通常`enrich`の成功を現行policy全体の安定性へ読み替えません。
 
 ## 採用判断と残件
 
@@ -307,5 +307,5 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 旧gpt-oss 20B GGUFでは`reasoning low`を要求しましたが、LM Studioは有効なcustom reasoning fieldがなく、設定を
 model KVへ変換できないと記録しました。requestへ`low`を送った記録を適用済みとは扱いません。
 
-旧category-gates v4の17件ではGemmaの累積時間が51.2秒短く見えましたが、Qwenの最初の1件だけが131.5秒
+初期のGemma用suffixで実行した17件ではGemmaの累積時間が51.2秒短く見えましたが、Qwenの最初の1件だけが131.5秒
 かかったためです。最初を除くとQwen 226.9秒、Gemma 293.2秒で、16件すべてQwenの方が短い結果でした。

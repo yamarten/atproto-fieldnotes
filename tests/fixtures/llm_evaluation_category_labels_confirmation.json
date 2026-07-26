@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy": "Held-out artifact role classification in prompts/project-triage.md",
+  "policy": "Prompt-fixed confirmation cases for artifact role classification in prompts/project-triage.md",
   "labels": [
     {
       "case_id": "proj:289b39e3d947:fd6bcdd6e2c8",

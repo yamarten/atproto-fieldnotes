@@ -1,4 +1,4 @@
-Before producing JSON, apply these tie-breakers and output checks:
+Before returning JSON, apply these model-specific tie-breakers and output checks:
 
 1. Classify the artifact named by the evaluation case, not a related service, repository, or broader project that appears in the same evidence. A reusable SDK or imported package remains library when the evidence also mentions the service that consumes it.
 2. Use personal_tool when the evidenced intended audience is the author or a fixed small group, even if the artifact has a public website or uses otherwise general-purpose schemas.
