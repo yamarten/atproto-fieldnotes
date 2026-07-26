@@ -24,9 +24,8 @@
 次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認し、必要なら
 その時点で新しいbackupまたは複製を用意してください。
 
-history JSON圧縮は複製DBまで確認済みですが、正本DBには未適用です。適用する場合はbackupとwriter停止を確認し、
-`compress-investigation-history`のdry-run、`--execute`を分けてください。VACUUMはfile sizeを直ちに縮める必要がある
-場合だけ別途判断します。
+history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行っておらず、解放pageは今後の書き込みで
+再利用します。file sizeを直ちに縮める必要が生じた場合だけ、別processを止めてVACUUMを判断してください。
 
 ## 未検証・未接続
 

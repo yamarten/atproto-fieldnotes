@@ -104,7 +104,8 @@
   - 2026-07-13に正本DBのsame-site stale probe 4件を現行policyで更新し、`app.links`から正本にない4,868 link / 449 projectsを削除。再監査0件、foreign key違反0、integrity `ok`を確認後、一度きりCLI commandを削除
   - 2026-07-13に474 projectの旧machine note 1,071行を`system_notes`へ移動。runtime project同値、normalized child・履歴不変、再監査0件、foreign key違反0、integrity `ok`を確認し、読込時のpattern変換とcollector旧projection fallbackを削除
   - 2026-07-26の正本DB read-only比較では、history JSON圧縮は2,269,114,597から374,451,025 bytesへ1,894,663,572 bytes（83.5%）削減する。canonical family単位retentionは30日で196,902,979 bytesに留まり、21日では1,040,007,334 bytesと月単位履歴を削除するため採用しなかった
-  - 正本DB複製22,717 runs / 90,868 JSON valuesで圧縮前後の全列hash、Investigation list/detail、replay、fixture、LLM/repository evaluation exportの同値を確認。件数不変、foreign key違反0、integrity `ok`。VACUUMと正本DBへのexecuteは未実施
+  - 正本DB複製22,717 runs / 90,868 JSON valuesで圧縮前後の全列hash、Investigation list/detail、replay、fixture、LLM/repository evaluation exportの同値を確認。件数不変、foreign key違反0、integrity `ok`
+  - 2026-07-26に正本DBの22,717 runs / 90,868 JSON valuesへ圧縮を適用済み。再dry-runは候補0件、decode failure 0件、replay差分0、fixture export成功、foreign key違反0、integrity `ok`。VACUUMは行わず、461,618 page（約1.76 GiB）を今後の書き込みで再利用する
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
