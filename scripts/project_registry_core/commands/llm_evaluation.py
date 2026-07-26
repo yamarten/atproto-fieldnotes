@@ -92,7 +92,7 @@ def cmd_evaluate_llm_corpus(args: argparse.Namespace) -> int:
         "quantization": str(args.quantization or ""),
         "prompt_variant": str(args.prompt_variant or "baseline_current"),
         "current_profile_mode": str(args.current_profile_mode),
-        "prompt_suffix_hash": evaluation.sha256_json({"text": prompt_suffix}) if prompt_suffix else "",
+        "prompt_suffix_hash": llm_transport.prompt_suffix_hash(prompt_suffix),
         "reasoning_effort_requested": requested_reasoning,
         "reasoning_observation": reasoning_status,
         "reasoning_observation_note": reasoning_note,

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from . import llm_evidence as llm_evidence_core
+from . import llm_transport
 
 
 CORPUS_SCHEMA_VERSION = 1
@@ -764,6 +765,9 @@ def run_corpus(
                 })
             except Exception as exc:
                 result.update({"error_type": type(exc).__name__, "error": str(exc)})
+                diagnostics = llm_transport.safe_response_diagnostics(exc)
+                if diagnostics:
+                    result["error_diagnostics"] = diagnostics
             finally:
                 result["duration_ms"] = max(0, round((time.perf_counter() - started) * 1000))
             results.append(result)

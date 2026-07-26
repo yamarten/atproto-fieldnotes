@@ -196,7 +196,7 @@ LLM評価corpusも保存済みevidence、実プロジェクトキー、公開ide
 latencyを記録します。`--labels`を指定するとevidence hashを照合してexpected outputとの差とcategory一致数も記録します。
 期待categoryを人が確認したlabelは、そのcaseをprompt調整に使ったかを`used_for_prompt_adjustment`で明示します。reportは調整に使ったcaseと使っていないcaseを別集計します。
 `--prompt-suffix-file`は評価時だけ追加指示を末尾へ付け、`--prompt-variant`と内容hashをreportへ記録します。
-corpusは保存済みQwen profileをevidenceと分けて保持します。`--current-profile-mode without`では渡さず新規project相当、
+corpusは保存済みprofileをevidenceと分けて保持します。`--current-profile-mode without`では渡さず新規project相当、
 `with`では渡して既存profile更新相当として実行し、条件をreportへ記録します。既定は`without`です。
 `--repeat 2`以上では、同じ入力のcategory、identifier、summary等が実行ごとに変わったcaseをreportへ記録します。
 

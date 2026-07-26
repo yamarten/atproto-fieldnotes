@@ -379,6 +379,38 @@ class LLMOutputValidationTest(unittest.TestCase):
         self.assertEqual(without["input_condition"], {"current_profile": "without"})
         self.assertEqual(with_profile["input_condition"], {"current_profile": "with"})
 
+    def test_triage_runner_records_bounded_response_diagnostics_without_content(self) -> None:
+        corpus = {
+            "schema_version": 1,
+            "cases": [{"case_id": "case", "evidence": {"name": "Example"}}],
+        }
+
+        def fail(_prompt: str) -> tuple[dict, dict]:
+            raise llm_transport.LLMResponseError(
+                "invalid model JSON",
+                diagnostics={
+                    "response_stage": "model_json",
+                    "response_content_bytes": 510,
+                    "response_content_sha256": "a" * 64,
+                    "json_error_position": 509,
+                    "content_ends_with_json": False,
+                    "response_content": "must not be recorded",
+                },
+            )
+
+        report = evaluation.run_corpus(
+            corpus,
+            build_prompt=build_prompt,
+            run_llm=fail,
+            model_spec={"model": "fixture"},
+        )
+
+        diagnostics = report["results"][0]["error_diagnostics"]
+        self.assertEqual(diagnostics["response_content_bytes"], 510)
+        self.assertEqual(diagnostics["json_error_position"], 509)
+        self.assertFalse(diagnostics["content_ends_with_json"])
+        self.assertNotIn("response_content", diagnostics)
+
     def test_report_comparison_keeps_non_automatic_checks_explicit(self) -> None:
         def report(model: str, *, unsupported: int = 0) -> dict:
             return {

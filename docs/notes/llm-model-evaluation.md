@@ -31,8 +31,8 @@ Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補と
 
 | 役割 | model | 配布形式 | 評価用suffix |
 | --- | --- | --- | --- |
-| baseline | Qwen 3.6 35B A3B | MLX 4bit、20.43 GB | Qwen用category補助suffix |
-| 通常処理candidate | Gemma 4 26B A4B | MLX 4bit QAT、15.64 GB | Gemma用category補助suffix |
+| 比較基準 | Qwen 3.6 35B A3B | MLX 4bit、20.43 GB | [Qwen用追加規則](../../prompts/model-rules/qwen-3.6-35b-a3b.txt) |
+| 通常処理candidate | Gemma 4 26B A4B | MLX 4bit QAT、15.64 GB | 比較時のGemma用追加規則 |
 | 低優先度処理candidate | Agents A1 4B | GGUF Q8_0、4.48 GB | なし |
 
 runtimeはLM Studio 0.4.20+1、Chat Completions、最大出力2,048 token、reasoningなしです。QwenとGemmaは
@@ -256,10 +256,10 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    request累積時間はQwen 147.2秒、Gemma 53.2秒でした。Qwen 1巡目の最初の27.0秒を除いても平均13.4秒、
    Gemmaは全10回平均5.3秒で、このrepository解析入力ではQwenの方が遅い結果です。
 
-共通処理の修正と診断追加は全537 unit testを通しています。現行repository analysis policyで解析から後段triageまで成功する実DB caseは
+共通処理の修正と診断追加は全539 unit testを通しています。現行repository analysis policyで解析から後段triageまで成功する実DB caseは
 `goat` 2回ですが、固定反復が上記の結果なので、調整後の固定5件や通常`enrich`の成功を現行policy全体の安定性へ読み替えません。
 
-## 採用判断と残件
+## 採用判断と再評価条件
 
 | 観点 | 現在の判断 |
 | --- | --- |
@@ -272,32 +272,12 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 | prompt保守 | 両modelで別suffixが必要 |
 | 正本試用 | Gemmaは固定反復でJSON成功5/10のため実施しない。Qwenを維持するがrepository解析品質は別途改善対象 |
 
-未完了:
+Gemmaを再評価するのは、model、runtime、またはpromptの変更後に、同一`goat` materialの反復でJSON構文エラーが
+再発せず、根拠不十分な観測を減らせた場合です。その後に別の未調整repositoryと最新DB複製を確認し、条件を通った
+場合だけ正本DBの少数試用を検討します。試用時は対象、停止条件、baselineへ戻す方法、backupの保持期限を決めて
+別途承認を得ます。既定modelと定期jobはQwenのままにします。
 
-- model、runtime、またはpromptを変更する場合、同一`goat` materialでJSON構文エラーと根拠不十分な観測が再発しないことを確認する
-- その条件を満たした後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
-- その条件を通った場合だけ、下記7件を正本DBの少数試用候補として再利用する
-- peak memory、swap、prefill、decodeをrunnerから自動記録する
-
-試用対象は次のように分けます。
-
-| 区分 | project | 主な確認 |
-| --- | --- | --- |
-| 既知 | goat | `library`から合意済みの`infra_tool`へ直るか。confirmed GitHub repositoryの新規解析も走る |
-| 既知 | atproto.dart | `library`を維持できるか。confirmed GitHub repositoryの新規解析も走る |
-| 既知 | AT Backup | `infra_tool`を維持できるか。confirmed GitHub repositoryの新規解析も走る |
-| 既知 | marque.at | schema説明だけでなく、確認済みの利用面を踏まえて`project`として扱えるか |
-| 未見 | atplay.games | schema sample中心で稼働面のないcaseを過剰に`project`または`lexicon`へ進めないか |
-| 未見 | Postcards Social | privateな旅行記録という固定利用者向けの性質を`personal_tool`候補として扱えるか |
-| 未見 | publicdomainrelay.com | 用途の狭いschemaだけの根拠から実装済みprojectを作らないか |
-
-既知3件は固定corpusに含まれ、marque.atは利用実態を人が確認済みです。未見3件とmarque.atは7月25日追加分で、
-3,635件の固定triage corpusにも5件のrepository corpusにも含まれません。Afrilingua AIは既知caseとして有用ですが、
-正本DBに重複候補が残るため、mergeまたはseparateの判断後へ回します。
-
-正本DBの試用は通常`enrich`を書き込む実運用試用です。今回の複製DB確認は停止条件に該当したため実施しません。
-再評価で条件を満たした場合も、対象、停止条件、backupの保持期限を決め、別途承認を得てから行います。
-既定modelと定期jobはQwenのままにします。
+peak memory、swap、prefill、decodeのrunner自動記録は未接続で、将来の評価基盤改善として残します。
 
 ## 旧測定を採用根拠にしない理由
 

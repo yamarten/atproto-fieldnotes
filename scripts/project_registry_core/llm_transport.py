@@ -56,6 +56,13 @@ def safe_response_diagnostics(exc: BaseException) -> dict[str, Any]:
     }
 
 
+def prompt_suffix_hash(suffix: str | None) -> str:
+    normalized = str(suffix or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def invalid_json_diagnostics(content: str, exc: json.JSONDecodeError, *, stage: str) -> dict[str, Any]:
     stripped = content.strip()
     return {
@@ -270,6 +277,7 @@ def run_llm_with_metrics(
     purpose: str,
     requests: list[dict[str, Any]],
     prompt_version: str | None = None,
+    prompt_suffix_hash: str = "",
     **kwargs: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     started = time.perf_counter()
@@ -282,6 +290,8 @@ def run_llm_with_metrics(
         "response_bytes": 0,
         "timeout_seconds": llm_timeout_seconds(),
     }
+    if prompt_suffix_hash:
+        request_metrics["prompt_suffix_hash"] = prompt_suffix_hash
     try:
         payload, meta = run_local_llm(prompt, **kwargs)
         if prompt_version:

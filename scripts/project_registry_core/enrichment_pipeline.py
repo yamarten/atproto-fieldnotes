@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -83,7 +82,7 @@ def append_triage_prompt_suffix(prompt: str, suffix: str | None) -> tuple[str, s
     if not normalized_suffix:
         return prompt, ""
     rendered = f"{prompt}\n\nEvaluation prompt variant:\n{normalized_suffix}\n"
-    return rendered, hashlib.sha256(normalized_suffix.encode("utf-8")).hexdigest()
+    return rendered, llm_transport.prompt_suffix_hash(normalized_suffix)
 
 
 def record_repository_collection_failure(project: dict[str, Any], repo_url: str) -> None:
@@ -530,13 +529,10 @@ def enrich_project(
             llm_reasoning_effort=llm_reasoning_effort,
             llm_api_style=llm_api_style,
             llm_max_output_tokens=llm_max_output_tokens,
+            prompt_suffix_hash=prompt_suffix_hash,
         )
         if prompt_suffix_hash:
             meta["prompt_suffix_hash"] = prompt_suffix_hash
-            for request_metrics in reversed(llm_requests):
-                if request_metrics.get("purpose") == "triage":
-                    request_metrics["prompt_suffix_hash"] = prompt_suffix_hash
-                    break
         apply_llm_output(project, payload, meta, evidence)
     except Exception as exc:
         note_failure(project, f"LLM review failed: {exc}")

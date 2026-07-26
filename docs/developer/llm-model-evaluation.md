@@ -1,7 +1,7 @@
 # LLM model評価
 
 この文書は、通常`enrich`または低優先度処理で使うLLMを新しいmodelやversionへ変更する時の確認方法を定めます。
-現在のmodel構成と確認済み範囲は[status.md](../status.md)、進行中の比較結果は
+現在のmodel構成と確認済み範囲は[status.md](../status.md)、直近の比較記録は
 [llm-model-evaluation.md](../notes/llm-model-evaluation.md)を参照してください。
 
 ## 目的
@@ -43,6 +43,9 @@ reportには少なくとも次を記録します。
 - corpus hash、case ID、repeat回数
 - git commitとdirty状態
 
+suffixの内容hashは、UTF-8本文の前後の空白を除いてSHA-256を計算します。固定評価と通常`enrich`は
+同じ計算方法を使い、requestが失敗した場合も使用したhashをrun metricsへ残します。
+
 requestへreasoning値を送っただけでは適用済みと扱いません。runtime logまたはmodel設定で確認し、
 `applied`、`ignored`、`not_checked`をreportへ記録します。指定できない構成は、指定なしの別構成として扱います。
 
@@ -60,6 +63,12 @@ requestへreasoning値を送っただけでは適用済みと扱いません。r
 `evaluate-llm-corpus`が固定しているのはproject-level triageです。repository analysisは、revisionへ固定した
 repository material、出力内の根拠位置、観測、capability、collectionを別の固定caseで確認します。category用の
 model別suffixはrepository analysisへ適用しません。
+
+比較で実際に使った現行Qwen向けsuffixは
+[`prompts/model-rules/qwen-3.6-35b-a3b.txt`](../../prompts/model-rules/qwen-3.6-35b-a3b.txt)に置きます。
+現行Qwenの通常`enrich`と定期jobでは、`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`にこのPATHを設定して適用します。
+CLIの`--llm-triage-prompt-suffix-file`は環境変数より優先します。別modelへ変更する時はQwen用設定を外し、
+そのmodelの調整用caseとprompt固定後の確認用caseを経てから別の追加規則へ差し替えます。
 
 repository analysisを含む二段階の確認では、`evaluate-llm-corpus --repository-analysis-report REPORT`を使います。
 completeなrepository analysis reportのrepeat 0にある正規化済み結果を、同じproject keyのtriage caseへ一時的に

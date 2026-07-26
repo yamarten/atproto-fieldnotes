@@ -49,7 +49,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             "enrich",
             operation_id=request.operation_id,
             execute=True,
-            parameters={**request.parameters, "llm_triage_prompt_suffix_file": "/tmp/category-gates.txt"},
+            parameters={**request.parameters, "llm_triage_prompt_suffix_file": "/tmp/model-rules.txt"},
         )
         options = enrichment.EnrichmentOptions.from_request(request)
         checkpoint = enrichment.new_checkpoint(
@@ -62,7 +62,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         self.assertEqual(written, checkpoint_path)
         self.assertEqual(loaded["options"]["llm_endpoint"], "https://llm.example")
-        self.assertEqual(loaded["options"]["llm_triage_prompt_suffix_file"], "/tmp/category-gates.txt")
+        self.assertEqual(loaded["options"]["llm_triage_prompt_suffix_file"], "/tmp/model-rules.txt")
         self.assertEqual(loaded["options"]["llm_max_output_tokens"], 2048)
         self.assertTrue(loaded["options"]["llm_api_key_configured"])
         self.assertNotIn("secret-value", checkpoint_path.read_text())
@@ -239,11 +239,11 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
     def test_cli_triage_prompt_suffix_file_is_forwarded(self) -> None:
         args = cli.build_parser().parse_args([
             "enrich", "-p", "proj:111111111111",
-            "--llm-triage-prompt-suffix-file", "category-gates.txt",
+            "--llm-triage-prompt-suffix-file", "model-rules.txt",
         ])
         request = enrichment_commands.request_from_args(args)
 
-        self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "category-gates.txt")
+        self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "model-rules.txt")
 
     def test_cli_llm_max_output_tokens_is_forwarded(self) -> None:
         args = cli.build_parser().parse_args([
@@ -256,7 +256,7 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
     def test_run_reads_triage_prompt_suffix_once_and_forwards_content(self) -> None:
         self.seed_projects()
-        suffix_path = Path(self.tempdir.name) / "category-gates.txt"
+        suffix_path = Path(self.tempdir.name) / "model-rules.txt"
         suffix_path.write_text("  category gate\n", encoding="utf-8")
         request = OperationRequest.create(
             "enrich",
@@ -269,18 +269,51 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
 
         conn = registry.open_db()
         try:
-            with mock.patch.object(
-                enrichment.enrichment_pipeline,
-                "enrich_project",
-                side_effect=lambda _conn, project, **_kwargs: project,
-            ) as enrich_project:
-                result = enrichment.run(conn, request)
+            with mock.patch.dict(
+                "os.environ",
+                {"ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": "/ignored/model-rules.txt"},
+            ):
+                with mock.patch.object(
+                    enrichment.enrichment_pipeline,
+                    "enrich_project",
+                    side_effect=lambda _conn, project, **_kwargs: project,
+                ) as enrich_project:
+                    result = enrichment.run(conn, request)
         finally:
             conn.close()
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(enrich_project.call_args.kwargs["llm_triage_prompt_suffix"], "category gate")
         self.assertIsNone(enrich_project.call_args.kwargs["llm_max_output_tokens"])
+
+    def test_run_uses_configured_triage_prompt_suffix_and_checkpoints_path(self) -> None:
+        self.seed_projects()
+        checkpoint_path = Path(self.tempdir.name) / "configured-suffix.json"
+        suffix_path = Path(self.tempdir.name) / "qwen-rules.txt"
+        suffix_path.write_text("  qwen rule\n", encoding="utf-8")
+        request = self.request(checkpoint_path)
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.dict(
+                "os.environ",
+                {"ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": str(suffix_path)},
+            ):
+                with mock.patch.object(
+                    enrichment.enrichment_pipeline,
+                    "enrich_project",
+                    side_effect=lambda _conn, project, **_kwargs: project,
+                ) as enrich_project:
+                    result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        checkpoint = enrichment.load_checkpoint("test-run", str(checkpoint_path))
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(enrich_project.call_args.kwargs["llm_triage_prompt_suffix"], "qwen rule")
+        self.assertEqual(
+            checkpoint["options"]["llm_triage_prompt_suffix_file"], str(suffix_path)
+        )
 
     def test_run_forwards_llm_max_output_tokens(self) -> None:
         self.seed_projects()

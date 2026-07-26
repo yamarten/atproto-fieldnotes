@@ -127,26 +127,27 @@ command方式のLLM:
 
 ```bash
 export ATPROTO_SURVEY_LLM_COMMAND='your-local-llm-wrapper'
-export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_MODEL='your-local-model-id'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
-export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v2'
 ```
 
 OpenAI互換endpoint方式:
 
 ```bash
 export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
-export ATPROTO_SURVEY_LLM_MODEL='qwen/qwen3.5-35b-a3b'
+export ATPROTO_SURVEY_LLM_MODEL='your-local-model-id'
 export ATPROTO_SURVEY_LLM_API_KEY='...'
 export ATPROTO_SURVEY_LLM_TIMEOUT='300'
-export ATPROTO_SURVEY_LLM_PROMPT_VERSION='project-triage-v2'
 export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 ```
 
 特定のmodel構成だけに追加のtriage規則を適用する場合は、`enrich`へ
-`--llm-triage-prompt-suffix-file PATH`を指定します。これは共通promptの末尾へUTF-8文書を追加する設定で、
-通常運用で暗黙に切り替わるものではありません。使用した本文のhashはinvestigation runへ保存されます。
+`--llm-triage-prompt-suffix-file PATH`を指定するか、定期jobを含む既定値として
+`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`へPATHを設定します。これは共通promptの末尾へUTF-8文書を追加する設定で、
+CLI指定は環境変数より優先します。使用した本文のhashはinvestigation runへ保存されます。
+現行Qwen構成では`prompts/model-rules/qwen-3.6-35b-a3b.txt`を設定します。別modelへ変更する時はこの設定を外し、
+そのmodelで確認した追加規則がある場合だけ差し替えます。
 固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。
 この値はplanning、confirmed repositoryの解析、triageの各LLM requestへ共通して適用されます。省略時はendpoint側の設定を使います。
 

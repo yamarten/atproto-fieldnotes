@@ -30,7 +30,7 @@ from project_registry_core import project_record
 
 
 class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
-    def test_triage_prompt_suffix_is_bounded_and_hashed(self) -> None:
+    def test_triage_prompt_suffix_is_normalized_and_hashed(self) -> None:
         prompt, suffix_hash = enrichment_pipeline.append_triage_prompt_suffix(
             "base prompt", "  category gate\n"
         )
@@ -113,9 +113,15 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         requests: list[dict] = []
         with mock.patch.object(llm_transport_core, "run_local_llm", side_effect=TimeoutError("timed out")):
             with self.assertRaises(TimeoutError):
-                llm_transport_core.run_llm_with_metrics("prompt", purpose="planning", requests=requests)
+                llm_transport_core.run_llm_with_metrics(
+                    "prompt",
+                    purpose="planning",
+                    requests=requests,
+                    prompt_suffix_hash="b" * 64,
+                )
         self.assertEqual(requests[0]["status"], "failed")
         self.assertEqual(requests[0]["error_category"], "timeout")
+        self.assertEqual(requests[0]["prompt_suffix_hash"], "b" * 64)
 
     def test_llm_metrics_record_invalid_json_shape_without_content(self) -> None:
         requests: list[dict] = []

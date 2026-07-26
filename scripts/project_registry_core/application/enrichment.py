@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import shlex
 import sqlite3
@@ -288,6 +289,10 @@ def run(
         raise ValueError("resume_run requires all_projects")
     if options.resume_run and options.no_checkpoint:
         raise ValueError("resume_run cannot be combined with no_checkpoint")
+    if not options.resume_run and not options.llm_triage_prompt_suffix_file:
+        configured_suffix = os.getenv("ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE", "").strip()
+        if configured_suffix:
+            options = replace(options, llm_triage_prompt_suffix_file=configured_suffix)
     cancellation = cancellation or CancellationToken()
     started_at = project_record.iso_now()
     sequence = 0
