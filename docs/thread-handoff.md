@@ -18,7 +18,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- 2026-08-10到達または新規investigation 1,000 runsの早い方で、保存量baselineを再計測する。
+- [2026-07-26 growth review](notes/registry-maintenance-growth-2026-07-26.md)を基に、history JSON圧縮とcanonical project単位のbyte-aware retentionを比較し、一方式だけを実装する。
 
 ## DB 操作メモ
 

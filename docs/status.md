@@ -99,6 +99,7 @@
   - 2026-07-13にactive `evidence.resource_url_records`から旧形式由来の補助URL 247件 / 174 projectsを削除済み。過去LLM入力snapshot内の同source名は履歴として残す
   - 2026-07-13に正本DBのsame-site stale probe 4件を現行policyで更新し、`app.links`から正本にない4,868 link / 449 projectsを削除。再監査0件、foreign key違反0、integrity `ok`を確認後、一度きりCLI commandを削除
   - 2026-07-13に474 projectの旧machine note 1,071行を`system_notes`へ移動。runtime project同値、normalized child・履歴不変、再監査0件、foreign key違反0、integrity `ok`を確認し、読込時のpattern変換とcollector旧projection fallbackを削除
+  - 2026-07-26の正本DB read-only再計測では、22,717 investigation runsの論理payloadは2,403,287,582 bytes。cleanup後baselineから847,476,073 bytes増え、30日換算は約1.47 GiB。現行cleanup再適用は87,334 bytes増える投影のため未実施
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
@@ -221,7 +222,8 @@
 未検証:
 
 - 長時間運用時の実API retry/cache/budget値
-- cleanup後30日または新規1,000 runs時点の保存量増加率
+- history JSON圧縮のread/replay costと直接SQL監査への影響
+- canonical project単位のbyte-aware retention
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。
