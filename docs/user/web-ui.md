@@ -53,7 +53,7 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 | タブ | 表示内容 |
 | --- | --- |
-| `Overview` | profile、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
+| `Overview` | profile、代表websiteとconfirmed service一覧、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
 | `Identifiers` | 分類とrole付きの識別子、候補への操作 |
 | `Relations` | 種類付きの関係根拠、除外・保留操作 |
 | `Investigation` | 最新の調査実行記録、収集結果・失敗、履歴、保存済みの根拠、再評価 |

@@ -305,6 +305,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
         self.assertIn("Build review plan", script)
+        self.assertIn("<dt>Confirmed services</dt>", script)
         self.assertIn('new URL("https://pds.ls/")', script)
         self.assertIn('target.pathname = `at://${normalized}`', script)
         self.assertNotIn("https://pdsls.dev/${encodeURIComponent(normalized)}", script)
@@ -717,6 +718,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
+        self.assertEqual(detail["overview"]["confirmed_services"], ["https://app.example.com"])
         service = next(item for item in detail["identifiers"] if item["value"] == "https://app.example.com")
         self.assertTrue(service["is_primary"])
         self.assertEqual([entry["role"] for entry in service["entries"]], ["service"])

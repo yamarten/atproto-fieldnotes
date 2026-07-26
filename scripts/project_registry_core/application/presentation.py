@@ -720,6 +720,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
     payload["overview"] = {
         "website": raw_project["website_url"],
+        "confirmed_services": list(prepared.get("service_urls") or []),
         "repository": primary_repo["value"] if primary_repo else "",
         "account": primary_account["value"] if primary_account else "",
         "manual_seed": manual_seed,
