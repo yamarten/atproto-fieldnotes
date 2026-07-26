@@ -40,6 +40,10 @@ workerは既存のschema version 2 DBを必須とし、missing pathや未初期�
 
 調査履歴は自動削除しません。`prune-investigation-history`の既定policyは完了から90日以内の全runとprojectごとの最新3 runを保持し、それ以外の`investigation_runs`と対応する`collector_runs`を手動削除対象にします。dry-runが既定です。通常のDELETE後にできたSQLite free pageは再利用されますがfile sizeは縮まないため、実容量を縮める場合だけ別processを停止して`--execute --vacuum`を実行します。operator decisionとcurrent project stateはこのprune対象に含めません。
 
+`investigation_runs`の4つの論理JSON列はheader付きzlib BLOBです。`storage.py`の共通codecが保存・読込を担当し、
+viewer、replay、LLM/repository evaluation export、storage cleanupは直接`json_extract`や`LIKE`を使いません。
+既存TEXT rowの一括変換は`compress-investigation-history`でdry-runとexecuteを分けます。
+
 Webのproject一覧検索は`projects` rowを起点に、`project_identifiers`、`project_relations`、`project_decisions`を`EXISTS` queryでfilterします。一覧候補作成時に全projectのnormalized childをhydrateしません。project detailは選択した1件について各child tableを直接取得します。
 
 ## 旧 discovery フローの扱い

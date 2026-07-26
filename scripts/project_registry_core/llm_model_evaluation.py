@@ -10,10 +10,11 @@ import subprocess
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 from . import llm_evidence as llm_evidence_core
 from . import llm_transport
+from . import storage
 
 
 CORPUS_SCHEMA_VERSION = 1
@@ -221,10 +222,10 @@ def _candidate_from_row(
     row: sqlite3.Row,
     build_prompt: Callable[[dict[str, Any]], str],
 ) -> dict[str, Any] | None:
-    try:
-        project = json.loads(str(row["output_project_json"]))
-    except (TypeError, json.JSONDecodeError):
-        return None
+    project = storage.decode_history_json(
+        row["output_project_json"],
+        context=f"investigation run {row['run_id']} output_project_json",
+    )
     if not isinstance(project, dict):
         return None
     llm_source = project.get("llm_source")
@@ -274,6 +275,19 @@ def _candidate_from_row(
         "reference_is_gold": False,
         "evidence": evidence,
     }
+
+
+def _corpus_source_rows(db_path: Path) -> Iterator[sqlite3.Row]:
+    uri = f"file:{urllib.parse.quote(str(db_path))}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield from conn.execute(
+            "SELECT run_id, project_key, completed_at, output_project_json "
+            "FROM investigation_runs ORDER BY completed_at DESC, run_id DESC"
+        )
+    finally:
+        conn.close()
 
 
 def _select_cases(
@@ -363,20 +377,9 @@ def export_corpus(
     if category_min < 0:
         raise ValueError("category_min cannot be negative")
     resolved = db_path.expanduser().resolve()
-    uri = f"file:{urllib.parse.quote(str(resolved))}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            "SELECT run_id, project_key, completed_at, output_project_json "
-            "FROM investigation_runs ORDER BY completed_at DESC, run_id DESC"
-        ).fetchall()
-    finally:
-        conn.close()
-
     candidates: list[dict[str, Any]] = []
     seen_projects: set[str] = set()
-    for row in rows:
+    for row in _corpus_source_rows(resolved):
         project_key = str(row["project_key"])
         if project_key in seen_projects:
             continue

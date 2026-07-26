@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sqlite3
+import time
 from typing import Any
 
 from .. import domain_policy
@@ -12,6 +14,195 @@ from project_registry_core import project_record
 
 DEFAULT_INVESTIGATION_RETENTION_DAYS = 90
 DEFAULT_INVESTIGATION_KEEP_LATEST = 3
+
+
+def compress_investigation_history(
+    conn: sqlite3.Connection,
+    *,
+    execute: bool = False,
+    example_limit: int = 20,
+    vacuum: bool = False,
+) -> dict[str, Any]:
+    if example_limit < 0:
+        raise ValueError("example_limit must be zero or greater")
+    if vacuum and not execute:
+        raise ValueError("--vacuum requires --execute")
+    storage.ensure_investigation_tables(conn)
+    if execute and conn.in_transaction:
+        raise ValueError("history compression requires a connection without an active transaction")
+
+    page_size = int(conn.execute("PRAGMA page_size").fetchone()[0])
+    page_count_before = int(conn.execute("PRAGMA page_count").fetchone()[0])
+    freelist_before = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+    run_count = 0
+    compressed_run_count = 0
+    candidate_run_count = 0
+    candidate_value_count = 0
+    logical_json_bytes = 0
+    stored_bytes_before = 0
+    projected_bytes_after = 0
+    decode_seconds = 0.0
+    encode_seconds = 0.0
+    candidates: list[str] = []
+    examples: list[dict[str, Any]] = []
+    decode_failures: list[dict[str, str]] = []
+
+    cursor = conn.execute(
+        "SELECT run_id, input_project_json, output_project_json, evaluation_json, bundle_json "
+        "FROM investigation_runs ORDER BY rowid"
+    )
+    while rows := cursor.fetchmany(50):
+        for row in rows:
+            run_count += 1
+            run_id = str(row["run_id"])
+            run_stored_before = 0
+            run_projected_after = 0
+            run_logical = 0
+            run_candidate_values = 0
+            run_failed = False
+            for column in storage.HISTORY_JSON_COLUMNS:
+                value = row[column]
+                if isinstance(value, memoryview):
+                    value = value.tobytes()
+                stored_size = len(value.encode("utf-8")) if isinstance(value, str) else len(value)
+                run_stored_before += stored_size
+                try:
+                    decode_started = time.perf_counter()
+                    text = storage.decode_history_json_text(
+                        value, context=f"investigation run {run_id} {column}"
+                    )
+                    json.loads(text)
+                    decode_seconds += time.perf_counter() - decode_started
+                except (storage.HistoryPayloadDecodeError, json.JSONDecodeError) as exc:
+                    decode_failures.append({
+                        "run_id": run_id,
+                        "column": column,
+                        "error": str(exc),
+                    })
+                    run_failed = True
+                    break
+                run_logical += len(text.encode("utf-8"))
+                encode_started = time.perf_counter()
+                encoded = storage.encode_history_json_text(text)
+                encode_seconds += time.perf_counter() - encode_started
+                run_projected_after += len(encoded)
+                if not storage.is_compressed_history_json(value):
+                    run_candidate_values += 1
+            if run_failed:
+                continue
+            logical_json_bytes += run_logical
+            stored_bytes_before += run_stored_before
+            projected_bytes_after += run_projected_after
+            if run_candidate_values:
+                candidate_run_count += 1
+                candidate_value_count += run_candidate_values
+                candidates.append(run_id)
+                if len(examples) < example_limit:
+                    examples.append({
+                        "run_id": run_id,
+                        "candidate_value_count": run_candidate_values,
+                        "stored_bytes_before": run_stored_before,
+                        "projected_bytes_after": run_projected_after,
+                        "bytes_saved": run_stored_before - run_projected_after,
+                    })
+            else:
+                compressed_run_count += 1
+
+    integrity_before = "not_run"
+    integrity_after = "not_run"
+    foreign_key_violation_count_before: int | None = None
+    foreign_key_violation_count_after: int | None = None
+    if execute:
+        if decode_failures:
+            raise ValueError(
+                f"history compression refused because {len(decode_failures)} payloads failed to decode"
+            )
+        integrity_rows = [str(row[0]) for row in conn.execute("PRAGMA integrity_check")]
+        integrity_before = "ok" if integrity_rows == ["ok"] else "; ".join(integrity_rows)
+        if integrity_before != "ok":
+            raise ValueError(f"database integrity check failed before history compression: {integrity_before}")
+        foreign_key_violation_count_before = sum(1 for _row in conn.execute("PRAGMA foreign_key_check"))
+        if foreign_key_violation_count_before:
+            raise ValueError(
+                f"database has {foreign_key_violation_count_before} foreign key violations before history compression"
+            )
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for run_id in candidates:
+                row = conn.execute(
+                    "SELECT input_project_json, output_project_json, evaluation_json, bundle_json "
+                    "FROM investigation_runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                assert row is not None
+                values = {
+                    column: storage.encode_history_json_text(storage.decode_history_json_text(
+                        row[column], context=f"investigation run {run_id} {column}"
+                    ))
+                    for column in storage.HISTORY_JSON_COLUMNS
+                }
+                conn.execute(
+                    "UPDATE investigation_runs SET input_project_json = ?, output_project_json = ?, "
+                    "evaluation_json = ?, bundle_json = ? WHERE run_id = ?",
+                    (
+                        values["input_project_json"],
+                        values["output_project_json"],
+                        values["evaluation_json"],
+                        values["bundle_json"],
+                        run_id,
+                    ),
+                )
+            foreign_key_violation_count_after = sum(
+                1 for _row in conn.execute("PRAGMA foreign_key_check")
+            )
+            if foreign_key_violation_count_after:
+                raise ValueError(
+                    f"database has {foreign_key_violation_count_after} foreign key violations after history compression"
+                )
+            integrity_rows = [str(row[0]) for row in conn.execute("PRAGMA integrity_check")]
+            integrity_after = "ok" if integrity_rows == ["ok"] else "; ".join(integrity_rows)
+            if integrity_after != "ok":
+                raise ValueError(
+                    f"database integrity check failed after history compression: {integrity_after}"
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    if vacuum:
+        conn.execute("VACUUM")
+
+    page_count_after = int(conn.execute("PRAGMA page_count").fetchone()[0])
+    freelist_after = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "run_count": run_count,
+        "already_compressed_run_count": compressed_run_count,
+        "candidate_run_count": candidate_run_count,
+        "candidate_value_count": candidate_value_count,
+        "logical_json_bytes": logical_json_bytes,
+        "stored_bytes_before": stored_bytes_before,
+        "projected_bytes_after": projected_bytes_after,
+        "estimated_bytes_saved": stored_bytes_before - projected_bytes_after,
+        "decode_failure_count": len(decode_failures),
+        "decode_failures": decode_failures[:example_limit],
+        "decode_seconds": round(decode_seconds, 6),
+        "encode_seconds": round(encode_seconds, 6),
+        "updated_run_count": candidate_run_count if execute else 0,
+        "vacuumed": vacuum,
+        "integrity_check_before": integrity_before,
+        "integrity_check_after": integrity_after,
+        "foreign_key_violation_count_before": foreign_key_violation_count_before,
+        "foreign_key_violation_count_after": foreign_key_violation_count_after,
+        "storage": {
+            "page_size": page_size,
+            "page_count_before": page_count_before,
+            "page_count_after": page_count_after,
+            "freelist_count_before": freelist_before,
+            "freelist_count_after": freelist_after,
+        },
+        "candidate_examples": examples,
+    }
 
 
 def configure_multi_tenant_suffix(conn: sqlite3.Connection, suffix: str) -> dict[str, Any]:
@@ -98,10 +289,14 @@ def prune_investigation_history(
             i.completed_at,
             i.rowid AS storage_order,
             (
-                LENGTH(i.input_project_json) + LENGTH(i.output_project_json) +
-                LENGTH(i.evaluation_json) + LENGTH(i.bundle_json) +
+                LENGTH(CAST(i.input_project_json AS BLOB)) +
+                LENGTH(CAST(i.output_project_json AS BLOB)) +
+                LENGTH(CAST(i.evaluation_json AS BLOB)) +
+                LENGTH(CAST(i.bundle_json AS BLOB)) +
                 COALESCE(SUM(
-                    LENGTH(c.result_json) + LENGTH(c.records_json) + LENGTH(c.failures_json)
+                    LENGTH(CAST(c.result_json AS BLOB)) +
+                    LENGTH(CAST(c.records_json AS BLOB)) +
+                    LENGTH(CAST(c.failures_json AS BLOB))
                 ), 0)
             ) AS estimated_payload_bytes,
             COUNT(c.ordinal) AS collector_run_count

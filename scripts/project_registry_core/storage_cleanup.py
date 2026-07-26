@@ -450,9 +450,15 @@ def compact_registry_storage(
         while rows := run_cursor.fetchmany(50):
             for row in rows:
                 run_id = str(row["run_id"])
-                input_before = str(row["input_project_json"])
-                output_before = str(row["output_project_json"])
-                bundle_before = str(row["bundle_json"])
+                input_before = storage.decode_history_json_text(
+                    row["input_project_json"], context=f"investigation run {run_id} input_project_json"
+                )
+                output_before = storage.decode_history_json_text(
+                    row["output_project_json"], context=f"investigation run {run_id} output_project_json"
+                )
+                bundle_before = storage.decode_history_json_text(
+                    row["bundle_json"], context=f"investigation run {run_id} bundle_json"
+                )
                 input_value = json.loads(input_before)
                 output_value = json.loads(output_before)
                 input_compact = compact_flat_project_snapshot(input_value, normalize_resource_url_records)
@@ -560,7 +566,12 @@ def compact_registry_storage(
                             SET input_project_json = ?, output_project_json = ?, bundle_json = ?
                             WHERE run_id = ?
                             """,
-                            (input_after, output_after, bundle_after, run_id),
+                            (
+                                storage.encode_history_json_text(input_after),
+                                storage.encode_history_json_text(output_after),
+                                storage.encode_history_json_text(bundle_after),
+                                run_id,
+                            ),
                         )
                     storage.replace_collector_run_projection(conn, run_id, compact_bundle)
         if execute:

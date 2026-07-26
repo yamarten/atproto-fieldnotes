@@ -4,6 +4,7 @@ import json
 import sqlite3
 import time
 import uuid
+import zlib
 from typing import Any
 
 from .evidence import CollectorResult, EvidenceBundle
@@ -39,6 +40,50 @@ LLM_REQUEST_FIELDS = {
     "prompt_version",
     "prompt_suffix_hash",
 } | llm_transport.LLM_RESPONSE_DIAGNOSTIC_FIELDS
+HISTORY_JSON_COMPRESSION_HEADER = b"project-registry:zlib-json:v1\0"
+HISTORY_JSON_COLUMNS = (
+    "input_project_json",
+    "output_project_json",
+    "evaluation_json",
+    "bundle_json",
+)
+
+
+class HistoryPayloadDecodeError(ValueError):
+    pass
+
+
+def is_compressed_history_json(value: Any) -> bool:
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    return isinstance(value, bytes) and value.startswith(HISTORY_JSON_COMPRESSION_HEADER)
+
+
+def encode_history_json_text(value: str) -> bytes:
+    return HISTORY_JSON_COMPRESSION_HEADER + zlib.compress(value.encode("utf-8"), 6)
+
+
+def decode_history_json_text(value: Any, *, context: str = "history JSON") -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if not isinstance(value, bytes):
+        raise HistoryPayloadDecodeError(f"{context}: unsupported stored type {type(value).__name__}")
+    if not value.startswith(HISTORY_JSON_COMPRESSION_HEADER):
+        raise HistoryPayloadDecodeError(f"{context}: unknown binary history payload header")
+    try:
+        return zlib.decompress(value[len(HISTORY_JSON_COMPRESSION_HEADER):]).decode("utf-8")
+    except (zlib.error, UnicodeDecodeError) as exc:
+        raise HistoryPayloadDecodeError(f"{context}: compressed history payload decode failed") from exc
+
+
+def decode_history_json(value: Any, *, context: str = "history JSON") -> Any:
+    text = decode_history_json_text(value, context=context)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HistoryPayloadDecodeError(f"{context}: invalid JSON after decode") from exc
 
 
 def ensure_investigation_tables(conn: sqlite3.Connection) -> None:
@@ -255,7 +300,9 @@ def update_run_metrics_phase(
     ).fetchone()
     if row is None:
         raise ValueError(f"investigation run not found: {run_id}")
-    evaluation_payload = json.loads(str(row["evaluation_json"]))
+    evaluation_payload = decode_history_json(
+        row["evaluation_json"], context=f"investigation run {run_id} evaluation_json"
+    )
     metrics_payload = normalize_run_metrics(evaluation_payload.get(RUN_METRICS_KEY))
     if not metrics_payload:
         return
@@ -266,7 +313,7 @@ def update_run_metrics_phase(
     evaluation_payload[RUN_METRICS_KEY] = metrics_payload
     conn.execute(
         "UPDATE investigation_runs SET evaluation_json = ? WHERE run_id = ?",
-        (json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True), run_id),
+        (encode_history_json_text(json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True)), run_id),
     )
 
 
@@ -308,10 +355,10 @@ def save_investigation_run(
             completed_at,
             bundle.schema_version,
             evaluation_version,
-            json.dumps(sanitize_runtime_snapshot(input_project), ensure_ascii=False, sort_keys=True),
-            json.dumps(sanitize_runtime_snapshot(output_project), ensure_ascii=False, sort_keys=True),
-            json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True),
-            json.dumps(bundle.to_dict(), ensure_ascii=False, sort_keys=True),
+            encode_history_json_text(json.dumps(sanitize_runtime_snapshot(input_project), ensure_ascii=False, sort_keys=True)),
+            encode_history_json_text(json.dumps(sanitize_runtime_snapshot(output_project), ensure_ascii=False, sort_keys=True)),
+            encode_history_json_text(json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True)),
+            encode_history_json_text(json.dumps(bundle.to_dict(), ensure_ascii=False, sort_keys=True)),
         ),
     )
     replace_collector_run_projection(conn, resolved_run_id, bundle)
@@ -322,7 +369,7 @@ def save_investigation_run(
         evaluation_payload[RUN_METRICS_KEY] = metrics_payload
         conn.execute(
             "UPDATE investigation_runs SET evaluation_json = ? WHERE run_id = ?",
-            (json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True), resolved_run_id),
+            (encode_history_json_text(json.dumps(evaluation_payload, ensure_ascii=False, sort_keys=True)), resolved_run_id),
         )
     return resolved_run_id
 
@@ -332,7 +379,9 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
     row = conn.execute("SELECT * FROM investigation_runs WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         return None
-    evaluation = json.loads(str(row["evaluation_json"]))
+    evaluation = decode_history_json(
+        row["evaluation_json"], context=f"investigation run {run_id} evaluation_json"
+    )
     metrics = normalize_run_metrics(evaluation.pop(RUN_METRICS_KEY, None))
     return {
         "run_id": str(row["run_id"]),
@@ -341,11 +390,17 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
         "completed_at": str(row["completed_at"]),
         "evidence_schema_version": int(row["evidence_schema_version"]),
         "evaluation_version": str(row["evaluation_version"]),
-        "input_project": json.loads(str(row["input_project_json"])),
-        "output_project": json.loads(str(row["output_project_json"])),
+        "input_project": decode_history_json(
+            row["input_project_json"], context=f"investigation run {run_id} input_project_json"
+        ),
+        "output_project": decode_history_json(
+            row["output_project_json"], context=f"investigation run {run_id} output_project_json"
+        ),
         "evaluation": evaluation,
         "metrics": metrics,
-        "bundle": EvidenceBundle.from_json(str(row["bundle_json"])),
+        "bundle": EvidenceBundle.from_json(decode_history_json_text(
+            row["bundle_json"], context=f"investigation run {run_id} bundle_json"
+        )),
     }
 
 
@@ -388,8 +443,7 @@ def list_investigation_run_summaries(
     rows = conn.execute(
         f"""
         SELECT r.run_id, r.project_key, r.started_at, r.completed_at,
-               r.evidence_schema_version, r.evaluation_version,
-               json_extract(r.evaluation_json, '$._run_metrics.total_ms') AS total_ms,
+               r.evidence_schema_version, r.evaluation_version, r.evaluation_json,
                COUNT(c.ordinal) AS collector_count,
                SUM(CASE WHEN c.status IN ('failed', 'partial', 'rate_limited') THEN 1 ELSE 0 END) AS problem_count
         FROM investigation_runs r
@@ -408,7 +462,12 @@ def list_investigation_run_summaries(
         "completed_at": str(row["completed_at"]),
         "evidence_schema_version": int(row["evidence_schema_version"]),
         "evaluation_version": str(row["evaluation_version"]),
-        "total_ms": int(row["total_ms"] or 0),
+        "total_ms": int(normalize_run_metrics(
+            decode_history_json(
+                row["evaluation_json"],
+                context=f"investigation run {row['run_id']} evaluation_json",
+            ).get(RUN_METRICS_KEY)
+        ).get("total_ms") or 0),
         "collector_count": int(row["collector_count"] or 0),
         "problem_count": int(row["problem_count"] or 0),
     } for row in rows]

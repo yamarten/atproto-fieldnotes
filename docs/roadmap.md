@@ -37,16 +37,8 @@
 
 ### 保存量と履歴
 
-- 2026-07-26の再計測で、cleanup後16.12日の論理payload増加は847,476,073 bytes、30日換算は約1.47 GiBとなり、512 MiB条件を超えた
-- 現行cleanupの再適用は削減にならないため実行しない。次は次の方式を一つずつ比較し、一方式だけを実装する
-  - history JSON圧縮。83%前後の削減見込みに対し、read/replay costとSQLite上の直接監査を失う影響を確認する
-  - byte-aware retention。直接監査を優先する場合の候補とし、merge済みaliasをcanonical project単位で数える
-- no-change run stubは既存evaluationが不変でもcategoryやprofileが変わるため、そのまま採用しない。保存対象全体のsemantic contractを定義できた場合だけ再検討する
-- top-level input/output差分化は新規snapshotの13.7%削減に留まるため、直近候補から外す
 - DBのallocated bytesが10 GiBを超えるか、current DB maintenanceとの競合が実測された場合にhistory DB分離を検討する
 - 最大payload runでrelation normalizeが二乗的に長時間化する経路を、storage cleanupとは分けて改善する
-
-計測条件と方式比較は[2026-07-26 growth review](notes/registry-maintenance-growth-2026-07-26.md)を参照してください。
 
 ### 外部sourceとbrowser lane
 

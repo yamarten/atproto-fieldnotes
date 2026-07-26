@@ -35,6 +35,7 @@ subcommands=(
   'audit-trust-graph:Report trust-graph confirmation issues'
   'repair-trust-graph:Recompute stored trust graph details'
   'cleanup-storage-payloads:Compact stored service and investigation payloads'
+  'compress-investigation-history:Compress investigation history JSON'
   'prune-investigation-history:Delete old investigation history'
   'set-tracking-state:Set tracking state for one project'
   'set-separate:Mark two projects as distinct'
@@ -388,6 +389,12 @@ case "$cmd" in
     _arguments -S \
       '--execute[Rewrite payloads in one transaction]' \
       '--example-limit[Maximum largest-saving examples]:count:' \
+      '--vacuum[VACUUM after a successful rewrite]'
+    ;;
+  compress-investigation-history)
+    _arguments -S \
+      '--execute[Rewrite legacy history JSON in one transaction]' \
+      '--example-limit[Maximum candidate or decode-failure examples]:count:' \
       '--vacuum[VACUUM after a successful rewrite]'
     ;;
   prune-investigation-history)

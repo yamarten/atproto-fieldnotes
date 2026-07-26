@@ -78,6 +78,9 @@
   - HTML extract、links、URLsへUTF-8/JSON byte budgetと件数上限を適用
   - relation/evaluationは取得結果全体から先に計算し、保存payloadだけを縮約
 - bounded investigation history保存
+  - 新規runのinput/output/evaluation/bundle JSONはheader付きzlib BLOBで保存し、共通readerが旧TEXTと圧縮BLOBを復元する
+  - Investigation viewer、replay、fixture export、LLM/repository evaluation export、storage cleanupは共通reader経由で圧縮済みrunを扱う
+  - decode failureはrun IDと列名付きで停止する。圧縮済み4列へのSQLite JSON functionや`LIKE`による直接監査は対象外
   - record/failure本文は`bundle_json`へ一度だけ保存
   - `collector_runs`はsource/operation別のstatus/count projectionで、本文列は新規runでは空配列
   - GitHub API snapshotを使用fieldへ縮約し、同一repoの一run内再収集をしない
@@ -86,6 +89,7 @@
 - 既存保存payloadのmaintenance
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
+  - `compress-investigation-history`はdry-runで全history JSONをdecode検査して圧縮後bytesを報告し、`--execute`では未圧縮rowだけを一transactionで変換する
   - multi-tenant suffixをWebまたは`audit-source-config --execute`で追加すると、同じapplication serviceがcurrent same-site判定を再評価する
   - 保存済みservice evidenceをcurrent stateへ再適用する時は、requested/final URLからsame-site判定を現行policyで再計算する。investigation runの履歴payloadは変更しない
   - `repair-db` dry-runはcurrent service projectionの変更件数とbefore/after例を報告する
@@ -99,7 +103,8 @@
   - 2026-07-13にactive `evidence.resource_url_records`から旧形式由来の補助URL 247件 / 174 projectsを削除済み。過去LLM入力snapshot内の同source名は履歴として残す
   - 2026-07-13に正本DBのsame-site stale probe 4件を現行policyで更新し、`app.links`から正本にない4,868 link / 449 projectsを削除。再監査0件、foreign key違反0、integrity `ok`を確認後、一度きりCLI commandを削除
   - 2026-07-13に474 projectの旧machine note 1,071行を`system_notes`へ移動。runtime project同値、normalized child・履歴不変、再監査0件、foreign key違反0、integrity `ok`を確認し、読込時のpattern変換とcollector旧projection fallbackを削除
-  - 2026-07-26の正本DB read-only再計測では、22,717 investigation runsの論理payloadは2,403,287,582 bytes。cleanup後baselineから847,476,073 bytes増え、30日換算は約1.47 GiB。現行cleanup再適用は87,334 bytes増える投影のため未実施
+  - 2026-07-26の正本DB read-only比較では、history JSON圧縮は2,269,114,597から374,451,025 bytesへ1,894,663,572 bytes（83.5%）削減する。canonical family単位retentionは30日で196,902,979 bytesに留まり、21日では1,040,007,334 bytesと月単位履歴を削除するため採用しなかった
+  - 正本DB複製22,717 runs / 90,868 JSON valuesで圧縮前後の全列hash、Investigation list/detail、replay、fixture、LLM/repository evaluation exportの同値を確認。件数不変、foreign key違反0、integrity `ok`。VACUUMと正本DBへのexecuteは未実施
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
@@ -195,7 +200,7 @@
 
 2026-07-26時点で確認済み:
 
-- 全unit test 535件
+- 全unit test 544件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
@@ -222,8 +227,7 @@
 未検証:
 
 - 長時間運用時の実API retry/cache/budget値
-- history JSON圧縮のread/replay costと直接SQL監査への影響
-- canonical project単位のbyte-aware retention
+- 正本DBへのhistory圧縮executeと、必要な場合のVACUUM
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。

@@ -219,6 +219,97 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
 
         self.assertTrue(result["vacuumed"])
 
+    def test_history_compression_dry_run_execute_and_decode_are_lossless(self) -> None:
+        conn = registry.open_db()
+        storage.ensure_investigation_tables(conn)
+        payloads = (
+            {"input": ["repeated-value"] * 100},
+            {"output": ["repeated-value"] * 100},
+            {"score": 4, "details": ["repeated-value"] * 100},
+        )
+        bundle = EvidenceBundle(project_key="proj:compressed", collected_at="2026-07-26T00:00:00+00:00")
+        conn.execute(
+            "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run:legacy",
+                "proj:compressed",
+                bundle.collected_at,
+                bundle.collected_at,
+                bundle.schema_version,
+                "test",
+                json.dumps(payloads[0]),
+                json.dumps(payloads[1]),
+                json.dumps(payloads[2]),
+                bundle.to_json(),
+            ),
+        )
+        conn.commit()
+        before = tuple(conn.execute(
+            "SELECT input_project_json, output_project_json, evaluation_json, bundle_json "
+            "FROM investigation_runs WHERE run_id = 'run:legacy'"
+        ).fetchone())
+
+        dry_run = maintenance.compress_investigation_history(conn)
+        self.assertEqual(dry_run["candidate_run_count"], 1)
+        self.assertEqual(dry_run["candidate_value_count"], 4)
+        self.assertEqual(dry_run["decode_failure_count"], 0)
+        self.assertGreater(dry_run["estimated_bytes_saved"], 0)
+        self.assertEqual(tuple(conn.execute(
+            "SELECT input_project_json, output_project_json, evaluation_json, bundle_json "
+            "FROM investigation_runs WHERE run_id = 'run:legacy'"
+        ).fetchone()), before)
+
+        executed = maintenance.compress_investigation_history(conn, execute=True)
+        stored = tuple(conn.execute(
+            "SELECT input_project_json, output_project_json, evaluation_json, bundle_json "
+            "FROM investigation_runs WHERE run_id = 'run:legacy'"
+        ).fetchone())
+        loaded = storage.load_investigation_run(conn, "run:legacy")
+        second_dry_run = maintenance.compress_investigation_history(conn)
+        conn.close()
+
+        self.assertEqual(executed["updated_run_count"], 1)
+        self.assertEqual(executed["integrity_check_before"], "ok")
+        self.assertEqual(executed["integrity_check_after"], "ok")
+        self.assertTrue(all(storage.is_compressed_history_json(value) for value in stored))
+        assert loaded is not None
+        self.assertEqual(loaded["input_project"], payloads[0])
+        self.assertEqual(loaded["output_project"], payloads[1])
+        self.assertEqual(loaded["evaluation"], payloads[2])
+        self.assertEqual(loaded["bundle"].to_dict(), bundle.to_dict())
+        self.assertEqual(second_dry_run["candidate_run_count"], 0)
+
+    def test_history_compression_reports_decode_failure_and_refuses_execute(self) -> None:
+        conn = registry.open_db()
+        storage.ensure_investigation_tables(conn)
+        bad_payload = storage.HISTORY_JSON_COMPRESSION_HEADER + b"not-zlib"
+        conn.execute(
+            "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run:broken", "proj:broken", "2026-07-26", "2026-07-26", 2, "test",
+                bad_payload, "{}", "{}", "{}",
+            ),
+        )
+        conn.commit()
+
+        dry_run = maintenance.compress_investigation_history(conn)
+        with self.assertRaisesRegex(ValueError, "failed to decode"):
+            maintenance.compress_investigation_history(conn, execute=True)
+        with self.assertRaisesRegex(storage.HistoryPayloadDecodeError, "run:broken input_project_json"):
+            storage.load_investigation_run(conn, "run:broken")
+        conn.close()
+
+        self.assertEqual(dry_run["decode_failure_count"], 1)
+        self.assertEqual(dry_run["decode_failures"][0]["column"], "input_project_json")
+
+    def test_history_compression_requires_execute_for_vacuum(self) -> None:
+        conn = registry.open_db()
+        try:
+            with self.assertRaisesRegex(ValueError, "requires --execute"):
+                maintenance.compress_investigation_history(conn, vacuum=True)
+        finally:
+            conn.close()
+
     def test_storage_payload_cleanup_is_dry_run_atomic_and_idempotent(self) -> None:
         conn = registry.open_db()
         project = self.make_project(
@@ -359,10 +450,13 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         executed = maintenance.cleanup_storage_payloads(conn, execute=True, vacuum=True)
         stored = project_record.fetch_project(conn, project["project_key"])
         assert stored is not None
-        compact_bundle = EvidenceBundle.from_json(str(conn.execute(
-            "SELECT bundle_json FROM investigation_runs WHERE run_id = ?",
-            (run_id,),
-        ).fetchone()[0]))
+        compact_bundle = EvidenceBundle.from_json(storage.decode_history_json_text(
+            conn.execute(
+                "SELECT bundle_json FROM investigation_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()[0],
+            context=f"investigation run {run_id} bundle_json",
+        ))
         compact_service = next(
             record.value for record in compact_bundle.records
             if record.kind == "service_verification"

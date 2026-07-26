@@ -7,11 +7,12 @@ import sqlite3
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import llm_model_evaluation as llm_evaluation
 from . import llm_transport
 from . import repository_analysis
+from . import storage
 
 
 CORPUS_SCHEMA_VERSION = 1
@@ -36,30 +37,34 @@ def _analysis_value(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _corpus_source_rows(db_path: Path) -> Iterator[sqlite3.Row]:
+    uri = f"file:{urllib.parse.quote(str(db_path))}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield from conn.execute(
+            "SELECT run_id, project_key, started_at, completed_at, output_project_json, bundle_json "
+            "FROM investigation_runs ORDER BY completed_at DESC, run_id DESC"
+        )
+    finally:
+        conn.close()
+
+
 def export_corpus(db_path: Path, *, limit: int = 12) -> dict[str, Any]:
     if limit < 1:
         raise ValueError("limit must be at least 1")
     resolved = db_path.expanduser().resolve()
-    uri = f"file:{urllib.parse.quote(str(resolved))}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            "SELECT run_id, project_key, started_at, completed_at, output_project_json, bundle_json "
-            "FROM investigation_runs WHERE bundle_json LIKE '%repository_analysis_material%' "
-            "ORDER BY completed_at DESC, run_id DESC"
-        ).fetchall()
-    finally:
-        conn.close()
-
     candidates: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
-    for row in rows:
-        try:
-            project = json.loads(str(row["output_project_json"]))
-            bundle = json.loads(str(row["bundle_json"]))
-        except (TypeError, json.JSONDecodeError):
-            continue
+    for row in _corpus_source_rows(resolved):
+        project = storage.decode_history_json(
+            row["output_project_json"],
+            context=f"investigation run {row['run_id']} output_project_json",
+        )
+        bundle = storage.decode_history_json(
+            row["bundle_json"],
+            context=f"investigation run {row['run_id']} bundle_json",
+        )
         if not isinstance(project, dict) or not isinstance(bundle, dict):
             continue
         records = [item for item in bundle.get("records", []) if isinstance(item, dict)]

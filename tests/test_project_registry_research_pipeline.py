@@ -965,9 +965,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             conn.commit()
             run = storage_core.load_investigation_run(conn, run_id)
             summary = storage_core.list_investigation_run_summaries(conn, project_key=project["project_key"])[0]
-            raw = json.loads(conn.execute(
+            raw = storage_core.decode_history_json(conn.execute(
                 "SELECT evaluation_json FROM investigation_runs WHERE run_id = ?", (run_id,)
-            ).fetchone()[0])
+            ).fetchone()[0], context=f"investigation run {run_id} evaluation_json")
         finally:
             conn.close()
 

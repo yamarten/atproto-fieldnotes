@@ -12,6 +12,7 @@ from project_registry_core import llm_model_evaluation as evaluation
 from project_registry_core import llm_transport
 from project_registry_core import repository_analysis
 from project_registry_core import repository_analysis_evaluation
+from project_registry_core import storage
 
 
 def build_prompt(evidence: dict) -> str:
@@ -84,7 +85,17 @@ class LLMCorpusExportTest(unittest.TestCase):
             ]
             conn.executemany(
                 "INSERT INTO investigation_runs VALUES (?, ?, ?, ?)",
-                [(run_id, key, completed, json.dumps(project)) for run_id, key, completed, project in rows],
+                [
+                    (
+                        run_id,
+                        key,
+                        completed,
+                        storage.encode_history_json_text(json.dumps(project))
+                        if run_id == "lib"
+                        else json.dumps(project),
+                    )
+                    for run_id, key, completed, project in rows
+                ],
             )
             conn.commit()
             conn.close()
@@ -594,8 +605,10 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
                 "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     "run", "proj:tool", "2026-01-01", "2026-01-02",
-                    json.dumps({"name": "Tool", "resolved_nsids": ["app.example.record"]}),
-                    json.dumps(bundle),
+                    storage.encode_history_json_text(json.dumps({
+                        "name": "Tool", "resolved_nsids": ["app.example.record"]
+                    })),
+                    storage.encode_history_json_text(json.dumps(bundle)),
                 ),
             )
             conn.commit()

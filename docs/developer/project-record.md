@@ -292,6 +292,15 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `input_project_json`, `output_project_json`
 - `evaluation_json`, `bundle_json`
 
+4つのJSON列は論理上JSONですが、新規runでは`project-registry:zlib-json:v1` header付きのzlib BLOBとして
+保存します。通常reader、Investigation viewer、replay、fixture/model evaluation export、storage maintenanceは
+共通codecでdecodeします。圧縮前のTEXT rowも移行完了までは同じreaderで読めます。header不明、zlib/UTF-8/JSON
+破損はrun IDと列名を含むdecode errorとして停止し、空payloadや部分的なrunへ置き換えません。
+
+圧縮後の4列にはSQLite JSON function、`LIKE`、直接SQLによるfield監査を使えません。`run_id`、project key、時刻、
+versionと`collector_runs` projectionは引き続きSQLで監査でき、JSON内容は通常readerまたは
+`compress-investigation-history`のdecode auditを通して確認します。
+
 `collector_runs`:
 
 - `run_id`, `ordinal`
@@ -310,6 +319,11 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 projectionへ同じbudgetを投影します。run自体やoperator decisionは削除せず、既定dry-runです。`--execute`では
 payload rewriteを一transactionで行い、commit前にforeign key/integrity checkを通します。保存済みevaluationを
 再計算するoperationではありません。
+
+`compress-investigation-history`は既定dry-runで全history JSONをdecode・JSON検証し、論理bytes、現在の保存bytes、
+圧縮後bytes、decode failureを報告します。`--execute`では未圧縮rowだけを1 transactionで書き換え、前後の
+integrity/foreign-key checkを通します。SQLite fileを縮める必要がある場合だけ、別processを止めたうえで明示的に
+`--vacuum`を併用します。
 
 JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
 

@@ -73,6 +73,17 @@ def cmd_cleanup_storage_payloads(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compress_investigation_history(args: argparse.Namespace) -> int:
+    payload = _with_db(lambda conn: services.compress_investigation_history(
+        conn,
+        execute=bool(args.execute),
+        example_limit=int(args.example_limit),
+        vacuum=bool(args.vacuum),
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_prune_investigation_history(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.prune_investigation_history(
         conn,

@@ -394,6 +394,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cleanup_storage_parser.set_defaults(func=maintenance_commands.cmd_cleanup_storage_payloads)
 
+    compress_history_parser = subparsers.add_parser(
+        "compress-investigation-history",
+        help="Compress investigation history JSON while preserving decoded payloads.",
+    )
+    compress_history_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Rewrite legacy history JSON in one transaction. Without this flag, report the exact projection without writing.",
+    )
+    compress_history_parser.add_argument(
+        "--example-limit",
+        type=int,
+        default=20,
+        help="Maximum candidate or decode-failure examples. Default: 20.",
+    )
+    compress_history_parser.add_argument(
+        "--vacuum",
+        action="store_true",
+        help="After a successful rewrite, VACUUM the database. Requires --execute and all other processes stopped.",
+    )
+    compress_history_parser.set_defaults(func=maintenance_commands.cmd_compress_investigation_history)
+
     prune_history_parser = subparsers.add_parser(
         "prune-investigation-history",
         help="Delete old investigation and collector runs while retaining recent and per-project history.",

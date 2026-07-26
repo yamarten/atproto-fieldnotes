@@ -162,10 +162,15 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
+| `compress-investigation-history` | 調査履歴JSONのdecode検査と圧縮投影 | 論理bytes・保存bytes・decode failureのJSON | `--execute`、任意の`--vacuum` |
 | `prune-investigation-history` | 保持期間外の調査実行記録。ただし登録プロジェクトごとの最新件数を保持 | 削除候補のJSON | `--execute`、任意の`--vacuum` |
 | `audit-source-config` | 独自multi-tenant suffixと既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
 
 保守系コマンドは正本DBのバックアップを作り、Web UI、worker、`enrich`、別のCLIを止めてからdry-runとexecuteを分けて実行してください。`--vacuum`は書き込みtransaction後の別処理で、失敗しても先行する書き換えや削除はrollbackされません。
+
+`compress-investigation-history`はdry-runでも全履歴JSONをdecodeしてJSONとして検証します。decode failureが1件でも
+ある場合は`--execute`を拒否します。圧縮後の内容確認にはInvestigation viewer、replay、exportを使い、SQLiteの
+JSON functionで4つのhistory列を直接検索しません。
 
 `repair-trust-graph --execute`は通常trust edge/evaluationだけを保存します。採用済み（`confirmed`）識別子の降格には`--downgrade-unsupported`も必要です。
 
