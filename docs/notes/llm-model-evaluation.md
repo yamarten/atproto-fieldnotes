@@ -15,9 +15,9 @@ repository analysisを含む最新DB複製の確認で、同じ`goat` material�
 通常`enrich`全体をGemmaへ置き換える正本試用は停止し、既定modelはQwenのまま維持します。
 
 repository materialの誤分類と後段への過大な入力も複製DB確認で見つけ、modelに依存しない共通処理として修正しました。
-失敗後に同じmaterialをもう一度実行したところrepository analysisを含む3 requestは成功したため、常に起きる形式不一致ではなく
-間欠的な失敗と判断します。Gemmaを再び通常処理候補にするには、同一入力の反復で安定性を確認し、別の未調整repositoryを含む
-確認用caseと最新DB複製をもう一度通す必要があります。
+失敗後に同じmaterialでrepository analysis単体を10回反復すると、成功5回、JSON構文エラー5回でした。成功した5回も
+同じ根拠不十分な観測が保存前に除外され、完全に有効な結果は0回です。Gemmaは現構成の通常処理候補から外し、
+model、runtime、またはpromptの変更でこの問題を解消できた場合だけ再評価します。
 
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
@@ -240,12 +240,15 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    以前のpolicyでも同caseは初回失敗後の再試行で成功しており、常に失敗する相性ではない一方、通常運用へ進める
    安定性とは扱えません。
 4. 失敗応答の本文を残さず、失敗段階、byte数、SHA-256、JSON構文エラー位置、開始・終了記号、code fenceの有無を
-   run metricsへ保存する診断を追加しました。その後の同じ`goat`ではrepository analysis 624 bytes、planning、triageが
-   すべて成功し、categoryも`infra_tool`でした。2,048 token上限による切断はこの成功回では起きていませんが、直前2回の
-   失敗本文は保存されていないため原因は確定できません。
+   run metricsと固定評価reportへ保存する診断を追加しました。通常`enrich`で同じ`goat`を再実行した1回はrepository analysis
+   624 bytes、planning、triageがすべて成功し、categoryも`infra_tool`でした。
+5. そのmaterialを固定したrepository analysis単体の10回反復では、最初の5回が成功3・失敗2、診断追加後の5回が成功2・
+   失敗3でした。診断付きの失敗3件はすべて`{`で始まり`}`で終わる819〜1,613 bytesの応答で、JSON error位置は
+   503〜623でした。末尾切断ではなく、完成形に見える応答内部の構文違反です。成功5件もREADMEだけを根拠に
+   `declares_cli_entrypoint`を確定する観測が除外され、保存規則をすべて通る結果は0/10でした。
 
-共通処理の修正と診断追加は全536 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは
-`goat` 1回です。失敗2回に対する成功1回なので、v6の固定5件結果や今回の成功を現行v8全体の安定性へ読み替えません。
+共通処理の修正と診断追加は全537 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは
+`goat` 2回ですが、固定反復が上記の結果なので、v6の固定5件結果や通常`enrich`の成功を現行v8全体の安定性へ読み替えません。
 
 ## 採用判断と残件
 
@@ -258,12 +261,12 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 | 処理時間 | Qwenが優位。Gemmaは約1.3倍 |
 | 常駐memory | 手動観測ではGemmaが約4 GB小さい |
 | prompt保守 | 両modelで別suffixが必要 |
-| 正本試用 | repository analysisが2回失敗後に1回成功したが、間欠失敗が未解消のため停止。Qwenを維持 |
+| 正本試用 | 固定反復でJSON成功5/10、有効0/10のため実施しない。Qwenを維持 |
 
 未完了:
 
-- 現行診断を有効にした同一`goat` materialの反復で、次の失敗時に切断か形式違反かを区別し、成功率も確認する
-- 原因を解消した後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
+- model、runtime、またはpromptを変更する場合、同一`goat` materialでJSON構文エラーと根拠不十分な観測が再発しないことを確認する
+- その条件を満たした後に別の未調整repositoryを加えて固定caseと最新DB複製を再実行する
 - その条件を通った場合だけ、下記7件を正本DBの少数試用候補として再利用する
 - peak memory、swap、prefill、decodeをrunnerから自動記録する
 

@@ -117,6 +117,10 @@ baselineとcandidateへ渡し、解析結果を含むtriageも比較します。
 category、identifier集合、検査成否、tagline、summary、featuresの変化を確認します。文章の言い換えと、事実、
 category、identifierの変更を同じ差として扱いません。
 
+一度でもfinal JSONの構文エラーが出た処理は、promptとmaterialを固定して少なくとも5回反復します。1回でも再発すれば
+少数試用へ進めません。失敗reportには応答本文を残さず、失敗段階、byte数、SHA-256、JSON構文エラー位置、開始・終了記号、
+code fenceの有無だけを記録し、出力上限による切断と内部の形式違反を区別します。
+
 ### 8. 文章、重い入力、memoryを確認する
 
 文章はmodel名を伏せ、主要機能の欠落、根拠外の断定、日本語、情報量を人が比較します。入力が長いcaseと以前
