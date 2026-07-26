@@ -762,7 +762,9 @@ function pdslsIdentityUrl(value) {
   const normalized = String(value || "").trim();
   if (!normalized) return "";
   if (normalized.startsWith("did:") || /^[a-z0-9][a-z0-9.-]*\.[a-z0-9.-]+$/i.test(normalized)) {
-    return `https://pdsls.dev/${encodeURIComponent(normalized)}`;
+    const target = new URL("https://pds.ls/");
+    target.pathname = `at://${normalized}`;
+    return target.href;
   }
   return "";
 }

@@ -62,6 +62,8 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 `Overview`のExplainは保存済み状態を表示し、ネットワークやLLMを使いません。全登録プロジェクトとの比較が必要なマージ候補は詳細本体の後に別リクエストで計算し、DBへ保存しません。保存データがない項目は`not_observed`であり、否定結果ではありません。
 
+`Identifiers`に表示するDIDとhandleは、`https://pds.ls/at://...`形式のアカウント参照へリンクします。表示中の識別子自体は変更しません。
+
 詳細画面から次を実行できます。
 
 - 単体`enrich`、追跡状態の変更、手動シードの追加

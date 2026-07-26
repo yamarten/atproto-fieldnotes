@@ -305,6 +305,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
         self.assertIn("Build review plan", script)
+        self.assertIn('new URL("https://pds.ls/")', script)
+        self.assertIn('target.pathname = `at://${normalized}`', script)
+        self.assertNotIn("https://pdsls.dev/${encodeURIComponent(normalized)}", script)
         self.assertIn("javascript", content_type)
 
         status, payload, _ = self.request("/api/projects", token="wrong")
