@@ -607,6 +607,43 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
         self.assertIn("prompt_hash_differs", comparison["comparison_issues"])
         self.assertFalse(comparison["automatic_checks_pass"])
 
+    def test_runner_records_bounded_response_diagnostics_without_content(self) -> None:
+        material = self.material()
+        corpus = {
+            "schema_version": 1,
+            "cases": [{
+                "case_id": "case",
+                "project_context": {"project_key": "proj:tool", "name": "Tool"},
+                "material": material,
+                "reference_result": {},
+            }],
+        }
+
+        def fail(_prompt: str) -> tuple[dict, dict]:
+            raise llm_transport.LLMResponseError(
+                "invalid model JSON",
+                diagnostics={
+                    "response_stage": "model_json",
+                    "response_content_bytes": 510,
+                    "response_content_sha256": "a" * 64,
+                    "json_error_position": 509,
+                    "content_ends_with_json": False,
+                    "response_content": "must not be recorded",
+                },
+            )
+
+        report = repository_analysis_evaluation.run_corpus(
+            corpus,
+            run_llm=fail,
+            model_spec={"model": "fixture"},
+        )
+
+        diagnostics = report["results"][0]["error_diagnostics"]
+        self.assertEqual(diagnostics["response_content_bytes"], 510)
+        self.assertEqual(diagnostics["json_error_position"], 509)
+        self.assertFalse(diagnostics["content_ends_with_json"])
+        self.assertNotIn("response_content", diagnostics)
+
     def test_repository_report_overlay_connects_normalized_result_to_triage_case(self) -> None:
         repository_corpus = {
             "schema_version": 1,

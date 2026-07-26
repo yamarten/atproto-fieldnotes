@@ -33,6 +33,29 @@ class LLMResponseError(ValueError):
         self.diagnostics = dict(diagnostics or {})
 
 
+LLM_RESPONSE_DIAGNOSTIC_FIELDS = {
+    "response_stage",
+    "response_content_bytes",
+    "response_content_sha256",
+    "json_error_line",
+    "json_error_column",
+    "json_error_position",
+    "content_starts_with_json",
+    "content_ends_with_json",
+    "content_had_code_fence",
+}
+
+
+def safe_response_diagnostics(exc: BaseException) -> dict[str, Any]:
+    if not isinstance(exc, LLMResponseError):
+        return {}
+    return {
+        key: value
+        for key, value in exc.diagnostics.items()
+        if key in LLM_RESPONSE_DIAGNOSTIC_FIELDS
+    }
+
+
 def invalid_json_diagnostics(content: str, exc: json.JSONDecodeError, *, stage: str) -> dict[str, Any]:
     stripped = content.strip()
     return {
@@ -276,8 +299,7 @@ def run_llm_with_metrics(
         return payload, meta
     except Exception as exc:
         request_metrics["error_category"] = classify_llm_request_error(exc)
-        if isinstance(exc, LLMResponseError):
-            request_metrics.update(exc.diagnostics)
+        request_metrics.update(safe_response_diagnostics(exc))
         raise
     finally:
         request_metrics["duration_ms"] = max(0, round((time.perf_counter() - started) * 1000))

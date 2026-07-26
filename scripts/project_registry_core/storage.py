@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from .evidence import CollectorResult, EvidenceBundle
-from . import database
+from . import database, llm_transport
 from .runtime_view import sanitize_runtime_snapshot
 
 
@@ -38,16 +38,7 @@ LLM_REQUEST_FIELDS = {
     "reasoning_effort",
     "prompt_version",
     "prompt_suffix_hash",
-    "response_stage",
-    "response_content_bytes",
-    "response_content_sha256",
-    "json_error_line",
-    "json_error_column",
-    "json_error_position",
-    "content_starts_with_json",
-    "content_ends_with_json",
-    "content_had_code_fence",
-}
+} | llm_transport.LLM_RESPONSE_DIAGNOSTIC_FIELDS
 
 
 def ensure_investigation_tables(conn: sqlite3.Connection) -> None:
