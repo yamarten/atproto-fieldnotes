@@ -146,8 +146,8 @@ export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 `--llm-triage-prompt-suffix-file PATH`を指定するか、定期jobを含む既定値として
 `ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`へPATHを設定します。これは共通promptの末尾へUTF-8文書を追加する設定で、
 CLI指定は環境変数より優先します。使用した本文のhashはinvestigation runへ保存されます。
-現行Qwen構成では`prompts/model-rules/qwen-3.6-35b-a3b.txt`を設定します。別modelへ変更する時はこの設定を外し、
-そのmodelで確認した追加規則がある場合だけ差し替えます。
+現行Qwenのmodel IDでは`prompts/model-rules/qwen-3.6-35b-a3b.txt`を自動選択します。別modelにはQwen用規則を
+適用せず、そのmodelで確認した追加規則がある場合だけCLIまたは環境変数で指定します。
 固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。
 この値はplanning、confirmed repositoryの解析、triageの各LLM requestへ共通して適用されます。省略時はendpoint側の設定を使います。
 

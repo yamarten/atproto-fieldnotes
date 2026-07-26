@@ -315,6 +315,46 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             checkpoint["options"]["llm_triage_prompt_suffix_file"], str(suffix_path)
         )
 
+    def test_run_automatically_uses_rules_for_current_qwen_model(self) -> None:
+        self.seed_projects()
+        request = OperationRequest.create(
+            "enrich",
+            execute=True,
+            parameters={"project_key": "proj:111111111111"},
+        )
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "ATPROTO_SURVEY_LLM_MODEL": "qwen/qwen3.6-35b-a3b",
+                    "ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": "",
+                },
+            ):
+                with mock.patch.object(
+                    enrichment.enrichment_pipeline,
+                    "enrich_project",
+                    side_effect=lambda _conn, project, **_kwargs: project,
+                ) as enrich_project:
+                    result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        self.assertEqual(result.status, "completed")
+        suffix = enrich_project.call_args.kwargs["llm_triage_prompt_suffix"]
+        self.assertIn("model-specific tie-breakers", suffix)
+
+    def test_unknown_model_has_no_automatic_triage_rules(self) -> None:
+        options = enrichment.EnrichmentOptions(llm_model="example/other-model")
+
+        with mock.patch.dict(
+            "os.environ", {"ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": ""}
+        ):
+            suffix_path = enrichment.configured_triage_prompt_suffix_file(options)
+
+        self.assertEqual(suffix_path, "")
+
     def test_run_forwards_llm_max_output_tokens(self) -> None:
         self.seed_projects()
         request = OperationRequest.create(

@@ -114,7 +114,7 @@
   - corpusは保存済みprofileをbase evidenceと分離して保持する。`evaluate-llm-corpus --current-profile-mode without|with`で新規project相当と既存profile更新相当を同じcaseから実行し、reportの入力条件を分ける
   - 前回LLM出力だけを根拠とする`lexicon_scope`は通常promptとcorpusのbase evidenceから除き、外部またはheuristic根拠を持つscopeだけを維持する
   - `evaluate-llm-corpus`は同一prompt、最大出力token数、reasoning要求で1 model構成を反復実行し、JSON/schema、evidence外identifier、category-summary整合性、reference差分、latency、同一入力のfield差をJSON reportへ保存する
-  - 現行Qwenで確認した追加規則は`prompts/model-rules/qwen-3.6-35b-a3b.txt`に置き、通常`enrich`と定期jobは`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`で明示的に適用する。CLIのsuffix指定は環境変数より優先し、別modelへ変更する時はQwen用設定を外す
+  - 現行Qwenで確認した追加規則は`prompts/model-rules/qwen-3.6-35b-a3b.txt`に置き、通常`enrich`と定期jobは現行Qwenのmodel IDで自動選択する。CLIのsuffix指定、環境変数、model IDによる既定値の順に優先し、別modelにはQwen用規則を適用しない
   - reasoning要求値とruntime log等で確認した`applied / ignored / not_checked`を分ける。endpoint metadataは要求値を返すだけなので適用確認には使わない
   - 期待categoryを人が確認したlabelはevidence hash一致と`used_for_prompt_adjustment`を必須にし、prompt調整に使ったcaseと使っていないcaseを別集計する
   - `compare-llm-evaluation-reports`は同じcorpusとcase/repeat集合のbaseline/candidateを比較し、機械検査の退行と文章確認・複製DB・少数project試用等の未実施項目を分けて返す。通常運用modelは自動選定しない
@@ -216,7 +216,7 @@
 - 調整用5 repositoryの現行解析policyでは、request成功は両model 5/5、根拠位置不備は両model 0件。全claimが保存規則を通ったresultはGemma 3/5、Qwen 0/5で、materialにないcollectionはGemma 0件、Qwen 1件。解析結果を重ねた後段triageも両model 5/5でschema有効、根拠外identifier 0件。調整用caseのため未知repositoryへの一般化成績には使わない
 - 固定評価と通常`enrich`の最大出力条件を揃える入口を追加し、planning、repository analysis、triageへの伝播を確認
 - 最新DB複製の`atproto.dart`で一般の`/docs/`文書がdeployment設定になる誤抽出を確認して修正。`goat`では重複excerptでrepository結果が20,732文字となり後段24 KiB上限を超えたため、保存とtriage投影を縮約した。既存の実結果5件はtriage投影1,930〜3,536文字に収まった
-- 現行repository analysis policyの固定`goat` material 10回は、GemmaがJSON成功5・失敗5、Qwenが10件すべて成功。Gemmaの失敗は末尾切断ではなく応答内部のJSON構文違反。一方、保存規則をすべて通る結果は両model 0件で、Qwenは全件に根拠不足の観測、6/10件にmaterial外collectionがあった。利用不能な本文は保存せず、byte数、hash、JSON error位置等をrun metricsと固定評価reportへ残す。Gemmaは現構成の通常処理候補から外し、既定modelはQwenを維持するが、repository解析内容は別途改善対象。正本DBは未変更。全539 testを通過
+- 現行repository analysis policyの固定`goat` material 10回は、GemmaがJSON成功5・失敗5、Qwenが10件すべて成功。Gemmaの失敗は末尾切断ではなく応答内部のJSON構文違反。一方、保存規則をすべて通る結果は両model 0件で、Qwenは全件に根拠不足の観測、6/10件にmaterial外collectionがあった。利用不能な本文は保存せず、byte数、hash、JSON error位置等をrun metricsと固定評価reportへ残す。Gemmaは現構成の通常処理候補から外し、既定modelはQwenを維持するが、repository解析内容は別途改善対象。正本DBは未変更。全541 testを通過
 
 未検証:
 

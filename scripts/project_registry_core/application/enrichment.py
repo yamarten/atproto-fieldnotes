@@ -15,6 +15,23 @@ from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, Oper
 from project_registry_core import project_record
 
 
+DEFAULT_TRIAGE_RULES_BY_MODEL = {
+    "qwen/qwen3.6-35b-a3b": core.ROOT / "prompts/model-rules/qwen-3.6-35b-a3b.txt",
+    "qwen3.6-35b-a3b": core.ROOT / "prompts/model-rules/qwen-3.6-35b-a3b.txt",
+}
+
+
+def configured_triage_prompt_suffix_file(options: EnrichmentOptions) -> str:
+    if options.llm_triage_prompt_suffix_file:
+        return options.llm_triage_prompt_suffix_file
+    configured = os.getenv("ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE", "").strip()
+    if configured:
+        return configured
+    model = str(options.llm_model or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")).strip().lower()
+    path = DEFAULT_TRIAGE_RULES_BY_MODEL.get(model)
+    return str(path) if path is not None else ""
+
+
 @dataclass(frozen=True)
 class EnrichmentOptions:
     project_key: str = ""
@@ -289,8 +306,8 @@ def run(
         raise ValueError("resume_run requires all_projects")
     if options.resume_run and options.no_checkpoint:
         raise ValueError("resume_run cannot be combined with no_checkpoint")
-    if not options.resume_run and not options.llm_triage_prompt_suffix_file:
-        configured_suffix = os.getenv("ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE", "").strip()
+    if not options.resume_run:
+        configured_suffix = configured_triage_prompt_suffix_file(options)
         if configured_suffix:
             options = replace(options, llm_triage_prompt_suffix_file=configured_suffix)
     cancellation = cancellation or CancellationToken()

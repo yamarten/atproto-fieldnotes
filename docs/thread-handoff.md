@@ -9,7 +9,7 @@
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
-- masterのrepository取得・material化・LLM解析を取り込み、根拠位置の検査、bounded excerpt、最大出力token数、本文を残さないJSON診断を追加しました。全539 testを通しています。
+- masterのrepository取得・material化・LLM解析を取り込み、根拠位置の検査、bounded excerpt、最大出力token数、本文を残さないJSON診断を追加しました。全541 testを通しています。
 - Qwenも固定`goat`の全件で根拠不足の観測が除外され、6/10件にmaterial外collectionがありました。既定model維持とは別に、repository解析内容は改善対象です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 

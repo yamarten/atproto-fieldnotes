@@ -256,7 +256,7 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    request累積時間はQwen 147.2秒、Gemma 53.2秒でした。Qwen 1巡目の最初の27.0秒を除いても平均13.4秒、
    Gemmaは全10回平均5.3秒で、このrepository解析入力ではQwenの方が遅い結果です。
 
-共通処理の修正と診断追加は全539 unit testを通しています。現行repository analysis policyで解析から後段triageまで成功する実DB caseは
+共通処理の修正と診断追加は全541 unit testを通しています。現行repository analysis policyで解析から後段triageまで成功する実DB caseは
 `goat` 2回ですが、固定反復が上記の結果なので、調整後の固定5件や通常`enrich`の成功を現行policy全体の安定性へ読み替えません。
 
 ## 採用判断と再評価条件

@@ -66,9 +66,10 @@ model別suffixはrepository analysisへ適用しません。
 
 比較で実際に使った現行Qwen向けsuffixは
 [`prompts/model-rules/qwen-3.6-35b-a3b.txt`](../../prompts/model-rules/qwen-3.6-35b-a3b.txt)に置きます。
-現行Qwenの通常`enrich`と定期jobでは、`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`にこのPATHを設定して適用します。
-CLIの`--llm-triage-prompt-suffix-file`は環境変数より優先します。別modelへ変更する時はQwen用設定を外し、
-そのmodelの調整用caseとprompt固定後の確認用caseを経てから別の追加規則へ差し替えます。
+現行Qwenのmodel IDでは、通常`enrich`と定期jobがこのファイルを自動選択します。CLIの
+`--llm-triage-prompt-suffix-file`、環境変数`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`、model IDによる既定値の
+順に優先します。別modelにはQwen用規則を適用せず、そのmodelの調整用caseとprompt固定後の確認用caseを経てから
+別の追加規則を明示します。
 
 repository analysisを含む二段階の確認では、`evaluate-llm-corpus --repository-analysis-report REPORT`を使います。
 completeなrepository analysis reportのrepeat 0にある正規化済み結果を、同じproject keyのtriage caseへ一時的に
