@@ -769,8 +769,10 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
   - 既知 NSID ではない
   - 最新活動の `max` が watermark より新しい
   - watermark が無い初回は `lookback_days` 以内
-- import 前に namespace 集約します
-  - full collection ではなく registrable namespace 単位で 1 project 候補にまとめます
+- import 前にfull collectionごとに既存projectとの安全な一致を判定します
+  - `exact_namespace` / `exact_namespace_scan` / `seed_parent_namespace`で一致したcollectionはtarget projectごとに集約します
+  - 安全に一致しないcollectionだけをregistrable namespace単位の新規project候補にまとめます
+  - 同じregistrable namespaceの未知collectionが混在しても、安全に一致したcollectionを新規候補側へ巻き込みません
 - reject する主な条件:
   - namespace が短すぎる
   - authority domain が import 許可ルールに合わない

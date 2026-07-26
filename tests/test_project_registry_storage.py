@@ -553,17 +553,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:homeport", "nsid", "social.homeport.activitypub.announce")
-            parent_only_project = dict(project)
-            parent_only_project["input_nsids"] = []
-            parent_only_project["resolved_nsids"] = []
-            parent_only_project["recorded_lexicon_namespaces"] = []
-            self.assertEqual(
-                registry.safe_collection_member_namespace_match(
-                    [parent_only_project],
-                    ["social.homeport.activitypub.note"],
-                ),
-                ("proj:homeport", "member_seed_parent_namespace"),
-            )
             registry.add_manual_seed(project, "nsid", "social.homeport.activitypub.announce", source="test")
             project_record.save_project(conn, project)
 
@@ -599,14 +588,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.add_manual_seed(project, "nsid", "network.comind.memory", source="test")
             registry.add_manual_seed(project, "nsid", "network.comind.void.action", source="test")
             project_record.save_project(conn, project)
-
-            self.assertEqual(
-                registry.safe_collection_member_namespace_match(
-                    [project],
-                    ["network.comind.void.memory"],
-                ),
-                ("proj:comind", "member_seed_parent_namespace"),
-            )
 
             result = registry.import_collection_inventory_payload(
                 conn,
@@ -670,6 +651,61 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("link.latr.saved.external", [item["value"] for item in fetched["manual_seeds"]])
         self.assertIn("link.latr.saved.item", [item["value"] for item in fetched["manual_seeds"]])
 
+    def test_collection_import_partitions_safe_member_match_from_unmatched_siblings(self) -> None:
+        conn = registry.open_db()
+        try:
+            shelf = self.make_project("proj:orbita-shelf", "nsid", "social.orbita.shelf.item")
+            registry.add_manual_seed(shelf, "nsid", "social.orbita.shelf.item", source="test")
+            project_record.save_project(conn, shelf)
+
+            result = registry.import_collection_inventory_payload(
+                conn,
+                [
+                    {"collection": "social.orbita.shelf.nook", "count": 10, "recent_count": 2},
+                    {"collection": "social.orbita.event.message", "count": 4, "recent_count": 1},
+                    {"collection": "social.orbita.event", "count": 3, "recent_count": 1},
+                    {"collection": "social.orbita.forum.post", "count": 2, "recent_count": 0},
+                ],
+                execute=True,
+                create_unmatched=True,
+                source="test_collection_inventory",
+            )
+            fetched_shelf = project_record.fetch_project(conn, "proj:orbita-shelf")
+            self.assertEqual(
+                (result["created"], result["updated"], len(result["imported_project_keys"])),
+                (1, 1, 2),
+                result,
+            )
+            created_key = next(
+                key for key in result["imported_project_keys"] if key != "proj:orbita-shelf"
+            )
+            fetched_siblings = project_record.fetch_project(conn, created_key)
+        finally:
+            conn.close()
+
+        assert fetched_shelf is not None
+        assert fetched_siblings is not None
+        self.assertEqual(result["namespaces"], 1)
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["updated"], 1)
+        self.assertIn("social.orbita.shelf.nook", fetched_shelf["input_nsids"])
+        self.assertNotIn("social.orbita.event.message", fetched_shelf["input_nsids"])
+        self.assertEqual(fetched_shelf["collection_observations"][0]["count"], 10)
+        self.assertEqual(
+            fetched_shelf["collection_observations"][0]["members"],
+            ["social.orbita.shelf.nook"],
+        )
+        self.assertNotIn("social.orbita.shelf.nook", fetched_siblings["input_nsids"])
+        self.assertEqual(fetched_siblings["collection_observations"][0]["count"], 9)
+        self.assertEqual(
+            fetched_siblings["collection_observations"][0]["members"],
+            [
+                "social.orbita.event.message",
+                "social.orbita.event",
+                "social.orbita.forum.post",
+            ],
+        )
+
     def test_repair_db_attaches_missing_collection_observation_members(self) -> None:
         conn = registry.open_db()
         try:
@@ -716,13 +752,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:bakery", "service_url", "https://bakery.minomobi.com")
-            self.assertEqual(
-                registry.safe_collection_member_namespace_match(
-                    [project],
-                    ["com.minomobi.hoop.story.pulse"],
-                ),
-                (None, ""),
-            )
             registry.add_manual_seed(project, "service_url", "https://bakery.minomobi.com", source="test")
             project_record.save_project(conn, project)
 

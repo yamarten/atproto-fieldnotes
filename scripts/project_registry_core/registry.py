@@ -1292,36 +1292,6 @@ def sync_match_is_auto_attach_safe(match_kind: str) -> bool:
     }
 
 
-def safe_collection_member_namespace_match(
-    projects: list[dict[str, Any]],
-    members: list[str],
-) -> tuple[str | None, str]:
-    namespace_matches: dict[str, set[tuple[str, str]]] = {}
-    for member in members:
-        normalized_member = identifier_core.normalize_nsid(str(member or ""))
-        namespace = project_record.namespace_from_collection_nsid(normalized_member)
-        if not namespace:
-            continue
-        project_key, match_kind = find_project_key_for_nsid_seed(projects, normalized_member)
-        if not project_key or not sync_match_is_auto_attach_safe(match_kind):
-            namespace_matches.setdefault(namespace, set())
-            continue
-        namespace_matches.setdefault(namespace, set()).add((project_key, match_kind))
-    if not namespace_matches:
-        return None, ""
-    matched_pairs: set[tuple[str, str]] = set()
-    for matches in namespace_matches.values():
-        if len(matches) != 1:
-            return None, ""
-        matched_pairs.update(matches)
-    matched_project_keys = {project_key for project_key, _ in matched_pairs}
-    if len(matched_project_keys) != 1:
-        return None, ""
-    project_key = next(iter(matched_project_keys))
-    match_kinds = sorted({match_kind for _, match_kind in matched_pairs})
-    return project_key, f"member_{'+'.join(match_kinds)}"
-
-
 def build_collection_project_matchers(projects: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     namespace_pairs: list[tuple[str, str]] = []
     registrable_namespace_pairs: list[tuple[str, str]] = []
@@ -1375,11 +1345,30 @@ def build_nsid_seed_parent_namespace_lookup(projects: list[dict[str, Any]]) -> d
 
 
 def find_project_key_for_nsid_seed(projects: list[dict[str, Any]], nsid: str) -> tuple[str | None, str]:
+    namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(projects)
+    parent_seed_namespace_lookup = build_nsid_seed_parent_namespace_lookup(projects)
+    return _find_project_key_for_nsid_seed_with_lookups(
+        projects,
+        nsid,
+        namespace_lookup=namespace_lookup,
+        registrable_namespace_lookup=registrable_namespace_lookup,
+        service_host_lookup=service_host_lookup,
+        parent_seed_namespace_lookup=parent_seed_namespace_lookup,
+    )
+
+
+def _find_project_key_for_nsid_seed_with_lookups(
+    projects: list[dict[str, Any]],
+    nsid: str,
+    *,
+    namespace_lookup: dict[str, str],
+    registrable_namespace_lookup: dict[str, str],
+    service_host_lookup: dict[str, str],
+    parent_seed_namespace_lookup: dict[str, str],
+) -> tuple[str | None, str]:
     normalized = identifier_core.normalize_nsid(nsid)
     if not normalized:
         return None, ""
-    namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(projects)
-    parent_seed_namespace_lookup = build_nsid_seed_parent_namespace_lookup(projects)
     project_key = namespace_lookup.get(normalized)
     if project_key:
         return project_key, "exact_namespace"
@@ -4364,8 +4353,10 @@ def import_collection_inventory_payload(
     existing_projects = project_record.list_projects(conn)
     existing_keys = {str(project["project_key"]) for project in existing_projects}
     namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(existing_projects)
+    parent_seed_namespace_lookup = build_nsid_seed_parent_namespace_lookup(existing_projects)
 
-    aggregated: dict[str, dict[str, Any]] = {}
+    aggregated: dict[tuple[str, str, str], dict[str, Any]] = {}
+    registrable_namespaces: set[str] = set()
     rejected_entries: list[dict[str, Any]] = []
     for item in payload:
         if not isinstance(item, dict):
@@ -4380,8 +4371,25 @@ def import_collection_inventory_payload(
         if not domain_policy_core.authority_domain_allowed_for_import(authority_domain):
             rejected_entries.append({"collection": collection_nsid, "namespace": registrable_namespace, "reason": f"rejected_authority_domain:{authority_domain}"})
             continue
-        bucket = aggregated.setdefault(
+        registrable_namespaces.add(registrable_namespace)
+        matched_project_key, member_match_kind = _find_project_key_for_nsid_seed_with_lookups(
+            existing_projects,
+            collection_nsid,
+            namespace_lookup=namespace_lookup,
+            registrable_namespace_lookup=registrable_namespace_lookup,
+            service_host_lookup=service_host_lookup,
+            parent_seed_namespace_lookup=parent_seed_namespace_lookup,
+        )
+        safely_matched = bool(
+            matched_project_key and sync_match_is_auto_attach_safe(member_match_kind)
+        )
+        group_key = (
+            "existing" if safely_matched else "unmatched",
+            str(matched_project_key or "") if safely_matched else "",
             registrable_namespace,
+        )
+        bucket = aggregated.setdefault(
+            group_key,
             {
                 "collection": registrable_namespace,
                 "count": 0,
@@ -4389,6 +4397,8 @@ def import_collection_inventory_payload(
                 "min": str(item.get("min") or ""),
                 "max": str(item.get("max") or ""),
                 "members": [],
+                "matched_project_key": str(matched_project_key or "") if safely_matched else "",
+                "member_match_kinds": [],
             },
         )
         bucket["count"] += int(item.get("count") or 0)
@@ -4400,6 +4410,10 @@ def import_collection_inventory_payload(
         if item_max and (not bucket["max"] or item_max > bucket["max"]):
             bucket["max"] = item_max
         bucket["members"] = project_record.add_unique(bucket.get("members", []), collection_nsid)
+        if safely_matched:
+            bucket["member_match_kinds"] = project_record.add_unique(
+                bucket.get("member_match_kinds", []), member_match_kind
+            )
 
     created = 0
     updated = 0
@@ -4410,17 +4424,15 @@ def import_collection_inventory_payload(
     suggested_existing_matches = 0
     suggested_entries: list[dict[str, Any]] = []
 
-    for namespace, item in aggregated.items():
+    for (_group_kind, _group_project_key, namespace), item in aggregated.items():
         authority_domain = identifier_core.derive_authority_domain_from_namespace(namespace)
         registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
         service_host_key = domain_policy_core.root_domain(authority_domain)
         match_kind = ""
-        project_key, match_kind = safe_collection_member_namespace_match(
-            existing_projects,
-            [str(member) for member in item.get("members", [])],
-        )
+        project_key = str(item.get("matched_project_key") or "") or None
         if project_key:
-            match_kind = match_kind or "member_namespace"
+            member_match_kinds = sorted(str(value) for value in item.get("member_match_kinds", []) if value)
+            match_kind = f"member_{'+'.join(member_match_kinds)}" if member_match_kinds else "member_namespace"
         if not project_key:
             project_key = namespace_lookup.get(namespace)
         if project_key:
@@ -4506,11 +4518,6 @@ def import_collection_inventory_payload(
             )
         if execute:
             project_record.save_project(conn, project, enriched=False)
-            namespace_lookup[namespace] = project["project_key"]
-            if registrable_namespace:
-                registrable_namespace_lookup[registrable_namespace] = project["project_key"]
-            if service_host_key:
-                service_host_lookup[service_host_key] = project["project_key"]
         if is_new:
             created += 1
         else:
@@ -4528,7 +4535,7 @@ def import_collection_inventory_payload(
     return {
         "source": source,
         "entries": len(payload),
-        "namespaces": len(aggregated),
+        "namespaces": len(registrable_namespaces),
         "created": created,
         "updated": updated,
         "unmatched": unmatched,
