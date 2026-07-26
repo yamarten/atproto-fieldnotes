@@ -198,7 +198,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
   - QwenとGemmaの反復、model名を伏せた文章比較、重い5件、複製DBの8件比較は実測済み。project-level triageではGemmaが少数試用の条件を満たしたが、追加されたrepository analysisは固定`goat` material 10回でGemmaがJSON成功5・失敗5、Qwenが10/10成功だった。保存規則をすべて通る結果は両model 0件で、Qwenも全件に根拠不足の観測、6/10件にmaterial外collectionがあった。Gemmaは現構成の通常処理候補から外し、model、runtime、またはpromptの変更でこの入力を安定して通った時だけ未調整repositoryを加えて再評価する。正本試用へは進めずQwenを維持するが、Qwenのrepository解析内容も改善対象とする
   - 手動footprintはQwen 20 GB、Gemma 16 GB、Agents A1 9.7 GB。Agents A1の23時台の失敗は定期jobとの競合で、idle時には再現しなかった
   - model別promptは許容するが、別model用suffixの結果だけで足切りしない。suffixの差分維持が複雑になる場合は運用上の不利として扱う
-  - 既存`category=library`の一括再分類はmodel変更の確認に依存する。少数project試用と既定modelの判断が終わるまではbulk更新しない
+  - 既定modelはQwen維持と決定した。既存`category=library`の再分類はmodel変更から切り離し、現行category契約とoperator確認に基づく別作業として扱う
 
 未決定:
 
