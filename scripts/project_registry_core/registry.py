@@ -4755,18 +4755,29 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
     return result
 
 
-ATPROTO_EVIDENCE_MARKERS = (
+AUTHORITY_SERVICE_PAGE_ATPROTO_MARKERS = (
     "atproto",
-    "bluesky",
-    "lexicon",
+    "at protocol",
     "xrpc",
     "did:plc:",
     "com.atproto",
+    "personal data server",
 )
 
 
 def service_probe_looks_parked(result: dict[str, Any]) -> bool:
     return evaluation_core.service_probe_looks_parked(result)
+
+
+def authority_service_page_has_atproto_evidence(result: dict[str, Any]) -> bool:
+    page_text = "\n".join(
+        str(result.get(field) or "")
+        for field in ("title", "description", "html")
+    ).lower()
+    return (
+        any(marker in page_text for marker in AUTHORITY_SERVICE_PAGE_ATPROTO_MARKERS)
+        or re.search(r"\bpds\b", page_text) is not None
+    )
 
 
 def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:
@@ -5385,7 +5396,9 @@ def authority_service_probe_candidate_allowed(project: dict[str, Any], service_u
     is_parent_fallback = authority_service_probe_is_parent_fallback(project, normalized, result)
     if not is_authority_host and not is_parent_fallback:
         return False
-    if not is_parent_fallback and not authority_service_candidate_has_record_url(project, normalized):
+    has_record_url = authority_service_candidate_has_record_url(project, normalized)
+    has_page_atproto_evidence = is_authority_host and authority_service_page_has_atproto_evidence(result)
+    if not is_parent_fallback and not has_record_url and not has_page_atproto_evidence:
         return False
     observed_status = project_record.normalize_service_status(result.get("service_status"))
     if observed_status in {"dead", "unreleased", "unknown"}:

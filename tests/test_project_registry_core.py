@@ -1321,6 +1321,48 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://meyasuat.suibari.com", project["service_urls"])
         self.assertNotIn("https://meyasuat.suibari.com", project["supported_service_urls"])
 
+    def test_authority_service_probe_keeps_exact_host_with_atproto_page_evidence(self) -> None:
+        project = project_record.default_project_record("proj:studynext", "nsid", "app.studynext.cheer")
+        project["input_nsids"] = ["app.studynext.cheer"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "app.studynext.cheer"}]
+        project["authority_domains"] = ["studynext.app"]
+        result = self.probe_result(
+            '<title>StudyNext</title><meta name="description" content="Learning plans stored in your PDS">'
+            '<p>Data is stored with AT Protocol.</p>'
+        )
+        result["requested_url"] = "https://studynext.app"
+        result["final_url"] = "https://studynext.app"
+        result["service_status"] = "unverified"
+        result["service_status_confidence"] = "low"
+        result["service_status_evidence"] = ["http_200"]
+        project["service_verification_results"] = [
+            {**result, "lane": "authority", "html_extract": result["html"]}
+        ]
+
+        registry.apply_authority_service_probe_result(project, "https://studynext.app", result)
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://studynext.app", project["service_url_candidates"])
+        self.assertNotIn("https://studynext.app", project["service_urls"])
+        self.assertNotIn("https://studynext.app", project["supported_service_urls"])
+
+    def test_authority_service_probe_rejects_exact_host_without_atproto_page_evidence(self) -> None:
+        project = project_record.default_project_record("proj:authoritygeneric", "nsid", "com.example.post")
+        project["input_nsids"] = ["com.example.post"]
+        project["manual_seeds"] = [{"type": "nsid", "value": "com.example.post"}]
+        project["authority_domains"] = ["example.com"]
+        result = self.probe_result(
+            '<title>Example Consulting</title><meta name="description" content="Business consulting services">'
+            '<a href="https://bsky.app/profile/example.com">Bluesky</a>'
+        )
+        result["requested_url"] = "https://example.com"
+        result["final_url"] = "https://example.com"
+        result["service_status"] = "unverified"
+
+        registry.apply_authority_service_probe_result(project, "https://example.com", result)
+
+        self.assertNotIn("https://example.com", project["service_url_candidates"])
+
     def test_finalize_restores_authority_candidate_from_saved_probe_result(self) -> None:
         project = project_record.default_project_record("proj:authoritysavedprobe", "nsid", "com.suibari.meyasuat.answer")
         project["input_nsids"] = ["com.suibari.meyasuat.answer"]
