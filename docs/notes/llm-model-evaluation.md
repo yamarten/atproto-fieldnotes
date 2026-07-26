@@ -19,6 +19,10 @@ repository materialの誤分類と後段への過大な入力も複製DB確認�
 同じ根拠不十分な観測が保存前に除外され、完全に有効な結果は0回です。Gemmaは現構成の通常処理候補から外し、
 model、runtime、またはpromptの変更でこの問題を解消できた場合だけ再評価します。
 
+同じ`goat` materialをQwenでも10回反復すると、JSONは10/10成功しました。ただし全10件で根拠不十分な観測が
+除外され、6/10件ではmaterialにないcollectionも除外されたため、保存規則をすべて通る結果はQwenも0/10です。
+Qwen維持はrepository解析内容が十分良いという判断ではなく、Gemmaでだけ再現した全結果欠落を避ける判断です。
+
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
 までは試用へ進めません。
@@ -246,6 +250,11 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
    失敗3でした。診断付きの失敗3件はすべて`{`で始まり`}`で終わる819〜1,613 bytesの応答で、JSON error位置は
    503〜623でした。末尾切断ではなく、完成形に見える応答内部の構文違反です。成功5件もREADMEだけを根拠に
    `declares_cli_entrypoint`を確定する観測が除外され、保存規則をすべて通る結果は0/10でした。
+6. 同じmaterial、policy v8、Chat Completions、reasoningなし、最大出力2,048 tokenでQwenも5回ずつ2巡しました。
+   JSONは10/10成功しましたが、全件で`declares_importable_package`と`defines_lexicons`が根拠不足として除外され、
+   6/10件では1〜7個のmaterialにないcollectionも除外されました。保存規則をすべて通る結果は0/10です。
+   request累積時間はQwen 147.2秒、Gemma 53.2秒でした。Qwen 1巡目の最初の27.0秒を除いても平均13.4秒、
+   Gemmaは全10回平均5.3秒で、このrepository解析入力ではQwenの方が遅い結果です。
 
 共通処理の修正と診断追加は全537 unit testを通しています。現行v8のrepository解析から後段triageまで成功する実DB caseは
 `goat` 2回ですが、固定反復が上記の結果なので、v6の固定5件結果や通常`enrich`の成功を現行v8全体の安定性へ読み替えません。
@@ -256,12 +265,12 @@ Gemmaのstatusphere summaryはrepository metadataに根拠を持ちましたが�
 | --- | --- |
 | category | 固定21件は同点。複製DBではGemmaが2件優位 |
 | schema・identifier | Gemmaが優位 |
-| repository analysis | 調整用5件ではGemmaが保存規則3/5、Qwen 0/5。未知repositoryの成績ではない |
+| repository analysis | 固定`goat`ではGemma JSON 5/10、Qwen 10/10。完全有効は両方0/10。Gemmaは根拠外collection 0件、Qwenは6/10 resultで検出 |
 | 文章 | 明確な差なし |
 | 処理時間 | Qwenが優位。Gemmaは約1.3倍 |
 | 常駐memory | 手動観測ではGemmaが約4 GB小さい |
 | prompt保守 | 両modelで別suffixが必要 |
-| 正本試用 | 固定反復でJSON成功5/10、有効0/10のため実施しない。Qwenを維持 |
+| 正本試用 | Gemmaは固定反復でJSON成功5/10のため実施しない。Qwenを維持するがrepository解析品質は別途改善対象 |
 
 未完了:
 
