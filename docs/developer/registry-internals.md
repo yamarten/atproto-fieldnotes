@@ -711,6 +711,15 @@ public app surfaceに限り、beta等の文言だけでは認めません。こ�
 同fieldが新しい比較基準になります。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、
 内容を確認した上で個別に適用します。schema / serviceなど内容別の専用signalは設けません。
 
+`llm_output.name`は履歴ではなく、直近に成功したLLM reviewの現在提案です。成功したreviewを適用する時は、
+`name_candidates`に残る以前の`source=llm_output`候補を現在提案で置き換えます。collectorまたはLLM呼び出しが
+失敗して新しいoutputを適用できなかった場合は、直前の現在提案を維持します。operator edit、service title、
+resource title、repository名など、LLM以外をsourceとする名前候補はこの置換の対象外です。
+
+`finalize_project_shape()`も保存済み`llm_output.name`とLLM名候補を同期してから代表名を再評価します。このため、
+旧実装で複数のLLM名候補が蓄積したprojectは、通常の保存または`repair-db`で現在提案だけに補正されます。
+過去のLLM出力を調べる必要がある場合は、current stateの候補配列ではなくinvestigation runを参照します。
+
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です

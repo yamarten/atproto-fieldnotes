@@ -2635,6 +2635,34 @@ def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None
     add_candidate_text(project, "name", normalized, source)
 
 
+def sync_current_llm_name_candidate(project: dict[str, Any]) -> None:
+    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
+    current_name = naming_core.normalize_name_candidate(str(llm_output.get("name") or ""))
+    retained = [
+        dict(item)
+        for item in project.get("name_candidates", [])
+        if isinstance(item, dict) and str(item.get("source") or "") != "llm_output"
+    ]
+    current_candidate = next(
+        (
+            dict(item)
+            for item in project.get("name_candidates", [])
+            if isinstance(item, dict)
+            and str(item.get("source") or "") == "llm_output"
+            and naming_core.normalize_name_candidate(str(item.get("value") or "")) == current_name
+        ),
+        None,
+    )
+    project["name_candidates"] = retained
+    if not current_name:
+        return
+    if current_candidate is not None:
+        current_candidate["value"] = current_name
+        project["name_candidates"].append(current_candidate)
+        return
+    add_name_candidate(project, current_name, "llm_output")
+
+
 def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
     origins: set[str] = set()
     nsids = project_record.unique_list(
@@ -7488,9 +7516,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
     apply_repository_link_assessments(project, payload, evidence)
-    name = str(payload.get("name") or "").strip()
-    if name:
-        add_name_candidate(project, name, "llm_output")
+    sync_current_llm_name_candidate(project)
     if payload.get("tagline"):
         explicit_provisional = payload.get("tagline_is_provisional")
         resolved_provisional = True if explicit_provisional is None else bool(explicit_provisional)
@@ -9831,6 +9857,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)
+    sync_current_llm_name_candidate(project)
     chosen_name = choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name

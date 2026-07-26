@@ -572,6 +572,53 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
 
         self.assertEqual(registry.choose_best_project_name(project), "mastrojs/atproto")
 
+    def test_successful_llm_review_replaces_previous_llm_name_candidate(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "Orbita Shelf", "source": "llm_output", "added_at": "2026-07-18T00:00:00+00:00"},
+                {"value": "orbita", "source": "github_repo_name:example/orbita"},
+            ],
+            name="Orbita Shelf",
+        )
+        project["llm_output"] = {"name": "Orbita Shelf"}
+
+        registry.apply_llm_output(project, {"name": "Orbita"}, {}, {})
+        finalized = registry.finalize_project_shape(project)
+
+        self.assertEqual(
+            [
+                item["value"]
+                for item in finalized["name_candidates"]
+                if item.get("source") == "llm_output"
+            ],
+            ["Orbita"],
+        )
+        self.assertEqual(finalized["name"], "Orbita")
+        self.assertIn("orbita", [item["value"] for item in finalized["name_candidates"]])
+
+    def test_finalize_repairs_stale_llm_name_candidates_from_current_output(self) -> None:
+        project = self.project_with_candidates(
+            [
+                {"value": "Old Guess", "source": "llm_output"},
+                {"value": "Current Name", "source": "llm_output", "added_at": "2026-07-25T00:00:00+00:00"},
+                {"value": "Manual Name", "source": "operator_edit"},
+            ],
+            name="Manual Name",
+        )
+        project["llm_output"] = {"name": "Current Name"}
+
+        finalized = registry.finalize_project_shape(project)
+
+        self.assertEqual(
+            [
+                item["value"]
+                for item in finalized["name_candidates"]
+                if item.get("source") == "llm_output"
+            ],
+            ["Current Name"],
+        )
+        self.assertEqual(finalized["name"], "Manual Name")
+
     def test_service_title_tagline_is_trimmed_for_name_selection(self) -> None:
         project = self.project_with_candidates(
             [
