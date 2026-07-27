@@ -493,6 +493,27 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
         self.assertEqual(filtered, payload)
         self.assertEqual(stats["cutoff_source"], "lookback")
 
+    def test_collection_filter_all_history_reprocesses_known_identifier(self) -> None:
+        payload = [{"collection": "site.filae.chorus.note", "max": "2026-05-01T00:00:00+00:00"}]
+        projects = [{"input_nsids": ["site.filae.chorus.note"]}]
+
+        incremental, incremental_stats = source_sync.filter_sync_collection_inventory_payload(
+            payload,
+            projects,
+            lookback_days=7,
+        )
+        all_history, all_history_stats = source_sync.filter_sync_collection_inventory_payload(
+            payload,
+            projects,
+            lookback_days=7,
+            all_history=True,
+        )
+
+        self.assertEqual(incremental, [])
+        self.assertEqual(incremental_stats["skipped_known"], 1)
+        self.assertEqual(all_history, payload)
+        self.assertEqual(all_history_stats["skipped_known"], 0)
+
 
 class ProjectRegistryNameCandidateTest(unittest.TestCase):
     def test_pure_naming_helpers_normalize_titles_and_sources(self) -> None:
@@ -1262,7 +1283,7 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
         self.assertNotIn("https://release.freemix.fm", project["llm_source"]["evidence"]["failed_service_urls"])
         evaluated_service_urls = [
             item["candidate"]["value"]
-            for item in project["trust_graph"]["evaluations"]
+            for item in project.get("trust_graph", {}).get("evaluations", [])
             if item.get("candidate", {}).get("kind") == "service_url"
         ]
         self.assertNotIn("https://release.freemix.fm", evaluated_service_urls)
@@ -2846,14 +2867,10 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(payload["first_creator_overlap"]["collection_first_record_creator_dids"], ["did:plc:shared"])
         self.assertNotIn("collection_first_record_creator_dids", payload["source_pair_candidate"]["reasons"])
 
-    def test_first_creator_details_use_observed_collection_member_case(self) -> None:
+    def test_first_creator_details_use_input_collection_case(self) -> None:
         source = project_record.default_project_record("proj:sourcefirstcreatorcase", "nsid", "app.alpha.record")
         source["name"] = "Alpha Project"
-        source["input_nsids"] = ["app.alpha.record"]
-        source["collection_observations"] = [{
-            "collection": "app.alpha",
-            "members": ["app.alpha.recordMixed"],
-        }]
+        source["input_nsids"] = ["app.alpha.record", "app.alpha.recordMixed"]
         target = project_record.default_project_record("proj:targetfirstcreatorcase", "nsid", "net.beta.entry")
         target["name"] = "Beta Project"
         target["input_nsids"] = ["net.beta.entry"]

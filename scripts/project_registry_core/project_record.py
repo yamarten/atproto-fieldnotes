@@ -1015,7 +1015,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["promotion_priority_adjustments"] = normalize_promotion_priority_adjustments(
         list(defaults.get("promotion_priority_adjustments") or [])
     )
-    defaults["collection_observations"] = [dict(item) for item in defaults.get("collection_observations", []) if isinstance(item, dict)]
+    defaults["collection_observations"] = [
+        {key: value for key, value in item.items() if key != "members"}
+        for item in defaults.get("collection_observations", [])
+        if isinstance(item, dict)
+    ]
     defaults["lexicon_schema_samples"] = [dict(item) for item in defaults.get("lexicon_schema_samples", []) if isinstance(item, dict)]
     defaults["recent_record_samples"] = [dict(item) for item in defaults.get("recent_record_samples", []) if isinstance(item, dict)]
     defaults["investigation_log"] = list(defaults.get("investigation_log") or [])

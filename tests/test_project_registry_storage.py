@@ -579,7 +579,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["updated"], 1)
         self.assertIn("social.homeport.activitypub.note", fetched["input_nsids"])
-        self.assertIn("social.homeport.activitypub.note", [item["value"] for item in fetched["manual_seeds"]])
+        self.assertNotIn("social.homeport.activitypub.note", [item["value"] for item in fetched["manual_seeds"]])
 
     def test_collection_import_attaches_by_manual_seed_parent_namespace(self) -> None:
         conn = registry.open_db()
@@ -612,7 +612,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["updated"], 1)
         self.assertIn("network.comind.void.memory", fetched["input_nsids"])
-        self.assertIn("network.comind.void.memory", [item["value"] for item in fetched["manual_seeds"]])
+        self.assertNotIn("network.comind.void.memory", [item["value"] for item in fetched["manual_seeds"]])
 
     def test_collection_import_attaches_all_aggregated_members(self) -> None:
         conn = registry.open_db()
@@ -645,11 +645,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         assert fetched is not None
         self.assertEqual(result["created"], 1)
-        self.assertEqual(fetched["collection_observations"][0]["members"], ["link.latr.saved.external", "link.latr.saved.item"])
+        self.assertEqual(fetched["collection_observations"][0]["collection"], "link.latr.saved")
+        self.assertNotIn("members", fetched["collection_observations"][0])
         self.assertIn("link.latr.saved.external", fetched["input_nsids"])
         self.assertIn("link.latr.saved.item", fetched["input_nsids"])
-        self.assertIn("link.latr.saved.external", [item["value"] for item in fetched["manual_seeds"]])
-        self.assertIn("link.latr.saved.item", [item["value"] for item in fetched["manual_seeds"]])
+        self.assertEqual(fetched["manual_seeds"], [])
 
     def test_collection_import_partitions_safe_member_match_from_unmatched_siblings(self) -> None:
         conn = registry.open_db()
@@ -671,47 +671,41 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 source="test_collection_inventory",
             )
             fetched_shelf = project_record.fetch_project(conn, "proj:orbita-shelf")
-            self.assertEqual(
-                (result["created"], result["updated"], len(result["imported_project_keys"])),
-                (1, 1, 2),
-                result,
-            )
-            created_key = next(
-                key for key in result["imported_project_keys"] if key != "proj:orbita-shelf"
-            )
-            fetched_siblings = project_record.fetch_project(conn, created_key)
+            created_projects = [
+                project_record.fetch_project(conn, key)
+                for key in result["imported_project_keys"]
+                if key != "proj:orbita-shelf"
+            ]
         finally:
             conn.close()
 
         assert fetched_shelf is not None
-        assert fetched_siblings is not None
-        self.assertEqual(result["namespaces"], 1)
-        self.assertEqual(result["created"], 1)
+        self.assertTrue(all(project is not None for project in created_projects))
+        self.assertEqual(result["namespaces"], 4)
+        self.assertEqual(result["created"], 3)
         self.assertEqual(result["updated"], 1)
+        self.assertEqual(len(result["imported_project_keys"]), 4)
         self.assertIn("social.orbita.shelf.nook", fetched_shelf["input_nsids"])
         self.assertNotIn("social.orbita.event.message", fetched_shelf["input_nsids"])
         self.assertEqual(fetched_shelf["collection_observations"][0]["count"], 10)
         self.assertEqual(
-            fetched_shelf["collection_observations"][0]["members"],
-            ["social.orbita.shelf.nook"],
+            {tuple(project["input_nsids"]) for project in created_projects if project is not None},
+            {
+                ("social.orbita.event.message",),
+                ("social.orbita.event",),
+                ("social.orbita.forum.post",),
+            },
         )
-        self.assertNotIn("social.orbita.shelf.nook", fetched_siblings["input_nsids"])
-        self.assertEqual(fetched_siblings["collection_observations"][0]["count"], 9)
-        self.assertEqual(
-            fetched_siblings["collection_observations"][0]["members"],
-            [
-                "social.orbita.event.message",
-                "social.orbita.event",
-                "social.orbita.forum.post",
-            ],
+        self.assertTrue(
+            all("members" not in project["collection_observations"][0] for project in created_projects if project is not None)
         )
 
-    def test_repair_db_attaches_missing_collection_observation_members(self) -> None:
+    def test_repair_db_removes_legacy_collection_members_and_import_manual_seed_role(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:latr", "nsid", "link.latr.saved.external")
-            registry.add_manual_seed(project, "nsid", "link.latr.saved.external", source="collection_inventory_import")
-            project["collection_observations"] = [
+            registry.add_manual_seed(project, "nsid", "link.latr.saved.external", source="")
+            legacy_observations = [
                 {
                     "collection": "link.latr",
                     "count": 13,
@@ -719,10 +713,18 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                     "min": "2026-07-01T00:00:00+00:00",
                     "max": "2026-07-05T00:00:00+00:00",
                     "members": ["link.latr.saved.external", "link.latr.saved.item"],
-                    "source": "collection_inventory_import",
+                    "source": "collection_inventory_url:https://collections.example/inventory.json",
                 }
             ]
             project_record.save_project(conn, project)
+            row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:latr",)).fetchone()
+            state = json.loads(str(row["state_json"]))
+            state.setdefault("ops", {})["collection_observations"] = legacy_observations
+            conn.execute(
+                "UPDATE projects SET state_json = ? WHERE project_key = ?",
+                (json.dumps(state, ensure_ascii=False, sort_keys=True), "proj:latr"),
+            )
+            conn.commit()
             dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
             before = project_record.fetch_project(conn, "proj:latr")
             executed = registry.audit_and_repair_identifiers(conn, execute=True)
@@ -732,21 +734,118 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         assert before is not None
         assert after is not None
-        self.assertEqual(dry_run["collection_member_seed_repair_count"], 1)
+        self.assertEqual(dry_run["collection_observation_member_cleanup_count"], 2)
+        self.assertEqual(dry_run["collection_import_manual_seed_cleanup_count"], 1)
         self.assertNotIn("link.latr.saved.item", before["input_nsids"])
-        self.assertEqual(executed["collection_member_seed_repair_count"], 1)
-        self.assertIn("link.latr.saved.item", after["input_nsids"])
-        self.assertIn("link.latr.saved.item", [item["value"] for item in after["manual_seeds"]])
+        self.assertEqual(executed["collection_observation_member_cleanup_count"], 2)
+        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 1)
+        self.assertNotIn("link.latr.saved.item", after["input_nsids"])
+        self.assertEqual(after["manual_seeds"], [])
+        self.assertNotIn("members", after["collection_observations"][0])
 
-        stable = copy.deepcopy(after)
+    def test_collection_all_history_rebuilds_legacy_observation_by_parent_namespace(self) -> None:
+        payload = [
+            {"collection": "site.filae.newsletter.edition", "count": 10, "max": "2026-05-01T00:00:00+00:00"},
+            {"collection": "site.filae.chorus.note", "count": 4, "max": "2026-05-02T00:00:00+00:00"},
+            {"collection": "site.filae.chorus.rating", "count": 3, "max": "2026-05-03T00:00:00+00:00"},
+            {"collection": "site.filae.agora.post", "count": 2, "max": "2026-05-04T00:00:00+00:00"},
+        ]
+        conn = registry.open_db()
+        try:
+            filae = self.make_project("proj:filiae", "nsid", "site.filae.newsletter.edition")
+            registry.add_manual_seed(
+                filae,
+                "nsid",
+                "site.filae.newsletter.edition",
+                source="",
+            )
+            project_record.save_project(conn, filae)
+            row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:filiae",)).fetchone()
+            state = json.loads(str(row["state_json"]))
+            state.setdefault("ops", {})["collection_observations"] = [{
+                "collection": "site.filae",
+                "count": 19,
+                "recent_count": 0,
+                "min": "2026-04-01T00:00:00+00:00",
+                "max": "2026-05-04T00:00:00+00:00",
+                "members": [item["collection"] for item in payload],
+                "source": "collection_inventory_url:https://collections.example/inventory.json",
+            }]
+            conn.execute(
+                "UPDATE projects SET state_json = ? WHERE project_key = ?",
+                (json.dumps(state, ensure_ascii=False, sort_keys=True), "proj:filiae"),
+            )
+
+            orphan = self.make_project("proj:orphan", "nsid", "social.orphan.old.item")
+            registry.add_manual_seed(orphan, "nsid", "social.orphan.old.item", source="collection_inventory_import")
+            project_record.save_project(conn, orphan)
+            row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:orphan",)).fetchone()
+            state = json.loads(str(row["state_json"]))
+            state.setdefault("ops", {})["collection_observations"] = [{
+                "collection": "social.orphan.old",
+                "count": 1,
+                "recent_count": 0,
+                "members": ["social.orphan.old.item"],
+                "source": "collection_inventory_import",
+            }]
+            conn.execute(
+                "UPDATE projects SET state_json = ? WHERE project_key = ?",
+                (json.dumps(state, ensure_ascii=False, sort_keys=True), "proj:orphan"),
+            )
+            conn.commit()
+
+            with mock.patch.object(source_sync, "fetch_collection_inventory", return_value=payload):
+                dry_run = source_sync.sync_collection_inventory(
+                    conn,
+                    source_url="https://collections.example/inventory.json",
+                    execute=False,
+                    create_unmatched=True,
+                    lookback_days=10,
+                    all_history=True,
+                )
+                before = project_record.list_projects(conn)
+                executed = source_sync.sync_collection_inventory(
+                    conn,
+                    source_url="https://collections.example/inventory.json",
+                    execute=True,
+                    create_unmatched=True,
+                    lookback_days=10,
+                    all_history=True,
+                )
+            after = project_record.list_projects(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual((dry_run["created"], dry_run["updated"]), (2, 1))
+        self.assertEqual(len(before), 2)
+        self.assertEqual((executed["created"], executed["updated"]), (2, 1))
+        self.assertEqual(executed["collection_observation_rebuild_project_count"], 2)
+        self.assertEqual(executed["collection_observation_cleanup_count"], 2)
+        self.assertEqual(executed["collection_observation_member_cleanup_count"], 5)
+        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 2)
+        self.assertEqual(len(after), 4)
+        by_nsids = {
+            tuple(project["input_nsids"]): project
+            for project in after
+            if any(nsid.startswith("site.filae.") for nsid in project["input_nsids"])
+        }
         self.assertEqual(
-            registry.add_collection_observation_member_seeds(
-                after,
-                default_source="collection_observation_repair",
-            ),
-            0,
+            set(by_nsids),
+            {
+                ("site.filae.newsletter.edition",),
+                ("site.filae.chorus.note", "site.filae.chorus.rating"),
+                ("site.filae.agora.post",),
+            },
         )
-        self.assertEqual(after, stable)
+        self.assertEqual(
+            by_nsids[("site.filae.newsletter.edition",)]["collection_observations"][0]["collection"],
+            "site.filae.newsletter",
+        )
+        for project in after:
+            self.assertEqual(project["manual_seeds"], [])
+            self.assertTrue(all("members" not in item for item in project["collection_observations"]))
+        orphan_after = next(project for project in after if project["project_key"] == "proj:orphan")
+        self.assertEqual(orphan_after["collection_observations"], [])
 
     def test_collection_import_does_not_attach_by_service_host_family(self) -> None:
         conn = registry.open_db()

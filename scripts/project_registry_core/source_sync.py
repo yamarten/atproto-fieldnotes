@@ -105,13 +105,6 @@ def known_collection_nsids(projects: list[dict[str, Any]]) -> set[str]:
             normalized = identifier_core.normalize_nsid(str(seed.get("value") or ""))
             if normalized:
                 known.add(normalized)
-        for observation in project.get("collection_observations", []):
-            if not isinstance(observation, dict):
-                continue
-            for member in observation.get("members", []):
-                normalized = identifier_core.normalize_nsid(str(member or ""))
-                if normalized:
-                    known.add(normalized)
     return known
 
 
@@ -136,7 +129,7 @@ def filter_sync_collection_inventory_payload(
         if not collection_nsid:
             skipped_invalid_collection += 1
             continue
-        if collection_nsid in known_nsids:
+        if not all_history and collection_nsid in known_nsids:
             skipped_known += 1
             continue
         activity_at = parse_iso(str(item.get("max") or item.get("min") or ""))
@@ -176,7 +169,7 @@ def refresh_known_collection_activity(
         for project in existing_projects
         if str(project.get("project_key") or "")
     }
-    aggregated: dict[str, dict[str, Any]] = {}
+    aggregated: dict[tuple[str, str], dict[str, Any]] = {}
     for item in payload:
         if not isinstance(item, dict):
             continue
@@ -184,16 +177,20 @@ def refresh_known_collection_activity(
         namespace = namespace_from_collection_nsid(collection_nsid)
         if not namespace:
             continue
-        registrable_namespace = registrable_namespace_from_namespace(namespace) or namespace
+        project_key = namespace_lookup.get(collection_nsid) or find_project_key_by_collection_namespace(
+            existing_projects,
+            collection_nsid,
+        )
+        if not project_key:
+            continue
         bucket = aggregated.setdefault(
-            registrable_namespace,
+            (project_key, namespace),
             {
-                "collection": registrable_namespace,
+                "collection": namespace,
                 "count": 0,
                 "recent_count": 0,
                 "min": str(item.get("min") or ""),
                 "max": str(item.get("max") or ""),
-                "members": [],
             },
         )
         bucket["count"] += int(item.get("count") or 0)
@@ -204,16 +201,12 @@ def refresh_known_collection_activity(
             bucket["min"] = item_min
         if item_max and (not bucket["max"] or item_max > bucket["max"]):
             bucket["max"] = item_max
-        bucket["members"] = add_unique(bucket.get("members", []), collection_nsid)
 
     refreshed_project_keys: list[str] = []
     reactivated_project_keys: list[str] = []
     changed_namespaces = 0
     now = dt.datetime.now(dt.timezone.utc)
-    for namespace, item in aggregated.items():
-        project_key = namespace_lookup.get(namespace) or find_project_key_by_collection_namespace(existing_projects, namespace)
-        if not project_key:
-            continue
+    for (project_key, namespace), item in aggregated.items():
         project = projects_by_key.get(project_key)
         if not project:
             continue
@@ -227,7 +220,6 @@ def refresh_known_collection_activity(
             int(item.get("recent_count") or 0),
             str(item.get("min") or ""),
             str(item.get("max") or ""),
-            tuple(sorted(item.get("members", []))),
         )
         previous_signature = None
         if previous is not None:
@@ -236,7 +228,6 @@ def refresh_known_collection_activity(
                 int(previous.get("recent_count") or 0),
                 str(previous.get("min") or ""),
                 str(previous.get("max") or ""),
-                tuple(sorted(previous.get("members", []))) if isinstance(previous.get("members", []), list) else (),
             )
         if current_signature == previous_signature:
             continue
@@ -319,12 +310,21 @@ def sync_collection_inventory(
         if (parsed := parse_iso_datetime(str(item.get("max") or item.get("min") or ""))) is not None
     ]
     newest_timestamp = max(payload_timestamps) if payload_timestamps else None
-    activity_refresh = refresh_known_collection_activity(
-        conn,
-        processing_payload,
-        execute=execute,
-        source=f"collection_inventory_url:{source_url}",
-        inactivity_days=lookback_days,
+    activity_refresh = (
+        {
+            "activity_refreshed_namespace_count": 0,
+            "activity_refreshed_project_count": 0,
+            "reactivated_project_count": 0,
+            "reactivated_project_keys": [],
+        }
+        if all_history
+        else refresh_known_collection_activity(
+            conn,
+            processing_payload,
+            execute=execute,
+            source=f"collection_inventory_url:{source_url}",
+            inactivity_days=lookback_days,
+        )
     )
     if not filtered_payload:
         state_updated = bool(execute and incremental and newest_timestamp is not None and not truncated)
@@ -360,7 +360,8 @@ def sync_collection_inventory(
         execute=execute,
         create_unmatched=create_unmatched,
         source=f"collection_inventory_url:{source_url}",
-        merge_existing_observations=True,
+        merge_existing_observations=not all_history,
+        rebuild_collection_observations=all_history,
     )
     if progress:
         progress(2, 2, {"kind": "source_items", "source": "collections", "entry_count": len(filtered_payload)})

@@ -769,20 +769,25 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 ### `sync-collections`
 
 - まず inventory API 全件を取得します
-- 既知 collection の activity refresh は毎回やります
+- 通常の増分実行では、既知 collection の activity refresh を import 対象の選別とは別に毎回行います
   - `count`
   - `recent_count`
   - `min`
   - `max`
 - import 対象にするのは:
   - collection NSID が正常
-  - 既知 NSID ではない
+  - 通常の増分実行では既知 NSID ではない
   - 最新活動の `max` が watermark より新しい
   - watermark が無い初回は `lookback_days` 以内
-- import 前にfull collectionごとに既存projectとの安全な一致を判定します
+- `--all-history`ではwatermarkと既知判定を外し、先行activity refreshを行わず、保存済みcollection stateを現在の全payloadから再構築します
+  - `collection_inventory_import`と旧`collection_inventory_url:*`由来のobservationを一旦除去します
+  - legacy observationのmember一覧にだけ由来が残る旧manual seedも、通常のoperator confirmと区別してmanual roleを外します
+  - payloadから消えた旧observationも再構築時の削除対象です
+- import 前にfull collectionごとに既存projectとの一致を判定します
   - `exact_namespace` / `exact_namespace_scan` / `seed_parent_namespace`で一致したcollectionはtarget projectごとに集約します
-  - 安全に一致しないcollectionだけをregistrable namespace単位の新規project候補にまとめます
-  - 同じregistrable namespaceの未知collectionが混在しても、安全に一致したcollectionを新規候補側へ巻き込みません
+  - 自動attach対象として一致しないcollectionは、直近の親namespace単位の新規project候補にまとめます
+  - 同じregistrable namespaceでも、`site.filae.chorus.*`と`site.filae.agora.*`のように親namespaceが異なるcollectionは別候補です
+  - 既存projectへ一致したcollectionを新規候補側へ巻き込みません
 - reject する主な条件:
   - namespace が短すぎる
   - authority domain が import 許可ルールに合わない
@@ -794,9 +799,10 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   5. `service_host_family`
 - 自動 attach するのは 1、2、3 だけです
 - 4 と 5 は `suggested_project_key` に落とし、既存 project に自動では吸いません
-- 代表collectionだけでなく、同じ集約bucket内で既存 seed と同じ3-label以上の親namespaceを持つmember collectionもNSID seedへ同期します
-  - `link.latr.saved.external` と `link.latr.saved.item` はどちらも `link.latr.saved` familyとして同じprojectに残します
-  - registrable namespaceが同じだけのmemberは、この補完条件ではseed化しません
+- bucket内の全full collectionを`input_nsid` candidateとして保存します。collection importは`manual_seed`を作りません
+- 代表collectionは新規projectの初期`seed_value`選択だけに使い、identifier化の範囲を制限しません
+- `collection_observations`は親namespace単位の`count` / `recent_count` / `min` / `max`を保存し、member一覧は永続化しません
+- `--all-history`のsummaryは`collection_observation_rebuild_project_count`、observation/member/manual seedの各cleanup件数を返します
 
 ### `sync-github-search`
 
@@ -1245,7 +1251,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
   - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
 - collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
   - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
-  - 照会collectionは保存済みNSIDに加え、collection observationの`members`に残るcase-preservingなNSIDも使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
+  - 照会collectionには保存済みのcase-preservingなNSID identifierを使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
   - CLIからheuristicを判定へ含める導線はありません
 
@@ -1316,7 +1322,8 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 - `normalized_project_count`: `project_from_row()` で復元したpayloadを `ensure_project_shape()` に通しただけでJSON payloadが変わるproject数。
 - `pruned_project_count`: `finalize_project_shape()` 後のpayload、developer account/handle補正、またはatproto contribution保存値補正で、保存対象payloadが変わるproject数。名前は歴史的なものですが、project削除数や削除row数ではありません。
-- `collection_member_seed_repair_count`: collection observationのmember seed補完件数。
+- `collection_observation_member_cleanup_count`: legacy collection observationから削除するmember値の件数。
+- `collection_import_manual_seed_cleanup_count`: collection import由来なのにmanual seedとして保存された旧identifierの補正件数。
 - `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed `source_repository` に存在しない旧shapeを補正する件数。
 - `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に保存された旧shapeの検出件数。payload内のdeveloper account listとidentifier rowの両方を数えます。
 - `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
@@ -1324,7 +1331,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
-current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのmember seed補完は未登録memberだけを追加し、補完済みmemberへ`add_manual_seed()`を再適用しません。
+current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのlegacy member一覧は削除し、collection import由来の旧manual seedはinput NSIDを残したままmanual roleだけを外します。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。

@@ -94,7 +94,7 @@
   - 保存済みservice evidenceをcurrent stateへ再適用する時は、requested/final URLからsame-site判定を現行policyで再計算する。investigation runの履歴payloadは変更しない
   - `repair-db` dry-runはcurrent service projectionの変更件数とbefore/after例を報告する
   - scalar列の`service_status`だけが変わる場合も`repair-db --execute`の保存対象にする
-  - collection observationのmember seed補完は未登録memberだけに作用し、補完0件のprojectへprimary NSIDやservice候補を再生成しない
+  - collection syncはfull NSIDを既存projectと照合してから親namespace単位で集約し、bucket内の全NSIDをcandidate inputとして保存する。observationは活動統計だけを保持し、member一覧や自動取得NSIDのmanual seed roleは保存しない
   - `profile_json.app.links`は保存時にcanonical identifierとconfirmed resourceから毎回再構築し、既存の派生linkを入力として引き継がない
   - `backfill-derived-identifiers`はflat runtime viewが失ったroleを不足rowと誤認するため削除。normalized identifierは無変更roundtripを維持する
   - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
