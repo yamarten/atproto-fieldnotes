@@ -273,6 +273,8 @@ path名の名指しだけでは信頼性が低いため、将来的には次の�
 - page title、meta description、本文のdocs/login/support/statusらしさ
 - service root、app shell、auth entry、docs/support/status pageの役割分離
 - 手動seed、operator decision、過去probe結果との整合
+- Webページを持たないアプリをservice URL必須にせず表す契約と、App Store、ブラウザ拡張ストア、ダウンロードページ、本体入口から直接辿れない公式・関連ページなどを配布・参考URLとして手動登録するrole
+- legacy `manual_seed` / `seed` roleをfactual confirmed identifierへ移行し、trust anchorからも削除するcleanup
 
 非目標として、pathがあるURLを一律に落とすことや、`/about`などの名前だけで恒久的に分類を確定することは避けます。
 

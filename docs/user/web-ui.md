@@ -38,7 +38,9 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 ## Projects
 
-`Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてからシードとして登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加したシードは、その登録プロジェクトへ紐づきます。
+`Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてからシードとして登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加したシードは、その登録プロジェクトへ紐づきます。同じ値がすでにシードとして紐づいていても再適用でき、保存済みの旧データに対応するサービス・ソースリポジトリroleが無ければ補います。
+
+サービスURLのパスは保持します。`https://example.com/tool-a`と`https://example.com/tool-b`を別プロジェクトの入口として登録できます。operatorが明示したservice URLには、path名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除し、親URLに対するguardは残します。
 
 フィルターで次を絞り込めます。
 
@@ -66,7 +68,7 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 詳細画面から次を実行できます。
 
-- 単体`enrich`、追跡状態の変更、手動シードの追加
+- 単体`enrich`、追跡状態の変更、シードの追加・再適用
 - 識別子候補の採用・除外、識別子の再付着防止・保留、関係の除外・保留
 - 紹介候補の期限付き保留、候補の優先度を下げる手動判断、分割、別プロジェクト指定の解除、マージ候補の比較
 - profileの`name`、`introduced_url`、利用者向け`notes`のプレビュー・保存

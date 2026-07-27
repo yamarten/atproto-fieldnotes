@@ -108,9 +108,13 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
-- `manual_seed` と未clearの `confirm_identifier` は graph 外の operator anchor です
+- `manual_seed` はlegacyなgraph外anchor、未clearの `confirm_identifier` はgraph外のoperator anchorです
 - `repo_url` の `manual_seed` は、active な confirmed `source_repository` に残っている場合だけ trust graph anchor にします。manual repo seed は confirmed `source_repository` として保存し、旧データにある「manual seed だが source repository は candidate」の形は `repair-db` で補正します。defer/block された repo seed は confirmed repo に戻さず、anchor にもしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
+
+`manual_seed`という名前は現行データの由来を正確に表しません。過去の外部syncもこのroleを生成しており、複数入力を保持するlegacy roleとoperator trustが混在しています。現行のoperator `add-seed`はservice/repositoryのfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier` decisionへ記録します。このdecisionはcandidateだった履歴ではなくoperator判断を表します。同一seedの再適用は、legacy `manual_seed`だけが残った値のfactual roleとdecisionを補うidempotent repairとしても使えます。`manual_seed`をanchorとする分岐は既存データ移行中の契約であり、最終的にはguardされていない対象roleのconfirmed identifierへ置き換えます。
+
+service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 

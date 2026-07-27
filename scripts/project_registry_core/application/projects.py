@@ -8,6 +8,26 @@ from .. import identifiers
 from project_registry_core import project_record
 
 
+def _clear_exact_identifier_guards(project: dict[str, Any], identifier_type: str, value: str) -> None:
+    normalized = project_record.normalize_blocked_identifier_value(identifier_type, value)
+    project["blocked_identifiers"] = [
+        item
+        for item in project_record.normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
+        if not (
+            str(item.get("type") or "") == identifier_type
+            and str(item.get("value") or "") == normalized
+        )
+    ]
+    project["deferred_identifiers"] = [
+        item
+        for item in project_record.normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if not (
+            str(item.get("type") or "") == identifier_type
+            and str(item.get("value") or "") == normalized
+        )
+    ]
+
+
 def add_seed(
     conn: sqlite3.Connection,
     *,
@@ -16,12 +36,69 @@ def add_seed(
     project_key: str | None = None,
 ) -> dict[str, Any]:
     resolved_type = core.detect_seed_type(seed, seed_type)
-    project = core.ensure_project_for_seed(conn, resolved_type, seed, project_key=project_key)
+    project = core.ensure_project_for_seed(
+        conn,
+        resolved_type,
+        seed,
+        project_key=project_key,
+        commit=False,
+    )
+    normalized_value = project_record.canonical_seed_value(resolved_type, seed)
+    if resolved_type in {"service_url", "repo_url"}:
+        _clear_exact_identifier_guards(project, resolved_type, normalized_value)
+    elif core.identifier_is_blocked(project, resolved_type, normalized_value) or core.identifier_is_deferred(
+        project, resolved_type, normalized_value
+    ):
+        conn.rollback()
+        raise ValueError("guarded identifier cannot be added as a seed")
+    confirmed_role = ""
+    if resolved_type == "service_url":
+        core.confirm_service_url(project, normalized_value, operator_override=True)
+        origin = core.url_origin(normalized_value)
+        project_record.set_service_url_candidate_values(
+            project,
+            [
+                value
+                for value in project_record.service_url_candidate_values(project)
+                if not origin or core.url_origin(value) != origin
+            ],
+        )
+        if normalized_value in project.get("service_urls", []):
+            confirmed_role = "service"
+    elif resolved_type == "repo_url":
+        core.confirm_source_code_url(
+            project,
+            normalized_value,
+            source="operator_add_seed",
+            relation="source_repo",
+            reason="repository URL added by operator",
+            evidence_kind="operator_seed",
+            operator_override=True,
+        )
+        if normalized_value in project_record.source_code_url_values(project):
+            confirmed_role = "source_repository"
+    if confirmed_role:
+        core.add_confirmed_identifier_decision(
+            project,
+            resolved_type,
+            normalized_value,
+            source="operator_add_seed",
+            note="identifier added by operator",
+        )
+    project = core.finalize_project_shape(project)
+    project_record.save_project(
+        conn,
+        project,
+        enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True,
+        commit=False,
+    )
     conn.commit()
     return {
         "project_key": project["project_key"],
         "seed_type": resolved_type,
-        "seed_value": project_record.canonical_seed_value(resolved_type, seed),
+        "seed_value": normalized_value,
+        "confirmed_role": confirmed_role,
         "name": project.get("name", ""),
     }
 

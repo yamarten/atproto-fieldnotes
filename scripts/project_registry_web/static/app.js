@@ -1011,8 +1011,8 @@ async function addProjectSeed(projectKey) {
     const typeQuery = parsed.type ? `&type=${encodeURIComponent(parsed.type)}` : "";
     const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(parsed.seed)}${typeQuery}`);
     if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`Seed belongs to ${preview.exact_project_key}`);
-    if (preview.exact_project_key === projectKey) { status("Seed is already attached to this project."); return; }
-    confirmMutation("Add manual seed", `Add ${preview.seed_type}: ${preview.seed_value} to ${projectKey}?`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
+    const action = preview.exact_project_key === projectKey ? "Reapply" : "Add";
+    confirmMutation("Add identifier", `${action} ${preview.seed_type}: ${preview.seed_value} to ${projectKey}?`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
   } catch (error) { status(error.message, true); }
 }
 

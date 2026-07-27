@@ -37,6 +37,7 @@
   - identifierのrole/classification対応を行単位で表示
   - background jobの経過時間、progress比から算出したETA、手動details更新
   - Git checkoutではSettingsにcommit hashとdirty状態を表示
+  - `Add seed`は明示されたservice URLのpathを保持してconfirmed serviceへ、repository URLをconfirmed source repositoryへ投影する。同じseedの再適用でlegacy `manual_seed`だけが残るURLを補修可能
 - background operation
   - enrich、sync、reviewを別processで実行
   - operation別のprogressと協調停止

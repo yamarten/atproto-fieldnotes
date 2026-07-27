@@ -42,12 +42,14 @@
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `init-db` | `--db-path`。既定は`data/survey.db` | 作成したschema情報のJSON | 新規DBを作成。既存DBのmigrationや上書きはしない |
-| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトのJSON | 常時書き込み |
+| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと投影したroleのJSON | 常時書き込み。service/repositoryは対応roleへconfirmed保存 |
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
 
 `show --seed`は登録済みのシード値から登録プロジェクトを解決します。シードをプロジェクトキーとして解釈しません。曖昧なURLは`--type`を指定してください。
+
+`add-seed`へ渡したサービスURLはパスを保持します。同じシードを同じ登録プロジェクトへ再適用してもよく、旧データに不足するconfirmed service/repository roleを補えます。operatorが明示したservice URLには、`/about`、`/docs`、`/login`などのpath名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除しますが、親URLに対するguardは他候補向けに残します。
 
 `explain`のtopicは`all`、`service_status`、`ownership`、`contribution`、`merge_candidate`、`trust`です。保存済み状態と共通評価処理だけを使い、ネットワークやLLMを呼びません。
 

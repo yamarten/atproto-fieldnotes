@@ -643,6 +643,188 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(after["last_seen_at"], before["last_seen_at"])
         self.assertEqual(after["last_enriched_at"], before["last_enriched_at"])
 
+    def test_add_seed_confirms_exact_service_path_and_removes_origin_candidate(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(
+                conn,
+                seed="https://tools.example.com/bluesky-list-manager",
+                seed_type="service_url",
+            )
+            project = project_record.fetch_project(conn, created["project_key"])
+            rows = conn.execute(
+                "SELECT role, classification FROM project_identifiers "
+                "WHERE project_key = ? AND kind = 'service_url' AND value = ?",
+                (created["project_key"], "https://tools.example.com/bluesky-list-manager"),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        assert project is not None
+        self.assertEqual(created["confirmed_role"], "service")
+        self.assertEqual(project["website_url"], "https://tools.example.com/bluesky-list-manager")
+        self.assertIn("https://tools.example.com/bluesky-list-manager", project["service_urls"])
+        self.assertNotIn("https://tools.example.com", project["service_url_candidates"])
+        self.assertIn(("service", "confirmed"), [(row["role"], row["classification"]) for row in rows])
+        self.assertTrue(
+            registry.identifier_has_active_confirm_decision(
+                project,
+                "service_url",
+                "https://tools.example.com/bluesky-list-manager",
+            )
+        )
+
+    def test_add_seed_reapplies_existing_manual_service_as_confirmed_service(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:manualonly", "repo_url", "https://github.com/example/app")
+            registry.add_manual_seed(
+                project,
+                "service_url",
+                "https://tools.example.com/import/writing",
+                source="legacy",
+            )
+            project_record.save_project(conn, project)
+            created = projects.add_seed(
+                conn,
+                seed="https://tools.example.com/import/writing",
+                seed_type="service_url",
+                project_key=project["project_key"],
+            )
+            saved = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertEqual(created["confirmed_role"], "service")
+        self.assertIn("https://tools.example.com/import/writing", saved["service_urls"])
+
+    def test_add_seed_treats_explicit_supporting_path_as_service(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(
+                conn,
+                seed="https://app.example.com/about",
+                seed_type="service_url",
+            )
+            project = project_record.fetch_project(conn, created["project_key"])
+        finally:
+            conn.close()
+
+        assert project is not None
+        self.assertEqual(created["confirmed_role"], "service")
+        self.assertIn("https://app.example.com/about", project["service_urls"])
+        self.assertNotIn("https://app.example.com", project["service_url_candidates"])
+        self.assertTrue(
+            registry.identifier_has_active_confirm_decision(
+                project,
+                "service_url",
+                "https://app.example.com/about",
+            )
+        )
+
+    def test_add_seed_explicit_path_overrides_ancestor_guard(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:guardedpath", "repo_url", "https://github.com/example/app")
+            project["blocked_identifiers"] = [
+                {
+                    "type": "service_url",
+                    "value": "https://tools.example.com",
+                    "note": "root is not the service",
+                    "added_at": project_record.iso_now(),
+                }
+            ]
+            project["deferred_identifiers"] = [
+                {
+                    "type": "service_url",
+                    "value": "https://tools.example.com/import/writing",
+                    "note": "waiting for review",
+                    "added_at": project_record.iso_now(),
+                    "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=30)).isoformat(),
+                }
+            ]
+            project_record.save_project(conn, project)
+            created = projects.add_seed(
+                conn,
+                seed="https://tools.example.com/import/writing",
+                seed_type="service_url",
+                project_key=project["project_key"],
+            )
+            saved = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertEqual(created["confirmed_role"], "service")
+        self.assertIn("https://tools.example.com/import/writing", saved["service_urls"])
+        self.assertIn(
+            "https://tools.example.com",
+            registry.blocked_identifier_values(saved, "service_url"),
+        )
+        self.assertNotIn(
+            "https://tools.example.com/import/writing",
+            registry.deferred_identifier_values(saved, "service_url"),
+        )
+
+    def test_defer_after_add_seed_clears_operator_confirmation(self) -> None:
+        conn = registry.open_db()
+        try:
+            created = projects.add_seed(
+                conn,
+                seed="https://tools.example.com/import/writing",
+                seed_type="service_url",
+            )
+            decisions.set_identifier_defer(
+                conn,
+                project_key=created["project_key"],
+                identifier_type="service_url",
+                value="https://tools.example.com/import/writing",
+            )
+            saved = project_record.fetch_project(conn, created["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertNotIn("https://tools.example.com/import/writing", saved["service_urls"])
+        self.assertFalse(
+            registry.identifier_has_active_confirm_decision(
+                saved,
+                "service_url",
+                "https://tools.example.com/import/writing",
+            )
+        )
+
+    def test_add_seed_rejects_guarded_nsid_without_partial_seed_write(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:guardedseed", "repo_url", "https://github.com/example/app")
+            project["blocked_identifiers"] = [
+                {
+                    "type": "nsid",
+                    "value": "dev.example.wrong",
+                    "note": "not this project",
+                    "added_at": project_record.iso_now(),
+                }
+            ]
+            project_record.save_project(conn, project)
+            with self.assertRaisesRegex(ValueError, "guarded identifier"):
+                projects.add_seed(
+                    conn,
+                    seed="dev.example.wrong",
+                    seed_type="nsid",
+                    project_key=project["project_key"],
+                )
+            saved = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertNotIn(
+            "dev.example.wrong",
+            [item["value"] for item in saved["manual_seeds"]],
+        )
+
     def test_project_services_reject_removed_tracking_state(self) -> None:
         conn = registry.open_db()
         try:
@@ -685,6 +867,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             [
                 ("block_identifier", "service_url", "https://wrong.example"),
                 ("dismiss_review", "review_kind", "candidate_repo_needs_confirmation"),
+                ("confirm_identifier", "service_url", "https://example.com"),
             ],
         )
 

@@ -587,6 +587,24 @@ def add_confirmed_identifier_decision(
     return normalized
 
 
+def clear_confirmed_identifier_decision(project: dict[str, Any], identifier_type: str, value: str) -> None:
+    normalized = project_record.normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return
+    cleared_at = project_record.iso_now()
+    confirmations: list[dict[str, str]] = []
+    for item in project_record.normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
+        if (
+            str(item.get("type") or "") == identifier_type
+            and str(item.get("value") or "") == normalized
+            and not str(item.get("cleared_at") or "")
+        ):
+            item = dict(item)
+            item["cleared_at"] = cleared_at
+        confirmations.append(item)
+    project["confirmed_identifiers"] = confirmations
+
+
 def active_promotion_deferral(project: dict[str, Any]) -> dict[str, str] | None:
     now = dt.datetime.now(dt.timezone.utc)
     active = [
@@ -1403,6 +1421,8 @@ def ensure_project_for_seed(
     seed_type: str,
     seed_value: str,
     project_key: str | None = None,
+    *,
+    commit: bool = True,
 ) -> dict[str, Any]:
     normalized_value = project_record.canonical_seed_value(seed_type, seed_value)
     identifier_value = normalized_value
@@ -1422,8 +1442,9 @@ def ensure_project_for_seed(
     apply_seed_to_project(project, seed_type, identifier_value)
     if match_kind:
         append_system_note(project, f"seed matched by {match_kind}: {identifier_value}")
-    project_record.save_project(conn, project, enriched=False)
-    conn.commit()
+    project_record.save_project(conn, project, enriched=False, commit=commit)
+    if commit:
+        conn.commit()
     saved = project_record.fetch_project(conn, target_project_key)
     if saved is None:  # pragma: no cover - save_project succeeded immediately above
         raise RuntimeError(f"saved project could not be reloaded: {target_project_key}")
@@ -1691,6 +1712,8 @@ def apply_deferred_identifier_guards(project: dict[str, Any]) -> None:
 
 
 def service_url_is_guarded(project: dict[str, Any], url: str) -> bool:
+    if identifier_has_active_confirm_decision(project, "service_url", url):
+        return False
     return identifier_is_blocked(project, "service_url", url) or identifier_is_deferred(project, "service_url", url)
 
 
@@ -3651,9 +3674,15 @@ def confirm_source_code_url(
     evidence_kind: str = "",
     evidence_url: str = "",
     updated_at: str = "",
+    operator_override: bool = False,
 ) -> None:
     normalized = repo_url_core.canonical_repo_url(url)
-    if identifier_is_blocked(project, "repo_url", normalized) or identifier_is_deferred(project, "repo_url", normalized):
+    if not normalized:
+        return
+    if not operator_override and (
+        identifier_is_blocked(project, "repo_url", normalized)
+        or identifier_is_deferred(project, "repo_url", normalized)
+    ):
         return
     project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
     project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
@@ -3682,9 +3711,14 @@ def confirm_source_code_url(
     project_record.sync_source_repo_provider_views(project)
 
 
-def confirm_service_url(project: dict[str, Any], url: str) -> None:
+def confirm_service_url(project: dict[str, Any], url: str, *, operator_override: bool = False) -> None:
     normalized = project_record.normalize_confirmed_service_url(url)
-    if not normalized or identifier_is_blocked(project, "service_url", normalized) or identifier_is_deferred(project, "service_url", normalized):
+    if not normalized:
+        return
+    if not operator_override and (
+        identifier_is_blocked(project, "service_url", normalized)
+        or identifier_is_deferred(project, "service_url", normalized)
+    ):
         return
     project["service_urls"] = project_record.add_unique(project.get("service_urls", []), normalized)
     project_record.set_service_url_candidate_values(
@@ -3769,16 +3803,23 @@ def supporting_page_resource_record(url: str, *, confidence: str) -> dict[str, s
 
 
 def purge_supporting_page_service_observations(project: dict[str, Any]) -> None:
+    def should_purge(url: str) -> bool:
+        return service_url_is_supporting_page(url) and not identifier_has_active_confirm_decision(
+            project,
+            "service_url",
+            url,
+        )
+
     moved_records: list[dict[str, str]] = []
     website_url = identifier_core.normalize_url(str(project.get("website_url") or ""))
-    if website_url and service_url_is_supporting_page(website_url):
+    if website_url and should_purge(website_url):
         moved_records.append(supporting_page_resource_record(website_url, confidence="confirmed"))
         project["website_url"] = ""
 
     cleaned_service_urls: list[str] = []
     for url in project.get("service_urls", []):
         normalized = identifier_core.normalize_url(str(url or ""))
-        if normalized and service_url_is_supporting_page(normalized):
+        if normalized and should_purge(normalized):
             moved_records.append(supporting_page_resource_record(normalized, confidence="confirmed"))
             continue
         cleaned_service_urls.append(str(url))
@@ -3787,7 +3828,7 @@ def purge_supporting_page_service_observations(project: dict[str, Any]) -> None:
     cleaned_supported_urls: list[str] = []
     for url in project.get("supported_service_urls", []):
         normalized = identifier_core.normalize_url(str(url or ""))
-        if normalized and service_url_is_supporting_page(normalized):
+        if normalized and should_purge(normalized):
             moved_records.append(supporting_page_resource_record(normalized, confidence="confirmed"))
             continue
         cleaned_supported_urls.append(str(url))
@@ -3796,13 +3837,13 @@ def purge_supporting_page_service_observations(project: dict[str, Any]) -> None:
     project["failed_service_urls"] = [
         url
         for url in project.get("failed_service_urls", [])
-        if not service_url_is_supporting_page(str(url or ""))
+        if not should_purge(str(url or ""))
     ]
 
     candidate_records: list[dict[str, str]] = []
     cleaned_candidates: list[str] = []
     for url in project_record.service_url_candidate_values(project):
-        if service_url_is_supporting_page(url):
+        if should_purge(url):
             candidate_records.append(supporting_page_resource_record(url, confidence="candidate"))
             continue
         cleaned_candidates.append(url)

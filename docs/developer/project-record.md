@@ -173,9 +173,9 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
 - `seed`: project作成時の初期入力。`state_json`の`seed_type` / `seed_value`と同じ値をnormalized rowにも投影する
-- `manual_seed`: operatorが明示登録した入力。自動収集値より強く扱う
+- `manual_seed`: 複数seedを保持してきたlegacy role。名前に反して過去の自動取り込み値も含むため、operator操作の有無を表す正本にはしない
 
-manual seed NSIDはoperator decisionとして保持します。同じ値の`input_nsid`は内部調査用の入力表現であり、Web detailではmanual seedと重複するcandidate entryを個別の確認対象として表示しません。manual seed自体が誤りなら、そのNSIDをreject/block/deferしてseedごと外します。
+現行の`add-seed` / Web `Add seed`は、`service_url`と`repo_url`をそれぞれconfirmed `service` / `source_repository`へ投影します。`manual_seed`だけに値を残すことは新しいoperator操作の完了条件にしません。同じ値のseedを既存projectへ再適用し、旧データに不足するfactual roleを補えます。`manual_seed` role自体の廃止は、NSIDとservice以外の公式URLの移行を別途完了してから行います。
 
 NSIDには代表値を置きません。調査処理は`input_nsid`と`owned_nsid`の集合を使います。代表公開URLは`projects.website_url`だけを正本とし、同じURLを`website` roleとして重複保存しません。Web表示のprimary markerはconfirmed `service` rowの値が`website_url`と一致するかで導出します。
 

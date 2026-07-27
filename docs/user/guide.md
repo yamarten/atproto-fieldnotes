@@ -94,6 +94,8 @@ project-registry review-queue
 project-registry add-seed https://example.com --project-key 2f2acb
 ```
 
+`service_url`と`repo_url`のシードは、対応するサービスまたはソースリポジトリとして`confirmed`保存します。サービスURLはパスを保持するため、複数のツールを異なるパスで公開するサイトも指定できます。明示入力には補助ページ名のheuristicを適用しません。
+
 正確な引数は`project-registry COMMAND --help`、出力形式と副作用は[CLIガイド](cli.md)を確認してください。
 
 ## 操作前に区別すること

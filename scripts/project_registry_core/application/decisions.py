@@ -82,6 +82,7 @@ def set_identifier_block(
         blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": project_record.iso_now()})
     project["blocked_identifiers"] = blocked
     if not clear:
+        core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
         core.remove_identifier_from_project(
             project,
             identifier_type,
@@ -131,6 +132,7 @@ def set_identifier_defer(
             if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
         ]
     else:
+        core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
         core.defer_identifier_on_project(project, identifier_type, normalized_value, note=note.strip(), days=days)
         project = core.finalize_project_shape(project)
     project = _refresh_merge_state(conn, project)
