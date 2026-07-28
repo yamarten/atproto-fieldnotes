@@ -196,7 +196,7 @@
 安全上の制約:
 
 - identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
-- NSID factual roleは`owned_nsid`へ統一し、classificationでconfirmed/candidateを表す。`seed` / `manual_seed` / 観測・参照用NSID roleは正本DBから移行済みで、現行コードは生成・読込・移行を行わない
+- NSID factual roleは`owned_nsid`へ統一し、classificationでconfirmed/candidateを表す。`seed` / `manual_seed` / 観測・参照用NSID roleは正本DBから移行済みで、通常のidentifier生成・読込には使わない。一度きりのCLI移行とcase補正は削除済みだが、`sync-collections` / `repair-db`には旧collection由来`manual_seed`の互換掃除が残っている
 - `sync-bluesky-lexicons`はBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schemaを一意な`https://bsky.app` projectへ追加する。`com.atproto.*`は対象外
 - app links/resource roleは`webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`を追加し、未知roleもopen unionとして保持する。Web Overviewは利用・インストール、project情報、補足情報、その他に分けて表示する
 - job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
@@ -234,7 +234,6 @@
 未検証:
 
 - 長時間運用時の実API retry/cache/budget値
-- 正本DBへのhistory圧縮executeと、必要な場合のVACUUM
 
 この節は網羅的なテスト履歴ではなく、現在の信頼境界を示すsnapshotです。個々の過去の
 実行結果はGit履歴と関連notesに残します。

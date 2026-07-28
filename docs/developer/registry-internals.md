@@ -112,7 +112,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - `repo_url` decisionはactiveなconfirmed `source_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
-`seed` / `manual_seed` roleは正本DBから移行済みで、現行コードは生成・読込しません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
+`seed` / `manual_seed` roleは正本DBから移行済みで、通常のidentifier生成・runtime codecは使いません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。`sync-collections` / `repair-db`には旧collection取込み由来`manual_seed`の互換掃除が残っています。
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
@@ -122,7 +122,7 @@ first-party page上の外部リンクは、通常はanchor textの`source` / `re
 
 candidate repositoryは通常のrepository enrich、project nameのidentity token、紹介文生成用のLLM evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。service側のリンクが`Source`等で明示されていれば決定的な逆向きedgeとし、曖昧なら既に当該projectのconfirmed/candidate repoである組だけを通常triageの関係判定へ渡します。この専用入力にはURL、link text、`aria-label` / `title`、service pageのtitle/descriptionだけを含め、candidate repoのdescription、repository名、lexicon hint等は含めません。LLMの`same_project`判定とrepo側の現行逆リンクで相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めて通常repo contentを適用します。`related` / `uncertain`は昇格させません。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
 
-collection ownership は、manual NSID seed、または confirmed developer DID との相互 trust path がある場合だけ成立します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
+collection ownership は、operatorが採用したconfirmed `owned_nsid`、または confirmed developer DID との相互 trust path がある場合だけ成立します。operatorの採用はactiveな`confirm_identifier`で表します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
 
 identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v1` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
 
@@ -313,7 +313,7 @@ cache identityはcanonical repo URL、`source_revision`（取得できないprov
 
 LLM endpointまたはmodel出力をJSONとして解釈できなかった場合、run metricsには失敗段階、UTF-8 byte数、SHA-256、JSON構文エラー位置、先頭と末尾がJSON記号か、code fenceを含むかだけを記録します。利用不能だった応答本文は保存しません。これにより、出力上限で途中終了した可能性と形式違反を、repository内容を追加保存せず区別できます。
 
-triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、manual repo seed、代表repo、coverageの順で優先します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
+triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、operator-confirmed repo、代表repo、coverageの順で優先します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
 
 `enrich --all` は既定で `tracking_state=active` のみ対象です。`stable`、`stalled`、`out_of_scope` は、明示的に include したときだけ回します。
 
@@ -1275,8 +1275,8 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 - さらに safe overlap を別ロジックで見直します
   - `strict`
     - strict GitHub/Tangled repo overlap
-    - manual repo seed overlap
-    - manual service seed host overlap
+    - operator-confirmed repo overlap
+    - operator-confirmed service host overlap
   - `moderate`
     - strict 条件に加えて
     - confirmed service overlap

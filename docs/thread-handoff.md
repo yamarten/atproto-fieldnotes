@@ -9,7 +9,8 @@
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
-- masterのrepository取得・material化・LLM解析を取り込み、根拠位置の検査、bounded excerpt、最大出力token数、本文を残さないJSON診断を追加しました。history圧縮を含む現行checkoutで全544 testを通しています。
+- masterのrepository取得・material化・LLM解析を取り込み、根拠位置の検査、bounded excerpt、最大出力token数、本文を残さないJSON診断を追加しました。
+- identifier roleはNSIDの`owned_nsid`とclassificationを中心に整理し、正本DBの移行とcase補正を適用済みです。一度きりのCLI移行・case補正コードは削除し、現行checkoutで全560 testを通しています。
 - Qwenも固定`goat`の全件で根拠不足の観測が除外され、6/10件にmaterial外collectionがありました。既定model維持とは別に、repository解析内容は改善対象です。
 - 現在の確認済み範囲は[status.md](status.md)、再検討条件を含む将来作業は[roadmap.md](roadmap.md)を参照してください。
 
@@ -18,6 +19,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
+- 通常の`sync-collections`と`repair-db`に残る旧collection由来`manual_seed`掃除helperと`add_collection_input_nsid`のlegacy aliasは、正本DB移行後に不要な互換処理です。現行DBに旧roleがないことを前提に、利用者ガイドのcleanup説明・結果field・testと一緒に削除する。
 
 ## DB 操作メモ
 

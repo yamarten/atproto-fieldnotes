@@ -76,7 +76,7 @@ Service / ownership reviewも保存済みcurrent state、normalized relation、c
 
 ## Evidence classification
 
-- `confirmed`: manual seed、first-party claim、検証済み identity path など強い帰属を持つ観測
+- `confirmed`: operator decision、first-party claim、検証済み identity path など強い帰属を持つ観測
 - `candidate`: 関連性はあるが、帰属または意味の追加確認が必要な観測
 - `derived`: 他の観測から決定的に導出した query、正規化結果、usage relation
 - `heuristic`: score、文字列類似、community source など誤判定し得る推定
@@ -160,8 +160,8 @@ repository analysisでは、revisionへ固定したbounded materialを`repositor
 - `uses_collection` と OAuth の `repo:` permission は利用関係であり ownership を確定しない
 - `mentions_collection` は docs、example、test、fixture、vendor、generated などの弱い言及
 - confirmed repo と first-party app が独立 source から相互リンクした場合、`source_repository` を昇格できる
-- NSID ownership は manual seed、公式 account の PDS schema record、authority までの identity path を優先する
-- manual repo seedはsource repositoryの根拠であり、そのrepo内にある全NSIDのownership根拠ではない
+- NSID ownership は operator-confirmed `owned_nsid`、公式 account の PDS schema record、authority までの identity path を優先する
+- operator-confirmed repoはsource repositoryの根拠であり、そのrepo内にある全NSIDのownership根拠ではない
 - service到達確認は`service_verification`として保存するが、`operates_service` relationはproject support判定後にだけ保存する
 - defer / block された identifier は relation corroboration より優先して抑止する
 

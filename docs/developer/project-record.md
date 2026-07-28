@@ -168,7 +168,7 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `project_account`: project名義のaccount候補
   - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
-`input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`は移行済みの旧roleであり、現行コードは読込・保存しません。観測・参照したNSIDはfactual identifierへ混ぜず、relation、schema sample、collection observationなど元の根拠に保存します。
+`input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`は移行済みの旧roleであり、通常のruntime codecは読込・保存しません。`sync-collections` / `repair-db`には、正本DB移行前のcollection取込みが作った`manual_seed`を削除する互換処理が残っています。観測・参照したNSIDはfactual identifierへ混ぜず、relation、schema sample、collection observationなど元の根拠に保存します。
 
 現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `source_repository`へ投影し、`confirm_identifier` decisionを記録します。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 

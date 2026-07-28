@@ -8,7 +8,7 @@
 
 実装済み:
 
-- manual NSID seed、公式 account の PDS schema record、accepted repo と accepted NSID の `defines_schema` を優先
+- operator-confirmed `owned_nsid`、公式 account の PDS schema record、accepted repo と accepted NSID の `defines_schema` を優先
 - `defines_schema`, `uses_collection`, `mentions_collection` を分離
 - test、fixture、vendor、generated、docs/example 内 schema を直接 ownership に使わない
 - OAuth client metadata の `repo:` を `requests_permission` として保存
