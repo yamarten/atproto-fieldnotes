@@ -20,75 +20,6 @@ from project_registry_core import project_record
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
-    def test_identifier_role_migration_uses_inventory_case_only_when_unambiguous(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:casefix", "nsid", "social.example.externalId")
-            project["resolved_nsids"] = [
-                "social.example.externalId",
-                "social.example.externalid",
-            ]
-            project["seed_value"] = "social.example.externalid"
-            project_record.save_project(conn, project)
-            conn.execute(
-                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "proj:casefix", 99, "nsid", "social.example.externalid", "input_nsid", "candidate", "{}",
-                ),
-            )
-            conn.commit()
-            ambiguous = self.make_project("proj:casecollision", "nsid", "social.ambiguous.someId")
-            ambiguous["resolved_nsids"] = [
-                "social.ambiguous.someId",
-                "social.ambiguous.someid",
-            ]
-            project_record.save_project(conn, ambiguous)
-            conn.execute(
-                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "proj:casecollision", 99, "nsid", "social.ambiguous.someid", "input_nsid", "candidate", "{}",
-                ),
-            )
-            conn.commit()
-
-            inventory = [
-                "social.example.externalId",
-                "social.ambiguous.someId",
-                "social.ambiguous.someid",
-            ]
-            dry_run = maintenance_services.repair_identifier_roles(
-                conn,
-                collection_inventory_nsids=inventory,
-            )
-            executed = maintenance_services.repair_identifier_roles(
-                conn,
-                execute=True,
-                collection_inventory_nsids=inventory,
-            )
-            fetched = project_record.fetch_project(conn, "proj:casecollision")
-            fixed = project_record.fetch_project(conn, "proj:casefix")
-            rerun = maintenance_services.repair_identifier_roles(
-                conn,
-                execute=True,
-                collection_inventory_nsids=inventory,
-            )
-        finally:
-            conn.close()
-
-        assert fixed is not None
-        assert fetched is not None
-        self.assertEqual(dry_run["case_replacement_count"], 1)
-        self.assertEqual(executed["case_replacement_count"], 1)
-        self.assertEqual(executed["case_ambiguous_source_count"], 1)
-        self.assertEqual(fixed["resolved_nsids"], ["social.example.externalId"])
-        self.assertEqual(fixed["seed_value"], "social.example.externalId")
-        self.assertEqual(
-            fetched["resolved_nsids"],
-            ["social.ambiguous.someId", "social.ambiguous.someid"],
-        )
-        self.assertEqual(executed["case_collision_count"], 1)
-        self.assertEqual(rerun["project_change_count"], 0)
-
     def test_refresh_current_same_site_evidence_recomputes_stale_redirect_flags_only(self) -> None:
         conn = registry.open_db()
         try:
@@ -820,11 +751,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             all("members" not in project["collection_observations"][0] for project in created_projects if project is not None)
         )
 
-    def test_repair_db_removes_legacy_collection_members_and_import_manual_seed_role(self) -> None:
+    def test_repair_db_removes_legacy_collection_members(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:latr", "nsid", "link.latr.saved.external")
-            registry.add_manual_seed(project, "nsid", "link.latr.saved.external", source="")
             legacy_observations = [
                 {
                     "collection": "link.latr",
@@ -837,13 +767,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 }
             ]
             project_record.save_project(conn, project)
-            conn.execute(
-                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "proj:latr", 99, "nsid", "link.latr.saved.external", "manual_seed", "confirmed",
-                    json.dumps({"type": "nsid", "value": "link.latr.saved.external", "source": "collection_inventory_import"}),
-                ),
-            )
             row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:latr",)).fetchone()
             state = json.loads(str(row["state_json"]))
             state.setdefault("ops", {})["collection_observations"] = legacy_observations
@@ -862,10 +785,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         assert before is not None
         assert after is not None
         self.assertEqual(dry_run["collection_observation_member_cleanup_count"], 2)
-        self.assertEqual(dry_run["collection_import_manual_seed_cleanup_count"], 1)
         self.assertNotIn("link.latr.saved.item", before["input_nsids"])
         self.assertEqual(executed["collection_observation_member_cleanup_count"], 2)
-        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 1)
         self.assertNotIn("link.latr.saved.item", after["input_nsids"])
         self.assertEqual(after["manual_seeds"], [])
         self.assertNotIn("members", after["collection_observations"][0])
@@ -880,20 +801,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             filae = self.make_project("proj:filiae", "nsid", "site.filae.newsletter.edition")
-            registry.add_manual_seed(
-                filae,
-                "nsid",
-                "site.filae.newsletter.edition",
-                source="",
-            )
             project_record.save_project(conn, filae)
-            conn.execute(
-                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "proj:filiae", 99, "nsid", "site.filae.newsletter.edition", "manual_seed", "confirmed",
-                    json.dumps({"type": "nsid", "value": "site.filae.newsletter.edition", "source": "collection_inventory_import"}),
-                ),
-            )
             row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:filiae",)).fetchone()
             state = json.loads(str(row["state_json"]))
             state.setdefault("ops", {})["collection_observations"] = [{
@@ -911,15 +819,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
 
             orphan = self.make_project("proj:orphan", "nsid", "social.orphan.old.item")
-            registry.add_manual_seed(orphan, "nsid", "social.orphan.old.item", source="collection_inventory_import")
             project_record.save_project(conn, orphan)
-            conn.execute(
-                "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "proj:orphan", 99, "nsid", "social.orphan.old.item", "manual_seed", "confirmed",
-                    json.dumps({"type": "nsid", "value": "social.orphan.old.item", "source": "collection_inventory_import"}),
-                ),
-            )
             row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:orphan",)).fetchone()
             state = json.loads(str(row["state_json"]))
             state.setdefault("ops", {})["collection_observations"] = [{
@@ -963,7 +863,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(executed["collection_observation_rebuild_project_count"], 2)
         self.assertEqual(executed["collection_observation_cleanup_count"], 2)
         self.assertEqual(executed["collection_observation_member_cleanup_count"], 5)
-        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 2)
+        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 0)
         self.assertEqual(len(after), 4)
         by_nsids = {
             tuple(project["resolved_nsids"]): project
@@ -1734,72 +1634,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.trusted_anchor_nodes(project),
         )
 
-    def test_manual_repo_seed_candidate_shape_is_repaired(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:oldrepo", "repo_url", "https://github.com/example/app")
-            project["manual_seeds"] = [
-                {"type": "repo_url", "value": "https://github.com/example/app", "added_at": "2026-01-01T00:00:00+00:00"}
-            ]
-            project["source_code_urls"] = []
-            project["candidate_source_code_urls"] = ["https://github.com/example/app"]
-            project["source_repo_records"] = [
-                {
-                    "url": "https://github.com/example/app",
-                    "provider": "github",
-                    "confidence": "candidate",
-                    "relation": "repo_seed",
-                    "source": "github_repo_seed",
-                    "reason": "registered manually as repository seed",
-                    "evidence_kind": "manual_seed",
-                    "evidence_url": "https://github.com/example/app",
-                    "recorded_at": "2026-01-01T00:00:00+00:00",
-                }
-            ]
-            project_record.save_project(conn, project)
-            conn.execute(
-                """
-                INSERT INTO project_identifiers(
-                    project_key, ordinal, kind, value, role, classification, is_primary, provider, metadata_json, observed_at
-                ) VALUES (?, 99, 'repo_url', ?, 'manual_seed', 'confirmed', 0, 'github', ?, ?)
-                """,
-                (
-                    project["project_key"],
-                    "https://github.com/example/app",
-                    json.dumps(project["manual_seeds"][0]),
-                    "2026-01-01T00:00:00+00:00",
-                ),
-            )
-            conn.commit()
-            before = project_record.fetch_project(conn, "proj:oldrepo")
-            dry_run = maintenance_services.repair_identifier_roles(conn, execute=False)
-            executed = maintenance_services.repair_identifier_roles(conn, execute=True)
-            after = project_record.fetch_project(conn, "proj:oldrepo")
-            rerun = maintenance_services.repair_identifier_roles(conn, execute=True)
-            remaining_legacy_roles = conn.execute(
-                "SELECT COUNT(*) FROM project_identifiers WHERE role IN ('input_nsid', 'observed_lexicon', 'referenced_nsid', 'recorded_namespace', 'seed', 'manual_seed')"
-            ).fetchone()[0]
-        finally:
-            conn.close()
-
-        assert before is not None
-        assert after is not None
-        self.assertNotIn("https://github.com/example/app", before["source_code_urls"])
-        self.assertNotIn(
-            {"kind": "repo_url", "value": "https://github.com/example/app"},
-            registry.trusted_anchor_nodes(before),
-        )
-        self.assertEqual(dry_run["operator_decision_added_count"], 1)
-        self.assertEqual(executed["operator_decision_added_count"], 1)
-        self.assertIn("https://github.com/example/app", after["source_code_urls"])
-        self.assertNotIn("https://github.com/example/app", after["candidate_source_code_urls"])
-        self.assertNotIn(
-            "candidate_repo_needs_confirmation",
-            {signal["kind"] for signal in registry.compute_review_signals(after)},
-        )
-        self.assertEqual(remaining_legacy_roles, 0)
-        self.assertEqual(rerun["project_change_count"], 0)
-
     def test_deferred_manual_repo_seed_is_not_trusted_anchor(self) -> None:
         project = self.make_project("proj:deferredrepo", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
@@ -2353,7 +2187,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
             conn.execute(
                 "INSERT INTO project_identifiers(project_key, ordinal, kind, value, role, classification) VALUES (?, ?, ?, ?, ?, ?)",
-                ("proj:legacycontri", 0, "nsid", "app.example.post", "input_nsid", "candidate"),
+                ("proj:legacycontri", 0, "nsid", "app.example.post", "owned_nsid", "candidate"),
             )
             conn.commit()
 

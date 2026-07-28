@@ -15,8 +15,6 @@
 
 ## 次に必要な作業
 
-- 正本DBへ`repair-identifier-roles --collection-inventory`を適用して再dry-run 0件とDB整合性を確認した後、一時的なcase補正オプション・実装・文書を削除する
-
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
@@ -31,6 +29,9 @@ history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行�
 
 2026-07-28のreview済みservice URL 10件の再適用直前backupは
 `.tmp/survey-before-reviewed-service-repair-20260728.db`です。
+
+2026-07-28のidentifier role移行直前backupは
+`.tmp/survey-before-identifier-role-migration-20260728-124530.db`です。
 
 ## 未検証・未接続
 

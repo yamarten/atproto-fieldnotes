@@ -32,7 +32,6 @@ subcommands=(
   'compare-repository-analysis-reports:Compare two repository analysis reports'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
-  'repair-identifier-roles:Migrate legacy seed and NSID roles'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
   'repair-trust-graph:Recompute stored trust graph details'
@@ -376,12 +375,6 @@ case "$cmd" in
   repair-db)
     _arguments -S \
       '--execute[Apply normalization and derived-field refreshes]'
-    ;;
-  repair-identifier-roles)
-    _arguments -S \
-      '--execute[Apply the identifier role migration]' \
-      '--collection-inventory[Temporary fetched collection inventory for legacy NSID case repair]:path:_files' \
-      '--example-limit[Maximum examples per migration category]:count:'
     ;;
   audit-url-fields)
     _arguments -S \

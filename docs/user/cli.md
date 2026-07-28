@@ -163,7 +163,6 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL field利用数と保存invariant違反 | anomalyと例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
-| `repair-identifier-roles` | legacy NSID/seed roleの`owned_nsid`と採用判断への移行、参考・配布URLの移送 | role別件数、case collision、例のJSON | `--execute` |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
 | `compress-investigation-history` | 調査履歴JSONのdecode検査と圧縮投影 | 論理bytes・保存bytes・decode failureのJSON | `--execute`、任意の`--vacuum` |
@@ -171,8 +170,6 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-source-config` | 独自multi-tenant suffixと既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
 
 保守系コマンドは正本DBのバックアップを作り、Web UI、worker、`enrich`、別のCLIを止めてからdry-runとexecuteを分けて実行してください。`--vacuum`は書き込みtransaction後の別処理で、失敗しても先行する書き換えや削除はrollbackされません。
-
-`repair-identifier-roles`は`input_nsid`、観測・参照用NSID role、`seed`、`manual_seed`を廃止後の保存契約へ移す専用migrationです。NSIDは`owned_nsid`へ集約し、classificationを`confirmed` / `candidate`で表します。過去の小文字化を補正する一時オプションとして、`sync-collections --save-path PATH`で保存した現行payloadを`--collection-inventory PATH`へ渡せます。同じcase-fold値がsource内で一意な場合だけsource表記へ置換し、source自身に両表記がある場合やsourceに値が無い場合は衝突として報告します。通常の`repair-db`とは分けてdry-runを確認してください。このオプションは正本DBの移行完了後に削除する前提です。
 
 `compress-investigation-history`はdry-runでも全履歴JSONをdecodeしてJSONとして検証します。decode failureが1件でも
 ある場合は`--execute`を拒否します。圧縮後の内容確認にはInvestigation viewer、replay、exportを使い、SQLiteの

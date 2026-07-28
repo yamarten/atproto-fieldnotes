@@ -112,7 +112,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - `repo_url` decisionはactiveなconfirmed `source_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
-`seed` / `manual_seed` roleは新規生成せず、`repair-identifier-roles`で既存行を移行します。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
+`seed` / `manual_seed` roleは正本DBから移行済みで、現行コードは生成・読込しません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
@@ -1343,21 +1343,6 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
 current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのlegacy member一覧は削除し、collection import由来の旧manual seedはinput NSIDを残したままmanual roleだけを外します。
-
-## repair-identifier-roles
-
-NSID/seed role移行は`repair-db`へ混ぜず、専用の`repair-identifier-roles`で行います。既定はdry-runです。
-
-- `input_nsid`を`owned_nsid:confirmed`へ移す。ただし既存`owned_nsid:candidate`と同値ならcandidateを維持する
-- `observed_lexicon`、`referenced_nsid`、`recorded_namespace`はidentifierから除き、元のrelation・observation・schema sampleは変更しない
-- full NSIDのlegacy manual seedはconfirmed owned NSIDと採用decisionへ移す。2 segmentのauthority prefixはidentifierにしない
-- legacy repo seedはconfirmed source repositoryと採用decisionへ移す
-- factual serviceでないApp Store・配布URLなどはresource roleへ移す
-- NSIDのcaseは保持し、大小文字だけが異なる値は自動統合せず`case_collision_count`へ報告する
-- 一時的に`--collection-inventory`を指定した場合だけ、現行collection inventory内でcase-fold値が一意なNSIDをsource表記へ補正する。identifier、legacy seed、採用decision、初期seed scalarを同時に移し、source内の衝突は`case_ambiguous_source_count`へ残す
-- case補正は過去の小文字化処理を掃除するmigration専用であり、通常の`sync-collections`には接続しない。正本適用後はオプションと補正実装を削除する
-
-execute後はlegacy roleが0件になることと、再実行の`project_change_count=0`を確認します。正本DBへの適用は通常のrepairと同様にbackup、writer停止、dry-run確認を前提とします。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。

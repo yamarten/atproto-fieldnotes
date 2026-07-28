@@ -548,20 +548,10 @@ def hydrate(
         kind, value, role = row["kind"], row["value"], row["role"]
         classification = row["classification"]
         metadata = row["metadata"]
-        if role == "seed":
-            continue
-        if role == "manual_seed":
-            project["manual_seeds"].append(copy.deepcopy(metadata) or {"type": kind, "value": value})
-            continue
         if kind == "nsid":
-            if role == "input_nsid":  # Legacy read path for repair-identifier-roles.
-                project["input_nsids"].append(value)
-            elif role == "owned_nsid":
+            if role == "owned_nsid":
                 target = "resolved_nsids" if classification == "confirmed" else "input_nsids"
                 project[target].append(value)
-            elif role == "observed_lexicon": project["lexicons"].append(value)
-            elif role == "referenced_nsid": project["external_lexicons"].append(value)
-            elif role == "recorded_namespace": project["recorded_lexicon_namespaces"].append(value)
         elif kind == "domain" and role == "authority_domain": project["authority_domains"].append(value)
         elif kind == "service_url":
             target = "service_urls" if classification == "confirmed" else "service_url_candidates"

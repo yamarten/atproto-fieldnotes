@@ -109,7 +109,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
                 runtime_view.ProjectIdentifier(
                     "nsid",
                     "app.example.post",
-                    "input_nsid",
+                    "owned_nsid",
                     "candidate",
                     metadata={"source": "fixture"},
                 ),

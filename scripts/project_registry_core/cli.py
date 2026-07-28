@@ -365,15 +365,6 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)
 
-    repair_identifier_roles_parser = subparsers.add_parser(
-        "repair-identifier-roles",
-        help="Migrate legacy seed and NSID roles to factual identifiers and adoption decisions.",
-    )
-    repair_identifier_roles_parser.add_argument("--execute", action="store_true", help="Apply the migration. Without this flag, show a dry-run summary only.")
-    repair_identifier_roles_parser.add_argument("--example-limit", type=int, default=20, help="Maximum examples per migration category. Default: 20.")
-    repair_identifier_roles_parser.add_argument("--collection-inventory", type=Path, help="Temporary migration input: fetched sync-collections JSON used to repair legacy NSID case.")
-    repair_identifier_roles_parser.set_defaults(func=maintenance_commands.cmd_repair_identifier_roles)
-
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
     audit_url_parser.set_defaults(func=maintenance_commands.cmd_audit_url_fields)
