@@ -107,6 +107,7 @@
   - 2026-07-26の正本DB read-only比較では、history JSON圧縮は2,269,114,597から374,451,025 bytesへ1,894,663,572 bytes（83.5%）削減する。canonical family単位retentionは30日で196,902,979 bytesに留まり、21日では1,040,007,334 bytesと月単位履歴を削除するため採用しなかった
   - 正本DB複製22,717 runs / 90,868 JSON valuesで圧縮前後の全列hash、Investigation list/detail、replay、fixture、LLM/repository evaluation exportの同値を確認。件数不変、foreign key違反0、integrity `ok`
   - 2026-07-26に正本DBの22,717 runs / 90,868 JSON valuesへ圧縮を適用済み。再dry-runは候補0件、decode failure 0件、replay差分0、fixture export成功、foreign key違反0、integrity `ok`。VACUUMは行わず、461,618 page（約1.76 GiB）を今後の書き込みで再利用する
+  - 2026-07-28にoperator review済みのpath付きservice URL 10件を正本DBへ再適用し、exact URLのconfirmed `service` roleとactive `confirm_identifier` decisionを補完した。project数4,442は不変、foreign key違反0、integrity `ok`
 - bounded LLM evidence
   - planning/triageへ渡すevidence JSONは整形後UTF-8 24 KiB上限
   - field別件数上限で先頭・末尾の代表を残し、縮約時は観測件数と採用件数をprompt内へ明示
