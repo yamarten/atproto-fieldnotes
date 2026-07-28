@@ -1984,8 +1984,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     project_map: dict[str, dict[str, Any]] = {}
     pruned_projects = 0
     normalized_projects = 0
-    collection_observation_member_cleanups = 0
-    collection_import_manual_seed_cleanups = 0
     manual_repo_seed_repairs = 0
     developer_account_repairs = 0
     current_service_projection_changes = 0
@@ -1995,13 +1993,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
     for row in rows:
         stored_payload = project_record.project_from_row_payload(row)
         project_key = str(row["project_key"])
-        legacy_collection_members = collection_observation_legacy_members(stored_payload)
-        project_collection_observation_member_cleanups = sum(
-            len(item.get("members", [])) if isinstance(item.get("members"), list) else 1
-            for item in (stored_payload.get("collection_observations") if isinstance(stored_payload.get("collection_observations"), list) else [])
-            if isinstance(item, dict) and "members" in item
-        )
-        collection_observation_member_cleanups += project_collection_observation_member_cleanups
         malformed_developer_accounts = sum(
             1
             for field in ("developer_accounts", "candidate_developer_accounts")
@@ -2047,10 +2038,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         original_repo_urls = set(repo_url_core.normalize_repo_collection(project_record.source_code_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
         normalized = project_record.ensure_project_shape(dict(original))
-        collection_import_manual_seed_cleanups += remove_collection_import_manual_seeds(
-            normalized,
-            legacy_members=legacy_collection_members,
-        )
         normalized = finalize_project_shape(normalized)
         project_record.reclassify_service_specific_lexicon(normalized)
         normalized = project_record.apply_atproto_contribution_state(normalized)
@@ -2092,8 +2079,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
             if len(normalized_child_change_examples) < 20:
                 normalized_child_change_examples.append(project_key)
         stored_payload_changed = (
-            project_collection_observation_member_cleanups
-            or malformed_developer_accounts
+            malformed_developer_accounts
             or malformed_developer_identifier_rows
             or project_record.dump_json(project_storage_projection(raw)) != project_record.dump_json(project_storage_projection(normalized))
             or normalized_child_changed
@@ -2166,8 +2152,6 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         "project_count": len(rows),
         "normalized_project_count": normalized_projects,
         "pruned_project_count": pruned_projects,
-        "collection_observation_member_cleanup_count": collection_observation_member_cleanups,
-        "collection_import_manual_seed_cleanup_count": collection_import_manual_seed_cleanups,
         "manual_repo_seed_repair_count": manual_repo_seed_repairs,
         "developer_account_repair_count": developer_account_repairs,
         "normalized_child_change_count": normalized_child_changes,
@@ -4272,86 +4256,11 @@ def add_collection_owned_nsid(project: dict[str, Any], nsid: str) -> bool:
     return normalized not in before
 
 
-def add_collection_input_nsid(project: dict[str, Any], nsid: str) -> bool:
-    """Legacy internal alias; collection assignment now establishes ownership."""
-    return add_collection_owned_nsid(project, nsid)
-
-
 def is_collection_inventory_source(source: str) -> bool:
     normalized = str(source or "").strip()
     return normalized in {"collection_inventory_import", "collection_observation_repair"} or normalized.startswith(
         "collection_inventory_url:"
     )
-
-
-def collection_observation_legacy_members(project: dict[str, Any]) -> set[str]:
-    members: set[str] = set()
-    for observation in project.get("collection_observations", []):
-        if not isinstance(observation, dict) or not is_collection_inventory_source(str(observation.get("source") or "")):
-            continue
-        for value in observation.get("members", []) if isinstance(observation.get("members"), list) else []:
-            normalized = identifier_core.normalize_nsid(str(value or ""))
-            if normalized:
-                members.add(normalized)
-    return members
-
-
-def remove_collection_import_manual_seeds(
-    project: dict[str, Any],
-    *,
-    legacy_members: set[str] | None = None,
-) -> int:
-    inferred_legacy_members = legacy_members or set()
-    before = list(project.get("manual_seeds", []))
-    retained = [
-        dict(item)
-        for item in before
-        if not isinstance(item, dict)
-        or not (
-            is_collection_inventory_source(str(item.get("source") or ""))
-            or (
-                not str(item.get("source") or "").strip()
-                and str(item.get("type") or "") == "nsid"
-                and identifier_core.normalize_nsid(str(item.get("value") or "")) in inferred_legacy_members
-            )
-        )
-    ]
-    retained_keys = {
-        (
-            str(item.get("type") or ""),
-            project_record.canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or "")),
-        )
-        for item in retained
-        if isinstance(item, dict)
-    }
-    removed_keys = {
-        (
-            str(item.get("type") or ""),
-            project_record.canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or "")),
-        )
-        for item in before
-        if isinstance(item, dict)
-    } - retained_keys
-    project["manual_seeds"] = retained
-    runtime_rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
-    if removed_keys and isinstance(runtime_rows, list):
-        project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = [
-            dict(item)
-            for item in runtime_rows
-            if not (
-                isinstance(item, dict)
-                and str(item.get("role") or "") == "manual_seed"
-                and (
-                    str(item.get("kind") or ""),
-                    project_record.canonical_seed_value(str(item.get("kind") or ""), str(item.get("value") or "")),
-                ) in removed_keys
-            )
-        ]
-    if not project["manual_seeds"]:
-        project["discovery_sources"] = [
-            source for source in project.get("discovery_sources", []) if source != "manual_seed"
-        ]
-    return len(before) - len(project["manual_seeds"])
 
 
 def confirm_service_seed(project: dict[str, Any], service_url: str, *, source: str) -> str:
@@ -4531,11 +4440,6 @@ def import_collection_inventory_payload(
     existing_keys = {str(project["project_key"]) for project in existing_projects}
     namespace_lookup, registrable_namespace_lookup, service_host_lookup = build_collection_project_matchers(existing_projects)
     parent_seed_namespace_lookup = build_nsid_seed_parent_namespace_lookup(existing_projects)
-    raw_collection_members_by_project: dict[str, set[str]] = {}
-    if rebuild_collection_observations:
-        for row in conn.execute("SELECT * FROM projects ORDER BY project_key").fetchall():
-            raw_project = project_record.project_from_row_payload(row)
-            raw_collection_members_by_project[str(row["project_key"])] = collection_observation_legacy_members(raw_project)
 
     aggregated: dict[tuple[str, str, str], dict[str, Any]] = {}
     parent_namespaces: set[str] = set()
@@ -4608,8 +4512,6 @@ def import_collection_inventory_payload(
     working_projects: dict[str, dict[str, Any]] = {}
     cleanup_project_keys: set[str] = set()
     collection_observation_cleanups = 0
-    collection_observation_member_cleanups = 0
-    collection_import_manual_seed_cleanups = 0
     if rebuild_collection_observations:
         for project in existing_projects:
             project_key = str(project.get("project_key") or "")
@@ -4624,18 +4526,11 @@ def import_collection_inventory_payload(
                 if not is_collection_inventory_source(str(entry.get("source") or ""))
             ]
             removed_observations = len(existing_observations) - len(retained_observations)
-            legacy_members = raw_collection_members_by_project.get(project_key, set())
-            removed_manual_seeds = remove_collection_import_manual_seeds(
-                project,
-                legacy_members=legacy_members,
-            )
-            if removed_observations or legacy_members or removed_manual_seeds:
+            if removed_observations:
                 project["collection_observations"] = retained_observations
                 working_projects[project_key] = project
                 cleanup_project_keys.add(project_key)
                 collection_observation_cleanups += removed_observations
-                collection_observation_member_cleanups += len(legacy_members)
-                collection_import_manual_seed_cleanups += removed_manual_seeds
 
     duplicate_profiles, duplicate_index = build_duplicate_candidate_index(existing_projects)
     saved_project_keys: set[str] = set()
@@ -4717,7 +4612,6 @@ def import_collection_inventory_payload(
                 "nsid",
                 representative_nsid,
             )
-        remove_collection_import_manual_seeds(project)
         project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), "collection_inventory_import")
         upsert_collection_observation(
             project,
@@ -4726,7 +4620,7 @@ def import_collection_inventory_payload(
             merge_existing=merge_existing_observations,
         )
         for member in item.get("members", []):
-            add_collection_input_nsid(project, str(member))
+            add_collection_owned_nsid(project, str(member))
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(
             conn,
@@ -4783,8 +4677,6 @@ def import_collection_inventory_payload(
         "rejected": len(rejected_entries),
         "collection_observation_rebuild_project_count": len(cleanup_project_keys),
         "collection_observation_cleanup_count": collection_observation_cleanups,
-        "collection_observation_member_cleanup_count": collection_observation_member_cleanups,
-        "collection_import_manual_seed_cleanup_count": collection_import_manual_seed_cleanups,
         "mode": "execute" if execute else "dry_run",
         "create_unmatched": create_unmatched,
         "imported_project_keys": imported_project_keys,

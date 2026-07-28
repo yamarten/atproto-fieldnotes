@@ -1458,33 +1458,37 @@ def indexed_identifier_matches(
         provider = str(row["provider"])
         priority: int | None = None
         if identifier_type == "service_url":
-            if role in {"seed", "manual_seed"} or classification == "confirmed":
+            if role == "service" and classification == "confirmed":
                 priority = 0
-            elif classification == "candidate":
+            elif role == "service" and classification == "candidate":
                 priority = 1
         elif identifier_type == "nsid":
             if role == "owned_nsid" and classification == "confirmed":
                 priority = 0
-            elif role in {"input_nsid", "owned_nsid"}:
+            elif role == "owned_nsid":
                 priority = 1
         elif identifier_type == "resolved_nsid" and role == "owned_nsid":
             priority = 0
         elif identifier_type == "repo_url":
-            if role in {"seed", "manual_seed"} or classification == "confirmed":
+            if role in {"source_repository", "source_repository_record"} and classification == "confirmed":
                 priority = 0
         elif identifier_type in {"github_repo_url", "tangled_repo_url"}:
             expected_provider = identifier_type.removesuffix("_repo_url")
-            if role != "manual_seed" and classification == "confirmed" and provider == expected_provider:
+            if (
+                role in {"source_repository", "source_repository_record"}
+                and classification == "confirmed"
+                and provider == expected_provider
+            ):
                 priority = 0
-        elif identifier_type == "did" and role in {"seed", "manual_seed", "brand_did", "developer_did"}:
+        elif identifier_type == "did" and role in {"brand_did", "developer_did"}:
             priority = 0
-        elif identifier_type == "handle" and role in {"seed", "manual_seed", "developer_handle"}:
+        elif identifier_type == "handle" and role == "developer_handle":
             priority = 0
         elif identifier_type == "handle" and role == "project_handle":
             priority = 1
-        elif identifier_type == "domain" and role in {"seed", "manual_seed", "authority_domain"}:
+        elif identifier_type == "domain" and role == "authority_domain":
             priority = 0
-        elif identifier_type == "service_url_candidate" and classification == "candidate":
+        elif identifier_type == "service_url_candidate" and role == "service" and classification == "candidate":
             priority = 0
         if priority is not None:
             project_key = str(row["project_key"])

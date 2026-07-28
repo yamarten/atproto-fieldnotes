@@ -112,7 +112,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - `repo_url` decisionはactiveなconfirmed `source_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
-`seed` / `manual_seed` roleは正本DBから移行済みで、通常のidentifier生成・runtime codecは使いません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。`sync-collections` / `repair-db`には旧collection取込み由来`manual_seed`の互換掃除が残っています。
+`seed` / `manual_seed` roleは正本DBから移行済みで、現行コードは生成・読込しません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
@@ -806,7 +806,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 - bucket内の全full collectionを`owned_nsid:confirmed`として保存します。これはcollection inventoryの割当契約によるfactual ownershipで、legacy seed roleは作りません
 - 代表collectionは新規projectの初期`seed_value`選択だけに使い、identifier化の範囲を制限しません
 - `collection_observations`は親namespace単位の`count` / `recent_count` / `min` / `max`を保存し、member一覧は永続化しません
-- `--all-history`のsummaryは`collection_observation_rebuild_project_count`、observation/member/manual seedの各cleanup件数を返します
+- `--all-history`のsummaryは`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`を返します
 
 ### `sync-bluesky-lexicons`
 
@@ -1333,8 +1333,6 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 - `normalized_project_count`: `project_from_row()` で復元したpayloadを `ensure_project_shape()` に通しただけでJSON payloadが変わるproject数。
 - `pruned_project_count`: `finalize_project_shape()` 後のpayload、developer account/handle補正、またはatproto contribution保存値補正で、保存対象payloadが変わるproject数。名前は歴史的なものですが、project削除数や削除row数ではありません。
-- `collection_observation_member_cleanup_count`: legacy collection observationから削除するmember値の件数。
-- `collection_import_manual_seed_cleanup_count`: collection import由来なのにmanual seedとして保存された旧identifierの補正件数。
 - `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed `source_repository` に存在しない旧shapeを補正する件数。
 - `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に保存された旧shapeの検出件数。payload内のdeveloper account listとidentifier rowの両方を数えます。
 - `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
@@ -1342,7 +1340,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
-current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのlegacy member一覧は削除し、collection import由来の旧manual seedはinput NSIDを残したままmanual roleだけを外します。
+current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。

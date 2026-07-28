@@ -85,8 +85,6 @@ def _identifier_row_is_displayable(item: dict[str, Any]) -> bool:
     role = str(item.get("role") or "")
     value = str(item.get("value") or "").strip()
     metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    if role in {"seed", "manual_seed", "input_nsid", "observed_lexicon", "referenced_nsid", "recorded_namespace"}:
-        return False
     if role in {"developer_account", "developer_handle"}:
         if kind == "account":
             return bool(project_record.normalize_developer_accounts([metadata or {"handle": value}]))

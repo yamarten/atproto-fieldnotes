@@ -127,7 +127,7 @@ project-registry enrich --all --resume-run weekly-20260714
 | `sync-semble-collections` | 設定済みSemble collection。ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-tangled-repos` | UFOsの取得期間。項目上限、増分実行 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 
-外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、旧collection observationと自動付与されたlegacy seed roleを掃除してから、collection identifierと活動統計を現在の全payloadから再構築します。cleanup件数は結果JSONで確認できます。
+外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、collection inventory由来の保存済みobservationを現在の全payloadに置き換え、collection identifierと活動統計を再構築します。置換対象は結果JSONの`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`で確認できます。
 
 `--create-unmatched`は未知のシードから登録プロジェクトを作るかを制御します。GitHub、collection一覧、Sembleは既定on、Tangledは既定offです。詳細な検索条件やURLの一時上書きはCLIで行い、Web UIは設定済みの外部情報源だけを実行します。
 

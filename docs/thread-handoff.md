@@ -19,7 +19,6 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- 通常の`sync-collections`と`repair-db`に残る旧collection由来`manual_seed`掃除helperと`add_collection_input_nsid`のlegacy aliasは、正本DB移行後に不要な互換処理です。現行DBに旧roleがないことを前提に、利用者ガイドのcleanup説明・結果field・testと一緒に削除する。
 
 ## DB 操作メモ
 

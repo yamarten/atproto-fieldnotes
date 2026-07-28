@@ -459,15 +459,6 @@ def validate_database(
         fields = top_level | nested_forbidden_keys(profile) | nested_forbidden_keys(state)
         if fields:
             leakage[str(row["project_key"])] = sorted(fields)
-    projects_without_manual_seed = int(conn.execute(
-        """
-        SELECT COUNT(*) FROM projects p
-        WHERE NOT EXISTS (
-            SELECT 1 FROM project_identifiers i
-            WHERE i.project_key = p.project_key AND i.role = 'manual_seed'
-        )
-        """
-    ).fetchone()[0])
     invalid_decisions = int(conn.execute(
         """
         SELECT COUNT(*) FROM project_decisions
@@ -488,6 +479,5 @@ def validate_database(
         "project_alias_count": int(conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]),
         "integrity": integrity,
         "runtime_internal_field_leak_count": len(leakage),
-        "projects_without_manual_seed": projects_without_manual_seed,
         "invalid_decision_count": invalid_decisions,
     }

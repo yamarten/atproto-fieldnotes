@@ -266,6 +266,32 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_indexed_lookup_ignores_removed_identifier_roles(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:legacyroles", "nsid", "app.current.post")
+            project_record.save_project(conn, project)
+            conn.executemany(
+                "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (project["project_key"], 99, "service_url", "https://legacy.example.com", "manual_seed", "candidate", 0, "", "{}", ""),
+                    (project["project_key"], 100, "nsid", "app.legacy.post", "input_nsid", "candidate", 0, "", "{}", ""),
+                ],
+            )
+            conn.commit()
+
+            self.assertEqual(
+                project_record.indexed_identifier_matches(conn, "service_url", "https://legacy.example.com"),
+                [],
+            )
+            self.assertEqual(
+                project_record.indexed_identifier_matches(conn, "service_url_candidate", "https://legacy.example.com"),
+                [],
+            )
+            self.assertEqual(project_record.indexed_identifier_matches(conn, "nsid", "app.legacy.post"), [])
+        finally:
+            conn.close()
+
     def test_indexed_handle_lookup_prefers_developer_account_over_project_handle(self) -> None:
         conn = registry.open_db()
         try:
@@ -751,47 +777,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             all("members" not in project["collection_observations"][0] for project in created_projects if project is not None)
         )
 
-    def test_repair_db_removes_legacy_collection_members(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:latr", "nsid", "link.latr.saved.external")
-            legacy_observations = [
-                {
-                    "collection": "link.latr",
-                    "count": 13,
-                    "recent_count": 3,
-                    "min": "2026-07-01T00:00:00+00:00",
-                    "max": "2026-07-05T00:00:00+00:00",
-                    "members": ["link.latr.saved.external", "link.latr.saved.item"],
-                    "source": "collection_inventory_url:https://collections.example/inventory.json",
-                }
-            ]
-            project_record.save_project(conn, project)
-            row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:latr",)).fetchone()
-            state = json.loads(str(row["state_json"]))
-            state.setdefault("ops", {})["collection_observations"] = legacy_observations
-            conn.execute(
-                "UPDATE projects SET state_json = ? WHERE project_key = ?",
-                (json.dumps(state, ensure_ascii=False, sort_keys=True), "proj:latr"),
-            )
-            conn.commit()
-            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            before = project_record.fetch_project(conn, "proj:latr")
-            executed = registry.audit_and_repair_identifiers(conn, execute=True)
-            after = project_record.fetch_project(conn, "proj:latr")
-        finally:
-            conn.close()
-
-        assert before is not None
-        assert after is not None
-        self.assertEqual(dry_run["collection_observation_member_cleanup_count"], 2)
-        self.assertNotIn("link.latr.saved.item", before["input_nsids"])
-        self.assertEqual(executed["collection_observation_member_cleanup_count"], 2)
-        self.assertNotIn("link.latr.saved.item", after["input_nsids"])
-        self.assertEqual(after["manual_seeds"], [])
-        self.assertNotIn("members", after["collection_observations"][0])
-
-    def test_collection_all_history_rebuilds_legacy_observation_by_parent_namespace(self) -> None:
+    def test_collection_all_history_rebuilds_observations_by_parent_namespace(self) -> None:
         payload = [
             {"collection": "site.filae.newsletter.edition", "count": 10, "max": "2026-05-01T00:00:00+00:00"},
             {"collection": "site.filae.chorus.note", "count": 4, "max": "2026-05-02T00:00:00+00:00"},
@@ -810,7 +796,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "recent_count": 0,
                 "min": "2026-04-01T00:00:00+00:00",
                 "max": "2026-05-04T00:00:00+00:00",
-                "members": [item["collection"] for item in payload],
                 "source": "collection_inventory_url:https://collections.example/inventory.json",
             }]
             conn.execute(
@@ -826,7 +811,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 "collection": "social.orphan.old",
                 "count": 1,
                 "recent_count": 0,
-                "members": ["social.orphan.old.item"],
                 "source": "collection_inventory_import",
             }]
             conn.execute(
@@ -862,8 +846,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual((executed["created"], executed["updated"]), (2, 1))
         self.assertEqual(executed["collection_observation_rebuild_project_count"], 2)
         self.assertEqual(executed["collection_observation_cleanup_count"], 2)
-        self.assertEqual(executed["collection_observation_member_cleanup_count"], 5)
-        self.assertEqual(executed["collection_import_manual_seed_cleanup_count"], 0)
         self.assertEqual(len(after), 4)
         by_nsids = {
             tuple(project["resolved_nsids"]): project
