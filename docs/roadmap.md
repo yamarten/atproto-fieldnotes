@@ -236,8 +236,10 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - `lexicons.produces[]`
 - `lexicons.consumes[]`
 - `account_indicators[]`
+- owned collectionの用途を示すtest/prototype qualifier
+- collectionを定義する側と利用する側を分けるproduce/consume表現
 
-`links[]` の初期実装は入っていますが、現時点では次の最小 role に限定しています。
+`links[]`はopen unionとして保存し、現行UIは次のroleを認識します。
 
 - `website`
 - `webApp`
@@ -247,8 +249,14 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 - `status`
 - `privacyPolicy`
 - `termsOfService`
+- `webManifest`
+- `changelog`
+- `appStore`
+- `playStore`
+- `fdroid`
+- `distribution`
 
-次は必要になった時だけ増やします。
+実例リンク、開発意図・背景、リリース発表などは有用ですが、追加経路と重要度が未確定です。将来roleを増やす場合も、アプリ本体や配布先と同じ優先度には置きません。
 
 ## 境界項目の再評価
 
@@ -273,10 +281,13 @@ path名の名指しだけでは信頼性が低いため、将来的には次の�
 - page title、meta description、本文のdocs/login/support/statusらしさ
 - service root、app shell、auth entry、docs/support/status pageの役割分離
 - 手動seed、operator decision、過去probe結果との整合
-- Webページを持たないアプリをservice URL必須にせず表す契約と、App Store、ブラウザ拡張ストア、ダウンロードページ、本体入口から直接辿れない公式・関連ページなどを配布・参考URLとして手動登録するrole
-- legacy `manual_seed` / `seed` roleをfactual confirmed identifierへ移行し、trust anchorからも削除するcleanup
+- Webページを持たないアプリをservice URL必須にせず表す契約と、ブラウザ拡張ストアなど未対応の配布先
 
 非目標として、pathがあるURLを一律に落とすことや、`/about`などの名前だけで恒久的に分類を確定することは避けます。
+
+## `com.atproto.*` ownership
+
+Bluesky公式repositoryはAppView実装も含むため、repository URLだけを`com.atproto.*` collectionの所有project判定に使いません。現行`sync-bluesky-lexicons`は`app.bsky.*` / `chat.bsky.*`だけを対象にします。`com.atproto.*`を補完する場合は、protocol specification、schema配布主体、実装repositoryの関係を別途定義してから専用sourceとして追加します。
 
 ## atproto寄与度の独立評価
 

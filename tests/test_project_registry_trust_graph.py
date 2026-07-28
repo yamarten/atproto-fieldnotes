@@ -107,6 +107,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
     def test_blocked_service_candidate_does_not_auto_confirm(self) -> None:
         project = project_record.default_project_record("proj:blockedtrust", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
         project["blocked_identifiers"] = [{"type": "service_url", "value": "https://app.example.com"}]
         project_record.record_trust_edge(
             project,
@@ -137,6 +138,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
     def test_manual_repo_seed_and_mutual_edges_confirm_service(self) -> None:
         project = project_record.default_project_record("proj:mutualservice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
         project_record.record_trust_edge(
             project,
             "repo_url",
@@ -241,6 +243,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
     def test_handle_requires_did_document_reverse_claim_for_auto_confirm(self) -> None:
         project = project_record.default_project_record("proj:handletrust", "did", "did:plc:dev")
         registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
+        registry.add_confirmed_identifier_decision(project, "did", "did:plc:dev", source="test")
         project_record.record_trust_edge(
             project,
             "handle",
@@ -273,6 +276,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
     def test_exact_domain_can_auto_confirm_only_through_mutual_identity_path(self) -> None:
         project = project_record.default_project_record("proj:domaintrust", "did", "did:plc:dev")
         registry.add_manual_seed(project, "did", "did:plc:dev", source="test")
+        registry.add_confirmed_identifier_decision(project, "did", "did:plc:dev", source="test")
         project_record.record_trust_edge(
             project,
             "handle",
@@ -361,6 +365,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         try:
             missing = self.make_project("proj:missingedge", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(missing, "repo_url", "https://github.com/example/app", source="test")
+            registry.add_confirmed_identifier_decision(missing, "repo_url", "https://github.com/example/app", source="test")
             missing["service_urls"] = ["https://app.example.com"]
             missing["relation_evidence"] = [
                 self._source_repository_relation(
@@ -376,6 +381,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
 
             reprobe = self.make_project("proj:reprobe", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(reprobe, "repo_url", "https://github.com/example/app", source="test")
+            registry.add_confirmed_identifier_decision(reprobe, "repo_url", "https://github.com/example/app", source="test")
             reprobe["service_urls"] = ["https://docs.example.com"]
             reprobe["relation_evidence"] = [
                 self._source_repository_relation(
@@ -402,6 +408,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:repairtrust", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+            registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
             project["service_urls"] = ["https://app.example.com"]
             project["relation_evidence"] = [
                 self._source_repository_relation(
@@ -450,7 +457,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         self.assertEqual(fetched["service_urls"], [])
         self.assertEqual(fetched["service_url_candidates"], ["https://unrelated.example.com"])
 
-    def test_repair_trust_graph_can_downgrade_unsupported_nsid(self) -> None:
+    def test_repair_trust_graph_preserves_source_confirmed_owned_nsid(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:trustnsiddowngrade", "nsid", "app.example.post")
@@ -471,10 +478,10 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             conn.close()
 
         assert fetched is not None
-        self.assertEqual(executed["downgraded_identifier_count"], 1)
+        self.assertEqual(executed["downgraded_identifier_count"], 0)
         self.assertNotIn("primary_nsid", fetched)
-        self.assertEqual(fetched["resolved_nsids"], [])
-        self.assertEqual(fetched["input_nsids"], ["app.example.post"])
+        self.assertEqual(fetched["resolved_nsids"], ["app.example.post"])
+        self.assertEqual(fetched["input_nsids"], [])
         self.assertEqual(fetched["lexicon_resolution_entries"][0]["resolved_nsid"], "app.example.post")
 
     def test_repair_trust_graph_can_downgrade_did_without_dropping_handle(self) -> None:
@@ -482,6 +489,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:trustdiddowngrade", "repo_url", "https://github.com/example/app")
             registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+            registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
             project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
             project_record.save_project(conn, project)
 

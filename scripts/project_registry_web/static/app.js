@@ -687,7 +687,6 @@ function renderDetail(data) {
   state.detailRevision = data.revision || "";
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
-  const manualSeed = overview.manual_seed;
   const promotionDefer = overview.promotion_defer || {};
   const promotionDeferDays = Number(promotionDefer.suggested_days || 30);
   const promotionDeferAction = actionButton(
@@ -704,7 +703,8 @@ function renderDetail(data) {
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Confirmed services</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Seed</dt><dd>${manualSeed ? esc(`${manualSeed.kinds.join(" + ")}: ${manualSeed.value}`) : "No saved manual seed"}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
+    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Confirmed services</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "None"}</dd><dt>Repository</dt><dd>${overview.repository ? link(overview.repository) : "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
+    ${section("Links / Resources", renderProjectLinks(overview))}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>${promotionPriorityActions}`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
@@ -783,6 +783,30 @@ function identifierValueLink(item) {
 function renderSystemNotes(project) {
   const notes = list(project.system_notes).filter((item) => String(item || "").trim());
   return notes.length ? notes.map((item) => esc(item)).join("<br>") : "None";
+}
+
+function renderProjectLinks(overview) {
+  const groups = [
+    ["Use / install", ["website", "webApp", "distribution", "appStore", "playStore", "fdroid"]],
+    ["Project information", ["sourceCode", "docs", "support"]],
+    ["Supporting information", ["changelog", "status", "privacyPolicy", "termsOfService", "webManifest"]],
+  ];
+  const records = [];
+  list(overview.app_links).forEach((item) => records.push({url:item.uri, role:item.role, confidence:"confirmed"}));
+  list(overview.resource_urls).forEach((item) => {
+    if (!records.some((existing) => existing.url === item.url && existing.role === item.role)) records.push(item);
+  });
+  const known = new Set(groups.flatMap(([, roles]) => roles));
+  groups.push(["Other", uniqueValues(records.map((item) => item.role).filter((role) => !known.has(role)))]);
+  const body = groups.map(([label, roles]) => {
+    const items = records.filter((item) => roles.includes(item.role)).sort((a, b) => {
+      const confidence = (a.confidence === "confirmed" ? 0 : 1) - (b.confidence === "confirmed" ? 0 : 1);
+      return confidence || roles.indexOf(a.role) - roles.indexOf(b.role) || String(a.url).localeCompare(String(b.url));
+    });
+    if (!items.length) return "";
+    return `<div class="identifier-kind"><div class="identifier-kind-header"><h4>${esc(label)}</h4><span>${items.length}</span></div>${items.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.url)}</div><div class="muted">${esc(item.role)} · ${pill(item.confidence || "candidate", item.confidence || "candidate")}</div></div>`).join("")}</div>`;
+  }).join("");
+  return body ? `<div class="identifier-groups">${body}</div>` : `<p class="muted">No saved links.</p>`;
 }
 
 function renderIdentifiers(items) {

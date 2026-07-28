@@ -29,6 +29,7 @@ from project_registry_core.registry import (
     activity_is_recent,
     add_candidate_text,
     add_candidate_url,
+    add_collection_owned_nsid,
     add_manual_seed,
     all_projects,
     apply_tangled_evidence,
@@ -79,6 +80,82 @@ from project_registry_core.registry import import_text_seed_list as _import_text
 
 def import_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool = False) -> dict[str, Any]:
     return _import_text_seed_list(conn, path, execute=execute)
+
+
+def sync_bluesky_lexicons(
+    conn: sqlite3.Connection,
+    *,
+    repo_url: str,
+    target_service_url: str,
+    execute: bool = False,
+) -> dict[str, Any]:
+    normalized_repo = repo_url_core.canonical_repo_url(repo_url)
+    normalized_service = identifier_core.normalize_url(target_service_url)
+    if not normalized_repo or not normalized_service:
+        raise ValueError("Bluesky lexicon repository and target service URL are required")
+    target_rows = conn.execute(
+        """
+        SELECT DISTINCT project_key
+        FROM project_identifiers
+        WHERE kind = 'service_url' AND value = ?
+          AND role = 'service' AND classification = 'confirmed'
+        ORDER BY project_key
+        """,
+        (normalized_service,),
+    ).fetchall()
+    target_keys = [str(row["project_key"]) for row in target_rows]
+    repository = repository_source_core.fetch_github_repo(normalized_repo)
+    ref = str(repository.get("revision") or repository.get("default_branch") or "")
+    paths = sorted({
+        str(item.get("path") or "")
+        for item in repository.get("tree", [])
+        if isinstance(item, dict)
+        and str(item.get("type") or "") == "blob"
+        and str(item.get("path") or "").startswith(("lexicons/app/bsky/", "lexicons/chat/bsky/"))
+        and str(item.get("path") or "").endswith(".json")
+    })
+    collections: list[str] = []
+    rejected: list[dict[str, str]] = []
+    for path in paths:
+        try:
+            payload = json.loads(repository_source_core.github_repo_file_text(normalized_repo, path, ref=ref))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            rejected.append({"path": path, "reason": f"invalid_json:{type(exc).__name__}"})
+            continue
+        nsid = identifier_core.normalize_nsid(str(payload.get("id") or "")) if isinstance(payload, dict) else ""
+        defs = payload.get("defs") if isinstance(payload, dict) and isinstance(payload.get("defs"), dict) else {}
+        main = defs.get("main") if isinstance(defs.get("main"), dict) else {}
+        if not nsid.startswith(("app.bsky.", "chat.bsky.")):
+            continue
+        if not identifier_core.is_valid_nsid(nsid) or str(main.get("type") or "") != "record":
+            rejected.append({"path": path, "reason": "not_record_schema", "nsid": nsid})
+            continue
+        collections.append(nsid)
+    collections = unique_list(collections)
+    target_key = target_keys[0] if len(target_keys) == 1 else ""
+    changed = 0
+    if execute and target_key:
+        project = fetch_project(conn, target_key)
+        if project is None:
+            raise ValueError(f"Bluesky target project disappeared: {target_key}")
+        for nsid in collections:
+            changed += int(add_collection_owned_nsid(project, nsid))
+        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bluesky_official_lexicons")
+        save_project(conn, finalize_project_shape(project), enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "source": normalized_repo,
+        "target_service_url": normalized_service,
+        "target_project_keys": target_keys,
+        "target_project_key": target_key,
+        "status": "ready" if target_key else "unmatched" if not target_keys else "ambiguous",
+        "scanned_file_count": len(paths),
+        "collection_count": len(collections),
+        "changed_count": changed,
+        "collections": collections,
+        "rejected": rejected[:50],
+    }
 
 
 def fetch_collection_inventory(source_url: str) -> list[dict[str, Any]]:
@@ -1622,7 +1699,7 @@ def sync_tangled_repos(
             matched += 1
             outcome = "matched"
         elif create_unmatched:
-            project = ensure_project_for_seed(conn, "repo_url", repo_url) if execute else default_project_record("dry-run", "repo_url", repo_url)
+            project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_ufos") if execute else default_project_record("dry-run", "repo_url", repo_url)
             created += 1
             outcome = "created"
         else:

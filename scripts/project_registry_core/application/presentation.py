@@ -85,6 +85,8 @@ def _identifier_row_is_displayable(item: dict[str, Any]) -> bool:
     role = str(item.get("role") or "")
     value = str(item.get("value") or "").strip()
     metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    if role in {"seed", "manual_seed", "input_nsid", "observed_lexicon", "referenced_nsid", "recorded_namespace"}:
+        return False
     if role in {"developer_account", "developer_handle"}:
         if kind == "account":
             return bool(project_record.normalize_developer_accounts([metadata or {"handle": value}]))
@@ -259,9 +261,8 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "domain": ("identity", "Identities"),
     }
     role_labels = {
-        "input_nsid": "input", "owned_nsid": "owned",
-        "observed_lexicon": "observed", "recorded_namespace": "namespace",
-        "seed": "initial seed", "manual_seed": "manual seed", "source_repository": "source",
+        "owned_nsid": "owned",
+        "source_repository": "source",
         "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
         "project_account": "project", "project_handle": "project handle",
@@ -271,11 +272,6 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "source_repository_record": "source_repository",
     }
     primary_service_values = {website_url} if website_url else set()
-    manual_seed_nsids = {
-        item["value"]
-        for item in raw
-        if item["kind"] == "nsid" and item["role"] == "manual_seed"
-    }
     confirmed_identifier_values = {
         (item["kind"], item["value"])
         for item in raw
@@ -291,13 +287,6 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for item in raw:
-        if (
-            item["kind"] == "nsid"
-            and item["value"] in manual_seed_nsids
-            and item["role"] == "input_nsid"
-            and item["classification"] == "candidate"
-        ):
-            continue
         family, family_label = family_specs.get(item["kind"], (f"other:{item['kind']}", item["kind"]))
         key_value = group_value(item, family)
         key = (family, key_value)
@@ -329,7 +318,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         entry["actions"] = {
             "identifier_type": entry_action_kind,
             "confirm": item["classification"] == "candidate" and not value_already_confirmed and (
-                entry_action_kind in {"service_url", "repo_url", "account"}
+                entry_action_kind in {"service_url", "repo_url", "account", "nsid"}
             ),
             "reject": item["classification"] == "candidate"
             and not value_already_confirmed
@@ -715,7 +704,6 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     }
     payload["merge_target_revision"] = ""
     identifiers = payload["identifiers"]
-    manual_seed = next((item for item in identifiers if "manual_seed" in item["roles"]), None)
     primary_repo = next((item for item in identifiers if item["family"] == "repository" and item["is_primary"]), None)
     primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
     payload["overview"] = {
@@ -723,7 +711,10 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "confirmed_services": list(prepared.get("service_urls") or []),
         "repository": primary_repo["value"] if primary_repo else "",
         "account": primary_account["value"] if primary_account else "",
-        "manual_seed": manual_seed,
+        "app_links": project_record.build_project_app_links(prepared),
+        "resource_urls": project_record.normalize_resource_url_records(
+            list(prepared.get("resource_url_records") or [])
+        ),
         "active_guards": payload["decisions"]["active"],
         "promotion_defer": {
             "suggested_days": core.suggested_promotion_defer_days(project),
@@ -788,6 +779,14 @@ def confirm_candidate(
         confirmed = core.confirm_service_seed(project, value, source="web_ui")
     elif identifier_type == "repo_url":
         confirmed = core.confirm_repo_seed(project, value, source="web_ui")
+    elif identifier_type == "nsid":
+        normalized = project_record.canonical_seed_value("nsid", value)
+        if normalized not in project.get("input_nsids", []):
+            confirmed = ""
+        else:
+            project["input_nsids"] = [item for item in project.get("input_nsids", []) if item != normalized]
+            project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), normalized)
+            confirmed = normalized
     elif identifier_type == "account":
         normalized = str(value or "").strip().lower()
         candidate = next((
@@ -809,7 +808,7 @@ def confirm_candidate(
             ]
             confirmed = str(candidate.get("handle") or candidate.get("did") or "")
     else:
-        raise ValueError("identifier_type must be service_url, repo_url, or account")
+        raise ValueError("identifier_type must be service_url, repo_url, nsid, or account")
     if not confirmed:
         raise ValueError("candidate value is required")
     core.add_confirmed_identifier_decision(

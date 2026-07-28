@@ -77,6 +77,9 @@ def add_seed(
         )
         if normalized_value in project_record.source_code_url_values(project):
             confirmed_role = "source_repository"
+    elif resolved_type == "nsid":
+        if normalized_value in project.get("resolved_nsids", []):
+            confirmed_role = "owned_nsid"
     if confirmed_role:
         core.add_confirmed_identifier_decision(
             project,

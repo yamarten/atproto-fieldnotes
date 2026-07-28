@@ -219,6 +219,8 @@ def unique_list(values: list[str]) -> list[str]:
     return output
 
 APP_LINK_RESOURCE_PATH_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("webManifest", ("/manifest.json", "/manifest.webmanifest", "/site.webmanifest")),
+    ("changelog", ("/changelog", "/changes", "/releases")),
     ("privacyPolicy", ("/privacy", "/privacy-policy", "/policies/privacy")),
     ("termsOfService", ("/terms", "/terms-of-service", "/tos")),
     ("status", ("/status", "/uptime", "/health")),
@@ -238,7 +240,10 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
     "/dashboard",
 )
 
-RESOURCE_URL_ROLES = {"unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService"}
+RESOURCE_URL_ROLES = {
+    "unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService",
+    "webManifest", "changelog", "appStore", "playStore", "fdroid", "distribution",
+}
 
 RESOURCE_URL_CONFIDENCE_VALUES = {"candidate", "confirmed"}
 
@@ -251,6 +256,12 @@ RESOURCE_URL_ROLE_BUDGETS = {
     "status": 2,
     "privacyPolicy": 2,
     "termsOfService": 2,
+    "webManifest": 2,
+    "changelog": 3,
+    "appStore": 3,
+    "playStore": 3,
+    "fdroid": 3,
+    "distribution": 4,
     "unknown": 3,
 }
 
@@ -261,17 +272,20 @@ RESOURCE_URL_HOST_ROLE_BUDGETS = {
     "status": 1,
     "privacyPolicy": 1,
     "termsOfService": 1,
+    "webManifest": 1,
+    "changelog": 2,
+    "appStore": 2,
+    "playStore": 2,
+    "fdroid": 2,
+    "distribution": 3,
     "unknown": 2,
 }
 
 RESOURCE_URL_ROLE_RANK = {
-    "status": 0,
-    "support": 1,
-    "docs": 2,
-    "privacyPolicy": 3,
-    "termsOfService": 4,
-    "blog": 5,
-    "unknown": 6,
+    "appStore": 0, "playStore": 1, "fdroid": 2, "distribution": 3,
+    "docs": 10, "support": 11,
+    "changelog": 20, "status": 21, "privacyPolicy": 22, "termsOfService": 23, "webManifest": 24,
+    "blog": 30, "unknown": 99,
 }
 
 RESOURCE_URL_SOURCE_RANK_PREFIXES = {
@@ -372,6 +386,14 @@ def app_link_role_from_resource_url(url: str) -> str:
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
     path = parsed.path.lower().rstrip("/")
+    if host == "apps.apple.com" and "/app/" in f"{path}/":
+        return "appStore"
+    if host == "play.google.com" and path == "/store/apps/details":
+        return "playStore"
+    if host in {"f-droid.org", "www.f-droid.org"} and path.startswith("/packages/"):
+        return "fdroid"
+    if host.endswith(".itch.io") and path not in {"", "/"}:
+        return "distribution"
     if host.startswith("docs."):
         return "docs"
     if host.startswith("support.") or host.startswith("help."):
@@ -660,6 +682,11 @@ def namespace_from_collection_nsid(nsid: str) -> str:
 
 
 def default_project_record(project_key: str, seed_type: str, seed_value: str) -> dict[str, Any]:
+    initial_owned_nsids = (
+        [canonical_seed_value("nsid", seed_value)]
+        if seed_type == "nsid" and identifier_core.is_valid_nsid(canonical_seed_value("nsid", seed_value))
+        else []
+    )
     return {
         "project_key": project_key,
         "status": "draft",
@@ -684,10 +711,10 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "tracking_state": "active",
         "tracking_note": "",
         "system_notes": [],
-        "discovery_sources": ["manual_seed"],
+        "discovery_sources": [],
         "evidence_urls": [],
         "input_nsids": [],
-        "resolved_nsids": [],
+        "resolved_nsids": initial_owned_nsids,
         "lexicon_resolution_entries": [],
         "recorded_lexicon_namespaces": [],
         "lexicons": [],
@@ -1199,7 +1226,7 @@ def project_trusted_collection_nsid_from_state(project: dict[str, Any], nsid: st
     if not normalized or relation_core.identifier_is_guarded(project, "nsid", normalized):
         return False
     return (
-        manual_nsid_seed_supports(project, normalized)
+        normalized in {identifier_core.normalize_nsid(str(item)) for item in project.get("resolved_nsids", [])}
         or normalized in active_confirmed_identifier_values(project, "nsid")
         or trust_graph_core.confirmed_by_trust_policy(project, "collection", normalized)
     )
@@ -1436,9 +1463,9 @@ def indexed_identifier_matches(
             elif classification == "candidate":
                 priority = 1
         elif identifier_type == "nsid":
-            if role in {"seed", "manual_seed", "input_nsid"}:
+            if role == "owned_nsid" and classification == "confirmed":
                 priority = 0
-            elif role == "owned_nsid":
+            elif role in {"input_nsid", "owned_nsid"}:
                 priority = 1
         elif identifier_type == "resolved_nsid" and role == "owned_nsid":
             priority = 0
@@ -1829,6 +1856,10 @@ def manual_service_hosts(project: dict[str, Any]) -> set[str]:
         host = urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc.lower()
         if host:
             hosts.add(host)
+    for value in active_confirmed_identifier_values(project, "service_url"):
+        host = urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc.lower()
+        if host:
+            hosts.add(host)
     return hosts
 
 
@@ -1900,7 +1931,7 @@ def normalize_resource_url_records(entries: list[Any]) -> list[dict[str, str]]:
         if not url:
             continue
         role = str(item.get("role") or app_link_role_from_resource_url(url) or "unknown").strip()
-        if role not in RESOURCE_URL_ROLES:
+        if not role or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", role):
             role = "unknown"
         confidence = str(item.get("confidence") or "candidate").strip().lower()
         if confidence not in RESOURCE_URL_CONFIDENCE_VALUES:

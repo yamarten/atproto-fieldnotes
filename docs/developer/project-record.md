@@ -71,7 +71,7 @@ idempotentに作成できます。
 - `platforms`: 対応platform
 - `links`: canonical identifierとconfirmed resourceから再構築できる公開link view
 
-`links`で現在使うroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`です。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
+`links`で現在使う主なroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`, `webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`です。roleはopen unionとして扱い、未知値も保持します。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
 
 ### Category
 
@@ -154,11 +154,7 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
 主なroleと意味:
 
 - NSID
-  - `input_nsid`: seedや調査入力として得たNSID。ownership確定前の作業入力であり、単独では「そのprojectのowned collection」とは扱わない
-  - `owned_nsid`: ownership評価を通過したNSID
-  - `observed_lexicon`: project周辺で観測したlexicon
-  - `referenced_nsid`: projectが利用・参照する外部NSID
-  - `recorded_namespace`: collection観測から導出したnamespace
+  - `owned_nsid`: projectが所有するcollection。`confirmed`はsource assignmentまたは採用判断で確定、`candidate`は所有候補としてレビュー対象
 - service
   - `service`: confirmedまたはcandidateのservice surface
 - repository
@@ -172,12 +168,11 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `project_account`: project名義のaccount候補
   - `project_handle`: project名義のhandle候補
   - `authority_domain`: NSIDやidentity pathから導出したdomain
-- `seed`: project作成時の初期入力。`state_json`の`seed_type` / `seed_value`と同じ値をnormalized rowにも投影する
-- `manual_seed`: 複数seedを保持してきたlegacy role。名前に反して過去の自動取り込み値も含むため、operator操作の有無を表す正本にはしない
+`input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`はlegacy roleであり、現行コードは新規保存しません。`repair-identifier-roles`が既存行を移行します。観測・参照したNSIDはfactual identifierへ混ぜず、relation、schema sample、collection observationなど元の根拠に保存します。
 
-現行の`add-seed` / Web `Add seed`は、`service_url`と`repo_url`をそれぞれconfirmed `service` / `source_repository`へ投影します。`manual_seed`だけに値を残すことは新しいoperator操作の完了条件にしません。同じ値のseedを既存projectへ再適用し、旧データに不足するfactual roleを補えます。`manual_seed` role自体の廃止は、NSIDとservice以外の公式URLの移行を別途完了してから行います。
+現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `source_repository`へ投影し、`confirm_identifier` decisionを記録します。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 
-NSIDには代表値を置きません。調査処理は`input_nsid`と`owned_nsid`の集合を使います。代表公開URLは`projects.website_url`だけを正本とし、同じURLを`website` roleとして重複保存しません。Web表示のprimary markerはconfirmed `service` rowの値が`website_url`と一致するかで導出します。
+NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。代表公開URLは`projects.website_url`だけを正本とし、同じURLを`website` roleとして重複保存しません。Web表示のprimary markerはconfirmed `service` rowの値が`website_url`と一致するかで導出します。
 
 load時は専用runtime codecがnormalized child tableを読み、collector/evaluationが使うcanonical project dictへhydrateします。このdictは保存正本ではなく、既存の調査ロジックへ渡す完全なruntime viewです。
 
@@ -234,7 +229,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 
 - `block_identifier`: 誤ったidentifierの再付着を恒久的に抑止する
 - `defer_identifier`: identifierの確定を期限付きで保留する
-- `confirm_identifier`: operatorがcandidate identifierを明示確認した履歴
+- `confirm_identifier`: operator入力または採用済みsource seedによるidentifier採用判断
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
 - `lower_promotion_priority`: promotion候補を一覧に残したまま通常候補より後ろへ送る。理由は`note`に保存し、clear後は通常優先度へ戻る
 - `dismiss_review`: 特定review signalをdismissする
@@ -242,7 +237,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `defer_review_target`: fingerprintで特定したrelationまたはcollector failureを期限付きで保留する
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
-各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先するoperator assertionとして扱います。
+各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
 
 ## Canonical View
 

@@ -108,11 +108,11 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
-- `manual_seed` はlegacyなgraph外anchor、未clearの `confirm_identifier` はgraph外のoperator anchorです
-- `repo_url` の `manual_seed` は、active な confirmed `source_repository` に残っている場合だけ trust graph anchor にします。manual repo seed は confirmed `source_repository` として保存し、旧データにある「manual seed だが source repository は candidate」の形は `repair-db` で補正します。defer/block された repo seed は confirmed repo に戻さず、anchor にもしません
+- 未clearの`confirm_identifier`はgraph外anchorです。sourceでoperator入力と採用済みsource syncを区別します
+- `repo_url` decisionはactiveなconfirmed `source_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
-`manual_seed`という名前は現行データの由来を正確に表しません。過去の外部syncもこのroleを生成しており、複数入力を保持するlegacy roleとoperator trustが混在しています。現行のoperator `add-seed`はservice/repositoryのfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier` decisionへ記録します。このdecisionはcandidateだった履歴ではなくoperator判断を表します。同一seedの再適用は、legacy `manual_seed`だけが残った値のfactual roleとdecisionを補うidempotent repairとしても使えます。`manual_seed`をanchorとする分岐は既存データ移行中の契約であり、最終的にはguardされていない対象roleのconfirmed identifierへ置き換えます。
+`seed` / `manual_seed` roleは新規生成せず、`repair-identifier-roles`で既存行を移行します。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
@@ -151,7 +151,7 @@ domainで先頭labelだけが同じhostはsame-siteにしません。
 
 `project_registry_core/runtime_view.py`がnormalized child tableとcollector/evaluation向けflat dictの対応を一元管理します。既存projectの保存は完全にhydrateされたruntime viewだけを受け付け、partial dictからの更新によるidentifier/relation/decision全消去を拒否します。runtime markerは保存JSON、investigation snapshot、Web payloadへ出しません。
 
-runtime viewはnormalized rowの無変更roundtripを維持します。candidate owned NSIDやcandidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。NSIDの代表値は生成せず、調査処理は`input_nsids`と`resolved_nsids`の集合を使います。
+runtime viewはnormalized rowの無変更roundtripを維持します。candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。NSIDは`owned_nsid`へ統一し、`resolved_nsids`をconfirmed、`input_nsids`をcandidateのruntime viewとして使います。NSIDの代表値は生成しません。
 
 代表公開URLの正本は`projects.website_url`です。normalized service URLはconfirmed/candidateとも`service` roleへ統一し、Webのprimary markerはservice URLと`website_url`の一致から導出します。
 
@@ -358,7 +358,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 
 ### 2. GitHub repo から取るもの
 
-- manual `repo_url` seed は first-party 前提で `source_code_urls` に confirmed で入れます
+- 採用済み`repo_url` seedは`source_code_urls`にconfirmedで入り、入力元とは別に`confirm_identifier` decisionを持ちます
 - repo metadata から取るもの:
   - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
@@ -416,7 +416,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - service probe由来edgeとその再生成元のrelationは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
   - GitHub repository metadata の homepage は `repo_links_service`
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
-  - manual service seed の host そのものは operator anchor として support します
+  - activeなservice URL採用decisionのhostそのものはanchorとしてsupportします
 - service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。`service -> repo` と `repo -> service` の相互信頼が成立する場合だけ URL confirmed に使います。
 - `lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃っていても、それは `repo/NSID -> authority domain` の片方向根拠です。service host がそのauthority domainと一致して正常応答するだけでは、`domain/service -> project` の根拠として扱わず、confirmed service URLへ昇格しません。
 - service page が project の NSID を直接言及しているだけでは、互換実装や利用関係と区別できないため、`domain/service -> project` のconfirmed service support根拠にしません。
@@ -595,14 +595,14 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 
 `project_owned_lexicon_nsid()` は現在、次の順で `owned` を判定します。
 
-1. manual `nsid` seed そのもの
-2. manual `nsid` seed と同じ collection namespace を持つNSID
+1. confirmed `owned_nsid`そのもの
+2. source syncが同じprojectへ割り当てた同一collection namespaceのNSID
 3. `trust-graph-v1` で collection と confirmed developer DID の間に相互の強い有向経路がある
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONだけでは ownership を確定しません。
-manual NSID seed からの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように collection namespace が完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは、同じ operator seed からは自動owned扱いしません。
+collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
 
-repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。manual repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
+repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
 domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
 [identity-ownership-evidence.md](../notes/identity-ownership-evidence.md) に分離しています。
@@ -785,7 +785,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   - watermark が無い初回は `lookback_days` 以内
 - `--all-history`ではwatermarkと既知判定を外し、先行activity refreshを行わず、保存済みcollection stateを現在の全payloadから再構築します
   - `collection_inventory_import`と旧`collection_inventory_url:*`由来のobservationを一旦除去します
-  - legacy observationのmember一覧にだけ由来が残る旧manual seedも、通常のoperator confirmと区別してmanual roleを外します
+  - legacy observationのmember一覧にだけ由来が残る旧seed roleも、通常の採用decisionと区別して削除します
   - payloadから消えた旧observationも再構築時の削除対象です
 - import 前にfull collectionごとに既存projectとの一致を判定します
   - `exact_namespace` / `exact_namespace_scan` / `seed_parent_namespace`で一致したcollectionはtarget projectごとに集約します
@@ -796,17 +796,24 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   - namespace が短すぎる
   - authority domain が import 許可ルールに合わない
 - 既存 project への match 順:
-  1. payload内のfull collectionから得た親 namespace が、既存projectの代表NSID seed、manual NSID seed、または recorded namespace と一意に一致する
+  1. payload内のfull collectionから得た親namespaceが、既存projectのconfirmed `owned_nsid`の親namespaceと一意に一致する
   2. `exact_namespace`
   3. `exact_namespace_scan`
   4. `registrable_namespace`
   5. `service_host_family`
 - 自動 attach するのは 1、2、3 だけです
 - 4 と 5 は `suggested_project_key` に落とし、既存 project に自動では吸いません
-- bucket内の全full collectionを`input_nsid` candidateとして保存します。collection importは`manual_seed`を作りません
+- bucket内の全full collectionを`owned_nsid:confirmed`として保存します。これはcollection inventoryの割当契約によるfactual ownershipで、legacy seed roleは作りません
 - 代表collectionは新規projectの初期`seed_value`選択だけに使い、identifier化の範囲を制限しません
 - `collection_observations`は親namespace単位の`count` / `recent_count` / `min` / `max`を保存し、member一覧は永続化しません
 - `--all-history`のsummaryは`collection_observation_rebuild_project_count`、observation/member/manual seedの各cleanup件数を返します
+
+### `sync-bluesky-lexicons`
+
+- `config/sources.json`のBluesky公式repositoryを走査し、`lexicons/app/bsky/`と`lexicons/chat/bsky/`配下にある`defs.main.type=record`のschemaだけを対象にします
+- `com.atproto.*`は同じrepositoryにAppView実装も含まれ所有projectを一意に定められないため対象外です
+- confirmed service `https://bsky.app`を持つprojectが一意な時だけ、collectionを`owned_nsid:confirmed`として追加します。targetが無い場合は`unmatched`、複数なら`ambiguous`を返し、新規projectは作りません
+- dry-runでもrepositoryへ接続します。`--execute`時だけidentifierと`bluesky_official_lexicons` discovery sourceを保存します
 
 ### `sync-github-search`
 
@@ -868,7 +875,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 
 主に見ているもの:
 
-- `manual_seeds` に `service_url` があるか
+- confirmed service surfaceがあるか
 - `website_url`
 - `service_urls`
 - `source_code_urls`
@@ -1011,13 +1018,13 @@ identifier、relation evidence、operator decisionの正本はそれぞれ`proje
 NSID は storage / UI / external lookup で観測されたcaseを保持します。authority domain 由来の比較や alias token 化では小文字化した派生値を使うことがありますが、NSID本体、特にname部を正規化目的で小文字化しません。`listReposByCollection` などcase-sensitiveな外部APIへ渡す値も、保存済み値または観測値のcaseを保ちます。
 
 - `input_nsids`
-  - 手動seedとして投入された NSID
+  - candidate `owned_nsid`のruntime view
 - `resolved_nsids`
-  - lexicon解決に成功した NSID
+  - confirmed `owned_nsid`のruntime view
 - `confirmed_nsids`
   - 内部で扱う高信頼 NSID
 - `lexicons`
-  - 旧保存形に由来する canonical NSID。現行では evidence 側の観測値として残す
+  - `resolved_nsids`から導出するcompatibility view
 - `lexicon_namespaces`
   - project 粒度で記録する namespace
 
@@ -1285,8 +1292,8 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 - `choose_batch_merge_direction()` は「どちらを target に残すか」を `project_batch_merge_preference()` で決めます
 - 優先順位は概ね次です
-  - manual seed の強さ
-    - `service_url` > `nsid` > `repo_url`
+  - confirmed factual identifierの強さ
+    - service surface > owned NSID > source repository
   - editorial richness
     - `website_url`
     - `service_urls`
@@ -1336,6 +1343,21 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
 current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。collection observationのlegacy member一覧は削除し、collection import由来の旧manual seedはinput NSIDを残したままmanual roleだけを外します。
+
+## repair-identifier-roles
+
+NSID/seed role移行は`repair-db`へ混ぜず、専用の`repair-identifier-roles`で行います。既定はdry-runです。
+
+- `input_nsid`を`owned_nsid:confirmed`へ移す。ただし既存`owned_nsid:candidate`と同値ならcandidateを維持する
+- `observed_lexicon`、`referenced_nsid`、`recorded_namespace`はidentifierから除き、元のrelation・observation・schema sampleは変更しない
+- full NSIDのlegacy manual seedはconfirmed owned NSIDと採用decisionへ移す。2 segmentのauthority prefixはidentifierにしない
+- legacy repo seedはconfirmed source repositoryと採用decisionへ移す
+- factual serviceでないApp Store・配布URLなどはresource roleへ移す
+- NSIDのcaseは保持し、大小文字だけが異なる値は自動統合せず`case_collision_count`へ報告する
+- 一時的に`--collection-inventory`を指定した場合だけ、現行collection inventory内でcase-fold値が一意なNSIDをsource表記へ補正する。identifier、legacy seed、採用decision、初期seed scalarを同時に移し、source内の衝突は`case_ambiguous_source_count`へ残す
+- case補正は過去の小文字化処理を掃除するmigration専用であり、通常の`sync-collections`には接続しない。正本適用後はオプションと補正実装を削除する
+
+execute後はlegacy roleが0件になることと、再実行の`project_change_count=0`を確認します。正本DBへの適用は通常のrepairと同様にbackup、writer停止、dry-run確認を前提とします。
 
 旧 `data_json` 前処理はもう行いません。
 schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。
@@ -1436,7 +1458,7 @@ accepted projectは `tracking_state=out_of_scope` になります。この状態
 - `fork_without_independent_identity`
   - confirmed な source repo が GitHub fork
   - `website_url` / `service_urls` / `introduced_url` が無い
-  - owned protocol surface (`resolved_nsids`, `input_nsids`, `recorded_lexicon_namespaces`, `collection_observations`) も無い
+  - owned protocol surface (`resolved_nsids`, candidate `input_nsids`, `collection_observations`) も無い
   - `service_status=live|beta|invite_only` なら除外
 
 目的はatproto無関係、誤登録、独立identityのない複製など、通常の再評価を期待しない候補を `tracking_state=ignore` へ寄せることです。既定では dry-run で JSON を返し、`--execute` を付けたときだけ保存します。

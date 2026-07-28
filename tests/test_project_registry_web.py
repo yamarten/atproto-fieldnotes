@@ -607,18 +607,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(detail["investigation"]["collectors"][0]["status"], "partial")
         self.assertEqual(detail["investigation"]["failures"][0]["category"], "timeout")
         self.assertTrue(detail["revision"])
-        self.assertEqual(detail["overview"]["manual_seed"]["value"], "app.example.post")
-        manual_seed_nsid = next(
+        self.assertNotIn("manual_seed", detail["overview"])
+        owned_nsid = next(
             item for item in detail["identifiers"]
-            if item["value"] == "app.example.post" and "manual_seed" in item["roles"]
+            if item["value"] == "app.example.post" and "owned_nsid" in item["roles"]
         )
-        manual_seed_candidate_roles = {
-            entry["role"]
-            for entry in manual_seed_nsid["entries"]
-            if entry["classification"] == "candidate"
-        }
-        self.assertNotIn("input_nsid", manual_seed_candidate_roles)
-        self.assertNotIn("primary_nsid", manual_seed_candidate_roles)
+        self.assertEqual(owned_nsid["classification"], "confirmed")
         candidate_values = {
             item["value"] for item in detail["identifiers"] if item["classification"] == "candidate"
         }
@@ -1289,7 +1283,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             project = project_record.fetch_project(conn, "proj:111111111111")
         finally:
             conn.close()
-        self.assertIn("https://github.com/example/second", [item["value"] for item in project["manual_seeds"]])
+        self.assertIn("https://github.com/example/second", project["source_code_urls"])
+        self.assertTrue(registry.identifier_has_active_confirm_decision(
+            project, "repo_url", "https://github.com/example/second"
+        ))
 
     def test_profile_preview_apply_and_stale_guard(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")

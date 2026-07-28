@@ -39,6 +39,28 @@ def cmd_repair_db(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repair_identifier_roles(args: argparse.Namespace) -> int:
+    collection_inventory_nsids = None
+    if args.collection_inventory:
+        inventory_path = Path(args.collection_inventory).expanduser()
+        raw_inventory = json.loads(inventory_path.read_text())
+        if not isinstance(raw_inventory, list):
+            raise ValueError("collection inventory must be a JSON array")
+        collection_inventory_nsids = [
+            str(item.get("collection") or "")
+            for item in raw_inventory
+            if isinstance(item, dict) and str(item.get("collection") or "")
+        ]
+    payload = _with_db(lambda conn: services.repair_identifier_roles(
+        conn,
+        execute=bool(args.execute),
+        example_limit=int(args.example_limit),
+        collection_inventory_nsids=collection_inventory_nsids,
+    ))
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
 def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.audit_urls(conn, example_limit=int(args.example_limit)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

@@ -142,11 +142,20 @@ def split_identifier(
         raise ValueError("identifier does not currently belong to the selected source project")
     target_key = project_record.allocate_new_project_key(conn)
     target = project_record.default_project_record(target_key, identifier_type, identifier_value)
+    if identifier_type == "nsid":
+        target["resolved_nsids"] = []
     target["tracking_state"] = source.get("tracking_state", "active")
     target["status"] = source.get("status", "draft")
     target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
     target["tracking_note"] = f"split from {source['project_key']}"
-    core.add_manual_seed(target, identifier_type, identifier_value, source="split")
+    if identifier_type == "nsid":
+        source_confirmed = identifier_value in source.get("resolved_nsids", [])
+        field = "resolved_nsids" if source_confirmed else "input_nsids"
+        target[field] = project_record.add_unique(target.get(field, []), identifier_value)
+    elif identifier_type == "service_url":
+        core.confirm_service_seed(target, identifier_value, source="split")
+    elif identifier_type == "repo_url":
+        core.confirm_repo_seed(target, identifier_value, source="split")
     target = core.finalize_project_shape(target)
     blocked = project_record.normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
     block_key = (identifier_type, identifier_value)

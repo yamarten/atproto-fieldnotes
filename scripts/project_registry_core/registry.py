@@ -844,6 +844,11 @@ def project_owned_lexicon_nsid(project: dict[str, Any], nsid: str) -> bool:
     normalized = identifier_core.normalize_nsid(nsid)
     if relation_core.identifier_is_guarded(project, "nsid", normalized):
         return False
+    if normalized in {
+        identifier_core.normalize_nsid(str(value or ""))
+        for value in project.get("resolved_nsids", [])
+    }:
+        return True
     if project_record.manual_nsid_seed_supports(project, normalized):
         return True
     evaluation = trust_collection_ownership_evaluation(project, normalized)
@@ -1356,7 +1361,7 @@ def build_nsid_seed_parent_namespace_lookup(projects: list[dict[str, Any]]) -> d
         seed_values = []
         if str(project.get("seed_type") or "") == "nsid":
             seed_values.append(str(project.get("seed_value") or ""))
-        seed_values.extend(project_record.manual_seed_values(project, "nsid"))
+        seed_values.extend(project.get("resolved_nsids", []))
         for seed_value in project_record.unique_list(seed_values):
             normalized_seed = identifier_core.normalize_nsid(str(seed_value or ""))
             parent_namespace = project_record.namespace_from_collection_nsid(normalized_seed)
@@ -1422,6 +1427,7 @@ def ensure_project_for_seed(
     seed_value: str,
     project_key: str | None = None,
     *,
+    source: str = "manual_seed",
     commit: bool = True,
 ) -> dict[str, Any]:
     normalized_value = project_record.canonical_seed_value(seed_type, seed_value)
@@ -1436,10 +1442,7 @@ def ensure_project_for_seed(
     project = project_record.fetch_project(conn, target_project_key)
     if project is None:
         project = project_record.default_project_record(target_project_key, seed_type, identifier_value)
-    project["manual_seeds"] = project.get("manual_seeds", [])
-    project["manual_seeds"].append({"type": seed_type, "value": identifier_value, "added_at": project_record.iso_now()})
-    project["manual_seeds"] = [dict(item) for item in project["manual_seeds"]]
-    apply_seed_to_project(project, seed_type, identifier_value)
+    add_manual_seed(project, seed_type, identifier_value, source=source)
     if match_kind:
         append_system_note(project, f"seed matched by {match_kind}: {identifier_value}")
     project_record.save_project(conn, project, enriched=False, commit=commit)
@@ -1454,10 +1457,13 @@ def ensure_project_for_seed(
 def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: str) -> None:
     if identifier_is_blocked(project, seed_type, seed_value) or identifier_is_deferred(project, seed_type, seed_value):
         return
-    project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), "manual_seed")
     if seed_type == "nsid":
         normalized_nsid = identifier_core.normalize_nsid(seed_value)
-        project["input_nsids"] = project_record.add_unique(project.get("input_nsids", []), normalized_nsid)
+        project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), normalized_nsid)
+        project["input_nsids"] = [
+            value for value in project.get("input_nsids", [])
+            if identifier_core.normalize_nsid(str(value or "")) != normalized_nsid
+        ]
         authority_domain = identifier_core.derive_authority_domain(normalized_nsid)
         if authority_domain:
             project["authority_domains"] = project_record.add_unique(project.get("authority_domains", []), authority_domain)
@@ -1477,6 +1483,21 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         segments = [segment for segment in parsed.path.split("/") if segment]
         if segments:
             add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
+    elif seed_type == "service_url":
+        normalized = project_record.normalize_confirmed_service_url(seed_value)
+        if normalized:
+            project["website_url"] = project.get("website_url") or normalized
+            project["service_urls"] = project_record.add_unique(project.get("service_urls", []), normalized)
+            project_record.set_service_url_candidate_values(
+                project,
+                [
+                    value
+                    for value in project_record.service_url_candidate_values(project)
+                    if identifier_core.normalize_url(str(value or "")) != normalized
+                ],
+            )
+            project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
+            add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
     elif seed_type == "did":
         normalized = str(seed_value or "").strip()
         if normalized:
@@ -2247,6 +2268,7 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
             "classification": item.classification,
             "manual_seed": identifier_is_manual_seed(project, item.kind, item.value),
             "operator_confirmed": identifier_has_active_confirm_decision(project, item.kind, item.value),
+            "source_confirmed": item.kind == "nsid" and item.role == "owned_nsid" and item.classification == "confirmed",
             "guarded": identifier_is_blocked(project, item.kind, item.value)
             or identifier_is_deferred(project, item.kind, item.value),
             "evaluation": evaluation,
@@ -2260,6 +2282,7 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
         and row["identifier"]["kind"] in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}
         and not row["manual_seed"]
         and not row["operator_confirmed"]
+        and not row["source_confirmed"]
         and not bool(row.get("evaluation", {}).get("auto_confirm"))
     ]
     return {
@@ -2310,6 +2333,8 @@ def classify_trust_identifier_issue(project: dict[str, Any], item: dict[str, Any
         return "guarded_confirmed_identifier"
     if item.get("manual_seed") or item.get("operator_confirmed"):
         return "operator_confirmed_identifier"
+    if item.get("source_confirmed"):
+        return "source_confirmed_identifier"
     evaluation = item.get("evaluation") if isinstance(item.get("evaluation"), dict) else {}
     if evaluation.get("auto_confirm"):
         return "missing_recomputed_edge" if graph_changed else "supported_by_trust_graph"
@@ -2360,7 +2385,7 @@ def build_trust_graph_audit(conn: sqlite3.Connection, *, example_limit: int = 20
             issue["classification"] = classification_kind
             if classification_kind in issues:
                 issues[classification_kind].append(issue)
-            if item.get("manual_seed") or item.get("operator_confirmed"):
+            if item.get("manual_seed") or item.get("operator_confirmed") or item.get("source_confirmed"):
                 continue
             if not bool((item.get("evaluation") or {}).get("auto_confirm")):
                 issues["unsupported_confirmed_identifier"].append(issue)
@@ -3193,14 +3218,10 @@ def merge_feature_list(current: list[str], new_values: list[str]) -> list[str]:
 
 def manual_repo_urls(project: dict[str, Any]) -> set[str]:
     urls: set[str] = set()
-    if str(project.get("seed_type") or "") == "repo_url":
-        seed_url = repo_url_core.canonical_repo_url(str(project.get("seed_value") or ""))
-        if seed_url:
-            urls.add(seed_url)
-    for seed in project.get("manual_seeds", []):
-        if str(seed.get("type") or "") != "repo_url":
+    for item in project_record.normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
+        if str(item.get("type") or "") != "repo_url" or str(item.get("cleared_at") or ""):
             continue
-        value = repo_url_core.canonical_repo_url(str(seed.get("value") or "").strip())
+        value = repo_url_core.canonical_repo_url(str(item.get("value") or "").strip())
         if value:
             urls.add(value)
     return urls
@@ -3270,6 +3291,11 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
         return False
 
     manual_hosts = set(project_record.manual_service_hosts(project))
+    manual_hosts.update(
+        urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc.lower()
+        for value in project_record.active_confirmed_identifier_values(project, "service_url")
+        if identifier_core.normalize_url(value)
+    )
     baseline_hosts = set(manual_hosts)
     for domain in project.get("authority_domains", []):
         lowered = str(domain or "").strip().lower()
@@ -3926,7 +3952,7 @@ def add_resource_url(
     if normalized in {identifier_core.normalize_url(str(item or "")) for item in project.get("service_urls", [])}:
         return
     normalized_role = str(role or project_record.app_link_role_from_resource_url(normalized) or "unknown").strip()
-    if normalized_role not in project_record.RESOURCE_URL_ROLES:
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", normalized_role):
         normalized_role = "unknown"
     normalized_confidence = str(confidence or "candidate").strip().lower()
     if normalized_confidence not in project_record.RESOURCE_URL_CONFIDENCE_VALUES:
@@ -4014,7 +4040,18 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         cleaned_records.append(record)
     project["source_repo_records"] = project_record.normalize_source_repo_records(cleaned_records)
 
-    kept_confirmed = {record["url"] for record in project["source_repo_records"] if record.get("confidence") == "confirmed"}
+    kept_confirmed = {
+        url
+        for url in repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
+        if not identifier_is_blocked(project, "repo_url", url)
+        and not identifier_is_deferred(project, "repo_url", url)
+    } | {
+        record["url"]
+        for record in project["source_repo_records"]
+        if record.get("confidence") == "confirmed"
+        and not identifier_is_blocked(project, "repo_url", str(record.get("url") or ""))
+        and not identifier_is_deferred(project, "repo_url", str(record.get("url") or ""))
+    }
     kept_candidates = {record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"}
 
     project["source_code_urls"] = [
@@ -4206,21 +4243,38 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
         list(project.get("manual_seeds", [])) + [seed_entry]
     )
     apply_seed_to_project(project, seed_type, normalized_value)
+    if seed_type in project_record.IDENTIFIER_DECISION_TYPES:
+        add_confirmed_identifier_decision(
+            project,
+            seed_type,
+            normalized_value,
+            source=source or "seed",
+            note="identifier accepted as a project seed",
+        )
     if source:
         project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), source)
 
 
-def add_collection_input_nsid(project: dict[str, Any], nsid: str) -> bool:
+def add_collection_owned_nsid(project: dict[str, Any], nsid: str) -> bool:
     normalized = identifier_core.normalize_nsid(nsid)
     if not normalized or identifier_is_blocked(project, "nsid", normalized) or identifier_is_deferred(project, "nsid", normalized):
         return False
-    before = set(project.get("input_nsids", []))
-    project["input_nsids"] = project_record.add_unique(project.get("input_nsids", []), normalized)
+    before = set(project.get("resolved_nsids", []))
+    project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), normalized)
+    project["input_nsids"] = [
+        value for value in project.get("input_nsids", [])
+        if identifier_core.normalize_nsid(str(value or "")) != normalized
+    ]
     authority_domain = identifier_core.derive_authority_domain(normalized)
     if authority_domain:
         project["authority_domains"] = project_record.add_unique(project.get("authority_domains", []), authority_domain)
         add_authority_service_candidates(project, authority_domain)
     return normalized not in before
+
+
+def add_collection_input_nsid(project: dict[str, Any], nsid: str) -> bool:
+    """Legacy internal alias; collection assignment now establishes ownership."""
+    return add_collection_owned_nsid(project, nsid)
 
 
 def is_collection_inventory_source(source: str) -> bool:
@@ -4249,7 +4303,7 @@ def remove_collection_import_manual_seeds(
 ) -> int:
     inferred_legacy_members = legacy_members or set()
     before = list(project.get("manual_seeds", []))
-    project["manual_seeds"] = [
+    retained = [
         dict(item)
         for item in before
         if not isinstance(item, dict)
@@ -4262,6 +4316,37 @@ def remove_collection_import_manual_seeds(
             )
         )
     ]
+    retained_keys = {
+        (
+            str(item.get("type") or ""),
+            project_record.canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or "")),
+        )
+        for item in retained
+        if isinstance(item, dict)
+    }
+    removed_keys = {
+        (
+            str(item.get("type") or ""),
+            project_record.canonical_seed_value(str(item.get("type") or ""), str(item.get("value") or "")),
+        )
+        for item in before
+        if isinstance(item, dict)
+    } - retained_keys
+    project["manual_seeds"] = retained
+    runtime_rows = project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS)
+    if removed_keys and isinstance(runtime_rows, list):
+        project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = [
+            dict(item)
+            for item in runtime_rows
+            if not (
+                isinstance(item, dict)
+                and str(item.get("role") or "") == "manual_seed"
+                and (
+                    str(item.get("kind") or ""),
+                    project_record.canonical_seed_value(str(item.get("kind") or ""), str(item.get("value") or "")),
+                ) in removed_keys
+            )
+        ]
     if not project["manual_seeds"]:
         project["discovery_sources"] = [
             source for source in project.get("discovery_sources", []) if source != "manual_seed"
@@ -4950,17 +5035,9 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
-    def manual_seed_is_confirmed_anchor(seed_type: str, seed_value: str) -> bool:
-        if identifier_is_blocked(project, seed_type, seed_value) or identifier_is_deferred(project, seed_type, seed_value):
-            return False
-        if seed_type == "service_url":
-            return True
-        if seed_type == "repo_url":
-            normalized = repo_url_core.canonical_repo_url(seed_value)
-            return bool(normalized and normalized in set(project_record.source_code_url_values(project)))
-        return True
-
     def add(identifier_type: str, value: str) -> None:
+        if identifier_is_blocked(project, identifier_type, value) or identifier_is_deferred(project, identifier_type, value):
+            return
         kind = "collection" if identifier_type == "nsid" else identifier_type
         node = project_record.trust_node(kind, value)
         key = trust_graph_core.node_key(node)
@@ -4969,16 +5046,6 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
         seen.add(key)
         output.append(node)
 
-    for seed in project.get("manual_seeds", []):
-        if not isinstance(seed, dict):
-            continue
-        seed_type = str(seed.get("type") or "")
-        seed_value = str(seed.get("value") or "")
-        if (
-            seed_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}
-            and manual_seed_is_confirmed_anchor(seed_type, seed_value)
-        ):
-            add(seed_type, seed_value)
     for item in project_record.normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
         if str(item.get("cleared_at") or ""):
             continue
@@ -5567,7 +5634,7 @@ def service_probe_supported_redirect_final_url(project: dict[str, Any], requeste
     if not result.get("redirected") or not requested or not final or requested == final:
         return ""
     if result.get("redirect_same_host") and result.get("redirect_http_to_https"):
-        return ""
+        return final
     if result.get("redirect_same_site_family") and service_probe_supports_project(project, requested, result):
         return final
     if not service_probe_supports_project(project, final, result):
@@ -5579,17 +5646,19 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
     final_url = service_probe_supported_redirect_final_url(project, requested_url, result)
     if not final_url:
         return
+    normalized_requested = identifier_core.normalize_url(requested_url)
     project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), final_url)
-    if result.get("redirect_same_site_family") and not identifier_core.normalize_url(str(project.get("website_url") or "")):
+    current_primary = identifier_core.normalize_url(str(project.get("website_url") or ""))
+    if result.get("redirect_same_site_family") and current_primary in {"", normalized_requested}:
         project_record.record_trust_edge(
             project,
             "service_url",
-            requested_url,
+            normalized_requested,
             "service_canonical",
             "service_url",
             final_url,
-            source=f"service_redirect:{identifier_core.normalize_url(requested_url)}",
-            locator=identifier_core.normalize_url(requested_url),
+            source=f"service_redirect:{normalized_requested}",
+            locator=normalized_requested,
             method="same_site_redirect",
             classification="confirmed",
             eligible_for_auto_confirm=True,
@@ -5601,9 +5670,9 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
             final_url,
             "service_canonical",
             "service_url",
-            requested_url,
-            source=f"service_redirect:{identifier_core.normalize_url(requested_url)}",
-            locator=identifier_core.normalize_url(requested_url),
+            normalized_requested,
+            source=f"service_redirect:{normalized_requested}",
+            locator=normalized_requested,
             method="same_site_redirect",
             classification="confirmed",
             eligible_for_auto_confirm=True,
@@ -5612,6 +5681,30 @@ def apply_service_probe_redirect_final_url(project: dict[str, Any], requested_ur
         if not confirm_service_url_with_trust(project, final_url):
             add_candidate_url(project, "service_url", final_url)
             add_candidate_url(project, "website_url", final_url)
+            return
+        if identifier_has_active_confirm_decision(project, "service_url", normalized_requested):
+            clear_confirmed_identifier_decision(project, "service_url", normalized_requested)
+            add_confirmed_identifier_decision(
+                project,
+                "service_url",
+                final_url,
+                source="canonical_redirect",
+                note=f"canonical redirect from {normalized_requested}",
+            )
+        project["service_urls"] = [
+            value
+            for value in project.get("service_urls", [])
+            if identifier_core.normalize_url(str(value or "")) != normalized_requested
+        ]
+        project_record.set_service_url_candidate_values(
+            project,
+            [
+                value
+                for value in project_record.service_url_candidate_values(project)
+                if identifier_core.normalize_url(str(value or "")) != normalized_requested
+            ],
+        )
+        project["website_url"] = final_url
         return
     add_candidate_url(project, "service_url", final_url)
     add_candidate_url(project, "website_url", final_url)
@@ -7799,8 +7892,6 @@ def determine_promoted_status(project: dict[str, Any]) -> str:
 
 def evaluate_promotion(project: dict[str, Any]) -> list[str]:
     blockers: list[str] = []
-    if not project.get("manual_seeds"):
-        blockers.append("no seeds registered")
     has_confirmed_identifier = bool(
         project.get("website_url")
         or project_record.source_code_url_values(project)
@@ -9478,8 +9569,7 @@ def batch_broad_overlap(
 
 
 def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int, int, int]:
-    seed_types = {str(item.get("type") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)}
-    service_seed = 1 if "service_url" in seed_types else 0
+    confirmed_service = 1 if project.get("website_url") or project.get("service_urls") else 0
     service_surface = 0
     if project.get("website_url"):
         service_surface += 2
@@ -9502,17 +9592,16 @@ def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int
     }.get(project_record.normalize_service_status(project.get("service_status")), 1)
     introduced = 1 if project.get("introduced_url") else 0
     confirmed_nsids = len(current_confirmed_nsids(project))
-    return (service_seed, service_surface, status_rank, introduced, confirmed_nsids)
+    return (confirmed_service, service_surface, status_rank, introduced, confirmed_nsids)
 
 
 def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, tuple[int, int, int, int, int], int, int, str]:
-    seed_types = {str(item.get("type") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)}
     seed_priority = 0
-    if "service_url" in seed_types:
+    if project.get("website_url") or project.get("service_urls"):
         seed_priority = 3
-    elif "nsid" in seed_types:
+    elif project.get("resolved_nsids"):
         seed_priority = 2
-    elif "repo_url" in seed_types:
+    elif project_record.source_code_url_values(project):
         seed_priority = 1
     editorial_score = project_editorial_preference(project)
     confirmed_count = sum(
@@ -9980,6 +10069,12 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_code_urls"] = repo_url_core.normalize_repo_collection(
         project_record.unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
     )
+    project["source_code_urls"] = [
+        url
+        for url in project["source_code_urls"]
+        if not identifier_is_blocked(project, "repo_url", url)
+        and not identifier_is_deferred(project, "repo_url", url)
+    ]
     confirmed_repo_set = set(project["source_code_urls"])
     project["repository_analysis_results"] = [
         item
@@ -10579,6 +10674,8 @@ def split_project_identifier_group(
     target_key = project_record.allocate_new_project_key(conn)
     first_type, first_value = identifiers[0]
     target = project_record.default_project_record(target_key, first_type, first_value)
+    if first_type == "nsid":
+        target["resolved_nsids"] = []
     target["tracking_state"] = source.get("tracking_state", "active")
     target["status"] = source.get("status", "draft")
     target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + [discovery_source])
@@ -10588,6 +10685,10 @@ def split_project_identifier_group(
     for identifier_type, identifier_value in identifiers:
         if identifier_type == "service_url":
             confirm_service_seed(target, identifier_value, source=seed_source)
+        elif identifier_type == "nsid":
+            source_confirmed = identifier_value in source.get("resolved_nsids", [])
+            field = "resolved_nsids" if source_confirmed else "input_nsids"
+            target[field] = project_record.add_unique(target.get(field, []), identifier_value)
         else:
             add_manual_seed(target, identifier_type, identifier_value, source=seed_source)
         remove_identifier_from_project(source, identifier_type, identifier_value)

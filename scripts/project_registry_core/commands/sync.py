@@ -25,6 +25,11 @@ def cmd_import_seed_list(args: argparse.Namespace) -> int:
     return _print(payload, execute=bool(args.execute))
 
 
+def cmd_sync_bluesky_lexicons(args: argparse.Namespace) -> int:
+    payload = _run_with_db(lambda conn: services.bluesky_lexicons(conn, execute=bool(args.execute)))
+    return _print(payload, execute=bool(args.execute))
+
+
 def cmd_sync_introduced(args: argparse.Namespace) -> int:
     payload = _run_with_db(lambda conn: services.introduced(
         conn,

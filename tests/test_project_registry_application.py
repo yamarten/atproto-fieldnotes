@@ -136,7 +136,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
     def test_explain_uses_saved_state_without_network_or_llm(self) -> None:
         conn = registry.open_db()
         try:
-            project = self.make_project("proj:eeeeeeeeeeee")
+            project = self.make_project("proj:eeeeeeeeeeee", "service_url", "https://example.com")
             project["service_status"] = "live"
             project["service_status_evidence"] = ["http_200"]
             project["collection_observations"] = [

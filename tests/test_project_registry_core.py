@@ -57,6 +57,22 @@ class ProjectRegistryCompletionTest(unittest.TestCase):
 
 
 class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
+    def test_promotion_does_not_require_legacy_seed_role(self) -> None:
+        project = project_record.default_project_record("proj:promotionseedless", "service_url", "https://example.com")
+        project.update({
+            "website_url": "https://example.com",
+            "service_urls": ["https://example.com"],
+            "service_status": "live",
+            "summary": "Summary",
+            "tagline": "Tagline",
+            "features": ["one", "two", "three"],
+            "category": "project",
+            "llm_source": {"model": "fixture"},
+            "manual_seeds": [],
+        })
+
+        self.assertEqual(registry.evaluate_promotion(project), [])
+
     def test_normalize_url_preserves_path_but_drops_query_and_fragment(self) -> None:
         self.assertEqual(
             identifier_core.normalize_url("HTTPS://Example.COM/docs/?page=1#intro"),
@@ -86,7 +102,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
         registry.apply_seed_to_project(project, "nsid", nsid)
         shaped = project_record.ensure_project_shape(project)
 
-        self.assertEqual(shaped["input_nsids"], [nsid])
+        self.assertEqual(shaped["resolved_nsids"], [nsid])
 
     def test_text_seed_and_lexicon_detection_accept_case_sensitive_nsid(self) -> None:
         nsid = "com.bartenderSky.preferences.profileMusic"
@@ -945,6 +961,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_same_host_http_to_https_redirect_canonicalizes_service_url(self) -> None:
         project = project_record.default_project_record("proj:redirecttest", "service_url", "http://example.com")
+        registry.add_confirmed_identifier_decision(project, "service_url", "http://example.com", source="test")
         registry.add_manual_seed(project, "service_url", "http://example.com", source="test")
         result = {
             "requested_url": "http://example.com",
@@ -977,6 +994,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_cross_host_redirect_does_not_canonicalize_service_url(self) -> None:
         project = project_record.default_project_record("proj:redirectcross", "service_url", "https://example.com")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
             "requested_url": "https://example.com",
@@ -1007,6 +1025,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_nsid_mention_cross_host_redirect_does_not_add_final_url_as_candidate(self) -> None:
         project = project_record.default_project_record("proj:redirectcandidate", "service_url", "https://example.com")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
@@ -1038,6 +1057,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_supported_same_site_redirect_sets_empty_primary_website_url(self) -> None:
         project = project_record.default_project_record("proj:redirectsamefamily", "service_url", "https://example.com")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         result = {
@@ -1068,6 +1088,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
     def test_supported_same_site_redirect_keeps_existing_primary_as_candidate(self) -> None:
         project = project_record.default_project_record("proj:redirectsamefamilyexisting", "service_url", "https://example.com")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
         project["website_url"] = "https://current.example.com"
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
@@ -1638,6 +1659,28 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
 
 class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
+    def test_app_resource_roles_cover_distribution_metadata_and_open_union(self) -> None:
+        records = project_record.normalize_resource_url_records([
+            {"url": "https://example.com/manifest.webmanifest", "role": "webManifest", "confidence": "confirmed"},
+            {"url": "https://example.com/changelog", "role": "changelog", "confidence": "confirmed"},
+            {"url": "https://apps.apple.com/app/id123", "role": "appStore", "confidence": "confirmed"},
+            {"url": "https://play.google.com/store/apps/details?id=example", "role": "playStore", "confidence": "confirmed"},
+            {"url": "https://f-droid.org/packages/example", "role": "fdroid", "confidence": "confirmed"},
+            {"url": "https://downloads.example.com/app.zip", "role": "distribution", "confidence": "confirmed"},
+            {"url": "https://example.com/background", "role": "developmentBackground", "confidence": "candidate"},
+        ])
+
+        self.assertEqual(
+            [record["role"] for record in records],
+            ["appStore", "playStore", "fdroid", "distribution", "changelog", "webManifest", "developmentBackground"],
+        )
+
+    def test_resource_role_inference_recognizes_store_and_distribution_urls(self) -> None:
+        self.assertEqual(project_record.app_link_role_from_resource_url("https://apps.apple.com/app/id123"), "appStore")
+        self.assertEqual(project_record.app_link_role_from_resource_url("https://play.google.com/store/apps/details?id=example"), "playStore")
+        self.assertEqual(project_record.app_link_role_from_resource_url("https://f-droid.org/packages/example"), "fdroid")
+        self.assertEqual(project_record.app_link_role_from_resource_url("https://example.itch.io/app"), "distribution")
+
     def test_resource_url_values_use_records_without_compat_view(self) -> None:
         project = project_record.default_project_record("proj:resourcecanonical", "service_url", "https://example.com")
         project["resource_url_records"] = [
@@ -2066,6 +2109,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["website_url"] = "https://seams.so"
         project["service_urls"] = ["https://seams.so"]
         registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://seams.so", source="test")
         registry.collect_first_party_links(
             project,
             "https://seams.so",
@@ -2119,6 +2163,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["website_url"] = "https://seams.so"
         project["service_urls"] = ["https://seams.so"]
         registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://seams.so", source="test")
         registry.collect_first_party_links(
             project,
             "https://seams.so",
@@ -2165,6 +2210,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_confirmed_repo_link_supports_service_probe(self) -> None:
         project = project_record.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
@@ -2205,6 +2251,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_ambiguous_repo_link_waits_for_llm_relationship_assessment(self) -> None:
         project = project_record.default_project_record("proj:ambiguousreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [{
             "relation": {
@@ -2244,6 +2291,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_related_repo_link_does_not_complete_trust_path(self) -> None:
         project = project_record.default_project_record("proj:relatedreposervice", "repo_url", "https://github.com/example/plugin")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/plugin", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/plugin", source="test")
         project["source_code_urls"] = ["https://github.com/example/plugin"]
         project["relation_evidence"] = [{
             "relation": {
@@ -2280,6 +2328,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
     def test_reprobe_replaces_previous_explicit_source_link_classification(self) -> None:
         project = project_record.default_project_record("proj:reprobeservice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
         project["source_code_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [{
             "relation": {

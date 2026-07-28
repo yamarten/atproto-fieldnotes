@@ -25,6 +25,17 @@ def import_seed_list(conn: sqlite3.Connection, *, path: str, execute: bool = Fal
     return core.import_seed_list(conn, path, execute=execute)
 
 
+def bluesky_lexicons(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
+    config = _source_config("bluesky_official_lexicons")
+    _require_enabled("bluesky_official_lexicons", config)
+    return core.sync_bluesky_lexicons(
+        conn,
+        repo_url=str(config.get("repo_url") or ""),
+        target_service_url=str(config.get("target_service_url") or ""),
+        execute=execute,
+    )
+
+
 def introduced(
     conn: sqlite3.Connection,
     *,

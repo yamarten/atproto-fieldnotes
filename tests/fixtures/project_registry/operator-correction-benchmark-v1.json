@@ -38,7 +38,7 @@
       "seed_type": "nsid",
       "seed_value": "app.bsky",
       "manual_seeds": [{"type": "nsid", "value": "app.bsky"}],
-      "deferred_identifiers": [{"type": "repo_url", "value": "https://github.com/random-mdn/random-mdn-bot"}]
+      "deferred_identifiers": [{"type": "repo_url", "value": "https://github.com/random-mdn/random-mdn-bot", "expires_at": "2099-01-01T00:00:00+00:00"}]
     },
     "bundle": {
       "schema_version": 2,

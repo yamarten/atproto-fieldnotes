@@ -907,7 +907,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_investigation_storage_and_replay_are_network_free(self) -> None:
         conn = registry.open_db()
-        project = self.make_project("proj:storedrun")
+        project = self.make_project("proj:storedrun", "service_url", "https://example.com")
         project["service_urls"] = ["https://example.com"]
         project[runtime_view.RUNTIME_VIEW_MARKER] = True
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
@@ -1895,6 +1895,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         project["website_url"] = "https://www.at.fund"
         project["service_urls"] = ["https://www.at.fund"]
         project["manual_seeds"] = [{"type": "service_url", "value": "https://www.at.fund"}]
+        registry.add_confirmed_identifier_decision(project, "service_url", "https://www.at.fund", source="test")
         project["service_url_candidates"] = ["https://at.fund", "https://graph.at.fund"]
         project["relation_evidence"] = [{
             "relation": {

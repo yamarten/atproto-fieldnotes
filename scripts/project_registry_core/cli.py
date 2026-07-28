@@ -197,6 +197,13 @@ def build_parser() -> argparse.ArgumentParser:
     sync_collections_parser.add_argument("--max-items", type=int, help="Bound the number of fetched entries processed; a truncated run does not advance sync state.")
     sync_collections_parser.set_defaults(func=sync_commands.cmd_sync_collections)
 
+    sync_bluesky_lexicons_parser = subparsers.add_parser(
+        "sync-bluesky-lexicons",
+        help="Import official app.bsky and chat.bsky record lexicons into the confirmed Bluesky project.",
+    )
+    sync_bluesky_lexicons_parser.add_argument("--execute", action="store_true", help="Apply owned NSIDs. Without this flag, show a dry-run summary only.")
+    sync_bluesky_lexicons_parser.set_defaults(func=sync_commands.cmd_sync_bluesky_lexicons)
+
     sync_semble_parser = subparsers.add_parser("sync-semble-collections", help="Sync fixed Semble collections into project seeds.")
     sync_semble_parser.add_argument("--pages", type=int, help="Override the configured Semble pages-per-collection budget.")
     sync_semble_parser.add_argument("--per-page", type=int, help="Override the configured cards-per-page budget.")
@@ -357,6 +364,15 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)
+
+    repair_identifier_roles_parser = subparsers.add_parser(
+        "repair-identifier-roles",
+        help="Migrate legacy seed and NSID roles to factual identifiers and adoption decisions.",
+    )
+    repair_identifier_roles_parser.add_argument("--execute", action="store_true", help="Apply the migration. Without this flag, show a dry-run summary only.")
+    repair_identifier_roles_parser.add_argument("--example-limit", type=int, default=20, help="Maximum examples per migration category. Default: 20.")
+    repair_identifier_roles_parser.add_argument("--collection-inventory", type=Path, help="Temporary migration input: fetched sync-collections JSON used to repair legacy NSID case.")
+    repair_identifier_roles_parser.set_defaults(func=maintenance_commands.cmd_repair_identifier_roles)
 
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")

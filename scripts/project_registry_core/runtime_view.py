@@ -265,35 +265,10 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
             observed_at=observed_at,
         ))
 
-    seed_kind = {
-        "service_url": "service_url",
-        "repo_url": "repo_url",
-        "nsid": "nsid",
-        "did": "did",
-        "handle": "handle",
-        "domain": "domain",
-    }
-    initial_seed_type = str(project.get("seed_type") or "")
-    initial_seed_kind = seed_kind.get(initial_seed_type)
-    if initial_seed_kind:
-        add(
-            initial_seed_kind,
-            project.get("seed_value"),
-            "seed",
-            "confirmed",
-            metadata={"type": initial_seed_type},
-        )
-
     for value in project.get("input_nsids", []):
-        add("nsid", value, "input_nsid", "candidate")
+        add("nsid", value, "owned_nsid", "candidate")
     for value in project.get("resolved_nsids", []):
         add("nsid", value, "owned_nsid", "confirmed")
-    for value in project.get("lexicons", []):
-        add("nsid", value, "observed_lexicon", "candidate")
-    for value in project.get("external_lexicons", []):
-        add("nsid", value, "referenced_nsid", "candidate")
-    for value in project.get("recorded_lexicon_namespaces", []):
-        add("nsid", value, "recorded_namespace", "derived")
     for value in project.get("authority_domains", []):
         add("domain", value, "authority_domain", "derived")
 
@@ -346,19 +321,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
             add("account", value, "project_account", "candidate", provider=provider)
             add("handle", value, "project_handle", "candidate", provider=provider)
 
-    for item in project.get("manual_seeds", []):
-        if not isinstance(item, dict):
-            continue
-        kind = seed_kind.get(str(item.get("type") or ""))
-        if kind:
-            add(
-                kind,
-                item.get("value"),
-                "manual_seed",
-                "confirmed",
-                metadata=dict(item),
-                observed_at=str(item.get("added_at") or ""),
-            )
     return output
 
 
@@ -592,8 +554,11 @@ def hydrate(
             project["manual_seeds"].append(copy.deepcopy(metadata) or {"type": kind, "value": value})
             continue
         if kind == "nsid":
-            if role == "input_nsid": project["input_nsids"].append(value)
-            elif role == "owned_nsid": project["resolved_nsids"].append(value)
+            if role == "input_nsid":  # Legacy read path for repair-identifier-roles.
+                project["input_nsids"].append(value)
+            elif role == "owned_nsid":
+                target = "resolved_nsids" if classification == "confirmed" else "input_nsids"
+                project[target].append(value)
             elif role == "observed_lexicon": project["lexicons"].append(value)
             elif role == "referenced_nsid": project["external_lexicons"].append(value)
             elif role == "recorded_namespace": project["recorded_lexicon_namespaces"].append(value)
@@ -626,6 +591,13 @@ def hydrate(
         str(item)
         for item in project["service_url_candidates"]
         if str(item) and str(item) not in confirmed_service_urls
+    ])
+    project["resolved_nsids"] = _unique([str(item) for item in project["resolved_nsids"] if str(item)])
+    confirmed_nsids = set(project["resolved_nsids"])
+    project["input_nsids"] = _unique([
+        str(item)
+        for item in project["input_nsids"]
+        if str(item) and str(item) not in confirmed_nsids
     ])
 
     project["relation_evidence"] = [{

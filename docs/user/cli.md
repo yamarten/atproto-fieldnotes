@@ -42,7 +42,7 @@
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `init-db` | `--db-path`。既定は`data/survey.db` | 作成したschema情報のJSON | 新規DBを作成。既存DBのmigrationや上書きはしない |
-| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと投影したroleのJSON | 常時書き込み。service/repositoryは対応roleへconfirmed保存 |
+| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと投影したroleのJSON | 常時書き込み。NSID/service/repositoryは対応roleへconfirmed保存し、採用判断を記録 |
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
@@ -120,13 +120,14 @@ project-registry enrich --all --resume-run weekly-20260714
 | コマンド | 情報源と入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `import-seed-list` | 見出しやメモを含められるプレーンテキストファイル | 解析、照合、作成候補のJSON | `--execute` |
+| `sync-bluesky-lexicons` | 設定済みBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schema | Bluesky projectへ追加するcollectionのJSON | 外部接続。`--execute`で書き込み。`com.atproto.*`は対象外 |
 | `sync-introduced` | Bluesky投稿検索。検索条件、ページ上限、遡る期間、増分実行 | 紹介URLとの照合結果のJSON | 外部接続。`--execute`でintroduced情報を書き込み |
 | `sync-github-search` | GitHubリポジトリ検索。検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-collections` | collection一覧URL。遡る期間、保存先、項目上限 | collectionの照合・作成候補のJSON | 外部接続。`--execute`で書き込み。`--save-path`はファイル書き込み |
 | `sync-semble-collections` | 設定済みSemble collection。ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-tangled-repos` | UFOsの取得期間。項目上限、増分実行 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 
-外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、旧collection observationと自動付与されたmanual seed roleを掃除してから、collection identifierと活動統計を現在の全payloadから再構築します。cleanup件数は結果JSONで確認できます。
+外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、旧collection observationと自動付与されたlegacy seed roleを掃除してから、collection identifierと活動統計を現在の全payloadから再構築します。cleanup件数は結果JSONで確認できます。
 
 `--create-unmatched`は未知のシードから登録プロジェクトを作るかを制御します。GitHub、collection一覧、Sembleは既定on、Tangledは既定offです。詳細な検索条件やURLの一時上書きはCLIで行い、Web UIは設定済みの外部情報源だけを実行します。
 
@@ -162,6 +163,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL field利用数と保存invariant違反 | anomalyと例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
+| `repair-identifier-roles` | legacy NSID/seed roleの`owned_nsid`と採用判断への移行、参考・配布URLの移送 | role別件数、case collision、例のJSON | `--execute` |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
 | `compress-investigation-history` | 調査履歴JSONのdecode検査と圧縮投影 | 論理bytes・保存bytes・decode failureのJSON | `--execute`、任意の`--vacuum` |
@@ -169,6 +171,8 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-source-config` | 独自multi-tenant suffixと既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
 
 保守系コマンドは正本DBのバックアップを作り、Web UI、worker、`enrich`、別のCLIを止めてからdry-runとexecuteを分けて実行してください。`--vacuum`は書き込みtransaction後の別処理で、失敗しても先行する書き換えや削除はrollbackされません。
+
+`repair-identifier-roles`は`input_nsid`、観測・参照用NSID role、`seed`、`manual_seed`を廃止後の保存契約へ移す専用migrationです。NSIDは`owned_nsid`へ集約し、classificationを`confirmed` / `candidate`で表します。過去の小文字化を補正する一時オプションとして、`sync-collections --save-path PATH`で保存した現行payloadを`--collection-inventory PATH`へ渡せます。同じcase-fold値がsource内で一意な場合だけsource表記へ置換し、source自身に両表記がある場合やsourceに値が無い場合は衝突として報告します。通常の`repair-db`とは分けてdry-runを確認してください。このオプションは正本DBの移行完了後に削除する前提です。
 
 `compress-investigation-history`はdry-runでも全履歴JSONをdecodeしてJSONとして検証します。decode failureが1件でも
 ある場合は`--execute`を拒否します。圧縮後の内容確認にはInvestigation viewer、replay、exportを使い、SQLiteの

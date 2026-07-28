@@ -18,6 +18,7 @@ subcommands=(
   'sync-introduced:Mark matching projects as introduced from Bluesky posts'
   'sync-github-search:Search GitHub repositories and import repo seeds'
   'sync-collections:Fetch and import collection inventory'
+  'sync-bluesky-lexicons:Import official Bluesky record lexicons'
   'sync-semble-collections:Sync fixed Semble collections into project seeds'
   'sync-tangled-repos:Sync the recent UFOs Tangled repository rolling window'
   'replay-investigation:Replay a saved investigation without network access'
@@ -31,6 +32,7 @@ subcommands=(
   'compare-repository-analysis-reports:Compare two repository analysis reports'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
+  'repair-identifier-roles:Migrate legacy seed and NSID roles'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
   'repair-trust-graph:Recompute stored trust graph details'
@@ -257,6 +259,10 @@ case "$cmd" in
       '--save-path[Optional path to save the fetched JSON payload]:path:_files' \
       '--max-items[Maximum number of fetched entries to process]:count:'
     ;;
+  sync-bluesky-lexicons)
+    _arguments -S \
+      '--execute[Apply owned NSIDs]'
+    ;;
   sync-semble-collections)
     _arguments -S \
       '--pages[How many collection pages to scan per tracked collection]:count:' \
@@ -370,6 +376,12 @@ case "$cmd" in
   repair-db)
     _arguments -S \
       '--execute[Apply normalization and derived-field refreshes]'
+    ;;
+  repair-identifier-roles)
+    _arguments -S \
+      '--execute[Apply the identifier role migration]' \
+      '--collection-inventory[Temporary fetched collection inventory for legacy NSID case repair]:path:_files' \
+      '--example-limit[Maximum examples per migration category]:count:'
     ;;
   audit-url-fields)
     _arguments -S \

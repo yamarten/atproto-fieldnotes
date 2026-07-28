@@ -37,7 +37,7 @@
   - identifierのrole/classification対応を行単位で表示
   - background jobの経過時間、progress比から算出したETA、手動details更新
   - Git checkoutではSettingsにcommit hashとdirty状態を表示
-  - `Add seed`は明示されたservice URLのpathを保持してconfirmed serviceへ、repository URLをconfirmed source repositoryへ投影する。同じseedの再適用でlegacy `manual_seed`だけが残るURLを補修可能
+  - `Add seed`は明示されたNSID、path付きservice URL、repository URLを対応するconfirmed factual roleへ投影し、採用decisionを記録する。同じseedの再適用でlegacy rowの不足を補修可能
 - background operation
   - enrich、sync、reviewを別processで実行
   - operation別のprogressと協調停止
@@ -95,7 +95,7 @@
   - 保存済みservice evidenceをcurrent stateへ再適用する時は、requested/final URLからsame-site判定を現行policyで再計算する。investigation runの履歴payloadは変更しない
   - `repair-db` dry-runはcurrent service projectionの変更件数とbefore/after例を報告する
   - scalar列の`service_status`だけが変わる場合も`repair-db --execute`の保存対象にする
-  - collection syncはfull NSIDを既存projectと照合してから親namespace単位で集約し、bucket内の全NSIDをcandidate inputとして保存する。observationは活動統計だけを保持し、member一覧や自動取得NSIDのmanual seed roleは保存しない
+  - collection syncはfull NSIDを既存projectと照合してから親namespace単位で集約し、bucket内の全NSIDをconfirmed `owned_nsid`として保存する。observationは活動統計だけを保持し、member一覧やseed roleは保存しない
   - `profile_json.app.links`は保存時にcanonical identifierとconfirmed resourceから毎回再構築し、既存の派生linkを入力として引き継がない
   - `backfill-derived-identifiers`はflat runtime viewが失ったroleを不足rowと誤認するため削除。normalized identifierは無変更roundtripを維持する
   - exact identifier lookupは`handle` / `did`を含めnormalized indexを使用
@@ -196,14 +196,18 @@
 安全上の制約:
 
 - identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
+- NSID factual roleは`owned_nsid`へ統一し、classificationでconfirmed/candidateを表す。`seed` / `manual_seed` / 観測・参照用NSID roleは新規生成せず、専用`repair-identifier-roles`で既存行を移行できる
+- `repair-identifier-roles --collection-inventory`は、source内でcase-fold表記が一意なNSIDに限り、過去の小文字化で残った別case表記を移行時に補正する。通常同期には接続せず、正本適用後に削除する一時機能として扱う
+- `sync-bluesky-lexicons`はBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schemaを一意な`https://bsky.app` projectへ追加する。`com.atproto.*`は対象外
+- app links/resource roleは`webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`を追加し、未知roleもopen unionとして保持する。Web Overviewは利用・インストール、project情報、補足情報、その他に分けて表示する
 - job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
 - enrich run timingはproject SQL書込みまでで、transaction commit、process job全体、operator review時間を含まない
 
 ## 動作確認状況
 
-2026-07-26時点で確認済み:
+2026-07-28時点で確認済み:
 
-- 全unit test 544件
+- 全unit test 562件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

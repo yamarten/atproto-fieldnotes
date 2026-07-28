@@ -15,10 +15,11 @@
 
 ## 次に必要な作業
 
+- 正本DBへ`repair-identifier-roles --collection-inventory`を適用して再dry-run 0件とDB整合性を確認した後、一時的なcase補正オプション・実装・文書を削除する
+
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- legacy `manual_seed` / `seed` roleを廃止する前に、他roleを持たないNSID 75件、candidate NSID 294件、配布・参考URLとして保留したservice URL 3件の移行先を確定する。自動sync由来とoperator decisionを同じroleへ戻さない。
 
 ## DB 操作メモ
 

@@ -4,6 +4,11 @@
     "url": "https://collectiondata.usounds.work/collection_count_view",
     "lookback_days": 10
   },
+  "bluesky_official_lexicons": {
+    "enabled": true,
+    "repo_url": "https://github.com/bluesky-social/atproto",
+    "target_service_url": "https://bsky.app"
+  },
   "introduced_search": {
     "enabled": true,
     "query": "from:yamarten.bsky.social #ATプロトーク",

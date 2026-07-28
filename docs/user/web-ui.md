@@ -38,7 +38,7 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 ## Projects
 
-`Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてからシードとして登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加したシードは、その登録プロジェクトへ紐づきます。同じ値がすでにシードとして紐づいていても再適用でき、保存済みの旧データに対応するサービス・ソースリポジトリroleが無ければ補います。
+`Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてから登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加した値は、その登録プロジェクトの所有NSID、サービス、ソースリポジトリとして採用され、採用判断と入力元を別々に保存します。同じ値を再適用して旧データの不足を補えます。
 
 サービスURLのパスは保持します。`https://example.com/tool-a`と`https://example.com/tool-b`を別プロジェクトの入口として登録できます。operatorが明示したservice URLには、path名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除し、親URLに対するguardは残します。
 
@@ -55,7 +55,7 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 
 | タブ | 表示内容 |
 | --- | --- |
-| `Overview` | profile、代表websiteとconfirmed service一覧、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
+| `Overview` | profile、代表websiteとconfirmed service一覧、用途別のLinks / Resources、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
 | `Identifiers` | 分類とrole付きの識別子、候補への操作 |
 | `Relations` | 種類付きの関係根拠、除外・保留操作 |
 | `Investigation` | 最新の調査実行記録、収集結果・失敗、履歴、保存済みの根拠、再評価 |
@@ -65,6 +65,8 @@ project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_T
 `Overview`のExplainは保存済み状態を表示し、ネットワークやLLMを使いません。全登録プロジェクトとの比較が必要なマージ候補は詳細本体の後に別リクエストで計算し、DBへ保存しません。保存データがない項目は`not_observed`であり、否定結果ではありません。
 
 `Identifiers`に表示するDIDとhandleは、`https://pds.ls/at://...`形式のアカウント参照へリンクします。表示中の識別子自体は変更しません。
+
+`Links / Resources`は、利用・インストール先、プロジェクト情報、補足情報、その他の順にまとめます。App Store、Google Play、F-Droid、配布ページは利用先として先に表示し、changelogやWeb Manifestは補足情報として分けます。未知のroleも削除せず`Other`に表示します。
 
 詳細画面から次を実行できます。
 
