@@ -89,6 +89,42 @@ exit 99
             self.assertIn(str(fake_root / "tests"), args)
             self.assertEqual(args[-2:], ["-p", "test_example.py"])
 
+    def test_test_wrapper_warns_when_workspace_temp_exceeds_budget(self) -> None:
+        source_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tempdir:
+            fake_root = Path(tempdir) / "worktree"
+            wrapper_path = fake_root / "bin" / "project-registry-test"
+            helper_path = fake_root / "bin" / "_project-registry-python"
+            python_path = fake_root / ".venv" / "bin" / "python"
+            temp_path = fake_root / ".tmp"
+            wrapper_path.parent.mkdir(parents=True)
+            python_path.parent.mkdir(parents=True)
+            temp_path.mkdir(parents=True)
+            shutil.copy2(source_root / "bin" / "project-registry-test", wrapper_path)
+            shutil.copy2(source_root / "bin" / "_project-registry-python", helper_path)
+            python_path.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            python_path.chmod(0o755)
+            (temp_path / "large.db").write_bytes(b"x" * 4096)
+            env = os.environ.copy()
+            env["PROJECT_REGISTRY_TMP_WARN_KIB"] = "1"
+
+            result = subprocess.run(
+                [str(wrapper_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(".tmp uses", result.stderr)
+            self.assertIn("cleanup-workspace-temp", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

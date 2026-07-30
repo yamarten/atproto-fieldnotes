@@ -3,5 +3,14 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+TMP_WARN_KIB=${PROJECT_REGISTRY_TMP_WARN_KIB:-5242880}
+if [ -d "$ROOT_DIR/.tmp" ]; then
+  TMP_USAGE_KIB=$(du -sk "$ROOT_DIR/.tmp" 2>/dev/null | awk '{print $1}')
+  if [ -n "$TMP_USAGE_KIB" ] && [ "$TMP_USAGE_KIB" -gt "$TMP_WARN_KIB" ]; then
+    printf '%s\n' "warning: $ROOT_DIR/.tmp uses ${TMP_USAGE_KIB} KiB" >&2
+    printf '%s\n' "inspect with: $ROOT_DIR/bin/project-registry cleanup-workspace-temp" >&2
+  fi
+fi
+
 exec "$ROOT_DIR/bin/_project-registry-python" project-registry-test \
   -m unittest discover -s "$ROOT_DIR/tests" -v "$@"

@@ -28,12 +28,6 @@
 history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行っておらず、解放pageは今後の書き込みで
 再利用します。file sizeを直ちに縮める必要が生じた場合だけ、別processを止めてVACUUMを判断してください。
 
-2026-07-28のreview済みservice URL 10件の再適用直前backupは
-`.tmp/survey-before-reviewed-service-repair-20260728.db`です。
-
-2026-07-28のidentifier role移行直前backupは
-`.tmp/survey-before-identifier-role-migration-20260728-124530.db`です。
-
 ## 未検証・未接続
 
 未検証:

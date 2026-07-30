@@ -401,6 +401,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cleanup_storage_parser.set_defaults(func=maintenance_commands.cmd_cleanup_storage_payloads)
 
+    cleanup_temp_parser = subparsers.add_parser(
+        "cleanup-workspace-temp",
+        help="Delete stale SQLite copies and sidecars under the workspace .tmp directory.",
+    )
+    cleanup_temp_parser.add_argument(
+        "--older-than-hours",
+        type=int,
+        default=24,
+        help="Delete SQLite artifact groups whose newest file is at least this old. Default: 24.",
+    )
+    cleanup_temp_parser.add_argument(
+        "--example-limit",
+        type=int,
+        default=20,
+        help="Maximum deletion candidates included in the report. Default: 20.",
+    )
+    cleanup_temp_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Delete matching artifacts. Without this flag, report candidates only.",
+    )
+    cleanup_temp_parser.set_defaults(func=maintenance_commands.cmd_cleanup_workspace_temp)
+
     compress_history_parser = subparsers.add_parser(
         "compress-investigation-history",
         help="Compress investigation history JSON while preserving decoded payloads.",

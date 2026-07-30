@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any
 
 from .. import domain_policy
@@ -14,6 +16,126 @@ from project_registry_core import project_record
 
 DEFAULT_INVESTIGATION_RETENTION_DAYS = 90
 DEFAULT_INVESTIGATION_KEEP_LATEST = 3
+DEFAULT_WORKSPACE_TEMP_RETENTION_HOURS = 24
+WORKSPACE_TEMP_SQLITE_SUFFIXES = (".db", ".sqlite", ".sqlite3")
+WORKSPACE_TEMP_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
+
+
+def _workspace_temp_sqlite_family(path: Path) -> Path | None:
+    lowered = path.name.lower()
+    for suffix in WORKSPACE_TEMP_SQLITE_SIDECAR_SUFFIXES:
+        if lowered.endswith(suffix):
+            return path.with_name(path.name[:-len(suffix)])
+    if lowered.endswith(WORKSPACE_TEMP_SQLITE_SUFFIXES):
+        return path
+    return None
+
+
+def _workspace_temp_files(temp_root: Path) -> list[tuple[Path, os.stat_result]]:
+    if not temp_root.exists():
+        return []
+    if temp_root.is_symlink() or not temp_root.is_dir():
+        raise ValueError(f"workspace temp path must be a real directory: {temp_root}")
+    output: list[tuple[Path, os.stat_result]] = []
+    for directory, names, filenames in os.walk(temp_root, topdown=True, followlinks=False):
+        directory_path = Path(directory)
+        names[:] = [name for name in names if not (directory_path / name).is_symlink()]
+        for filename in filenames:
+            path = directory_path / filename
+            if path.is_symlink():
+                continue
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            if path.is_file():
+                output.append((path, stat))
+    return output
+
+
+def cleanup_workspace_temp(
+    workspace_root: Path,
+    *,
+    older_than_hours: int = DEFAULT_WORKSPACE_TEMP_RETENTION_HOURS,
+    execute: bool = False,
+    example_limit: int = 20,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    if older_than_hours < 0:
+        raise ValueError("older_than_hours must be zero or greater")
+    if example_limit < 0:
+        raise ValueError("example_limit must be zero or greater")
+    root = workspace_root.resolve()
+    temp_root = root / ".tmp"
+    effective_now = now or dt.datetime.now(dt.timezone.utc)
+    if effective_now.tzinfo is None:
+        effective_now = effective_now.replace(tzinfo=dt.timezone.utc)
+    cutoff = effective_now - dt.timedelta(hours=older_than_hours)
+
+    files = _workspace_temp_files(temp_root)
+    sqlite_groups: dict[Path, list[tuple[Path, os.stat_result]]] = {}
+    for path, stat in files:
+        family = _workspace_temp_sqlite_family(path)
+        if family is not None:
+            sqlite_groups.setdefault(family, []).append((path, stat))
+
+    candidates: list[tuple[Path, os.stat_result]] = []
+    retained_recent: list[tuple[Path, os.stat_result]] = []
+    cutoff_timestamp = cutoff.timestamp()
+    for members in sqlite_groups.values():
+        target = candidates if max(stat.st_mtime for _, stat in members) <= cutoff_timestamp else retained_recent
+        target.extend(members)
+    candidates.sort(key=lambda item: (item[1].st_mtime, str(item[0])))
+    retained_recent.sort(key=lambda item: (item[1].st_mtime, str(item[0])))
+
+    candidate_bytes = sum(stat.st_size for _, stat in candidates)
+    if execute:
+        for path, _ in candidates:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+        if temp_root.exists():
+            for directory, _, _ in os.walk(temp_root, topdown=False, followlinks=False):
+                path = Path(directory)
+                if path == temp_root or path.is_symlink():
+                    continue
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+
+    files_after = _workspace_temp_files(temp_root)
+
+    def item_payload(item: tuple[Path, os.stat_result]) -> dict[str, Any]:
+        path, stat = item
+        return {
+            "path": str(path.relative_to(root)),
+            "bytes": stat.st_size,
+            "modified_at": dt.datetime.fromtimestamp(stat.st_mtime, tz=dt.timezone.utc).isoformat(),
+        }
+
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "temp_root": str(temp_root),
+        "policy": {
+            "older_than_hours": older_than_hours,
+            "cutoff": cutoff.isoformat(),
+            "artifact_types": ["sqlite_database", "sqlite_wal", "sqlite_shm"],
+        },
+        "file_count_before": len(files),
+        "file_bytes_before": sum(stat.st_size for _, stat in files),
+        "sqlite_artifact_count": sum(len(members) for members in sqlite_groups.values()),
+        "candidate_count": len(candidates),
+        "candidate_bytes": candidate_bytes,
+        "retained_recent_count": len(retained_recent),
+        "retained_recent_bytes": sum(stat.st_size for _, stat in retained_recent),
+        "deleted_count": len(candidates) if execute else 0,
+        "deleted_bytes": candidate_bytes if execute else 0,
+        "file_count_after": len(files_after),
+        "file_bytes_after": sum(stat.st_size for _, stat in files_after),
+        "candidate_examples": [item_payload(item) for item in candidates[:example_limit]],
+    }
 
 
 def compress_investigation_history(

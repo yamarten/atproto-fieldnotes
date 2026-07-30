@@ -89,6 +89,7 @@
   - service pageのrepoリンクは、`Source`等の明示的なsource表示だけを決定的な逆向きtrust evidenceにする。表示が曖昧なリンクは、既に当該projectのconfirmed/candidate repoである場合だけ、通常triage内の`same_project / related / uncertain`判定へ渡す。`same_project`でもrepo側の現行逆リンクがなければ相互trustは成立しない
 - 既存保存payloadのmaintenance
   - `cleanup-storage-payloads`はdry-run既定で、project current、run snapshot、bundle、collector projectionを報告
+  - `cleanup-workspace-temp`はdry-run既定で`.tmp`内の古いSQLite本体・WAL・SHMだけを列挙し、`--execute`時に削除する。全unit testは`.tmp`が5GiBを超えると警告する
   - `--execute`はrunを削除せず一transactionで縮約し、commit前にforeign key/integrity checkを行う
   - `compress-investigation-history`はdry-runで全history JSONをdecode検査して圧縮後bytesを報告し、`--execute`では未圧縮rowだけを一transactionで変換する
   - multi-tenant suffixをWebまたは`audit-source-config --execute`で追加すると、同じapplication serviceがcurrent same-site判定を再評価する

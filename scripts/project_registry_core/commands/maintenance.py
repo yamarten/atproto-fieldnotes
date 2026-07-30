@@ -73,6 +73,18 @@ def cmd_cleanup_storage_payloads(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cleanup_workspace_temp(args: argparse.Namespace) -> int:
+    workspace_root = Path(__file__).resolve().parents[3]
+    payload = services.cleanup_workspace_temp(
+        workspace_root,
+        older_than_hours=int(args.older_than_hours),
+        execute=bool(args.execute),
+        example_limit=int(args.example_limit),
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_compress_investigation_history(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.compress_investigation_history(
         conn,

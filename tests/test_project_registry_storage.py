@@ -1291,6 +1291,23 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(storage_cleanup_args.example_limit, 3)
         self.assertTrue(storage_cleanup_args.vacuum)
 
+        workspace_temp_args = parser.parse_args([
+            "cleanup-workspace-temp",
+            "--older-than-hours",
+            "6",
+            "--example-limit",
+            "3",
+            "--execute",
+        ])
+
+        self.assertEqual(
+            workspace_temp_args.func.__module__,
+            "project_registry_core.commands.maintenance",
+        )
+        self.assertEqual(workspace_temp_args.older_than_hours, 6)
+        self.assertEqual(workspace_temp_args.example_limit, 3)
+        self.assertTrue(workspace_temp_args.execute)
+
         compression_args = parser.parse_args([
             "compress-investigation-history",
             "--execute",

@@ -36,6 +36,7 @@ subcommands=(
   'audit-trust-graph:Report trust-graph confirmation issues'
   'repair-trust-graph:Recompute stored trust graph details'
   'cleanup-storage-payloads:Compact stored service and investigation payloads'
+  'cleanup-workspace-temp:Delete stale SQLite copies under .tmp'
   'compress-investigation-history:Compress investigation history JSON'
   'prune-investigation-history:Delete old investigation history'
   'set-tracking-state:Set tracking state for one project'
@@ -395,6 +396,12 @@ case "$cmd" in
       '--execute[Rewrite payloads in one transaction]' \
       '--example-limit[Maximum largest-saving examples]:count:' \
       '--vacuum[VACUUM after a successful rewrite]'
+    ;;
+  cleanup-workspace-temp)
+    _arguments -S \
+      '--older-than-hours[Delete groups whose newest artifact is at least this old]:hours:' \
+      '--example-limit[Maximum deletion candidates in the report]:count:' \
+      '--execute[Delete matching SQLite artifacts]'
     ;;
   compress-investigation-history)
     _arguments -S \
