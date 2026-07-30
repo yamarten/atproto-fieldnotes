@@ -100,19 +100,23 @@ classification は project field の confidence と同義ではありません�
 - `CollectorResult`
   - `success | partial | skipped | rate_limited | failed`
   - request/result 数、cursor、stop reason、retry 時刻、cache hit
+  - GitHub collectorは実際に送信したHTTP request数を記録し、process-local cache hitはrequest数へ含めない
+  - GitHub API応答に`X-RateLimit-*`または`Retry-After`があれば、最後に観測した
+    `limit`, `remaining`, `used`, `reset`, `resource`, `retry_after`を`rate_limit`へ保存する
 
 ### Collector history projection
 
 replayに使うrecord/failure本文は`bundle_json`へ一度だけ保存します。`collector_runs`はWebと集計用のprojectionで、
 同じrunの同じ`source + operation`を一行へまとめ、worst status、request/result/cache count、record/failure countを
 `result_json`へ保存します。source別payloadを`records_json` / `failures_json`へ反復複製しません。
+同じsourceを集約する場合、rate limit観測は最も新しいcollector resultの値を保持します。
 
 GitHub repo collectorは同じrepoを一runで二度取得しません。snapshotの`repo`はintegrationで使うname、description、
 homepage、fork parent、updated timestamp等だけを保存します。source semantic hint本文は別のtyped relationに展開済みなので
 snapshotへ重複保存せず件数だけを残します。README URLは最大64件、JSON 16 KiB、1 URL 2 KiBです。relationと
 candidate生成はbudget適用前の全取得結果から行います。
 
-通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。
+通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenとして区別します。
 
 主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
 `official_account`, `operates_service`, `source_repository`, `requests_permission`, `redirects_to` です。

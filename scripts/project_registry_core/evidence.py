@@ -184,6 +184,7 @@ class CollectorResult:
     stop_reason: str = ""
     retry_at: str = ""
     cache_hits: int = 0
+    rate_limit: dict[str, JSONValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.source.strip() or not self.operation.strip() or not self.observed_at.strip():
@@ -192,6 +193,7 @@ class CollectorResult:
             raise ValueError(f"invalid collector status: {self.status}")
         if min(self.request_count, self.result_count, self.cache_hits) < 0:
             raise ValueError("collector result counts cannot be negative")
+        _validate_json_value(self.rate_limit, path="rate_limit")
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -205,6 +207,7 @@ class CollectorResult:
             "stop_reason": self.stop_reason,
             "retry_at": self.retry_at,
             "cache_hits": self.cache_hits,
+            "rate_limit": dict(self.rate_limit),
         }
 
     @classmethod
@@ -220,6 +223,7 @@ class CollectorResult:
             stop_reason=str(payload.get("stop_reason") or ""),
             retry_at=str(payload.get("retry_at") or ""),
             cache_hits=int(payload.get("cache_hits") or 0),
+            rate_limit=dict(payload.get("rate_limit") or {}),
         )
 
 
@@ -307,6 +311,9 @@ def add_collector_result_summary(
     request_count: int,
     attempted: bool = True,
     stop_reason: str = "",
+    retry_at: str = "",
+    cache_hits: int = 0,
+    rate_limit: dict[str, JSONValue] | None = None,
 ) -> CollectorResult:
     roots = {source}
     records = [record for record in bundle.records if record.source.split(":", 1)[0] in roots]
@@ -338,6 +345,9 @@ def add_collector_result_summary(
         request_count=max(0, request_count),
         result_count=len(substantive),
         stop_reason=resolved_stop_reason,
+        retry_at=retry_at,
+        cache_hits=max(0, cache_hits),
+        rate_limit=dict(rate_limit or {}),
     )
     bundle.add_collector_result(result)
     return result

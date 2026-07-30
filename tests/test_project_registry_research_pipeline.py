@@ -15,6 +15,7 @@ from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
+from project_registry_core import github_api
 from project_registry_core import integration as integration_core
 from project_registry_core import investigation as investigation_core
 from project_registry_core import llm_transport as llm_transport_core
@@ -306,6 +307,96 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             ["investigation_query", "github_repo_search_candidate", "investigation_log"],
         )
         self.assertEqual(bundle.failures, [])
+        self.assertEqual(bundle.collector_results[0].request_count, 1)
+
+    def test_github_api_records_rate_limit_headers(self) -> None:
+        metrics = github_api.GitHubRequestMetrics()
+        with mock.patch.object(
+            github_api.http_transport,
+            "request_bytes",
+            return_value=(
+                200,
+                b'{"items": []}',
+                {
+                    "x-ratelimit-limit": "30",
+                    "x-ratelimit-remaining": "27",
+                    "x-ratelimit-used": "3",
+                    "x-ratelimit-reset": "1785460000",
+                    "x-ratelimit-resource": "search",
+                },
+            ),
+        ):
+            payload = github_api.request_json("https://api.github.com/search/repositories", metrics=metrics)
+
+        self.assertEqual(payload, {"items": []})
+        self.assertEqual(
+            metrics.snapshot(),
+            (
+                1,
+                0,
+                {
+                    "limit": 30,
+                    "remaining": 27,
+                    "used": 3,
+                    "reset": 1785460000,
+                    "resource": "search",
+                },
+            ),
+        )
+
+    def test_github_api_classifies_only_rate_limit_403(self) -> None:
+        metrics = github_api.GitHubRequestMetrics()
+        limited = urllib.error.HTTPError(
+            "https://api.github.com/search/repositories",
+            403,
+            "Forbidden",
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1785460000"},
+            None,
+        )
+        with mock.patch.object(github_api.http_transport, "request_bytes", side_effect=limited):
+            with self.assertRaises(github_api.GitHubRateLimitError) as raised:
+                github_api.request_json("https://api.github.com/search/repositories", metrics=metrics)
+
+        failure = investigation_core.collector_failure(
+            source="github_search",
+            operation="repo_search",
+            target="fixture",
+            message=str(raised.exception),
+            error=raised.exception,
+        )
+        self.assertEqual(failure.category, "rate_limit")
+        self.assertEqual(metrics.snapshot()[2]["remaining"], 0)
+        failed_bundle = registry.failed_collector_bundle(
+            self.make_project("proj:githubratelimit"),
+            source="github_repo",
+            operation="inspect",
+            target="https://github.com/example/app",
+            exc=raised.exception,
+        )
+        self.assertEqual(failed_bundle.collector_results[0].request_count, 1)
+        self.assertEqual(
+            failed_bundle.collector_results[0].rate_limit,
+            {"remaining": 0, "reset": 1785460000},
+        )
+
+        forbidden = urllib.error.HTTPError(
+            "https://api.github.com/repos/example/private",
+            403,
+            "Forbidden",
+            {"X-RateLimit-Remaining": "12"},
+            None,
+        )
+        with mock.patch.object(github_api.http_transport, "request_bytes", side_effect=forbidden):
+            with self.assertRaises(urllib.error.HTTPError) as ordinary:
+                github_api.request_json("https://api.github.com/repos/example/private")
+        failure = investigation_core.collector_failure(
+            source="github_repo",
+            operation="inspect",
+            target="fixture",
+            message=str(ordinary.exception),
+            error=ordinary.exception,
+        )
+        self.assertEqual(failure.category, "forbidden")
 
     def test_search_collector_classifies_rate_limit_failure(self) -> None:
         class RateLimitError(RuntimeError):
@@ -367,6 +458,36 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(snapshot["semantic_hint_count"], 1)
         self.assertNotIn("semantic_hints", snapshot)
         self.assertNotIn("unused_api_payload", snapshot["repo"])
+
+    def test_github_repo_collector_records_actual_request_metrics(self) -> None:
+        metrics = github_api.GitHubRequestMetrics()
+        for _ in range(4):
+            metrics.record_request()
+        metrics.record_cache_hit()
+        metrics.record_headers({"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "4900"})
+        dependencies = investigation_core.RepositoryCollectorDependencies(
+            now=lambda: "2026-07-31T00:00:00+00:00",
+            fetch_repo=lambda _repo_url: {
+                "repo": {"full_name": "example/app", "description": "Example App"},
+                "readme_text": "",
+                "tree": [],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lambda _repo_url, **_kwargs: [],
+            extract_urls=lambda _text: [],
+            request_metrics=metrics,
+        )
+
+        bundle = investigation_core.collect_repository_evidence(
+            self.make_project("proj:githubmetrics", "repo_url", "https://github.com/example/app"),
+            "https://github.com/example/app",
+            dependencies,
+        )
+
+        result = bundle.collector_results[0]
+        self.assertEqual(result.request_count, 4)
+        self.assertEqual(result.cache_hits, 1)
+        self.assertEqual(result.rate_limit, {"limit": 5000, "remaining": 4900})
 
     def test_github_candidate_trust_collection_excludes_repo_content(self) -> None:
         project = self.make_project("proj:githubtrustonly", "service_url", "https://app.example.com")
@@ -992,16 +1113,19 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             CollectorResult(
                 source="github_repo", operation="inspect", status="success",
                 observed_at="2026-07-10T00:00:00+00:00", request_count=1, result_count=1,
+                rate_limit={"remaining": 90},
             ),
             CollectorResult(
                 source="github_repo", operation="inspect", status="failed",
                 observed_at="2026-07-10T00:00:01+00:00", request_count=1, stop_reason="timeout",
+                rate_limit={"remaining": 89},
             ),
         ])
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].status, "failed")
         self.assertEqual(results[0].request_count, 2)
         self.assertEqual(results[0].result_count, 1)
+        self.assertEqual(results[0].rate_limit, {"remaining": 89})
 
     def test_collector_run_projects_counts_without_copying_bundle_records(self) -> None:
         conn = registry.open_db()

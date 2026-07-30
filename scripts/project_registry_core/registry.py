@@ -40,6 +40,7 @@ from project_registry_core import runtime_view
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
+from project_registry_core import github_api
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
@@ -6022,14 +6023,27 @@ def collect_first_party_links(
     return project_record.unique_list(follow_up_urls)
 
 
-def search_github_repositories(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
+def search_github_repositories(
+    query: str,
+    limit: int = 5,
+    *,
+    timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+    request_metrics: github_api.GitHubRequestMetrics | None = None,
+) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
     cached = _GITHUB_REPO_SEARCH_CACHE.get(repr(cache_key))
     if cached is not None:
+        if request_metrics is not None:
+            request_metrics.record_cache_hit()
         return [dict(item) for item in cached]
     headers = github_headers()
     params = urllib.parse.urlencode({"q": query, "per_page": max(1, min(limit, 10)), "sort": "updated", "order": "desc"})
-    payload = http_transport.request_json(f"{GITHUB_API}/search/repositories?{params}", headers=headers, timeout=timeout)
+    payload = github_api.request_json(
+        f"{GITHUB_API}/search/repositories?{params}",
+        headers=headers,
+        timeout=timeout,
+        metrics=request_metrics,
+    )
     results: list[dict[str, Any]] = []
     for item in payload.get("items", [])[:limit]:
         html_url = str(item.get("html_url") or "")
@@ -6581,17 +6595,32 @@ def collect_github_repo_evidence(
     *,
     trust_only: bool = False,
 ) -> EvidenceBundle:
+    request_metrics = github_api.GitHubRequestMetrics()
+    file_text = lambda url, path, **kwargs: repository_source_core.github_repo_file_text(
+        url, path, **kwargs, request_metrics=request_metrics
+    )
     return investigation_core.collect_repository_evidence(
         project,
         repo_url,
         investigation_core.RepositoryCollectorDependencies(
             now=project_record.iso_now,
-            fetch_repo=repository_source_core.fetch_github_repo,
-            repo_lexicon_hints=repository_material_core.repo_lexicon_hints,
+            fetch_repo=lambda url: repository_source_core.fetch_github_repo(
+                url, request_metrics=request_metrics
+            ),
+            repo_lexicon_hints=lambda url, **kwargs: repository_material_core.repo_lexicon_hints(
+                url, **kwargs, file_text=file_text
+            ),
             extract_urls=extract_urls,
-            repo_semantic_hints=repository_material_core.repo_semantic_hints,
-            repo_manifest_hints=repository_material_core.repo_manifest_hints,
-            repo_configuration_hints=repository_material_core.repo_configuration_hints,
+            repo_semantic_hints=lambda url, **kwargs: repository_material_core.repo_semantic_hints(
+                url, **kwargs, file_text=file_text
+            ),
+            repo_manifest_hints=lambda url, **kwargs: repository_material_core.repo_manifest_hints(
+                url, **kwargs, file_text=file_text
+            ),
+            repo_configuration_hints=lambda url, **kwargs: repository_material_core.repo_configuration_hints(
+                url, **kwargs, file_text=file_text
+            ),
+            request_metrics=request_metrics,
         ),
         trust_only=trust_only,
     )
@@ -7590,12 +7619,15 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
 
 
 def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]) -> EvidenceBundle:
+    github_request_metrics = github_api.GitHubRequestMetrics()
     return investigation_core.collect_investigation_evidence(
         project,
         plan,
         investigation_core.SearchCollectorDependencies(
             now=project_record.iso_now,
-            search_github_repositories=search_github_repositories,
+            search_github_repositories=lambda *args, **kwargs: search_github_repositories(
+                *args, **kwargs, request_metrics=github_request_metrics
+            ),
             github_repo_relevance=github_repo_relevance,
             repo_candidate_allowed=repo_candidate_allowed_for_project,
             search_bsky_actors=search_bsky_actors,
@@ -7604,6 +7636,7 @@ def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]
             handle_matches_project=handle_matches_project,
             fetch_bsky_author_feed=fetch_bsky_author_feed,
             timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+            github_request_metrics=github_request_metrics,
         ),
     )
 
@@ -7778,7 +7811,9 @@ def failed_collector_bundle(
         source=source.split(":", 1)[0],
         operation=operation,
         observed_at=bundle.collected_at,
-        request_count=1,
+        request_count=max(1, int(getattr(exc, "request_count", 1) or 1)),
+        cache_hits=max(0, int(getattr(exc, "cache_hits", 0) or 0)),
+        rate_limit=dict(getattr(exc, "rate_limit", {}) or {}),
     )
     return bundle
 

@@ -167,6 +167,11 @@ def aggregate_collector_results(results: list[CollectorResult]) -> list[Collecto
             stop_reason="; ".join(stop_reasons)[:500],
             retry_at=result.retry_at or current.retry_at,
             cache_hits=current.cache_hits + result.cache_hits,
+            rate_limit=(
+                result.rate_limit
+                if result.rate_limit and result.observed_at >= current.observed_at
+                else current.rate_limit
+            ),
         )
     return list(grouped.values())
 

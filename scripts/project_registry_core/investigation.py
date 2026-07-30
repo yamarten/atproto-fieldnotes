@@ -14,6 +14,7 @@ from .evidence import (
     EvidenceRecord,
     add_collector_result_summary,
 )
+from .github_api import GitHubRequestMetrics
 from .relations import classify_lexicon_path, relation_record
 from .reliability import RequestBudget, RetryPolicy, run_with_retry
 
@@ -259,6 +260,7 @@ class SearchCollectorDependencies:
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     github_request_budget: int = 6
     bluesky_request_budget: int = 12
+    github_request_metrics: GitHubRequestMetrics | None = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +274,7 @@ class RepositoryCollectorDependencies:
     repo_manifest_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
     repo_configuration_hints: Callable[..., list[dict[str, Any]]] = field(default=lambda *_args, **_kwargs: [])
     provider: str = "github"
+    request_metrics: GitHubRequestMetrics | None = None
 
 
 @dataclass(frozen=True)
@@ -296,8 +299,8 @@ def collector_failure(
         category, retryable = "timeout", True
     elif "request budget exhausted" in lowered:
         category, retryable = "request_budget", False
-    elif status_code == 429:
-        category, retryable = "rate_limit", True
+    elif status_code == 429 or bool(getattr(error, "rate_limited", False)):
+        category, retryable = "rate_limit", bool(getattr(error, "retryable", True))
     elif status_code == 403:
         category, retryable = "forbidden", False
     elif status_code >= 500:
@@ -597,13 +600,21 @@ def collect_investigation_evidence(
         ("bsky_post_search", "post_search"),
         ("bsky_author_feed", "author_feed"),
     ):
-        request_count = len([
-            record for record in bundle.records
-            if record.source.split(":", 1)[0] == source and record.kind in {"investigation_query", "investigation_log"}
-        ])
-        request_count = max(request_count, len([
-            failure for failure in bundle.failures if failure.source.split(":", 1)[0] == source
-        ]))
+        rate_limit: dict[str, Any] = {}
+        cache_hits = 0
+        if source == "github_search":
+            request_count = github_budget.used
+            if dependencies.github_request_metrics is not None:
+                request_count, cache_hits, rate_limit = dependencies.github_request_metrics.snapshot()
+        else:
+            request_count = len([
+                record for record in bundle.records
+                if record.source.split(":", 1)[0] == source
+                and record.kind == "investigation_log"
+            ])
+            request_count = max(request_count, len([
+                failure for failure in bundle.failures if failure.source.split(":", 1)[0] == source
+            ]))
         add_collector_result_summary(
             bundle,
             source=source,
@@ -612,6 +623,8 @@ def collect_investigation_evidence(
             request_count=request_count,
             attempted=bool(planned[source]) and not (source in {"bsky_post_search", "bsky_author_feed"} and bluesky_rate_limited),
             stop_reason="upstream_rate_limit" if source in {"bsky_post_search", "bsky_author_feed"} and bluesky_rate_limited else "",
+            cache_hits=cache_hits,
+            rate_limit=rate_limit,
         )
     return bundle
 
@@ -748,12 +761,19 @@ def collect_repository_evidence(
             predicate="source_repository" if object_type == "website" else "mentions_collection",
             object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
         ))
+    request_count = 1
+    cache_hits = 0
+    rate_limit: dict[str, Any] = {}
+    if dependencies.request_metrics is not None:
+        request_count, cache_hits, rate_limit = dependencies.request_metrics.snapshot()
     add_collector_result_summary(
         bundle,
         source=f"{dependencies.provider}_repo",
         operation="inspect",
         observed_at=observed_at,
-        request_count=1,
+        request_count=request_count,
+        cache_hits=cache_hits,
+        rate_limit=rate_limit,
     )
     return bundle
 

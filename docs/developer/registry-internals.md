@@ -977,10 +977,9 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   - 既定 config は 1 query, 1 page なので通常 1 request
 - `--screen-unmatched` を付けない限り、search 以外の追加 fetch はありません
 - `--screen-unmatched` を付けると unmatched repo ごとに追加 fetch します
-  - screen 関数内の `fetch_github_repo()` で 3 request 前後
-  - その後 `enrich_from_github_repo()` が同じ repo をもう一度 fetch するのでさらに 3 request 前後
-  - さらに lexicon candidate JSON を最大 16 file 取得
-  - つまり unmatched repo 1 件あたり概ね 6、最大で 22 request 程度です
+  - screen 関数内の `fetch_github_repo()` はmetadata、README、branch、treeの通常4 requestです
+  - 同一process内で同じrepoを続けて解析する場合、この基本取得はTTL cacheを再利用します
+  - その後のlexicon、manifest、configuration、必要時のsource file取得はcache対象外です
 
 ### `sync-semble-collections`
 
@@ -996,6 +995,10 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   - 同じ query を同じ run で繰り返す時だけ有効です
 - GitHub repo metadata と service probe も process-local TTL cache を使います
 - cache は永続化しないため、別 process の再実行では再fetchします
+- enrichのGitHub search/repository collectorは、見積もりではなく実際に送信したrequest数とcache hit数を
+  `collector_runs.result_json`へ保存します
+- GitHub APIの`X-RateLimit-*`と`Retry-After`は同じresultへ保存します。rate limitを示す403と、
+  権限などによる通常の403はcollector status上も区別します
 
 ## 昇格ゲート
 

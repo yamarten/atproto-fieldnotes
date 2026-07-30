@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from . import http_transport
+from . import github_api
 from . import reliability as reliability_core
 from . import repo_urls as repo_url_core
 
@@ -42,21 +43,33 @@ def github_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def fetch_github_repo(repo_url: str) -> dict[str, Any]:
+def fetch_github_repo(
+    repo_url: str,
+    *,
+    request_metrics: github_api.GitHubRequestMetrics | None = None,
+) -> dict[str, Any]:
     cached = _GITHUB_REPO_FETCH_CACHE.get(repo_url)
     if isinstance(cached, dict):
+        if request_metrics is not None:
+            request_metrics.record_cache_hit()
         return copy.deepcopy(cached)
     slug = repo_url_core.extract_github_slug(repo_url)
     if slug is None:
         raise ValueError(f"not a GitHub repo URL: {repo_url}")
     headers = github_headers()
-    payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}", headers=headers)
+    payload = github_api.request_json(
+        f"{GITHUB_API}/repos/{slug}", headers=headers, metrics=request_metrics
+    )
     readme_text = ""
     try:
-        readme_payload = http_transport.request_json(f"{GITHUB_API}/repos/{slug}/readme", headers=headers)
+        readme_payload = github_api.request_json(
+            f"{GITHUB_API}/repos/{slug}/readme", headers=headers, metrics=request_metrics
+        )
         content = readme_payload.get("content", "")
         if content:
             readme_text = base64.b64decode(content).decode("utf-8", errors="replace")
+    except github_api.GitHubRateLimitError:
+        raise
     except Exception:
         readme_text = ""
     repo_tree: list[dict[str, Any]] = []
@@ -66,20 +79,26 @@ def fetch_github_repo(repo_url: str) -> dict[str, Any]:
     if default_branch:
         try:
             branch_ref = urllib.parse.quote(default_branch, safe="")
-            branch_payload = http_transport.request_json(
-                f"{GITHUB_API}/repos/{slug}/branches/{branch_ref}", headers=headers
+            branch_payload = github_api.request_json(
+                f"{GITHUB_API}/repos/{slug}/branches/{branch_ref}",
+                headers=headers,
+                metrics=request_metrics,
             )
             branch_commit = branch_payload.get("commit") if isinstance(branch_payload.get("commit"), dict) else {}
             revision = str(branch_commit.get("sha") or "")
             tree_ref = urllib.parse.quote(revision or default_branch, safe="")
-            tree_payload = http_transport.request_json(
-                f"{GITHUB_API}/repos/{slug}/git/trees/{tree_ref}?recursive=1", headers=headers
+            tree_payload = github_api.request_json(
+                f"{GITHUB_API}/repos/{slug}/git/trees/{tree_ref}?recursive=1",
+                headers=headers,
+                metrics=request_metrics,
             )
             tree_revision = str(tree_payload.get("sha") or "")
             revision = revision or tree_revision
             tree = tree_payload.get("tree", [])
             if isinstance(tree, list):
                 repo_tree = [dict(item) for item in tree if isinstance(item, dict)]
+        except github_api.GitHubRateLimitError:
+            raise
         except Exception:
             repo_tree = []
     result = {
@@ -318,7 +337,13 @@ def fetch_tangled_repo(repo_url: str) -> dict[str, Any]:
     return result
 
 
-def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
+def github_repo_file_text(
+    repo_url: str,
+    path: str,
+    *,
+    ref: str = "",
+    request_metrics: github_api.GitHubRequestMetrics | None = None,
+) -> str:
     slug = repo_url_core.extract_github_slug(repo_url)
     if slug is None:
         return ""
@@ -327,8 +352,10 @@ def github_repo_file_text(repo_url: str, path: str, *, ref: str = "") -> str:
         return ""
     query = f"?{urllib.parse.urlencode({'ref': ref})}" if ref else ""
     encoded_path = "/".join(urllib.parse.quote(segment, safe="") for segment in normalized_path.split("/"))
-    payload = http_transport.request_json(
-        f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}", headers=github_headers()
+    payload = github_api.request_json(
+        f"{GITHUB_API}/repos/{slug}/contents/{encoded_path}{query}",
+        headers=github_headers(),
+        metrics=request_metrics,
     )
     content = str(payload.get("content") or "")
     if not content:
