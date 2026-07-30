@@ -3263,6 +3263,8 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
     normalized = project_record.normalize_confirmed_service_url(url) if confirmed else project_record.normalize_service_candidate_url(url)
     if not normalized:
         return False
+    if confirmed and trust_graph_core.confirmed_by_trust_policy(project, "service_url", normalized):
+        return True
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
     if not host:
@@ -3303,6 +3305,8 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
+    if trust_graph_core.confirmed_by_trust_policy(project, "repo_url", normalized):
+        return True
     if normalized == "https://github.com/notjuliet/pdsls" and not project_explicitly_targets_pdsls(project):
         return False
     if normalized in manual_repo_urls(project):
@@ -4999,10 +5003,13 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
             )
 
 
-COLLECTION_TRUST_NODE_KINDS = {"did", "collection", "domain", "handle"}
+COLLECTION_TRUST_NODE_KINDS = {"service_url", "did", "collection", "domain", "handle"}
 COLLECTION_TRUST_PREDICATES = {
     "did_publishes_schema",
     "collection_authority_domain",
+    "domain_publishes_lexicon_record",
+    "service_exact_domain",
+    "domain_exact_service",
     "domain_exact_handle",
     "handle_resolves_did",
     "did_document_claims_handle",
@@ -5097,6 +5104,72 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 eligible_for_auto_confirm=True,
                 observed_at=str(entry.get("resolved_at") or ""),
             )
+            project_record.record_trust_edge(
+                project,
+                "domain",
+                authority_domain,
+                "domain_publishes_lexicon_record",
+                "collection",
+                resolved_nsid,
+                source=f"lexicon_resolution:{resolved_nsid}",
+                locator=str(entry.get("record_uri") or ""),
+                method="lexicon_dns_and_repo_record",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(entry.get("resolved_at") or ""),
+            )
+
+
+def exact_root_service_domain(service_url: str) -> str:
+    normalized = identifier_core.normalize_url(service_url)
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or parsed.path not in {"", "/"}:
+        return ""
+    return str(parsed.hostname or "").strip().lower().rstrip(".")
+
+
+def sync_trust_edges_from_collection_service_anchors(project: dict[str, Any]) -> None:
+    authority_domains = {
+        str(entry.get("authority_domain") or "").strip().lower().rstrip(".")
+        for entry in project_record.normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
+        if str(entry.get("authority_domain") or "").strip()
+    }
+    if not authority_domains:
+        return
+    for anchor in trusted_anchor_nodes(project):
+        if str(anchor.get("kind") or "") != "service_url":
+            continue
+        service_url = identifier_core.normalize_url(str(anchor.get("value") or ""))
+        domain = exact_root_service_domain(service_url)
+        if not service_url or domain not in authority_domains:
+            continue
+        source = f"trusted_service_domain:{service_url}"
+        project_record.record_trust_edge(
+            project,
+            "service_url",
+            service_url,
+            "service_exact_domain",
+            "domain",
+            domain,
+            source=source,
+            locator=service_url,
+            method="exact_root_service_domain",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        project_record.record_trust_edge(
+            project,
+            "domain",
+            domain,
+            "domain_exact_service",
+            "service_url",
+            service_url,
+            source=source,
+            locator=service_url,
+            method="exact_root_service_domain",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
 
 
 def collection_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
@@ -5108,6 +5181,13 @@ def collection_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, s
         if node and key not in seen:
             seen.add(key)
             output.append(node)
+    for anchor in trusted_anchor_nodes(project):
+        if str(anchor.get("kind") or "") != "service_url":
+            continue
+        key = trust_graph_core.node_key(anchor)
+        if key not in seen:
+            seen.add(key)
+            output.append(anchor)
     return output
 
 
@@ -5134,6 +5214,7 @@ def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str) ->
             "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
         }
     sync_trust_edges_from_project_identity(project)
+    sync_trust_edges_from_collection_service_anchors(project)
     evaluation = trust_graph_core.evaluate_auto_confirm(
         project,
         candidate=candidate,
@@ -5216,6 +5297,83 @@ def confirm_source_code_url_with_trust(
         updated_at=updated_at,
     )
     return True
+
+
+def prune_confirmed_http_redirect_candidates(project: dict[str, Any]) -> list[str]:
+    confirmed_services = {
+        identifier_core.normalize_url(str(value or ""))
+        for value in (
+            list(project.get("service_urls", []))
+            + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
+        )
+        if identifier_core.normalize_url(str(value or ""))
+    }
+    obsolete: set[str] = set()
+    for item in project.get("service_verification_results", []):
+        if not isinstance(item, dict):
+            continue
+        requested = identifier_core.normalize_url(str(item.get("requested_url") or ""))
+        final = identifier_core.normalize_url(str(item.get("final_url") or ""))
+        try:
+            status_code = int(item.get("status_code") or 0)
+        except (TypeError, ValueError):
+            continue
+        if (
+            requested
+            and final in confirmed_services
+            and requested != final
+            and 0 < status_code < 400
+            and bool(item.get("redirected"))
+            and bool(item.get("redirect_same_host"))
+            and bool(item.get("redirect_http_to_https"))
+        ):
+            obsolete.add(requested)
+    if not obsolete:
+        return []
+    project_record.set_service_url_candidate_values(
+        project,
+        [
+            value
+            for value in project_record.service_url_candidate_values(project)
+            if identifier_core.normalize_url(str(value or "")) not in obsolete
+        ],
+    )
+    project["failed_service_urls"] = [
+        value
+        for value in project.get("failed_service_urls", [])
+        if identifier_core.normalize_url(str(value or "")) not in obsolete
+    ]
+    prune_stale_service_trust_evaluations(project)
+    return sorted(obsolete)
+
+
+def reconcile_trust_supported_url_candidates(project: dict[str, Any]) -> dict[str, list[str]]:
+    removed_redirects = prune_confirmed_http_redirect_candidates(project)
+    confirmed_services: list[str] = []
+    for service_url in list(project_record.service_url_candidate_values(project)):
+        if confirm_service_url_with_trust(project, service_url):
+            confirmed_services.append(identifier_core.normalize_url(service_url))
+
+    confirmed_repos: list[str] = []
+    for repo_url in list(project.get("candidate_source_code_urls", [])):
+        normalized = repo_url_core.canonical_repo_url(str(repo_url or ""))
+        if not normalized:
+            continue
+        if confirm_source_code_url_with_trust(
+            project,
+            normalized,
+            "trust_graph_finalization",
+            relation="mutual_trust_path",
+            reason="mutual trust path became complete after all enrichment evidence was applied",
+            evidence_kind="trust_graph_evaluation",
+            evidence_url=normalized,
+        ):
+            confirmed_repos.append(normalized)
+    return {
+        "confirmed_service_urls": project_record.unique_list(confirmed_services),
+        "confirmed_repo_urls": project_record.unique_list(confirmed_repos),
+        "removed_redirect_service_urls": removed_redirects,
+    }
 
 
 def confirmed_service_identity_urls(project: dict[str, Any]) -> list[str]:
@@ -6298,8 +6456,16 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         return
     record = result["record"]
     schema = record.get("value", {})
-    resolved_nsid = str(record.get("uri", "")).rsplit("/", 1)[-1] or str(schema.get("id") or identifier_core.normalize_nsid(nsid))
-    project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), resolved_nsid)
+    resolved_nsid = identifier_core.normalize_nsid(
+        str(record.get("uri", "")).rsplit("/", 1)[-1]
+        or str(schema.get("id") or nsid)
+    )
+    if not resolved_nsid:
+        return
+    was_confirmed = resolved_nsid in {
+        identifier_core.normalize_nsid(str(value or ""))
+        for value in project.get("resolved_nsids", [])
+    }
     project["lexicons"] = project_record.add_unique(project.get("lexicons", []), resolved_nsid)
     project["record_creators"] = project_record.add_unique(project.get("record_creators", []), result["did"])
     project["lexicon_resolution_entries"] = project.get("lexicon_resolution_entries", [])
@@ -6361,6 +6527,34 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             eligible_for_auto_confirm=True,
             observed_at=project_record.iso_now(),
         )
+        project_record.record_trust_edge(
+            project,
+            "domain",
+            authority_domain,
+            "domain_publishes_lexicon_record",
+            "collection",
+            resolved_nsid,
+            source=f"lexicon_resolution:{identifier_core.normalize_nsid(nsid)}",
+            locator=str(record.get("uri") or ""),
+            method="lexicon_dns_and_repo_record",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+            observed_at=project_record.iso_now(),
+        )
+    if was_confirmed or trust_collection_ownership_evaluation(project, resolved_nsid).get("auto_confirm"):
+        project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), resolved_nsid)
+        project["input_nsids"] = [
+            value
+            for value in project.get("input_nsids", [])
+            if identifier_core.normalize_nsid(str(value or "")) not in {nsid, resolved_nsid}
+        ]
+    else:
+        project["resolved_nsids"] = [
+            value
+            for value in project.get("resolved_nsids", [])
+            if identifier_core.normalize_nsid(str(value or "")) != resolved_nsid
+        ]
+        project["input_nsids"] = project_record.add_unique(project.get("input_nsids", []), resolved_nsid)
     description = str(schema.get("description") or "")
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")

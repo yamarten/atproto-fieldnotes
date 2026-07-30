@@ -197,6 +197,8 @@
 
 - identifierのconfirm/block/defer/split decisionは現行保存契約どおり`kind + value`全体へ作用し、role単位ではない
 - NSID factual roleは`owned_nsid`へ統一し、classificationでconfirmed/candidateを表す。`seed` / `manual_seed` / 観測・参照用NSID roleは正本DBから移行済みで、現行コードは生成・読込・移行を行わない
+- candidate NSIDは、confirmed developer DIDとの相互trust pathに加え、operator/trust-policy confirmedなroot serviceの完全一致domainが`_lexicon` DNS経由で同じschema recordを公開する場合も自動confirmできる。path付き・未採用serviceやrepo内schema単独では昇格しない
+- enrich後半でURLの相互trust pathが完成した場合も、全evidence適用後のreconciliationで同じrun中にaggregate identifierをconfirmする。同一hostのHTTPからconfirmed HTTPSへのredirect元はcandidateから除去する
 - `sync-bluesky-lexicons`はBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schemaを一意な`https://bsky.app` projectへ追加する。`com.atproto.*`は対象外
 - app links/resource roleは`webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`を追加し、未知roleもopen unionとして保持する。Web Overviewは利用・インストール、project情報、補足情報、その他に分けて表示する
 - job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない

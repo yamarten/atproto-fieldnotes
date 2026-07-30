@@ -122,7 +122,9 @@ first-party page上の外部リンクは、通常はanchor textの`source` / `re
 
 candidate repositoryは通常のrepository enrich、project nameのidentity token、紹介文生成用のLLM evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。service側のリンクが`Source`等で明示されていれば決定的な逆向きedgeとし、曖昧なら既に当該projectのconfirmed/candidate repoである組だけを通常triageの関係判定へ渡します。この専用入力にはURL、link text、`aria-label` / `title`、service pageのtitle/descriptionだけを含め、candidate repoのdescription、repository名、lexicon hint等は含めません。LLMの`same_project`判定とrepo側の現行逆リンクで相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めて通常repo contentを適用します。`related` / `uncertain`は昇格させません。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
 
-collection ownership は、operatorが採用したconfirmed `owned_nsid`、または confirmed developer DID との相互 trust path がある場合だけ成立します。operatorの採用はactiveな`confirm_identifier`で表します。代表的な path は `did_publishes_schema` と `collection_authority_domain -> domain_exact_handle -> handle_resolves_did` の組です。`xxx.sprk.so` のようなhosted subdomainやsuffix一致は `domain_exact_handle` ではないため ownership根拠にしません。
+`enrich`は全collector・LLM evidenceの適用と通常cleanupを終えた後、URL candidateのtrust評価を一度reconcileします。これによりrun後半で逆向きedgeが加わった場合も同じrunでaggregateな`service_url` / `repo_url`をconfirmします。個々の`source_repository_record`が持つ観測時のconfidenceは変更しません。成功した同一hostのHTTPからHTTPSへのredirectでHTTPS側がconfirmedなら、HTTP側は独立candidateとして昇格させず削除します。`repair-trust-graph`は従来どおりevaluationの再計算・保存だけを行い、identifierを昇格しません。
+
+collection ownership は、operatorが採用したconfirmed `owned_nsid`、confirmed developer DIDとの相互trust path、またはoperator/trust-policy confirmedなroot serviceとの相互trust pathがある場合だけ成立します。operatorの採用はactiveな`confirm_identifier`で表します。developer DIDをanchorにする代表的なpathは`did_publishes_schema`と`collection_authority_domain -> domain_exact_handle -> handle_resolves_did`の組です。root serviceをanchorにするpathは、完全一致hostに限った`service_exact_domain` / `domain_exact_service`と、`_lexicon.<authority>`のDNS解決後に同じcollectionのschema recordを取得できた`domain_publishes_lexicon_record` / `collection_authority_domain`の組です。path付きservice URL、host suffix一致、未採用serviceはcollection ownership根拠にしません。
 
 identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v1` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
 
@@ -342,9 +344,12 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - DID document から PDS endpoint を引く
   - PDS の `com.atproto.repo.getRecord` で `com.atproto.lexicon.schema/<nsid>` を引く
 - ここで confirmed に入るもの:
-  - `resolved_nsids`
+  - operator/source assignment済みの`resolved_nsids`
+  - confirmed developer DID、またはconfirmed root serviceとの相互trust pathが成立したcandidate NSID
+- 解決結果として保存するもの:
   - `record_creators`
   - `authority_domains`
+  - `lexicon_resolution_entries`と`did_publishes_schema` / `domain_publishes_lexicon_record` / `collection_authority_domain` edge
 - ここで candidate に留めるもの:
   - lexicon description 由来の `summary_candidates` / `tagline_candidates`
 - 保守的な点:
@@ -598,8 +603,9 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 1. confirmed `owned_nsid`そのもの
 2. source syncが同じprojectへ割り当てた同一collection namespaceのNSID
 3. `trust-graph-v1` で collection と confirmed developer DID の間に相互の強い有向経路がある
+4. `trust-graph-v1` で collection と confirmed root serviceの完全一致domainとの間に、`_lexicon` DNS解決とschema record取得で裏付けられた相互の強い有向経路がある
 
-意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONだけでは ownership を確定しません。
+意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。
 collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
 
 repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。

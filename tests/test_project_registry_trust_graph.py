@@ -163,6 +163,102 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertTrue(registry.confirm_service_url_with_trust(project, "https://app.example.com"))
         self.assertEqual(project["service_urls"], ["https://app.example.com"])
 
+    def test_final_reconciliation_promotes_url_after_mutual_edges_arrive(self) -> None:
+        project = project_record.default_project_record(
+            "proj:lateurltrust", "service_url", "https://app.example.com"
+        )
+        registry.add_manual_seed(project, "service_url", "https://app.example.com", source="test")
+        repo_url = "https://github.com/unrelated-owner/unrelated-repo"
+        project["candidate_source_code_urls"] = [repo_url]
+        project["source_repo_records"] = [{
+            "url": repo_url,
+            "provider": "github",
+            "confidence": "candidate",
+            "relation": "candidate_repo",
+            "source": "github_search",
+            "reason": "weak discovery evidence",
+            "evidence_kind": "github_search",
+            "evidence_url": repo_url,
+            "recorded_at": "2026-07-28T00:00:00+00:00",
+            "updated_at": "",
+        }]
+        project_record.record_trust_edge(
+            project,
+            "service_url",
+            "https://app.example.com",
+            "service_links_repo",
+            "repo_url",
+            repo_url,
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        project_record.record_trust_edge(
+            project,
+            "repo_url",
+            repo_url,
+            "repo_links_service",
+            "service_url",
+            "https://app.example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        result = registry.reconcile_trust_supported_url_candidates(project)
+        registry.finalize_project_shape(project)
+
+        self.assertEqual(result["confirmed_repo_urls"], [repo_url])
+        self.assertIn(repo_url, project["source_code_urls"])
+        self.assertNotIn(repo_url, project["candidate_source_code_urls"])
+        candidate_observations = [
+            item
+            for item in project["source_repo_records"]
+            if item.get("url") == repo_url and item.get("confidence") == "candidate"
+        ]
+        self.assertEqual(len(candidate_observations), 1)
+
+    def test_final_reconciliation_prunes_confirmed_http_redirect_source(self) -> None:
+        project = project_record.default_project_record(
+            "proj:redirectreconcile", "service_url", "https://example.com"
+        )
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
+        project["service_url_candidates"] = ["http://example.com"]
+        project["service_verification_results"] = [{
+            "requested_url": "http://example.com",
+            "final_url": "https://example.com",
+            "status_code": 200,
+            "redirected": True,
+            "redirect_same_host": True,
+            "redirect_same_site_family": True,
+            "redirect_http_to_https": True,
+        }]
+        project_record.record_trust_edge(
+            project,
+            "service_url",
+            "https://example.com",
+            "service_canonical",
+            "service_url",
+            "http://example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        project_record.record_trust_edge(
+            project,
+            "service_url",
+            "http://example.com",
+            "service_canonical",
+            "service_url",
+            "https://example.com",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+
+        result = registry.reconcile_trust_supported_url_candidates(project)
+
+        self.assertEqual(result["removed_redirect_service_urls"], ["http://example.com"])
+        self.assertEqual(result["confirmed_service_urls"], [])
+        self.assertNotIn("http://example.com", project["service_urls"])
+        self.assertNotIn("http://example.com", project["service_url_candidates"])
+
     def test_tangled_record_adds_candidate_and_did_edge_without_confirming_repo(self) -> None:
         project = project_record.default_project_record("proj:tangledtrust", "service_url", "https://example.com")
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-25T00:00:00+00:00")
@@ -239,6 +335,96 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         ]
 
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "app.example.post"))
+
+    def test_collection_owned_through_confirmed_exact_root_service_and_lexicon_record(self) -> None:
+        project = project_record.default_project_record(
+            "proj:servicecollectiontrust", "service_url", "https://example.com"
+        )
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
+        project["input_nsids"] = ["com.example.post"]
+        project["lexicon_resolution_entries"] = [{
+            "input_nsid": "com.example.post",
+            "resolved_nsid": "com.example.post",
+            "repo_did": "did:plc:schema",
+            "authority_domain": "example.com",
+            "record_uri": "at://did:plc:schema/com.atproto.lexicon.schema/com.example.post",
+            "resolved_at": "2026-06-25T00:00:00+00:00",
+        }]
+
+        evaluation = registry.trust_collection_ownership_evaluation(project, "com.example.post")
+
+        self.assertTrue(evaluation["auto_confirm"])
+        self.assertEqual(evaluation["anchor"], {"kind": "service_url", "value": "https://example.com"})
+        predicates = {
+            edge["predicate"]
+            for edge in evaluation["forward_path"] + evaluation["backward_path"]
+        }
+        self.assertEqual(
+            predicates,
+            {
+                "service_exact_domain",
+                "domain_exact_service",
+                "domain_publishes_lexicon_record",
+                "collection_authority_domain",
+            },
+        )
+
+    def test_collection_not_owned_through_untrusted_or_non_root_service(self) -> None:
+        entry = {
+            "input_nsid": "com.example.post",
+            "resolved_nsid": "com.example.post",
+            "repo_did": "did:plc:schema",
+            "authority_domain": "example.com",
+            "record_uri": "at://did:plc:schema/com.atproto.lexicon.schema/com.example.post",
+            "resolved_at": "2026-06-25T00:00:00+00:00",
+        }
+        untrusted = project_record.default_project_record(
+            "proj:untrustedservicecollection", "service_url", "https://example.com"
+        )
+        untrusted["service_urls"] = ["https://example.com"]
+        untrusted["input_nsids"] = ["com.example.post"]
+        untrusted["lexicon_resolution_entries"] = [entry]
+
+        non_root = project_record.default_project_record(
+            "proj:nonrootservicecollection", "service_url", "https://example.com/app"
+        )
+        registry.add_manual_seed(non_root, "service_url", "https://example.com/app", source="test")
+        non_root["input_nsids"] = ["com.example.post"]
+        non_root["lexicon_resolution_entries"] = [entry]
+
+        self.assertFalse(registry.trust_collection_ownership_evaluation(untrusted, "com.example.post")["auto_confirm"])
+        self.assertFalse(registry.trust_collection_ownership_evaluation(non_root, "com.example.post")["auto_confirm"])
+
+    def test_lexicon_result_promotes_candidate_only_when_collection_trust_is_mutual(self) -> None:
+        def lexicon_result() -> dict:
+            return {
+                "did": "did:plc:schema",
+                "did_doc": {},
+                "pds_url": "https://pds.example.net",
+                "record": {
+                    "uri": "at://did:plc:schema/com.atproto.lexicon.schema/com.example.post",
+                    "value": {"lexicon": 1, "id": "com.example.post", "defs": {"main": {"type": "record"}}},
+                },
+            }
+
+        trusted = project_record.default_project_record(
+            "proj:trustedlexiconresult", "service_url", "https://example.com"
+        )
+        registry.add_manual_seed(trusted, "service_url", "https://example.com", source="test")
+        trusted["input_nsids"] = ["com.example.post"]
+
+        untrusted = project_record.default_project_record(
+            "proj:untrustedlexiconresult", "service_url", "https://example.com"
+        )
+        untrusted["input_nsids"] = ["com.example.post"]
+
+        registry.apply_lexicon_record_result(trusted, "com.example.post", lexicon_result())
+        registry.apply_lexicon_record_result(untrusted, "com.example.post", lexicon_result())
+
+        self.assertEqual(trusted["resolved_nsids"], ["com.example.post"])
+        self.assertEqual(trusted["input_nsids"], [])
+        self.assertEqual(untrusted["resolved_nsids"], [])
+        self.assertEqual(untrusted["input_nsids"], ["com.example.post"])
 
     def test_handle_requires_did_document_reverse_claim_for_auto_confirm(self) -> None:
         project = project_record.default_project_record("proj:handletrust", "did", "did:plc:dev")

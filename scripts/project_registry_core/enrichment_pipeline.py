@@ -59,6 +59,7 @@ from project_registry_core.registry import (
     note_failure,
     plan_investigation_queries,
     probe_service_url,
+    reconcile_trust_supported_url_candidates,
     record_promotion_transition,
     reset_investigation_state,
     select_authority_probe_urls,
@@ -566,6 +567,7 @@ def enrich_project(
     phase_timings["triage_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     phase_started = time.perf_counter()
     project = finalize_project_shape(project)
+    reconcile_trust_supported_url_candidates(project)
     project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = compute_merge_recommendation(project)
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
