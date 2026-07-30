@@ -1,0 +1,5 @@
+#compdef project-registry-web-service
+
+_arguments -C \
+  '1:command:(install status restart uninstall)' \
+  '*::argument:->args'

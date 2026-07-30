@@ -3,7 +3,7 @@
 _arguments -S \
   '(-h --help)'{-h,--help}'[Show command help]' \
   '--host[Bind host; use 0.0.0.0 for LAN access]:host:(127.0.0.1 0.0.0.0 ::1)' \
-  '--port[Bind port]:port:(8765 8769)' \
+  '--port[Bind port]:port:(8765 8769 8888)' \
   '--db-path[SQLite database path]:database file:_files' \
   '--token[Shared API token; ATPROTO_SURVEY_WEB_TOKEN is also supported]:token:' \
   '--reload[Restart when the Web or core Python source changes]' \

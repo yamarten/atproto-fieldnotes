@@ -25,6 +25,29 @@ project-registry init-db --db-path data/survey.dev.db
 project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
 ```
 
+### macOSでの自動起動
+
+`project-registry-web-service`は、現在のcheckoutを参照する利用者用LaunchAgentを`~/Library/LaunchAgents/`へ生成します。ログイン時に実運用設定の`0.0.0.0:8888`で起動し、異常終了時は30秒以上の間隔を置いて再起動します。同じMacからの状態確認と管理には`http://127.0.0.1:8888/`を使います。Web serverが起動するworkerと定期実行も同じprocess環境を引き継ぎます。
+
+導入前に`direnv`をinstall・allowし、`.envrc`へ`ATPROTO_SURVEY_WEB_TOKEN`と必要なLLM設定を置きます。LaunchAgentは対話shellを読まないため、`direnv exec`経由でこの環境を読みます。秘密を含む`.envrc`は他の利用者から読めないpermissionにしてください。
+
+```bash
+chmod 600 .envrc
+project-registry-web-service install
+project-registry-web-service status
+```
+
+| コマンド | 動作 |
+| --- | --- |
+| `project-registry-web-service install` | plistを生成または置換して起動。正本DBの存在とschema、direnv、tokenを事前確認 |
+| `project-registry-web-service status` | launchdのload・process状態、bind先とloopbackからの応答を表示 |
+| `project-registry-web-service restart` | 認証済みreload APIでworkerを停止してから同じ引数で再起動 |
+| `project-registry-web-service uninstall` | processを停止してplistを削除。エラーログは保持 |
+
+plistにはtokenやAPI keyを保存しません。token入り起動URLが出る標準出力は保存せず、例外等の標準エラーだけを`~/Library/Logs/atproto-survey/project-registry-web.err.log`へ保存します。同じMacでは`http://127.0.0.1:8888/`、LAN内の別端末ではMacの管理下のaddressを開き、originごとにSettingsへtokenを入力します。tokenは従来どおりbrowserのlocalStorageに保存されます。
+
+LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリを移動した場合は旧checkoutで`uninstall`してから新しい場所で`install`し直してください。通常起動には`--reload`を付けません。コード更新後はSettingsの`Reload server`または`project-registry-web-service restart`を使います。
+
 ## 画面構成
 
 | 画面 | 主な用途 | DB変更 |
@@ -117,7 +140,7 @@ PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾�
 
 ジョブ一覧とイベントはサーバープロセス内だけに保持され、サーバー再起動後は復元されません。一括`enrich`の未完了チェックポイントは`Discovered Checkpoints`から再発見・再開できます。外部情報の取り込みと追跡状態の見直しにはチェックポイントからの再開がありません。
 
-Settingsの`Reload server`はWebプロセスを再起動し、SQLiteは変更しません。実行中のジョブへ協調停止を要求し、タイムアウトを超えたworkerは終了してから再起動します。ブラウザーは新プロセスの応答後に自動再読込します。
+Settingsの`Reload server`はWebプロセスを再起動し、SQLiteは変更しません。実行中のジョブへ協調停止を要求し、タイムアウトを超えたworkerは終了してから再起動します。ブラウザーは新プロセスの応答後に自動再読込します。LaunchAgentからの停止時も同じworker終了処理を行います。
 
 ## Settings
 
@@ -131,12 +154,12 @@ UI設定とtokenは同じoriginの`localStorage`に保存します。表示time 
 
 ## アクセス境界
 
-Web UIは`127.0.0.1`上で1人の利用者が使う前提です。公開サーバー、共有端末、複数利用者向けのアクセス制御はありません。
+Web UIは1人の利用者が使う前提です。手動起動の既定は`127.0.0.1`ですが、実運用のLaunchAgentは管理下のLANから使うため`0.0.0.0:8888`へbindします。公開サーバー、共有端末、複数利用者向けのアクセス制御はありません。
 
 - 起動時の初回URLだけqueryにtokenを含み、UIは読取直後にURLから除去します。ただしターミナル、ブラウザー拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
 - tokenは同じoriginの`localStorage`へ保存されます。同じブラウザープロファイル・originを使えるスクリプトや利用者とは秘密を分離できません。不要になったらSettingsの`Clear API token`で削除してください。
-- サーバーはplain HTTPで、TLS終端やtoken rotationを提供しません。`--host 0.0.0.0`などで直接公開しないでください。
-- localhost外から使う場合はloopbackへbindしたまま、管理下のSSH tunnelまたはTLS付きreverse proxyを前段に置きます。
+- サーバーはplain HTTPで、TLS終端やtoken rotationを提供しません。LaunchAgentを使うLANと端末は管理下に限定し、internetへport 8888を転送しないでください。
+- 信頼できないnetworkを経由する場合やLAN外から使う場合は、LaunchAgentのbind設定をloopbackへ戻し、管理下のSSH tunnelまたはTLS付きreverse proxyを前段に置きます。
 
 APIリクエストは共有token必須です。起動時URLのbootstrap token、`Authorization: Bearer ...`、`X-Project-Registry-Token`のいずれかを使います。静的assetはtokenなしで配信します。
 

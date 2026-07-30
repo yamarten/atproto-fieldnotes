@@ -23,6 +23,14 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
+macOSでログイン時に自動起動する場合は、`.envrc`からtoken等を読み込むLaunchAgentを導入できます。LaunchAgentは実運用向けに`0.0.0.0:8888`へbindし、同じMacからは`http://127.0.0.1:8888/`で開けます。
+
+```bash
+chmod 600 .envrc
+project-registry-web-service install
+project-registry-web-service status
+```
+
 Web UIの`Projects`からシードを登録・調査し、`Review`で要レビュー項目や紹介候補を確認します。CLIで最小フローを行う場合は次の通りです。
 
 ```bash
@@ -37,7 +45,8 @@ project-registry show --seed sh.tangled.repo --type nsid
 
 - [bin/project-registry](bin/project-registry): 登録、調査、候補整理、外部情報の取り込み、保守のCLI
 - [bin/project-registry-web](bin/project-registry-web): schema v2ローカルWeb UI
-- [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web): zsh completion
+- [bin/project-registry-web-service](bin/project-registry-web-service): macOS LaunchAgentの導入・状態確認
+- [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web) / [completions/_project-registry-web-service](completions/_project-registry-web-service): zsh completion
 
 `PATH`には`bin/`だけを追加する前提です。各CLIオプションは`project-registry COMMAND --help`で確認できます。
 

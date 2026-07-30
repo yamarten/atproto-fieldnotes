@@ -53,6 +53,9 @@
 - Web serverの手動reload
   - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動
   - active background jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続
+- macOS LaunchAgentによるWeb serverの自動起動
+  - `project-registry-web-service`でログイン時に実運用bindの`0.0.0.0:8888`へ起動し、異常終了時に再起動
+  - plistへsecretを保存せずworkspaceの`direnv`環境を継承。SIGTERM時はactive workerを終了
 - Web診断とlocal access境界
   - HTTP request logはquery/bodyを除いたmethod、path、status、所要時間だけをstderrへ記録
   - unexpected HTTP exceptionはserver側へtracebackを残し、job stderrとは分離

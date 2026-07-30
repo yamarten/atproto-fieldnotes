@@ -6,6 +6,7 @@ import hmac
 import json
 import mimetypes
 import os
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -799,6 +800,20 @@ def start_reload_watcher(server: RegistryWebServer, paths: list[Path], interval:
     threading.Thread(target=watch, name="registry-web-reload", daemon=True).start()
 
 
+def install_sigterm_shutdown(server: RegistryWebServer) -> Any:
+    shutdown_requested = threading.Event()
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def handle_sigterm(_signum: int, _frame: Any) -> None:
+        if shutdown_requested.is_set():
+            return
+        shutdown_requested.set()
+        threading.Thread(target=server.shutdown, name="registry-web-shutdown", daemon=True).start()
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    return previous_sigterm
+
+
 def main() -> int:
     args = build_parser().parse_args()
     token = str(args.token or os.environ.get("ATPROTO_SURVEY_WEB_TOKEN") or "").strip()
@@ -829,10 +844,12 @@ def main() -> int:
     url = f"http://{args.host}:{args.port}/?token={urllib.parse.quote(token)}"
     print(f"Serving project registry Web UI at {url}", flush=True)
     print(f"Using DB: {server.db_path}", flush=True)
+    previous_sigterm = install_sigterm_shutdown(server)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
         server.server_close()
     return 0

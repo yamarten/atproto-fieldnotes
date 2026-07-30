@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import signal
 import sqlite3
 import sys
 import threading
@@ -13,7 +14,15 @@ from io import BytesIO
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import domain_policy, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
-from project_registry_web.server import RegistryWebHandler, RegistryWebServer, build_information, build_parser, main as web_main, restart_argv
+from project_registry_web.server import (
+    RegistryWebHandler,
+    RegistryWebServer,
+    build_information,
+    build_parser,
+    install_sigterm_shutdown,
+    main as web_main,
+    restart_argv,
+)
 from project_registry_core.application import presentation
 from project_registry_core import project_record
 
@@ -468,6 +477,26 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--reload"]),
             [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--reload"],
         )
+
+    def test_sigterm_requests_server_shutdown_once(self) -> None:
+        server = mock.Mock()
+        with (
+            mock.patch("project_registry_web.server.signal.getsignal", return_value="previous"),
+            mock.patch("project_registry_web.server.signal.signal") as set_signal,
+            mock.patch("project_registry_web.server.threading.Thread") as thread,
+        ):
+            previous = install_sigterm_shutdown(server)
+            handler = set_signal.call_args.args[1]
+            handler(signal.SIGTERM, None)
+            handler(signal.SIGTERM, None)
+
+        self.assertEqual(previous, "previous")
+        thread.assert_called_once_with(
+            target=server.shutdown,
+            name="registry-web-shutdown",
+            daemon=True,
+        )
+        thread.return_value.start.assert_called_once_with()
 
     def test_enrich_job_endpoints_validate_start_list_cancel_and_resume(self) -> None:
         status, payload, _ = self.request(

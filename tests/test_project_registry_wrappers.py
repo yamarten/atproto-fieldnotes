@@ -12,7 +12,7 @@ class ProjectRegistryWrapperTest(unittest.TestCase):
     def test_public_wrappers_reject_unsupported_python_before_import(self) -> None:
         source_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tempdir:
-            for wrapper_name in ("project-registry", "project-registry-web"):
+            for wrapper_name in ("project-registry", "project-registry-web", "project-registry-web-service"):
                 with self.subTest(wrapper=wrapper_name):
                     fake_root = Path(tempdir) / wrapper_name
                     wrapper_path = fake_root / "bin" / wrapper_name
