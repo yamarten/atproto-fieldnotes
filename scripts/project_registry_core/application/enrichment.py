@@ -386,6 +386,8 @@ def run(
         publish("progress", {"progress": {
             "current": index,
             "total": selected_total,
+            "eta_observed_count": max(0, offset - 1),
+            "eta_remaining_count": max(0, len(projects) - offset + 1),
             "at": project_record.iso_now(),
             "phase": "start",
             "project_key": project_key,

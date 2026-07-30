@@ -120,6 +120,43 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertGreaterEqual(snapshot["eta_seconds"], 396)
         self.assertLessEqual(snapshot["eta_seconds"], 404)
 
+    def test_resumed_enrich_eta_uses_only_items_observed_after_resume(self) -> None:
+        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        record = JobRecord(
+            job_id="job:resumed-eta",
+            request=OperationRequest.create("enrich", parameters={"resume_run": "run:original"}),
+            status="running",
+            started_at=started,
+            events=[{"kind": "progress", "data": {"progress": {
+                "current": 10,
+                "total": 12,
+                "eta_observed_count": 1,
+                "eta_remaining_count": 3,
+            }}}],
+        )
+
+        snapshot = record.snapshot()
+
+        self.assertGreaterEqual(snapshot["eta_seconds"], 297)
+        self.assertLessEqual(snapshot["eta_seconds"], 303)
+
+    def test_resumed_enrich_eta_waits_for_one_observed_item(self) -> None:
+        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        record = JobRecord(
+            job_id="job:resumed-eta-first-item",
+            request=OperationRequest.create("enrich", parameters={"resume_run": "run:original"}),
+            status="running",
+            started_at=started,
+            events=[{"kind": "progress", "data": {"progress": {
+                "current": 9,
+                "total": 12,
+                "eta_observed_count": 0,
+                "eta_remaining_count": 4,
+            }}}],
+        )
+
+        self.assertIsNone(record.snapshot()["eta_seconds"])
+
     def test_generic_sync_and_review_jobs_use_same_process_boundary(self) -> None:
         sync_job = self.manager.start_sync({"source": "github"}, execute=False)
         sync_completed = self.wait_for(sync_job["job_id"], {"completed"})

@@ -373,7 +373,12 @@ class JobRecord:
                 elapsed_seconds = max(0, int((dt.datetime.now(dt.timezone.utc) - started).total_seconds()))
                 current = int((progress or {}).get("current") or 0)
                 total = int((progress or {}).get("total") or 0)
-                if current > 0 and total > current and elapsed_seconds > 0:
+                if "eta_observed_count" in (progress or {}) and "eta_remaining_count" in (progress or {}):
+                    observed = int(progress.get("eta_observed_count") or 0)
+                    remaining = int(progress.get("eta_remaining_count") or 0)
+                    if observed > 0 and remaining > 0 and elapsed_seconds > 0:
+                        eta_seconds = max(1, int(elapsed_seconds * remaining / observed))
+                elif current > 0 and total > current and elapsed_seconds > 0:
                     eta_seconds = max(1, int(elapsed_seconds * (total - current) / current))
             except (TypeError, ValueError):
                 pass

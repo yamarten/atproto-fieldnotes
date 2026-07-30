@@ -98,6 +98,8 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(calls, ["proj:111111111111"])
         self.assertEqual([event.kind for event in events], ["started", "progress", "item_completed", "cancelled"])
         self.assertEqual([event.sequence for event in events], [1, 2, 3, 4])
+        self.assertEqual(events[1].data["progress"]["eta_observed_count"], 0)
+        self.assertEqual(events[1].data["progress"]["eta_remaining_count"], 2)
         checkpoint = json.loads(checkpoint_path.read_text())
         self.assertEqual(checkpoint["status"], "interrupted")
         self.assertEqual(checkpoint["completed_project_keys"], ["proj:111111111111"])
@@ -110,15 +112,25 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             resumed_calls.append(project["project_key"])
             return dict(project, name="Resumed Test")
 
+        resumed_events = []
         conn = registry.open_db()
         try:
             with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=finish_remaining):
-                resumed = enrichment.run(conn, self.request(checkpoint_path, resume_run="test-run"))
+                resumed = enrichment.run(
+                    conn,
+                    self.request(checkpoint_path, resume_run="test-run"),
+                    emit=resumed_events.append,
+                )
         finally:
             conn.close()
 
         self.assertEqual(resumed.status, "completed")
         self.assertEqual(resumed_calls, ["proj:222222222222"])
+        resumed_progress = next(event.data["progress"] for event in resumed_events if event.kind == "progress")
+        self.assertEqual(resumed_progress["current"], 2)
+        self.assertEqual(resumed_progress["total"], 2)
+        self.assertEqual(resumed_progress["eta_observed_count"], 0)
+        self.assertEqual(resumed_progress["eta_remaining_count"], 1)
         checkpoint = json.loads(checkpoint_path.read_text())
         self.assertEqual(checkpoint["status"], "completed")
         self.assertEqual(

@@ -51,6 +51,8 @@ review executeは先にdry-run planを作り、candidate IDを選択してから
 
 `sequence`は1 operation内で単調増加します。eventは通知であり、project current stateやcheckpointの正本ではありません。
 
+bulk enrichの`progress.current`はcheckpoint全体での処理対象ordinalで、処理開始時に通知します。ETAにはこの通算値を使わず、現在のworker processで時間を観測済みの件数`eta_observed_count`と、そのattemptで未処理の件数`eta_remaining_count`を使います。resume前に完了した件数とresume後の経過時間を混ぜません。
+
 ### `OperationResult`
 
 処理全体の終了状態です。
