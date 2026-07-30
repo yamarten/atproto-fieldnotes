@@ -205,7 +205,7 @@
 - enrich後半でURLの相互trust pathが完成した場合も、全evidence適用後のreconciliationで同じrun中にaggregate identifierをconfirmする。同一hostのHTTPからconfirmed HTTPSへのredirect元はcandidateから除去する
 - `sync-bluesky-lexicons`はBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schemaを一意な`https://bsky.app` projectへ追加する。`com.atproto.*`は対象外
 - app links/resource roleは`webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`を追加し、未知roleもopen unionとして保持する。Web Overviewは利用・インストール、project情報、補足情報、その他に分けて表示する
-- job ETAは直近の`current / total`を開始時からの平均速度へ線形外挿した目安であり、progress総数が無いoperationでは表示しない
+- bulk enrichのjob ETAは現在のworker processで時間を観測済みの件数と残件数から算出し、resume前の完了件数を混ぜない。その他のjobは直近の`current / total`を開始時からの平均速度へ線形外挿し、progress総数が無いoperationでは表示しない
 - enrich run timingはproject SQL書込みまでで、transaction commit、process job全体、operator review時間を含まない
 
 ## 動作確認状況
