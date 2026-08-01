@@ -70,9 +70,39 @@ def merge_projects(
         key for key in merged.get("separate_project_keys", [])
         if key not in {source["project_key"], target["project_key"]}
     ]
+    next_merge_review: dict[str, str] = {}
     if execute:
-        merged["duplicate_candidates"] = core.compute_duplicate_candidates(conn, merged)
+        comparison_projects = [
+            project_record.ensure_project_shape(item)
+            for item in project_record.list_projects(conn)
+            if str(item.get("project_key") or "")
+            not in {source["project_key"], target["project_key"]}
+        ]
+        comparison_projects.append(merged)
+        duplicate_profiles, duplicate_index = core.build_duplicate_candidate_index(comparison_projects)
+        merged["duplicate_candidates"] = core.compute_duplicate_candidates(
+            conn,
+            merged,
+            projects=comparison_projects,
+            duplicate_profiles=duplicate_profiles,
+            duplicate_index=duplicate_index,
+        )
         merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
+        next_target_key = str(merged["merge_recommendation"].get("target_project_key") or "")
+        next_target = next(
+            (
+                item
+                for item in comparison_projects
+                if str(item.get("project_key") or "") == next_target_key
+            ),
+            None,
+        )
+        if next_target is not None:
+            next_source, next_target = core.choose_batch_merge_direction(merged, next_target)
+            next_merge_review = {
+                "source_project_key": str(next_source.get("project_key") or ""),
+                "target_project_key": str(next_target.get("project_key") or ""),
+            }
     merged = core.apply_promotion_state(merged)
     summary = {
         "mode": "execute" if execute else "dry_run",
@@ -91,6 +121,8 @@ def merge_projects(
         "introduced": bool(merged.get("introduced_url")),
         "introduced_url": merged.get("introduced_url", ""),
         "merge_recommendation": source.get("merge_recommendation", {}),
+        "remaining_merge_candidate_count": len(merged.get("duplicate_candidates", [])),
+        "next_merge_review": next_merge_review,
     }
     if execute:
         with conn:

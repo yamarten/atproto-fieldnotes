@@ -960,6 +960,44 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_merge_returns_next_candidate_without_retaining_deleted_source(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            remaining = projects.add_seed(conn, seed="https://remaining.example", seed_type="service_url")
+            shared_repo = "https://github.com/example/shared"
+            for project_key in (source["project_key"], target["project_key"], remaining["project_key"]):
+                project = project_record.fetch_project(conn, project_key)
+                assert project is not None
+                registry.confirm_source_code_url(project, shared_repo, "test")
+                project_record.save_project(conn, project, preserve_timestamps=True)
+            conn.commit()
+
+            executed = merge.merge_projects(
+                conn,
+                project_key=source["project_key"],
+                target_project_key=target["project_key"],
+                execute=True,
+                force=True,
+            )
+            saved = project_record.fetch_project(conn, target["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        candidate_keys = {item["project_key"] for item in saved["duplicate_candidates"]}
+        self.assertNotIn(source["project_key"], candidate_keys)
+        self.assertIn(remaining["project_key"], candidate_keys)
+        self.assertEqual(executed["remaining_merge_candidate_count"], 1)
+        self.assertEqual(
+            {
+                executed["next_merge_review"]["source_project_key"],
+                executed["next_merge_review"]["target_project_key"],
+            },
+            {target["project_key"], remaining["project_key"]},
+        )
+
     def test_explicit_merge_dry_run_does_not_compute_global_recommendations(self) -> None:
         conn = registry.open_db()
         try:

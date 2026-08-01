@@ -1197,6 +1197,38 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIsNone(project_record.fetch_project(conn, split_key))
         conn.close()
 
+    def test_merge_action_returns_next_review_for_merged_project(self) -> None:
+        conn = registry.open_db()
+        source = self.make_project("proj:mergechain01", "service_url", "https://merge-source.example")
+        target = self.make_project("proj:mergechain02", "service_url", "https://merge-target.example")
+        remaining = self.make_project("proj:mergechain03", "service_url", "https://merge-remaining.example")
+        shared_repo = "https://github.com/example/merge-chain"
+        for project in (source, target, remaining):
+            registry.confirm_source_code_url(project, shared_repo, "test")
+            project_record.save_project(conn, project)
+        conn.commit()
+        conn.close()
+
+        status, payload, _ = self.request(
+            "/api/merge-batch/action",
+            method="POST",
+            payload={
+                "action": "merge",
+                "source_project_key": source["project_key"],
+                "target_project_key": target["project_key"],
+            },
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["remaining_merge_candidate_count"], 1)
+        self.assertEqual(
+            {
+                payload["next_merge_review"]["source_project_key"],
+                payload["next_merge_review"]["target_project_key"],
+            },
+            {target["project_key"], remaining["project_key"]},
+        )
+
     def test_targeted_review_decisions_and_developer_confirmation(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)

@@ -1162,6 +1162,10 @@ repositoryの`save_project(..., commit=False)`を使い、2件目の保存、ali
 成功した時だけcommitします。merge済みsource keyは`project_key_aliases`からcanonical keyへ解決し、
 alias元の`investigation_runs`もcanonical projectの履歴一覧へ含めます。run JSON自体は変更しません。
 
+merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置換前targetを比較集合から除外し、統合後targetを
+加えた同一snapshot上で再計算します。Web APIはその保存済み結果の先頭候補を`next_merge_review`として返し、
+Merge reviewは一覧全体の再計算を挟まず次のpairへ進みます。この導線は候補scoreやbatch mergeの判定基準を変更しません。
+
 `review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。
 
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。

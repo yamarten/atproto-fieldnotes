@@ -617,11 +617,57 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped f
 }
 
 function advanceReviewListAfterMutation(response, path) {
+  if (path === "/api/merge-batch/action" && response.mode === "execute") {
+    return advanceMergeReviewAfterMerge(response);
+  }
   const sourceKey = path === "/api/merge-batch/action"
     ? String(response.source_project_key || state.selected || "")
     : String(response.project_key || state.selected || "");
   const targetKey = path === "/api/merge-batch/action" ? String(response.target_project_key || "") : "";
   return advanceReviewList(sourceKey, {targetKey, statusPrefix: "Saved."});
+}
+
+function advanceMergeReviewAfterMerge(response) {
+  if (state.screen !== "review" || state.reviewView !== "merge") return false;
+  const sourceKey = String(response.source_project_key || "");
+  const targetKey = String(response.target_project_key || "");
+  const affectedKeys = new Set([sourceKey, targetKey].filter(Boolean));
+  const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
+  const affected = cards.filter((card) => (
+    affectedKeys.has(String(card.dataset.projectKey || ""))
+    || affectedKeys.has(String(card.dataset.mergeTarget || ""))
+  ));
+  const anchorIndex = affected.length ? cards.indexOf(affected[0]) : -1;
+  affected.forEach((card) => card.remove());
+  const remainingCards = Array.from(document.querySelectorAll("#list [data-project-key]"));
+  const meta = $("list")?.querySelector(".meta-row strong");
+  if (meta && Number.isFinite(Number(meta.textContent))) {
+    meta.textContent = String(Math.max(0, Number(meta.textContent) - affected.length));
+  }
+
+  const next = response.next_merge_review || {};
+  const nextSource = String(next.source_project_key || "");
+  const nextTarget = String(next.target_project_key || "");
+  if (nextSource && nextTarget) {
+    status(`Saved. Reviewing another candidate for the merged project (${response.remaining_merge_candidate_count || 0} remaining).`);
+    loadMergeDetail(nextSource, nextTarget);
+    return true;
+  }
+
+  const nextCard = remainingCards[Math.min(Math.max(anchorIndex, 0), Math.max(remainingCards.length - 1, 0))];
+  if (nextCard) {
+    status(`Saved. Moved to next item. ${remainingCards.length} visible; refresh to recalculate.`);
+    openListCard(nextCard);
+  } else {
+    state.selected = "";
+    document.body.classList.remove("detail-open");
+    syncUrl();
+    $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
+    resetDetailScroll();
+    $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
+    status("Saved. No more visible review items; refresh to recalculate.");
+  }
+  return true;
 }
 
 function skipReviewItem(sourceKey = state.selected) {
