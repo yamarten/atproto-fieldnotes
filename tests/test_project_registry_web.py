@@ -830,6 +830,14 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["merged_preview"]["target_project_key"], "proj:222222222222")
         self.assertEqual(payload["merged_preview"]["merged_name"], "Example Duplicate")
 
+        reverse_status, reverse_payload, _ = self.request(
+            "/api/merge-pair?source_project_key=proj:222222222222&target_project_key=proj:111111111111"
+        )
+        self.assertEqual(reverse_status, 200)
+        self.assertEqual(reverse_payload["source"]["project_key"], "proj:222222222222")
+        self.assertEqual(reverse_payload["target"]["project_key"], "proj:111111111111")
+        self.assertEqual(reverse_payload["merged_preview"]["target_project_key"], "proj:111111111111")
+
     def test_merge_pair_includes_multi_tenant_suffix_suggestion(self) -> None:
         conn = registry.open_db()
         try:
