@@ -828,7 +828,8 @@ function identifierValueLink(item) {
 
 function renderSystemNotes(project) {
   const notes = list(project.system_notes).filter((item) => String(item || "").trim());
-  return notes.length ? notes.map((item) => esc(item)).join("<br>") : "None";
+  if (!notes.length) return "None";
+  return `<details class="system-notes"><summary>${notes.length} ${notes.length === 1 ? "entry" : "entries"}</summary><ol>${notes.map((item) => `<li>${esc(item)}</li>`).join("")}</ol></details>`;
 }
 
 function renderProjectLinks(overview) {
