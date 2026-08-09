@@ -967,9 +967,9 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
       : `<p class="muted">No merge candidate found.</p>`;
     document.querySelectorAll("[data-view-project]").forEach((button) => button.onclick = () => loadDetail(button.dataset.viewProject));
     document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge, {backTarget: {type: "project", key: projectKey}}));
-    if (recommendation.auto_merge_ready) {
-      $("merge-analysis-action").innerHTML = actionButton("Apply merge recommendation", "merge-recommendation", {other:recommendation.target_project_key}, "danger");
-      bindDetailActions(projectKey);
+    if (recommendation.target_project_key) {
+      $("merge-analysis-action").innerHTML = `<button id="compare-merge-recommendation" class="secondary">Compare merge candidate</button>`;
+      $("compare-merge-recommendation").onclick = () => loadMergeDetail(projectKey, recommendation.target_project_key, {backTarget: {type: "project", key: projectKey}});
     }
     const mergeExplanation = data.explanation || {};
     explanations.merge_candidate = mergeExplanation;

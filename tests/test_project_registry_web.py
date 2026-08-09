@@ -314,6 +314,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("openJobDetails", script)
         self.assertIn("Start sync job", script)
         self.assertIn("Build review plan", script)
+        self.assertIn("Compare merge candidate", script)
+        self.assertNotIn("Apply merge recommendation", script)
         self.assertIn("<dt>Confirmed services</dt>", script)
         self.assertIn('new URL("https://pds.ls/")', script)
         self.assertIn('target.pathname = `at://${normalized}`', script)
