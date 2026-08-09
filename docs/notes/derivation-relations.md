@@ -6,7 +6,7 @@
 
 Statusphere 派生、GitHub fork、template/example 由来の project は、名前、repo 構造、lexicon、説明文が派生元と似るため merge candidate になりやすいです。一方で、独自 service、domain、collection、account、運用実態がある場合は派生元と同一 project ではありません。
 
-この種の関係は「同一性の根拠」ではなく、「系譜・派生・実装参照」の弱い関係として表す必要があります。誤って merge すると、別 project の confirmed/manual identifier が同じ project 内に入り、trust anchor として使われる危険があります。
+この種の関係は「同一性の根拠」ではなく、「系譜・派生・実装参照」の関係として表す必要があります。帰属や trust を支持する正の接続関係ではなく、別 project である可能性を示して自動 merge を抑止する負の証拠です。誤って merge すると、別 project の confirmed/manual identifier が同じ project 内に入り、trust anchor として使われる危険があります。
 
 ## 方針
 
