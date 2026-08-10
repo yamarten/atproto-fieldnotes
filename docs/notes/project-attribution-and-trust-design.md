@@ -1,6 +1,6 @@
 # 登録プロジェクトへの帰属と信頼グラフの設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-10までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。マトリクス中の意味上のrelation名、identifier role、保存形式、移行方法は未確定であり、後続する信頼判定結果・採用policyの合意前に実装へ反映しません。
+> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-10までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。マトリクス中の意味上のrelation名、identifier role、保存形式、移行方法は未確定であり、後続するshadow evaluationの比較結果をレビューする前に正本挙動へ反映しません。
 
 ## この設計が扱うこと
 
@@ -14,10 +14,10 @@
 概念上の処理は次の順です。
 
 1. 外部情報を観測として収集する
-2. 関係の意味を解釈し、構成要素、証言主体・関係者、関連情報、未分類の観測に分ける
+2. 関係の意味を解釈し、構成要素、構成要素ではない関係者、関連情報、未分類の観測に分ける
 3. 構成要素などのroleを主張できる対象だけを識別子候補にする
 4. 信頼グラフが、そのrole付き帰属主張を直接関係と関係経路から評価する
-5. 評価結果、block/deferなどのguard、手動判断をapplication policyが組み合わせ、採用可否を決める
+5. 評価結果、block/deferなどの採用を止める条件、手動判断を採用規則が組み合わせ、採用可否を決める
 
 候補生成と信頼評価は、同じrelationを参照する場合があっても別の判断です。二つの登録プロジェクトをマージする判断も、既存の囲いへ構成要素を追加する判断とは前提が異なるため、別policyとして扱います。
 
@@ -59,41 +59,45 @@ developer account、dependency、used collectionなど、projectの説明や調�
 
 ## 信頼グラフの責務
 
-信頼グラフは、role付きの帰属主張と識別子間の直接relationを入力に、どの識別子とsourceがどの方向から主張を支持しているかを評価し、根拠となる経路を説明可能にする機構です。本設計では、直接出力を主張単位の信頼判定結果（Trust verdict）と位置づけ、application policyがその結果を採用判断へ利用します。verdictの具体的な名前と段階は未確定です。
+信頼グラフは、role付きの帰属主張と識別子間の直接関係を入力に、どの識別子と情報源がどの方向から主張を支持しているかを評価し、根拠となる経路を説明可能にする機構です。本設計では、直接出力を主張単位の信頼判定結果（内部名: Trust verdict）と位置づけ、採用規則がその結果を採用判断へ利用します。
 
 graph nodeには次が混在し得ます。
 
 - `confirmed`または`candidate`のproject identifier
-- 外部の証言主体
+- developer DIDやorganization accountなど、構成要素ではないidentifier
 - protocol解決の中継点
 - claimの対象
 
-developer DIDやauthority domainは、登録プロジェクトの構成要素候補でなくても、証言主体または中継点としてgraph nodeになります。
+developer DIDやauthority domainは、登録プロジェクトの構成要素候補でなくても、帰属主張の根拠または経路の中継点としてgraph nodeになります。
 
-信頼判定結果は、主張がどの程度支持されているか、どの方向の確認が欠けているか、conflictまたはreprobeが必要かを表します。最終的な採用は、登録プロジェクトへの帰属、信頼判定結果、guard、手動判断を組み合わせるapplication policyです。
+信頼判定結果は、主張がどの程度支持されているか、どの方向の確認が欠けているか、矛盾または再取得があるかを表します。最終的な採用は、登録プロジェクトへの帰属、信頼判定結果、採用を止める条件、手動判断を組み合わせて決めます。
 
 後半の接続マトリクスは直接relationを重複なく棚卸しし、用途はその後の静的policy表で示します。同じrelationを候補生成と信頼評価が参照する場合も、それぞれの利用可否を別のpolicy列で判断します。
 
 ### 責務境界
 
-- 帰属policyが、観測からrole付きの識別子候補を作る
+- 帰属規則が、観測からrole付きの識別子候補を作る
 - 信頼グラフが、既に型付けされた帰属主張の支持状況を評価する
-- application policyが、信頼判定結果、guard、手動判断を組み合わせて採用可否を決める
-- マージpolicyが、二つのproject recordを同じ編集単位としてまとめるかを判断する
-- graph nodeであること自体は、project identifierへの登録、構成要素への帰属、trusted anchor適格性のいずれも意味しない
+- 採用規則が、信頼判定結果、採用を止める条件、手動判断を組み合わせて採用可否を決める
+- マージ規則が、二つのproject recordを同じ編集単位としてまとめるかを判断する
+- graph nodeであること自体は、project identifierへの登録、構成要素への帰属、信頼判定の起点にできることのいずれも意味しない
 
 ## この文書で使う設計用語
 
-ユーザー向けの基本用語は[`docs/user/guide.md`](../user/guide.md)を正本とし、編集方針は[`user-facing-terminology.md`](user-facing-terminology.md)に従います。この開発メモではコードと照合できるよう、次の内部用語を併記します。
+ユーザー向けの基本用語は[`docs/user/guide.md`](../user/guide.md)を正本とし、編集方針は[`user-facing-terminology.md`](user-facing-terminology.md)に従います。この開発メモではコードと照合できるよう、必要な箇所だけ内部名を併記します。
 
-- typed candidate: identifier kindとroleが定まった識別子候補。未分類linkや検索hitは含まない
-- graph-only node: project identifierとして保存・採用されていない、証言主体または経路の中継用node
-- trusted anchor: 新しい帰属主張を評価する信頼経路の基点にしてよい、role policyで許可された`confirmed` identifier。すべての`confirmed` identifierが該当するわけではない
-- guard: block、deferなど、自動採用を禁止または保留するapplication policy上の条件
-- Trust verdict: 信頼グラフによる主張単位の評価結果。identifierを変更するmutationそのものではない
-- derived identifier: 別の観測から導出された識別子。導出方法を表すだけではtrusted anchorにならない
+- 帰属主張（claim）: 「このidentifierは、このroleで、この登録プロジェクトに属する」という判断対象
+- role: identifierが登録プロジェクトにとって何であるかを表す。identifier自体の種類（kind）とは別
+- role確定済み候補（typed candidate）: identifier kindとroleが定まった識別子候補。未分類linkや検索hitは含まない
+- 直接関係（direct relation）: 一つの観測が直接示す関係。複数の関係から推移的に作った関係は含まない
+- 関係経路（path）: 複数の直接関係を向きに沿ってつないだもの
+- graph-only node: project identifierとして保存・採用されていない、帰属主張の根拠または経路の中継用node
+- 信頼判定の起点（root anchor）: 手動判断または承認済みの登録起点によって採用され、新しい帰属主張を評価する経路の出発点にしてよいrole付きidentifier
+- 採用を止める条件（guard）: block、deferなど、自動採用を禁止または保留する条件
+- 信頼判定結果（Trust verdict）: 信頼グラフによる帰属主張単位の評価結果。identifierを変更する処理そのものではない
+- 導出識別子（derived identifier）: 別の観測から機械的に導出された識別子。導出されたことだけでは信頼判定の起点にならない
 
-## 対象・graph node・project roleを分ける
+## 外部対象・グラフ上の点・登録プロジェクトでのroleを分ける
 
 接続マトリクスでは、外部世界にある対象、その対象を指すgraph node、登録プロジェクトとの関係を表すroleを別の層として扱います。同じ対象でもprojectとの関係は複数あり得て、node kindだけからroleは決まりません。
 
@@ -106,13 +110,13 @@ developer DIDやauthority domainは、登録プロジェクトの構成要素候
 | NSID / record collection | AT Protocolのnamespaced identifier。現行設計では、そのうちrecord collectionを表すfull NSIDを主対象とする | `collection`。値はcaseを保持したfull NSID | projectが所有する場合は`owned_nsid`。利用、schema参照、permission要求、record作成はownershipと別relation |
 | native app | bundle/packageとして配布・実行されるapp。backend serviceやdistribution pageとは別resource | 現行6 kindには専用nodeがない | projectの構成要素になり得るが、bundle/package identifier、store URL、backendとの関係は保留 |
 
-### Resource identity
+### 資源同一性の補足
 
 resource identityは、二つのidentifierが同じ外部resourceまたはその時系列上のaliasを指すかを扱います。repositoryではproviderの不変repository IDを共有するrename/transfer前後、accountでは相互検証されたDIDとcurrent handle、service surfaceではcanonical URLや移転履歴が代表例です。mirror、fork、同一content、同じowner、同じhostは、それぞれ別resource間でも成立する関係として扱います。
 
 現行graphは観測されたidentifierをnodeとして保持し、aliasらしい値を暗黙に一つへ畳みません。identityを確認する直接relationと、projectへの帰属relationを分けます。
 
-### Project role
+### 登録プロジェクトでのrole
 
 project roleは「外部対象がこのproject recordにとって何であるか」という主張です。`source_repository`や`owned_nsid`は対象自体の種類ではなく帰属の意味を表し、developer、dependency、mirrorなどとの関係は同じkindのnodeに対しても別に記述できます。role、`candidate` / `confirmed`、根拠のprovenanceはそれぞれ別の軸として評価します。
 
@@ -128,7 +132,7 @@ project roleは「外部対象がこのproject recordにとって何であるか
 - native app。bundle/package identifierとdistribution URL、backend serviceは別resourceとして扱う
 - その他、一つの説明・追跡対象として扱うresource
 
-### 2. 証言主体・関係者
+### 2. 構成要素ではない関係者
 
 帰属主張の裏付けや説明には使えますが、通常はproject identifierにしません。
 
@@ -137,9 +141,9 @@ project roleは「外部対象がこのproject recordにとって何であるか
 - publisher DID
 - service operator
 
-専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは共有可能な証言主体・関係者です。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleとの対応と移行方向は、後述する実装差分として分けて扱います。
+専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleとの対応と移行方向は、後述する実装差分として分けて扱います。
 
-### 3. 関連 resource
+### 3. 関連情報
 
 projectとの関係は事実でも、そのprojectの構成要素ではない対象です。
 
@@ -161,15 +165,15 @@ identifier kindだけでは分類を決めません。同じrepo URLでも、sou
 
 ## `candidate`と`confirmed`の意味
 
-`candidate` identifierは、role付きの主張をまだ採用・信頼していない状態です。candidateの対象はroleによりproject構成要素にも、developer accountなどの補助情報にもなり得ます。raw search result、未分類link、単なるmentionはtyped claimになっていないためcandidateではなく観測です。project record内に保存されていることだけを理由に、anchorまたは強い証言主体として扱いません。
+`candidate` identifierは、role付きの主張をまだ採用・信頼していない状態です。candidateの対象はroleによりproject構成要素にも、developer accountなどの補助情報にもなり得ます。raw search result、未分類link、単なるmentionはrole確定済みの帰属主張になっていないためcandidateではなく観測です。project record内に保存されていることだけを理由に信頼判定の起点にしたり、そこからの関係を強い根拠とみなしたりしません。
 
-`confirmed` identifierは、そのrole付き主張が採用可能かつ信頼できると判断された状態です。confirmedの意味を構成要素への所属だけへ狭めません。confirmedな補助actorも存在できますが、それだけでproject構成要素またはtrusted anchorになるわけではなく、用途はrole policyで決めます。
+`confirmed` identifierは、そのrole付き主張が採用可能かつ信頼できると判断された状態です。confirmedの意味を構成要素への所属だけへ狭めません。confirmedな補助actorも存在できますが、それだけでproject構成要素または信頼判定の起点になるわけではなく、用途はroleごとの規則で決めます。
 
 roleは「何を主張しているか」、candidate/confirmedは「その主張を採用・信頼したか」です。`derived` / `heuristic`は本来、導出方法やprovenanceであり、Trust状態とは別の軸です。現行の`classification = confirmed | candidate | derived | heuristic`は二つの軸を混在させているため、保存契約の差分監査対象とします。
 
-candidate生成を厳密にする目的は、project境界とreview品質を保ち、後段で誤用される対象を減らすことです。信頼評価上の主要な安全条件は、candidate、graph-only node、derived identifierをtrusted anchorにしないことと、candidate自身の自己申告だけで自動採用を成立させないことです。
+candidate生成を厳密にする目的は、project境界とreview品質を保ち、後段で誤用される対象を減らすことです。信頼評価上の主要な安全条件は、candidate、graph-only node、導出識別子を信頼判定の起点にしないことと、candidate自身の自己申告だけで自動採用を成立させないことです。
 
-## kind別の帰属policy補足
+## kind別の帰属規則
 
 前節のnode modelを前提に、各kindについて現在合意している帰属・共有・信頼上の制約を補足します。以下は対象そのものの網羅的な定義ではなく、接続マトリクスをレビューするための暫定policyです。個別事例や現行6 kindへの表現方法は、将来の保存形式や分類をそのまま固定するものではありません。
 
@@ -191,7 +195,7 @@ provider上のrenameまたはtransferで不変repository IDが同じ場合は、
 
 ### NSID / collection
 
-confirmed `owned_nsid`はprojectの構成要素であり、ownershipを評価するtrusted anchorになり得ますが、人間向けにprojectを代表するとは限りません。一つのprojectは複数NSIDを所有できます。
+confirmed `owned_nsid`はprojectの構成要素であり、信頼判定の経路上で使えますが、人間向けにprojectを代表するとは限りません。一つのprojectは複数NSIDを所有できます。独立した信頼判定の起点にできるかは、採用根拠を含む後続の採用規則で決めます。
 
 current ownershipでは、同じfull NSIDは最大一つのprojectにだけ帰属するものとして扱います。他projectによる利用、互換実装、参照はownershipではなくrelationです。二つのprojectが同じconfirmed `owned_nsid`を持つ場合、直ちにmergeせず、重複record、誤帰属、分割ミス、ownership移転のreview対象にします。
 
@@ -217,35 +221,37 @@ handleとDIDはgraph上では別node kindですが、双方向検証後は一つ
 
 project accountはproject自身を表す場合に限り構成要素になり得ます。developer/organization accountは複数projectで共有可能なactorです。accountのroleをidentity解決、repo ownership、schema publicationだけから推定しません。
 
-## Relationとpathの合意済み原則
+## 直接関係と経路の合意済み原則
 
-### Edgeとidentifier stateを分ける
+### 関係とidentifierの状態を分ける
 
 graph nodeはedgeのendpointまたはpathの中継点です。node自体にcandidate/confirmed分類が暗黙に付くわけではなく、edge classificationと`project_identifiers`のrole/classificationは別の主張です。protocolまたは一次情報が入力identifierに対して特定の相手identifierを直接返す場合、その直接relationを保存します。pathが存在するという理由で、恣意的な推移edgeを新しく作りません。
 
-### Candidate admissionとTrustを分ける
+### 候補生成と信頼評価を分ける
 
-typed candidateを作れるのは、原則としてconfirmedなproject identifierから対象identifierへの、静的に許可された直接のattribution relationがある場合です。対象identifierからconfirmed identifierへの自己申告方向はevidenceとして保存できますが、それだけではcandidateを作りません。`uses`、`mentions`、名前一致、registrable domain一致、host suffix、任意README linkはattribution relationへ昇格しません。
+role確定済み候補を作れるのは、原則としてconfirmedなproject identifierから対象identifierへの、静的に許可された直接の帰属関係がある場合です。対象identifierからconfirmed identifierへの自己申告方向は根拠として保存できますが、それだけではcandidateを作りません。`uses`、`mentions`、名前一致、registrable domain一致、host suffix、任意README linkは帰属関係へ昇格しません。
 
 この原則は、collectorがcollection観測から暫定projectを作る入口まで禁止するものではありません。暫定projectの生成と、既存projectへ別kindのidentifierをcandidate admissionする処理を区別します。
 
-### Auto-confirmはgraph全体の往路と復路を見る
+### 自動採用は信頼グラフ全体の往路と復路を見る
 
-auto-confirmはcandidateとtrusted anchorの間に、静的に許可された強い往路と復路があることを要求し、中継nodeを許します。往路と復路で同じpredicateを使う必要はありません。たとえばserviceからcollectionへのOAuth permissionと、collectionからauthority domain、完全一致service hostへ戻るpathを組み合わせられます。
+自動採用はcandidateと信頼判定の起点の間に、静的に許可された強い往路と復路があることを要求し、中継nodeを許します。往路と復路で同じpredicateを使う必要はありません。たとえばserviceからcollectionへのOAuth permissionと、collectionからauthority domain、完全一致service hostへ戻るpathを組み合わせられます。
+
+自動採用済みidentifierも、confirmed project identifierとして後続のcandidate生成に使え、信頼経路のendpointまたは中継点になれます。ただし、そこから行う後続の自動採用は、手動判断または承認済みの登録起点まで根拠を追跡できることを要求します。毎回元の起点から再探索するか、元の起点と判定経路を引き継いで再利用するかは、後続設計と実測で決めます。
 
 信頼グラフに保存する各edgeは、subjectからobjectへの意味上の保証を表します。一つの観測が両方向を保証する場合は、同じprovenanceを持つ二本の方向付きedgeへ展開し、往路と復路の両方に利用できます。一方向の保証から検索用の逆引きを作る場合は、逆向きedgeを信頼グラフへ保存しません。両方向で意味が異なる場合は、handle resolverの`handle_resolves_did`とDID documentの`did_document_claims_handle`のように別predicateで表します。これらはaccount identityを双方向確認できますが、project attributionの根拠が二つ得られたことにはなりません。
 
-candidate、graph-only node、derived identifierはtrusted anchorにしません。confirmedなdeveloper/organization/publisherも、role policyで許可されない限りtrusted anchorにしません。実測した入次数・出次数によるscoreは導入せず、predicate、方向、subject role、object role、中継可能性を静的policyとして定義します。
+candidate、graph-only node、導出識別子は、それだけでは信頼判定の起点にしません。自動採用済みidentifierやconfirmedなdeveloper/organization/publisherも、元の根拠から切り離された独立の起点にはしません。実測した入次数・出次数によるscoreは導入せず、predicate、方向、subject role、object role、中継可能性を静的規則として定義します。
 
 ### 完全一致と階層関係を分ける
 
 service URLの正確なhost、domainとhandleの完全一致は強いpathの一部にできます。subdomain、同じregistrable domain、兄弟hostは構造または調査情報であり、強いpathには使いません。shared hosting、tenant、organization配下の別projectを巻き込まないことを優先します。
 
-### Resource identityと時間関係を分ける
+### 資源同一性と時間関係を分ける
 
 HTTP redirect、repository rename/transfer、handle変更、serviceのtest版から正式版への昇格、旧domain、projectの改名・後継は時間情報を必要とします。raw redirectや同一content表示は観測であり、それだけでcanonical alias、同じservice、同じprojectと確定しません。同じcontentはalpha版、mirror、copy、共通templateでも生じるため、content一致自体をedgeとして保存しません。時間関係の最終設計は本マトリクスと分離します。
 
-### Relationの品質を三段階に分ける
+### 関係の品質を三段階に分ける
 
 - 正式な参照・直接保証: protocolが入力identifierに対して特定の相手を返す、またはprojectが制御するsurfaceがSource、official account、official service等として相手を明示する関係。Admissionまたは強いTrustの候補になる
 - 共有可能な正しい参照: `uses_collection`、dependency、mirror、provider owner、developer/organization actorなど、relation自体は事実でもprojectへの排他的帰属を意味しない関係。説明・調査または限定したTrustに使う
@@ -255,7 +261,7 @@ HTTP redirect、repository rename/transfer、handle変更、serviceのtest版か
 
 ## Identifier kind接続マトリクス
 
-行をsubject kind、列をobject kindとします。ここでは、帰属候補の生成、信頼評価、またはpath endpointのresource identity確認に使う正の接続関係を扱います。projectの構成要素同士だけでなく、DID、handle、domainのような証言主体・identity表現・中継点も含みます。一方、project同一性を否定する材料、マージを抑止する材料、説明・診断・調査だけに使う観測は外に分けます。`現行`は現在の信頼グラフまたは`project_relations`に存在するpredicate、`仮称`は今回の議論でrelationの意味を区別するために置いた名前です。セル内で状態が異なる名前はグループを分けて表示します。`なし`は、現在のproject判断に使う直接relationを設けないセルです。
+行をsubject kind、列をobject kindとします。ここでは、帰属候補の生成、信頼評価、またはpath endpointのresource identity確認に使う正の接続関係を扱います。projectの構成要素同士だけでなく、DID、handle、domainのような情報の発信元、identity表現、中継点も含みます。一方、project同一性を否定する材料、マージを抑止する材料、説明・診断・調査だけに使う観測は外に分けます。`現行`は現在の信頼グラフまたは`project_relations`に存在するpredicate、`仮称`は今回の議論でrelationの意味を区別するために置いた名前です。セル内で状態が異なる名前はグループを分けて表示します。`なし`は、現在のproject判断に使う直接relationを設けないセルです。
 
 | subject \ object | `service_url` | `repo_url` | `handle` | `did` | `domain` | `collection` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -288,29 +294,29 @@ HTTP redirect、repository rename/transfer、handle変更、serviceのtest版か
 
 派生project、template/example由来、source-only forkを含む詳しい扱いは[派生関係の設計メモ](derivation-relations.md)で保持します。現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。
 
-#### 説明・調査用relation
+#### 説明・調査用の関係
 
 - 現行`mentions_collection`は、repo内のdocs、example、test、検索hitなどでcollectionを観測した事実です。`defines_schema`や`uses_collection`へ昇格できない参照を失わないために保持できますが、Admission、Trust、Mergeには使いません。
 - schema dependency/referenceは実装やLexiconの説明には役立ちますが、collection ownershipを支持しません。依存先と同じprojectであることも意味しません。
 - 同一contentの表示はalpha版、mirror、copy、共通templateを区別できないためrelation edgeとして保存しません。必要なら取得時点の観測または比較結果として扱います。
 - 任意のHomepage、Source、profile URLをrepo↔domainの汎用relationにはしません。意味を判別できたものだけをservice、account、source repositoryなどのrelationへ型付けします。
 
-#### 構造・infrastructure・診断
+#### 構造・基盤・診断
 
 - handleがdomainのsubdomainであること、domain間の`subdomain_of`、同じregistrable domain、兄弟hostは構造情報です。完全一致とは区別し、Admissionまたは強いTrust pathに使いません。
 - 親子namespaceまたは共通rootはNSID文字列の構造情報です。直属Lexicon authorityが同じ場合とは区別し、Admission、Trust、Mergeに使いません。
 - accountのPDS/service endpointは利用中のidentity infrastructureを示すだけで、accountまたはprojectによるdomainの所有・運営を示しません。診断情報としてのみ扱います。
 - DID間のfollow、mention、同じPDS、keyや過去handleの共有は、現時点ではidentityまたはproject Trustのrelationにしません。
 
-#### 証拠の掲載場所とsocial attestation
+#### 外部媒体に掲載された主張
 
 開発者の個人site、account profile、Bluesky投稿などは、現時点では新しいproject componentやgraph node kindではなく、account→service、account→repoなどのclaimを観測したsource/locatorとして考えます。個人site自体がprojectの公式service surfaceでもある場合だけ、別途component候補になり得ます。
 
-これらの媒体からclaimを抽出する方法、発言者DIDとの結び付け、project-scopedな主張か単なる紹介か、投稿の更新・削除・時間経過、developerまたはorganization roleをどの程度のattestationとして認めるかは、今回の6 kind接続マトリクスでは決めません。将来、証拠source別の取得・品質policyとして設計し、意味を確定できたclaimだけを既存の有向relationへ入力します。
+これらの媒体から帰属主張を抽出する方法、発言者DIDとの結び付け、特定projectについての主張か単なる紹介か、投稿の更新・削除・時間経過、developerまたはorganizationによる主張をどこまで根拠として認めるかは、今回の6 kind接続マトリクスでは決めません。将来、情報源別の取得・品質規則として設計し、意味を確定できた帰属主張だけを既存の有向relationへ入力します。
 
-## Relation別の静的policy
+## 関係別の静的規則
 
-`Admission`はtyped candidate claimを作れるか、`Trust`は強いpathまたは補助pathに使えるか、`Merge`はprojectの自動マージに使えるかを表します。ここには主マトリクスに残したrelationだけを置き、上記の観測・抑止材料はそれぞれの別policyで扱います。いずれもrelation単独の扱いです。`条件付き`の具体的条件は意味欄に記します。Relation欄の`現行` / `仮称`は接続マトリクスと同じ意味です。名前をまだ置いていない行は、保存するrelationの必要性またはpredicate名自体が未確定です。現案ではrelation単独で自動マージを許す行はありませんが、設計上の非対称性を確認できるよう`Merge`列は明示的に残します。
+`Admission`はrole確定済みのcandidate claimを作れるか、`Trust`は強いpathまたは補助pathに使えるか、`Merge`はprojectの自動マージに使えるかを表します。ここには主マトリクスに残したrelationだけを置き、上記の観測・抑止材料はそれぞれの別規則で扱います。いずれもrelation単独の扱いです。`条件付き`の具体的条件は意味欄に記します。Relation欄の`現行` / `仮称`は接続マトリクスと同じ意味です。名前をまだ置いていない行は、保存するrelationの必要性またはpredicate名自体が未確定です。現案ではrelation単独で自動マージを許す行はありませんが、設計上の非対称性を確認できるよう`Merge`列は明示的に残します。
 
 | Relation | 向き・多重度 | 意味と強さ | Admission | Trust | Merge | 観測・表示 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -342,7 +348,7 @@ HTTP redirect、repository rename/transfer、handle変更、serviceのtest版か
 | collectionがcanonical source repoを明示（仮称） | collection→repo、多対多 | protocol/schema/specが特定repoを公式sourceとして直接返す場合だけ | 条件付き可 | 強い | 不可 | 可 |
 | 同じ直属Lexicon authority（仮称: `same_lexicon_authority`） | collection↔collection、authority内で多対多 | 同じ解決単位。pairwise edgeは保存せず導出可能 | confirmed collectionから可 | 支持するが単独auto-confirm不可 | 自動不可、重複はreview | 可 |
 
-### matching schemaを確認する代表path
+### schemaの一致を確認する代表経路
 
 matching schemaの取得は一つのrelationではなく、DNS委譲とschema record実在という二つの直接事実からなるpathです。
 
@@ -353,7 +359,7 @@ publisher DID --did_publishes_schema--> collection
 
 このpathを評価に使っても、authority domainからcollectionへの新しい推移edgeは作りません。現行の`domain_publishes_lexicon_record`をこの二つへ分解するかは、保存契約の検討事項です。
 
-### OAuth scopeを使う代表path
+### OAuth scopeを使う代表経路
 
 confirmed service surface `S`がcandidate collection `C`をOAuth scopeで直接要求し、collection authority domainがserviceのexact hostと一致する場合、次の別方向pathを評価できます。
 
@@ -366,7 +372,7 @@ confirmed service surface `S`がcandidate collection `C`をOAuth scopeで直接�
 
 account→repoについても、profile link、投稿、provider ownershipだけではsource repository candidateを作りません。confirmed project accountが構造化されたproject-scopedなSource claimを直接返す関係は有用になり得ますが、現時点で正確に検出できる入力契約がないため、将来の再検討事項とします。
 
-### Accountが所有するrecordを使う代表path
+### Accountが所有するrecordを使う代表経路
 
 通常recordはDIDに正規化したaccountからcollectionへの関係として扱い、仮称`has_record_in`で表します。AT URIがhandle表記でも、解決後のDIDへ結びます。confirmed project accountによるrecord所有はproject側からcollectionへの直接の支持にできますが、任意のaccountが任意のcollectionでrecordを作れるため、単独でownership candidateを作りません。この観測が保証するのはDID→collection方向であり、collectionから所有recordのDIDを検索できることだけを理由に逆向きedgeは生成しません。
 
@@ -392,9 +398,9 @@ Lexicon schema recordの公開は`did_publishes_schema`として分けます。m
 
 edgeの`classification`にも`confirmed | candidate | derived | heuristic`があり、identifier classificationと同様にTrust状態とprovenanceが混在しています。現行edge schemaは、一つの観測が両方向を意味上保証する場合と、検索用に逆向きedgeを物理保存しただけの場合を区別する契約を持っていません。
 
-### Collection ownershipとidentity
+### Collectionの所有とidentity
 
-現行`collection_trusted_anchor_nodes()`はconfirmed developer DIDと`brand_did`をcollection ownershipのanchorへ加えます。今回の整理ではdeveloper/organization/publisherはroleだけでtrusted anchorにせず、専用project accountか、別の許可されたattestationとして評価します。このためanchor policyの変更と既存account roleの監査が必要です。
+現行`collection_trusted_anchor_nodes()`はconfirmed developer DIDと`brand_did`をcollection ownershipのanchorへ加えます。今回の整理ではdeveloper/organization/publisherはroleだけで信頼判定の起点にせず、専用project accountとして採用されているか、そのaccountから得た情報を対象の関係に使えるかを別々に評価します。このため起点の規則変更と既存account roleの監査が必要です。
 
 現行`handle_matches_confirmed_service_identity()`はhandleがconfirmed service hostのsubdomainの場合、またはregistrable domainが同じ場合にもdeveloper accountを採用します。今回の方針はexact domainだけを強い関係とし、subdomain/root共有を補助情報へ落とすため、このheuristicは差分です。
 
@@ -418,7 +424,7 @@ Tangled snapshotのowner handle/DIDも、現行integrationではconfirmed `devel
 
 今回の整理だけを理由に新roleを追加しません。現行`brand_did`の実データは専用project account側へ寄せ、概念としての広いbrand/organization accountはorganization accountとして扱う方向ですが、実データを監査してからrole変更を決めます。あわせてobservation/intermediaryを`project_identifiers`に残すかを監査します。roleとTrust state、provenanceを別軸へ分ける場合は保存契約変更とDB migrationが必要になります。一方、新predicateだけで済む変更は現行JSON/relations契約内で表現できる可能性があるため、SQL schema変更が必須とはまだ判断しません。
 
-developer accountと専用project/service accountでは、帰属やTrustに利用できるrelationがほとんど重ならない可能性があります。後続policyでは包括的なaccount規則を作って例外で狭めることを前提にせず、roleごとに利用可能なrelationとattestation範囲を定義します。当面はDID/handleで表すaccountにdeveloper roleを持たせ、複数account、個人site、provider identityなどを一人のactorとして束ねる必要が確認された場合にだけ独立したdeveloper nodeを再検討します。
+developer accountと専用project/service accountでは、帰属やTrustに利用できるrelationがほとんど重ならない可能性があります。後続の規則では包括的なaccount規則を作って例外で狭めることを前提にせず、roleごとに利用可能なrelationと、どの関係を裏付けられるかを定義します。当面はDID/handleで表すaccountにdeveloper roleを持たせ、複数account、個人site、provider identityなどを一人のactorとして束ねる必要が確認された場合にだけ独立したdeveloper nodeを再検討します。
 
 ### マージ
 
@@ -428,18 +434,18 @@ developer accountと専用project/service accountでは、帰属やTrustに利�
 
 6×6の接続マトリクスとrelation別の静的policyは2026-08-10に原則レベルのレビューを完了しました。各kind間の直接relation、向き、多重度、Admission、Trust、Merge、観測・表示の用途を確認し、負の証拠、説明・調査用relation、構造・診断情報、証拠の掲載場所を主マトリクスから分離しました。この文書はその設計チェックポイントとして締め、以下は別の設計作業として進めます。
 
-### 1. 信頼判定結果と採用policy
+### 1. 信頼判定結果と採用規則
 
-後続の評価観点と設計は[信頼判定結果と採用policyの設計メモ](trust-verdict-and-adoption-policy.md)で扱います。
+後続の評価観点と設計は[信頼判定結果と採用規則の設計メモ](trust-verdict-and-adoption-policy.md)で扱います。
 
 - 信頼グラフの直接出力を`SUPPORTED` / `INSUFFICIENT` / `CONFLICTING` / `NOT_EVALUATED`相当のclaim verdictとして定義する。名前は未確定
 - self-claim、missing reverse path、stale observation、operator overrideをverdict reasonとして分ける
-- project attribution、Trust verdict、block/defer、operator decisionを合成する
-- dedicated project accountと共有actorのanchor/attestation policyを確定する
-- project構成要素として妥当であること、帰属主張がTrust policyで支持されること、block/defer/operator判断に反しないことの合成を定義する
-- candidate、graph-only node、derived identifierをanchorにせず、roleを無視してDIDやdomainを昇格しない
+- 登録プロジェクトへの帰属、信頼判定結果、block/defer、手動判断を合成する
+- dedicated project accountと共有actorについて、信頼判定の起点にできる条件と、どの関係を裏付けられるかを確定する
+- project構成要素として妥当であること、帰属主張が信頼判定規則で支持されること、block/deferと手動判断の優先関係を合成する
+- candidate、graph-only node、導出識別子を、それだけで信頼判定の起点にしない。自動採用済みidentifierを後続判断に利用する場合も、元の登録起点まで根拠を追跡する
 
-### 2. マージpolicy
+### 2. マージ規則
 
 confirmedなproject構成、role、共有・排他性、独立surface、派生関係、operator判断を入力に、二つのproject recordをマージするかを別途設計します。信頼グラフのauto-confirm path、developerやpublisherの一致、candidate identifierの一致をそのまま正のmerge根拠にしません。
 
@@ -449,7 +455,7 @@ confirmedなproject構成、role、共有・排他性、独立surface、派生�
 - 調査先とproject identifier candidateの混同
 - 信頼グラフが帰属判断やmutationまで担っている箇所
 - roleを無視した`kind + value`評価
-- candidate、graph-only node、derived identifierのanchor化経路
+- candidate、graph-only node、導出識別子が信頼判定の起点になってしまう経路
 - 一つの観測から両方向へ生成されたedgeが、それぞれ意味上の保証を持つか。検索用の逆向きedgeが混在していないか
 - candidate repoや弱いdomain signalを使うmerge判定
 - repositoryとNSIDの共有・排他性の現行動作
@@ -462,7 +468,7 @@ confirmedなproject構成、role、共有・排他性、独立surface、派生�
 - mirror、instance、tenant、fork、派生projectの時間付き関係
 - native appのbundle/package/store identifier
 - provider account node
-- account followなどのsocial attestation
+- account followなど、social graph上の関係を根拠に使う規則
 - OAuth `include:<permission-set NSID>`から認証済みpermission-setを解決し、record collectionを関連付ける処理
 - record以外のLexicon/XRPC/permission-setを含む汎用`nsid` node
 
@@ -479,7 +485,7 @@ permission-setは同じsetに含まれるcollection同士のpairwise edgeへ展�
 ## 現時点で固定しないもの
 
 - 個別predicate名
-- Trust verdictの名前と段階
+- 信頼判定結果の保存名と段階
 - 新しいidentifier role
 - graph edgeと`project_relations`の保存分担
 - repository subpath用の新identifier kind
