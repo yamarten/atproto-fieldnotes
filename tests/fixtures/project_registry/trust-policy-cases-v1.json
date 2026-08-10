@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "service-repo-mutual",
+      "description": "A confirmed service and a source repository explicitly reference each other.",
+      "claims": [
+        {"node": ["service_url", "https://app.example"], "role": "service", "classification": "confirmed"},
+        {"node": ["repo_url", "https://github.com/example/app"], "role": "source_repository", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "service_url", "target_value": "https://app.example", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [
+        {"subject": ["service_url", "https://app.example"], "predicate": "service_links_repo", "object": ["repo_url", "https://github.com/example/app"]},
+        {"subject": ["repo_url", "https://github.com/example/app"], "predicate": "repo_links_service", "object": ["service_url", "https://app.example"]}
+      ],
+      "expected_verdicts": {
+        "service_url|https://app.example|service": "NOT_EVALUATED",
+        "repo_url|https://github.com/example/app|source_repository": "SUPPORTED"
+      }
+    },
+    {
+      "case_id": "one-way-account-claim",
+      "description": "An account-side link alone neither admits nor supports a service claim.",
+      "claims": [
+        {"node": ["handle", "account.example"], "role": "project_handle", "classification": "confirmed"},
+        {"node": ["service_url", "https://other.example"], "role": "service", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "handle", "target_value": "account.example", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [
+        {"subject": ["handle", "account.example"], "predicate": "operates_service", "object": ["service_url", "https://other.example"]}
+      ],
+      "expected_verdicts": {
+        "handle|account.example|project_handle": "NOT_EVALUATED",
+        "service_url|https://other.example|service": "INSUFFICIENT"
+      }
+    },
+    {
+      "case_id": "oauth-authority-return-path",
+      "description": "OAuth permission is one direction; exact authority and service host provide the return path.",
+      "claims": [
+        {"node": ["service_url", "https://example.com"], "role": "service", "classification": "confirmed"},
+        {"node": ["collection", "com.example.post"], "role": "owned_nsid", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "service_url", "target_value": "https://example.com", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [
+        {"subject": ["service_url", "https://example.com"], "predicate": "requests_permission", "object": ["collection", "com.example.post"]},
+        {"subject": ["collection", "com.example.post"], "predicate": "collection_authority_domain", "object": ["domain", "example.com"]},
+        {"subject": ["domain", "example.com"], "predicate": "domain_exact_service", "object": ["service_url", "https://example.com"]}
+      ],
+      "expected_verdicts": {
+        "service_url|https://example.com|service": "NOT_EVALUATED",
+        "collection|com.example.post|owned_nsid": "SUPPORTED"
+      }
+    },
+    {
+      "case_id": "handle-did-identity",
+      "description": "Resolver and DID document claims may share provenance and still form semantic bidirectionality.",
+      "claims": [
+        {"node": ["handle", "project.example"], "role": "project_handle", "classification": "confirmed"},
+        {"node": ["did", "did:plc:project"], "role": "brand_did", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "handle", "target_value": "project.example", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [
+        {"subject": ["handle", "project.example"], "predicate": "handle_resolves_did", "object": ["did", "did:plc:project"], "source": "identity-resolution"},
+        {"subject": ["did", "did:plc:project"], "predicate": "did_document_claims_handle", "object": ["handle", "project.example"], "source": "identity-resolution"}
+      ],
+      "expected_verdicts": {
+        "handle|project.example|project_handle": "NOT_EVALUATED",
+        "did|did:plc:project|brand_did": "SUPPORTED"
+      }
+    },
+    {
+      "case_id": "organization-account",
+      "description": "A shared organization account is actor information, not a project component claim.",
+      "claims": [
+        {"node": ["did", "did:plc:organization"], "role": "organization_account", "classification": "confirmed"}
+      ],
+      "decisions": [],
+      "edges": [],
+      "expected_verdicts": {
+        "did|did:plc:organization|organization_account": "NOT_EVALUATED"
+      }
+    },
+    {
+      "case_id": "arabica-oolong-shared-repo",
+      "description": "A repository shared by multiple projects is evaluated within each project and is not a merge signal.",
+      "claims": [
+        {"node": ["repo_url", "https://github.com/arabica-social/arabica"], "role": "source_repository", "classification": "candidate"}
+      ],
+      "decisions": [],
+      "edges": [],
+      "expected_verdicts": {
+        "repo_url|https://github.com/arabica-social/arabica|source_repository": "INSUFFICIENT"
+      }
+    },
+    {
+      "case_id": "fork-mirror-lineage",
+      "description": "Fork and mirror lineage is outside positive project attribution paths.",
+      "claims": [
+        {"node": ["repo_url", "https://github.com/example/fork"], "role": "fork_observation", "classification": "candidate"}
+      ],
+      "decisions": [],
+      "edges": [],
+      "expected_verdicts": {
+        "repo_url|https://github.com/example/fork|fork_observation": "NOT_EVALUATED"
+      }
+    },
+    {
+      "case_id": "temporal-successor",
+      "description": "Basker/InfoEnon and DateSky/Nomare style succession is handled by a temporal policy.",
+      "claims": [
+        {"node": ["service_url", "https://old.example"], "role": "former_service_observation", "classification": "confirmed"}
+      ],
+      "decisions": [],
+      "edges": [],
+      "expected_verdicts": {
+        "service_url|https://old.example|former_service_observation": "NOT_EVALUATED"
+      }
+    },
+    {
+      "case_id": "subdomain-is-not-ownership",
+      "description": "A common registrable domain or subdomain relation is not a strong trust edge.",
+      "claims": [
+        {"node": ["service_url", "https://app.example.com"], "role": "service", "classification": "confirmed"},
+        {"node": ["service_url", "https://api.example.com"], "role": "service", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "service_url", "target_value": "https://app.example.com", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [],
+      "expected_verdicts": {
+        "service_url|https://app.example.com|service": "NOT_EVALUATED",
+        "service_url|https://api.example.com|service": "INSUFFICIENT"
+      }
+    },
+    {
+      "case_id": "shared-lexicon-authority-alone",
+      "description": "Collections under one direct authority may be grouped, but authority sharing alone does not auto-confirm ownership.",
+      "claims": [
+        {"node": ["collection", "site.standard.one"], "role": "owned_nsid", "classification": "confirmed"},
+        {"node": ["collection", "site.standard.two"], "role": "owned_nsid", "classification": "candidate"}
+      ],
+      "decisions": [
+        {"kind": "confirm_identifier", "target_type": "nsid", "target_value": "site.standard.one", "source": "web_ui", "cleared_at": ""}
+      ],
+      "edges": [
+        {"subject": ["collection", "site.standard.one"], "predicate": "collection_authority_domain", "object": ["domain", "standard.site"]},
+        {"subject": ["collection", "site.standard.two"], "predicate": "collection_authority_domain", "object": ["domain", "standard.site"]}
+      ],
+      "expected_verdicts": {
+        "collection|site.standard.one|owned_nsid": "NOT_EVALUATED",
+        "collection|site.standard.two|owned_nsid": "INSUFFICIENT"
+      }
+    }
+  ]
+}

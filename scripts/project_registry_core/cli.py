@@ -373,6 +373,15 @@ def build_parser() -> argparse.ArgumentParser:
     audit_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum issue examples per kind. Default: 20.")
     audit_trust_parser.set_defaults(func=maintenance_commands.cmd_audit_trust_graph)
 
+    compare_trust_policy_parser = subparsers.add_parser(
+        "compare-trust-policy",
+        help="Compare current and role-aware trust policies without changing the database.",
+    )
+    compare_trust_policy_parser.add_argument("--db-path", required=True, help="Existing registry database opened read-only.")
+    compare_trust_policy_parser.add_argument("--output", required=True, help="Structured comparison report JSON path.")
+    compare_trust_policy_parser.add_argument("--example-limit", type=int, default=20, help="Maximum v1/shadow delta examples per profile. Default: 20.")
+    compare_trust_policy_parser.set_defaults(func=maintenance_commands.cmd_compare_trust_policy)
+
     repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported confirmations.")
     repair_trust_parser.add_argument("--execute", action="store_true", help="Apply trust graph recomputation. Without this flag, show a dry-run summary only.")
     repair_trust_parser.add_argument("--downgrade-unsupported", action="store_true", help="With --execute, downgrade confirmed identifiers that have no trust evidence to candidates.")

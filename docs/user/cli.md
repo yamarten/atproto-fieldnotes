@@ -13,7 +13,7 @@
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
 通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助
-`export-llm-evaluation-corpus`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に
+`export-llm-evaluation-corpus`、`compare-trust-policy`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に
 `project-registry-web --db-path`で参照する検証用です。
 
 追跡状態の利用上の意味は次の通りです。
@@ -197,6 +197,7 @@ JSON functionで4つのhistory列を直接検索しません。
 | `export-repository-analysis-corpus` | 指定DBの保存済みrepository materialから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
 | `evaluate-repository-analysis-corpus` | 固定repository materialを一つのmodel構成で解析し、保存前検査を含むreportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-repository-analysis-reports` | 同じrepository caseとrepeatのbaseline/candidate reportを比較 | DB・LLM接続なし。指定ファイルへ書き込み |
+| `compare-trust-policy` | 指定DBのidentifier、relation、判断履歴を現行v1とrole付きshadow policyで比較し、`--output`へ構造化reportを出力 | DBはread-only。指定ファイルへ書き込み |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、`static|deep|browser` lane | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 
 exportのsanitizationは機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。

@@ -8,6 +8,7 @@ from pathlib import Path
 from .. import registry as core
 from .. import database
 from .. import domain_policy
+from .. import trust_policy_shadow
 from ..application import maintenance as services
 
 
@@ -49,6 +50,32 @@ def cmd_audit_trust_graph(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.audit_trust_graph(conn, example_limit=int(args.example_limit)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_compare_trust_policy(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    report = trust_policy_shadow.compare_database_path(
+        Path(args.db_path),
+        case_catalog_path=core.ROOT / "tests" / "fixtures" / "project_registry" / "trust-policy-cases-v1.json",
+        example_limit=int(args.example_limit),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = {
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "input": {
+            key: report["input"][key]
+            for key in ("project_count", "claim_count", "deduplicated_edge_count", "allowed_edge_count", "unmapped_relation_count")
+        },
+        "case_catalog": {
+            key: report["case_catalog"][key]
+            for key in ("case_count", "passed_count", "failed_count")
+        },
+        "review_gate": report["review_gate"],
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["review_gate"]["case_catalog_passed"] and not report["review_gate"]["strategy_divergence_count"] else 1
 
 
 def cmd_repair_trust_graph(args: argparse.Namespace) -> int:
