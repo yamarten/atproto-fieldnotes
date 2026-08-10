@@ -430,6 +430,8 @@ developer accountと専用project/service accountでは、帰属やTrustに利�
 
 ### 1. 信頼判定結果と採用policy
 
+後続の評価観点と設計は[信頼判定結果と採用policyの設計メモ](trust-verdict-and-adoption-policy.md)で扱います。
+
 - 信頼グラフの直接出力を`SUPPORTED` / `INSUFFICIENT` / `CONFLICTING` / `NOT_EVALUATED`相当のclaim verdictとして定義する。名前は未確定
 - self-claim、missing reverse path、stale observation、operator overrideをverdict reasonとして分ける
 - project attribution、Trust verdict、block/defer、operator decisionを合成する
