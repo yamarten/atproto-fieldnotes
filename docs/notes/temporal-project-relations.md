@@ -223,18 +223,32 @@ collection inventoryのincremental filterは、現在のproject identifierまた
 
 既存projectへattachした後の`add_collection_owned_nsid()`はproject-scopedなblock/deferを確認しますが、unmatched collectionから新しいprojectを作る前に参照できるregistry-wideな肯定履歴・除外indexはありません。したがって、non-productionと旧identifierはprojectへの関連を保ったまま`known_collection_nsids()`へ含め、noiseは別の除外decisionからfilterする必要があります。
 
-### 保存形の暫定評価
+### 保存形の比較
 
-`project_identifiers`は実装とtestから55箇所で参照され、SQLの多くは追加の状態filterなしで全rowを構成要素として読みます。同じtableへ旧identifierとnon-production identifierを追加する場合、すべての通常query、merge、Trust、presentation、syncで現行identifierだけを選ぶ監査が必要です。
+production codeでは`project_identifiers`を9 moduleが直接参照し、SQLによるread・writeは20箇所あります。現在のhydrateは全rowを`resolved_nsids`、`service_urls`、`source_code_urls`等の現行runtime fieldへ戻し、exact lookup、split、source sync、merge、Trust shadowも全rowを現行構成要素として扱います。
 
-別tableなら既存の構成要素queryを変えず、通常検索だけ旧identifierをunionし、exact検索とsync filterだけnon-productionを参照できます。このため現時点では別tableの方が誤利用リスクは小さそうですが、物理schemaの決定ではありません。既存tableへ明示的な状態を足した方がmigrationと検索を単純化できる可能性も、実装比較まで残します。
+| 観点 | `project_identifiers`へ状態列を追加 | 旧・non-productionを別保存 |
+| --- | --- | --- |
+| 通常表示とruntime | hydrateを含む全readで現行条件が必要 | 既存tableを現行専用のまま維持できる |
+| TrustとAdmission | 起点、対象、candidate集計の全てで現行条件が必要 | 現行tableだけを読む既存経路は変更不要 |
+| exact検索 | 一つのtableで検索できるが、現行と旧の優先順位が必要 | 二つのtableをunionし、現行を優先する明示的なqueryが必要 |
+| collection sync抑止 | 通常構成要素から除外しつつknown集合には残す特別処理が必要 | current NSIDと別保存NSIDをknown集合でunionする |
+| split・source sync | 旧rowを現在所属として誤操作しない条件が必要 | 現行tableだけを読むため自動的に拒否できる |
+| merge | 一つのrow集合を移せるが、旧rowを現行表示へ混ぜない監査が必要 | 別保存rowと採用履歴を明示的に移し、元project keyを履歴へ残す必要がある |
+| 移行と保守 | schema列追加は小さいが、既存20 SQL箇所とruntime viewの監査範囲が広い | tableと専用mutationは増えるが、変更箇所を検索、sync抑止、merge、履歴表示へ限定できる |
+
+比較結果として、`project_identifiers`は現行の帰属主張だけを保持し、旧identifierとnon-production identifierは別保存する案を採ります。物理table名は未確定ですが、論理的には`project key + kind + value + role + standing`を持つ肯定的な非現行関連です。noiseは引き続き別の除外decisionであり、この保存へ入れません。
+
+現行から旧・non-productionへの移動と再有効化は、二つのtableを個別に編集する一般SQLではなく、専用mutationで同一transaction内に行います。同じ`project key + kind + value + role`が現行と非現行の双方で有効にならないことをvalidationで保証します。旧identifierのexact検索は現在のprojectへ誘導し、non-production identifierはexact検索または調査画面だけに出します。
+
+採用理由を`project_identifiers`のJSON列へ埋めると、identifierを別保存へ移すたびに履歴も移し替える必要があります。このため採用理由はidentifierの現行状態から独立した保存とし、旧identifier化した後も元のoperator、bootstrap、trust policyによる理由を監査できる形にします。同じ資源の置き換え関係とproject間の前身・後継関係も、採用理由へ埋め込みません。
 
 ## 次の確認
 
 1. sample reviewで確定できなかったDrydown旧URL、Barazo staging、lexicons.bio旧namespace、Musicsky、observ.ing、publicdomainrelay配下collectionの帰属を、必要になった時点で一次情報またはoperator判断により確定する
 2. 残ったcross-site候補11組は、保存schemaの決定に影響する事例が出た場合に一次情報またはoperator判断で確定する
 3. 旧identifierとnon-production identifierを除外した入力で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
-4. 既存identifier rowの状態追加と別tableについて、通常検索、exact検索、sync抑止、migration対象件数、変更箇所を比較する
-5. その結果から保存schemaと移行計画を確定する
+4. 非現行identifier、採用理由、時間関係を分けた論理schemaについて、mergeと再有効化を含むtemp DB prototypeを作る
+5. prototypeでmigration dry-run、通常検索、exact検索、sync抑止、Trust shadowの差分を比較し、物理schemaと移行計画を確定する
 
 この確認が終わるまで、redirect処理、DID/handle収集、project merge、正本DB schemaは変更しません。

@@ -6,7 +6,7 @@
 
 登録プロジェクトに属するidentifierと、そのidentifierを採用した理由、収集しただけの観測を分離します。
 
-- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに属する」という現行の帰属主張を表します。旧identifierとnon-production identifierを既存rowの状態として持つか、別に持つかは実例監査後に決めます。
+- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに現在属する」という現行の帰属主張を表します。旧identifierとnon-production identifierは、通常の構成要素経路へ混入しない別の肯定的関連として保存します。
 - `confirmed`は少なくとも一つの有効な採用理由を持つ帰属主張、`candidate`はまだ採用理由を持たない帰属主張を表します。`confirmed`を信頼と無関係な単なる登録状態へ弱めません。
 - 採用理由は、手動判断、登録起点、信頼判定規則による自動採用を区別し、一つの帰属主張に複数保持できます。
 - recordの発見情報やauthority domainなど、帰属主張そのものではない観測は`project_identifiers`へ入れません。
@@ -133,9 +133,22 @@ OAuth利用、accountからのservice/repository link、mention、共通host、�
 
 ## 物理schemaを確定する条件
 
-現時点の小さい変更案は、`project_identifiers`に採用理由の集合を持たせ、`project_decisions`に`target_role`を追加し、判定cacheを`state_json`へ置く形です。採用理由は通常claimと同時に読み、件数も小さいため、直ちに専用テーブルを必要とはしません。
+時間関係の実例と実装参照箇所を比較した結果、`project_identifiers`は現行claim専用のまま維持します。旧identifierとnon-production identifierは別保存し、通常のruntime、Trust、Admission、split、source syncへ暗黙に入りません。詳しい比較は[時間関係の設計メモ](temporal-project-relations.md#保存形の比較)に記録します。
 
-ただしこれは論理契約を説明する候補であり、まだmigration仕様ではありません。時間関係の実例を監査し、少なくとも次を確認してからJSON列と別テーブルを比較します。
+採用理由も`project_identifiers`のJSON列には置かず、claim keyを参照する独立した履歴として保存する案を採ります。現行identifierを旧identifierへ移しても、過去にoperator、bootstrap、trust policyのどの理由で採用されていたかを同じ場所に残すためです。`project_decisions`には対象roleを追加し、判定cacheは削除・再生成できる場所に置きます。
+
+論理的な保存責務は次の通りです。物理table名、column名、foreign keyはtemp DB prototype後に確定します。
+
+| 保存責務 | 含むもの | 含まないもの |
+| --- | --- | --- |
+| 現行identifier | 現在の`project key + kind + value + role`、candidate/confirmed、primary | 旧、non-production、観測、noise |
+| 非現行identifier | 同じprojectへの肯定的な関連、former/non-production、その判断理由 | 現行構成要素、noise |
+| 採用理由 | operator/bootstrap/trust policy、登録起点、source参照、有効・終了・review状態 | identifierの時間状態、置き換え先 |
+| 時間関係 | 同じ資源の旧→新、別project間の前身→後継 | 採用理由、raw redirect |
+| decision | block/defer/confirm等の手動判断と対象role | collector観測、Trust判定cache |
+| 観測・relation | record、redirect、直接関係とprovenance | 帰属や移転の確定結果 |
+
+prototypeでは少なくとも次を確認します。
 
 - 旧identifierを通常検索から現在のprojectへ誘導できるか
 - non-production identifierとnoiseを混同せず、どちらもsyncによる自動復活を抑止できるか
@@ -144,4 +157,4 @@ OAuth利用、accountからのservice/repository link、mention、共通host、�
 - merge後も、どのprojectでどの理由により採用されていたかを監査できるか
 - 信頼判定cacheを消しても、手動判断、登録起点、時間関係が残るか
 
-時間関係の実例監査後、複製DBでmigration dry-runとshadow比較を行います。candidate admissionの代表例、repo decisionの曖昧性解消、登録起点の復元、block/deferの優先関係をsample reviewし、その後にだけproduction schemaと正本文書への反映計画を作ります。
+temp DBでmutationとmigration dry-runを作り、candidate admissionの代表例、repo decisionの曖昧性解消、登録起点の復元、block/deferの優先関係をsample reviewします。正本DBの複製が利用可能になった時点で件数差と主要事例をshadow比較し、その後にだけproduction schemaと正本文書への反映計画を作ります。
