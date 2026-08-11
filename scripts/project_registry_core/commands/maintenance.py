@@ -8,6 +8,7 @@ from pathlib import Path
 from .. import registry as core
 from .. import database
 from .. import domain_policy
+from .. import identifier_storage_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
 
@@ -76,6 +77,47 @@ def cmd_compare_trust_policy(args: argparse.Namespace) -> int:
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["review_gate"]["case_catalog_passed"] and not report["review_gate"]["strategy_divergence_count"] else 1
+
+
+def cmd_compare_identifier_storage(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    db_path = Path(args.db_path).expanduser()
+    if output.resolve() == db_path.resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    report = identifier_storage_shadow.compare_database_path(
+        db_path,
+        example_limit=int(args.example_limit),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = {
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "input": report["input"],
+        "decision_role_mapping": {
+            "decision_count": report["decision_role_mapping"]["decision_count"],
+            "status_counts": report["decision_role_mapping"]["status_counts"],
+        },
+        "adoption_projection": {
+            key: report["adoption_projection"][key]
+            for key in (
+                "confirmed_component_claim_count",
+                "covered_claim_count",
+                "coverage_percent",
+                "relation_recovered_claim_count",
+                "legacy_context_recovered_claim_count",
+                "guarded_confirmed_claim_count",
+                "uncovered_claim_count",
+            )
+        },
+        "prototype_cases": {
+            key: report["prototype_cases"][key]
+            for key in ("case_count", "passed_count", "failed_count")
+        },
+        "review_gate": report["review_gate"],
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["review_gate"]["ready_for_user_review"] else 1
 
 
 def cmd_repair_trust_graph(args: argparse.Namespace) -> int:

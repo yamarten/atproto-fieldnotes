@@ -382,6 +382,15 @@ def build_parser() -> argparse.ArgumentParser:
     compare_trust_policy_parser.add_argument("--example-limit", type=int, default=20, help="Maximum v1/shadow delta examples per profile. Default: 20.")
     compare_trust_policy_parser.set_defaults(func=maintenance_commands.cmd_compare_trust_policy)
 
+    compare_identifier_storage_parser = subparsers.add_parser(
+        "compare-identifier-storage",
+        help="Prototype noncurrent identifier and adoption storage without changing the database.",
+    )
+    compare_identifier_storage_parser.add_argument("--db-path", required=True, help="Existing registry database opened read-only.")
+    compare_identifier_storage_parser.add_argument("--output", required=True, help="Structured prototype report JSON path.")
+    compare_identifier_storage_parser.add_argument("--example-limit", type=int, default=20, help="Maximum migration audit examples per category. Default: 20.")
+    compare_identifier_storage_parser.set_defaults(func=maintenance_commands.cmd_compare_identifier_storage)
+
     repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported confirmations.")
     repair_trust_parser.add_argument("--execute", action="store_true", help="Apply trust graph recomputation. Without this flag, show a dry-run summary only.")
     repair_trust_parser.add_argument("--downgrade-unsupported", action="store_true", help="With --execute, downgrade confirmed identifiers that have no trust evidence to candidates.")

@@ -35,6 +35,7 @@ subcommands=(
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
   'compare-trust-policy:Compare current and role-aware trust policies'
+  'compare-identifier-storage:Prototype noncurrent identifier and adoption storage'
   'repair-trust-graph:Recompute stored trust graph details'
   'cleanup-storage-payloads:Compact stored service and investigation payloads'
   'cleanup-workspace-temp:Delete stale SQLite copies under .tmp'
@@ -391,6 +392,12 @@ case "$cmd" in
       '--db-path[Existing registry database opened read-only]:database file:_files' \
       '--output[Structured comparison report JSON path]:report file:_files' \
       '--example-limit[Maximum v1/shadow delta examples per profile]:count:'
+    ;;
+  compare-identifier-storage)
+    _arguments -S \
+      '--db-path[Existing registry database opened read-only]:database file:_files' \
+      '--output[Structured prototype report JSON path]:report file:_files' \
+      '--example-limit[Maximum migration audit examples per category]:count:'
     ;;
   repair-trust-graph)
     _arguments -S \
