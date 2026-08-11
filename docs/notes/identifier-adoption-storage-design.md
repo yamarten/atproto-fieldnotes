@@ -157,4 +157,4 @@ prototypeでは少なくとも次を確認します。
 - merge後も、どのprojectでどの理由により採用されていたかを監査できるか
 - 信頼判定cacheを消しても、手動判断、登録起点、時間関係が残るか
 
-temp DBのmutation、正本DBのread-only移行投影、主要事例のsample reviewは[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)まで完了しました。8件の固定caseはすべて成功し、confirmed構成要素10,187件のうち10,186件は既存データから採用理由を復元できます。production schemaと正本文書への反映計画へ進む前に、移行専用bootstrapとして一括復元する二つのcohortと、復元不能だったWaverly Socialのservice URL一件を利用者がreviewします。
+temp DBのmutation、正本DBのread-only移行投影、主要事例のsample reviewは[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)まで完了しました。8件の固定caseはすべて成功し、confirmed構成要素10,187件のうち10,186件は既存データから採用理由を補完できます。Waverly Socialの`https://mywaverly.com`は利用者の裏取りにより`former`と決まりました。production schemaと正本文書への反映計画へ進む前に、移行専用bootstrapとして採用理由を補う二つのcohortを利用者がreviewします。
