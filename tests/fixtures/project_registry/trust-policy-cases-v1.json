@@ -114,15 +114,45 @@
       }
     },
     {
-      "case_id": "temporal-successor",
-      "description": "Basker/InfoEnon and DateSky/Nomare style succession is handled by a temporal policy.",
+      "case_id": "former-service-identifier",
+      "description": "A formerly representative service remains a project fact but is outside current Trust paths.",
       "claims": [
-        {"node": ["service_url", "https://old.example"], "role": "former_service_observation", "classification": "confirmed"}
+        {"node": ["service_url", "https://old.example"], "role": "service", "classification": "confirmed", "standing": "former"}
       ],
       "decisions": [],
       "edges": [],
       "expected_verdicts": {
-        "service_url|https://old.example|former_service_observation": "NOT_EVALUATED"
+        "service_url|https://old.example|service": "NOT_EVALUATED"
+      }
+    },
+    {
+      "case_id": "non-production-surface",
+      "description": "A known project-related preview surface is not a current project component or Trust origin.",
+      "claims": [
+        {"node": ["service_url", "https://preview.example"], "role": "service", "classification": "confirmed", "standing": "non_production"}
+      ],
+      "decisions": [],
+      "edges": [],
+      "expected_verdicts": {
+        "service_url|https://preview.example|service": "NOT_EVALUATED"
+      }
+    },
+    {
+      "case_id": "prerelease-name-is-current",
+      "description": "Alpha or temp in an identifier value does not by itself make a current project namespace non-production.",
+      "profile": "all_current_sources",
+      "claims": [
+        {"node": ["collection", "social.example.alpha.post"], "role": "owned_nsid", "classification": "confirmed", "standing": "current"},
+        {"node": ["repo_url", "https://github.com/example/project"], "role": "source_repository", "classification": "candidate", "standing": "current"}
+      ],
+      "decisions": [],
+      "edges": [
+        {"subject": ["collection", "social.example.alpha.post"], "predicate": "collection_canonical_source_repo", "object": ["repo_url", "https://github.com/example/project"]},
+        {"subject": ["repo_url", "https://github.com/example/project"], "predicate": "defines_schema", "object": ["collection", "social.example.alpha.post"]}
+      ],
+      "expected_verdicts": {
+        "collection|social.example.alpha.post|owned_nsid": "NOT_EVALUATED",
+        "repo_url|https://github.com/example/project|source_repository": "SUPPORTED"
       }
     },
     {

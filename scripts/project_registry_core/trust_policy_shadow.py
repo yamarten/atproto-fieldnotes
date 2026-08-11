@@ -13,8 +13,10 @@ from . import storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "trust-policy-shadow-v1"
+POLICY_VERSION = "trust-policy-shadow-v2"
 VERDICTS = ("SUPPORTED", "INSUFFICIENT", "CONFLICTING", "NOT_EVALUATED")
+CURRENT_IDENTIFIER_STANDING = "current"
+IDENTIFIER_STANDINGS = {CURRENT_IDENTIFIER_STANDING, "former", "non_production"}
 
 EVALUATED_ROLES = {
     ("service_url", "service"),
@@ -106,6 +108,10 @@ def _node(kind: str, value: str) -> tuple[str, str]:
 
 def _claim_key(claim: dict[str, Any]) -> tuple[str, str, str]:
     return (str(claim["node"][0]), str(claim["node"][1]), str(claim.get("role") or ""))
+
+
+def _claim_standing(claim: dict[str, Any]) -> str:
+    return str(claim.get("standing") or CURRENT_IDENTIFIER_STANDING)
 
 
 def _edge_key(edge: dict[str, Any]) -> tuple[str, str, str, str, str]:
@@ -238,7 +244,9 @@ def _evaluate_from_origins(
     lengths: collections.Counter[int] = collections.Counter()
     for claim in claims:
         result = {"claim": claim, "strategy": "full_origin"}
-        if (claim["node"][0], claim.get("role", "")) not in EVALUATED_ROLES:
+        if _claim_standing(claim) != CURRENT_IDENTIFIER_STANDING:
+            result.update(verdict="NOT_EVALUATED", reason="identifier_standing_outside_current_policy")
+        elif (claim["node"][0], claim.get("role", "")) not in EVALUATED_ROLES:
             result.update(verdict="NOT_EVALUATED", reason="role_outside_project_attribution_policy")
         elif claim["node"] in origin_nodes:
             result.update(verdict="NOT_EVALUATED", reason="adopted_registration_origin")
@@ -286,7 +294,11 @@ def _evaluate_with_trace_reuse(
         origin["node"]: {"origin": origin, "forward_path": [], "backward_path": []}
         for origin in origins
     }
-    pending = [claim for claim in claims if (claim["node"][0], claim.get("role", "")) in EVALUATED_ROLES]
+    pending = [
+        claim for claim in claims
+        if _claim_standing(claim) == CURRENT_IDENTIFIER_STANDING
+        and (claim["node"][0], claim.get("role", "")) in EVALUATED_ROLES
+    ]
     explored_total = 0
     changed = True
     while changed:
@@ -315,7 +327,9 @@ def _evaluate_with_trace_reuse(
     origin_nodes = {origin["node"] for origin in origins}
     for claim in claims:
         result = {"claim": claim, "strategy": "trace_reuse"}
-        if (claim["node"][0], claim.get("role", "")) not in EVALUATED_ROLES:
+        if _claim_standing(claim) != CURRENT_IDENTIFIER_STANDING:
+            result.update(verdict="NOT_EVALUATED", reason="identifier_standing_outside_current_policy")
+        elif (claim["node"][0], claim.get("role", "")) not in EVALUATED_ROLES:
             result.update(verdict="NOT_EVALUATED", reason="role_outside_project_attribution_policy")
         elif claim["node"] in origin_nodes:
             result.update(verdict="NOT_EVALUATED", reason="adopted_registration_origin")
@@ -342,13 +356,14 @@ def _origins_for_profile(
     claims: list[dict[str, Any]],
     decisions: list[dict[str, Any]],
     profile: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     allowed_sources = PROFILE_SOURCES[profile]
     by_node: dict[tuple[str, str], list[dict[str, Any]]] = collections.defaultdict(list)
     for claim in claims:
         by_node[claim["node"]].append(claim)
     origins: list[dict[str, Any]] = []
     ambiguities: list[dict[str, Any]] = []
+    exclusions: list[dict[str, Any]] = []
     for decision in decisions:
         if decision["kind"] != "confirm_identifier" or decision.get("cleared_at"):
             continue
@@ -363,17 +378,29 @@ def _origins_for_profile(
         if len(matches) != 1:
             ambiguities.append({"decision": decision, "matching_claim_count": len(matches)})
             continue
+        if _claim_standing(matches[0]) != CURRENT_IDENTIFIER_STANDING:
+            exclusions.append({
+                "decision": decision,
+                "claim": matches[0],
+                "reason": "identifier_standing_outside_current_policy",
+            })
+            continue
         origins.append({"node": node, "role": matches[0]["role"], "source": source})
     if profile == "all_current_sources":
         for claim in claims:
-            if claim["node"][0] == "collection" and claim.get("role") == "owned_nsid" and claim.get("classification") == "confirmed":
+            if (
+                _claim_standing(claim) == CURRENT_IDENTIFIER_STANDING
+                and claim["node"][0] == "collection"
+                and claim.get("role") == "owned_nsid"
+                and claim.get("classification") == "confirmed"
+            ):
                 origins.append({
                     "node": claim["node"],
                     "role": claim["role"],
                     "source": "implicit_collection_inventory",
                 })
     deduped = {(*origin["node"], origin["role"]): origin for origin in origins}
-    return list(deduped.values()), ambiguities
+    return list(deduped.values()), ambiguities, exclusions
 
 
 def _admission_projection(
@@ -381,7 +408,7 @@ def _admission_projection(
     edges: list[dict[str, Any]],
     adopted_nodes: set[tuple[str, str]],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    existing = {_claim_key(claim) for claim in claims}
+    existing = {_claim_key(claim): claim for claim in claims}
     output: list[dict[str, Any]] = []
     suppression: collections.Counter[str] = collections.Counter()
     for edge in edges:
@@ -398,7 +425,11 @@ def _admission_projection(
             continue
         candidate_key = (*edge["object"], target_role)
         if candidate_key in existing:
-            suppression["claim_already_exists"] += 1
+            standing = _claim_standing(existing[candidate_key])
+            if standing == CURRENT_IDENTIFIER_STANDING:
+                suppression["claim_already_exists"] += 1
+            else:
+                suppression[f"known_identifier_standing:{standing}"] += 1
             continue
         output.append({
             "node": list(edge["object"]),
@@ -423,7 +454,7 @@ def evaluate_project(
         if item.get("kind") in {"block_identifier", "defer_identifier"} and not item.get("cleared_at")
     }
     guards.discard(("", ""))
-    origins, ambiguities = _origins_for_profile(claims, decisions, profile)
+    origins, ambiguities, origin_exclusions = _origins_for_profile(claims, decisions, profile)
     origin_guard_conflicts = [origin for origin in origins if origin["node"] in guards]
     started = time.perf_counter()
     full, full_metrics = _evaluate_from_origins(claims, edges, origins, guards)
@@ -442,6 +473,7 @@ def evaluate_project(
         "profile": profile,
         "origins": origins,
         "origin_ambiguities": ambiguities,
+        "origin_exclusions": origin_exclusions,
         "origin_guard_conflicts": origin_guard_conflicts,
         "origin_guard_conflict_count": len(origin_guard_conflicts),
         "edge_count": len(edges),
@@ -480,6 +512,9 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "role": str(row["role"]),
             "classification": str(row["classification"]),
             "provider": str(row["provider"]),
+            # The production schema has no standing field yet.  Existing rows
+            # remain current inputs during this read-only comparison.
+            "standing": CURRENT_IDENTIFIER_STANDING,
         })
     for row in conn.execute("SELECT * FROM project_relations ORDER BY project_key, ordinal"):
         edge = _normalize_relation_edge(row)
@@ -526,6 +561,7 @@ def _summarize_results(
         verdicts: collections.Counter[str] = collections.Counter()
         roles: collections.Counter[str] = collections.Counter()
         classifications: collections.Counter[str] = collections.Counter()
+        standings: collections.Counter[str] = collections.Counter()
         role_classifications: collections.Counter[str] = collections.Counter()
         origin_sources: collections.Counter[str] = collections.Counter()
         v1_deltas: collections.Counter[str] = collections.Counter()
@@ -533,7 +569,7 @@ def _summarize_results(
         admission_examples: list[dict[str, Any]] = []
         ambiguity_examples: list[dict[str, Any]] = []
         review_examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
-        admission_count = ambiguity_count = divergence_count = 0
+        admission_count = ambiguity_count = exclusion_count = divergence_count = 0
         origin_count = 0
         origin_guard_conflicts = 0
         admission_suppression: collections.Counter[str] = collections.Counter()
@@ -544,6 +580,7 @@ def _summarize_results(
         for project in projects:
             result = evaluations[project["project_key"]][profile]
             ambiguity_count += len(result["origin_ambiguities"])
+            exclusion_count += len(result["origin_exclusions"])
             origin_count += len(result["origins"])
             origin_sources.update(str(origin.get("source") or "(none)") for origin in result["origins"])
             origin_guard_conflicts += int(result["origin_guard_conflict_count"])
@@ -568,6 +605,7 @@ def _summarize_results(
                 verdicts[item["verdict"]] += 1
                 roles[f"{claim['role']}:{item['verdict']}"] += 1
                 classifications[f"{claim['classification']}:{item['verdict']}"] += 1
+                standings[f"{_claim_standing(claim)}:{item['verdict']}"] += 1
                 role_classifications[f"{claim['role']}:{claim['classification']}:{item['verdict']}"] += 1
                 if item["verdict"] == "SUPPORTED" and claim["classification"] == "candidate":
                     workload["candidate_supported_for_auto_adoption"] += 1
@@ -609,9 +647,11 @@ def _summarize_results(
             "verdict_counts": _counter_dict(verdicts),
             "role_verdict_counts": _counter_dict(roles),
             "classification_verdict_counts": _counter_dict(classifications),
+            "standing_verdict_counts": _counter_dict(standings),
             "role_classification_verdict_counts": _counter_dict(role_classifications),
             "v1_to_shadow": _counter_dict(v1_deltas),
             "origin_ambiguity_count": ambiguity_count,
+            "origin_exclusion_count": exclusion_count,
             "origin_count": origin_count,
             "origin_source_counts": _counter_dict(origin_sources),
             "origin_guard_conflict_count": origin_guard_conflicts,
@@ -723,6 +763,11 @@ def load_case_catalog(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if int(payload.get("schema_version") or 0) != 1:
         raise ValueError("unsupported trust policy case catalog schema")
+    for case in payload.get("cases", []):
+        for claim in case.get("claims", []):
+            standing = str(claim.get("standing") or CURRENT_IDENTIFIER_STANDING)
+            if standing not in IDENTIFIER_STANDINGS:
+                raise ValueError(f"unsupported identifier standing in {case.get('case_id', '(unknown)')}: {standing}")
     return payload
 
 
@@ -731,7 +776,11 @@ def evaluate_case_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     for case in catalog.get("cases", []):
         project = {
             "project_key": case["case_id"],
-            "claims": [{**claim, "node": tuple(claim["node"])} for claim in case.get("claims", [])],
+            "claims": [{
+                **claim,
+                "node": tuple(claim["node"]),
+                "standing": str(claim.get("standing") or CURRENT_IDENTIFIER_STANDING),
+            } for claim in case.get("claims", [])],
             "edges": [{
                 **edge,
                 "subject": tuple(edge["subject"]),

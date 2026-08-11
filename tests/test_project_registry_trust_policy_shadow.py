@@ -43,7 +43,7 @@ def decision(kind: str, target_type: str, target_value: str, source: str = "web_
 class TrustPolicyShadowUnitTest(unittest.TestCase):
     def test_case_catalog_passes_and_strategies_agree(self) -> None:
         result = trust_policy_shadow.evaluate_case_catalog(trust_policy_shadow.load_case_catalog(FIXTURE))
-        self.assertEqual(result["case_count"], 10)
+        self.assertEqual(result["case_count"], 12)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
     def test_dedupe_keeps_both_storage_origins(self) -> None:
@@ -145,6 +145,51 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             "via": {"subject": ["service_url", "https://app.example"], "predicate": "service_links_repo", "source": "test"},
         }])
         self.assertEqual(result["admission_suppression_counts"], {"predicate_not_admissible:requests_permission": 1})
+
+    def test_former_and_non_production_claims_are_not_origins_or_admission_targets(self) -> None:
+        old_service = {
+            **claim("service_url", "https://old.example", "service", "confirmed"),
+            "standing": "former",
+        }
+        preview_repo = {
+            **claim("repo_url", "https://github.com/e/preview", "source_repository", "confirmed"),
+            "standing": "non_production",
+        }
+        project = {
+            "project_key": "identifier-standing",
+            "claims": [old_service, preview_repo],
+            "decisions": [decision("confirm_identifier", "service_url", "https://old.example")],
+            "edges": [
+                edge(("service_url", "https://old.example"), "service_links_repo", ("repo_url", "https://github.com/e/preview")),
+            ],
+        }
+        result = trust_policy_shadow.evaluate_project(project, profile="operator")
+        self.assertEqual(result["origins"], [])
+        self.assertEqual(result["origin_ambiguities"], [])
+        self.assertEqual(len(result["origin_exclusions"]), 1)
+        self.assertEqual(result["origin_exclusions"][0]["reason"], "identifier_standing_outside_current_policy")
+        self.assertEqual(
+            {item["claim"]["role"]: item["verdict"] for item in result["full_origin"]},
+            {"service": "NOT_EVALUATED", "source_repository": "NOT_EVALUATED"},
+        )
+
+        current_project = {
+            "project_key": "admission-standing",
+            "claims": [
+                claim("service_url", "https://app.example", "service", "confirmed"),
+                preview_repo,
+            ],
+            "decisions": [decision("confirm_identifier", "service_url", "https://app.example")],
+            "edges": [
+                edge(("service_url", "https://app.example"), "service_links_repo", ("repo_url", "https://github.com/e/preview")),
+            ],
+        }
+        current_result = trust_policy_shadow.evaluate_project(current_project, profile="operator")
+        self.assertEqual(current_result["admission_projection"], [])
+        self.assertEqual(
+            current_result["admission_suppression_counts"],
+            {"known_identifier_standing:non_production": 1},
+        )
 
     def test_cli_parser_exposes_read_only_comparison_arguments(self) -> None:
         args = cli.build_parser().parse_args([
