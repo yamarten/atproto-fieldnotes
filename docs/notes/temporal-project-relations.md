@@ -14,6 +14,8 @@
 
 信頼グラフは「現在の帰属主張が、現在の直接関係によって支持されるか」を判断します。過去の帰属、移転、前身・後継は別の時間関係policyが扱い、過去に正しかったidentifierを現在の信頼判定の起点へ自動的に戻しません。
 
+時間上の状態を決める前に、そのidentifierがどの登録プロジェクトへ帰属するかを決めます。同じauthority配下にあること、同じrepositoryや実験環境から観測されたこと、recordが実在することは、どのprojectの構成要素かを単独では決めません。現行・旧・non-productionという区分は、帰属が確定したidentifierにだけ適用します。
+
 ## 最初に分けるもの
 
 ### URL正規化と同時alias
@@ -27,6 +29,10 @@ HTTPからHTTPSへの変更、providerが定義する同じrepository URLの表�
 repositoryのrename/transfer、handle変更、serviceの旧domainから新domainへの移転など、同じ資源のcurrent identifierが時間とともに変わった場合です。旧identifierと新identifierは同じroleで同じ登録プロジェクトに属しますが、有効だった期間が異なります。
 
 方向は旧identifierから新identifierへの「置き換え」を表します。具体的なpredicate名は未確定ですが、単なる`redirects_to`観測と、確認済みの資源移転を同じpredicateにしません。
+
+collectionのNSID変更も、同じschema資源が名前だけを変えたと確認できる場合はこの型に含めます。たとえば`com.example.post`を`com.example.feed.post`へ移し、旧record型と新record型が同じ役割を引き継ぐと公式なschema定義、実装、移行処理またはoperator判断から確認できる場合です。authority domain自体の変更も同様ですが、名前の類似やschema内容の一致だけでは置き換えを確定しません。
+
+旧schemaを複数の新schemaへ分割した場合、意味を変えて作り直した場合、互換期間として旧NSIDと新NSIDを並行利用する場合は、単純なidentifier置換ではありません。前二者は同じproject内のschema間の置き換え・移行関係、後者は複数の現行collectionとして扱い、旧側の終了が確認された時点でだけ旧identifierへ移します。この区別は完全自動化を要件とせず、機械判定できないものをreviewへ残せる保存枠を用意します。
 
 ### 同じ登録プロジェクトの変化
 
@@ -63,6 +69,8 @@ HTTP redirect、HTML canonical、provider metadata、DID document、告知文、
 | providerのstable repository IDを維持したrename/transfer | 同じrepositoryのURLが変わった | project自体が同一か、owner変更後も帰属するか |
 | DID documentの先頭`alsoKnownAs`変更 | その観測時点のcurrent handle | 旧handleが現在も同じDIDを指すこと |
 | 同一content | 比較対象の取得内容が一致した | alias、mirror、移転、同じproject |
+| collection recordの観測 | そのNSIDがその時点で利用された | schemaのproject帰属、production性、旧NSIDとの置き換え |
+| 公式の案内面から補助URLへのlink | そのprojectが地図、status page等のresourceを案内した | URLがprojectを代表するidentifierであること、独立したserviceであること |
 | 公式な移転・改名告知 | 主張主体が関係を明示した | 告知先もそれを認めていること、別projectか同一projectか |
 | 取得不能または消失 | その観測時点で取得できなかった | 資源が終了したこと、別URLへ移転したこと |
 
@@ -72,14 +80,15 @@ projectの改名か別projectへの継承かは自動確定しません。この
 
 ## Identifierの扱い
 
-すべてのidentifierへ汎用的なcurrent/historical期間を持たせず、意味と検索用途が異なる次の四つを区別します。
+まず帰属主張を、特定projectへの帰属が確定したもの、帰属先が未確定の観測、無関係または誤検出に分けます。帰属未確定の観測は、recordの存在や取得履歴を保持してもproject identifierにはしません。公式ページからリンクされた地図、status page、補助APIのようにprojectとの関係は明らかでも、projectを代表するidentifierとして採用する必要がないresourceも観測のまま保持できます。
+
+帰属が確定したidentifierには、汎用的なcurrent/historical期間を一律に持たせず、意味と検索用途が異なる次の三つを区別します。noise・誤検出はidentifierの状態ではなく、別の除外判断です。
 
 | 区分 | 意味 | 通常検索 | Admissionと信頼判定 |
 | --- | --- | --- | --- |
 | 現行identifier | 現在、登録プロジェクトを代表するidentifier | 表示する | roleと採用理由が許せば利用する |
 | 旧identifier | 過去に登録プロジェクトを正式に代表した肯定的な履歴 | 現在のprojectへ誘導する | 自動再登録せず、信頼判定の起点にしない |
 | non-production identifier | projectとの関係は正しいが、productionを代表する構成要素として登録しないもの | exact検索や調査画面ではprojectとの関係を示してよい | 自動登録せず、信頼判定の起点にしない |
-| noise・誤検出 | projectとの有意な関係がない、またはidentifierとして扱えないもの | 通常検索へ出さない | 除外判断によって再生成を止める |
 
 旧identifierとnon-production identifierは肯定的なproject関連情報です。既存identifier rowに状態を追加して保持する案と、履歴・補助情報として別に保持する案のどちらも許容します。noiseは帰属情報ではなく除外判断なので、同じ保存分類へ入れません。
 
@@ -156,15 +165,15 @@ identifier値に`dev`、`test`、`temp`、`staging`、`preview`、`alpha`、`bet
 
 | 事例 | 確認した事実 | 暫定分類 | 一般則への含意 |
 | --- | --- | --- | --- |
-| ATPcraft | `atpcraft.at`はoperator confirm済みで、HTML canonicalは`dev.atpcraft.at`を指す。公開中の[ATPcraft案内面](https://dev.atpcraft.at/)はactive developmentと説明するが、同時にprojectの参加入口でもある | `atpcraft.at`は現行を維持し、`dev.atpcraft.at`は観測のまま。名前だけでnon-productionへ落とさず、網羅目的で追加もしない | `dev`は補助環境の証明ではなく、project自体が開発中である説明にも使われる |
+| ATPcraft | `atpcraft.at`はoperator confirm済みで、HTML canonicalは`dev.atpcraft.at`を指す。公開中の[ATPcraft案内面](https://dev.atpcraft.at/)はactive developmentと説明し、`atpcraft.lenooby09.tech`をLive mapとして案内する | `atpcraft.at`は現行を維持し、`dev.atpcraft.at`は観測のまま。Live mapは公式な現行resourceだが、project identifierへ昇格させる必要はない | URLが公式かつ現行でも、補助resourceとprojectを代表するservice identifierは分ける。service surfaceの網羅性は要求しない |
 | Drydown | `drydown.social`のconfirmがclearされ、redirect先の`alpha.drydown.social`が現行websiteとconfirmed serviceになっている。`social.drydown.*` collectionも観測される | `alpha.drydown.social`は現行を維持する。`drydown.social`は旧identifierか同時aliasか追加確認が必要 | redirectだけでは旧・新を確定できないが、`alpha`という名前も現行性を否定しない |
 | Barazo | [公式documentation repository](https://github.com/singi-labs/barazo-docs)はprojectをalphaとし、`docs.barazo.forum`を公式docsとして示す。正本DBでは`staging.barazo.forum`が現行websiteである | `docs.barazo.forum`と`staging.barazo.forum`は現行を維持する。後者をnon-productionへ移すには、別の代表surfaceまたは公式なsandbox扱いを確認する | project全体がalphaであることと、そのproject内の補助環境であることを分ける |
 | Arabica | `social.arabica.alpha` namespaceは2026-08-08時点でもrecordが観測され、同じprojectの現行collection群として利用されている | 現行 | `alpha` segmentだけではnon-productionにしない |
-| Spindle | `com.publicdomainrelay.temp.market`等は2026-08-08時点でも多数のrecordが観測され、projectの主要namespaceとして使われている | 現行 | `temp` segmentだけでは一時的なidentifierとみなさない |
+| Spindle / publicdomainrelay | `com.publicdomainrelay.temp.*`のrecordは2026-08-08時点でも多数観測されるが、market、agent、compute等はSpindle固有とは限らない。`com.publicdomainrelay.temp.tangled.spindle.repos`はSpindleを明示するが、Tangled側schemaからの移動かは未確認 | Spindleへの一括帰属を撤回し、project帰属reviewとする。Spindle固有NSIDの置き換え関係も一次情報またはoperator判断まで保留する | recordの存在、共通authority、`temp` segmentはいずれもproject境界を決めない。時間状態を付ける前に帰属を確定する |
 | lexicons.bio | `bio.lexicons.temp`と`bio.lexicons.temp.v0-1`の双方に過去のrecordがあり、後者は2026-08-08時点でも利用される | `v0-1`は現行を維持し、無印側が旧identifierかは追加確認 | record activityは有用な観測だが、置き換え確定とは分ける |
 | Musicsky / observ.ing | `temp` namespaceのrecordは観測されているが、直近観測だけでは正式namespace、一時検証、終了済みのどれかを確定できない | review対象 | 情報不足を名前で埋めず、人間の判断を将来の一般則へ戻す |
 
-このsampleは100%の事前分類を目標にしません。確定できないものをreview対象として残せること、review結果をcollector個別例外ではなく「何を見れば現行・旧・non-production・noiseを区別できるか」という一般則へ反映できることを重視します。
+このsampleは100%の事前分類を目標にしません。確定できないものをreview対象として残せること、review結果をcollector個別例外ではなく「何を見ればproject帰属と、現行・旧・non-production・noiseを区別できるか」という一般則へ反映できることを重視します。
 
 ### redirectは移転より広い
 
@@ -210,7 +219,7 @@ collection inventoryのincremental filterは、現在のproject identifierまた
 
 ## 次の確認
 
-1. sample reviewで確定できなかったDrydown旧URL、Barazo staging、lexicons.bio旧namespace、Musicsky、observ.ingを、必要になった時点で一次情報またはoperator判断により確定する
+1. sample reviewで確定できなかったDrydown旧URL、Barazo staging、lexicons.bio旧namespace、Musicsky、observ.ing、publicdomainrelay配下collectionの帰属を、必要になった時点で一次情報またはoperator判断により確定する
 2. redirect review候補25組を、移転、同時alias、別surface、resourceへの案内、別projectへsample分類し、一般化できる追加条件だけを採用する
 3. 旧identifierとnon-production identifierを除外した入力で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
 4. 既存identifier rowの状態追加と別tableについて、通常検索、exact検索、sync抑止、migration対象件数、変更箇所を比較する
