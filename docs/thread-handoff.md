@@ -19,7 +19,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- `migration_confirmed_relation` 95件と`migration_legacy_project_context` 13件へ、移行専用bootstrap理由を一括で補うかreviewする。Waverly Socialの`https://mywaverly.com`は利用者の裏取りにより`former`と決定済み。合意前にproduction schemaやmigrationを実装しない。
+- `projects.website_url`とservice identifierを分離し、projectを代表する公式website、機能を提供するservice surface、説明用resourceをどう保存・表示するか、移行実装前に決める。Lexicon Community、library documentation、native appの紹介・配布siteが既知事例。
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
 
 ## DB 操作メモ
