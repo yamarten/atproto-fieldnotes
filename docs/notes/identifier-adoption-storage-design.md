@@ -6,14 +6,14 @@
 
 登録プロジェクトに属するidentifierと、そのidentifierを採用した理由、収集しただけの観測を分離します。
 
-- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに属する」という現在の帰属主張を表します。
+- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに属する」という帰属主張を表します。現在有効か過去に有効だったかは別の時間軸で表します。
 - `confirmed`は少なくとも一つの有効な採用理由を持つ帰属主張、`candidate`はまだ採用理由を持たない帰属主張を表します。`confirmed`を信頼と無関係な単なる登録状態へ弱めません。
 - 採用理由は、手動判断、登録起点、信頼判定規則による自動採用を区別し、一つの帰属主張に複数保持できます。
 - recordの発見情報やauthority domainなど、帰属主張そのものではない観測は`project_identifiers`へ入れません。
 - 直接関係の正本は`project_relations`へ一本化し、信頼グラフのedgeと判定経路はそこから再生成できる評価結果として扱います。
 - block/deferとconfirmの優先関係は最新の明示的な手動判断で決めます。自動処理は有効なblock/deferを解除しません。
 
-この論理契約は確定案とします。一方、採用理由をJSON列に置くか別テーブルへ置くかなどの物理配置は、時間関係を設計してから確定します。改名、移転、後継を表す履歴と採用理由の履歴を別々に保存できることが物理設計の条件です。
+この論理契約は確定案とします。一方、採用理由をJSON列に置くか別テーブルへ置くかなどの物理配置は、[時間関係の設計](temporal-project-relations.md)と実例監査を終えてから確定します。改名、移転、後継を表す履歴と採用理由の履歴を別々に保存できることが物理設計の条件です。
 
 ## 分離する四つの情報
 
@@ -21,7 +21,7 @@
 
 帰属主張は`project key + identifier kind + value + role`を単位にします。同じURLやDIDでもroleが異なれば別の主張です。手動判断、信頼判定、採用を止める条件も、この単位へ対応させます。
 
-`project_identifiers`には現在の帰属主張だけを置きます。現在のrole、`candidate` / `confirmed`、primary指定、表示に必要な最小情報が責務です。収集元固有のrecordや導出途中のdomainを、identifierに似ているという理由だけで同じ表へ置きません。
+`project_identifiers`にはrole付きの帰属主張を一行だけ置きます。role、`candidate` / `confirmed`、primary指定、表示に必要な最小情報が責務です。現在有効か過去に有効だったか、停止後に再開したかは[Identifierと登録プロジェクトの時間関係の設計メモ](temporal-project-relations.md)で定義する有効期間へ分けます。収集元固有のrecordや導出途中のdomainを、identifierに似ているという理由だけで同じ表へ置きません。
 
 ### 採用理由
 
