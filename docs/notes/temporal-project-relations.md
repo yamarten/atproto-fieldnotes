@@ -150,6 +150,22 @@ identifier値に`dev`、`test`、`temp`、`staging`、`preview`、`alpha`、`bet
 
 `test`、`temp`、`alpha`、`beta`等を含むidentifierに対するactive decisionは31件あり、すべてlegacy migration由来のconfirmで、block/deferは0件でした。これは31件が誤りという意味ではなく、現行保存に「帰属は正しいが自動登録対象外」という判断を表す場所がないことを示します。
 
+ここでの判定軸はproject自体の完成度ではなく、そのidentifierが同じprojectの中で何を代表するかです。開発中またはalpha段階のprojectに公開面が一つしかなければ、その公開面は現行identifierになり得ます。逆に完成したprojectのsandboxや一時deploymentは、projectとの関係が正しくてもnon-production identifierになり得ます。別のproduction identifierが存在することを必須条件にはしませんが、名前だけでなく、公式説明、同時に存在する他のsurface、登録起点、利用実態を合わせて判断します。
+
+### 代表例のsample review
+
+| 事例 | 確認した事実 | 暫定分類 | 一般則への含意 |
+| --- | --- | --- | --- |
+| ATPcraft | `atpcraft.at`はoperator confirm済みで、HTML canonicalは`dev.atpcraft.at`を指す。公開中の[ATPcraft案内面](https://dev.atpcraft.at/)はactive developmentと説明するが、同時にprojectの参加入口でもある | `atpcraft.at`は現行を維持し、`dev.atpcraft.at`は観測のまま。名前だけでnon-productionへ落とさず、網羅目的で追加もしない | `dev`は補助環境の証明ではなく、project自体が開発中である説明にも使われる |
+| Drydown | `drydown.social`のconfirmがclearされ、redirect先の`alpha.drydown.social`が現行websiteとconfirmed serviceになっている。`social.drydown.*` collectionも観測される | `alpha.drydown.social`は現行を維持する。`drydown.social`は旧identifierか同時aliasか追加確認が必要 | redirectだけでは旧・新を確定できないが、`alpha`という名前も現行性を否定しない |
+| Barazo | [公式documentation repository](https://github.com/singi-labs/barazo-docs)はprojectをalphaとし、`docs.barazo.forum`を公式docsとして示す。正本DBでは`staging.barazo.forum`が現行websiteである | `docs.barazo.forum`と`staging.barazo.forum`は現行を維持する。後者をnon-productionへ移すには、別の代表surfaceまたは公式なsandbox扱いを確認する | project全体がalphaであることと、そのproject内の補助環境であることを分ける |
+| Arabica | `social.arabica.alpha` namespaceは2026-08-08時点でもrecordが観測され、同じprojectの現行collection群として利用されている | 現行 | `alpha` segmentだけではnon-productionにしない |
+| Spindle | `com.publicdomainrelay.temp.market`等は2026-08-08時点でも多数のrecordが観測され、projectの主要namespaceとして使われている | 現行 | `temp` segmentだけでは一時的なidentifierとみなさない |
+| lexicons.bio | `bio.lexicons.temp`と`bio.lexicons.temp.v0-1`の双方に過去のrecordがあり、後者は2026-08-08時点でも利用される | `v0-1`は現行を維持し、無印側が旧identifierかは追加確認 | record activityは有用な観測だが、置き換え確定とは分ける |
+| Musicsky / observ.ing | `temp` namespaceのrecordは観測されているが、直近観測だけでは正式namespace、一時検証、終了済みのどれかを確定できない | review対象 | 情報不足を名前で埋めず、人間の判断を将来の一般則へ戻す |
+
+このsampleは100%の事前分類を目標にしません。確定できないものをreview対象として残せること、review結果をcollector個別例外ではなく「何を見れば現行・旧・non-production・noiseを区別できるか」という一般則へ反映できることを重視します。
+
 ### redirectは移転より広い
 
 `redirects_to`はconfirmedなHTTP redirect 996件とHTML canonical 543件を保持しています。login path、言語path、GitHub page、同一host内routing、productionからdev URLへのcanonical、別serviceへのcross-host redirectが混在し、raw relationを旧identifierまたは移転へ一括変換できません。
@@ -178,7 +194,7 @@ collection inventoryのincremental filterは、現在のproject identifierまた
 
 ## 次の確認
 
-1. Drydown、ATPcraft、Barazo Docsと、名前に`test`、`temp`、`alpha`等を含むconfirmed collectionのsampleを、人が旧identifier、non-production、現行identifier、noiseへ分類する
+1. sample reviewで確定できなかったDrydown旧URL、Barazo staging、lexicons.bio旧namespace、Musicsky、observ.ingを、必要になった時点で一次情報またはoperator判断により確定する
 2. redirectから旧identifier候補を抽出する際、same-host normalization、同時alias、移転、単なるroutingを区別するread-only規則を作る
 3. 旧identifierとnon-production identifierを除外した入力で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
 4. 既存identifier rowの状態追加と別tableについて、通常検索、exact検索、sync抑止、migration対象件数、変更箇所を比較する

@@ -4,13 +4,13 @@
 
 ## 結論
 
-role付きclaimと静的な方向付きrelationで信頼判定を行う構造は成立し、固定case 10件はすべて期待結果と一致しました。full-originとtrace-reuseのverdict差は0件で、今回のDBではfull-originの方が探索edge数も時間も少なかったため、次の試作では登録起点から毎回探索する単純な方式を既定案にできます。自動採用済みclaimへ判定経路を引き継ぐ保存契約を先に導入する利点は確認できませんでした。
+role付きclaimと静的な方向付きrelationで信頼判定を行う構造は成立し、固定case 12件はすべて期待結果と一致しました。full-originとtrace-reuseのverdict差は0件で、今回のDBではfull-originの方が探索edge数も時間も少なかったため、次の試作では登録起点から毎回探索する単純な方式を既定案にできます。自動採用済みclaimへ判定経路を引き継ぐ保存契約を先に導入する利点は確認できませんでした。
 
 一方、productionへ接続できる段階ではありません。最大の阻害要因は、旧confirm decisionが同じrepo URLの`source_repository`と`source_repository_record`へ曖昧に対応することと、現行`service_links_repo`が設計上の「明示されたsource repository」より広い意味で保存されていることです。前者を解消せずにrole付き監査を有効化すると大量のrepo確認が再発し、後者を解消せずにcandidate admissionを有効化するとスポンサーlinkや補助URLまでsource/service候補へ入ります。
 
 したがって次の設計ゲートは、探索方式の選択ではなく、decisionをrole付きclaimへ対応させる移行規則、collection inventoryを登録起点として明示するprovenance、Admissionへ使えるdirect relationの生成契約を決めることです。ここを直したshadow reportを再レビューするまで、自動confirm、candidate保存、Web UI、schema migrationへは進みません。
 
-## 実行条件
+## 初回実行条件
 
 2026-08-11 02:38 JSTに、正本DBをSQLite `mode=ro`の単一transactionで読み、次を実行しました。
 
@@ -30,6 +30,14 @@ bin/project-registry compare-trust-policy \
 - edgeの正本由来は`project_relations`のみ53,962件、旧`trust_graph`のみ7,304件、両方に存在5,385件
 
 正本DBは別processから更新され得るため、上記hashと件数をこの比較snapshotの識別子にします。完全なJSONは`.tmp/trust-policy-shadow-report.json`に置き、commitしません。
+
+### Identifier standing追加後の再実行
+
+2026-08-11に、旧identifierとnon-production identifierを現行Trust pathから除外する`trust-policy-shadow-v2`を追加し、同じread-only条件で再実行しました。固定caseは従来の10件から、旧identifier、non-production identifier、`alpha`等を名前に含む現行identifierのcaseを加えた12件となり、全件が期待結果と一致しました。探索方式のverdict差は0件です。
+
+`standing`はこの比較内で現行・旧・non-productionの区分を渡すための補助属性名で、値は`current`、`former`、`non_production`です。production schemaの列名や保存場所を決めたものではありません。
+
+再実行時点の正本DBは4412 project、24777 claim、66717 deduplicated edgeで、初回snapshotから更新されています。report content hashは`fb2fdb27b198fca1b6245e589d499c5867e9d07a106ba20a0ed84d50f2fed74e`です。production schemaにはidentifier standingがまだないため、正本DBの既存claimはすべて暫定的に`current`として読みました。このため今回確認できたのは固定case上の論理境界であり、旧identifierとnon-production identifierを実DBから除外した後の件数差ではありません。完全なJSONは`.tmp/trust-policy-standing-comparison.json`に置き、commitしません。
 
 ## Source profile別の結果
 
@@ -78,7 +86,9 @@ OAuth permission、`uses_collection`、`mentions_collection`、redirect、handle
 
 ## 既知事例と履歴の確認
 
-固定catalogでは、service/repo相互参照、accountからの片方向claim、OAuthとauthorityの復路、handle/DID、organization account、Arabica/Oolong型共有repo、fork/mirror、Basker/InfoEnon・DateSky/Nomare型の時間関係、subdomain、共有Lexicon authorityの10件が期待どおりでした。時間関係、fork、organization actorはpositive Trust pathへ入りません。
+固定catalogでは、service/repo相互参照、accountからの片方向claim、OAuthとauthorityの復路、handle/DID、organization account、Arabica/Oolong型共有repo、fork/mirror、旧identifier、non-production surface、`alpha`や`temp`を含む現行identifier、subdomain、共有Lexicon authorityの12件が期待どおりでした。旧identifier、non-production identifier、fork、organization actorはpositive Trust pathへ入らず、名前に`alpha`や`temp`を含むこと自体は現行identifierを除外する条件になりません。
+
+この追加比較ではshadow fixture内のclaimへ`standing`を持たせましたが、production schemaは変更していません。正本DBから読む既存identifierはすべて暫定的に`current`として扱うため、新しいstanding規則によって実DBのclaimを除外してはいません。Admission候補は19件、探索方式のverdict差は0件でした。これは保存移行後の件数差を測った結果ではなく、保存形を決める前に論理境界を固定した結果です。
 
 正本DBのArabicaではcollection inventoryと旧service seedを登録起点として保持し、`social.arabica.alpha.*`のcandidate collection 7件をSUPPORTEDとしました。一方、GitHub/Tangled repoは直接の相互pathまたはrole付き起点を欠くためINSUFFICIENTです。Oolongのcandidate repoも独立にINSUFFICIENTであり、repo共有をmerge根拠へ流用していません。
 
