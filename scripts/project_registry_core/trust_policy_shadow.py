@@ -6,17 +6,19 @@ import hashlib
 import json
 import sqlite3
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import storage
+from . import domain_policy, storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "trust-policy-shadow-v2"
+POLICY_VERSION = "trust-policy-shadow-v3"
 VERDICTS = ("SUPPORTED", "INSUFFICIENT", "CONFLICTING", "NOT_EVALUATED")
 CURRENT_IDENTIFIER_STANDING = "current"
 IDENTIFIER_STANDINGS = {CURRENT_IDENTIFIER_STANDING, "former", "non_production"}
+REDIRECT_REVIEW_CATEGORIES = {"same_site_surface_redirect", "cross_site_redirect"}
 
 EVALUATED_ROLES = {
     ("service_url", "service"),
@@ -116,6 +118,33 @@ def _claim_standing(claim: dict[str, Any]) -> str:
 
 def _edge_key(edge: dict[str, Any]) -> tuple[str, str, str, str, str]:
     return (*edge["subject"], str(edge["predicate"]), *edge["object"])
+
+
+def classify_redirect_observation(subject_url: str, object_url: str) -> str:
+    subject = urllib.parse.urlparse(str(subject_url or "").strip())
+    obj = urllib.parse.urlparse(str(object_url or "").strip())
+    if subject.scheme not in {"http", "https"} or obj.scheme not in {"http", "https"}:
+        return "invalid_url"
+    subject_host = str(subject.hostname or "").lower()
+    object_host = str(obj.hostname or "").lower()
+    if not subject_host or not object_host:
+        return "invalid_url"
+    subject_path = (subject.path or "/").rstrip("/") or "/"
+    object_path = (obj.path or "/").rstrip("/") or "/"
+    if subject_host == object_host and subject_path == object_path:
+        return "url_normalization"
+    if (
+        subject_host.removeprefix("www.") == object_host.removeprefix("www.")
+        and subject_host != object_host
+        and subject_path == "/"
+        and object_path == "/"
+    ):
+        return "root_www_alias_candidate"
+    if subject_host == object_host:
+        return "same_host_routing"
+    if domain_policy.is_same_site_family(subject_url, object_url):
+        return "same_site_surface_redirect"
+    return "cross_site_redirect"
 
 
 def _normalize_relation_edge(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any] | None:
@@ -812,6 +841,102 @@ def evaluate_case_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _redirect_observation_summary(
+    conn: sqlite3.Connection,
+    projects: list[dict[str, Any]],
+    *,
+    example_limit: int,
+) -> dict[str, Any]:
+    by_key = {project["project_key"]: project for project in projects}
+    categories: collections.Counter[str] = collections.Counter()
+    methods: collections.Counter[str] = collections.Counter()
+    method_categories: collections.Counter[str] = collections.Counter()
+    examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    review_pairs: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    seen: set[tuple[str, str, str, str]] = set()
+    for row in conn.execute(
+        """
+        SELECT project_key, subject_value, object_value, method, source, locator, observed_at
+        FROM project_relations
+        WHERE predicate='redirects_to' AND classification IN ('confirmed', 'derived')
+        ORDER BY project_key, ordinal
+        """
+    ):
+        project_key = str(row["project_key"])
+        subject = str(row["subject_value"])
+        obj = str(row["object_value"])
+        method = str(row["method"] or "(none)")
+        observation_key = (project_key, subject, obj, method)
+        if observation_key in seen:
+            continue
+        seen.add(observation_key)
+        category = classify_redirect_observation(subject, obj)
+        categories[category] += 1
+        methods[method] += 1
+        method_categories[f"{method}:{category}"] += 1
+        payload = {
+            "project_key": project_key,
+            "subject": subject,
+            "object": obj,
+            "method": method,
+            "source": str(row["source"]),
+            "locator": str(row["locator"]),
+            "observed_at": str(row["observed_at"]),
+        }
+        if len(examples[category]) < example_limit:
+            examples[category].append(payload)
+        if category not in REDIRECT_REVIEW_CATEGORIES:
+            continue
+        project = by_key.get(project_key, {})
+        claims = list(project.get("claims", []))
+        subject_current = any(
+            claim["node"] == ("service_url", subject)
+            and claim.get("classification") == "confirmed"
+            and _claim_standing(claim) == CURRENT_IDENTIFIER_STANDING
+            for claim in claims
+        )
+        target_claimed = any(
+            claim["node"] == ("service_url", obj)
+            and _claim_standing(claim) == CURRENT_IDENTIFIER_STANDING
+            for claim in claims
+        )
+        subject_had_confirm = any(
+            decision.get("kind") == "confirm_identifier"
+            and IDENTIFIER_KIND.get(str(decision.get("target_type") or "")) == "service_url"
+            and str(decision.get("target_value") or "") == subject
+            for decision in project.get("decisions", [])
+        )
+        reason = ""
+        if target_claimed and (subject_current or subject_had_confirm):
+            reason = "claimed_target_from_current_or_former_confirmed_service"
+        elif subject_current:
+            reason = "unregistered_target_from_current_service"
+        if not reason:
+            continue
+        review_key = (project_key, subject, obj, category, reason)
+        if review_key not in review_pairs:
+            review_pairs[review_key] = {
+                **payload,
+                "category": category,
+                "reason": reason,
+                "methods": [method],
+            }
+        elif method not in review_pairs[review_key]["methods"]:
+            review_pairs[review_key]["methods"].append(method)
+    review_reasons = collections.Counter(item["reason"] for item in review_pairs.values())
+    return {
+        "deduplicated_observation_count": len(seen),
+        "category_counts": _counter_dict(categories),
+        "method_counts": _counter_dict(methods),
+        "method_category_counts": _counter_dict(method_categories),
+        "review_candidate_count": len(review_pairs),
+        "review_reason_counts": _counter_dict(review_reasons),
+        "examples": dict(examples),
+        "review_examples": list(review_pairs.values())[:example_limit],
+        "interpretation": "URL topology and existing project state only; review candidates are not confirmed aliases or moves",
+    }
+
+
 def compare_database(conn: sqlite3.Connection, *, case_catalog: dict[str, Any], example_limit: int = 20) -> dict[str, Any]:
     started_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     projects = _load_projects(conn)
@@ -852,6 +977,7 @@ def compare_database(conn: sqlite3.Connection, *, case_catalog: dict[str, Any], 
         "profiles": _summarize_results(projects, evaluations, example_limit=example_limit),
         "decision_history": _decision_history(conn, evaluations),
         "merge_history": _merge_history(conn, projects),
+        "redirect_observations": _redirect_observation_summary(conn, projects, example_limit=example_limit),
         "review_gate": {
             "case_catalog_passed": case_results["failed_count"] == 0,
             "strategy_divergence_count": sum(

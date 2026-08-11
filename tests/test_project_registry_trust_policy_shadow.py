@@ -191,6 +191,15 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             {"known_identifier_standing:non_production": 1},
         )
 
+    def test_redirect_observation_classification_is_topological_not_temporal(self) -> None:
+        classify = trust_policy_shadow.classify_redirect_observation
+        self.assertEqual(classify("http://example.com", "https://example.com"), "url_normalization")
+        self.assertEqual(classify("https://example.com", "https://www.example.com"), "root_www_alias_candidate")
+        self.assertEqual(classify("https://example.com", "https://example.com/login"), "same_host_routing")
+        self.assertEqual(classify("https://staging.example.com", "https://example.com"), "same_site_surface_redirect")
+        self.assertEqual(classify("https://old.example", "https://new.example.net"), "cross_site_redirect")
+        self.assertEqual(classify("not-a-url", "https://example.com"), "invalid_url")
+
     def test_cli_parser_exposes_read_only_comparison_arguments(self) -> None:
         args = cli.build_parser().parse_args([
             "compare-trust-policy", "--db-path", "input.db", "--output", "report.json",
@@ -200,6 +209,56 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
 
 
 class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
+    def test_redirect_summary_marks_current_service_target_for_review_without_confirming_move(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO projects(
+                    project_key, name, website_url, service_status, profile_json, state_json,
+                    first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, '{}', '{}', ?, ?)
+                """,
+                ("proj:redirect", "Redirect", "https://staging.example.com", "live", "2026-08-11", "2026-08-11"),
+            )
+            conn.execute(
+                """
+                INSERT INTO project_identifiers(
+                    project_key, ordinal, kind, value, role, classification, observed_at
+                ) VALUES (?, 0, 'service_url', ?, 'service', 'confirmed', ?)
+                """,
+                ("proj:redirect", "https://staging.example.com", "2026-08-11"),
+            )
+            conn.execute(
+                """
+                INSERT INTO project_relations(
+                    project_key, ordinal, subject_type, subject_value, predicate,
+                    object_type, object_value, classification, source, locator, method, observed_at
+                ) VALUES (?, 0, 'service', ?, 'redirects_to', 'service', ?, 'confirmed', 'test', ?, 'html_canonical', ?)
+                """,
+                (
+                    "proj:redirect",
+                    "https://staging.example.com",
+                    "https://example.com",
+                    "https://staging.example.com",
+                    "2026-08-11",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        report = trust_policy_shadow.compare_database_path(
+            self.db_path, case_catalog_path=FIXTURE, example_limit=5,
+        )
+        redirects = report["redirect_observations"]
+        self.assertEqual(redirects["category_counts"], {"same_site_surface_redirect": 1})
+        self.assertEqual(redirects["review_candidate_count"], 1)
+        self.assertEqual(
+            redirects["review_reason_counts"],
+            {"unregistered_target_from_current_service": 1},
+        )
+        self.assertIn("not confirmed aliases or moves", redirects["interpretation"])
+
     def test_database_path_comparison_is_read_only_and_reproducible(self) -> None:
         before = self.db_path.read_bytes()
         first = trust_policy_shadow.compare_database_path(
@@ -214,6 +273,7 @@ class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
         self.assertEqual(first["input"], second["input"])
         self.assertEqual(first["profiles"], second["profiles"])
         self.assertEqual(first["case_catalog"], second["case_catalog"])
+        self.assertEqual(first["redirect_observations"], second["redirect_observations"])
 
     def test_read_only_connection_rejects_writes(self) -> None:
         uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
