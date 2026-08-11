@@ -39,6 +39,10 @@ bin/project-registry compare-trust-policy \
 
 再実行時点の正本DBは4412 project、24777 claim、66717 deduplicated edgeで、初回snapshotから更新されています。report content hashは`fb2fdb27b198fca1b6245e589d499c5867e9d07a106ba20a0ed84d50f2fed74e`です。production schemaにはidentifier standingがまだないため、正本DBの既存claimはすべて暫定的に`current`として読みました。このため今回確認できたのは固定case上の論理境界であり、旧identifierとnon-production identifierを実DBから除外した後の件数差ではありません。完全なJSONは`.tmp/trust-policy-standing-comparison.json`に置き、commitしません。
 
+### Redirect観測分類追加後の再実行
+
+`trust-policy-shadow-v3`では、raw `redirects_to`を移転へ読み替えず、URL正規化、root/`www` alias候補、同一host内routing、同一site family内の別surface、別siteへのredirectへread-only分類しました。1121観測のうち、既存のservice claimまたはconfirm履歴から人が確認する価値があるものは25組まで絞れました。report content hashは`dd7684841aa15dea6b01ddb942c34bbb44ed0d7f0f4cc175b6788bbb059d35e1`で、完全なJSONは`.tmp/trust-policy-redirect-comparison.json`に置いています。固定case 12件は全件成功し、探索方式のverdict差は0件で、production behaviorは変更していません。
+
 ## Source profile別の結果
 
 | Source profile | 登録起点 | 曖昧な起点decision | SUPPORTED | INSUFFICIENT | CONFLICTING | NOT_EVALUATED |

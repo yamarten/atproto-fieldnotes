@@ -170,6 +170,22 @@ identifier値に`dev`、`test`、`temp`、`staging`、`preview`、`alpha`、`bet
 
 `redirects_to`はconfirmedなHTTP redirect 996件とHTML canonical 543件を保持しています。login path、言語path、GitHub page、同一host内routing、productionからdev URLへのcanonical、別serviceへのcross-host redirectが混在し、raw relationを旧identifierまたは移転へ一括変換できません。
 
+### Redirect観測のread-only分類
+
+`trust-policy-shadow-v3`では、時間関係を確定せず、URL構造だけでraw redirectを次のように分類します。同じproject、同じsubject、同じobject、同じmethodの重複を除くと1121観測でした。
+
+| 分類 | 件数 | この段階で言えること |
+| --- | ---: | --- |
+| URL正規化 | 37 | 同じhostとpathの表記差。identifier正規化候補であり、project移転ではない |
+| root/`www` alias候補 | 252 | rootと`www`の直接関係。alias候補だが、raw relation自体を移転にしない |
+| 同一host内routing | 213 | `/login`、language path、documentation version等。同じsurface内の遷移として時間関係から除外する |
+| 同一site family内の別surface | 170 | rootとsubdomain等。別surface、alias、alpha版、移転のどれかはURL構造だけでは決めない |
+| 別siteへのredirect | 449 | service移転、repository/package/docsへの案内、platform landing、別projectが混在する |
+
+このうち、redirect元が現行confirmed serviceまたは過去にconfirmされたserviceで、同じprojectにredirect先claimがあるか、現行serviceから未登録の別surfaceへ向かうものは25組でした。HTTP redirectとHTML canonicalが同じ組を示す場合は人間の確認一件としてまとめています。redirect先が既に同じprojectのclaimであるものは3組、未登録のものは22組です。
+
+25組は移転候補の正解集合ではありません。DateSky→Nomare、Drydown、Pinksky→Pinkleapのような改名・移転らしい例と、service URLからGitHub repositoryやpub.dev packageへ着地する例、BarazoやATPcraftのようにalpha・staging・developmentの公開面を含む例が残っています。これは意図した結果で、一般則だけで明らかなrouting 213件等を先に外し、残る小さい集合を人が分類して次の一般則へ戻します。HTML canonical単独、cross-site redirect単独、未登録targetであることのいずれも、旧identifier化や新identifier採用を自動確定しません。
+
 canonical redirectによるactive confirmは7件ありました。Drydownでは`https://drydown.social`のlegacy confirmをclearし、redirect先の`https://alpha.drydown.social`を自動confirmしています。ATPcraftではproduction URLのHTML canonicalが`https://dev.atpcraft.at`を指し、Barazo Docsでは`https://staging.barazo.forum`がconfirmed serviceとして残っています。これらが本当にnon-productionかは個別確認が必要ですが、URL名を無視してredirect先へconfirmを付け替える現行動作をshadow比較する代表例になります。
 
 URL aliasは196 projectにあり、理由別ではconfirmed redirect 200件、同一contentだけによるconfirmed alias 3件でした。同一content由来3件は、合意済みの「content一致単独ではaliasにしない」規則による除外候補です。
@@ -195,7 +211,7 @@ collection inventoryのincremental filterは、現在のproject identifierまた
 ## 次の確認
 
 1. sample reviewで確定できなかったDrydown旧URL、Barazo staging、lexicons.bio旧namespace、Musicsky、observ.ingを、必要になった時点で一次情報またはoperator判断により確定する
-2. redirectから旧identifier候補を抽出する際、same-host normalization、同時alias、移転、単なるroutingを区別するread-only規則を作る
+2. redirect review候補25組を、移転、同時alias、別surface、resourceへの案内、別projectへsample分類し、一般化できる追加条件だけを採用する
 3. 旧identifierとnon-production identifierを除外した入力で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
 4. 既存identifier rowの状態追加と別tableについて、通常検索、exact検索、sync抑止、migration対象件数、変更箇所を比較する
 5. その結果から保存schemaと移行計画を確定する
