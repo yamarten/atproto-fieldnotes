@@ -157,4 +157,4 @@ prototypeでは少なくとも次を確認します。
 - merge後も、どのprojectでどの理由により採用されていたかを監査できるか
 - 信頼判定cacheを消しても、手動判断、登録起点、時間関係が残るか
 
-temp DBでmutationとmigration dry-runを作り、candidate admissionの代表例、repo decisionの曖昧性解消、登録起点の復元、block/deferの優先関係をsample reviewします。正本DBの複製が利用可能になった時点で件数差と主要事例をshadow比較し、その後にだけproduction schemaと正本文書への反映計画を作ります。
+temp DBのmutation、正本DBのread-only移行投影、主要事例のsample reviewは[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)まで完了しました。8件の固定caseはすべて成功し、confirmed構成要素10,187件のうち10,186件は既存データから採用理由を復元できます。production schemaと正本文書への反映計画へ進む前に、移行専用bootstrapとして一括復元する二つのcohortと、復元不能だったWaverly Socialのservice URL一件を利用者がreviewします。

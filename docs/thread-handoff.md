@@ -6,6 +6,7 @@
 
 ## 現在地
 
+- identifierの採用理由、旧identifier、non-production、時間関係、noiseを分離するtemp DB prototypeと正本DBのread-only移行投影まで完了しました。production schemaと挙動は未変更です。結果とreview対象は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
@@ -18,6 +19,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
+- `migration_confirmed_relation` 95件と`migration_legacy_project_context` 13件を移行専用bootstrap理由として一括復元するかreviewする。併せてWaverly Socialの`https://mywaverly.com`をcurrent alias、former、noiseのどれにするか判断する。合意前にproduction schemaやmigrationを実装しない。
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
 
 ## DB 操作メモ
