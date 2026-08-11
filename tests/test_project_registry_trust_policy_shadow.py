@@ -197,8 +197,20 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(classify("https://example.com", "https://www.example.com"), "root_www_alias_candidate")
         self.assertEqual(classify("https://example.com", "https://example.com/login"), "same_host_routing")
         self.assertEqual(classify("https://staging.example.com", "https://example.com"), "same_site_surface_redirect")
+        self.assertEqual(
+            classify("https://example.com", "https://github.com/example/project"),
+            "resource_destination",
+        )
+        self.assertEqual(
+            classify("https://example.com", "https://pub.dev:443/packages/example"),
+            "resource_destination",
+        )
         self.assertEqual(classify("https://old.example", "https://new.example.net"), "cross_site_redirect")
         self.assertEqual(classify("not-a-url", "https://example.com"), "invalid_url")
+        self.assertEqual(
+            trust_policy_shadow._redirect_url_identity("https://pub.dev:443/packages/example/"),
+            "https://pub.dev/packages/example",
+        )
 
     def test_cli_parser_exposes_read_only_comparison_arguments(self) -> None:
         args = cli.build_parser().parse_args([
@@ -209,7 +221,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
 
 
 class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
-    def test_redirect_summary_marks_current_service_target_for_review_without_confirming_move(self) -> None:
+    def test_redirect_summary_separates_resource_and_multiple_target_observations(self) -> None:
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
@@ -244,6 +256,32 @@ class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
                     "2026-08-11",
                 ),
             )
+            conn.executemany(
+                """
+                INSERT INTO project_relations(
+                    project_key, ordinal, subject_type, subject_value, predicate,
+                    object_type, object_value, classification, source, locator, method, observed_at
+                ) VALUES (?, ?, 'service', ?, 'redirects_to', 'service', ?, 'confirmed', 'test', ?, 'http_redirect', ?)
+                """,
+                [
+                    (
+                        "proj:redirect",
+                        1,
+                        "https://staging.example.com",
+                        "https://other.example",
+                        "https://staging.example.com",
+                        "2026-08-11",
+                    ),
+                    (
+                        "proj:redirect",
+                        2,
+                        "https://staging.example.com",
+                        "https://github.com/example/project",
+                        "https://staging.example.com",
+                        "2026-08-11",
+                    ),
+                ],
+            )
             conn.commit()
         finally:
             conn.close()
@@ -251,11 +289,18 @@ class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
             self.db_path, case_catalog_path=FIXTURE, example_limit=5,
         )
         redirects = report["redirect_observations"]
-        self.assertEqual(redirects["category_counts"], {"same_site_surface_redirect": 1})
-        self.assertEqual(redirects["review_candidate_count"], 1)
+        self.assertEqual(
+            redirects["category_counts"],
+            {"cross_site_redirect": 1, "resource_destination": 1, "same_site_surface_redirect": 1},
+        )
+        self.assertEqual(redirects["review_candidate_count"], 2)
         self.assertEqual(
             redirects["review_reason_counts"],
-            {"unregistered_target_from_current_service": 1},
+            {"multiple_observed_targets_from_current_or_former_confirmed_service": 2},
+        )
+        self.assertEqual(
+            {item["subject_target_count"] for item in redirects["review_examples"]},
+            {2},
         )
         self.assertIn("not confirmed aliases or moves", redirects["interpretation"])
 

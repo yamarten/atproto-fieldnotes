@@ -43,6 +43,12 @@ bin/project-registry compare-trust-policy \
 
 `trust-policy-shadow-v3`では、raw `redirects_to`を移転へ読み替えず、URL正規化、root/`www` alias候補、同一host内routing、同一site family内の別surface、別siteへのredirectへread-only分類しました。1121観測のうち、既存のservice claimまたはconfirm履歴から人が確認する価値があるものは25組まで絞れました。report content hashは`dd7684841aa15dea6b01ddb942c34bbb44ed0d7f0f4cc175b6788bbb059d35e1`で、完全なJSONは`.tmp/trust-policy-redirect-comparison.json`に置いています。固定case 12件は全件成功し、探索方式のverdict差は0件で、production behaviorは変更していません。
 
+### Redirect sample review反映後
+
+`trust-policy-shadow-v4`では、GitHub repositoryとpub.dev packageへの着地を`resource_destination`として移転reviewから除外し、既定HTTP/HTTPS portと末尾slashを正規化したURLを人間の確認単位に使います。同じprojectの同じsubjectから複数の行先が観測された場合は、通常の移転候補ではなく`multiple_observed_targets_from_current_or_former_confirmed_service`として分けます。
+
+保存済みv3 reportの25件へこの規則を投影すると、repository・packageへの案内4件が時間関係reviewから外れます。複数行先は`psky.social`からPhotoSkyとZeensへの2件で、Poptartの二本は`pub.dev`の既定port表記差を正規化すると同じ組です。正本DBが現在このworktreeにないためv4の正本再実行は未実施であり、この21件という値は保存済みreportからの投影値です。temp DB testではresource除外、複数行先の分離、read-only再現性を確認しています。
+
 ## Source profile別の結果
 
 | Source profile | 登録起点 | 曖昧な起点decision | SUPPORTED | INSUFFICIENT | CONFLICTING | NOT_EVALUATED |

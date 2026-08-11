@@ -14,7 +14,7 @@ from . import domain_policy, storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "trust-policy-shadow-v3"
+POLICY_VERSION = "trust-policy-shadow-v4"
 VERDICTS = ("SUPPORTED", "INSUFFICIENT", "CONFLICTING", "NOT_EVALUATED")
 CURRENT_IDENTIFIER_STANDING = "current"
 IDENTIFIER_STANDINGS = {CURRENT_IDENTIFIER_STANDING, "former", "non_production"}
@@ -120,6 +120,35 @@ def _edge_key(edge: dict[str, Any]) -> tuple[str, str, str, str, str]:
     return (*edge["subject"], str(edge["predicate"]), *edge["object"])
 
 
+def _redirect_url_identity(url: str) -> str:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    scheme = str(parsed.scheme or "").lower()
+    host = str(parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not host:
+        return str(url or "").strip()
+    try:
+        port = parsed.port
+    except ValueError:
+        return str(url or "").strip()
+    if port in {None, 80 if scheme == "http" else 443}:
+        netloc = host
+    else:
+        netloc = f"{host}:{port}"
+    path = (parsed.path or "/").rstrip("/") or "/"
+    return urllib.parse.urlunparse((scheme, netloc, path, "", parsed.query, ""))
+
+
+def _is_non_service_resource_destination(url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    host = str(parsed.hostname or "").lower()
+    parts = [part for part in (parsed.path or "").split("/") if part]
+    if host == "github.com" and len(parts) >= 2:
+        return True
+    if host == "pub.dev" and len(parts) >= 2 and parts[0] == "packages":
+        return True
+    return False
+
+
 def classify_redirect_observation(subject_url: str, object_url: str) -> str:
     subject = urllib.parse.urlparse(str(subject_url or "").strip())
     obj = urllib.parse.urlparse(str(object_url or "").strip())
@@ -142,6 +171,8 @@ def classify_redirect_observation(subject_url: str, object_url: str) -> str:
         return "root_www_alias_candidate"
     if subject_host == object_host:
         return "same_host_routing"
+    if _is_non_service_resource_destination(object_url):
+        return "resource_destination"
     if domain_policy.is_same_site_family(subject_url, object_url):
         return "same_site_surface_redirect"
     return "cross_site_redirect"
@@ -854,14 +885,22 @@ def _redirect_observation_summary(
     examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     review_pairs: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     seen: set[tuple[str, str, str, str]] = set()
-    for row in conn.execute(
+    rows = list(conn.execute(
         """
         SELECT project_key, subject_value, object_value, method, source, locator, observed_at
         FROM project_relations
         WHERE predicate='redirects_to' AND classification IN ('confirmed', 'derived')
         ORDER BY project_key, ordinal
         """
-    ):
+    ))
+    target_identities: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
+    for row in rows:
+        category = classify_redirect_observation(str(row["subject_value"]), str(row["object_value"]))
+        if category in REDIRECT_REVIEW_CATEGORIES:
+            target_identities[
+                (str(row["project_key"]), _redirect_url_identity(str(row["subject_value"])))
+            ].add(_redirect_url_identity(str(row["object_value"])))
+    for row in rows:
         project_key = str(row["project_key"])
         subject = str(row["subject_value"])
         obj = str(row["object_value"])
@@ -906,20 +945,30 @@ def _redirect_observation_summary(
             and str(decision.get("target_value") or "") == subject
             for decision in project.get("decisions", [])
         )
+        subject_target_count = len(target_identities[(project_key, _redirect_url_identity(subject))])
         reason = ""
-        if target_claimed and (subject_current or subject_had_confirm):
+        if subject_target_count > 1 and (subject_current or subject_had_confirm):
+            reason = "multiple_observed_targets_from_current_or_former_confirmed_service"
+        elif target_claimed and (subject_current or subject_had_confirm):
             reason = "claimed_target_from_current_or_former_confirmed_service"
         elif subject_current:
             reason = "unregistered_target_from_current_service"
         if not reason:
             continue
-        review_key = (project_key, subject, obj, category, reason)
+        review_key = (
+            project_key,
+            _redirect_url_identity(subject),
+            _redirect_url_identity(obj),
+            category,
+            reason,
+        )
         if review_key not in review_pairs:
             review_pairs[review_key] = {
                 **payload,
                 "category": category,
                 "reason": reason,
                 "methods": [method],
+                "subject_target_count": subject_target_count,
             }
         elif method not in review_pairs[review_key]["methods"]:
             review_pairs[review_key]["methods"].append(method)
