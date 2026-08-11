@@ -6,7 +6,7 @@
 
 登録プロジェクトに属するidentifierと、そのidentifierを採用した理由、収集しただけの観測を分離します。
 
-- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに属する」という帰属主張を表します。現在有効か過去に有効だったかは別の時間軸で表します。
+- `project_identifiers`は「このidentifierが、このroleで、この登録プロジェクトに属する」という現行の帰属主張を表します。旧identifierとnon-production identifierを既存rowの状態として持つか、別に持つかは実例監査後に決めます。
 - `confirmed`は少なくとも一つの有効な採用理由を持つ帰属主張、`candidate`はまだ採用理由を持たない帰属主張を表します。`confirmed`を信頼と無関係な単なる登録状態へ弱めません。
 - 採用理由は、手動判断、登録起点、信頼判定規則による自動採用を区別し、一つの帰属主張に複数保持できます。
 - recordの発見情報やauthority domainなど、帰属主張そのものではない観測は`project_identifiers`へ入れません。
@@ -21,7 +21,7 @@
 
 帰属主張は`project key + identifier kind + value + role`を単位にします。同じURLやDIDでもroleが異なれば別の主張です。手動判断、信頼判定、採用を止める条件も、この単位へ対応させます。
 
-`project_identifiers`にはrole付きの帰属主張を一行だけ置きます。role、`candidate` / `confirmed`、primary指定、表示に必要な最小情報が責務です。現在有効か過去に有効だったか、停止後に再開したかは[Identifierと登録プロジェクトの時間関係の設計メモ](temporal-project-relations.md)で定義する有効期間へ分けます。収集元固有のrecordや導出途中のdomainを、identifierに似ているという理由だけで同じ表へ置きません。
+`project_identifiers`はrole、`candidate` / `confirmed`、primary指定、表示に必要な最小情報を持つ帰属主張の正本です。[Identifierと登録プロジェクトの時間関係の設計メモ](temporal-project-relations.md)で定義する旧identifierとnon-production identifierも肯定的なproject関連情報ですが、全identifierへ複数の有効期間を要求しません。収集元固有のrecord、導出途中のdomain、noiseを、identifierに似ているという理由だけで同じ表へ置きません。
 
 ### 採用理由
 
@@ -135,12 +135,13 @@ OAuth利用、accountからのservice/repository link、mention、共通host、�
 
 現時点の小さい変更案は、`project_identifiers`に採用理由の集合を持たせ、`project_decisions`に`target_role`を追加し、判定cacheを`state_json`へ置く形です。採用理由は通常claimと同時に読み、件数も小さいため、直ちに専用テーブルを必要とはしません。
 
-ただしこれは論理契約を説明する候補であり、まだmigration仕様ではありません。次に時間関係を設計し、少なくとも次を確認してからJSON列と別テーブルを比較します。
+ただしこれは論理契約を説明する候補であり、まだmigration仕様ではありません。時間関係の実例を監査し、少なくとも次を確認してからJSON列と別テーブルを比較します。
 
-- 旧identifierとcurrent identifierの履歴を帰属主張の上書きで失わないか
+- 旧identifierを通常検索から現在のprojectへ誘導できるか
+- non-production identifierとnoiseを混同せず、どちらもsyncによる自動復活を抑止できるか
 - project改名・後継と、同一resourceのrename/transferを区別できるか
 - 時点の異なる採用理由とblock/deferを正しい順序で再現できるか
 - merge後も、どのprojectでどの理由により採用されていたかを監査できるか
 - 信頼判定cacheを消しても、手動判断、登録起点、時間関係が残るか
 
-時間関係の設計後、複製DBでmigration dry-runとshadow比較を行います。candidate admissionの代表例、repo decisionの曖昧性解消、登録起点の復元、block/deferの優先関係をsample reviewし、その後にだけproduction schemaと正本文書への反映計画を作ります。
+時間関係の実例監査後、複製DBでmigration dry-runとshadow比較を行います。candidate admissionの代表例、repo decisionの曖昧性解消、登録起点の復元、block/deferの優先関係をsample reviewし、その後にだけproduction schemaと正本文書への反映計画を作ります。

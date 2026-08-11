@@ -30,7 +30,7 @@ repositoryのrename/transfer、handle変更、serviceの旧domainから新domain
 
 ### 同じ登録プロジェクトの変化
 
-登録プロジェクトの改名、説明の更新、構成要素の追加・終了は、project keyを変えません。名称履歴と各identifierの有効期間を残し、旧名や終了したserviceを現在の構成要素として表示しません。
+登録プロジェクトの改名、説明の更新、構成要素の追加・終了は、project keyを変えません。必要な名称履歴と旧identifierを残し、旧名や終了したserviceを現在の構成要素として表示しません。
 
 構成要素の網羅性は要求しません。観測済みsurfaceの一部が終了したことを記録できればよく、未観測のAPI endpoint等を完全に列挙してから変化を確定する必要はありません。
 
@@ -49,7 +49,7 @@ Basker→InfoEnon、DateSky→Nomare型の事例は、まずこの候補とし�
 - tenant、instance、第三者mirror
 - 一時的なredirect、login pageへのredirect、同一domain内のrouting
 
-これらは並行関係、派生関係、配備形態、または単なる観測です。後で片方が終了し、正式な置き換えが確認された時点で、その二つの有効期間だけを時間関係として追加できます。
+これらは並行関係、派生関係、配備形態、または単なる観測です。後で片方が終了し、正式な置き換えが確認された時点で、旧identifierと置き換え関係を履歴へ追加できます。
 
 ## 観測と確定した時間関係
 
@@ -70,30 +70,34 @@ HTTP redirect、HTML canonical、provider metadata、DID document、告知文、
 
 projectの改名か別projectへの継承かは自動確定しません。この判断はprojectという囲い自体を変え、mergeと同程度の影響を持つためです。
 
-## Identifierの状態
+## Identifierの扱い
 
-帰属の真偽と、現在使われているかを別軸にします。
+すべてのidentifierへ汎用的なcurrent/historical期間を持たせず、意味と検索用途が異なる次の四つを区別します。
 
-- `confirmed` / `candidate`: そのidentifierがそのroleで登録プロジェクトに属するという帰属主張の採用状態
-- current / historical: その帰属が現在有効か、過去の一定期間に有効だったか
+| 区分 | 意味 | 通常検索 | Admissionと信頼判定 |
+| --- | --- | --- | --- |
+| 現行identifier | 現在、登録プロジェクトを代表するidentifier | 表示する | roleと採用理由が許せば利用する |
+| 旧identifier | 過去に登録プロジェクトを正式に代表した肯定的な履歴 | 現在のprojectへ誘導する | 自動再登録せず、信頼判定の起点にしない |
+| non-production identifier | projectとの関係は正しいが、productionを代表する構成要素として登録しないもの | exact検索や調査画面ではprojectとの関係を示してよい | 自動登録せず、信頼判定の起点にしない |
+| noise・誤検出 | projectとの有意な関係がない、またはidentifierとして扱えないもの | 通常検索へ出さない | 除外判断によって再生成を止める |
 
-旧domainが過去に正式なserviceだった場合、移転後も帰属主張は`confirmed`のままhistoricalにできます。これを`candidate`へ戻すと「昔は正しかった」という情報が失われ、`confirmed`の意味も曖昧になります。
+旧identifierとnon-production identifierは肯定的なproject関連情報です。既存identifier rowに状態を追加して保持する案と、履歴・補助情報として別に保持する案のどちらも許容します。noiseは帰属情報ではなく除外判断なので、同じ保存分類へ入れません。
 
-一つのroleにcurrent identifierが複数あって構いません。新identifierを追加しただけでは旧identifierをhistoricalにせず、明示的な置き換えまたは終了を確認した場合だけ期間を閉じます。再開や一時的な併用に備え、同じidentifierが複数の有効期間を持てる論理モデルにします。
+production以外をstaging、preview、development、temporary等へ細分化しません。URLやNSIDの名前だけから推測せず、明示的な観測または手動判断がある場合にだけnon-productionとして扱います。一時的なdeployment URLなど、調査に不要なものは観測だけに留めても構いません。
 
-historicalな帰属主張は通常のAdmission、信頼判定の起点、current構成要素の表示に使いません。履歴表示、旧URLからの検索、移転の説明、過去判断の再現には使えます。
+新identifierを追加しただけでは旧identifierへ移しません。明示的な置き換えまたは終了が確認された場合にだけ旧identifierとして残します。一つのroleに現行identifierが複数あって構いません。
 
 ## 採用理由との関係
 
-採用理由は「この帰属主張が正しい理由」、有効期間は「いつcurrentだったか」を表すため、同じ情報へ統合しません。手動confirm、登録起点、静的な信頼判定は帰属主張を採用できても、別のcurrent identifierへ置き換わった時刻までは決めません。
+採用理由は「この帰属主張が正しい理由」、旧identifierへの移動や置き換え関係は「以前はprojectを代表していた」という履歴を表すため、同じ情報へ統合しません。手動confirm、登録起点、静的な信頼判定は帰属主張を採用できても、別identifierへ置き換わったことまでは決めません。
 
-時間関係policyは、確認済みの移転から新identifierのcandidateと有効期間の開始候補を作れます。ただし、それだけで自動confirmするかは通常の採用規則へ委ねます。新側が通常の信頼判定で`SUPPORTED`になるか、operatorまたは承認済みの収集入口が採用した場合にだけ`confirmed`にします。
+時間関係policyは、確認済みの移転から新identifierのcandidateを作れます。ただし、それだけで自動confirmするかは通常の採用規則へ委ねます。新側が通常の信頼判定で`SUPPORTED`になるか、operatorまたは承認済みの収集入口が採用した場合にだけ`confirmed`にします。
 
-置き換えを自動処理する場合は、旧identifierをcurrentな信頼判定の起点として新identifierを評価し、新identifierの採用と期間開始を保存してから、旧identifierの期間を閉じます。先に旧identifierをhistoricalへ移して起点を失ったり、新identifierの採用に失敗したまま旧identifierだけを終了させたりしません。
+置き換えを自動処理する場合は、旧identifierを信頼判定の起点として新identifierを評価し、新identifierを採用してから、旧identifierと置き換え関係を履歴へ移します。先に旧identifierを起点から外したり、新identifierの採用に失敗したまま旧identifierだけを終了させたりしません。
 
-旧identifierの採用理由は移転後も履歴の根拠として残しますが、historicalになった時点で信頼判定の起点には使いません。移転先へ旧identifierのoperator採用理由をコピーしません。
+旧identifierの採用理由は移転後も履歴の根拠として残しますが、信頼判定の起点には使いません。移転先へ旧identifierのoperator採用理由をコピーしません。
 
-この分離により、canonical redirectを検出した処理が旧confirmを新URLへ付け替える現行動作は変更対象になります。移転観測、新URLの採用、旧URLの期間終了を別々に記録します。
+この分離により、canonical redirectを検出した処理が旧confirmを新URLへ付け替える現行動作は変更対象になります。移転観測、新URLの採用、旧URLの履歴化を別々に記録します。
 
 ## 信頼判定、Admission、mergeでの用途
 
@@ -101,44 +105,83 @@ historicalな帰属主張は通常のAdmission、信頼判定の起点、current
 | --- | --- |
 | Candidate admission | 確認済みの資源移転先をcandidateとして提示できる。raw redirect、同一content、名前一致からは生成しない |
 | 自動confirm | 時間関係単独では行わない。新identifierへの通常の往路・復路または別の採用理由を要求する |
-| 信頼判定の起点 | currentで、採用理由が有効で、review対象でない帰属主張だけを使う |
-| 関係経路 | currentな直接関係を通常policyで使う。historical relationは過去時点の再現以外に使わない |
+| 信頼判定の起点 | 現行identifierで、採用理由が有効で、review対象でない帰属主張だけを使う |
+| 関係経路 | 現在の観測が支持する直接関係を通常policyで使う。旧identifierとnon-production identifierは起点にしない |
 | project merge | 確認済みの同一project内の資源移転は重複候補の説明に使えるが、自動merge根拠にはしない |
 | 前身・後継 | 別projectを維持し、merge抑止と表示に使う。採用理由とidentifierは継承しない |
 | fork・派生 | [派生関係の設計メモ](derivation-relations.md)に従い、Trustとmergeの正の根拠にしない |
 
-テスト版から正式版への追従も同じです。正式版が同じprojectの新しいcurrent serviceだと確認できればcandidateと期間開始を作れますが、テスト版がまだ稼働しているならhistoricalにはしません。単に同じcontentを返す二つのURLは記録対象にしません。
+テスト版から正式版への追従も同じです。正式版が同じprojectの新しいserviceだと確認できればcandidateを作れますが、テスト版はproductionを代表していた事実がなければ旧identifierではなくnon-production identifierです。単に同じcontentを返す二つのURLは記録対象にしません。
 
 ## 現行実装との差分
 
 - `redirects_to`はraw HTTP redirectとHTML canonicalを同じpredicateで保持しています。観測と確定したalias・移転を分ける必要があります。
-- same-site redirectから同じprovenanceの双方向`service_canonical` edgeを作り、条件次第で旧URLのconfirm decisionを新URLへ移しています。双方向の意味保証は利用できますが、帰属の採用と期間終了を一つのmutationにしません。
+- same-site redirectから同じprovenanceの双方向`service_canonical` edgeを作り、条件次第で旧URLのconfirm decisionを新URLへ移しています。双方向の意味保証は利用できますが、帰属の採用と旧identifierへの履歴化を一つのmutationにしません。
 - `url_aliases`はroot/`www`の同一contentもconfirmed aliasにします。同一content単独ではaliasにしない方針へ変更が必要です。
 - DID documentの`alsoKnownAs`を複数handleとして収集しています。current handleは規格上の先頭値を使い、以前の観測値は履歴として分ける必要があります。
-- `project_identifiers`と`project_relations`は`observed_at`を持ちますが、有効期間とcurrent/historicalの別を持ちません。
-- `investigation_runs`には過去snapshotがありますが、currentな帰属から旧identifierの期間を照会する正本ではありません。
+- `project_identifiers`は旧identifierとnon-production identifierを区別せず、これらを自動再登録から抑止する正本もありません。
+- `investigation_runs`には過去snapshotがありますが、旧identifierを検索し、現在のprojectへ誘導する肯定履歴の正本ではありません。
 - `project_key_aliases`は実行済みmerge後のkey解決だけを表し、projectの改名履歴や前身・後継は表しません。
 - fork・派生は現状`separate_project`やreview理由へ寄せられ、時間関係とは別です。この境界は維持します。
 
 ## 保存契約への影響
 
-時間関係を入れると、`project_identifiers`を「現在行だけのtable」と決めるより、帰属主張と有効期間を分ける方が単純です。
+全identifierに複数の有効期間を持たせることは初期要件にしません。論理的に必要なのは次の情報です。
 
-- 帰属主張: `project + kind + value + role`、classification、採用理由
-- 有効期間: 帰属主張への参照、開始時刻、終了時刻、期間を開閉した根拠
-- 資源間の時間関係: 旧identifier、新identifier、関係種別、発効時刻、根拠
+- 現行の帰属主張: `project + kind + value + role`、classification、採用理由
+- 旧identifier: 元の帰属主張、旧identifierになった時刻と理由、置き換え先
+- non-production identifier: projectとの肯定的な関係、自動登録を抑止する判断と根拠
+- noise・誤検出: identifier値に対する除外decision
 - project間の時間関係: 前身project、後継project、関係種別、発効時刻、operator判断
 
-物理候補は、`project_identifiers`に帰属主張を一行だけ保持し、複数期間を別tableへ置く形です。currentは終了時刻のない期間から導出します。この形なら、同じidentifierの停止と再開、historical confirmed、採用理由の維持を表せます。
+旧identifierとnon-production identifierは、既存`project_identifiers`に状態を追加する案と、別の履歴・補助tableへ置く案を比較します。どちらを選んでも通常query、Admission、信頼判定は現行identifierだけを既定入力とし、旧identifierは通常検索から現在のprojectへ誘導でき、non-production identifierはexact検索または調査画面から確認できる必要があります。
 
-資源間の時間関係を`project_relations`へ置くか専用tableへ置くかは未確定です。`project_relations`の現在のunique keyには発効時刻がなく、同じ移転の再観測と複数期間を区別できないため、そのまま流用はしません。project間の前身・後継はregistry全体の関係なので、一方のproject配下だけへ保存しない形が必要です。
+noiseはprojectとの肯定的な関係を持たないため、同じidentifier tableへ入れません。collectorから見れば旧identifier、non-production identifier、noiseはいずれも再生成を止めるguardになりますが、guardは別々の保存事実・decisionから投影します。
+
+資源間の置き換え関係を`project_relations`へ置くか専用tableへ置くかは未確定です。project間の前身・後継はregistry全体の関係なので、一方のproject配下だけへ保存しない形が必要です。
+
+## 2026-08-11のread-only監査
+
+正本DBを更新せず、現行identifier、decision、redirect relation、URL alias、collection syncの再取込条件を確認しました。この監査は名前からnon-productionを自動分類するものではなく、保存上の必要性と候補件数を測るものです。
+
+### 名前では分類できない
+
+identifier値に`dev`、`test`、`temp`、`staging`、`preview`、`alpha`、`beta`相当のsegmentを含むrowを候補抽出しました。`.dev`はNSID authorityの正規なTLDとして大量に使われ、`alpha`や`test`もprojectが正式に採用したcollection名に含まれます。文字列だけでnon-productionへ分類する規則は採用できません。
+
+`test`、`temp`、`alpha`、`beta`等を含むidentifierに対するactive decisionは31件あり、すべてlegacy migration由来のconfirmで、block/deferは0件でした。これは31件が誤りという意味ではなく、現行保存に「帰属は正しいが自動登録対象外」という判断を表す場所がないことを示します。
+
+### redirectは移転より広い
+
+`redirects_to`はconfirmedなHTTP redirect 996件とHTML canonical 543件を保持しています。login path、言語path、GitHub page、同一host内routing、productionからdev URLへのcanonical、別serviceへのcross-host redirectが混在し、raw relationを旧identifierまたは移転へ一括変換できません。
+
+canonical redirectによるactive confirmは7件ありました。Drydownでは`https://drydown.social`のlegacy confirmをclearし、redirect先の`https://alpha.drydown.social`を自動confirmしています。ATPcraftではproduction URLのHTML canonicalが`https://dev.atpcraft.at`を指し、Barazo Docsでは`https://staging.barazo.forum`がconfirmed serviceとして残っています。これらが本当にnon-productionかは個別確認が必要ですが、URL名を無視してredirect先へconfirmを付け替える現行動作をshadow比較する代表例になります。
+
+URL aliasは196 projectにあり、理由別ではconfirmed redirect 200件、同一contentだけによるconfirmed alias 3件でした。同一content由来3件は、合意済みの「content一致単独ではaliasにしない」規則による除外候補です。
+
+### 改名・後継の既知事例
+
+DateSky/Nomareは現在一つのproject recordに旧・新repository、旧・新NSID、旧serviceを持ち、`https://datesky.app`から`https://nomare.net`へのredirectも保存されています。同一projectの改名・移転候補として扱い、各repoとNSIDが本当に置き換えられたかは別々に確認するのが妥当です。
+
+BaskerとInfoEnonは別project recordで、namespaceと提供目的も異なり、正本DBに両者の直接関係はありません。現時点ではmergeせず、一次情報で継承が確認できた場合だけ別project間の前身・後継関係を付ける候補です。
+
+### collection syncの復活経路
+
+collection inventoryのincremental filterは、現在のproject identifierまたはmanual seedに含まれるNSIDだけを既知としてskipします。project identifierからnon-production collectionを単に削除すると、次回以降のinventoryで再びeligibleになります。
+
+既存projectへattachした後の`add_collection_owned_nsid()`はproject-scopedなblock/deferを確認しますが、unmatched collectionから新しいprojectを作る前に参照できるregistry-wideな肯定履歴・除外indexはありません。したがって、non-productionと旧identifierはprojectへの関連を保ったまま`known_collection_nsids()`へ含め、noiseは別の除外decisionからfilterする必要があります。
+
+### 保存形の暫定評価
+
+`project_identifiers`は実装とtestから55箇所で参照され、SQLの多くは追加の状態filterなしで全rowを構成要素として読みます。同じtableへ旧identifierとnon-production identifierを追加する場合、すべての通常query、merge、Trust、presentation、syncで現行identifierだけを選ぶ監査が必要です。
+
+別tableなら既存の構成要素queryを変えず、通常検索だけ旧identifierをunionし、exact検索とsync filterだけnon-productionを参照できます。このため現時点では別tableの方が誤利用リスクは小さそうですが、物理schemaの決定ではありません。既存tableへ明示的な状態を足した方がmigrationと検索を単純化できる可能性も、実装比較まで残します。
 
 ## 次の確認
 
-1. 正本DBとmerge前snapshotから、旧URL・旧handle・rename後repoがどの程度残っているかをread-onlyで抽出する
-2. Basker/InfoEnon、DateSky/Nomareを、同一projectの改名候補と別projectへの継承候補のどちらとして扱うか人が確認する
-3. canonical redirectでconfirmを付け替えた履歴と、root/`www`同一content aliasの実例をsample reviewする
-4. current/historicalを加えた論理移行で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
-5. その結果から、identifier期間、採用理由、時間関係をJSON列と別tableのどちらへ置くか確定する
+1. Drydown、ATPcraft、Barazo Docsと、名前に`test`、`temp`、`alpha`等を含むconfirmed collectionのsampleを、人が旧identifier、non-production、現行identifier、noiseへ分類する
+2. redirectから旧identifier候補を抽出する際、same-host normalization、同時alias、移転、単なるroutingを区別するread-only規則を作る
+3. 旧identifierとnon-production identifierを除外した入力で、既存confirmed件数と信頼判定の起点がどう変わるかshadow比較する
+4. 既存identifier rowの状態追加と別tableについて、通常検索、exact検索、sync抑止、migration対象件数、変更箇所を比較する
+5. その結果から保存schemaと移行計画を確定する
 
 この確認が終わるまで、redirect処理、DID/handle収集、project merge、正本DB schemaは変更しません。
