@@ -88,12 +88,12 @@ merge alias 506件すべてでmerge前snapshotを読めました。抽出したc
 
 ## 次の判断材料
 
-次のshadow比較へ進む前に、以下を設計します。
+次のshadow比較へ進む前に、以下を設計します。1、2、4と保存責務の論理契約は[Identifierの採用理由と保存契約の設計メモ](identifier-adoption-storage-design.md)へ整理しました。物理schemaは時間関係の設計後に確定します。
 
 1. roleなしの旧`confirm_identifier(repo_url)`を、観測用`source_repository_record`ではなくproject componentの`source_repository`へ対応させる移行契約
 2. collection inventory、canonical redirect、source sync、operator add-seedを、暗黙のclassificationではなくrole付き登録起点として保存する契約
 3. `service_links_repo` / `repo_links_service`を正式なsource/service参照へ限定し、一般link、support、sponsor、docs、arbitrary README URLを分離するcollector契約
-4. 手動confirmとblock/deferが併存する1件について、採用を維持した警告と信頼判定の起点利用を別々に表す規則
+4. 手動confirmとblock/deferが併存する1件について、最新の明示的な手動判断を有効にし、自動処理ではguardを解除しない規則
 5. confirmed service 73件の不足が、登録起点migration、collector不足、時間変化のどれかをsample分類する追加監査
 
 これらを反映したshadowでcandidate admission sampleが安全になり、repoの一括的な疑似reviewが解消した場合にだけ、保存schemaとproduction接続の実装計画を作ります。
