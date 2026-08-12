@@ -766,6 +766,9 @@ def confirm_candidate(
     value: str,
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key)
+    # An explicit operator confirmation supersedes an exact block/defer. If the
+    # candidate is invalid, the unsaved in-memory change is discarded below.
+    projects._clear_exact_identifier_guards(project, identifier_type, value)
     if identifier_type == "service_url":
         confirmed = core.confirm_service_seed(project, value, source="web_ui")
     elif identifier_type == "repo_url":
@@ -808,6 +811,11 @@ def confirm_candidate(
         confirmed,
         source="web_ui",
         note="candidate confirmed by operator",
+        role={
+            "service_url": "service",
+            "repo_url": "source_repository",
+            "nsid": "owned_nsid",
+        }.get(identifier_type, ""),
     )
     project_record.save_project(
         conn,

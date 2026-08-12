@@ -16,6 +16,7 @@ RUNTIME_RELATION_ROWS = "_registry_relation_rows_v2"
 RUNTIME_RELATION_BASELINE = "_registry_relation_baseline_v2"
 RUNTIME_DECISION_ROWS = "_registry_decision_rows_v2"
 RUNTIME_DECISION_BASELINE = "_registry_decision_baseline_v2"
+RUNTIME_ADOPTION_ROWS = "_registry_identifier_adoption_rows_v3"
 RUNTIME_INVESTIGATION_RUN_ID = "_registry_investigation_run_id_v2"
 RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_VIEW_MARKER,
@@ -25,6 +26,7 @@ RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_RELATION_BASELINE,
     RUNTIME_DECISION_ROWS,
     RUNTIME_DECISION_BASELINE,
+    RUNTIME_ADOPTION_ROWS,
     RUNTIME_INVESTIGATION_RUN_ID,
 }
 ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
@@ -81,7 +83,6 @@ IDENTIFIER_FIELDS = {
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
-    "source_repo_records",
     "developer_accounts",
     "candidate_developer_accounts",
     "bluesky_handles",
@@ -121,6 +122,7 @@ class ProjectDecision:
     kind: str
     target_type: str = ""
     target_value: str = ""
+    target_role: str = ""
     note: str = ""
     created_at: str = ""
     expires_at: str = ""
@@ -269,9 +271,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         add("nsid", value, "owned_nsid", "candidate")
     for value in project.get("resolved_nsids", []):
         add("nsid", value, "owned_nsid", "confirmed")
-    for value in project.get("authority_domains", []):
-        add("domain", value, "authority_domain", "derived")
-
     for value in project.get("service_urls", []):
         add("service_url", value, "service", "confirmed")
     for value in project.get("service_url_candidates", []):
@@ -282,21 +281,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         add("repo_url", value, "source_repository", "confirmed")
     for value in project.get("candidate_source_code_urls", []):
         add("repo_url", value, "source_repository", "candidate")
-    for item in project.get("source_repo_records", []):
-        if not isinstance(item, dict):
-            continue
-        classification = str(item.get("confidence") or item.get("classification") or "candidate")
-        if classification not in CLASSIFICATIONS:
-            classification = "confirmed" if classification == "owned" else "candidate"
-        add(
-            "repo_url",
-            item.get("url"),
-            "source_repository_record",
-            classification,
-            metadata=dict(item),
-            observed_at=str(item.get("observed_at") or ""),
-        )
-
     for field, classification in (
         ("developer_accounts", "confirmed"),
         ("candidate_developer_accounts", "candidate"),
@@ -382,6 +366,7 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 "block_identifier",
                 str(item.get("type") or ""),
                 str(item.get("value") or ""),
+                str(item.get("role") or ""),
                 str(item.get("note") or ""),
                 str(item.get("added_at") or ""),
                 metadata=dict(item),
@@ -392,6 +377,7 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 "defer_identifier",
                 str(item.get("type") or ""),
                 str(item.get("value") or ""),
+                str(item.get("role") or ""),
                 str(item.get("note") or ""),
                 str(item.get("added_at") or ""),
                 str(item.get("expires_at") or ""),
@@ -401,6 +387,7 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
         if isinstance(item, dict):
             output.append(ProjectDecision(
                 "defer_promotion",
+                target_role="",
                 note=str(item.get("reason") or ""),
                 created_at=str(item.get("added_at") or ""),
                 expires_at=str(item.get("expires_at") or ""),
@@ -413,21 +400,23 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 "lower_promotion_priority",
                 "promotion_priority",
                 "lowered",
+                "",
                 str(item.get("reason") or ""),
                 str(item.get("added_at") or ""),
                 cleared_at=str(item.get("cleared_at") or ""),
                 metadata=dict(item),
             ))
     for value in project.get("dismissed_review_kinds", []):
-        output.append(ProjectDecision("dismiss_review", "review_kind", str(value)))
+        output.append(ProjectDecision("dismiss_review", "review_kind", str(value), ""))
     for value in project.get("separate_project_keys", []):
-        output.append(ProjectDecision("separate_project", "project_key", str(value)))
+        output.append(ProjectDecision("separate_project", "project_key", str(value), ""))
     for item in project.get("confirmed_identifiers", []):
         if isinstance(item, dict):
             output.append(ProjectDecision(
                 "confirm_identifier",
                 str(item.get("type") or ""),
                 str(item.get("value") or ""),
+                str(item.get("role") or ""),
                 str(item.get("note") or item.get("source") or ""),
                 str(item.get("added_at") or ""),
                 cleared_at=str(item.get("cleared_at") or ""),
@@ -439,6 +428,7 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 str(item.get("kind")),
                 str(item.get("target_type") or ""),
                 str(item.get("target_value") or ""),
+                str(item.get("target_role") or ""),
                 str(item.get("note") or ""),
                 str(item.get("created_at") or ""),
                 str(item.get("expires_at") or ""),
@@ -492,6 +482,7 @@ def hydrate(
     identifier_rows: Iterable[Mapping[str, Any]],
     relation_rows: Iterable[Mapping[str, Any]],
     decision_rows: Iterable[Mapping[str, Any]],
+    adoption_rows: Iterable[Mapping[str, Any]] = (),
     load_json: Any,
 ) -> dict[str, Any]:
     identifier_payload = [
@@ -528,6 +519,7 @@ def hydrate(
             "kind": str(row["kind"]),
             "target_type": str(row["target_type"]),
             "target_value": str(row["target_value"]),
+            "target_role": str(row["target_role"]),
             "note": str(row["note"]),
             "created_at": str(row["created_at"]),
             "expires_at": str(row["expires_at"]),
@@ -540,7 +532,7 @@ def hydrate(
         "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
         "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],
         "service_url_candidates": [], "source_code_urls": [], "candidate_source_code_urls": [],
-        "source_repo_records": [], "developer_accounts": [], "candidate_developer_accounts": [],
+        "developer_accounts": [], "candidate_developer_accounts": [],
         "bluesky_handles": [], "tangled_handles": [], "manual_seeds": [],
     })
     for row in identifier_payload:
@@ -551,7 +543,6 @@ def hydrate(
             if role == "owned_nsid":
                 target = "resolved_nsids" if classification == "confirmed" else "input_nsids"
                 project[target].append(value)
-        elif kind == "domain" and role == "authority_domain": project["authority_domains"].append(value)
         elif kind == "service_url":
             target = "service_urls" if classification == "confirmed" else "service_url_candidates"
             project[target].append(value)
@@ -559,10 +550,6 @@ def hydrate(
             if bool(row["is_primary"]) and classification == "confirmed": project["source_code_url"] = value
             target = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
             project[target].append(value)
-            if metadata and role == "source_repository_record":
-                record = copy.deepcopy(metadata)
-                record["confidence"] = classification
-                project["source_repo_records"].append(record)
         elif kind == "account":
             if role == "developer_account":
                 account = _normalized_developer_account(copy.deepcopy(metadata) or {"handle": value})
@@ -582,6 +569,11 @@ def hydrate(
         if str(item) and str(item) not in confirmed_service_urls
     ])
     project["resolved_nsids"] = _unique([str(item) for item in project["resolved_nsids"] if str(item)])
+    project["authority_domains"] = _unique([
+        authority
+        for nsid in project["resolved_nsids"]
+        if (authority := identifiers.derive_authority_domain(nsid))
+    ])
     confirmed_nsids = set(project["resolved_nsids"])
     project["input_nsids"] = _unique([
         str(item)
@@ -615,11 +607,13 @@ def hydrate(
         if kind == "block_identifier":
             project["blocked_identifiers"].append(metadata or {
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
+                "role": str(row["target_role"]),
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
             })
         elif kind == "defer_identifier":
             project["deferred_identifiers"].append(metadata or {
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
+                "role": str(row["target_role"]),
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "expires_at": str(row["expires_at"]),
             })
@@ -657,4 +651,5 @@ def hydrate(
     project[RUNTIME_IDENTIFIER_ROWS] = copy.deepcopy(identifier_payload)
     project[RUNTIME_RELATION_ROWS] = copy.deepcopy(relation_payload)
     project[RUNTIME_DECISION_ROWS] = [asdict(ProjectDecision(**item)) for item in decision_payload]
+    project[RUNTIME_ADOPTION_ROWS] = [dict(row) for row in adoption_rows]
     return refresh_baselines(project)

@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import identifier_storage_shadow
+from . import database, identifier_storage_shadow
 
 
 SHADOW_SCHEMA_VERSION = 1
@@ -47,73 +47,13 @@ def _row_id(prefix: str, *values: str) -> str:
 
 
 def _create_shadow_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE project_noncurrent_identifiers (
-            project_key TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            value TEXT NOT NULL,
-            role TEXT NOT NULL,
-            standing TEXT NOT NULL CHECK(standing IN ('former', 'non_production')),
-            reason TEXT NOT NULL DEFAULT '',
-            recorded_at TEXT NOT NULL DEFAULT '',
-            origin_project_key TEXT NOT NULL DEFAULT '',
-            metadata_json TEXT NOT NULL DEFAULT '{}',
-            PRIMARY KEY(project_key, kind, value, role),
-            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
-        CREATE INDEX idx_project_noncurrent_identifiers_lookup
-            ON project_noncurrent_identifiers(kind, value, standing);
-        CREATE TABLE project_identifier_adoptions (
-            adoption_id TEXT PRIMARY KEY,
-            project_key TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            value TEXT NOT NULL,
-            role TEXT NOT NULL,
-            adoption_kind TEXT NOT NULL CHECK(adoption_kind IN ('operator', 'bootstrap', 'trust_policy')),
-            source TEXT NOT NULL,
-            registration_origin INTEGER NOT NULL DEFAULT 0,
-            source_ref TEXT NOT NULL DEFAULT '',
-            policy_version TEXT NOT NULL DEFAULT '',
-            input_fingerprint TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT '',
-            cleared_at TEXT NOT NULL DEFAULT '',
-            review_required INTEGER NOT NULL DEFAULT 0,
-            review_reason TEXT NOT NULL DEFAULT '',
-            origin_project_key TEXT NOT NULL DEFAULT '',
-            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
-        CREATE INDEX idx_project_identifier_adoptions_claim
-            ON project_identifier_adoptions(project_key, kind, value, role, cleared_at);
-        CREATE TABLE project_identifier_transitions (
-            transition_id TEXT PRIMARY KEY,
-            project_key TEXT NOT NULL,
-            from_kind TEXT NOT NULL,
-            from_value TEXT NOT NULL,
-            from_role TEXT NOT NULL,
-            to_kind TEXT NOT NULL,
-            to_value TEXT NOT NULL,
-            to_role TEXT NOT NULL,
-            relation_kind TEXT NOT NULL,
-            evidence_ref TEXT NOT NULL DEFAULT '',
-            effective_at TEXT NOT NULL DEFAULT '',
-            origin_project_key TEXT NOT NULL DEFAULT '',
-            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
-        CREATE TABLE registry_identifier_exclusions (
-            kind TEXT NOT NULL,
-            value TEXT NOT NULL,
-            reason TEXT NOT NULL DEFAULT '',
-            source TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT '',
-            cleared_at TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY(kind, value)
-        );
-        """
-    )
-    decision_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(project_decisions)")}
-    if "target_role" not in decision_columns:
-        conn.execute("ALTER TABLE project_decisions ADD COLUMN target_role TEXT NOT NULL DEFAULT ''")
+    version = database.database_schema_version(conn)
+    if version == 2:
+        database.migrate_v2_schema(conn)
+    elif version == database.SCHEMA_VERSION:
+        database.ensure_schema(conn)
+    else:
+        raise database.SchemaMismatchError(f"unsupported source schema version: {version}")
     conn.execute(
         "INSERT INTO registry_meta(key, value) VALUES('identifier_storage_shadow_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -256,15 +196,31 @@ def _move_observation_only_identifiers(conn: sqlite3.Connection) -> collections.
             metadata.setdefault("url", str(row["value"]))
             metadata.setdefault("classification", str(row["classification"]))
             metadata.setdefault("observed_at", str(row["observed_at"]))
-            _record_observation(conn, str(row["project_key"]), "source_repository_records", metadata)
-        else:
-            _record_observation(conn, str(row["project_key"]), "authority_domain_observations", str(row["value"]))
+            _record_observation(conn, str(row["project_key"]), "source_repo_records", metadata)
         conn.execute(
             "DELETE FROM project_identifiers WHERE project_key=? AND ordinal=?",
             (str(row["project_key"]), int(row["ordinal"])),
         )
         counts[role] += 1
     return counts
+
+
+def _compact_child_ordinals(conn: sqlite3.Connection) -> None:
+    for table in ("project_identifiers", "project_relations", "project_decisions"):
+        rows = conn.execute(
+            f"SELECT rowid, project_key FROM {table} ORDER BY project_key, ordinal"
+        ).fetchall()
+        next_ordinal: dict[str, int] = collections.defaultdict(int)
+        assignments: list[tuple[int, int]] = []
+        for row in rows:
+            project_key = str(row["project_key"])
+            ordinal = next_ordinal[project_key]
+            next_ordinal[project_key] += 1
+            assignments.append((int(row["rowid"]), ordinal))
+        for index, (rowid, _ordinal) in enumerate(assignments):
+            conn.execute(f"UPDATE {table} SET ordinal=? WHERE rowid=?", (-index - 1, rowid))
+        for rowid, ordinal in assignments:
+            conn.execute(f"UPDATE {table} SET ordinal=? WHERE rowid=?", (ordinal, rowid))
 
 
 def _current_claim(conn: sqlite3.Connection, key: tuple[str, str, str, str]) -> sqlite3.Row | None:
@@ -309,6 +265,12 @@ def _move_to_noncurrent(
     conn.execute(
         "DELETE FROM project_identifiers WHERE project_key=? AND kind=? AND value=? AND role=?",
         key,
+    )
+    _clear_adoptions(
+        conn,
+        key,
+        cleared_at=recorded_at,
+        reason=f"moved to {standing}",
     )
 
 
@@ -523,7 +485,14 @@ def _apply_review_manifest(
             _move_to_noncurrent(conn, key, standing=action, reason=REVIEW_SOURCE, recorded_at=reviewed_at)
             _insert_adoption(
                 conn,
-                {**claim, "adoption_kind": "operator", "source": REVIEW_SOURCE, "created_at": reviewed_at},
+                {
+                    **claim,
+                    "adoption_kind": "operator",
+                    "source": REVIEW_SOURCE,
+                    "created_at": reviewed_at,
+                    "cleared_at": reviewed_at,
+                    "review_reason": f"moved to {action}",
+                },
             )
         elif action == "move_to_separate_project":
             pass
@@ -536,7 +505,14 @@ def _apply_review_manifest(
         _move_to_noncurrent(conn, key, standing=action, reason=REVIEW_SOURCE, recorded_at=reviewed_at)
         _insert_adoption(
             conn,
-            {**item, "adoption_kind": "operator", "source": REVIEW_SOURCE, "created_at": reviewed_at},
+            {
+                **item,
+                "adoption_kind": "operator",
+                "source": REVIEW_SOURCE,
+                "created_at": reviewed_at,
+                "cleared_at": reviewed_at,
+                "review_reason": f"moved to {action}",
+            },
         )
         counts[f"additional_{action}"] += 1
     for item in manifest.get("add_current_claims", []):
@@ -682,6 +658,7 @@ def materialize_reviewed_copy(
     target.row_factory = sqlite3.Row
     try:
         source.execute("PRAGMA query_only=ON")
+        source_schema_version = database.database_schema_version(source)
         source.backup(target)
         target.execute("PRAGMA foreign_keys=ON")
         before = {
@@ -710,6 +687,7 @@ def materialize_reviewed_copy(
         _normalize_reviewed_websites(target)
         service_status_resets = _reset_service_status_for_nonservice_reviews(target, manifest)
         observation_counts = _move_observation_only_identifiers(target)
+        _compact_child_ordinals(target)
         validation = _validation(target)
         after = {
             "project_count": int(target.execute("SELECT COUNT(*) FROM projects").fetchone()[0]),
@@ -735,15 +713,23 @@ def materialize_reviewed_copy(
         source.close()
     return {
         "shadow_schema_version": SHADOW_SCHEMA_VERSION,
-        "source": {"db_path": str(source_path), "read_only": True},
-        "target": {"db_path": str(target_path), "production_database": False},
+        "source": {
+            "db_path": str(source_path),
+            "read_only": True,
+            "schema_version": source_schema_version,
+        },
+        "target": {
+            "db_path": str(target_path),
+            "production_database": False,
+            "schema_version": database.SCHEMA_VERSION,
+        },
         "manifest": str(manifest_path),
         "before": before,
         "after": after,
         "decision_role_mapping": dict(sorted(decision_counts.items())),
         "active_guard_removed_claim_count": active_guard_removed_count,
         "service_status_resets": service_status_resets,
-        "observation_role_migration": dict(sorted(observation_counts.items())),
+        "observation_role_cleanup": dict(sorted(observation_counts.items())),
         "review": review,
         "validation": validation,
         "review_gate": {

@@ -16,6 +16,7 @@ from project_registry_core import tangled as tangled_core
 from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import identifiers as identifier_core
+from project_registry_core import identifier_storage
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_material as repository_material_core
 from project_registry_core import repository_sources as repository_source_core
@@ -139,7 +140,11 @@ def sync_bluesky_lexicons(
         if project is None:
             raise ValueError(f"Bluesky target project disappeared: {target_key}")
         for nsid in collections:
-            changed += int(add_collection_owned_nsid(project, nsid))
+            changed += int(add_collection_owned_nsid(
+                project,
+                nsid,
+                source="bluesky_official_lexicons",
+            ))
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bluesky_official_lexicons")
         save_project(conn, finalize_project_shape(project), enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
         conn.commit()
@@ -192,9 +197,11 @@ def filter_sync_collection_inventory_payload(
     lookback_days: int,
     watermark: dt.datetime | None = None,
     all_history: bool = False,
+    suppressed_nsids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     cutoff = None if all_history else (watermark or (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))))
     known_nsids = known_collection_nsids(projects)
+    suppressed = set(suppressed_nsids or set())
     filtered: list[dict[str, Any]] = []
     skipped_known = 0
     skipped_old = 0
@@ -206,7 +213,7 @@ def filter_sync_collection_inventory_payload(
         if not collection_nsid:
             skipped_invalid_collection += 1
             continue
-        if not all_history and collection_nsid in known_nsids:
+        if collection_nsid in suppressed or (not all_history and collection_nsid in known_nsids):
             skipped_known += 1
             continue
         activity_at = parse_iso(str(item.get("max") or item.get("min") or ""))
@@ -377,6 +384,10 @@ def sync_collection_inventory(
         lookback_days=lookback_days,
         watermark=None if all_history else stored_watermark,
         all_history=all_history,
+        suppressed_nsids=(
+            identifier_storage.known_noncurrent_collection_nsids(conn)
+            | identifier_storage.active_exclusions(conn, "nsid")
+        ),
     )
     filter_stats["fetched_entries"] = len(payload)
     filter_stats["processed_entries"] = len(processing_payload)

@@ -850,6 +850,16 @@ def _adoption_projection(
         ):
             continue
         claim_key = (item["project_key"], item["target_kind"], item["target_value"], item["target_role"])
+        confirmed_claim = conn.execute(
+            """
+            SELECT 1 FROM project_identifiers
+            WHERE project_key=? AND kind=? AND value=? AND role=? AND classification='confirmed'
+            LIMIT 1
+            """,
+            claim_key,
+        ).fetchone()
+        if confirmed_claim is None:
+            continue
         later_guards = [
             guard
             for guard in active_guards.get(claim_key[:3], [])

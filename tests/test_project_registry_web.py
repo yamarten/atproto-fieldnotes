@@ -795,7 +795,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertFalse(any("encodeuricomponent" in item["value"].lower() for item in detail["identifiers"]))
 
-    def test_authority_domain_identifier_can_be_split_from_detail(self) -> None:
+    def test_authority_domain_observation_is_not_a_splitable_component_identifier(self) -> None:
         conn = registry.open_db()
         try:
             project = project_record.fetch_project(conn, "proj:111111111111")
@@ -808,11 +808,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
-        domain = next(item for item in detail["identifiers"] if item["value"] == "app.example.com")
-        entry = next(item for item in domain["entries"] if item["kind"] == "domain")
-
-        self.assertTrue(entry["actions"]["split"])
-        self.assertEqual(entry["actions"]["identifier_type"], "domain")
+        self.assertFalse(any(item["value"] == "app.example.com" for item in detail["identifiers"]))
 
     def test_merge_pair_includes_both_projects_and_result_preview(self) -> None:
         status, payload, _ = self.request(

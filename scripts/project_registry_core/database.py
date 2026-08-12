@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
 from . import runtime_view
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 SQLITE_BUSY_TIMEOUT_SECONDS = 30.0
 SQLITE_BUSY_TIMEOUT_MS = int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
@@ -135,6 +136,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             kind TEXT NOT NULL,
             target_type TEXT NOT NULL DEFAULT '',
             target_value TEXT NOT NULL DEFAULT '',
+            target_role TEXT NOT NULL DEFAULT '',
             note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT '',
             expires_at TEXT NOT NULL DEFAULT '',
@@ -154,7 +156,80 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             watermark_json TEXT NOT NULL DEFAULT '{}',
             last_success_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS project_noncurrent_identifiers (
+            project_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            value TEXT NOT NULL,
+            role TEXT NOT NULL,
+            standing TEXT NOT NULL CHECK(standing IN ('former', 'non_production')),
+            reason TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL DEFAULT '',
+            origin_project_key TEXT NOT NULL DEFAULT '',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY(project_key, kind, value, role),
+            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_noncurrent_identifiers_lookup
+            ON project_noncurrent_identifiers(kind, value, standing);
+        CREATE TABLE IF NOT EXISTS project_identifier_adoptions (
+            adoption_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            value TEXT NOT NULL,
+            role TEXT NOT NULL,
+            adoption_kind TEXT NOT NULL CHECK(adoption_kind IN ('operator', 'bootstrap', 'trust_policy')),
+            source TEXT NOT NULL,
+            registration_origin INTEGER NOT NULL DEFAULT 0,
+            source_ref TEXT NOT NULL DEFAULT '',
+            policy_version TEXT NOT NULL DEFAULT '',
+            input_fingerprint TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            cleared_at TEXT NOT NULL DEFAULT '',
+            review_required INTEGER NOT NULL DEFAULT 0,
+            review_reason TEXT NOT NULL DEFAULT '',
+            origin_project_key TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_identifier_adoptions_claim
+            ON project_identifier_adoptions(project_key, kind, value, role, cleared_at);
+        CREATE TABLE IF NOT EXISTS project_identifier_transitions (
+            transition_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            from_kind TEXT NOT NULL,
+            from_value TEXT NOT NULL,
+            from_role TEXT NOT NULL,
+            to_kind TEXT NOT NULL,
+            to_value TEXT NOT NULL,
+            to_role TEXT NOT NULL,
+            relation_kind TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL DEFAULT '',
+            effective_at TEXT NOT NULL DEFAULT '',
+            origin_project_key TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS registry_identifier_exclusions (
+            kind TEXT NOT NULL,
+            value TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            cleared_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(kind, value)
+        );
         """
+    )
+
+
+def migrate_v2_schema(conn: sqlite3.Connection) -> None:
+    if database_schema_version(conn) != 2:
+        raise SchemaMismatchError("identifier storage migration requires schema version 2")
+    decision_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(project_decisions)")}
+    if "target_role" not in decision_columns:
+        conn.execute("ALTER TABLE project_decisions ADD COLUMN target_role TEXT NOT NULL DEFAULT ''")
+    ensure_schema(conn)
+    conn.execute(
+        "UPDATE registry_meta SET value=? WHERE key='schema_version'",
+        (str(SCHEMA_VERSION),),
     )
 
 
@@ -288,10 +363,21 @@ def replace_project_children(conn: sqlite3.Connection, project: dict[str, Any]) 
     conn.execute("DELETE FROM project_decisions WHERE project_key = ?", (project_key,))
     for ordinal, item in enumerate(project_decisions(project)):
         conn.execute(
-            "INSERT INTO project_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (project_key, ordinal, item.kind, item.target_type, item.target_value, item.note,
+            """
+            INSERT INTO project_decisions(
+                project_key, ordinal, kind, target_type, target_value, target_role,
+                note, created_at, expires_at, cleared_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (project_key, ordinal, item.kind, item.target_type, item.target_value, item.target_role, item.note,
              item.created_at, item.expires_at, item.cleared_at, _json(item.metadata or {})),
         )
+    from . import identifier_storage
+    identifier_storage.reconcile_project_adoptions(
+        conn,
+        project_key,
+        now=dt.datetime.now(dt.timezone.utc).isoformat(),
+    )
 
 
 def hydrate_project_children(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
@@ -305,11 +391,16 @@ def hydrate_project_children(conn: sqlite3.Connection, project: dict[str, Any]) 
     decisions = conn.execute(
         "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
+    adoptions = conn.execute(
+        "SELECT * FROM project_identifier_adoptions WHERE project_key = ? ORDER BY created_at, adoption_id",
+        (project_key,),
+    ).fetchall()
     return runtime_view.hydrate(
         project,
         identifier_rows=identifiers,
         relation_rows=relations,
         decision_rows=decisions,
+        adoption_rows=adoptions,
         load_json=_load_json,
     )
 
@@ -329,7 +420,7 @@ def replace_identifier_rows(
 
 
 def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
-    snapshot: dict[str, list[dict[str, Any]]] = {"identifiers": [], "relations": [], "decisions": []}
+    snapshot: dict[str, list[dict[str, Any]]] = {"identifiers": [], "relations": [], "decisions": [], "adoptions": []}
     for row in conn.execute(
         """
         SELECT project_key, ordinal, kind, value, role, classification, is_primary,
@@ -376,7 +467,7 @@ def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[st
         })
     for row in conn.execute(
         """
-        SELECT project_key, ordinal, kind, target_type, target_value, note,
+        SELECT project_key, ordinal, kind, target_type, target_value, target_role, note,
                created_at, expires_at, cleared_at, metadata_json
         FROM project_decisions
         ORDER BY project_key, ordinal
@@ -388,12 +479,17 @@ def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[st
             "kind": str(row["kind"]),
             "target_type": str(row["target_type"]),
             "target_value": str(row["target_value"]),
+            "target_role": str(row["target_role"]),
             "note": str(row["note"]),
             "created_at": str(row["created_at"]),
             "expires_at": str(row["expires_at"]),
             "cleared_at": str(row["cleared_at"]),
             "metadata": _load_json(str(row["metadata_json"]), {}),
         })
+    for row in conn.execute(
+        "SELECT * FROM project_identifier_adoptions ORDER BY project_key, created_at, adoption_id"
+    ):
+        snapshot["adoptions"].append(dict(row))
     return snapshot
 
 
@@ -410,15 +506,24 @@ def verify_normalized_roundtrip(conn: sqlite3.Connection) -> dict[str, Any]:
     after = normalized_rows_snapshot(conn)
     examples: list[dict[str, Any]] = []
     diff_count = 0
-    for table in ("identifiers", "relations", "decisions"):
+    for table in ("identifiers", "relations", "decisions", "adoptions"):
         if before[table] != after[table]:
             diff_count += 1
+            first_mismatch = next(
+                (
+                    index
+                    for index, (before_item, after_item) in enumerate(zip(before[table], after[table]))
+                    if before_item != after_item
+                ),
+                min(len(before[table]), len(after[table])),
+            )
             examples.append({
                 "table": table,
                 "before_count": len(before[table]),
                 "after_count": len(after[table]),
-                "before_first": before[table][:3],
-                "after_first": after[table][:3],
+                "first_mismatch": first_mismatch,
+                "before_item": before[table][first_mismatch:first_mismatch + 1],
+                "after_item": after[table][first_mismatch:first_mismatch + 1],
             })
     return {"normalized_roundtrip_diff_count": diff_count, "normalized_roundtrip_examples": examples[:3]}
 
@@ -428,6 +533,8 @@ def validate_database(
     *,
     expected_projects: int | None = None,
 ) -> dict[str, Any]:
+    from . import identifier_storage
+
     integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
     foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchall()
     project_count = int(conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0])
@@ -466,18 +573,31 @@ def validate_database(
           AND (target_type = '' OR target_value = '')
         """
     ).fetchone()[0])
-    if invalid_decisions or leakage:
+    current_noncurrent_overlap = int(conn.execute(
+        """
+        SELECT COUNT(*) FROM project_identifiers c
+        JOIN project_noncurrent_identifiers n
+          ON n.project_key=c.project_key AND n.kind=c.kind AND n.value=c.value AND n.role=c.role
+        """
+    ).fetchone()[0])
+    if invalid_decisions or leakage or current_noncurrent_overlap:
         raise RuntimeError(
-            f"database normalized-state validation failed: leakage={len(leakage)} invalid_decisions={invalid_decisions}"
+            "database normalized-state validation failed: "
+            f"leakage={len(leakage)} invalid_decisions={invalid_decisions} "
+            f"current_noncurrent_overlap={current_noncurrent_overlap}"
         )
     return {
         "schema_version": database_schema_version(conn),
         "project_count": project_count,
         "identifier_count": int(conn.execute("SELECT COUNT(*) FROM project_identifiers").fetchone()[0]),
+        "noncurrent_identifier_count": int(conn.execute("SELECT COUNT(*) FROM project_noncurrent_identifiers").fetchone()[0]),
+        "identifier_adoption_count": int(conn.execute("SELECT COUNT(*) FROM project_identifier_adoptions").fetchone()[0]),
         "relation_count": int(conn.execute("SELECT COUNT(*) FROM project_relations").fetchone()[0]),
         "decision_count": int(conn.execute("SELECT COUNT(*) FROM project_decisions").fetchone()[0]),
         "project_alias_count": int(conn.execute("SELECT COUNT(*) FROM project_key_aliases").fetchone()[0]),
         "integrity": integrity,
         "runtime_internal_field_leak_count": len(leakage),
         "invalid_decision_count": invalid_decisions,
+        "current_noncurrent_overlap_count": current_noncurrent_overlap,
+        "confirmed_component_without_active_adoption_count": identifier_storage.missing_active_adoption_count(conn),
     }

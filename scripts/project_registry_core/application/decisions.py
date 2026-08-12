@@ -9,6 +9,13 @@ from . import review_targets
 from project_registry_core import project_record
 
 
+UNAMBIGUOUS_COMPONENT_ROLES = {
+    "service_url": "service",
+    "repo_url": "source_repository",
+    "nsid": "owned_nsid",
+}
+
+
 def _refresh_merge_state(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
     project["duplicate_candidates"] = core.compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = core.compute_merge_recommendation(project)
@@ -79,7 +86,13 @@ def set_identifier_block(
     if clear:
         blocked = [item for item in blocked if (str(item.get("type") or ""), str(item.get("value") or "")) != key]
     elif not any((str(item.get("type") or ""), str(item.get("value") or "")) == key for item in blocked):
-        blocked.append({"type": identifier_type, "value": normalized_value, "note": note.strip(), "added_at": project_record.iso_now()})
+        blocked.append({
+            "type": identifier_type,
+            "value": normalized_value,
+            "role": UNAMBIGUOUS_COMPONENT_ROLES.get(identifier_type, ""),
+            "note": note.strip(),
+            "added_at": project_record.iso_now(),
+        })
     project["blocked_identifiers"] = blocked
     if not clear:
         core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
@@ -133,7 +146,14 @@ def set_identifier_defer(
         ]
     else:
         core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
-        core.defer_identifier_on_project(project, identifier_type, normalized_value, note=note.strip(), days=days)
+        core.defer_identifier_on_project(
+            project,
+            identifier_type,
+            normalized_value,
+            note=note.strip(),
+            role=UNAMBIGUOUS_COMPONENT_ROLES.get(identifier_type, ""),
+            days=days,
+        )
         project = core.finalize_project_shape(project)
     project = _refresh_merge_state(conn, project)
     project_record.save_project(

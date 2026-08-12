@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from .. import registry as core
+from .. import identifier_storage, registry as core
 from project_registry_core import project_record
 
 
@@ -132,6 +132,11 @@ def merge_projects(
                 enriched=bool(merged.get("last_enriched_at")),
                 preserve_timestamps=True,
                 commit=False,
+            )
+            identifier_storage.merge_project_storage(
+                conn,
+                str(source["project_key"]),
+                str(target["project_key"]),
             )
             core.register_project_merge_alias(
                 conn,

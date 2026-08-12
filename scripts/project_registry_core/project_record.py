@@ -17,6 +17,7 @@ from project_registry_core import database as registry_database
 from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import identifiers as identifier_core
+from project_registry_core import identifier_storage
 from project_registry_core import relations as relation_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
@@ -865,6 +866,7 @@ def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
             {
                 "type": identifier_type,
                 "value": normalized_value,
+                "role": str(item.get("role") or "").strip(),
                 "note": str(item.get("note") or "").strip(),
                 "added_at": str(item.get("added_at") or ""),
             }
@@ -897,6 +899,7 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
             {
                 "type": identifier_type,
                 "value": normalized_value,
+                "role": str(item.get("role") or "").strip(),
                 "note": str(item.get("note") or "").strip(),
                 "added_at": str(item.get("added_at") or ""),
                 "expires_at": expires.isoformat(),
@@ -926,10 +929,15 @@ def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
             {
                 "type": identifier_type,
                 "value": normalized_value,
+                "role": str(item.get("role") or "").strip(),
                 "note": str(item.get("note") or "").strip(),
                 "source": str(item.get("source") or "").strip(),
                 "added_at": str(item.get("added_at") or ""),
                 "cleared_at": cleared_at,
+                "registration_origin": "1" if bool(item.get("registration_origin")) else "",
+                "source_ref": str(item.get("source_ref") or "").strip(),
+                "policy_version": str(item.get("policy_version") or "").strip(),
+                "input_fingerprint": str(item.get("input_fingerprint") or "").strip(),
             }
         )
     return output
@@ -1454,12 +1462,12 @@ def indexed_identifier_matches(
         elif identifier_type == "resolved_nsid" and role == "owned_nsid":
             priority = 0
         elif identifier_type == "repo_url":
-            if role in {"source_repository", "source_repository_record"} and classification == "confirmed":
+            if role == "source_repository" and classification == "confirmed":
                 priority = 0
         elif identifier_type in {"github_repo_url", "tangled_repo_url"}:
             expected_provider = identifier_type.removesuffix("_repo_url")
             if (
-                role in {"source_repository", "source_repository_record"}
+                role == "source_repository"
                 and classification == "confirmed"
                 and provider == expected_provider
             ):
@@ -1478,6 +1486,10 @@ def indexed_identifier_matches(
             project_key = str(row["project_key"])
             matches[project_key] = min(priority, matches.get(project_key, priority))
     ordered = sorted(((priority, project_key) for project_key, priority in matches.items()))
+    if identifier_type in {"service_url", "repo_url", "nsid"}:
+        for priority, project_key in identifier_storage.noncurrent_identifier_matches(conn, kind, normalized):
+            matches[project_key] = min(priority, matches.get(project_key, priority))
+        ordered = sorted((priority, project_key) for project_key, priority in matches.items())
     if identifier_type in {"service_url_candidate", "did"}:
         ordered = [
             (priority, project_key)

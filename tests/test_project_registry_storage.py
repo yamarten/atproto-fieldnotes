@@ -221,7 +221,14 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 self.assertEqual(project_record.find_project_key_by_identifier(conn, "repo_url", "https://github.com/example/app"), project["project_key"])
                 self.assertEqual(project_record.find_project_key_by_identifier(conn, "github_repo_url", "https://github.com/example/app"), project["project_key"])
                 self.assertEqual(project_record.find_project_key_by_identifier(conn, "tangled_repo_url", tangled_url), project["project_key"])
-                self.assertEqual(project_record.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."), project["project_key"])
+                self.assertIsNone(project_record.find_project_key_by_identifier(conn, "domain", "EXAMPLE.COM."))
+
+            authority_rows = conn.execute(
+                "SELECT 1 FROM project_identifiers WHERE project_key=? AND role='authority_domain'",
+                (project["project_key"],),
+            ).fetchall()
+            self.assertEqual(authority_rows, [])
+            self.assertEqual(saved["authority_domains"], ["example.app"])
 
             with mock.patch.object(registry, "all_projects", side_effect=AssertionError("payload scan")):
                 self.assertEqual(project_record.find_project_key_by_identifier(conn, "handle", "DEV.EXAMPLE.COM."), project["project_key"])

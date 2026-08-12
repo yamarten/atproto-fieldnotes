@@ -43,6 +43,7 @@ from project_registry_core import http_transport
 from project_registry_core import github_api
 from project_registry_core import llm_transport
 from project_registry_core import identifiers as identifier_core
+from project_registry_core import identifier_storage
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
 from project_registry_core import repository_material as repository_material_core
@@ -560,6 +561,11 @@ def add_confirmed_identifier_decision(
     *,
     source: str,
     note: str = "",
+    role: str = "",
+    registration_origin: bool = False,
+    source_ref: str = "",
+    policy_version: str = "",
+    input_fingerprint: str = "",
 ) -> str:
     if identifier_type not in project_record.IDENTIFIER_DECISION_TYPES:
         raise ValueError("identifier_type must be service_url, repo_url, nsid, account, did, handle, or domain")
@@ -579,8 +585,13 @@ def add_confirmed_identifier_decision(
         {
             "type": identifier_type,
             "value": normalized,
+            "role": role.strip(),
             "note": note.strip(),
             "source": source.strip(),
+            "registration_origin": bool(registration_origin),
+            "source_ref": source_ref.strip(),
+            "policy_version": policy_version.strip(),
+            "input_fingerprint": input_fingerprint.strip(),
             "added_at": project_record.iso_now(),
             "cleared_at": "",
         }
@@ -1678,6 +1689,7 @@ def defer_identifier_on_project(
     value: str,
     *,
     note: str = "",
+    role: str = "",
     days: int = DEFAULT_DEFER_IDENTIFIER_DAYS,
 ) -> str:
     if identifier_type not in project_record.IDENTIFIER_DECISION_TYPES:
@@ -1696,6 +1708,7 @@ def defer_identifier_on_project(
         {
             "type": identifier_type,
             "value": normalized,
+            "role": role.strip(),
             "note": note or "deferred for observation",
             "added_at": project_record.iso_now(),
             "expires_at": expires_at,
@@ -3178,6 +3191,8 @@ def manual_repo_urls(project: dict[str, Any]) -> set[str]:
     for item in project_record.normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
         if str(item.get("type") or "") != "repo_url" or str(item.get("cleared_at") or ""):
             continue
+        if str(item.get("source") or "").startswith("trust_policy"):
+            continue
         value = repo_url_core.canonical_repo_url(str(item.get("value") or "").strip())
         if value:
             urls.add(value)
@@ -4204,12 +4219,24 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
             normalized_value,
             source=source or "seed",
             note="identifier accepted as a project seed",
+            role={
+                "service_url": "service",
+                "repo_url": "source_repository",
+                "nsid": "owned_nsid",
+            }.get(seed_type, ""),
+            registration_origin=True,
         )
     if source:
         project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), source)
 
 
-def add_collection_owned_nsid(project: dict[str, Any], nsid: str) -> bool:
+def add_collection_owned_nsid(
+    project: dict[str, Any],
+    nsid: str,
+    *,
+    source: str = "collection_observation",
+    registration_origin: bool = False,
+) -> bool:
     normalized = identifier_core.normalize_nsid(nsid)
     if not normalized or identifier_is_blocked(project, "nsid", normalized) or identifier_is_deferred(project, "nsid", normalized):
         return False
@@ -4223,7 +4250,18 @@ def add_collection_owned_nsid(project: dict[str, Any], nsid: str) -> bool:
     if authority_domain:
         project["authority_domains"] = project_record.add_unique(project.get("authority_domains", []), authority_domain)
         add_authority_service_candidates(project, authority_domain)
-    return normalized not in before
+    changed = normalized not in before
+    if changed:
+        add_confirmed_identifier_decision(
+            project,
+            "nsid",
+            normalized,
+            source=source,
+            note="collection accepted from an explicit collection source",
+            role="owned_nsid",
+            registration_origin=registration_origin,
+        )
+    return changed
 
 
 def is_collection_inventory_source(source: str) -> bool:
@@ -4588,7 +4626,12 @@ def import_collection_inventory_payload(
             merge_existing=merge_existing_observations,
         )
         for member in item.get("members", []):
-            add_collection_owned_nsid(project, str(member))
+            add_collection_owned_nsid(
+                project,
+                str(member),
+                source="collection_inventory_import",
+                registration_origin=is_new,
+            )
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(
             conn,
@@ -4906,20 +4949,17 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
         seen.add(key)
         output.append(node)
 
-    for item in project_record.normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
-        if str(item.get("cleared_at") or ""):
+    adopted = identifier_storage.active_adoption_claims(project)
+    require_adoption = runtime_view.RUNTIME_ADOPTION_ROWS in project
+    for item in runtime_view.project_identifiers(project):
+        claim = (item.kind, item.value, item.role)
+        if item.classification != "confirmed" or item.role not in identifier_storage.COMPONENT_ROLES:
             continue
-        identifier_type = str(item.get("type") or "")
-        if identifier_type in {"service_url", "repo_url", "nsid", "did", "handle", "domain"}:
-            add(identifier_type, str(item.get("value") or ""))
-    for item in trust_graph_core.graph(project).get("evaluations", []):
-        if not bool(item.get("auto_confirm")) or item.get("policy_version") != trust_graph_core.TRUST_POLICY_VERSION:
+        if require_adoption and claim not in adopted:
             continue
-        candidate = item.get("candidate") if isinstance(item.get("candidate"), dict) else {}
-        key = trust_graph_core.node_key(candidate)
-        if key[0] and key not in seen:
-            seen.add(key)
-            output.append({"kind": key[0], "value": key[1]})
+        if not require_adoption and not identifier_has_active_confirm_decision(project, item.kind, item.value):
+            continue
+        add(item.kind, item.value)
     return output
 
 
@@ -5230,6 +5270,16 @@ def confirm_service_url_with_trust(project: dict[str, Any], url: str) -> bool:
     if not evaluation.get("auto_confirm"):
         return False
     confirm_service_url(project, normalized)
+    add_confirmed_identifier_decision(
+        project,
+        "service_url",
+        normalized,
+        source="trust_policy",
+        note="service accepted by the configured trust policy",
+        role="service",
+        source_ref=project_record.dump_json(evaluation),
+        policy_version=trust_graph_core.TRUST_POLICY_VERSION,
+    )
     return True
 
 
@@ -5259,6 +5309,16 @@ def confirm_source_code_url_with_trust(
         evidence_kind=evidence_kind,
         evidence_url=evidence_url,
         updated_at=updated_at,
+    )
+    add_confirmed_identifier_decision(
+        project,
+        "repo_url",
+        normalized,
+        source="trust_policy",
+        note="repository accepted by the configured trust policy",
+        role="source_repository",
+        source_ref=project_record.dump_json(evaluation),
+        policy_version=trust_graph_core.TRUST_POLICY_VERSION,
     )
     return True
 

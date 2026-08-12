@@ -89,6 +89,8 @@ def add_seed(
             normalized_value,
             source="operator_add_seed",
             note="identifier added by operator",
+            role=confirmed_role,
+            registration_origin=True,
         )
     project = core.finalize_project_shape(project)
     project_record.save_project(
