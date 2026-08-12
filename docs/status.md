@@ -225,7 +225,8 @@
 - 同じ`repair-db` dry-runの`pruned_project_count=103`はcandidate normalized rowのlossless保持による別残差で、current service projection未適用件数ではない
 - 2026-07-17に正本DBの`primary_nsid`を`owned_nsid` / `input_nsid`へ、normalized `website` roleを`service`へ統合。644 project / 703旧role rowを処理し、再dry-run 0件、旧role 0件、foreign key違反0、integrity `ok`を確認
 - 2026-07-28に正本DBへidentifier role移行を適用。4,440 projectのlegacy role 20,575件を整理し、NSID case 445値を現行collection inventory表記へ補正した。再dry-run変更0件、旧role 0件、foreign key違反0、integrity `ok`を確認し、一時case補正実装は適用後に削除した
-- Website、service URL、補助pageのruntime責務を分離した。通常の正規化・候補採用・service redirectはWebsiteを補完せず、Websiteだけではidentifier、Trust起点、service稼働、service collisionにならない。明示的な`add-seed`だけはWebsiteが空なら同じservice URLを初期値にする。正本DBのreview済みcaseへの移行は未適用
+- Website、service URL、補助pageのruntime責務を分離した。通常の正規化・候補採用・service redirectはWebsiteを補完せず、Websiteだけではidentifier、Trust起点、service稼働、service collisionにならない。明示的な`add-seed`だけはWebsiteが空なら同じservice URLを初期値にする
+- identifier採用理由、旧identifier、non-production、観測、noiseを分離するshadow schemaへ、review済み108 claimを正本DBの複製へ適用した。整合性検査と固定caseは成功し、正本DBとproduction schemaは未変更。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)を参照
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認
 - 旧category契約でのLLM評価では、未調整17件のcategory一致がQwen 8/17、Gemma 11/17、複製DB 6件の保存categoryは5件同一だった。category契約を見直したため、この一致数とgoatの旧判定は今回のmodel選定へ直接使っていない。速度、JSON/schema、identifier、文章比較の観測だけを履歴として残した
 - 新category契約、`atproto_auth_only`の保存、LLM出力検査、旧`auth_only`categoryの再保存防止、元profile有無を分ける評価入力を実装し、全492 testを確認。正本DBの旧`category=auth_only` 35件は`infra_tool` 17、`library` 9、`project` 3、`name_only` 6へ移行し、旧category 0件、integrity `ok`、foreign key違反0を確認

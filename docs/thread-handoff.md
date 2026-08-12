@@ -1,12 +1,10 @@
 # Thread Handoff
 
-この文書は次の作業スレッドに必要な差分だけを置きます。実装済み機能の一覧は
-[status.md](status.md)、恒久仕様は各仕様書、将来候補は[roadmap.md](roadmap.md)を
-参照してください。完了項目や過去の検証ログはここへ累積しません。
+この文書は次の作業スレッドに必要な差分だけを置きます。実装済み機能の一覧は[status.md](status.md)、恒久仕様は各仕様書、将来候補は[roadmap.md](roadmap.md)を参照してください。完了項目や過去の検証ログはここへ累積しません。
 
 ## 現在地
 
-- identifierの採用理由、旧identifier、non-production、時間関係、noiseを分離するtemp DB prototypeと正本DBのread-only移行投影まで完了しました。Website、service URL、補助pageのruntime責務は分離しましたが、採用理由を保存するproduction schemaとreview済みデータの移行は未適用です。結果とreview対象は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
+- identifierの採用理由、旧identifier、non-production、時間関係、noiseを分離するtemp DB prototype、正本DBのread-only移行投影、review済み108 claimの複製DBへの適用まで完了しました。Website、service URL、補助pageのruntime責務も分離済みです。採用理由を保存するproduction schemaと正本DBへの移行は未適用です。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
@@ -19,16 +17,14 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- [Identifierの採用理由と保存契約の設計メモ](notes/identifier-adoption-storage-design.md)に沿ってproductionの採用理由保存契約を実装し、review済み108 claimの判断をtemp DBへ適用する。Website・service・補助pageの通常処理は分離済みなので、全612件を一律に再分類せず、明示的に処遇を決めたclaimだけを移行する。temp DBの差分と主要事例をreviewした後、正本DBへの反映承認を得る。
+- [Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)の複製DB差分をreviewし、productionで採用するtable・mutation・観測保存契約を確定する。その後、confirm時のdefer解除、非現行identifierのexact検索、collection再作成抑止、merge時のorigin保持を実装し、temp DBで再検証してから正本DBへの反映承認を得る。
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
 
 ## DB 操作メモ
 
-次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認し、必要なら
-その時点で新しいbackupまたは複製を用意してください。
+次にDBへ直接影響する操作を行う前に、別のWeb/enrich/CLI writerが走っていないことを確認し、必要ならその時点で新しいbackupまたは複製を用意してください。
 
-history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行っておらず、解放pageは今後の書き込みで
-再利用します。file sizeを直ちに縮める必要が生じた場合だけ、別processを止めてVACUUMを判断してください。
+history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行っておらず、解放pageは今後の書き込みで再利用します。file sizeを直ちに縮める必要が生じた場合だけ、別processを止めてVACUUMを判断してください。
 
 ## 未検証・未接続
 
