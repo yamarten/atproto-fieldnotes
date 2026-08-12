@@ -389,6 +389,8 @@ def build_parser() -> argparse.ArgumentParser:
     compare_identifier_storage_parser.add_argument("--db-path", required=True, help="Existing registry database opened read-only.")
     compare_identifier_storage_parser.add_argument("--output", required=True, help="Structured prototype report JSON path.")
     compare_identifier_storage_parser.add_argument("--example-limit", type=int, default=20, help="Maximum migration audit examples per category. Default: 20.")
+    compare_identifier_storage_parser.add_argument("--materialized-db", help="Optional new SQLite path for a reviewed shadow migration. Existing files are refused.")
+    compare_identifier_storage_parser.add_argument("--review-manifest", help="Review manifest used with --materialized-db. Defaults to the fixed v1 fixture.")
     compare_identifier_storage_parser.set_defaults(func=maintenance_commands.cmd_compare_identifier_storage)
 
     repair_trust_parser = subparsers.add_parser("repair-trust-graph", help="Recompute stored trust graph details and optionally downgrade unsupported confirmations.")

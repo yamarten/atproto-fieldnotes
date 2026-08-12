@@ -5,7 +5,7 @@ import sqlite3
 from argparse import Namespace
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import cli, identifier_storage_shadow
+from project_registry_core import cli, identifier_storage_materialization, identifier_storage_shadow
 from project_registry_core.commands import maintenance
 
 
@@ -141,6 +141,100 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
         ])
         self.assertEqual(args.db_path, "input.db")
         self.assertEqual(args.output, "report.json")
+        self.assertIsNone(args.materialized_db)
+
+    def test_reviewed_shadow_materialization_keeps_source_read_only(self) -> None:
+        self._seed_comparison_rows()
+        reviewed_claims = [
+            {
+                "project_key": "legacy",
+                "kind": "service_url",
+                "value": "https://legacy.example.com",
+                "role": "service",
+            },
+            {
+                "project_key": "project",
+                "kind": "repo_url",
+                "value": "https://github.com/example/project",
+                "role": "source_repository",
+            },
+        ]
+        manifest = {
+            "schema_version": 1,
+            "reviewed_at": "2026-08-13",
+            "reviewed_projection": {
+                "claim_count": 2,
+                "claim_key_sha256": identifier_storage_materialization._claim_key_hash(reviewed_claims),
+                "default_action": "keep_current_with_operator_adoption",
+            },
+            "claim_actions": [
+                {
+                    **reviewed_claims[0],
+                    "action": "website_only",
+                }
+            ],
+            "additional_claim_actions": [],
+            "add_current_claims": [],
+            "project_updates": [],
+            "separate_project_actions": [],
+        }
+        manifest_path = self.db_path.parent / "review.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        target_path = self.db_path.parent / "materialized.db"
+        before = self.db_path.read_bytes()
+
+        report = identifier_storage_materialization.materialize_reviewed_copy(
+            self.db_path,
+            target_path,
+            manifest_path,
+        )
+
+        self.assertEqual(self.db_path.read_bytes(), before)
+        self.assertTrue(report["source"]["read_only"])
+        self.assertTrue(report["review_gate"]["ready"], report)
+        self.assertEqual(report["active_guard_removed_claim_count"], 1)
+        self.assertEqual(report["service_status_resets"], [
+            {
+                "project_key": "legacy",
+                "project_name": "Legacy",
+                "previous_status": "live",
+            }
+        ])
+        self.assertEqual(report["review"]["action_counts"], {
+            "keep_current_with_operator_adoption": 1,
+            "website_only": 1,
+        })
+        conn = sqlite3.connect(target_path)
+        try:
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_identifiers WHERE project_key='legacy' AND role='service'"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                conn.execute("SELECT website_url FROM projects WHERE project_key='legacy'").fetchone()[0],
+                "https://legacy.example.com",
+            )
+            self.assertEqual(
+                conn.execute("SELECT service_status FROM projects WHERE project_key='legacy'").fetchone()[0],
+                "none",
+            )
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM project_identifier_adoptions").fetchone()[0],
+                5,
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT source FROM project_identifier_adoptions "
+                    "WHERE project_key='project' AND kind='repo_url' "
+                    "AND value='https://github.com/example/project' "
+                    "AND role='source_repository' AND cleared_at=''"
+                ).fetchall(),
+                [(identifier_storage_materialization.REVIEW_SOURCE,)],
+            )
+        finally:
+            conn.close()
 
     def test_cli_refuses_to_overwrite_source_database(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not overwrite"):

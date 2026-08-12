@@ -397,7 +397,9 @@ case "$cmd" in
     _arguments -S \
       '--db-path[Existing registry database opened read-only]:database file:_files' \
       '--output[Structured prototype report JSON path]:report file:_files' \
-      '--example-limit[Maximum migration audit examples per category]:count:'
+      '--example-limit[Maximum migration audit examples per category]:count:' \
+      '--materialized-db[New SQLite path for the reviewed shadow migration]:database file:_files' \
+      '--review-manifest[Review manifest used with the shadow migration]:manifest file:_files'
     ;;
   repair-trust-graph)
     _arguments -S \

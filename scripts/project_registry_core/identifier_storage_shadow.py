@@ -790,6 +790,7 @@ def _adoption_projection(
     decision_analysis: dict[str, Any],
     *,
     example_limit: int,
+    include_rows: bool = False,
 ) -> dict[str, Any]:
     project_names = {
         str(row["project_key"]): str(row["name"])
@@ -999,7 +1000,7 @@ def _adoption_projection(
         for claim in component_claims
         if not claim_adoptions.get(claim) and not active_guards.get(claim[:3])
     )
-    return {
+    result = {
         "confirmed_component_claim_count": len(component_claims),
         "covered_claim_count": covered_count,
         "coverage_percent": round(100.0 * covered_count / len(component_claims), 2) if component_claims else 100.0,
@@ -1024,6 +1025,13 @@ def _adoption_projection(
         "guarded_confirmed_examples": guarded,
         "uncovered_examples": uncovered,
     }
+    if include_rows:
+        result["adoption_rows"] = [
+            adoption
+            for claim_key in sorted(claim_adoptions)
+            for adoption in claim_adoptions[claim_key]
+        ]
+    return result
 
 
 def _content_hash(report: dict[str, Any]) -> str:

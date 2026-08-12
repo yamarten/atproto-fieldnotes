@@ -9,6 +9,7 @@ from .. import registry as core
 from .. import database
 from .. import domain_policy
 from .. import identifier_storage_shadow
+from .. import identifier_storage_materialization
 from .. import trust_policy_shadow
 from ..application import maintenance as services
 
@@ -88,6 +89,22 @@ def cmd_compare_identifier_storage(args: argparse.Namespace) -> int:
         db_path,
         example_limit=int(args.example_limit),
     )
+    materialized_value = getattr(args, "materialized_db", None)
+    materialized_db = Path(materialized_value).expanduser() if materialized_value else None
+    if materialized_db is not None:
+        if materialized_db.resolve() in {db_path.resolve(), output.resolve()}:
+            raise ValueError("--materialized-db must differ from --db-path and --output")
+        manifest = (
+            Path(getattr(args, "review_manifest", None)).expanduser()
+            if getattr(args, "review_manifest", None)
+            else core.ROOT / "tests" / "fixtures" / "project_registry" / "identifier-adoption-review-v1.json"
+        )
+        report["materialization"] = identifier_storage_materialization.materialize_reviewed_copy(
+            db_path,
+            materialized_db,
+            manifest,
+        )
+        report["content_hash"] = identifier_storage_shadow._content_hash(report)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     summary = {
@@ -116,8 +133,17 @@ def cmd_compare_identifier_storage(args: argparse.Namespace) -> int:
         },
         "review_gate": report["review_gate"],
     }
+    if "materialization" in report:
+        summary["materialization"] = {
+            "target": report["materialization"]["target"],
+            "after": report["materialization"]["after"],
+            "review": report["materialization"]["review"],
+            "validation": report["materialization"]["validation"],
+            "review_gate": report["materialization"]["review_gate"],
+        }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if report["review_gate"]["ready_for_user_review"] else 1
+    materialization_ready = bool(report.get("materialization", {}).get("review_gate", {}).get("ready", True))
+    return 0 if report["review_gate"]["ready_for_user_review"] and materialization_ready else 1
 
 
 def cmd_repair_trust_graph(args: argparse.Namespace) -> int:
