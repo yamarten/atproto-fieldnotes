@@ -93,7 +93,7 @@ matching/classification/auto-attachはcodeとtestのままで、config DSL化し
 
 ### URL field の整理
 
-canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。補助pageは`resource_url_records`に残します。
+canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。`website_url`は代表公開URLであり、service identifierとは独立しています。補助pageは`resource_url_records`に残します。
 
 現行の`normalize_url()`はscheme/host/pathを正規化し、末尾slash、query、fragmentを破棄します。queryや
 fragmentだけが異なるURLは同じidentifierとして扱われます。これは実装済みの現行制約ですが、queryで
@@ -145,7 +145,7 @@ identity identifier は、manual/operator anchor との間に相互 path があ�
 
 provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
 
-same-siteの`/docs`、`/documentation`、`/about`、`/blog`、`/faq`、`/help`配下の情報ページと、`/login`、`/signin`、`/signup`、`/register`などの認証入口はservice identityではなく`resource_url_records`へ残します。これは補助ページをconfirmed service URLへ過剰昇格させないための暫定heuristicで、path名だけを長期的な信頼根拠とはみなしません。service follow-up probeやdeep page probeの結果はservice statusの補助evidenceには使いますが、補助ページURL自体をconfirmed service URLへ昇格しません。`/app`はapp surfaceとして使われることがあるため、この補助ページ判定だけでは落としません。`block_identifier` / `defer_identifier`されたservice rootは同一originの配下URLにもguardとして効き、confirmed service URL、supporting resource record、`operates_service` relationから除外します。
+same-siteの`/docs`、`/documentation`、`/about`、`/blog`、`/faq`、`/help`配下の情報ページと、`/login`、`/signin`、`/signup`、`/register`などの認証入口はservice identityではなく`resource_url_records`へ残します。これは補助ページをconfirmed service URLへ過剰昇格させないための暫定heuristicで、path名だけを長期的な信頼根拠とはみなしません。service follow-up probeやdeep page probeの結果はservice statusの補助evidenceには使いますが、補助ページURL自体をconfirmed service URLへ昇格しません。`/app`はapp surfaceとして使われることがあるため、この補助ページ判定だけでは落としません。`block_identifier` / `defer_identifier`はservice identifierとそのservice観測・relationへ作用します。同じ値のWebsiteや補助pageは別の責務なので自動削除しません。
 
 same-site familyは、PSLとknown/configured multi-tenant suffixを反映した`root_domain()`が一致するhostだけです。
 同じregistrable domainのsubdomain、または同じhosted suffix上の同一tenantはsame-siteですが、異なるregistrable
@@ -155,7 +155,7 @@ domainで先頭labelだけが同じhostはsame-siteにしません。
 
 runtime viewはnormalized rowの無変更roundtripを維持します。candidate developer DIDなど、flat dictだけでは元rowのrole/classificationを表せない値は内部runtime stateに保持し、変更がない保存では元rowをそのまま書き戻します。NSIDは`owned_nsid`へ統一し、`resolved_nsids`をconfirmed、`input_nsids`をcandidateのruntime viewとして使います。NSIDの代表値は生成しません。
 
-代表公開URLの正本は`projects.website_url`です。normalized service URLはconfirmed/candidateとも`service` roleへ統一し、Webのprimary markerはservice URLと`website_url`の一致から導出します。
+代表公開URLの正本は`projects.website_url`です。normalized service URLはconfirmed/candidateとも`service` roleへ統一します。同じ値がWebsiteとserviceの両方にあってもよい一方、通常の正規化、candidate confirm、収集では一方から他方を補完せず、Webでも一致をprimary serviceとして表示しません。
 
 exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
 NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
@@ -323,7 +323,7 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+Cは協調的な停止要求となり、処理中projectを保存した後に`status=interrupted`と再開commandを記録します。次回`--resume-run`は完了済みkeyを飛ばします。契約の正本は[background-jobs.md](background-jobs.md)です。
 
-Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。service URLのprimary markerは`projects.website_url`との一致から表示し、DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。profile編集で明示したnameは`operator_edit`候補として保存し、自動生成候補より優先します。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
+Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。Websiteはprofile、service URLはidentifierとして別々に表示し、値が同じでもprimary markerは付けません。DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。profile編集で明示したnameは`operator_edit`候補として保存し、自動生成候補より優先します。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
 
 enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
 
@@ -401,8 +401,8 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - redirect の同一視は service probe の evidence として別扱いします
 - service probe は `requested_url` / `final_url` / redirect flags を保持します
   - same host の `http -> https` redirect だけは canonical service URL として `https` 側へ寄せます
-  - same site family の redirect 先が project を支持し、`website_url` が未設定なら、redirect 先を primary service URL として登録します
-  - same site family でも既存 `website_url` がある場合は、redirect 先を candidate に留めます
+  - same site family のredirect先がprojectを支持する場合は、Websiteの有無に関係なくservice URLだけを更新します
+  - service probeから`website_url`は設定・更新しません
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
 - service probeの判定とrelation抽出には取得したresponse全体を使いますが、EvidenceBundleとcurrent stateへ保存する

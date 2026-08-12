@@ -729,7 +729,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertFalse(candidate["actions"]["reject"])
         self.assertEqual(repository["actions"]["scope"], "identifier")
 
-    def test_website_scalar_displays_as_primary_service_marker(self) -> None:
+    def test_website_scalar_does_not_mark_matching_service_as_primary(self) -> None:
         conn = registry.open_db()
         try:
             project = project_record.fetch_project(conn, "proj:111111111111")
@@ -745,7 +745,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(detail["overview"]["confirmed_services"], ["https://app.example.com"])
         service = next(item for item in detail["identifiers"] if item["value"] == "https://app.example.com")
-        self.assertTrue(service["is_primary"])
+        self.assertFalse(service["is_primary"])
         self.assertEqual([entry["role"] for entry in service["entries"]], ["service"])
 
     def test_identity_identifier_groups_handle_with_account_did(self) -> None:

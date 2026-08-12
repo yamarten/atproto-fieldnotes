@@ -55,8 +55,8 @@ def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> 
         service_status = project_record.normalize_service_status(project.get("service_status"))
         if service_status not in SERVICE_STATUSES:
             blockers.append("service_status_not_candidate")
-        if not (str(project.get("website_url") or "").strip() or project.get("service_urls")):
-            blockers.append("website_or_confirmed_service_url_missing")
+        if not project.get("service_urls"):
+            blockers.append("confirmed_service_url_missing")
         if not blockers and registry.service_is_derivative_bluesky_tool(project):
             blockers.append("derivative_bluesky_tool")
     return {
@@ -134,8 +134,8 @@ def _primary_no_signal_reason(
     if category in SERVICE_CATEGORIES | {"personal_tool"} and routes["service"]["enabled"]:
         if "service_status_not_candidate" in service_blockers:
             return "service_status_not_candidate"
-        if "website_or_confirmed_service_url_missing" in service_blockers:
-            return "website_or_confirmed_service_url_missing"
+        if "confirmed_service_url_missing" in service_blockers:
+            return "confirmed_service_url_missing"
         return "service_signal_absence_unexplained"
     if category == "lexicon":
         lexicon_blockers = list(routes["lexicon"]["blockers"])

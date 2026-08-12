@@ -57,6 +57,18 @@ class ProjectRegistryCompletionTest(unittest.TestCase):
 
 
 class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
+    def test_legacy_service_seed_scalar_is_not_an_ownership_anchor(self) -> None:
+        project = project_record.default_project_record(
+            "proj:legacywebsite",
+            "service_url",
+            "https://example.com",
+        )
+        project["website_url"] = "https://example.com"
+        project["service_urls"] = []
+        project["manual_seeds"] = []
+
+        self.assertEqual(project_record.ownership_anchor_service_hosts(project), set())
+
     def test_promotion_does_not_require_legacy_seed_role(self) -> None:
         project = project_record.default_project_record("proj:promotionseedless", "service_url", "https://example.com")
         project.update({
@@ -988,7 +1000,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
         self.assertIn("https://example.com", project["service_urls"])
         self.assertNotIn("http://example.com", project["service_urls"])
-        self.assertEqual(project["website_url"], "https://example.com")
+        self.assertEqual(project["website_url"], "")
         redirect_logs = [item for item in project["investigation_log"] if item.get("kind") == "service_redirect"]
         self.assertEqual(redirect_logs[0]["final_url"], "https://example.com")
 
@@ -1055,7 +1067,7 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         self.assertNotIn("https://other.example.net", project["service_url_candidates"])
         self.assertNotIn("https://other.example.net", project["evidence_urls"])
 
-    def test_supported_same_site_redirect_sets_empty_primary_website_url(self) -> None:
+    def test_supported_same_site_redirect_does_not_set_empty_website_url(self) -> None:
         project = project_record.default_project_record("proj:redirectsamefamily", "service_url", "https://example.com")
         registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
@@ -1083,10 +1095,10 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
 
         registry.apply_service_probe_result(project, "https://example.com", result)
 
-        self.assertEqual(project["website_url"], "https://www.example.com")
+        self.assertEqual(project["website_url"], "")
         self.assertIn("https://www.example.com", project["service_urls"])
 
-    def test_supported_same_site_redirect_keeps_existing_primary_as_candidate(self) -> None:
+    def test_supported_same_site_redirect_preserves_website_and_updates_service(self) -> None:
         project = project_record.default_project_record("proj:redirectsamefamilyexisting", "service_url", "https://example.com")
         registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
@@ -1116,8 +1128,8 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         registry.apply_service_probe_result(project, "https://example.com", result)
 
         self.assertEqual(project["website_url"], "https://current.example.com")
-        self.assertNotIn("https://www.example.com", project["service_urls"])
-        self.assertIn("https://www.example.com", project["service_url_candidates"])
+        self.assertIn("https://www.example.com", project["service_urls"])
+        self.assertNotIn("https://www.example.com", project["service_url_candidates"])
 
 
 class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
@@ -2048,12 +2060,12 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         finalized = registry.finalize_project_shape(project)
 
-        self.assertEqual(finalized["website_url"], "https://example.com")
+        self.assertEqual(finalized["website_url"], "https://example.com/docs")
         self.assertEqual(finalized["service_urls"], ["https://example.com"])
         self.assertEqual(finalized["supported_service_urls"], [])
         self.assertEqual(finalized["relation_evidence"], [])
         resource_urls = project_record.resource_url_values(finalized)
-        self.assertIn("https://example.com/docs", resource_urls)
+        self.assertNotIn("https://example.com/docs", resource_urls)
         self.assertIn("https://example.com/about", resource_urls)
 
     def test_candidate_repo_link_does_not_support_service_probe(self) -> None:
@@ -2285,7 +2297,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             }],
         }, {}, evidence)
 
-        self.assertEqual(project["website_url"], "https://app.example.com")
+        self.assertEqual(project["website_url"], "")
         self.assertIn("https://app.example.com", project["service_urls"])
 
     def test_related_repo_link_does_not_complete_trust_path(self) -> None:
@@ -2507,8 +2519,11 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(finalized["relation_evidence"], [])
         self.assertNotIn("https://other.example.com", finalized["service_urls"])
         self.assertEqual(finalized["supported_service_urls"], [])
-        self.assertEqual(finalized["resource_url_records"], [])
-        self.assertNotIn("https://other.example.com/docs", finalized["evidence_urls"])
+        self.assertEqual(
+            [record["url"] for record in finalized["resource_url_records"]],
+            ["https://other.example.com/docs"],
+        )
+        self.assertIn("https://other.example.com/docs", finalized["evidence_urls"])
 
 
 class ProjectRegistryLexiconScopeTest(unittest.TestCase):
@@ -2539,7 +2554,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         self.assertEqual(project["lexicon_scope"], "service_specific")
         self.assertEqual(project["category"], "project")
 
-    def test_resource_url_records_count_as_service_surface_without_compat_view(self) -> None:
+    def test_resource_url_records_do_not_count_as_service_surface(self) -> None:
         project = self.nsid_project()
         project["resource_url_records"] = [
             {
@@ -2553,8 +2568,8 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
         project_record.reclassify_service_specific_lexicon(project)
 
-        self.assertEqual(project["lexicon_scope"], "service_specific")
-        self.assertEqual(project["category"], "project")
+        self.assertEqual(project["lexicon_scope"], "unknown")
+        self.assertEqual(project["category"], "lexicon")
 
     def test_nsid_only_candidate_keeps_unknown_scope(self) -> None:
         project = self.nsid_project()
@@ -2638,10 +2653,10 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         evidence = registry.build_llm_evidence_bundle(project)
 
         self.assertEqual(evidence["resource_url_records"][0]["confidence"], "confirmed")
-        self.assertEqual(evidence["lexicon_scope"], "service_specific")
+        self.assertEqual(evidence["lexicon_scope"], "unknown")
         self.assertEqual(
             evidence["lexicon_scope_evidence"],
-            ["namespace_matches_project_identity", "service_or_collection_surface_detected"],
+            ["shared_lexicon_positioning_not_found"],
         )
         self.assertEqual(
             evidence["candidate_developer_accounts"],
@@ -3448,12 +3463,14 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
         project = self.project()
         previous_evidence = {
             "website_url": "https://service.example",
+            "service_urls": ["https://service.example"],
             "supported_service_urls": ["https://service.example"],
             "service_status_hint": "unreleased",
             "service_status_evidence": ["coming_soon_detected"],
         }
         current_evidence = {
             "website_url": "https://service.example",
+            "service_urls": ["https://service.example"],
             "supported_service_urls": ["https://service.example"],
             "service_status_hint": "live",
             "service_status_evidence": ["login_surface_detected"],

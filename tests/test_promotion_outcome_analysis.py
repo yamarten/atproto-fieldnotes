@@ -21,6 +21,7 @@ class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
         project["category"] = category
         project["service_status"] = service_status
         project["website_url"] = website_url
+        project["service_urls"] = [website_url] if website_url else []
         project["service_status_confidence"] = "high"
         project["service_status_evidence"] = ["login_surface_detected"]
         project["technical_interest_level"] = "notable"
@@ -65,14 +66,14 @@ class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
         self.assertEqual(
             payload["summary"]["no_signal_primary_reason_counts"],
             {
-                "website_or_confirmed_service_url_missing": 1,
+                "confirmed_service_url_missing": 1,
                 "technical_interest_below_candidate_threshold": 1,
             },
         )
         details = {item["project_key"]: item for item in payload["projects"]}
         self.assertEqual(
             details["proj:222222222222"]["routes"]["service"]["blockers"],
-            ["website_or_confirmed_service_url_missing"],
+            ["confirmed_service_url_missing"],
         )
         self.assertEqual(
             details["proj:333333333333"]["primary_no_signal_reason"],

@@ -313,14 +313,18 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
 
         echosky = next(item for item in cases if item["subject"]["ref"] == "echosky")
         project = dict(echosky["subject"])
-        project["website_url"] = project.pop("service_url")
+        service_url = project.pop("service_url")
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
         signal_kinds = {
             signal["kind"] for signal in registry.compute_showcase_signals(project)
         }
         self.assertIn("service_surface_confirmed", signal_kinds)
 
         project = dict(juntos["subject"])
-        project["website_url"] = project.pop("service_url")
+        service_url = project.pop("service_url")
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
         signal_kinds = {
             signal["kind"] for signal in registry.compute_showcase_signals(project)
         }
@@ -347,7 +351,9 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
 
         for item in cases:
             project = dict(item["subject"])
-            project["website_url"] = project.pop("service_url")
+            service_url = project.pop("service_url")
+            project["website_url"] = service_url
+            project["service_urls"] = [service_url]
             shaped = registry.apply_promotion_state(project_record.ensure_project_shape(project))
             signals = registry.compute_showcase_signals(shaped)
             policy = registry.promotion_policy_projection(shaped, signals)
@@ -443,7 +449,9 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len(excluded_cases), 8)
         for item in excluded_cases:
             project = dict(item["subject"])
-            project["website_url"] = project.pop("service_url")
+            service_url = project.pop("service_url")
+            project["website_url"] = service_url
+            project["service_urls"] = [service_url]
             self.assertEqual(registry.compute_showcase_signals(project), [])
 
     def test_manual_gold_fixture_omits_volatile_log_identity(self) -> None:

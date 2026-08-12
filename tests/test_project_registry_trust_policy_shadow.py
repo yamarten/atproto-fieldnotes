@@ -41,6 +41,30 @@ def decision(kind: str, target_type: str, target_value: str, source: str = "web_
 
 
 class TrustPolicyShadowUnitTest(unittest.TestCase):
+    def test_website_is_not_an_identifier_or_relation_endpoint_by_itself(self) -> None:
+        self.assertEqual(
+            trust_policy_shadow._snapshot_identifiers({"website_url": "https://example.com"}),
+            set(),
+        )
+        relation = {
+            "subject_type": "repo",
+            "subject_value": "https://github.com/example/app",
+            "predicate": "source_repository",
+            "object_type": "website",
+            "object_value": "https://example.com",
+            "classification": "confirmed",
+            "source": "test",
+            "method": "github_homepage",
+            "locator": "",
+        }
+        self.assertIsNone(trust_policy_shadow._normalize_relation_edge(relation))
+        mapped = trust_policy_shadow._normalize_relation_edge(
+            relation,
+            confirmed_services={"https://example.com"},
+        )
+        assert mapped is not None
+        self.assertEqual(mapped["object"], ("service_url", "https://example.com"))
+
     def test_case_catalog_passes_and_strategies_agree(self) -> None:
         result = trust_policy_shadow.evaluate_case_catalog(trust_policy_shadow.load_case_catalog(FIXTURE))
         self.assertEqual(result["case_count"], 12)

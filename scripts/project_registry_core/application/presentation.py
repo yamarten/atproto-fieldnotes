@@ -224,10 +224,6 @@ def search_projects(
 
 
 def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str, Any]]:
-    project_row = conn.execute(
-        "SELECT website_url FROM projects WHERE project_key = ?", (project_key,)
-    ).fetchone()
-    website_url = str(project_row["website_url"] or "") if project_row is not None else ""
     rows = conn.execute(
         "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
     ).fetchall()
@@ -269,7 +265,6 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     display_roles = {
         "source_repository_record": "source_repository",
     }
-    primary_service_values = {website_url} if website_url else set()
     confirmed_identifier_values = {
         (item["kind"], item["value"])
         for item in raw
@@ -302,9 +297,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             "observed_at": "",
             "entries": [],
         })
-        group["is_primary"] = group["is_primary"] or (
-            item["kind"] == "service_url" and key_value in primary_service_values
-        )
+        group["is_primary"] = group["is_primary"] or bool(item["is_primary"])
         display_role = display_roles.get(item["role"], item["role"])
         entry = dict(item)
         entry["role"] = display_role

@@ -26,7 +26,9 @@ def _fixture_project(case: dict[str, Any]) -> dict[str, Any]:
     if not subject_ref:
         raise ValueError("promotion fixture subject ref is required")
     subject["project_key"] = f"fixture:{subject_ref}"
-    subject["website_url"] = str(subject.pop("service_url", "") or "")
+    service_url = str(subject.pop("service_url", "") or "")
+    subject["website_url"] = service_url
+    subject["service_urls"] = [service_url] if service_url else []
     project = registry.apply_promotion_state(project_record.ensure_project_shape(subject))
     expected_promotion = dict(case.get("expected_promotion") or {})
     if expected_promotion.get("disposition") == "deprioritize":

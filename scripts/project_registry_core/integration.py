@@ -157,7 +157,6 @@ def apply_tangled_evidence(
             normalized_website = dependencies.normalize_service_candidate_url(website)
             if normalized_website:
                 dependencies.add_candidate_url(project, "service_url", normalized_website)
-                dependencies.add_candidate_url(project, "website_url", normalized_website)
         if did and repo_url:
             dependencies.record_trust_edge(
                 project,
@@ -238,7 +237,6 @@ def _apply_tangled_repo_inspection(
                 context={"from_readme": True, "provider": "tangled"},
             )
         dependencies.add_candidate_url(project, "service_url", normalized_service)
-        dependencies.add_candidate_url(project, "website_url", normalized_service)
 
 
 def apply_service_evidence(
@@ -338,7 +336,6 @@ def apply_investigation_evidence(
             homepage = str(record.value.get("homepage") or "")
             if homepage:
                 dependencies.add_candidate_url(project, "service_url", homepage)
-                dependencies.add_candidate_url(project, "website_url", homepage)
             continue
         if record.kind == "developer_handle_candidate":
             dependencies.record_developer_handle(project, str(record.value or ""), record.source)
@@ -451,7 +448,6 @@ def apply_github_repo_evidence(
                         lexicon_ids=snapshot_lexicon_ids.get(repo_url, []),
                     ):
                         dependencies.add_candidate_url(project, "service_url", normalized_service)
-                        dependencies.add_candidate_url(project, "website_url", normalized_service)
     for record in bundle.records:
         if record.kind == "relation":
             continue
@@ -520,7 +516,6 @@ def apply_github_repo_evidence(
                     context={"from_snapshot": True},
                 )
                 dependencies.add_candidate_url(project, "service_url", normalized_homepage)
-                dependencies.add_candidate_url(project, "website_url", normalized_homepage)
 
         lexicon_hints = [
             dict(item) for item in snapshot.get("lexicon_hints", [])
@@ -612,7 +607,6 @@ def apply_github_repo_evidence(
                         context={"from_readme": True},
                     )
                     dependencies.add_candidate_url(project, "service_url", normalized_service)
-                    dependencies.add_candidate_url(project, "website_url", normalized_service)
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:

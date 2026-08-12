@@ -1607,7 +1607,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         project = registry.finalize_project_shape(project)
 
         self.assertNotIn("https://example.com", project["service_urls"])
-        self.assertNotEqual(project["website_url"], "https://example.com")
+        self.assertEqual(project["website_url"], "https://example.com")
         self.assertIn("https://example.com", project["service_url_candidates"])
         registry.confirm_service_seed(project, "https://example.com", source="test")
         self.assertNotIn("https://example.com", project["service_urls"])
@@ -1987,6 +1987,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project = self.make_project("proj:aaaaaaaaaaaa", "service_url", "https://example.com")
             project["name"] = "Example App"
             project["website_url"] = "https://example.com"
+            project["service_urls"] = ["https://example.com"]
             project["service_status"] = "live"
             project["summary"] = "Example summary"
             project["tagline"] = "Example tagline"
@@ -2092,11 +2093,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             summary = registry.build_url_field_audit(conn)
             aliases = {(item["left"], item["right"]): item for item in summary["alias_relationships"]}
             anomalies = {item["kind"]: item for item in summary["anomalies"]}
+            website_only_services = conn.execute(
+                "SELECT COUNT(*) FROM project_identifiers "
+                "WHERE project_key = ? AND kind = 'service_url' AND classification = 'confirmed'",
+                (second["project_key"],),
+            ).fetchone()[0]
 
             self.assertEqual(summary["project_count"], 2)
             self.assertTrue(all("migration" not in item for item in summary["field_inventory"]))
-            self.assertEqual(aliases[("website_url", "service_urls")]["left_subset_projects"], 2)
-            self.assertEqual(anomalies["website_url_missing_from_service_urls"]["project_count"], 0)
+            self.assertNotIn(("website_url", "service_urls"), aliases)
+            self.assertNotIn("website_url_missing_from_service_urls", anomalies)
+            self.assertEqual(website_only_services, 0)
             self.assertNotIn("cleanup_candidates", summary)
         finally:
             conn.close()
@@ -2126,7 +2133,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_audit_recomputes_duplicate_candidates_and_merge_recommendations(self) -> None:
+    def test_audit_does_not_treat_shared_website_as_shared_service(self) -> None:
         conn = registry.open_db()
         try:
             source = self.make_project("proj:cccccccccccc", "service_url", "https://example.com")
@@ -2158,8 +2165,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             repaired = project_record.fetch_project(conn, "proj:cccccccccccc")
             duplicate_keys = {item["project_key"] for item in repaired["duplicate_candidates"]}
             self.assertIn("proj:dddddddddddd", duplicate_keys)
-            self.assertEqual(repaired["merge_recommendation"]["merge_confidence"], "high")
-            self.assertTrue(repaired["merge_recommendation"]["auto_merge_ready"])
+            self.assertEqual(repaired["merge_recommendation"]["merge_confidence"], "medium")
+            self.assertFalse(repaired["merge_recommendation"]["auto_merge_ready"])
         finally:
             conn.close()
 
@@ -2381,12 +2388,14 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             first = self.make_project("proj:eeeeeeeeeeee", "service_url", "https://collision.example")
             first["name"] = "First"
             first["website_url"] = "https://collision.example"
+            first["service_urls"] = ["https://collision.example"]
             project_record.set_service_url_candidate_values(first, ["https://shared-candidate.example"])
             project_record.save_project(conn, first)
 
             second = self.make_project("proj:ffffffffffff", "service_url", "https://collision.example")
             second["name"] = "Second"
             second["website_url"] = "https://collision.example"
+            second["service_urls"] = ["https://collision.example"]
             project_record.set_service_url_candidate_values(second, ["https://shared-candidate.example"])
             project_record.save_project(conn, second)
             conn.commit()

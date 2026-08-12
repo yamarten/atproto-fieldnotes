@@ -1250,7 +1250,6 @@ def sync_github_search(
         homepage = normalize_service_candidate_url(str(entry.get("homepage") or ""))
         if homepage:
             add_candidate_url(project, "service_url", homepage)
-            add_candidate_url(project, "website_url", homepage)
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
         project["merge_recommendation"] = compute_merge_recommendation(project)

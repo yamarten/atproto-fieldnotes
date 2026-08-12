@@ -75,7 +75,6 @@ ADMISSION_POLICY = {
 
 ENTITY_KIND = {
     "service": "service_url",
-    "website": "service_url",
     "repo": "repo_url",
     "nsid": "collection",
     "collection": "collection",
@@ -178,9 +177,20 @@ def classify_redirect_observation(subject_url: str, object_url: str) -> str:
     return "cross_site_redirect"
 
 
-def _normalize_relation_edge(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any] | None:
-    subject_kind = ENTITY_KIND.get(str(row["subject_type"]))
-    object_kind = ENTITY_KIND.get(str(row["object_type"]))
+def _relation_entity_kind(raw_kind: str, value: str, confirmed_services: set[str]) -> str | None:
+    if raw_kind == "website":
+        return "service_url" if str(value).strip() in confirmed_services else None
+    return ENTITY_KIND.get(raw_kind)
+
+
+def _normalize_relation_edge(
+    row: sqlite3.Row | dict[str, Any],
+    *,
+    confirmed_services: set[str] | None = None,
+) -> dict[str, Any] | None:
+    services = confirmed_services or set()
+    subject_kind = _relation_entity_kind(str(row["subject_type"]), str(row["subject_value"]), services)
+    object_kind = _relation_entity_kind(str(row["object_type"]), str(row["object_value"]), services)
     predicate = str(row["predicate"])
     if predicate == "source_repository":
         if subject_kind == "service_url" and object_kind == "repo_url":
@@ -201,11 +211,24 @@ def _normalize_relation_edge(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any
     }
 
 
-def _normalize_legacy_edge(raw: dict[str, Any]) -> dict[str, Any] | None:
+def _normalize_legacy_edge(
+    raw: dict[str, Any],
+    *,
+    confirmed_services: set[str] | None = None,
+) -> dict[str, Any] | None:
     subject = raw.get("subject") if isinstance(raw.get("subject"), dict) else {}
     obj = raw.get("object") if isinstance(raw.get("object"), dict) else {}
-    subject_kind = ENTITY_KIND.get(str(subject.get("kind") or subject.get("type") or ""))
-    object_kind = ENTITY_KIND.get(str(obj.get("kind") or obj.get("type") or ""))
+    services = confirmed_services or set()
+    subject_kind = _relation_entity_kind(
+        str(subject.get("kind") or subject.get("type") or ""),
+        str(subject.get("value") or ""),
+        services,
+    )
+    object_kind = _relation_entity_kind(
+        str(obj.get("kind") or obj.get("type") or ""),
+        str(obj.get("value") or ""),
+        services,
+    )
     if not subject_kind or not object_kind:
         return None
     return {
@@ -554,12 +577,12 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         graph = (((state.get("evidence") or {}).get("trust_graph") or {}) if isinstance(state, dict) else {})
         projects[str(row["project_key"])] = {
             "project_key": str(row["project_key"]),
-            "claims": [], "edges": [], "decisions": [], "v1_evaluations": list(graph.get("evaluations") or []),
+            "legacy_edges": list(graph.get("edges") or []),
+            "claims": [],
+            "edges": [],
+            "decisions": [],
+            "v1_evaluations": list(graph.get("evaluations") or []),
         }
-        for raw in graph.get("edges") or []:
-            edge = _normalize_legacy_edge(raw) if isinstance(raw, dict) else None
-            if edge:
-                projects[str(row["project_key"])]["edges"].append(edge)
     for row in conn.execute("SELECT * FROM project_identifiers ORDER BY project_key, ordinal"):
         kind = IDENTIFIER_KIND.get(str(row["kind"]))
         if not kind:
@@ -577,12 +600,32 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "standing": CURRENT_IDENTIFIER_STANDING,
         })
     for row in conn.execute("SELECT * FROM project_relations ORDER BY project_key, ordinal"):
-        edge = _normalize_relation_edge(row)
+        project = projects[str(row["project_key"])]
+        confirmed_services = {
+            str(claim["node"][1])
+            for claim in project["claims"]
+            if claim["node"][0] == "service_url"
+            and claim["role"] == "service"
+            and claim["classification"] == "confirmed"
+        }
+        edge = _normalize_relation_edge(row, confirmed_services=confirmed_services)
         if edge:
-            projects[str(row["project_key"])]["edges"].append(edge)
+            project["edges"].append(edge)
         else:
-            projects[str(row["project_key"])].setdefault("unmapped_relation_count", 0)
-            projects[str(row["project_key"])]["unmapped_relation_count"] += 1
+            project.setdefault("unmapped_relation_count", 0)
+            project["unmapped_relation_count"] += 1
+    for project in projects.values():
+        confirmed_services = {
+            str(claim["node"][1])
+            for claim in project["claims"]
+            if claim["node"][0] == "service_url"
+            and claim["role"] == "service"
+            and claim["classification"] == "confirmed"
+        }
+        for raw in project.pop("legacy_edges", []):
+            edge = _normalize_legacy_edge(raw, confirmed_services=confirmed_services) if isinstance(raw, dict) else None
+            if edge:
+                project["edges"].append(edge)
     for row in conn.execute("SELECT * FROM project_decisions ORDER BY project_key, ordinal"):
         metadata = _json(str(row["metadata_json"]), {})
         projects[str(row["project_key"])]["decisions"].append({
@@ -769,7 +812,7 @@ def _snapshot_identifiers(payload: dict[str, Any]) -> set[tuple[str, str]]:
         for value in payload.get(field, []) if isinstance(payload.get(field), list) else []:
             if str(value):
                 values.add((kind, str(value)))
-    scalar_fields = {"website_url": "service_url", "source_code_url": "repo_url", "primary_nsid": "collection"}
+    scalar_fields = {"source_code_url": "repo_url", "primary_nsid": "collection"}
     for field, kind in scalar_fields.items():
         value = str(payload.get(field) or "")
         if value:

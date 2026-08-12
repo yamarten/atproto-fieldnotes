@@ -88,7 +88,7 @@ project-registry enrich --all --resume-run weekly-20260714
 
 | kind | 意味 |
 | --- | --- |
-| `service_candidate_needs_confirmation` | 独立サービス候補はあるが、websiteとして未採用。 |
+| `service_candidate_needs_confirmation` | サービス候補はあるが、confirmed serviceとして未採用。Websiteの有無とは独立。 |
 | `candidate_repo_needs_confirmation` | リポジトリ候補はあるが、source codeとして未採用。 |
 | `llm_manual_review_recommended` | LLM評価が、利用者による確認が必要な具体的な種類と理由を返した。 |
 | `service_now_usable_but_needs_editorial_review` | サービスは利用可能だが、summary/tagline/category等が不足。 |

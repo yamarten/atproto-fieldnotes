@@ -699,6 +699,26 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(created["confirmed_role"], "service")
         self.assertIn("https://tools.example.com/import/writing", saved["service_urls"])
 
+    def test_add_seed_does_not_replace_existing_website(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:websiteandservice", "repo_url", "https://github.com/example/app")
+            project["website_url"] = "https://docs.example.com/app"
+            project_record.save_project(conn, project)
+            projects.add_seed(
+                conn,
+                seed="https://api.example.com",
+                seed_type="service_url",
+                project_key=project["project_key"],
+            )
+            saved = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertEqual(saved["website_url"], "https://docs.example.com/app")
+        self.assertIn("https://api.example.com", saved["service_urls"])
+
     def test_add_seed_treats_explicit_supporting_path_as_service(self) -> None:
         conn = registry.open_db()
         try:
@@ -898,7 +918,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             [(row["kind"], row["target_type"], row["target_value"]) for row in rows],
         )
 
-    def test_confirming_candidate_service_sets_initial_website_and_service_row(self) -> None:
+    def test_confirming_candidate_service_does_not_set_website(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:candidatewebsite", "repo_url", "https://github.com/example/app")
@@ -927,7 +947,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             conn.close()
 
         assert saved is not None
-        self.assertEqual(saved["website_url"], "https://app.example.com")
+        self.assertEqual(saved["website_url"], "")
         self.assertEqual(row["classification"], "confirmed")
 
     def test_merge_service_supports_dry_run_and_execute(self) -> None:

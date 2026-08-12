@@ -581,9 +581,9 @@ def refresh_project_seed_identity(project: dict[str, Any]) -> None:
     if repo_url:
         set_project_seed_identity(project, "repo_url", str(repo_url))
         return
-    website_url = str(project.get("website_url") or "")
-    if website_url:
-        set_project_seed_identity(project, "service_url", website_url)
+    service_url = next(iter(unique_list(project.get("service_urls", []))), "")
+    if service_url:
+        set_project_seed_identity(project, "service_url", str(service_url))
         return
     project["seed_type"] = "unknown"
     project["seed_value"] = ""
@@ -1204,21 +1204,7 @@ def compute_external_lexicons(project: dict[str, Any]) -> list[str]:
 
 
 def ownership_anchor_service_hosts(project: dict[str, Any]) -> set[str]:
-    hosts = set(manual_service_hosts(project))
-    website_url = identifier_core.normalize_url(str(project.get("website_url") or "")) if project.get("website_url") else ""
-    if website_url:
-        website_host = urllib.parse.urlparse(website_url).netloc.lower()
-        if website_host:
-            hosts.add(website_host)
-    seed_type = str(project.get("seed_type") or "").strip()
-    seed_value = str(project.get("seed_value") or "").strip()
-    if seed_type == "service_url":
-        seed_url = identifier_core.normalize_url(seed_value)
-        if seed_url:
-            seed_host = urllib.parse.urlparse(seed_url).netloc.lower()
-            if seed_host:
-                hosts.add(seed_host)
-    return {host for host in hosts if host}
+    return {host for host in manual_service_hosts(project) if host}
 
 
 def project_trusted_collection_nsid_from_state(project: dict[str, Any], nsid: str) -> bool:
@@ -1380,8 +1366,6 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
         if canonical_seed_value(identifier_type, str(item.get("value") or "")) == normalized:
             return 0, True
     if identifier_type == "service_url":
-        if project.get("website_url") and identifier_core.normalize_url(str(project.get("website_url") or "")) == normalized:
-            return 0, True
         if normalized in [identifier_core.normalize_url(str(item)) for item in project.get("service_urls", []) if item]:
             return 0, True
         if normalized in [identifier_core.normalize_url(str(item)) for item in service_url_candidate_values(project) if item]:
@@ -1583,7 +1567,7 @@ def save_project(
     project["tagline_candidates"] = project.get("tagline_candidates", [])
     project["lexicon_schema_samples"] = [dict(item) for item in project.get("lexicon_schema_samples", []) if isinstance(item, dict)][:12]
     project["recent_record_samples"] = [dict(item) for item in project.get("recent_record_samples", []) if isinstance(item, dict)][:18]
-    sync_primary_service_urls(project)
+    normalize_website_and_service_urls(project)
     project["lexicon_count"] = len(project.get("lexicons", []))
     reclassify_service_specific_lexicon(project)
     apply_atproto_contribution_state(project)
@@ -2068,7 +2052,7 @@ def sync_resource_url_records(project: dict[str, Any]) -> None:
     project["resource_url_records"] = resource_url_record_values(project)
 
 
-def sync_primary_service_urls(project: dict[str, Any]) -> None:
+def normalize_website_and_service_urls(project: dict[str, Any]) -> None:
     for field_name in ("service_urls",):
         for item in project.get(field_name, []):
             if is_bluesky_profile_url(str(item or "")):
@@ -2080,14 +2064,11 @@ def sync_primary_service_urls(project: dict[str, Any]) -> None:
         record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
     set_service_url_candidate_values(project, service_url_candidate_values(project))
-    website_url = normalize_confirmed_service_url(str(project.get("website_url") or "")) if project.get("website_url") else ""
-    if website_url:
-        project["website_url"] = website_url
-        project["service_urls"] = add_unique(project.get("service_urls", []), website_url)
-    elif project.get("service_urls"):
-        project["website_url"] = project["service_urls"][0]
-    else:
-        project["website_url"] = ""
+    project["website_url"] = (
+        identifier_core.normalize_url(str(project.get("website_url") or ""))
+        if project.get("website_url")
+        else ""
+    )
     confirmed_urls = {identifier_core.normalize_url(item) for item in project.get("service_urls", []) if item}
     set_service_url_candidate_values(
         project,
@@ -2253,8 +2234,6 @@ def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:
 def service_hosts(project: dict[str, Any]) -> set[str]:
     hosts: set[str] = set()
     urls = set(project.get("service_urls", []))
-    if project.get("website_url"):
-        urls.add(project["website_url"])
     for url in urls:
         host = urllib.parse.urlparse(identifier_core.normalize_url(url)).netloc.lower()
         if host:
@@ -2416,10 +2395,8 @@ def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
     namespace_tokens = lexicon_brand_tokens(project)
     identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project) | project_repo_owner_tokens(project)
     has_service_surface = bool(
-        project.get("website_url")
-        or project.get("service_urls")
+        project.get("service_urls")
         or service_url_candidate_values(project)
-        or resource_url_values(project)
         or project.get("collection_observations")
     )
     if namespace_tokens & identity_tokens and has_service_surface:

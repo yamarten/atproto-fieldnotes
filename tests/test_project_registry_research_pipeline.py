@@ -1876,6 +1876,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 self.assertIn("browser_public_app_surface_detected", project["service_status_evidence"])
                 project["category"] = "project"
                 project["website_url"] = case["service_url"]
+                project["service_urls"] = [case["service_url"]]
                 signal_kinds = {item["kind"] for item in registry.compute_showcase_signals(project)}
                 self.assertIn("service_surface_confirmed", signal_kinds)
 

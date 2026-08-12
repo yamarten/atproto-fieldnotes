@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- identifierの採用理由、旧identifier、non-production、時間関係、noiseを分離するtemp DB prototypeと正本DBのread-only移行投影まで完了しました。production schemaと挙動は未変更です。結果とreview対象は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
+- identifierの採用理由、旧identifier、non-production、時間関係、noiseを分離するtemp DB prototypeと正本DBのread-only移行投影まで完了しました。Website、service URL、補助pageのruntime責務は分離しましたが、採用理由を保存するproduction schemaとreview済みデータの移行は未適用です。結果とreview対象は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
@@ -19,7 +19,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- [Identifierの採用理由と保存契約の設計メモ](notes/identifier-adoption-storage-design.md#websiteservice補助pageの境界)で合意したWebsite・service・補助pageの分離を実装計画へ落とす。通常経路のWebsite/service相互補完、Website一致によるprimary service扱い、Websiteの信頼判定への混入を外し、operator add-seedだけに初期値の例外を残す。移行は全612件を再分類せず、review済み108 claimの判断をtemp DBへ適用してから正本DBへの反映承認を得る。
+- [Identifierの採用理由と保存契約の設計メモ](notes/identifier-adoption-storage-design.md)に沿ってproductionの採用理由保存契約を実装し、review済み108 claimの判断をtemp DBへ適用する。Website・service・補助pageの通常処理は分離済みなので、全612件を一律に再分類せず、明示的に処遇を決めたclaimだけを移行する。temp DBの差分と主要事例をreviewした後、正本DBへの反映承認を得る。
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
 
 ## DB 操作メモ

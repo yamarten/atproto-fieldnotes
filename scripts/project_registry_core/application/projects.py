@@ -54,6 +54,8 @@ def add_seed(
     confirmed_role = ""
     if resolved_type == "service_url":
         core.confirm_service_url(project, normalized_value, operator_override=True)
+        if not str(project.get("website_url") or "").strip():
+            project["website_url"] = normalized_value
         origin = core.url_origin(normalized_value)
         project_record.set_service_url_candidate_values(
             project,

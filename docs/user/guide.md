@@ -38,6 +38,8 @@ project-registry-web --db-path data/survey.dev.db
 | --- | --- |
 | 登録プロジェクト | Project Registryが1つの調査対象としてDBに保存する単位。コマンドやJSONでは`project`と表記される。 |
 | シード | 登録プロジェクトを作成・特定する入力。NSID、リポジトリURL、サービスURLを指定できる。識別子のroleではなく、由来は情報源と採用判断へ分けて保存する。 |
+| Website | 人が登録プロジェクトを知るための代表的な公式URL。紹介、documentation、native appの配布pageでもよく、Websiteであることだけでは識別子や信頼の起点にならない。 |
+| サービスURL | 登録プロジェクトの機能を実際に提供するURL。Web app、API、PDSなどが該当し、1つの登録プロジェクトに複数あってよい。Websiteと同じURLでも別の責務として扱う。 |
 | `enrich` | 登録プロジェクトを調査し、現在の情報と調査履歴を更新する処理。 |
 | 外部情報の取り込み（`sync`） | 設定済みの外部情報源を走査し、既存の登録プロジェクトとの照合結果や新規登録候補を作る処理。 |
 | 調査実行記録 | 1つの登録プロジェクトに対する`enrich`などの保存済み調査履歴。画面やJSONではinvestigation runまたはrunと表記される。 |
@@ -94,7 +96,7 @@ project-registry review-queue
 project-registry add-seed https://example.com --project-key 2f2acb
 ```
 
-シードは対応する所有NSID、サービス、ソースリポジトリとして`confirmed`保存し、採用判断も記録します。NSIDの`owned`はprojectによるcollection所有を表し、単なる利用・言及を表しません。サービスURLはパスを保持するため、複数のツールを異なるパスで公開するサイトも指定できます。明示入力には補助ページ名のheuristicを適用しません。
+シードは対応する所有NSID、サービス、ソースリポジトリとして`confirmed`保存し、採用判断も記録します。NSIDの`owned`はprojectによるcollection所有を表し、単なる利用・言及を表しません。サービスURLはパスを保持するため、複数のツールを異なるパスで公開するサイトも指定できます。明示入力には補助ページ名のheuristicを適用しません。`add-seed`で新規登録するサービスURLは、Websiteが空の場合だけ同じURLを初期値にします。その後の候補採用や収集ではWebsiteを自動設定せず、両者は個別に変更できます。
 
 正確な引数は`project-registry COMMAND --help`、出力形式と副作用は[CLIガイド](cli.md)を確認してください。
 

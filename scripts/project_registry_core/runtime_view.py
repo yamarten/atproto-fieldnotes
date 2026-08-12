@@ -272,7 +272,6 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
     for value in project.get("authority_domains", []):
         add("domain", value, "authority_domain", "derived")
 
-    add("service_url", project.get("website_url"), "service", "confirmed")
     for value in project.get("service_urls", []):
         add("service_url", value, "service", "confirmed")
     for value in project.get("service_url_candidates", []):
