@@ -1,6 +1,6 @@
 # Project Record Schema
 
-この文書はregistry schema version 2のproject保存モデルと、各データの意味を定める開発者向けの正本です。調査pipelineの責務は[investigation-model.md](investigation-model.md)、具体的な判定規則は[registry-internals.md](registry-internals.md)を参照してください。
+この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。調査pipelineの責務は[investigation-model.md](investigation-model.md)、具体的な判定規則は[registry-internals.md](registry-internals.md)を参照してください。
 
 ## 設計意図
 
@@ -18,7 +18,7 @@ app lexiconとの完全互換や即時exportは主目的ではありません。
 
 ## Schema Version
 
-現行schemaはversion 2です。`registry_meta.schema_version=2`を持たない旧DBは通常起動では読み込みません。旧DB schemaは現行導線の対象外です。
+実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。2026-08-13時点の正本DBはversion 2のままで、version 3への切替は未承認・未適用です。
 
 ## 保存責務
 
@@ -47,12 +47,10 @@ mergeで削除したsource project keyを、存続するcanonical project keyへ
 - `reason`: 現状は`merge`
 - `created_at`: alias作成時刻
 
-alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ
-解決し、canonical projectのInvestigation一覧にはalias元keyで保存されたrunも含めます。
+alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ解決し、canonical projectのInvestigation一覧にはalias元keyで保存されたrunも含めます。
 `investigation_runs.project_key`とrun内snapshot/bundleは、調査当時のidentityを残すため書き換えません。
 
-このtableはschema version 2へのadditive tableです。既存v2 DBは通常readerでopenした時に
-idempotentに作成できます。
+このtableはschema version 2で追加され、version 3でも継続利用します。
 
 ### `profile_json`
 
@@ -138,7 +136,7 @@ categoryで表します。強いprotocol利用の根拠があれば、`atproto_c
 
 ## `project_identifiers`
 
-projectに結び付くNSID、service URL、repo URL、account、handle、DID、authority domainを順序付きで保持します。
+projectの現行構成要素と、構成要素候補であるNSID、service URL、repo URL、account、handle、DIDを順序付きで保持します。
 
 - `project_key`: 所属project
 - `ordinal`: project内の保存順
@@ -159,7 +157,6 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `service`: confirmedまたはcandidateのservice surface
 - repository
   - `source_repository`: projectのsource候補またはconfirmed repo
-  - `source_repository_record`: metadata、README、treeなどを取得したrepo observation
 - identity
   - `developer_account`: 開発者・運営者accountの保存・操作単位。値は同じaccount recordのDIDまたはhandleで、Web表示では対応するhandle/DID成分と1つのidentity groupに畳む。trust graph nodeにはしない
   - `developer_handle`: `developer_account` recordから展開したhandle成分。handle検索、domain/handle関係、表示上の補足に使う
@@ -167,8 +164,9 @@ projectに結び付くNSID、service URL、repo URL、account、handle、DID、a
   - `brand_did`: project自身のDID
   - `project_account`: project名義のaccount候補
   - `project_handle`: project名義のhandle候補
-  - `authority_domain`: NSIDやidentity pathから導出したdomain
 `input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`は移行済みの旧roleであり、現行コードは生成・読込・保存しません。観測・参照したNSIDはfactual identifierへ混ぜず、relation、schema sample、collection observationなど元の根拠に保存します。
+
+`source_repository_record`はrepoを調査した観測記録であり、`state_json.evidence.source_repo_records`に保存します。`authority_domain`はconfirmed `owned_nsid`からruntimeで導出し、identifier rowとして保存しません。いずれもproject構成要素、exact attribution、trusted anchorにはしません。
 
 現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `source_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 
@@ -178,7 +176,7 @@ load時は専用runtime codecがnormalized child tableを読み、collector/eval
 
 既存projectを保存する時は、identifier、relation、decisionを読み込んだ完全なruntime viewであることを要求します。検索結果や部分的なdictをそのまま保存するとchild tableを全消去し得るため、partial dictからの更新は拒否します。runtime viewを識別する内部markerは`profile_json`、`state_json`、Web payload、investigation snapshotへ保存しません。
 
-runtime codecは、loadして無変更saveした場合にidentifier、relation、decision rowのclassification、role、primary、provider、metadata、observed_atを維持します。candidateのowned NSIDやcandidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。
+runtime codecは、loadして無変更saveした場合にidentifier、relation、decision、adoption rowのclassification、role、primary、provider、metadata、observed_at、採用来歴を維持します。candidateのowned NSIDやcandidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。
 
 削除済みalias fieldも生成・保存しません。
 
@@ -221,6 +219,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `ordinal`: project内の保存順
 - `kind`: decisionの種類
 - `target_type`, `target_value`: decisionの対象。project全体へのdecisionでは空
+- `target_role`: 対象claimのrole。一意に決められない旧decisionでは空
 - `note`: operatorが記録した理由
 - `created_at`, `expires_at`, `cleared_at`: 作成、失効、解除時刻
 - `metadata_json`: decision固有の補助情報
@@ -238,6 +237,16 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
+
+## 非現行identifier、採用理由、移転、noise
+
+`project_noncurrent_identifiers`はprojectとの正の関係を保つが現行構成要素ではないclaimを保持します。`standing`は過去に現行だった`former`と、開発・試験用の`non_production`です。exact検索には現行claimより低い優先度で使えますが、trusted anchorにはしません。同一`project_key + kind + value + role`を`project_identifiers`と同時に保持せず、現行へ再採用した時は非現行rowを削除します。
+
+`project_identifier_adoptions`は、現行confirmed構成要素をいつ、どの入口とpolicyで採用したかを保持します。operator、bootstrap、trust policyを区別し、merge後も`origin_project_key`を維持します。これは外部事実そのものではなく採用来歴です。current confirmed claimと有効な採用理由の両方がある場合だけtrusted anchor候補になります。candidate、former、non-productionの採用理由はactiveにしません。
+
+`project_identifier_transitions`は、renameやreplacementを外部根拠またはoperator reviewで確定した場合だけ旧claimから新claimへの関係を保持します。新旧identifierが同居するだけでは生成しません。
+
+`registry_identifier_exclusions`はprojectへ帰属しない既知noiseを完全一致で抑止するregistry-wide tableです。例えば誤記NSIDやplaceholderをcollection syncで何度も再作成しないために使います。prefixやpatternには展開せず、project固有のblock/deferも置き換えません。
 
 ## Canonical View
 

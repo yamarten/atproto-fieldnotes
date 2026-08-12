@@ -1,6 +1,6 @@
 # Registry Internals
 
-registry schema version 2の内部仕様と運用メモです。利用手順は[利用ガイド](../user/guide.md)、保存モデルの正本は[project-record.md](project-record.md)を参照してください。
+registry schema version 3の内部仕様と運用メモです。利用手順は[利用ガイド](../user/guide.md)、保存モデルの正本は[project-record.md](project-record.md)を参照してください。
 
 ## 運用前提
 
@@ -30,7 +30,7 @@ registry schema version 2の内部仕様と運用メモです。利用手順は[
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
 新規DBの作成は`project-registry init-db [--db-path PATH]`だけが明示的に行います。通常CLI、Web、background
-workerは既存のschema version 2 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。
+workerは既存のschema version 3 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。version 2 DBも通常openでは暗黙移行しません。
 新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを
 同値upsertせず、open処理由来のwrite transactionを保持しません。
 
@@ -235,12 +235,12 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える
 - `project_registry_core/project_record.py`
   - projectの既定shapeと保存前正規化、scalar/profile/state payloadへの投影を所有する
-  - schema v2 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
+  - schema v3 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
   - `database.py` / `runtime_view.py`と専門moduleを利用し、`registry.py`へ依存しない
 - `project_registry_core/application/`
   - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
   - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
-  - `presentation.py`はschema v2のproject detail、queue、search payloadを組み立てるtransport非依存service
+  - `presentation.py`はproject detail、queue、search payloadを組み立てるtransport非依存service
 - `project_registry_core/jobs.py`
   - 長時間処理のrequest/event/resultと協調的cancellation契約
 - `project_registry_core/commands/`
@@ -323,7 +323,7 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 
 `enrich --all` の中断/再開は DB schema ではなく、`data/enrich-runs/*.json` の checkpoint で扱います。開始時に選択した project key listを固定し、各projectの保存後に`completed_project_keys`を更新します。Ctrl+Cは協調的な停止要求となり、処理中projectを保存した後に`status=interrupted`と再開commandを記録します。次回`--resume-run`は完了済みkeyを飛ばします。契約の正本は[background-jobs.md](background-jobs.md)です。
 
-Web UIはschema v2 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。Websiteはprofile、service URLはidentifierとして別々に表示し、値が同じでもprimary markerは付けません。DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始できますが、confirm/block/defer/split decisionのidentityは現行どおり`kind + value`です。profile編集で明示したnameは`operator_edit`候補として保存し、自動生成候補より優先します。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。
+Web UIはschema v3 repositoryへ接続済みです。project detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。identifier groupは同値行をまとめつつ、`entries`にrole/classification/providerの対応を保持します。Websiteはprofile、service URLはidentifierとして別々に表示し、値が同じでもprimary markerは付けません。DID/handle/accountは同じaccount metadataを持つ場合に1つのidentity groupへ畳みます。confirmはcandidate entryから開始でき、同じ値のblock/deferを解除してrole付きconfirm decisionとadoptionを保存します。profile編集で明示したnameは`operator_edit`候補として保存し、自動生成候補より優先します。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。former/non-productionの表示・編集UIは未接続です。
 
 enrich、sync、review classificationの別process runnerとWeb API/UIは接続済みです。job stateはserver process内、enrich checkpointはDB directory隣接の`enrich-runs/`に保存します。同じWeb serverからの同時background jobは1件に制限しますが、CLIなど別processとの排他は行いません。enrichはproject境界のprogress/cancellationとbulk checkpoint再開、server再起動後の固定rootからのcheckpoint発見を持ちます。syncはsource内page/item境界、reviewはcandidate境界でprogressとcancelを確認します。sync/reviewのcheckpoint再開とserver再起動後のprocess job一覧復元は未接続です。旧Web helperは暫定復活させません。Investigation tabにはrun一覧、上限付きevidence、要求時のread-only replay差分を接続済みですが、evidence全文は表示しません。
 
@@ -1356,7 +1356,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
 
 旧 `data_json` 前処理はもう行いません。
-schema cleanupも完了済みで、現行DBは`registry_meta.schema_version=2`とnormalized child tablesを前提にします。旧DBは通常読み込み・移行ともに未接続です。
+schema v3実装は`registry_meta.schema_version=3`、normalized child tables、非現行identifier、採用理由、確定transition、registry-wide exclusionを前提にします。version 2は通常openせず、review済みmanifestによる新規複製DBのmaterializationだけを移行経路にします。正本DBへの切替は未適用です。
 
 新しいsuffix設定時はWebとCLIが同じapplication serviceを呼び、保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定します。staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正し、観測URL、service status、confirmed/candidate identifier、investigation snapshotは変更しません。保存済みEvidenceBundleをcurrent stateへ再適用する場合もsame-site flagを現行policyで再計算します。genericなproject保存や履歴payloadの縮約では再計算しません。
 

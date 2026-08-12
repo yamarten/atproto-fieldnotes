@@ -1,6 +1,6 @@
 # Identifier保存方式のshadow比較
 
-> 作業用・検討用文書です。2026-08-13時点の正本DBをread-onlyで比較し、review済み判断を複製DBへ適用した結果を記録します。production schema、正本DB、自動confirm、検索、syncの挙動は変更していません。
+> 作業用・検討用文書です。2026-08-13時点の正本DBをread-onlyで比較し、review済み判断をschema version 3の複製DBへ適用した結果を記録します。実装コードとtemp DBはversion 3へ進めましたが、正本DBはversion 2のままで変更していません。
 
 ## 結論
 
@@ -8,7 +8,7 @@
 
 正本DBのconfirmed構成要素10,184件のうち、10,183件は既存のdecision、collection inventory、confirmed relation、legacy manual seedの文脈から採用理由を投影できます。残るWaverly Socialの1件を含むreview対象108 claimはすべて処遇を確定し、複製DBでは採用理由のないconfirmed構成要素が0件になりました。ここでいう採用理由の投影とは、identifierを探し直したり現在の信頼ポリシーで再確認したりすることではありません。現行DBではconfirmedである理由がdecisionとして残っていないclaimがあるため、新しい保存契約へ移す際に、既存履歴または今回のoperator reviewを対応づけることです。
 
-この結果はproduction schemaを決めるためのshadow materializationです。正本DBへ適用する前の次のゲートは、後述する保存責務と実データ差分が意図どおりかのreviewです。
+この結果をもとにproduction schema version 3と通常mutationを実装しました。正本DBへ適用する前の次のゲートは、後述する保存責務、実データ差分、version 2からの明示移行が意図どおりかのreviewです。
 
 Waverly Socialの`https://mywaverly.com`は、利用者による裏取りを根拠として`former`へ移しました。これは複製DBだけの結果で、正本DBにはまだ適用していません。
 
@@ -25,7 +25,7 @@ Waverly Socialの`https://mywaverly.com`は、利用者による裏取りを根�
 | 確定した移転 | `identifier_transitions` | 直接は使わない | 旧・新identifierの関連説明に使える | 直接は使わない |
 | noise | `identifier_exclusions` | 不可 | projectへは解決しない | 対象 |
 
-table名はprototype上の名前であり、production schema名の決定ではありません。`identifier_exclusions`はregistry-wideなnoise抑止を試したもので、projectごとのblock/deferを置き換えません。
+production実装では順に`project_identifiers`、`project_noncurrent_identifiers`、`project_identifier_adoptions`、`project_identifier_transitions`、`registry_identifier_exclusions`へ対応します。registry-wide exclusionはprojectごとのblock/deferを置き換えません。
 
 ## 固定caseの結果
 
@@ -44,7 +44,7 @@ table名はprototype上の名前であり、production schema名の決定では�
 
 ## 正本DBへの移行投影
 
-入力は4,416 project、24,860 identifier、12,211 confirmed identifier、2,405 decisionです。構成要素向けroleに絞ると10,184 claimです。
+入力は4,416 project、24,862 identifier、12,211 confirmed identifier、2,405 decisionです。構成要素向けroleに絞ると10,184 claimです。
 
 review対象107 claimは`project key + kind + value + role`の集合hash `f7ce2f2f9736a2fc1665277d121a8762bdace544ce55f28becc415a7f59d6f73`で固定しました。Waverly Socialの1件は、投影で補完できない追加claimとしてmanifestへ明示しています。この固定により、正本DB側の対象集合が変わった場合はreview結果を黙って別のclaimへ適用せず、materializationを停止します。
 
@@ -80,11 +80,11 @@ High FiveとMalfestioの二つの新projectを作成したためproject数は4,4
 
 Websiteだけを残したproject、無関係なserviceを外したproject、non-production serviceだけになったprojectのうち、他にconfirmed serviceがない22 projectは`service_status=none`に揃えました。このうちscalar値が実際に変わったのは14 projectです。終了済みserviceを`former`へ移したprojectの`dead`は、過去にservice surfaceを持っていた状態を表すため維持しました。
 
-`source_repository_record` 1,455件と`authority_domain` 3,998件は、構成要素identifierではなく観測記録として`state_json.evidence`へ移しました。これはshadow上の保存候補であり、productionの観測保存契約はまだ確定していません。
+`source_repository_record` 1,455件は、構成要素identifierではなくrepo観測として`state_json.evidence.source_repo_records`へ移しました。`authority_domain` 3,998件はidentifier rowから除き、confirmed `owned_nsid`からruntimeで再導出します。導出値だけを`state_json`へ複製保存はしません。
 
 active deferの対象としてcandidateのまま残っていた7 claimはcurrent identifierから除きました。confirmed claimとactive block/deferの競合はありませんでした。
 
-適用後は4,418 project、19,358 current identifier、10,144 confirmed構成要素、8 non-current identifier、10,277 adoption rowです。current identifierが大きく減る主因は、上記5,453件の観測用rowをidentifier tableから移したことです。
+再実行時の入力は4,416 project、24,862 identifierでした。適用後は4,418 project、19,360 current identifier、10,144 confirmed構成要素、8 non-current identifier、10,262 adoption rowです。current identifierが大きく減る主因は、上記5,453件の観測・導出rowをidentifier tableから除いたことです。active confirm decisionが残っていても現在のclassificationがcandidateである15 claimにはadoptionを作りません。
 
 検証結果は次のとおりです。
 
@@ -92,7 +92,10 @@ active deferの対象としてcandidateのまま残っていた7 claimはcurrent
 - foreign key error: 0
 - 同一claimのcurrent/non-current重複: 0
 - 有効な採用理由を持たないconfirmed構成要素: 0
+- 4,418 projectのhydrate→無変更saveによるnormalized row差分: 0
 - 固定prototype case: 8/8成功
+- schema version: source 2、複製3
+- 通常openによるversion 2の暗黙移行: なし
 
 ## sample review
 
@@ -124,4 +127,6 @@ project-registry compare-identifier-storage \
 
 完全reportと複製DBは`.tmp/`へ生成し、commitしません。
 
-利用者が保存責務と実データ差分をreviewするまで、production schema、正本DB、自動confirm、candidate保存、検索、sync、Web UIは変更しません。合意後は、このshadow schemaをそのままproductionへコピーするのではなく、既存`project_identifiers`、`project_decisions`、merge、exact lookup、collection syncの責務へ最小のschemaとmutationを割り当てます。特に、観測用rowの正本、非現行identifierの通常検索表示、confirm時のdefer解除をproduction契約として詰める必要があります。
+実装済みのversion 3では、role付きdecision、採用理由、非現行identifierの低優先度exact検索、confirm時のexact block/defer解除、collection再作成抑止、merge時のorigin保持を通常責務へ接続しました。source repo観測は`state_json.evidence`、authority domainはruntime導出とし、構成要素identifierへ戻しません。通常openはversion 2を拒否し、review済みmanifestから新規複製DBを作る時だけ明示移行します。
+
+次のreviewでは、この実装境界と複製DB差分を採否判断します。正本DBへの切替、自動confirm policyの新規有効化、Web UIへのformer/non-production表示はこの段階では行いません。
