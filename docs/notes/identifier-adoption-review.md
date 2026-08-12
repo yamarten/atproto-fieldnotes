@@ -390,6 +390,6 @@ OpenFederationとagoraの追加URLは108件のreview対象外にある新規clai
 
 shadow comparisonで補完不能だった残り1 claimは、冒頭で別途`former`と決定したWaverly Socialの`https://mywaverly.com`です。したがって、移行review対象108 claimはすべて処遇が確定しました。
 
-## 保存契約の残件
+## 保存契約への反映
 
-- `lexicon.community`のようにprojectを代表する公式websiteでありながらservice surfaceではないURLを、Website欄に保ったままservice roleから分離できるようにする。現行実装では`projects.website_url`とservice identifierの境界が十分に表現されていないため、移行実装前にwebsite、service、説明用resourceの保存・表示責務を整理する。
+`lexicon.community`のようにprojectを代表する公式WebsiteでありながらserviceではないURLを扱うため、Website、service、補助pageの責務を[Identifierの採用理由と保存契約の設計メモ](identifier-adoption-storage-design.md#websiteservice補助pageの境界)で分離しました。設計は確定しましたが、productionの保存・表示・信頼判定と既存DBへの反映は未実装です。

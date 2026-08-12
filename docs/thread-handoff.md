@@ -19,7 +19,7 @@
 
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
-- `projects.website_url`とservice identifierを分離し、projectを代表する公式website、機能を提供するservice surface、説明用resourceをどう保存・表示するか、移行実装前に決める。Lexicon Community、library documentation、native appの紹介・配布siteが既知事例。
+- [Identifierの採用理由と保存契約の設計メモ](notes/identifier-adoption-storage-design.md#websiteservice補助pageの境界)で合意したWebsite・service・補助pageの分離を実装計画へ落とす。通常経路のWebsite/service相互補完、Website一致によるprimary service扱い、Websiteの信頼判定への混入を外し、operator add-seedだけに初期値の例外を残す。移行は全612件を再分類せず、review済み108 claimの判断をtemp DBへ適用してから正本DBへの反映承認を得る。
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
 
 ## DB 操作メモ

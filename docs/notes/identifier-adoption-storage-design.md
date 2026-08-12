@@ -117,6 +117,31 @@ Admissionは許可済みの直接関係から帰属主張を`candidate`として
 
 OAuth利用、accountからのservice/repository link、mention、共通host、一般README linkからcandidateを作りません。ただしcollectorの意味分類を現時点で100%にすることは移行条件にしません。人間のreviewで誤candidateを棄却し、その判断を将来の一般則とcollector改善へ戻せることを優先します。collector固有の例外を積み重ねて19件すべてを事前に無害化する方針は採りません。
 
+## Website、service、補助pageの境界
+
+公開URLは、同じ値を持ちうる三つの責務に分けます。値が同じでも意味は統合しません。
+
+| 責務 | 現行の保存先 | 意味 | identifier・信頼判定での扱い |
+| --- | --- | --- | --- |
+| Website | `projects.website_url` | 人がprojectを知るための代表的な公式URL。紹介、documentation、native appの配布pageでもよい | Websiteであることだけではidentifierにも信頼の起点にもならない |
+| service | `project_identifiers`の`service_url` / `service` | projectの機能を実際に提供するURL。Web app、API、PDSなど。一つのprojectに複数あってよい | confirmed service identifierとして信頼判定と帰属判定の対象にできる |
+| 補助page | `state_json.evidence.resource_url_records` | documentation、support、配布先など、説明や調査に役立つURL | 表示・調査用であり、identifierや信頼の起点にはしない |
+
+Websiteとserviceは包含関係ではありません。同じURLが両方でもよく、Websiteだけ、serviceだけでも構いません。例えば`at-work.social`は同じURLをWebsiteとserviceにでき、Lexicon CommunityやlibraryのdocumentationはWebsiteだけ、`pds.openfederation.net`のようなPDS endpointはserviceだけにできます。補助pageがWebsiteと同じ値なら、画面ではWebsiteを優先して重複表示を抑えます。
+
+通常の正規化、収集、candidate confirmでは次を不変条件にします。
+
+- Websiteをservice identifierへ自動追加しません。
+- 最初のservice URLからWebsiteを自動設定しません。
+- service candidateのconfirmによってWebsiteを書き換えません。
+- Websiteと一致するserviceを`primary service`とはみなしません。serviceに代表指定は導入しません。
+- serviceの稼働状況はservice URLから判断し、紹介・documentation用Websiteの応答をservice稼働の代用にしません。
+- mergeではWebsiteの選択とservice identifierの和集合を別々に処理します。
+
+operatorが明示的にservice URLを`add-seed`して新規projectを作り、Websiteが空の場合だけ、入力の手間を減らすため同じURLでWebsiteを初期化して構いません。これは二つの責務を同一視する規則ではなく、operator入力時だけの初期値です。後からWebsiteとserviceを独立に変更・削除できます。collection syncなどの自動入口やcandidate confirmには適用しません。
+
+この分離のために新しいidentifier roleやSQL tableは追加しません。現行DBではWebsiteが設定された612 projectすべてで、同じURLがconfirmed serviceにも入っていますが、一律に分離して612件を再監査しません。既存の重なりは既定で維持し、[Identifier採用理由の移行review](identifier-adoption-review.md)でWebsiteのみ、補助page、former、non-production、調査対象外と判断した既知事例だけを移行対象にします。
+
 ## 既存DBの移行規則
 
 物理schemaを決める前に、複製DB上で次の論理移行を再現できることを確認します。
@@ -157,4 +182,4 @@ prototypeでは少なくとも次を確認します。
 - merge後も、どのprojectでどの理由により採用されていたかを監査できるか
 - 信頼判定cacheを消しても、手動判断、登録起点、時間関係が残るか
 
-temp DBのmutation、正本DBのread-only移行投影、主要事例のsample reviewは[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)まで完了しました。8件の固定caseはすべて成功し、confirmed構成要素10,187件のうち10,186件は既存データから採用理由を補完できます。Waverly Socialの`https://mywaverly.com`は利用者の裏取りにより`former`と決まりました。production schemaと正本文書への反映計画へ進む前に、移行専用bootstrapとして採用理由を補う二つのcohortを利用者がreviewします。
+temp DBのmutation、正本DBのread-only移行投影、主要事例のsample reviewは[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)まで完了しました。8件の固定caseはすべて成功し、confirmed構成要素10,187件のうち10,186件は既存データから採用理由を補完できます。Waverly Socialの`https://mywaverly.com`を含む移行review対象108 claimは、[Identifier採用理由の移行review](identifier-adoption-review.md)ですべて処遇を確定しました。production schemaと正本文書は未変更であり、次は合意済みのWebsite・service分離を含む実装計画とtemp DB migrationで影響を確認します。
