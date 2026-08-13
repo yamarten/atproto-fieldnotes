@@ -111,6 +111,7 @@ identifierの採用理由、former、non-production、確定transition、noise�
    - 一般link、support、sponsor、documentation、任意README URL、mentionを、Admissionや強いTrustへ使うpredicateから分離する
    - account role、publisher、provider owner、authority domainなど、構成要素ではないactor・中継点をroleなしでtrusted anchorへ昇格しない
    - collection Trustをschema実在、OAuth利用、authority一致のどこまで要求するかは、誤collectionより別projectや無関係domainを混ぜる危険を優先して決める
+   - sync時は、同じidentifierの観測更新、新規projectの登録起点、既存projectへの新identifier追加、弱いsuggestionを分ける。collectionは一意な直属namespace割当なら既存projectへの追加も登録起点にできるが、同じnamespace内の複数collectionを独立した複数根拠にしない
 2. schema version 3の正本DBでshadow比較を再実行する
    - role付き登録起点とformer/non-production除外を実データから読み、保存移行前の暗黙fallbackを使わない
    - 既知case、candidate admission sample、既存confirmとの一致、追加review件数、未収集relationを確認する
@@ -120,11 +121,12 @@ identifierの採用理由、former、non-production、確定transition、noise�
    - `project_relations`を直接事実の正本とし、旧trust graph edge、検索用inverse、再生成可能な判定経路の保存分担を決める
    - 最初はread-only auditまたは明示実行を優先し、自動confirmとcandidate admissionを同時に広げない
 
-次は上記production接続から独立した設計論点として扱います。
+次は信頼・帰属と同じ設計作業の中で扱いますが、信頼判定結果を流用せず、判断層とproduction変更を分けます。
 
 - merge policy
   - repo共有、developer/publisher一致、root domain共有、first creator、信頼グラフのpathをそのまま自動merge根拠にしない
   - confirmedな構成要素、独立surface、共有・排他性、operator判断を使う別の比較として設計する
+  - 現行監査と規則案は[登録プロジェクトのマージ規則設計メモ](notes/project-merge-policy-design.md)を参照する
 - project間の時間・派生関係
   - 後継、買収、分割、統合、ownership移転、mirror、instance、tenant、forkを、同一project内のidentifier transitionへ押し込まない
   - Basker→InfoEnon、DateSky→Nomareなど既知事例をreviewしてから保存形を決める。fork等の現時点の方針は[派生関係の設計メモ](notes/derivation-relations.md)を参照する

@@ -97,9 +97,11 @@ deferが期限切れになっても、それだけで過去のconfirmは復活�
 
 ### bootstrap
 
-承認済みの収集入口は、project作成または既存projectへの追加時に`bootstrap`採用理由を作ります。collection syncではrecordの存在を入口として十分とし、その事実を信頼グラフで自己証明させません。保存するのは「このcollectionからprojectを作った、またはこのprojectへ追加した」という起点の文脈です。
+承認済みの収集入口は、project作成またはrole固有の割当規則を満たす既存projectへの追加時に`bootstrap`採用理由を作れます。collection syncではrecordの存在を入口として十分とし、その事実を信頼グラフで自己証明させません。保存するのは「このcollectionからprojectを作った」または「このsourceと割当規則により既存projectへ追加した」という文脈です。
 
-bootstrap sourceは決め打ちの一種類にせず、少なくともcollection sync、legacy seed migration、canonical redirect、source syncを区別します。operator add-seedは`operator`採用理由として別に保持します。各sourceを信頼判定の起点に使えるかはrole別policyで決め、単に`bootstrap`であることだけでは許可しません。
+`bootstrap`であることと`registration_origin: true`は一般には同じではありません。ただしcollection syncでは、新規projectを作ったcollectionと、既存projectへ直属namespace一致で追加したcollectionのどちらも登録起点にできます。信頼判定ではfull NSIDの末尾を除いた直属namespace単位に正規化し、同じnamespaceに属する複数collectionを独立した複数の起点または複数の信頼根拠として数えません。
+
+bootstrap sourceは決め打ちの一種類にせず、少なくともcollection sync、legacy seed migration、canonical redirect、source syncを区別します。operator add-seedは`operator`採用理由として別に保持します。各claimを信頼判定の起点に使えるかは、source、role、`registration_origin`を含むpolicyで決め、単に`bootstrap`であることだけでは許可しません。
 
 ### 信頼判定規則による採用と再評価
 

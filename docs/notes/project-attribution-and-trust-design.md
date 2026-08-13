@@ -233,6 +233,27 @@ role確定済み候補を作れるのは、原則としてconfirmedなproject id
 
 この原則は、collectorがcollection観測から暫定projectを作る入口まで禁止するものではありません。暫定projectの生成と、既存projectへ別kindのidentifierをcandidate admissionする処理を区別します。
 
+### Sync時の既存projectへの取込を分ける
+
+source syncが観測を既存projectへ割り当てる処理は、重複projectを作らないための単なる検索に見えますが、新しいidentifierを追加する場合はproject attributionと採用判断を含みます。マージ規則で後から修復することを前提にせず、次の四つを分けます。
+
+1. 既に同じcurrent identifierがあるprojectの観測を更新する
+2. 承認済みの収集入口から、そのidentifierを起点とする新規projectを作る
+3. 既存projectへ、それまで無かった新しいrole付きidentifierを追加する
+4. 弱い一致を既存projectのsuggestionまたは新規project候補として残す
+
+1は同じresourceについての追加観測であり、project境界を広げません。2では、たとえばcollection inventoryにrecordが存在するcollectionを起点に暫定projectを作り、そのcollectionを登録起点として採用できます。これは「collectionを中心に調査するprojectを作った」というbootstrapであり、別の既存projectとの同一性を主張しません。
+
+3は既存projectの囲いを広げるため、collectorのmatch scoreだけでconfirmedへ追加しません。許可済みの直接関係からrole付きcandidateを作り、通常の信頼・採用規則へ渡します。承認済みsourceにrole固有のbootstrap契約がある場合も、target projectを一意に選べる規則と、そのclaimを採用できる規則を別々に示します。
+
+collection syncでは、同じ直属namespace、すなわち同じLexicon解決単位に属するfull NSIDを同じprojectへまとめる合意済み規則を適用できます。既存のcurrent confirmed `owned_nsid`から一意なtargetが決まり、block/defer、former、non-production、noise、`separate_project`と衝突しない場合は、新しいcollectionをそのprojectへ採用できます。新規project作成時と既存projectへの追加時のどちらも、collection sourceによる採用理由と登録起点の資格を持てます。ただし信頼判定ではfull NSIDごとに独立した根拠が増えたとは数えず、直属namespace単位の同じ論理的な起点として扱います。
+
+完全一致以外のroot domain、registrable namespace、service host family、名前、owner/developer account、repository homepageは、それだけでtarget projectを確定しません。一意なsuggestion、candidate admissionに許可された直接relation、または新規project候補として残します。複数projectに同じcurrent identifierがあるなど、resource identityの段階でtargetが競合する場合は、どれかを選んだり第三のprojectを作ったりせずcollision reviewへ送ります。
+
+4で弱い一致を持つ新規project候補を作ることは許容します。弱い一致は別projectにも重複recordにも成立するため、新規作成したこと自体を`separate_project`判断や後続マージの正の根拠にしません。syncは既存projectを自動マージせず、マージ規則は作成後に残った重複候補を独立に評価します。
+
+全体policyが定めるのは、完全一致、既存囲いの拡張、登録起点、曖昧一致、guardの扱いです。各collectorには、観測した関係の意味、provenance、role、どのmatch kindを返せるか、そのsourceを特定roleのbootstrapとして承認できるかを定めます。これによりcollector固有の検出改善を待たずに境界を固定し、個別collectorの誤分類はreviewから一般則へ戻せます。
+
 ### 自動採用は信頼グラフ全体の往路と復路を見る
 
 自動採用はcandidateと信頼判定の起点の間に、静的に許可された強い往路と復路があることを要求し、中継nodeを許します。往路と復路で同じpredicateを使う必要はありません。たとえばserviceからcollectionへのOAuth permissionと、collectionからauthority domain、完全一致service hostへ戻るpathを組み合わせられます。
@@ -459,6 +480,12 @@ edgeの`classification`にも`confirmed | candidate | derived | heuristic`があ
 
 collection import/project matchingには、直属namespace一致のほか、registrable authority/service host familyで既存projectへ割り当てる経路があります。今回の方針ではroot domain共有だけでprojectをまとめないため、collectorごとの実動作監査が必要です。
 
+一次監査では、`sync-collections`は直属namespaceの一意一致を自動attachし、registrable namespaceとservice host familyをsuggestionへ落としています。この境界は本案と概ね整合します。schema version 3へ接続する際は、former/non-production/noiseの再発見をcurrentへ戻さないこと、同じnamespaceが複数projectへ競合した時に新規projectを増やさないこと、同じ直属namespaceの複数collectionを独立した複数根拠として数えないことを確認します。
+
+`sync-github-search`はexact repo URLの既存project更新に加え、repository metadataの`homepage_exact`でも既存service projectへ自動attachし、repo seedをconfirmed `source_repository`として追加します。exact repo URLは同じresourceの更新ですが、`homepage_exact`はrepoからserviceへの一方向の自己申告です。本案ではtarget suggestionとrelation evidenceには利用できても、それだけでcandidate admissionまたはconfirmed repo追加を成立させません。復路または別の採用根拠が必要であり、collector実装を見直す際の具体的な差分です。
+
+Semble syncのexact identifier一致と、Introduced syncがexact identifier一致後に紹介情報だけを更新する経路は、project境界を広げない限り同じresourceの観測更新として扱えます。Tangledのowner DID、website、repository homepageなどから既存projectを選ぶ経路は、actor共有と自己申告を含むため、matchとidentifier採用を分けてcollector監査します。
+
 一方、authority domainからservice URL candidateを合成する`add_authority_service_candidates()`は現行ではno-opであり、「Lexicon authorityだけではservice surfaceを証明しない」という境界はこの入口には既に実装されています。
 
 ### Roleと保存契約
@@ -498,7 +525,7 @@ developer accountと専用project/service accountでは、帰属やTrustに利�
 
 ### 2. マージ規則
 
-confirmedなproject構成、role、共有・排他性、独立surface、派生関係、operator判断を入力に、二つのproject recordをマージするかを別途設計します。信頼グラフのauto-confirm path、developerやpublisherの一致、candidate identifierの一致をそのまま正のmerge根拠にしません。
+confirmedなproject構成、role、共有・排他性、独立surface、派生関係、operator判断を入力に、二つのproject recordをマージするかを[登録プロジェクトのマージ規則設計メモ](project-merge-policy-design.md)で扱います。信頼グラフのauto-confirm path、developerやpublisherの一致、candidate identifierの一致をそのまま正のmerge根拠にしません。
 
 ### 3. 現行実装と既存DBの詳細監査
 
