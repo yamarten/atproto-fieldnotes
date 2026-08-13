@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import source_sync
+from project_registry_core import source_sync, worker
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _bounded_sync_summary, _schedule_due
@@ -170,6 +170,20 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertTrue(review_completed["request"]["execute"])
         self.assertFalse(review_completed["can_resume"])
 
+    def test_stalled_worker_uses_no_limit_when_parameter_is_omitted(self) -> None:
+        with mock.patch.object(worker.review, "stalled", return_value={}) as stalled:
+            worker._run_review(
+                object(),
+                OperationRequest.create("review", parameters={"kind": "stalled"}),
+            )
+            worker._run_review(
+                object(),
+                OperationRequest.create("review", parameters={"kind": "stalled", "limit": 23}),
+            )
+
+        self.assertIsNone(stalled.call_args_list[0].kwargs["limit"])
+        self.assertEqual(stalled.call_args_list[1].kwargs["limit"], 23)
+
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
         self.assertEqual(queued["queue"][0]["preset_id"], "sync_sources_then_enrich")
@@ -264,6 +278,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         review_job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
         self.assertEqual(review_job["operation"], "review")
         self.assertEqual(review_job["request"]["parameters"]["kind"], "stalled")
+        self.assertNotIn("limit", review_job["request"]["parameters"])
         self.assertTrue(review_job["request"]["execute"])
 
         state = self.manager.run_scheduler_once()

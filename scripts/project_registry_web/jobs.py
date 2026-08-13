@@ -87,7 +87,6 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
                 "kind": "stalled",
                 "inactivity_days": 45,
                 "max_enrich_age_days": 30,
-                "limit": 500,
                 "note": "auto-updated by scheduled all-state maintenance",
             }),
         ]
