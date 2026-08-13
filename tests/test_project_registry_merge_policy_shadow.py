@@ -14,7 +14,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "project_registry" / "merge-policy-cases
 class MergePolicyShadowUnitTest(unittest.TestCase):
     def test_case_catalog_passes(self) -> None:
         result = merge_policy_shadow.evaluate_case_catalog(merge_policy_shadow.load_case_catalog(FIXTURE))
-        self.assertEqual(result["case_count"], 18)
+        self.assertEqual(result["case_count"], 19)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
     def test_exclusive_collision_and_cross_record_relation_recommends_review_not_execution(self) -> None:
@@ -46,6 +46,7 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
             "shared_authority_namespaces": ["com.example"],
             "shared_direct_namespaces": ["com.example"],
             "shared_aliases": [],
+            "fragment_name_matches_candidate_service": False,
             "target_name_in_fragment_name": True,
             "target_independent_components": [],
             "composition_relations": [],
@@ -59,6 +60,20 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
         result = merge_policy_shadow.evaluate_pair(left, right)
         self.assertEqual(result["verdict"], "REVIEW")
         self.assertEqual(result["signals"]["fragment_absorption_candidates"], [])
+
+    def test_candidate_service_host_name_is_not_merge_evidence(self) -> None:
+        catalog = merge_policy_shadow.load_case_catalog(FIXTURE)
+        case = next(
+            item
+            for item in catalog["cases"]
+            if item["case_id"] == "candidate-service-name-is-not-absorption-evidence"
+        )
+        left = merge_policy_shadow._case_project(case["case_id"], "left", case["left"])
+        right = merge_policy_shadow._case_project(case["case_id"], "right", case["right"])
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "REVIEW")
+        self.assertEqual(result["signals"]["fragment_absorption_candidates"], [])
+        self.assertEqual(merge_policy_shadow._candidate_service_host_tokens(left), {"directoryexample"})
 
     def test_shared_operational_provenance_does_not_replace_external_identity_review(self) -> None:
         payload = {

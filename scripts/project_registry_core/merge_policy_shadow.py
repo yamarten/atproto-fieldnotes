@@ -7,6 +7,7 @@ import itertools
 import json
 import sqlite3
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -19,7 +20,7 @@ from . import storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "merge-policy-shadow-v2"
+POLICY_VERSION = "merge-policy-shadow-v3"
 VERDICTS = (
     "RECOMMEND_MERGE_REVIEW",
     "REVIEW",
@@ -405,6 +406,17 @@ def _name_token(project: dict[str, Any]) -> str:
     return identifier_core.normalize_alias_token(str(project.get("name") or ""))
 
 
+def _candidate_service_host_tokens(project: dict[str, Any]) -> set[str]:
+    output: set[str] = set()
+    for value in (project.get("legacy") or {}).get("service_url_candidates", []):
+        normalized = identifier_core.normalize_url(str(value or ""))
+        host = urllib.parse.urlparse(normalized).netloc.lower()
+        token = identifier_core.normalize_alias_token(host)
+        if token:
+            output.add(token)
+    return output
+
+
 def _fragment_relation_matches(fragment: dict[str, Any], target: dict[str, Any]) -> list[dict[str, Any]]:
     fragment_collections = _confirmed_owned_nsids(fragment)
     target_components = _confirmed_component_nodes(target)
@@ -460,14 +472,16 @@ def _fragment_absorption_candidate(
     )
     fragment_name = _name_token(fragment)
     target_name = _name_token(target)
+    fragment_name_matches_candidate_service = fragment_name in _candidate_service_host_tokens(fragment)
     target_name_in_fragment = bool(
-        len(target_name) >= 5
+        not fragment_name_matches_candidate_service
+        and len(target_name) >= 5
         and target_name in fragment_name
     )
-    shared_aliases = sorted(
-        project_record.project_merge_aliases(fragment["legacy"])
-        & project_record.project_merge_aliases(target["legacy"])
-    )
+    fragment_aliases = project_record.project_merge_aliases(fragment["legacy"])
+    if fragment_name_matches_candidate_service:
+        fragment_aliases.discard(fragment_name)
+    shared_aliases = sorted(fragment_aliases & project_record.project_merge_aliases(target["legacy"]))
     relation_matches = _fragment_relation_matches(fragment, target)
     independent_target = sorted(_independent_component_nodes(target))
 
@@ -492,6 +506,7 @@ def _fragment_absorption_candidate(
         "shared_authority_namespaces": shared_authorities,
         "shared_direct_namespaces": shared_direct_namespaces,
         "shared_aliases": shared_aliases,
+        "fragment_name_matches_candidate_service": fragment_name_matches_candidate_service,
         "target_name_in_fragment_name": target_name_in_fragment,
         "target_independent_components": [list(item) for item in independent_target],
         "composition_relations": relation_matches,
@@ -1203,6 +1218,7 @@ def compare_database(
                 "exact_subset_rule": "fragment owned collections are a proper subset of target owned collections",
                 "encompassing_project_rule": "target has an independent component, both records share a registrable collection authority, and direct namespace, alias, or project-name context agrees",
                 "shared_lexicon_excluded": True,
+                "candidate_service_host_name_is_merge_evidence": False,
                 "composition_predicates_are_supplementary_only": sorted(FRAGMENT_RELATION_PREDICATES),
                 "automatic_execution_allowed": False,
             },

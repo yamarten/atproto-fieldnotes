@@ -218,6 +218,25 @@
       "expected_verdict": "REVIEW"
     },
     {
+      "case_id": "candidate-service-name-is-not-absorption-evidence",
+      "description": "A host-like project name obtained alongside an unconfirmed service candidate does not connect a collection record to the service project.",
+      "left": {
+        "name": "directory.example",
+        "claims": [
+          {"kind": "nsid", "value": "example.directory.alice.post", "role": "owned_nsid"},
+          {"kind": "service_url", "value": "https://directory.example", "role": "service", "classification": "candidate"}
+        ]
+      },
+      "right": {
+        "name": "Directory",
+        "claims": [
+          {"kind": "nsid", "value": "example.directory.documentation", "role": "owned_nsid"},
+          {"kind": "service_url", "value": "https://directory.example", "role": "service"}
+        ]
+      },
+      "expected_verdict": "REVIEW"
+    },
+    {
       "case_id": "shared-lexicon-is-not-a-fragment",
       "description": "A project explicitly classified as a shared Lexicon is not absorbed merely because another service uses the same authority.",
       "left": {
