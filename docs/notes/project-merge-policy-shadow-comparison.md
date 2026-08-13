@@ -78,6 +78,26 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 
 この誤り方は、件数を増やすために許した自動誤マージではなく、reviewで解消する情報不足です。初期接続を行うなら、候補ごとにfragment/target、collection一覧、独立構成要素、authority、名前・alias、構成relation、hard guardを表示する必要があります。
 
+### pair数ではなくtarget単位で見る
+
+163 pairには73のtarget projectがあります。23 targetは複数fragmentを持ち、合計113 pairを占めます。大きいものはTZ2AT 21件、Aether OS 11件、GainForest 11件、Skyrdle 10件、FreeMix 6件、Roomy Space 6件、Streamplace 5件、grain 5件です。残る50 targetは各1件です。
+
+この分布では、pairを163回独立に調査するより、targetの構成と説明を一度確認し、その下にfragmentとNSIDを並べる方が判断を再利用できます。ただし一括承認は前提にしません。同じtarget群でも、productionの構成要素、旧版、開発用、別レイヤのprojectが混ざり得ます。
+
+### identifierの処遇が別に必要
+
+NSIDのsegmentに`temp`、`tmp`、`dev`、`test`、`e2e`、`beta`、`experimental`、`local`が現れるものを機械的な確定分類ではなくreview markerとして抽出すると、11 targetに属する23 pairが該当しました。Skyrdle 10件中8件、Roomy Space 6件中4件、StratosFund 4件中3件のほか、Matadisco、ATPlay、Craftsky、Offprint、Streamplace、Linkat、Certified、Frontpageにあります。
+
+これらは「別projectだからマージしない」とは限りません。Skyrdleのbeta collectionのように帰属先は明瞭でも、統合後はcurrent構成要素ではなくnon-productionとして残す方が自然な例があります。したがってfragment吸収reviewには、project境界の判断に加えて、移すidentifierをcurrent、former、non-production、noiseのどれで残すかという別軸が必要です。tokenだけで自動分類せず、人が直せる注意表示として使います。
+
+### 初回sampleで確認した反例
+
+Lexicon Garden配下として出た4 fragmentは、「マージを勧める」から要確認へ戻すべきです。Lexicon Garden自身の公式説明は、ネットワーク上のLexicon schemaをfirehoseから集約・索引するbrowser/discovery platformであり、表示・索引したschemaをLexicon Garden projectが所有するとはしていません。`garden.lexicon.deeply-mouse.*`などが同じauthority familyに見え、fragment名にも`lexicon.garden`が入るだけでは帰属を支持できません。これは[Lexicon GardenのHelp](https://lexicon.garden/help)で確認しました。
+
+ATProtoFans / high-fiveも既知判断どおり別レイヤとして扱い、吸収候補にはしません。こちらは外部情報の不足ではなく、project境界について既に得たoperator判断をpairの`separate_project`として保存すべき例です。
+
+この2種類は対処が異なります。high-fiveは個別pairの明示的な別project判断です。Lexicon Gardenは索引・hosting・tenant的なauthorityを所有関係へ読み替えない一般則で抑止すべきで、4 pairを個別例外としてコードへ埋め込みません。現在の保存情報だけでその一般則を安全に判定できるかは次のcollector/domain policy検討へ残します。
+
 ## 初版の0件から変えた点
 
 初版は、共有しにくい構成要素の衝突と、異なる構成要素を結ぶ直接relationの両方を要求しました。この規則では正本DBの推奨が0件で、過去504マージも0件でした。理由は、個別collection recordと包括recordを繋ぐcross-record relationがほとんど保存されていないことと、そもそもcollection断片の吸収が対等な重複判定ではなかったことです。
