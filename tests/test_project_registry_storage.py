@@ -506,6 +506,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(config["introduced_search"]["lookback_days"], 7)
         self.assertEqual(config["introduced_search"]["limit"], 10)
         self.assertEqual(config["semble_collections"]["pages"], 100)
+        self.assertEqual(
+            config["semble_collections"]["tracked_collections"],
+            list(registry.SEMBLE_TRACKED_COLLECTIONS),
+        )
 
     def test_sync_service_resolves_introduced_defaults_from_config(self) -> None:
         config = {

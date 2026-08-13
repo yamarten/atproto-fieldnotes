@@ -985,7 +985,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 
 - Semble API への page fetch だけです
 - request 数は `tracked_collections * pages`
-- 既定値では tracked collection が 2 件、`pages=1` なので通常 2 request です
+- 既定の tracked collection は 3 件です。増分境界へ各1 pageで到達する通常実行は 3 request、設定上限は`3 * 100 = 300` requestです
 
 ### 補足
 

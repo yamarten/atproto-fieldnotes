@@ -24,7 +24,8 @@
     "lookback_days": 14,
     "tracked_collections": [
       {"handle": "byarielm.fyi", "rkey": "3mfdje7uuhu2r", "label": "atproto-visualizers"},
-      {"handle": "byarielm.fyi", "rkey": "3mfdk4wmo5m2r", "label": "atmosphere-tools"}
+      {"handle": "byarielm.fyi", "rkey": "3mfdk4wmo5m2r", "label": "atmosphere-tools"},
+      {"handle": "psingletary.com", "rkey": "3mabuiycpg626", "label": "AT://links"}
     ]
   },
   "github_repo_search": {

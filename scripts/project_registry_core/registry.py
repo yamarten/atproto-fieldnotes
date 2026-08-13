@@ -89,6 +89,11 @@ SEMBLE_TRACKED_COLLECTIONS = (
         "rkey": "3mfdk4wmo5m2r",
         "label": "atmosphere-tools",
     },
+    {
+        "handle": "psingletary.com",
+        "rkey": "3mabuiycpg626",
+        "label": "AT://links",
+    },
 )
 NSID_PATTERN = r"[a-z0-9]+(?:[.-][a-z0-9]+)*(?:\.[a-z0-9]+(?:[.-][a-z0-9]+)*)+"
 
