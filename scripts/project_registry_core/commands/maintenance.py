@@ -10,6 +10,7 @@ from .. import database
 from .. import domain_policy
 from .. import identifier_storage_shadow
 from .. import identifier_storage_materialization
+from .. import merge_policy_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
 
@@ -78,6 +79,49 @@ def cmd_compare_trust_policy(args: argparse.Namespace) -> int:
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["review_gate"]["case_catalog_passed"] and not report["review_gate"]["strategy_divergence_count"] else 1
+
+
+def cmd_compare_merge_policy(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    db_path = Path(args.db_path).expanduser()
+    if output.resolve() == db_path.resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    report = merge_policy_shadow.compare_database_path(
+        db_path,
+        case_catalog_path=core.ROOT / "tests" / "fixtures" / "project_registry" / "merge-policy-cases-v1.json",
+        domain_overrides_path=Path(args.domain_overrides).expanduser() if args.domain_overrides else None,
+        example_limit=int(args.example_limit),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    comparison = report["current_and_shadow"]
+    summary = {
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "input": report["input"],
+        "case_catalog": {
+            key: report["case_catalog"][key]
+            for key in ("case_count", "passed_count", "failed_count")
+        },
+        "comparison": {
+            key: comparison[key]
+            for key in (
+                "pair_count",
+                "current_candidate_count",
+                "current_auto_ready_count",
+                "current_strict_pair_count",
+                "current_moderate_pair_count",
+                "shadow_verdict_counts",
+            )
+        },
+        "historical_merges": {
+            "alias_count": report["historical_merges"]["alias_count"],
+            "verdict_counts": report["historical_merges"]["verdict_counts"],
+        },
+        "review_gate": report["review_gate"],
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["review_gate"]["case_catalog_passed"] else 1
 
 
 def cmd_compare_identifier_storage(args: argparse.Namespace) -> int:

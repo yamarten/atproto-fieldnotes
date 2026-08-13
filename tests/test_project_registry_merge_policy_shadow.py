@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import sqlite3
+import unittest
+from pathlib import Path
+
+from helpers import ROOT, TempRegistryDbTestCase
+from project_registry_core import cli, merge_policy_shadow, project_record, registry
+
+
+FIXTURE = ROOT / "tests" / "fixtures" / "project_registry" / "merge-policy-cases-v1.json"
+
+
+class MergePolicyShadowUnitTest(unittest.TestCase):
+    def test_case_catalog_passes(self) -> None:
+        result = merge_policy_shadow.evaluate_case_catalog(merge_policy_shadow.load_case_catalog(FIXTURE))
+        self.assertEqual(result["case_count"], 12)
+        self.assertEqual(result["failed_count"], 0, result["cases"])
+
+    def test_exclusive_collision_and_cross_record_relation_recommends_review_not_execution(self) -> None:
+        catalog = merge_policy_shadow.load_case_catalog(FIXTURE)
+        case = next(item for item in catalog["cases"] if item["case_id"] == "exclusive-service-with-direct-bridge")
+        left = merge_policy_shadow._case_project(case["case_id"], "left", case["left"])
+        right = merge_policy_shadow._case_project(case["case_id"], "right", case["right"])
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "RECOMMEND_MERGE_REVIEW")
+        self.assertFalse(result["automatic_execution_allowed"])
+        self.assertEqual(len(result["signals"]["direct_component_relations"]), 1)
+
+    def test_shared_operational_provenance_does_not_replace_external_identity_review(self) -> None:
+        payload = {
+            "name": "Duplicate",
+            "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"}],
+            "adoptions": [{
+                "kind": "repo_url",
+                "value": "https://github.com/example/app",
+                "role": "source_repository",
+                "source": "sync",
+                "source_ref": "run:1",
+                "input_fingerprint": "same",
+            }],
+        }
+        left = merge_policy_shadow._case_project("provenance", "left", payload)
+        right = merge_policy_shadow._case_project("provenance", "right", payload)
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "REVIEW")
+        self.assertEqual(len(result["signals"]["shared_adoption_origins"]), 1)
+
+    def test_separate_decision_is_hard_guard(self) -> None:
+        left = merge_policy_shadow._case_project(
+            "separate",
+            "left",
+            {"project_key": "left", "separate_project_keys": ["right"]},
+        )
+        right = merge_policy_shadow._case_project("separate", "right", {"project_key": "right"})
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "KEEP_SEPARATE")
+
+    def test_cli_parser_exposes_read_only_comparison_arguments(self) -> None:
+        args = cli.build_parser().parse_args([
+            "compare-merge-policy", "--db-path", "input.db", "--output", "report.json",
+        ])
+        self.assertEqual(args.db_path, "input.db")
+        self.assertEqual(args.output, "report.json")
+
+
+class MergePolicyShadowDatabaseTest(TempRegistryDbTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        conn = registry.open_db()
+        try:
+            left = project_record.default_project_record("proj:left", "service_url", "https://same.example")
+            left["name"] = "Same App"
+            left["service_urls"] = ["https://same.example"]
+            left["source_code_urls"] = ["https://github.com/example/app"]
+            project_record.save_project(conn, left)
+
+            right = project_record.default_project_record("proj:right", "service_url", "https://same.example")
+            right["name"] = "Same App"
+            right["service_urls"] = ["https://same.example"]
+            right["resolved_nsids"] = ["com.example.post"]
+            project_record.save_project(conn, right)
+
+            conn.execute(
+                """
+                INSERT INTO project_relations(
+                    project_key, ordinal, subject_type, subject_value, predicate,
+                    object_type, object_value, classification, source, locator,
+                    method, context_json, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, '{}', '')
+                """,
+                (
+                    "proj:left",
+                    0,
+                    "repo",
+                    "https://github.com/example/app",
+                    "defines_schema",
+                    "collection",
+                    "com.example.post",
+                    "confirmed",
+                    "test",
+                    "fixture",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_database_comparison_is_read_only_and_reproducible(self) -> None:
+        before = self.db_path.read_bytes()
+        first = merge_policy_shadow.compare_database_path(
+            self.db_path,
+            case_catalog_path=FIXTURE,
+            example_limit=3,
+        )
+        after = self.db_path.read_bytes()
+        second = merge_policy_shadow.compare_database_path(
+            self.db_path,
+            case_catalog_path=FIXTURE,
+            example_limit=3,
+        )
+        self.assertEqual(before, after)
+        self.assertTrue(first["source"]["read_only"])
+        self.assertEqual(first["content_hash"], second["content_hash"])
+        self.assertEqual(first["current_and_shadow"], second["current_and_shadow"])
+        self.assertEqual(
+            first["current_and_shadow"]["shadow_verdict_counts"],
+            {"RECOMMEND_MERGE_REVIEW": 1},
+            first["current_and_shadow"],
+        )
+
+    def test_read_only_connection_rejects_writes(self) -> None:
+        uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            with self.assertRaises(sqlite3.OperationalError):
+                conn.execute("CREATE TABLE forbidden(value TEXT)")
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

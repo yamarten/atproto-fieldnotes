@@ -382,6 +382,16 @@ def build_parser() -> argparse.ArgumentParser:
     compare_trust_policy_parser.add_argument("--example-limit", type=int, default=20, help="Maximum v1/shadow delta examples per profile. Default: 20.")
     compare_trust_policy_parser.set_defaults(func=maintenance_commands.cmd_compare_trust_policy)
 
+    compare_merge_policy_parser = subparsers.add_parser(
+        "compare-merge-policy",
+        help="Compare current merge candidates with the role-aware review policy without changing the database.",
+    )
+    compare_merge_policy_parser.add_argument("--db-path", required=True, help="Existing registry database opened read-only.")
+    compare_merge_policy_parser.add_argument("--output", required=True, help="Structured comparison report JSON path.")
+    compare_merge_policy_parser.add_argument("--domain-overrides", help="Optional domain-overrides.json used by the current-v2 baseline; defaults to the file beside the DB checkout when present.")
+    compare_merge_policy_parser.add_argument("--example-limit", type=int, default=20, help="Maximum examples per verdict. Default: 20.")
+    compare_merge_policy_parser.set_defaults(func=maintenance_commands.cmd_compare_merge_policy)
+
     compare_identifier_storage_parser = subparsers.add_parser(
         "compare-identifier-storage",
         help="Prototype noncurrent identifier and adoption storage without changing the database.",

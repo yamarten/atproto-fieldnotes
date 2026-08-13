@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "exclusive-service-with-direct-bridge",
+      "description": "A shared service collision plus a direct relation between otherwise split components is prioritized for merge review.",
+      "left": {
+        "name": "Example",
+        "claims": [
+          {"kind": "service_url", "value": "https://example.com", "role": "service"},
+          {"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"}
+        ],
+        "relations": [
+          {"subject": ["repo_url", "https://github.com/example/app"], "predicate": "defines_schema", "object": ["collection", "com.example.post"]}
+        ]
+      },
+      "right": {
+        "name": "Example App",
+        "claims": [
+          {"kind": "service_url", "value": "https://example.com", "role": "service"},
+          {"kind": "nsid", "value": "com.example.post", "role": "owned_nsid"}
+        ]
+      },
+      "expected_verdict": "RECOMMEND_MERGE_REVIEW"
+    },
+    {
+      "case_id": "service-collision-alone",
+      "description": "The same service URL is an urgent collision but not enough to recommend a merge by itself.",
+      "left": {"claims": [{"kind": "service_url", "value": "https://same.example", "role": "service"}]},
+      "right": {"claims": [{"kind": "service_url", "value": "https://same.example", "role": "service"}]},
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "owned-nsid-collision-alone",
+      "description": "The same full owned NSID can also be an attribution error or ownership transfer.",
+      "left": {"claims": [{"kind": "nsid", "value": "app.example.post", "role": "owned_nsid"}]},
+      "right": {"claims": [{"kind": "nsid", "value": "app.example.post", "role": "owned_nsid"}]},
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "shared-repository-arabica-oolong",
+      "description": "A repository can contain multiple separately tracked projects.",
+      "left": {
+        "name": "Arabica",
+        "claims": [
+          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"},
+          {"kind": "service_url", "value": "https://arabica.social", "role": "service"}
+        ]
+      },
+      "right": {
+        "name": "Oolong",
+        "claims": [
+          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"},
+          {"kind": "service_url", "value": "https://oolong.social", "role": "service"}
+        ]
+      },
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "operator-separate",
+      "description": "An active operator decision is a hard guard.",
+      "left": {
+        "project_key": "arabica",
+        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"}],
+        "separate_project_keys": ["oolong"]
+      },
+      "right": {
+        "project_key": "oolong",
+        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"}]
+      },
+      "expected_verdict": "KEEP_SEPARATE"
+    },
+    {
+      "case_id": "shared-organization-account",
+      "description": "An organization account can represent multiple projects.",
+      "left": {"claims": [{"kind": "did", "value": "did:plc:org", "role": "organization_account"}]},
+      "right": {"claims": [{"kind": "did", "value": "did:plc:org", "role": "organization_account"}]},
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "dedicated-project-account-alone",
+      "description": "A shared dedicated project account is a strong collision, but role error remains possible.",
+      "left": {"claims": [{"kind": "did", "value": "did:plc:project", "role": "project_account"}]},
+      "right": {"claims": [{"kind": "did", "value": "did:plc:project", "role": "project_account"}]},
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "fork-relation",
+      "description": "A fork is routed outside ordinary duplicate-record evaluation.",
+      "left": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "source_repository"}]},
+      "right": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "source_repository"}]},
+      "flags": ["fork"],
+      "expected_verdict": "NOT_EVALUATED"
+    },
+    {
+      "case_id": "successor-relation",
+      "description": "A successor relation needs temporal project review before merge.",
+      "left": {"name": "DateSky"},
+      "right": {"name": "Nomare"},
+      "flags": ["successor"],
+      "expected_verdict": "NOT_EVALUATED"
+    },
+    {
+      "case_id": "shared-namespace-not-full-claim",
+      "description": "Sibling collections in one namespace are a discovery signal, not a duplicate record verdict.",
+      "left": {"claims": [{"kind": "nsid", "value": "com.example.post", "role": "owned_nsid"}]},
+      "right": {"claims": [{"kind": "nsid", "value": "com.example.profile", "role": "owned_nsid"}]},
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "candidate-repository-and-name",
+      "description": "Candidate repository and name overlap remain discovery-only.",
+      "left": {
+        "name": "Example",
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository", "classification": "candidate"}]
+      },
+      "right": {
+        "name": "Example",
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository", "classification": "candidate"}]
+      },
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "same-root-domain-only",
+      "description": "Projects under one root domain are not necessarily duplicates.",
+      "left": {"name": "Tool A", "website_url": "https://a.example.com"},
+      "right": {"name": "Tool B", "website_url": "https://b.example.com"},
+      "expected_verdict": "REVIEW"
+    }
+  ]
+}
