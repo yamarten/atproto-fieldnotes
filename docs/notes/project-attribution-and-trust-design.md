@@ -1,6 +1,6 @@
 # 登録プロジェクトへの帰属と信頼グラフの設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-10までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。マトリクス中の意味上のrelation名、identifier role、保存形式、移行方法は未確定であり、後続するshadow evaluationの比較結果をレビューする前に正本挙動へ反映しません。
+> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-13までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3は実装・複製DB検証済みですが、正本DBへの切替と本書の正文化は未実施です。マトリクス中の仮称relationや未実装policyは、比較結果のreviewなしに正本挙動へ反映しません。
 
 ## この設計が扱うこと
 
@@ -249,7 +249,58 @@ service URLの正確なhost、domainとhandleの完全一致は強いpathの一�
 
 ### 資源同一性と時間関係を分ける
 
-HTTP redirect、repository rename/transfer、handle変更、serviceのtest版から正式版への昇格、旧domain、projectの改名・後継は時間情報を必要とします。raw redirectや同一content表示は観測であり、それだけでcanonical alias、同じservice、同じprojectと確定しません。同じcontentはalpha版、mirror、copy、共通templateでも生じるため、content一致自体をedgeとして保存しません。時間関係の最終設計は本マトリクスと分離します。
+HTTP redirect、repository rename/transfer、handle変更、serviceのtest版から正式版への昇格、旧domain、projectの改名・後継は時間情報を必要とします。ただし、時間情報を一つの状態へまとめると、同じresourceか、同じ登録プロジェクトか、現在の構成要素か、現在到達可能かが混同されます。次の軸を別々に判断します。
+
+| 判断すること | 問い | 例 |
+| --- | --- | --- |
+| 登録プロジェクトの境界 | 変化の前後を同じ説明・追跡単位に収めるか | projectの改名か、別projectによる後継か |
+| resource identity | 前後のidentifierが同じ外部resourceを指すか | provider上の同一repositoryのrename、同じDIDのhandle変更 |
+| projectに対するidentifierの立場 | 現行構成要素、旧構成要素、開発・試験用、無関係なnoiseのどれか | 旧service URL、preview URL、誤記NSID |
+| identifier間の変化 | 何から何へ、どの種類の変化が確定したか | rename、replacement、test版から正式版への切替 |
+| 観測時点の状態 | 取得時点で到達・利用・解決できたか | HTTP 404、parked domain、schema recordの存在 |
+
+`current`は、現在のproject recordでそのrole付き関係を有効なclaimとして扱うという編集上の立場です。candidate/confirmedとは別軸で、構成要素roleのconfirmed claimなら現在の構成要素を表します。到達可能、一般公開中、唯一の代表URL、最新観測で正常という意味ではありません。一つのprojectに複数のcurrent service surfaceやrepositoryがあっても構いません。
+
+`former`は、過去にそのprojectの構成要素だったという正の関係を残しつつ、現在の構成要素とTrust入力から外す立場です。提供終了したservice URL、repository rename前のURL、過去handleなどが候補です。旧identifierからprojectを検索できるようにしますが、それ自体を信頼判定の起点にはしません。旧URLがredirectで現在も到達可能な場合や、反対に現行URLが一時的に落ちている場合もあるため、`former`とlive/deadは独立です。
+
+`non_production`は、開発・試験用としてprojectとの正の関係は確認できるものの、productionの構成要素としては採用しない立場です。過去にcurrentだったことを含意しません。staging、preview、dev、tempなどを細分化せず、識別できる範囲でこの一分類へまとめます。後から同じidentifierをproductionとして正式採用した場合はcurrentへ移せます。開発用identifierを残す主な目的は、collection syncによる再作成の抑止と将来の検索・監査であり、Trust経路へ加えることではありません。
+
+noiseは、そのprojectと正の関係を持たない既知の誤検出です。`app.bsky.post`のような誤記NSID、`com.example.test`のようなplaceholder、無関係だが繰り返し検出されるURLが該当します。過去に有効だった`former`やprojectに関係する`non_production`と同じ分類にはしません。
+
+live/deadやHTTP応答、schema recordの存在は、原則として取得時点を伴う観測です。project全体の`service_status`は複数観測を人間向けに要約した値であり、各identifierの時間上の立場を代替しません。特にcollectionの「live」を一般化するには、schemaの解決、recordの存在、現在の作成実績など複数の意味があり得るため、この設計では定義しません。
+
+#### 同じ登録プロジェクトとして継続する場合
+
+名称、repository、service surface、domain、handle、NSID、実装が変わっても、説明・追跡対象としての提供物、管理上の連続性、利用者に対する位置付けが継続しているなら、同じproject recordの更新として扱えます。全構成要素が同一である必要はありません。旧identifierを`former`へ移し、新identifierをcurrentとして独立に採用し、変化が裏付けられた場合だけ両者のtransitionを記録します。
+
+提供終了したservice URLは、過去に正当な構成要素だったなら`former`で保持します。移転先が確認できる場合は新しいidentifierをcurrentとして追加します。旧URLが終了したことと、新URLが同じprojectへ属することは別々に判断し、前者だけから後者を自動採用しません。
+
+#### 別の登録プロジェクトとして扱う場合
+
+旧projectのcodeやLexiconを引き継いでいても、別の提供物、管理、対象範囲、brandとして独立に追跡する方が説明しやすい場合は別project recordにします。この場合の「後継」「派生」「移管」はproject間の関係であり、一つのproject内のidentifier transitionへ押し込みません。共有repository、同じowner、redirect、同一contentのいずれか一つだけでは、同じprojectか別projectかを確定しません。
+
+Basker→InfoEnon、DateSky→Nomareは、時間関係を検討する既知事例ですが、この文書ではまだ同一projectとも別projectとも確定しません。調査時には次の三通りを区別します。
+
+| 調査結果 | project recordの扱い | identifierの扱い |
+| --- | --- | --- |
+| 同じ提供物の改名・移転と確認できる | 同じprojectを継続 | 旧identifierを`former`、新identifierをcurrentとし、裏付けがあればtransitionを記録 |
+| 別の提供物が旧projectを引き継いだと確認できる | 別projectを維持 | 各projectのidentifierを独立に採用し、将来のproject間successor/derivation関係として扱う |
+| 公開情報だけでは区別できない | 現状を維持してreviewを残す | redirect、名前一致、同一contentだけからtransitionやmergeを作らない |
+
+#### identifier transitionの意味
+
+transitionは、二つのidentifierが並存する事実ではなく、「旧identifierから新identifierへのrenameまたはreplacementが確定した」という説明・監査用の関係です。同じproject record内の変化だけを対象とし、次の用途へは直接使いません。
+
+- 新identifierのcandidate生成または自動採用
+- 旧identifierのTrust復活
+- project recordの自動マージ
+- 前後のresourceが同一物だという一律の推定
+
+repositoryの不変provider IDはresource identityを直接支持できますが、service URLのreplacementは通常、異なるresource間のproject内交代です。このため、transitionを記録しても前後のidentifierをaliasとして一つへ正規化しません。transitionの種類、根拠参照、分かる場合の発効時点を保持し、根拠参照なしには確定しません。
+
+raw redirectや同一content表示は観測であり、それだけでcanonical alias、同じservice、同じproject、確定transitionとはしません。同じcontentはalpha版、mirror、copy、共通templateでも生じます。redirect、公式announcement、旧・新surfaceの相互参照、providerの不変IDなどを個別の直接事実として保持し、意味が十分明らかな場合またはoperator review後にだけtransitionへ確定します。
+
+現行schema version 3の`project_noncurrent_identifiers`と`project_identifier_transitions`は、同一project内のformer/non-productionと確定transitionを保持する器です。project間のsuccessor、買収、分割、統合、派生関係はまだ表現せず、必要性と実例のreview後に別途設計します。この時間整理のために、新しいidentifier kindまたはroleは追加しません。
 
 ### 関係の品質を三段階に分ける
 
@@ -462,10 +513,12 @@ confirmedなproject構成、role、共有・排他性、独立surface、派生�
 
 を確認します。
 
-### 4. 時間関係と現行6 kind外の別論点
+### 4. 時間関係の残件と現行6 kind外の別論点
 
-- service/repo/domain/handleの移転、rename、旧identifier、test版から正式版への昇格
+- 同じproject内のcurrent/former/non-productionと確定transitionは前述の原則で扱い、schema version 3へ保存する。正本DBへの切替は未実施
+- project間の後継、買収、分割、統合、ownership移転と、それらを保存・表示する関係
 - mirror、instance、tenant、fork、派生projectの時間付き関係
+- Basker→InfoEnon、DateSky→Nomareなど既知事例のproject境界review
 - native appのbundle/package/store identifier
 - provider account node
 - account followなど、social graph上の関係を根拠に使う規則
@@ -480,7 +533,7 @@ permission-setは同じsetに含まれるcollection同士のpairwise edgeへ展�
 
 `docs/brief.md`など利用者向けの層へ移す際は、project recordを「登録プロジェクト」、confirm操作を「採用」、operator decisionを「手動判断」とし、identifier以外も含む`confirmed`を一律に「採用済み」と読み替えません。
 
-その後に、predicate追加、role追加、保存契約変更、policy version更新、DB再計算の必要性を判断します。実装を行う場合は、対象test、全unit test、既知fixtureまたはsample review、temp DB、正本DB複製のdry-run/auditを変更内容に応じて実施します。正本DBへの適用は別途承認を得ます。
+schema version 3の保存契約と通常mutationは実装・複製DB検証まで完了しており、正本DBへの切替後に関連する正本文書へ反映します。信頼policyの有効化、仮称predicateや新しいroleの追加、project間の時間関係はこの切替へ混ぜず、それぞれ比較とreviewを経て判断します。追加実装では、対象test、全unit test、既知fixtureまたはsample review、temp DB、正本DB複製のdry-run/auditを変更内容に応じて実施します。
 
 ## 現時点で固定しないもの
 
@@ -489,9 +542,8 @@ permission-setは同じsetに含まれるcollection同士のpairwise edgeへ展�
 - 新しいidentifier role
 - graph edgeと`project_relations`の保存分担
 - repository subpath用の新identifier kind
-- SQL schema変更またはDB migrationの要否
 - collection Trustをschema実在までどこまで厳密に要求するか
-- mirror、instance、複数project同居repo、ownership移転の時間付き最終分類
+- project間の後継、買収、分割、統合、mirror、instance、複数project同居repo、ownership移転の時間付き最終分類
 - provider account node、native app identifier、汎用`nsid` nodeの要否
 - merge scoreと自動実行条件
 
