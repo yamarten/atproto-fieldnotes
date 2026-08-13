@@ -19,7 +19,7 @@ from . import storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "merge-policy-shadow-v1"
+POLICY_VERSION = "merge-policy-shadow-v2"
 VERDICTS = (
     "RECOMMEND_MERGE_REVIEW",
     "REVIEW",
@@ -50,6 +50,11 @@ BRIDGING_PREDICATES = {
     "operates_service",
     "official_alternate_surface",
     "collection_canonical_source_repo",
+}
+FRAGMENT_RELATION_PREDICATES = {
+    "defines_schema",
+    "requests_permission",
+    "uses_collection",
 }
 TEMPORAL_OR_DERIVATION_FLAGS = {
     "fork",
@@ -166,6 +171,8 @@ def _legacy_payload(
     separate_project_keys: Iterable[str],
     decisions: Iterable[dict[str, Any]] = (),
 ) -> dict[str, Any]:
+    original_seed_type = str(payload.get("seed_type") or "")
+    original_seed_value = str(payload.get("seed_value") or "")
     shaped = dict(payload)
     shaped.update({
         "input_nsids": [],
@@ -224,11 +231,20 @@ def _legacy_payload(
         })
     shaped["separate_project_keys"] = sorted({str(value) for value in separate_project_keys if str(value)})
     runtime_view.mark_complete(shaped)
-    return project_record.ensure_project_shape(shaped)
+    normalized = project_record.ensure_project_shape(shaped)
+    if original_seed_type and original_seed_value:
+        normalized["seed_type"] = original_seed_type
+        normalized["seed_value"] = original_seed_value
+    return normalized
 
 
 def _model_from_snapshot(snapshot: dict[str, Any], *, project_key: str = "") -> dict[str, Any]:
+    original_seed_type = str(snapshot.get("seed_type") or "")
+    original_seed_value = str(snapshot.get("seed_value") or "")
     payload = project_record.ensure_project_shape(dict(snapshot))
+    if original_seed_type and original_seed_value:
+        payload["seed_type"] = original_seed_type
+        payload["seed_value"] = original_seed_value
     claims = [
         {
             "kind": item.kind,
@@ -332,6 +348,171 @@ def _values_for_roles(project: dict[str, Any], roles: set[str], *, confirmed_onl
     }
 
 
+def _confirmed_owned_nsids(project: dict[str, Any]) -> set[str]:
+    return {
+        value
+        for kind, value in _values_for_roles(project, {"owned_nsid"})
+        if kind == "collection"
+    }
+
+
+def _seed_nsid(project: dict[str, Any]) -> str:
+    legacy = project.get("legacy") or {}
+    if str(legacy.get("seed_type") or "") != "nsid":
+        return ""
+    return identifier_core.normalize_nsid(str(legacy.get("seed_value") or ""))
+
+
+def _collection_context_nsids(project: dict[str, Any]) -> set[str]:
+    values = set(_confirmed_owned_nsids(project))
+    seed = _seed_nsid(project)
+    if seed:
+        values.add(seed)
+    return values
+
+
+def _collection_only_component_record(project: dict[str, Any]) -> bool:
+    nodes = _confirmed_component_nodes(project)
+    return bool(nodes) and all(kind == "collection" for kind, _ in nodes)
+
+
+def _independent_component_nodes(project: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        node
+        for node in _confirmed_component_nodes(project)
+        if node[0] in {"service_url", "repo_url", "did", "handle"}
+    }
+
+
+def _collection_authority_namespaces(nsids: Iterable[str]) -> set[str]:
+    output: set[str] = set()
+    for nsid in nsids:
+        namespace = registry.registrable_namespace_from_namespace(nsid)
+        if namespace:
+            output.add(namespace)
+    return output
+
+
+def _collection_direct_namespaces(nsids: Iterable[str]) -> set[str]:
+    return {
+        namespace
+        for value in nsids
+        if (namespace := project_record.namespace_from_collection_nsid(value))
+    }
+
+
+def _name_token(project: dict[str, Any]) -> str:
+    return identifier_core.normalize_alias_token(str(project.get("name") or ""))
+
+
+def _fragment_relation_matches(fragment: dict[str, Any], target: dict[str, Any]) -> list[dict[str, Any]]:
+    fragment_collections = _confirmed_owned_nsids(fragment)
+    target_components = _confirmed_component_nodes(target)
+    output: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for relation in [*fragment.get("relations", []), *target.get("relations", [])]:
+        if relation.get("predicate") not in FRAGMENT_RELATION_PREDICATES:
+            continue
+        subject = tuple(relation["subject"])
+        obj = tuple(relation["object"])
+        if subject not in target_components:
+            continue
+        if obj[0] != "collection" or obj[1] not in fragment_collections:
+            continue
+        key = (subject, relation["predicate"], obj, relation.get("source", ""), relation.get("method", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append({
+            "subject": list(subject),
+            "predicate": relation["predicate"],
+            "object": list(obj),
+            "classification": relation.get("classification", ""),
+            "source": relation.get("source", ""),
+            "method": relation.get("method", ""),
+        })
+    return output
+
+
+def _fragment_absorption_candidate(
+    fragment: dict[str, Any],
+    target: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _collection_only_component_record(fragment):
+        return None
+    if str((fragment.get("legacy") or {}).get("category") or "") == "lexicon":
+        return None
+    fragment_nsids = _confirmed_owned_nsids(fragment)
+    target_nsids = _confirmed_owned_nsids(target)
+    if not fragment_nsids:
+        return None
+
+    exact_overlap = sorted(fragment_nsids & target_nsids)
+    exact_subset = bool(exact_overlap) and fragment_nsids < target_nsids
+    target_context = _collection_context_nsids(target)
+    shared_authorities = sorted(
+        _collection_authority_namespaces(fragment_nsids)
+        & _collection_authority_namespaces(target_context)
+    )
+    shared_direct_namespaces = sorted(
+        _collection_direct_namespaces(fragment_nsids)
+        & _collection_direct_namespaces(target_context)
+    )
+    fragment_name = _name_token(fragment)
+    target_name = _name_token(target)
+    target_name_in_fragment = bool(
+        len(target_name) >= 5
+        and target_name in fragment_name
+    )
+    shared_aliases = sorted(
+        project_record.project_merge_aliases(fragment["legacy"])
+        & project_record.project_merge_aliases(target["legacy"])
+    )
+    relation_matches = _fragment_relation_matches(fragment, target)
+    independent_target = sorted(_independent_component_nodes(target))
+
+    if exact_subset:
+        rule = "exact_owned_collection_subset"
+    elif independent_target and shared_authorities and (
+        shared_direct_namespaces
+        or shared_aliases
+        or target_name_in_fragment
+    ):
+        rule = "collection_fragment_with_encompassing_project"
+    else:
+        return None
+
+    return {
+        "fragment_project_key": str(fragment.get("project_key") or ""),
+        "target_project_key": str(target.get("project_key") or ""),
+        "rule": rule,
+        "fragment_collections": sorted(fragment_nsids),
+        "target_collection_count": len(target_nsids),
+        "exact_collection_overlap": exact_overlap,
+        "shared_authority_namespaces": shared_authorities,
+        "shared_direct_namespaces": shared_direct_namespaces,
+        "shared_aliases": shared_aliases,
+        "target_name_in_fragment_name": target_name_in_fragment,
+        "target_independent_components": [list(item) for item in independent_target],
+        "composition_relations": relation_matches,
+    }
+
+
+def _fragment_absorption_candidates(left: dict[str, Any], right: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [
+        item
+        for item in (
+            _fragment_absorption_candidate(left, right),
+            _fragment_absorption_candidate(right, left),
+        )
+        if item is not None
+    ]
+    return sorted(
+        candidates,
+        key=lambda item: (item["fragment_project_key"], item["target_project_key"], item["rule"]),
+    )
+
+
 def _shared_adoption_origins(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
     def keys(project: dict[str, Any]) -> set[tuple[str, str, str, str, str, str]]:
         output = set()
@@ -416,6 +597,7 @@ def _pair_signals(
     )
     return {
         "shared_exclusive_components": shared_exclusive,
+        "fragment_absorption_candidates": _fragment_absorption_candidates(left, right),
         "direct_component_relations": _direct_component_relations(left, right),
         "shared_source_repositories": [list(item) for item in shared_repositories],
         "shared_collection_namespaces": sorted(left_ns & right_ns),
@@ -445,14 +627,22 @@ def evaluate_pair(
     if separate:
         verdict = "KEEP_SEPARATE"
         reason = "active_separate_project_decision"
+        recommendation_kind = ""
     elif typed_flags:
         verdict = "NOT_EVALUATED"
         reason = "temporal_or_derivation_relation_requires_separate_review"
+        recommendation_kind = ""
+    elif signals["fragment_absorption_candidates"]:
+        verdict = "RECOMMEND_MERGE_REVIEW"
+        reason = "collection_fragment_has_encompassing_project"
+        recommendation_kind = "fragment_absorption"
     elif signals["shared_exclusive_components"] and signals["direct_component_relations"]:
         verdict = "RECOMMEND_MERGE_REVIEW"
         reason = "exclusive_component_collision_with_direct_composition_relation"
+        recommendation_kind = "duplicate_record"
     else:
         verdict = "REVIEW"
+        recommendation_kind = ""
         if signals["shared_exclusive_components"]:
             reason = "exclusive_component_collision_without_direct_composition_relation"
         elif signals["shared_source_repositories"]:
@@ -468,6 +658,7 @@ def evaluate_pair(
         "right_project_key": right_key,
         "verdict": verdict,
         "reason": reason,
+        "recommendation_kind": recommendation_kind,
         "signals": signals,
         "automatic_execution_allowed": False,
     }
@@ -508,6 +699,9 @@ def _case_project(case_id: str, side: str, payload: dict[str, Any]) -> dict[str,
         "project_key": project_key,
         "name": str(payload.get("name") or ""),
         "website_url": str(payload.get("website_url") or ""),
+        "category": str(payload.get("category") or ""),
+        "seed_type": str(payload.get("seed_type") or ""),
+        "seed_value": str(payload.get("seed_value") or ""),
     }
     return {
         **raw,
@@ -677,6 +871,17 @@ def _shadow_candidate_pairs(projects: list[dict[str, Any]]) -> dict[tuple[str, s
             namespace = project_record.namespace_from_collection_nsid(value) if kind == "collection" else ""
             if namespace:
                 indexes["collection_namespace"][namespace].add(key)
+            authority_namespace = registry.registrable_namespace_from_namespace(value) if kind == "collection" else ""
+            if authority_namespace:
+                indexes["collection_authority_namespace"][authority_namespace].add(key)
+        seed_nsid = _seed_nsid(project)
+        if seed_nsid:
+            seed_namespace = project_record.namespace_from_collection_nsid(seed_nsid)
+            if seed_namespace:
+                indexes["collection_origin_namespace"][seed_namespace].add(key)
+            seed_authority = registry.registrable_namespace_from_namespace(seed_nsid)
+            if seed_authority:
+                indexes["collection_authority_namespace"][seed_authority].add(key)
         for alias in project_record.project_merge_aliases(project["legacy"]):
             indexes["alias"][alias].add(key)
     output: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
@@ -723,6 +928,7 @@ def _summarize_pairs(
     transitions: collections.Counter[str] = collections.Counter()
     discovery: collections.Counter[str] = collections.Counter()
     signal_counts: collections.Counter[str] = collections.Counter()
+    recommendation_kinds: collections.Counter[str] = collections.Counter()
     examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     examples_by_reason: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     examples_by_signal: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -735,6 +941,8 @@ def _summarize_pairs(
         current_status = _current_status(current_payload)
         verdicts[result["verdict"]] += 1
         reasons[result["reason"]] += 1
+        if result["recommendation_kind"]:
+            recommendation_kinds[result["recommendation_kind"]] += 1
         transitions[f"{current_status}->{result['verdict']}"] += 1
         discovery.update(shadow_discovery.get(pair, set()))
         signals = result["signals"]
@@ -750,6 +958,7 @@ def _summarize_pairs(
                     "values": signals["shared_exclusive_components"][label],
                 })
         for label in (
+            "fragment_absorption_candidates",
             "direct_component_relations",
             "shared_source_repositories",
             "shared_collection_namespaces",
@@ -795,6 +1004,7 @@ def _summarize_pairs(
         "current_moderate_pair_count": moderate,
         "shadow_verdict_counts": _counter_dict(verdicts),
         "shadow_reason_counts": _counter_dict(reasons),
+        "shadow_recommendation_kind_counts": _counter_dict(recommendation_kinds),
         "current_to_shadow_counts": _counter_dict(transitions),
         "shadow_discovery_counts": _counter_dict(discovery),
         "shadow_signal_counts": _counter_dict(signal_counts),
@@ -820,6 +1030,7 @@ def _historical_merges(
     buckets: collections.Counter[str] = collections.Counter()
     transitions: collections.Counter[str] = collections.Counter()
     current_buckets: collections.Counter[str] = collections.Counter()
+    recommendation_kinds: collections.Counter[str] = collections.Counter()
     examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     rows = list(conn.execute("SELECT * FROM project_key_aliases ORDER BY created_at, alias_project_key"))
     for alias in rows:
@@ -846,6 +1057,8 @@ def _historical_merges(
         source = _model_from_snapshot(source_snapshot, project_key=str(alias["alias_project_key"]))
         target = _model_from_snapshot(target_snapshot, project_key=str(alias["canonical_project_key"]))
         result = evaluate_pair(source, target)
+        if result["recommendation_kind"]:
+            recommendation_kinds[result["recommendation_kind"]] += 1
         source_v2 = _current_v2_shape(source["legacy"])
         target_v2 = _current_v2_shape(target["legacy"])
         candidate = _current_v2_candidate(source_v2, target_v2)
@@ -869,6 +1082,7 @@ def _historical_merges(
         "alias_count": len(rows),
         "current_v2_bucket_counts": _counter_dict(current_buckets),
         "verdict_counts": _counter_dict(buckets),
+        "recommendation_kind_counts": _counter_dict(recommendation_kinds),
         "current_v2_to_shadow_counts": _counter_dict(transitions),
         "examples": dict(examples),
         "interpretation": "retrospective coverage only; an executed merge is not treated as ground truth",
@@ -984,6 +1198,14 @@ def compare_database(
             "verdicts": list(VERDICTS),
             "exclusive_role_groups": {key: sorted(value) for key, value in EXCLUSIVE_ROLE_GROUPS.items()},
             "bridging_predicates": sorted(BRIDGING_PREDICATES),
+            "fragment_absorption": {
+                "fragment_shape": "current confirmed project components are owned collections only",
+                "exact_subset_rule": "fragment owned collections are a proper subset of target owned collections",
+                "encompassing_project_rule": "target has an independent component, both records share a registrable collection authority, and direct namespace, alias, or project-name context agrees",
+                "shared_lexicon_excluded": True,
+                "composition_predicates_are_supplementary_only": sorted(FRAGMENT_RELATION_PREDICATES),
+                "automatic_execution_allowed": False,
+            },
             "temporal_or_derivation_flags": sorted(TEMPORAL_OR_DERIVATION_FLAGS),
             "automatic_execution_allowed": False,
         },

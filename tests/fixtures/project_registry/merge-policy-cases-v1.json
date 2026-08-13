@@ -126,6 +126,113 @@
       "left": {"name": "Tool A", "website_url": "https://a.example.com"},
       "right": {"name": "Tool B", "website_url": "https://b.example.com"},
       "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "exact-owned-collection-fragment",
+      "description": "A collection-only record whose full owned collection is already contained by a broader record is prioritized for absorption review.",
+      "left": {
+        "name": "Example Fragment",
+        "seed_type": "nsid",
+        "seed_value": "com.example.flow",
+        "claims": [{"kind": "nsid", "value": "com.example.flow", "role": "owned_nsid"}]
+      },
+      "right": {
+        "name": "Example",
+        "claims": [
+          {"kind": "nsid", "value": "com.example.flow", "role": "owned_nsid"},
+          {"kind": "nsid", "value": "com.example.run", "role": "owned_nsid"}
+        ]
+      },
+      "expected_verdict": "RECOMMEND_MERGE_REVIEW"
+    },
+    {
+      "case_id": "named-collection-fragment-with-encompassing-service",
+      "description": "A collection-only subsystem under the same authority can be absorbed by a named encompassing project with an independent service.",
+      "left": {
+        "name": "GainForest Soundscape",
+        "seed_type": "nsid",
+        "seed_value": "app.gainforest.ac.soundscape",
+        "claims": [{"kind": "nsid", "value": "app.gainforest.ac.soundscape", "role": "owned_nsid"}]
+      },
+      "right": {
+        "name": "GainForest",
+        "claims": [
+          {"kind": "nsid", "value": "app.gainforest.post", "role": "owned_nsid"},
+          {"kind": "service_url", "value": "https://gainforest.app", "role": "service"}
+        ]
+      },
+      "expected_verdict": "RECOMMEND_MERGE_REVIEW"
+    },
+    {
+      "case_id": "sibling-seed-fragment-with-project-repository",
+      "description": "A collection-only record and an implementation record with sibling registration origins and the same project name are prioritized for absorption review.",
+      "left": {
+        "name": "Postgame",
+        "seed_type": "nsid",
+        "seed_value": "at.postgame.badge",
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/postgame", "role": "source_repository"}]
+      },
+      "right": {
+        "name": "Postgame",
+        "seed_type": "nsid",
+        "seed_value": "at.postgame.list",
+        "claims": [
+          {"kind": "nsid", "value": "at.postgame.list", "role": "owned_nsid"},
+          {"kind": "nsid", "value": "at.postgame.list.item", "role": "owned_nsid"}
+        ]
+      },
+      "expected_verdict": "RECOMMEND_MERGE_REVIEW"
+    },
+    {
+      "case_id": "independent-sibling-collection-projects",
+      "description": "Sibling namespaces do not imply absorption when neither record provides an encompassing independent project surface.",
+      "left": {
+        "name": "Egg",
+        "claims": [{"kind": "nsid", "value": "ai.example.egg", "role": "owned_nsid"}]
+      },
+      "right": {
+        "name": "Log",
+        "claims": [{"kind": "nsid", "value": "ai.example.log", "role": "owned_nsid"}]
+      },
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "collection-use-alone-is-not-absorption",
+      "description": "A repository using a collection is composition evidence, not sufficient evidence that the collection-only project is a fragment of the repository project.",
+      "left": {
+        "name": "Graph Vocabulary",
+        "claims": [{"kind": "nsid", "value": "com.example.graph.item", "role": "owned_nsid"}]
+      },
+      "right": {
+        "name": "Graph Client",
+        "claims": [
+          {"kind": "nsid", "value": "com.example.client.record", "role": "owned_nsid"},
+          {"kind": "repo_url", "value": "https://github.com/example/graph-client", "role": "source_repository"}
+        ],
+        "relations": [{
+          "subject": ["repo_url", "https://github.com/example/graph-client"],
+          "predicate": "uses_collection",
+          "object": ["nsid", "com.example.graph.item"]
+        }]
+      },
+      "expected_verdict": "REVIEW"
+    },
+    {
+      "case_id": "shared-lexicon-is-not-a-fragment",
+      "description": "A project explicitly classified as a shared Lexicon is not absorbed merely because another service uses the same authority.",
+      "left": {
+        "name": "Community Lexicon",
+        "category": "lexicon",
+        "claims": [{"kind": "nsid", "value": "community.example.post", "role": "owned_nsid"}]
+      },
+      "right": {
+        "name": "Example App",
+        "claims": [
+          {"kind": "nsid", "value": "community.example.profile", "role": "owned_nsid"},
+          {"kind": "service_url", "value": "https://app.example.community", "role": "service"}
+        ]
+      },
+      "expected_verdict": "REVIEW"
     }
   ]
 }

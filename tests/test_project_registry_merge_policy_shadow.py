@@ -14,7 +14,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "project_registry" / "merge-policy-cases
 class MergePolicyShadowUnitTest(unittest.TestCase):
     def test_case_catalog_passes(self) -> None:
         result = merge_policy_shadow.evaluate_case_catalog(merge_policy_shadow.load_case_catalog(FIXTURE))
-        self.assertEqual(result["case_count"], 12)
+        self.assertEqual(result["case_count"], 18)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
     def test_exclusive_collision_and_cross_record_relation_recommends_review_not_execution(self) -> None:
@@ -26,6 +26,39 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(result["verdict"], "RECOMMEND_MERGE_REVIEW")
         self.assertFalse(result["automatic_execution_allowed"])
         self.assertEqual(len(result["signals"]["direct_component_relations"]), 1)
+
+    def test_collection_fragment_recommendation_preserves_direction_and_requires_review(self) -> None:
+        catalog = merge_policy_shadow.load_case_catalog(FIXTURE)
+        case = next(item for item in catalog["cases"] if item["case_id"] == "exact-owned-collection-fragment")
+        left = merge_policy_shadow._case_project(case["case_id"], "left", case["left"])
+        right = merge_policy_shadow._case_project(case["case_id"], "right", case["right"])
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "RECOMMEND_MERGE_REVIEW")
+        self.assertEqual(result["recommendation_kind"], "fragment_absorption")
+        self.assertFalse(result["automatic_execution_allowed"])
+        self.assertEqual(result["signals"]["fragment_absorption_candidates"], [{
+            "fragment_project_key": f"{case['case_id']}:left",
+            "target_project_key": f"{case['case_id']}:right",
+            "rule": "exact_owned_collection_subset",
+            "fragment_collections": ["com.example.flow"],
+            "target_collection_count": 2,
+            "exact_collection_overlap": ["com.example.flow"],
+            "shared_authority_namespaces": ["com.example"],
+            "shared_direct_namespaces": ["com.example"],
+            "shared_aliases": [],
+            "target_name_in_fragment_name": True,
+            "target_independent_components": [],
+            "composition_relations": [],
+        }])
+
+    def test_sibling_collection_projects_without_encompassing_surface_remain_review(self) -> None:
+        catalog = merge_policy_shadow.load_case_catalog(FIXTURE)
+        case = next(item for item in catalog["cases"] if item["case_id"] == "independent-sibling-collection-projects")
+        left = merge_policy_shadow._case_project(case["case_id"], "left", case["left"])
+        right = merge_policy_shadow._case_project(case["case_id"], "right", case["right"])
+        result = merge_policy_shadow.evaluate_pair(left, right)
+        self.assertEqual(result["verdict"], "REVIEW")
+        self.assertEqual(result["signals"]["fragment_absorption_candidates"], [])
 
     def test_shared_operational_provenance_does_not_replace_external_identity_review(self) -> None:
         payload = {

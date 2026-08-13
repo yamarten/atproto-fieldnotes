@@ -78,6 +78,7 @@
 | candidate repositoryの一致 | 可 | 正の根拠にしない | candidate自体が未採用で、dependencyやmentionも混ざり得る |
 | serviceとrepositoryの直接相互参照 | 優先 | 構成の整合を示す補助 | project-scopedな公式参照なら有用だが、共有repoから複数serviceを参照する例を排除できない |
 | 同じrecorded namespace | 可 | current confirmed full NSIDより弱い補助 | namespaceの粒度、共有Lexicon、観測値が混ざる |
+| collectionだけを持つrecordと、同じauthority配下の包括record | 優先 | 非対称な吸収候補として人が確認 | 単独の提供物を表さないcollection断片がsyncでproject化された場合がある。ただし同じauthority配下の別projectや共有Lexiconもあるため自動実行しない |
 | 同じcreator DIDとnamespace lineage | 可 | review用の補助 | organization、developer、permission-set、移転で別projectにも成立する |
 | collection first creator | 必要なら可 | 通常は表示のみ | 最初にrecordを作ったaccountはownershipやproject境界を保証しない |
 | 同じauthority family・domain token・root domain | 可 | 並び順と説明だけ | 一つのauthority配下に複数projectや実験collectionが存在する |
@@ -101,6 +102,19 @@
 共有しにくい構成要素が一つ一致しても、初期案では自動マージしません。共有しにくい構成要素の一致と、異なるroleの構成が直接関係で整合し、独立projectを示す事実がない組合せを、将来の「マージを勧める」候補としてshadow比較します。
 
 一方、共有repositoryの一致と別々のserviceまたはowned namespaceが同時にある場合は、共有repositoryを正の加点にせず、Arabica/Oolong型の別project候補として優先reviewします。別serviceや別namespaceがあることだけでhard guardにはせず、明示的な関係やoperator判断を得た後に`separate_project`へ確定します。
+
+### collection断片の吸収は非対称に扱う
+
+collection syncでは、project全体ではなく個別NSIDまたは小さな兄弟namespaceを起点にproject recordが作られることがあります。このrecordがcurrent confirmedな`owned_nsid`しか持たず、同じauthority配下にservice、source repository、project accountなど独立した構成要素を持つ包括recordがある場合は、通常の「二つの完成したprojectが同一か」とは別に、collection断片を包括recordへ吸収する候補として優先reviewします。
+
+この規則は、二つのrecordを対称な重複として扱いません。fragment側とtarget側を明示し、次のいずれかを要求します。
+
+- fragmentのconfirmed `owned_nsid`がtargetのconfirmed `owned_nsid`の真部分集合である
+- 両recordが同じregistrableなNSID authorityに属し、targetだけが独立した構成要素を持ち、さらに直属namespace、project alias、またはproject名の文脈が一致する
+
+共有Lexiconとして分類済みのrecordはfragmentにしません。`uses_collection`、`requests_permission`、`defines_schema`は構成参照として表示できますが、別projectのcollectionにも成立するため、それだけでは吸収候補を作りません。同じauthorityや名前も一般のマージ根拠へ昇格したわけではなく、fragment側がcollectionだけという非対称な形の中でreview優先度を決める補助です。
+
+この規則が示すtargetは調査の向きであり、存続recordを自動決定しません。たとえばcollection側が本来のproject名や説明を持ち、repository側が補助実装だけを表す可能性は残るためです。既知の別projectは`separate_project`でhard guardにし、規則に一致してもマージを勧めません。
 
 ## 時間関係との境界
 
