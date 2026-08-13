@@ -171,6 +171,8 @@ DateSky/Nomareは当時snapshot間で現行signalがなく、同時点の値一�
 
 実装へ接続する前に、read-only comparatorで現行方式と本案を同じpairへ適用します。信頼policy comparatorとは判断対象が異なるためmoduleとreportを分けますが、roleと直接relationの読み取りは共有できます。
 
+2026-08-13の実行結果は[登録プロジェクトのマージ規則shadow比較](project-merge-policy-shadow-comparison.md)に分離しています。
+
 比較対象は次です。
 
 - 現在の全候補と、strict/moderate batch plan
