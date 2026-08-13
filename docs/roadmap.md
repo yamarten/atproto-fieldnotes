@@ -100,6 +100,39 @@ normalized-only candidate DIDを除外します。全project scanではありま
 確認できるsignalと並び順を先に決めます。その契約とsample reviewを用意してからqueue builderを分離し、file移動
 だけを先行させません。
 
+### 信頼・帰属の次期設計
+
+identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3を正本DBへ適用し、関連する正本文書を更新した後に着手を判断します。この節は新しい信頼policyが現行動作へ接続済みであることを意味しません。現在の設計チェックポイントは[登録プロジェクトへの帰属と信頼グラフの設計メモ](notes/project-attribution-and-trust-design.md)、実データ比較は[信頼ポリシーshadow比較](notes/trust-policy-shadow-comparison.md)、採用状態の契約は[Identifierの採用理由と保存契約](notes/identifier-adoption-storage-design.md)を参照します。
+
+実施する場合は、次の順序を維持します。
+
+1. collectorが作る直接関係の意味を整える
+   - `service_links_repo` / `repo_links_service`を、project scopedなSource・Repository・公式serviceの明示参照に限定する
+   - 一般link、support、sponsor、documentation、任意README URL、mentionを、Admissionや強いTrustへ使うpredicateから分離する
+   - account role、publisher、provider owner、authority domainなど、構成要素ではないactor・中継点をroleなしでtrusted anchorへ昇格しない
+   - collection Trustをschema実在、OAuth利用、authority一致のどこまで要求するかは、誤collectionより別projectや無関係domainを混ぜる危険を優先して決める
+2. schema version 3の正本DBでshadow比較を再実行する
+   - role付き登録起点とformer/non-production除外を実データから読み、保存移行前の暗黙fallbackを使わない
+   - 既知case、candidate admission sample、既存confirmとの一致、追加review件数、未収集relationを確認する
+   - collectorの完全分類は前提にせず、人力reviewで見つかった誤りを個別例外ではなく一般則へ戻せることを確認する
+3. 比較結果をreviewしてからproduction接続を設計する
+   - role付きclaimに対する信頼判定結果と、candidate生成、採用理由、block/defer、手動判断を別責務として接続する
+   - `project_relations`を直接事実の正本とし、旧trust graph edge、検索用inverse、再生成可能な判定経路の保存分担を決める
+   - 最初はread-only auditまたは明示実行を優先し、自動confirmとcandidate admissionを同時に広げない
+
+次は上記production接続から独立した設計論点として扱います。
+
+- merge policy
+  - repo共有、developer/publisher一致、root domain共有、first creator、信頼グラフのpathをそのまま自動merge根拠にしない
+  - confirmedな構成要素、独立surface、共有・排他性、operator判断を使う別の比較として設計する
+- project間の時間・派生関係
+  - 後継、買収、分割、統合、ownership移転、mirror、instance、tenant、forkを、同一project内のidentifier transitionへ押し込まない
+  - Basker→InfoEnon、DateSky→Nomareなど既知事例をreviewしてから保存形を決める。fork等の現時点の方針は[派生関係の設計メモ](notes/derivation-relations.md)を参照する
+- node・roleの拡張
+  - developer node、provider account、native appのbundle/package/store identifier、record以外を含む汎用NSIDは、既存DID・handle・relationでは表現できない実例が確認された場合だけ追加する
+
+この一連の完了条件は、新policyが省ける手動確認と新たに必要になるreviewを既知事例で説明でき、固定caseと正本DB sample reviewを通り、現行の自動confirmから切り替える範囲とrollback境界が明示されていることです。
+
 ### データpolicyとmigration
 
 #### DB-level policy marker
