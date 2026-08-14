@@ -305,6 +305,51 @@ class IdentifierStorageV3Test(TempRegistryDbTestCase):
 
         self.assertEqual(tuple(row), (target["project_key"], source["project_key"]))
 
+    def test_review_split_records_mutual_project_separation(self) -> None:
+        repo_url = "https://github.com/example/child"
+        service_url = "https://child.example.com"
+        conn = registry.open_db()
+        try:
+            source = self.make_project("proj:split-source", "repo_url", repo_url)
+            registry.add_manual_seed(source, "repo_url", repo_url, source="operator_add_seed")
+            registry.confirm_service_seed(source, service_url, source="operator_add_seed")
+            project_record.save_project(conn, source)
+            result = identifier_storage_materialization._create_split_project(
+                conn,
+                {
+                    "ref": "child",
+                    "source_project_key": source["project_key"],
+                    "name": "Child",
+                    "move_values": [repo_url],
+                    "include_related_service": service_url,
+                },
+                created_at="2026-08-14T00:00:00+00:00",
+            )
+            conn.commit()
+            source_after = project_record.fetch_project(conn, source["project_key"])
+            target_after = project_record.fetch_project(conn, result["target_project_key"])
+            separation_rows = conn.execute(
+                """
+                SELECT project_key, target_value, metadata_json
+                FROM project_decisions
+                WHERE kind='separate_project'
+                ORDER BY project_key
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual(source_after["separate_project_keys"], [target_after["project_key"]])
+        self.assertEqual(target_after["separate_project_keys"], [source_after["project_key"]])
+        self.assertEqual(
+            {(str(row[0]), str(row[1])) for row in separation_rows},
+            {
+                (source_after["project_key"], target_after["project_key"]),
+                (target_after["project_key"], source_after["project_key"]),
+            },
+        )
+        self.assertTrue(all(json.loads(str(row[2]))["source"] == identifier_storage_materialization.REVIEW_SOURCE for row in separation_rows))
+
     def test_ordinary_open_rejects_v2_and_materializer_migrates_only_the_copy(self) -> None:
         project = self._save_manual_service("proj:migrated-save", "https://migrated.example.com")
         conn = sqlite3.connect(self.db_path)

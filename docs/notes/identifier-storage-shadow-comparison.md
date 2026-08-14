@@ -76,7 +76,7 @@ confirmed relationからの補完にはREADME link等も含まれます。この
 | current identifierを追加する | 6 | reviewで確定したservice/repositoryを追加 |
 | project属性を更新する | 7 | 名称またはtracking stateを更新 |
 
-High FiveとMalfestioの二つの新projectを作成したためproject数は4,416件から4,418件になりました。High Fiveはserviceとrepository、Malfestioは二つのNSID、service、repositoryを持ちます。元のATProtoFansとWriterには、それぞれに属する構成要素を残しました。
+High FiveとMalfestioの二つの新projectを作成したためproject数は4,416件から4,418件になりました。High Fiveはserviceとrepository、Malfestioは二つのNSID、service、repositoryを持ちます。元のATProtoFansとWriterには、それぞれに属する構成要素を残し、新旧project間には相互の`separate_project`判断を記録しました。
 
 Websiteだけを残したproject、無関係なserviceを外したproject、non-production serviceだけになったprojectのうち、他にconfirmed serviceがない22 projectは`service_status=none`に揃えました。このうちscalar値が実際に変わったのは14 projectです。終了済みserviceを`former`へ移したprojectの`dead`は、過去にservice surfaceを持っていた状態を表すため維持しました。
 

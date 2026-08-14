@@ -318,6 +318,47 @@ def _new_shadow_project_key(conn: sqlite3.Connection, ref: str) -> str:
     return base
 
 
+def _insert_separate_project_decision(
+    conn: sqlite3.Connection,
+    *,
+    project_key: str,
+    other_project_key: str,
+    created_at: str,
+) -> None:
+    existing = conn.execute(
+        """
+        SELECT 1 FROM project_decisions
+        WHERE project_key=? AND kind='separate_project'
+          AND target_type='project_key' AND target_value=? AND cleared_at=''
+        """,
+        (project_key, other_project_key),
+    ).fetchone()
+    if existing is not None:
+        return
+    ordinal = int(
+        conn.execute(
+            "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM project_decisions WHERE project_key=?",
+            (project_key,),
+        ).fetchone()[0]
+    )
+    conn.execute(
+        """
+        INSERT INTO project_decisions(
+            project_key, ordinal, kind, target_type, target_value, target_role,
+            note, created_at, expires_at, cleared_at, metadata_json
+        ) VALUES (?, ?, 'separate_project', 'project_key', ?, '', ?, ?, '', '', ?)
+        """,
+        (
+            project_key,
+            ordinal,
+            other_project_key,
+            "separated by identifier adoption review",
+            created_at,
+            _dump({"source": REVIEW_SOURCE}),
+        ),
+    )
+
+
 def _create_split_project(conn: sqlite3.Connection, action: dict[str, Any], *, created_at: str) -> dict[str, Any]:
     source_key = str(action["source_project_key"])
     target_key = _new_shadow_project_key(conn, str(action["ref"]))
@@ -423,6 +464,18 @@ def _create_split_project(conn: sqlite3.Connection, action: dict[str, Any], *, c
         )
         conn.execute("DELETE FROM project_relations WHERE project_key=? AND ordinal=?", (source_key, int(row["ordinal"])))
         moved_relation_count += 1
+    _insert_separate_project_decision(
+        conn,
+        project_key=source_key,
+        other_project_key=target_key,
+        created_at=created_at,
+    )
+    _insert_separate_project_decision(
+        conn,
+        project_key=target_key,
+        other_project_key=source_key,
+        created_at=created_at,
+    )
     return {
         "ref": str(action["ref"]),
         "source_project_key": source_key,

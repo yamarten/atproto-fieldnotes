@@ -4,7 +4,7 @@
 
 ## 現在地
 
-- identifierの採用理由、旧identifier、non-production、確定した時間関係、noiseを分離するschema version 3と通常mutationを実装し、review済み108 claimを適用した正本DBへ2026-08-14に切り替えました。Website、service URL、補助pageのruntime責務も分離済みです。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
+- identifierの採用理由、旧identifier、non-production、確定した時間関係、noiseを分離するschema version 3と通常mutationを実装し、review済み108 claimを適用した正本DBへ2026-08-14に切り替えました。High Five / ATProtoFansとMalfestio / Writerには相互のproject分離判断を保存し、Website、service URL、補助pageのruntime責務も分離済みです。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
