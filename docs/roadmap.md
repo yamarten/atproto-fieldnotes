@@ -141,10 +141,10 @@ identifierの採用理由、former、non-production、確定transition、noise�
 
 DB-level migration/data policy markerは直近優先から外します。
 
-- 現状は`schema_version=2`だけで、旧方式v2や試験生成v2とのpolicy世代差はDB単体では識別できない
+- 現状は`schema_version=3`だけで、同じschema内のdata policy世代差はDB単体では識別できない
 - ただし正本DBが基本1つで、巻き戻しや複数policy世代DBの並行運用も想定していないため、現時点の実利は小さい
-- 将来、複数DB、再migration、schema v2内でのdata policy世代分岐が必要になった場合に再検討する
-- 実装する場合は、open時の自動付与ではなく、markerなし既存v2のread-only audit合格後にだけadditiveに付与する
+- 将来、複数DB、再migration、同じschema内でのdata policy世代分岐が必要になった場合に再検討する
+- 実装する場合は、open時の自動付与ではなく、markerなし既存DBのread-only audit合格後にだけadditiveに付与する
 
 process間lockまたはpreflightは、次の破壊的maintenanceを追加する時に再評価します。現状の個人ローカル運用ではoffline手順を維持します。
 
@@ -335,7 +335,7 @@ Bluesky公式repositoryはAppView実装も含むため、repository URLだけを
 
 ## Web UI 詳細検索
 
-Web UIのschema v2検索は接続済みです。検索拡張候補は次です。
+Web UIのnormalized検索は接続済みです。検索拡張候補は次です。
 
 - SQLite FTS table の追加
 - typo tolerance / edit distance

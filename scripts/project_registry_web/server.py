@@ -771,7 +771,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="project-registry-web",
-        description="Serve the schema v2 project registry Web UI.",
+        description="Serve the schema v3 project registry Web UI.",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 0.0.0.0 for LAN access.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765.")

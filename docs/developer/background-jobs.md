@@ -121,11 +121,11 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - checkpointとrequest serializationにAPI key値を残さないこと
 - CLIがevent dataをJSON linesとして出力すること
 - fake workerによるsubprocess完了、競合拒否、SIGINT停止、再開
-- 実workerと空のtemp schema v2 DBによるnetwork-free protocol実行
-- 実workerと空のtemp schema v2 DBによるreview dry-run
+- 実workerと空のtemp schema v3 DBによるnetwork-free protocol実行
+- 実workerと空のtemp schema v3 DBによるreview dry-run
 - temp DB Web UIから別process enrichを起動し、完了event/resultを表示すること
 - Web APIのsync/review allowlist、dry-run/execute request変換
-- in-app Browserからschema v2 DBのreview dry-runを起動し、candidate limitと完了resultを確認したこと
+- in-app Browserからschema v3 DBのreview dry-runを起動し、candidate limitと完了resultを確認したこと
 
 未接続:
 

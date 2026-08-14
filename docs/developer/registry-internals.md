@@ -1356,7 +1356,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
 
 旧 `data_json` 前処理はもう行いません。
-schema v3実装は`registry_meta.schema_version=3`、normalized child tables、非現行identifier、採用理由、確定transition、registry-wide exclusionを前提にします。version 2は通常openせず、review済みmanifestによる新規複製DBのmaterializationだけを移行経路にします。正本DBへの切替は未適用です。
+schema v3実装は`registry_meta.schema_version=3`、normalized child tables、非現行identifier、採用理由、確定transition、registry-wide exclusionを前提にします。version 2は通常openせず、review済みmanifestによる新規複製DBのmaterializationだけを移行経路にします。正本DBは2026-08-14にこの経路でversion 3へ切り替えました。
 
 新しいsuffix設定時はWebとCLIが同じapplication serviceを呼び、保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定します。staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正し、観測URL、service status、confirmed/candidate identifier、investigation snapshotは変更しません。保存済みEvidenceBundleをcurrent stateへ再適用する場合もsame-site flagを現行policyで再計算します。genericなproject保存や履歴payloadの縮約では再計算しません。
 

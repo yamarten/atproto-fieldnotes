@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v2 registry database.")
+    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v3 registry database.")
     init_parser.add_argument("--db-path", type=Path, help="SQLite DB path. Defaults to data/survey.db.")
     init_parser.set_defaults(func=maintenance_commands.cmd_init_db)
 

@@ -44,7 +44,7 @@ project-registry show --seed sh.tangled.repo --type nsid
 ## 公開入口
 
 - [bin/project-registry](bin/project-registry): 登録、調査、候補整理、外部情報の取り込み、保守のCLI
-- [bin/project-registry-web](bin/project-registry-web): schema v2ローカルWeb UI
+- [bin/project-registry-web](bin/project-registry-web): schema v3ローカルWeb UI
 - [bin/project-registry-web-service](bin/project-registry-web-service): macOS LaunchAgentの導入・状態確認
 - [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web) / [completions/_project-registry-web-service](completions/_project-registry-web-service): zsh completion
 
@@ -76,7 +76,7 @@ testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite D
 開発者向け:
 
 - [Registry Internals](docs/developer/registry-internals.md): module構成、依存方向、現行heuristic
-- [Project Record Schema](docs/developer/project-record.md): schema v2の保存契約
+- [Project Record Schema](docs/developer/project-record.md): schema v3の保存契約
 - [Investigation Model](docs/developer/investigation-model.md): collector、evidence、integration、evaluationの責務
 - [Background Job Model](docs/developer/background-jobs.md): event、result、cancellation、checkpoint契約
 - [変更の受入条件と確認手順](docs/developer/change-acceptance.md): 変更種別ごとの確認、標準環境、DB複製、実運用への反映境界
@@ -88,4 +88,4 @@ testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite D
 - [scripts/project_registry_web/](scripts/project_registry_web/): Web API、worker registry、静的UI
 - [prompts/project-triage.md](prompts/project-triage.md): LLM調査prompt
 
-調査結果の正本は`data/survey.db`です。現行保存形式はregistry schema version 2で、旧schemaは通常導線の対象外です。
+調査結果の正本は`data/survey.db`です。現行保存形式はregistry schema version 3で、旧schemaは通常導線の対象外です。

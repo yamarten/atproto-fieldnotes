@@ -25,7 +25,7 @@ export PATH="$PWD/bin:$PATH"
 project-registry init-db
 ```
 
-既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 2ではないDBを指定するとエラーで停止します。`init-db`以外のCLIにはDBのパスを切り替えるオプションがなく、正本の`data/survey.db`を使います。別DBをWeb UIで使う場合は次のように準備します。
+既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。`init-db`以外のCLIにはDBのパスを切り替えるオプションがなく、正本の`data/survey.db`を使います。別DBをWeb UIで使う場合は次のように準備します。
 
 ```bash
 project-registry init-db --db-path data/survey.dev.db

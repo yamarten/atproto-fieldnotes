@@ -1,6 +1,6 @@
 # Identifier保存方式のshadow比較
 
-> 作業用・検討用文書です。2026-08-13時点の正本DBをread-onlyで比較し、review済み判断をschema version 3の複製DBへ適用した結果を記録します。実装コードとtemp DBはversion 3へ進めましたが、正本DBはversion 2のままで変更していません。
+> 作業用・検討用文書です。2026-08-13時点の正本DBをread-onlyで比較し、review済み判断をschema version 3の複製DBへ適用した結果を記録します。この比較を承認した後、2026-08-14に同じmanifestから生成・検証したversion 3 DBへ正本を切り替えました。
 
 ## 結論
 
@@ -8,9 +8,9 @@
 
 正本DBのconfirmed構成要素10,184件のうち、10,183件は既存のdecision、collection inventory、confirmed relation、legacy manual seedの文脈から採用理由を投影できます。残るWaverly Socialの1件を含むreview対象108 claimはすべて処遇を確定し、複製DBでは採用理由のないconfirmed構成要素が0件になりました。ここでいう採用理由の投影とは、identifierを探し直したり現在の信頼ポリシーで再確認したりすることではありません。現行DBではconfirmedである理由がdecisionとして残っていないclaimがあるため、新しい保存契約へ移す際に、既存履歴または今回のoperator reviewを対応づけることです。
 
-この結果をもとにproduction schema version 3と通常mutationを実装しました。正本DBへ適用する前の次のゲートは、後述する保存責務、実データ差分、version 2からの明示移行が意図どおりかのreviewです。
+この結果をもとにproduction schema version 3と通常mutationを実装し、後述する保存責務、実データ差分、version 2からの明示移行をreviewした上で正本DBへ適用しました。
 
-Waverly Socialの`https://mywaverly.com`は、利用者による裏取りを根拠として`former`へ移しました。これは複製DBだけの結果で、正本DBにはまだ適用していません。
+Waverly Socialの`https://mywaverly.com`は、利用者による裏取りを根拠として`former`へ移しました。この判断は2026-08-14の正本DB切替で適用済みです。
 
 ## 人間向けの見取り図
 
@@ -104,7 +104,7 @@ active deferの対象としてcandidateのまま残っていた7 claimはcurrent
 - service probe由来の55件は、probeが帰属を独立に証明したという意味ではありません。既存projectのserviceとしてprobe対象にした、というbootstrap provenanceの補完に限定します。
 - Waverly Socialには`https://waverly.social`と`https://mywaverly.com`の二つのconfirmed serviceがあります。前者は保存済み`website_url`と一致します。後者は利用者の裏取りにより`former`と決まり、新しい現行claimの採用理由を補う対象から外します。
 
-## 実装境界と次のゲート
+## 実装境界と適用結果
 
 read-only補助コマンドは次の形です。
 
@@ -129,4 +129,4 @@ project-registry compare-identifier-storage \
 
 実装済みのversion 3では、role付きdecision、採用理由、非現行identifierの低優先度exact検索、confirm時のexact block/defer解除、collection再作成抑止、merge時のorigin保持を通常責務へ接続しました。source repo観測は`state_json.evidence`、authority domainはruntime導出とし、構成要素identifierへ戻しません。通常openはversion 2を拒否し、review済みmanifestから新規複製DBを作る時だけ明示移行します。
 
-次のreviewでは、この実装境界と複製DB差分を採否判断します。正本DBへの切替、自動confirm policyの新規有効化、Web UIへのformer/non-production表示はこの段階では行いません。
+この実装境界と複製DB差分をreviewした後、2026-08-14に正本DBをversion 3へ切り替えました。自動confirm policyの新規有効化とWeb UIへのformer/non-production表示は引き続き行っていません。

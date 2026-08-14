@@ -1,6 +1,6 @@
 # Identifier採用理由の移行review
 
-> 作業用・検討用文書です。新しい保存契約への移行前に、採用理由を特定できない現行confirmed identifierを利用者とreviewした結果を記録します。正本DBにはまだ適用していません。
+> 作業用・検討用文書です。新しい保存契約への移行前に、採用理由を特定できない現行confirmed identifierを利用者とreviewした結果を記録します。このreviewは2026-08-14のschema version 3切替で正本DBへ適用済みです。
 
 ## Review方針
 

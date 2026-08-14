@@ -1,6 +1,6 @@
 # Project Registry Web UIガイド
 
-`project-registry-web`はschema version 2のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
+`project-registry-web`はschema version 3のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
 
 ## 起動
 
@@ -13,7 +13,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 | --- | --- |
 | `--host` | bind先。既定はloopback。 |
 | `--port` | ポート。既定は`8765`。 |
-| `--db-path` | 接続するschema v2 SQLite DB。既定は`data/survey.db`。 |
+| `--db-path` | 接続するschema v3 SQLite DB。既定は`data/survey.db`。 |
 | `--token` | API共有token。`ATPROTO_SURVEY_WEB_TOKEN`でも指定できる。 |
 | `--reload` | Web実装変更時にサーバープロセスを再起動する。 |
 | `--reload-interval` | reload確認間隔。 |
