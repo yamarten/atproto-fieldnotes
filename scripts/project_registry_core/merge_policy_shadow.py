@@ -20,7 +20,7 @@ from . import storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "merge-policy-shadow-v3"
+POLICY_VERSION = "merge-policy-shadow-v4"
 VERDICTS = (
     "RECOMMEND_MERGE_REVIEW",
     "REVIEW",
@@ -79,6 +79,25 @@ KIND_MAP = {
     "domain": "domain",
     "account": "account",
 }
+
+RETROSPECTIVE_COHORT_ORDER = (
+    "collection_fragment",
+    "confirmed_exclusive_component",
+    "recorded_origin_matches_component",
+    "shared_adoption_origin",
+    "direct_component_relation",
+    "confirmed_source_repository",
+    "candidate_component_overlap",
+    "same_website",
+    "legacy_repository_overlap",
+    "legacy_recorded_namespace_overlap",
+    "collection_namespace_context",
+    "collection_authority_context",
+    "creator_namespace_context",
+    "shared_alias",
+    "shared_domain_context",
+    "no_reconstructed_signal",
+)
 
 
 def _json(value: Any, default: Any) -> Any:
@@ -346,6 +365,14 @@ def _values_for_roles(project: dict[str, Any], roles: set[str], *, confirmed_onl
         for claim in project.get("claims", [])
         if claim.get("role") in roles
         and (not confirmed_only or claim.get("classification") == "confirmed")
+    }
+
+
+def _candidate_values_for_roles(project: dict[str, Any], roles: set[str]) -> set[tuple[str, str]]:
+    return {
+        _claim_node(claim)
+        for claim in project.get("claims", [])
+        if claim.get("role") in roles and claim.get("classification") == "candidate"
     }
 
 
@@ -623,6 +650,164 @@ def _pair_signals(
             _confirmed_component_nodes(left) ^ _confirmed_component_nodes(right)
         ),
     }
+
+
+def _recorded_origins(project: dict[str, Any]) -> set[tuple[str, str]]:
+    legacy = project.get("legacy") or {}
+    output: set[tuple[str, str]] = set()
+
+    def add(kind: str, value: str) -> None:
+        normalized = _node(kind, value)
+        if normalized[0] and normalized[1]:
+            output.add(normalized)
+
+    add(str(legacy.get("seed_type") or ""), str(legacy.get("seed_value") or ""))
+    for item in legacy.get("manual_seeds", []):
+        if not isinstance(item, dict):
+            continue
+        add(str(item.get("type") or ""), str(item.get("value") or ""))
+    return output
+
+
+def _retrospective_features(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    signals = _pair_signals(left, right)
+    left_components = _confirmed_component_nodes(left)
+    right_components = _confirmed_component_nodes(right)
+    left_candidate_components = _candidate_values_for_roles(left, COMPONENT_ROLES)
+    right_candidate_components = _candidate_values_for_roles(right, COMPONENT_ROLES)
+    shared_candidates = sorted(left_candidate_components & right_candidate_components)
+    left_origins = _recorded_origins(left)
+    right_origins = _recorded_origins(right)
+    origin_matches = {
+        "left_origin_in_right": sorted(left_origins & right_components),
+        "right_origin_in_left": sorted(right_origins & left_components),
+        "same_recorded_origin": sorted(left_origins & right_origins),
+    }
+    left_legacy = left.get("legacy") or {}
+    right_legacy = right.get("legacy") or {}
+    left_profile = _current_v2_profile(left_legacy)
+    right_profile = _current_v2_profile(right_legacy)
+    legacy_reason_keys = sorted(
+        field
+        for field in (
+            "source_code_urls",
+            "github_repo_urls",
+            "candidate_source_code_urls",
+            "service_urls",
+            "recorded_lexicon_namespaces",
+            "authority_service_families",
+            "domain_identity_tokens",
+            "merge_aliases",
+        )
+        if left_profile[field] & right_profile[field]
+    )
+    if (
+        set(left_legacy.get("record_creators", [])) & set(right_legacy.get("record_creators", []))
+        and registry.namespace_lineage_overlap(left_legacy, right_legacy)
+    ):
+        legacy_reason_keys.append("record_creators_and_namespace_lineage")
+    domain_context = {
+        "authority_service_families": sorted(
+            left_profile["authority_service_families"] & right_profile["authority_service_families"]
+        ),
+        "domain_identity_tokens": sorted(
+            left_profile["domain_identity_tokens"] & right_profile["domain_identity_tokens"]
+        ),
+    }
+    left_website = identifier_core.normalize_url(str(left.get("website_url") or ""))
+    right_website = identifier_core.normalize_url(str(right.get("website_url") or ""))
+    same_website = left_website if left_website and left_website == right_website else ""
+    shared_collection_authorities = sorted(
+        _collection_authority_namespaces(_collection_context_nsids(left))
+        & _collection_authority_namespaces(_collection_context_nsids(right))
+    )
+    containment = {
+        "left_components_contained_by_right": bool(left_components and left_components <= right_components),
+        "right_components_contained_by_left": bool(right_components and right_components <= left_components),
+    }
+
+    tags: list[str] = []
+    if signals["fragment_absorption_candidates"]:
+        tags.append("collection_fragment")
+    if signals["shared_exclusive_components"]:
+        tags.append("confirmed_exclusive_component")
+    if any(origin_matches.values()):
+        tags.append("recorded_origin_matches_component")
+    if signals["shared_adoption_origins"]:
+        tags.append("shared_adoption_origin")
+    if signals["direct_component_relations"]:
+        tags.append("direct_component_relation")
+    if signals["shared_source_repositories"]:
+        tags.append("confirmed_source_repository")
+    if shared_candidates:
+        tags.append("candidate_component_overlap")
+    if same_website:
+        tags.append("same_website")
+    if any(key in legacy_reason_keys for key in ("source_code_urls", "github_repo_urls")):
+        tags.append("legacy_repository_overlap")
+    if "recorded_lexicon_namespaces" in legacy_reason_keys:
+        tags.append("legacy_recorded_namespace_overlap")
+    if signals["shared_collection_namespaces"]:
+        tags.append("collection_namespace_context")
+    if shared_collection_authorities:
+        tags.append("collection_authority_context")
+    if "record_creators_and_namespace_lineage" in legacy_reason_keys:
+        tags.append("creator_namespace_context")
+    if signals["shared_aliases"]:
+        tags.append("shared_alias")
+    if any(domain_context.values()):
+        tags.append("shared_domain_context")
+    if not tags:
+        tags.append("no_reconstructed_signal")
+    primary_cohort = next(label for label in RETROSPECTIVE_COHORT_ORDER if label in tags)
+    return {
+        "primary_cohort": primary_cohort,
+        "tags": tags,
+        "shared_exclusive_components": signals["shared_exclusive_components"],
+        "shared_source_repositories": signals["shared_source_repositories"],
+        "shared_adoption_origins": signals["shared_adoption_origins"],
+        "direct_component_relations": signals["direct_component_relations"],
+        "shared_candidate_components": [list(item) for item in shared_candidates],
+        "shared_collection_namespaces": signals["shared_collection_namespaces"],
+        "shared_collection_authorities": shared_collection_authorities,
+        "shared_aliases": signals["shared_aliases"],
+        "same_website": same_website,
+        "origin_matches": {key: [list(item) for item in values] for key, values in origin_matches.items()},
+        "component_counts": {"left": len(left_components), "right": len(right_components)},
+        "containment": containment,
+        "domain_context": domain_context,
+        "legacy_overlap_reason_keys": legacy_reason_keys,
+    }
+
+
+def _component_count_bucket(count: int) -> str:
+    if count <= 1:
+        return str(count)
+    if count <= 4:
+        return "2-4"
+    return "5+"
+
+
+def _retrospective_detail_labels(features: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    labels.extend(
+        f"exclusive_role:{role}"
+        for role in sorted(features["shared_exclusive_components"])
+    )
+    labels.extend(
+        f"candidate_kind:{kind}"
+        for kind in sorted({str(item[0]) for item in features["shared_candidate_components"]})
+    )
+    for direction, values in features["origin_matches"].items():
+        labels.extend(f"origin:{direction}:{item[0]}" for item in values)
+    labels.extend(
+        f"containment:{direction}"
+        for direction, matched in features["containment"].items()
+        if matched
+    )
+    labels.append(f"left_component_count:{_component_count_bucket(int(features['component_counts']['left']))}")
+    labels.append(f"right_component_count:{_component_count_bucket(int(features['component_counts']['right']))}")
+    return sorted(set(labels))
 
 
 def evaluate_pair(
@@ -944,6 +1129,18 @@ def _summarize_pairs(
     discovery: collections.Counter[str] = collections.Counter()
     signal_counts: collections.Counter[str] = collections.Counter()
     recommendation_kinds: collections.Counter[str] = collections.Counter()
+    retrospective_cohorts: collections.Counter[str] = collections.Counter()
+    retrospective_tags: collections.Counter[str] = collections.Counter()
+    retrospective_tag_combinations: collections.Counter[str] = collections.Counter()
+    retrospective_details: collections.Counter[str] = collections.Counter()
+    retrospective_by_status: collections.Counter[str] = collections.Counter()
+    separate_cohorts: collections.Counter[str] = collections.Counter()
+    separate_tags: collections.Counter[str] = collections.Counter()
+    separate_details: collections.Counter[str] = collections.Counter()
+    separate_examples: list[dict[str, Any]] = []
+    retrospective_examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    containment_counts: collections.Counter[str] = collections.Counter()
+    cohort_detail_counts: collections.Counter[str] = collections.Counter()
     examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     examples_by_reason: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     examples_by_signal: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -952,12 +1149,41 @@ def _summarize_pairs(
         left = lookup[pair[0]]
         right = lookup[pair[1]]
         result = evaluate_pair(left, right)
+        retrospective = _retrospective_features(left, right)
         current_payload = current.get(pair)
         current_status = _current_status(current_payload)
         verdicts[result["verdict"]] += 1
         reasons[result["reason"]] += 1
         if result["recommendation_kind"]:
             recommendation_kinds[result["recommendation_kind"]] += 1
+        cohort = str(retrospective["primary_cohort"])
+        retrospective_cohorts[cohort] += 1
+        retrospective_tags.update(retrospective["tags"])
+        retrospective_tag_combinations[" + ".join(retrospective["tags"])] += 1
+        detail_labels = _retrospective_detail_labels(retrospective)
+        retrospective_details.update(detail_labels)
+        cohort_detail_counts.update(f"{cohort}->{label}" for label in detail_labels)
+        retrospective_by_status[f"{current_status}->{cohort}"] += 1
+        if any(retrospective["containment"].values()):
+            containment_counts[cohort] += 1
+        if result["verdict"] == "KEEP_SEPARATE":
+            separate_cohorts[cohort] += 1
+            separate_tags.update(retrospective["tags"])
+            separate_details.update(detail_labels)
+            if len(separate_examples) < example_limit:
+                separate_examples.append({
+                    "left": {"project_key": pair[0], "name": left.get("name", "")},
+                    "right": {"project_key": pair[1], "name": right.get("name", "")},
+                    "features": retrospective,
+                })
+        if len(retrospective_examples[cohort]) < example_limit:
+            retrospective_examples[cohort].append({
+                "left": {"project_key": pair[0], "name": left.get("name", "")},
+                "right": {"project_key": pair[1], "name": right.get("name", "")},
+                "current_status": current_status,
+                "shadow_verdict": result["verdict"],
+                "features": retrospective,
+            })
         transitions[f"{current_status}->{result['verdict']}"] += 1
         discovery.update(shadow_discovery.get(pair, set()))
         signals = result["signals"]
@@ -1023,6 +1249,20 @@ def _summarize_pairs(
         "current_to_shadow_counts": _counter_dict(transitions),
         "shadow_discovery_counts": _counter_dict(discovery),
         "shadow_signal_counts": _counter_dict(signal_counts),
+        "retrospective_shape_analysis": {
+            "primary_cohort_counts": _counter_dict(retrospective_cohorts),
+            "tag_counts": _counter_dict(retrospective_tags),
+            "tag_combination_counts": _counter_dict(retrospective_tag_combinations),
+            "detail_counts": _counter_dict(retrospective_details),
+            "current_status_to_cohort_counts": _counter_dict(retrospective_by_status),
+            "known_separate_primary_cohort_counts": _counter_dict(separate_cohorts),
+            "known_separate_tag_counts": _counter_dict(separate_tags),
+            "known_separate_detail_counts": _counter_dict(separate_details),
+            "known_separate_examples": separate_examples,
+            "component_containment_counts_by_cohort": _counter_dict(containment_counts),
+            "cohort_detail_counts": _counter_dict(cohort_detail_counts),
+            "examples": dict(retrospective_examples),
+        },
         "review_workload": {
             "recommendations_requiring_human_confirmation": int(verdicts["RECOMMEND_MERGE_REVIEW"]),
             "pairs_still_requiring_open_review": int(verdicts["REVIEW"]),
@@ -1046,6 +1286,14 @@ def _historical_merges(
     transitions: collections.Counter[str] = collections.Counter()
     current_buckets: collections.Counter[str] = collections.Counter()
     recommendation_kinds: collections.Counter[str] = collections.Counter()
+    retrospective_cohorts: collections.Counter[str] = collections.Counter()
+    retrospective_tags: collections.Counter[str] = collections.Counter()
+    retrospective_tag_combinations: collections.Counter[str] = collections.Counter()
+    retrospective_details: collections.Counter[str] = collections.Counter()
+    cohort_by_current_bucket: collections.Counter[str] = collections.Counter()
+    containment_counts: collections.Counter[str] = collections.Counter()
+    retrospective_examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    cohort_detail_counts: collections.Counter[str] = collections.Counter()
     examples: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     rows = list(conn.execute("SELECT * FROM project_key_aliases ORDER BY created_at, alias_project_key"))
     for alias in rows:
@@ -1072,6 +1320,7 @@ def _historical_merges(
         source = _model_from_snapshot(source_snapshot, project_key=str(alias["alias_project_key"]))
         target = _model_from_snapshot(target_snapshot, project_key=str(alias["canonical_project_key"]))
         result = evaluate_pair(source, target)
+        retrospective = _retrospective_features(source, target)
         if result["recommendation_kind"]:
             recommendation_kinds[result["recommendation_kind"]] += 1
         source_v2 = _current_v2_shape(source["legacy"])
@@ -1083,6 +1332,24 @@ def _historical_merges(
             "strict" if strict else "moderate" if moderate else "broad_only" if candidate else "no_signal"
         )
         current_buckets[current_bucket] += 1
+        cohort = str(retrospective["primary_cohort"])
+        retrospective_cohorts[cohort] += 1
+        retrospective_tags.update(retrospective["tags"])
+        retrospective_tag_combinations[" + ".join(retrospective["tags"])] += 1
+        detail_labels = _retrospective_detail_labels(retrospective)
+        retrospective_details.update(detail_labels)
+        cohort_detail_counts.update(f"{cohort}->{label}" for label in detail_labels)
+        cohort_by_current_bucket[f"{current_bucket}->{cohort}"] += 1
+        if any(retrospective["containment"].values()):
+            containment_counts[cohort] += 1
+        if len(retrospective_examples[cohort]) < example_limit:
+            retrospective_examples[cohort].append({
+                "source": {"project_key": source["project_key"], "name": source["name"]},
+                "target": {"project_key": target["project_key"], "name": target["name"]},
+                "merged_at": str(alias["created_at"]),
+                "current_v2_bucket": current_bucket,
+                "features": retrospective,
+            })
         transitions[f"{current_bucket}->{result['verdict']}"] += 1
         buckets[result["verdict"]] += 1
         if len(examples[result["verdict"]]) < example_limit:
@@ -1099,6 +1366,16 @@ def _historical_merges(
         "verdict_counts": _counter_dict(buckets),
         "recommendation_kind_counts": _counter_dict(recommendation_kinds),
         "current_v2_to_shadow_counts": _counter_dict(transitions),
+        "retrospective_shape_analysis": {
+            "primary_cohort_counts": _counter_dict(retrospective_cohorts),
+            "tag_counts": _counter_dict(retrospective_tags),
+            "tag_combination_counts": _counter_dict(retrospective_tag_combinations),
+            "detail_counts": _counter_dict(retrospective_details),
+            "current_v2_bucket_to_cohort_counts": _counter_dict(cohort_by_current_bucket),
+            "component_containment_counts_by_cohort": _counter_dict(containment_counts),
+            "cohort_detail_counts": _counter_dict(cohort_detail_counts),
+            "examples": dict(retrospective_examples),
+        },
         "examples": dict(examples),
         "interpretation": "retrospective coverage only; an executed merge is not treated as ground truth",
     }
@@ -1223,6 +1500,10 @@ def compare_database(
                 "automatic_execution_allowed": False,
             },
             "temporal_or_derivation_flags": sorted(TEMPORAL_OR_DERIVATION_FLAGS),
+            "retrospective_shape_analysis": {
+                "cohort_order": list(RETROSPECTIVE_COHORT_ORDER),
+                "interpretation": "cohorts explain the strongest reconstructable pre-merge shape; they are review priorities, not correctness labels or automatic merge rules",
+            },
             "automatic_execution_allowed": False,
         },
         "metrics": {"elapsed_ms": round((time.perf_counter() - started) * 1000, 3)},

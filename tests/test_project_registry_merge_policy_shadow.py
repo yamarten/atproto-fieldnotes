@@ -94,6 +94,61 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(result["verdict"], "REVIEW")
         self.assertEqual(len(result["signals"]["shared_adoption_origins"]), 1)
 
+    def test_retrospective_shape_prefers_exact_component_over_weak_context(self) -> None:
+        left = merge_policy_shadow._case_project(
+            "shape",
+            "left",
+            {
+                "name": "Same App",
+                "website_url": "https://same.example",
+                "claims": [
+                    {"kind": "service_url", "value": "https://same.example", "role": "service"},
+                ],
+            },
+        )
+        right = merge_policy_shadow._case_project(
+            "shape",
+            "right",
+            {
+                "name": "Same App",
+                "website_url": "https://same.example",
+                "claims": [
+                    {"kind": "service_url", "value": "https://same.example", "role": "service"},
+                    {"kind": "nsid", "value": "com.example.post", "role": "owned_nsid"},
+                ],
+            },
+        )
+        features = merge_policy_shadow._retrospective_features(left, right)
+        self.assertEqual(features["primary_cohort"], "confirmed_exclusive_component")
+        self.assertIn("same_website", features["tags"])
+        self.assertTrue(features["containment"]["left_components_contained_by_right"])
+
+    def test_retrospective_shape_uses_recorded_origin_without_treating_it_as_auto_merge(self) -> None:
+        left = merge_policy_shadow._case_project(
+            "origin",
+            "left",
+            {
+                "seed_type": "repo_url",
+                "seed_value": "https://github.com/example/app",
+            },
+        )
+        right = merge_policy_shadow._case_project(
+            "origin",
+            "right",
+            {
+                "claims": [
+                    {"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"},
+                ],
+            },
+        )
+        features = merge_policy_shadow._retrospective_features(left, right)
+        self.assertEqual(features["primary_cohort"], "recorded_origin_matches_component")
+        self.assertEqual(
+            features["origin_matches"]["left_origin_in_right"],
+            [["repo_url", "https://github.com/example/app"]],
+        )
+        self.assertFalse(merge_policy_shadow.evaluate_pair(left, right)["automatic_execution_allowed"])
+
     def test_separate_decision_is_hard_guard(self) -> None:
         left = merge_policy_shadow._case_project(
             "separate",

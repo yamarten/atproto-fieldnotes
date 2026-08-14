@@ -1,6 +1,6 @@
 # 登録プロジェクトのマージ規則設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。2026-08-13時点の原理整理、現行実装と正本DBのread-only監査、次に比較する規則案を保持します。この文書のreview前にマージ判定、DB schema、Web UIを変更しません。
+> 作業用・検討用文書です。現行仕様の正本ではありません。2026-08-14時点の原理整理、現行実装と正本DBのread-only監査、shadow比較から得た設計結論を保持します。この文書だけを根拠にマージ判定、DB schema、Web UIを変更しません。
 
 ## 結論
 
@@ -185,40 +185,30 @@ DateSky/Nomareは当時snapshot間で現行signalがなく、同時点の値一�
 
 現行`project_key_aliases`の510件は`reason=merge`だけを持ち、どのsignalを確認したか、operator判断か静的規則かを保持しません。そのため過去snapshotから理由を推定するしかありません。将来も手動マージへ説明文の入力を必須にはしませんが、自動規則を導入する場合は少なくともdecision source、policy version、成立したruleを監査可能に残す必要があります。保存先は比較後に決め、alias tableの変更を先行させません。
 
-## 次のshadow比較
+## shadow比較から得た優先度方針
 
-実装へ接続する前に、read-only comparatorで現行方式と本案を同じpairへ適用します。信頼policy comparatorとは判断対象が異なるためmoduleとreportを分けますが、roleと直接relationの読み取りは共有できます。
+read-only comparator、過去510マージ、現在3,233 pair、固定19事例、既知の`separate_project` 18 pairを比較した結果は[登録プロジェクトのマージ規則shadow比較](project-merge-policy-shadow-comparison.md)に分離しています。
 
-2026-08-13の実行結果は[登録プロジェクトのマージ規則shadow比較](project-merge-policy-shadow-comparison.md)に分離しています。
+候補発見は広く保ち、候補の非表示や自動マージではなく、次の理由別優先度を付けます。
 
-比較対象は次です。
+1. `separate_project`を通常merge actionのhard guardにする
+2. collection fragment、同じcurrent confirmed serviceなど共有しにくい構成要素の衝突、同じ具体的claimを同じ起点から二重採用した記録を最優先reviewにする
+3. exactなcandidate surface、旧recorded namespace、直属namespaceを次のreview群にし、未確認であることを表示する
+4. registrable authority、alias、domain、共有repositoryだけのpairを低優先度の探索候補として残す
+5. former/current transition、後継、fork、mirrorなどが疑われるpairを通常merge優先度とは別のreviewへ送る
 
-- 現在の全候補と、strict/moderate batch plan
-- 過去510件のマージ時点snapshot
-- Arabica/Oolong、共有Lexicon authority、organization/developer共有、fork/mirror、tenant、同一service URL、同一owned NSID、DateSky/Nomare、Basker/InfoEnonなどの固定case
-- 現在の「マージを勧める」「要確認」「別扱いを守る」各sample
+同じconfirmed serviceを持つ過去マージ18件はすべてsource側のconfirmed構成がtarget側へ包含されていましたが、現在候補には同型がありません。これは将来の強い衝突検査と優先reviewを支持しますが、正例だけの履歴から自動実行の安全性は示しません。
 
-reportでは次を示します。
+candidate、authority、alias、domainは過去マージを広く拾う一方、既知の別projectにも現れました。したがって優先度に利用しても、下位候補を隠すfilter、排他的なqueue、正のマージ判断には使いません。共有repositoryもArabica/Oolong型の反例があるため補助表示に留めます。
 
-- 候補数と、各候補を見つけた入口
-- role上共有しにくい構成要素の衝突数
-- 共有可能なresourceだけで見つかった候補数
-- hard guard、時間・派生関係、独立surfaceによって抑止された候補数
-- 人が省ける比較、引き続き必要な比較、新たに増える比較
-- 過去マージを説明できる件数と、説明に不足するrelation・provenance
-- 同じ登録起点から二重作成されたclaimと、それ以外の外部事実による候補の区別
-- 現行syncで既存projectへattachされたclaim、新規projectになったclaim、新しい取込規則なら作成を避けられる重複候補の区別
-- 代表的な正例、反例、判定不能例
+collection fragment 110件の人手reviewは107件の統合、2件の別project、1件の保留となりました。この結果は非対称なfragment reviewを実装する価値を支持しますが、一括自動マージやidentifier処遇の一律決定は支持しません。
 
-採用基準は自動マージ件数の多さではありません。既知の別projectを誤って勧めず、現在手動で行っている重複確認の一部を根拠付きで短縮でき、判断不能なpairをその理由とともにreviewへ残せることを重視します。
+## 実装へ接続する際の残件
 
-## reviewが必要な判断
+- 現行の一つのscoreと`auto_merge_ready`表示を、理由別priorityと人間向け説明へどう置き換えるかをWeb review導線として設計する
+- project境界の判断と、統合するidentifierをcurrent、former、non-production、noiseのどれで残すかを別操作として扱う
+- schema v3移行後のadoption provenanceで、同じ具体的claimを同じ収集eventから二重作成したpairを再比較する
+- 時間・派生関係reviewを差し込んでからDateSky/Nomare、Basker/InfoEnonなどを通常mergeへ戻すか判断する
+- 自動実行を検討する場合は、優先reviewの実績と既知の別projectを含むnegative sampleを別途蓄積する
 
-本案から実装へ進む前に、次を確認します。
-
-1. 初期接続では「マージを勧める」も自動実行せず、人が確認する方針でよいか
-2. 同じcurrent confirmed service URL、同じcurrent confirmed full `owned_nsid`、同じ専用project accountを、いずれも自動マージではなく優先review入口とするか
-3. 共有しにくい構成要素の一致に加えて、異なるrole間の直接関係と反証なしを要求する組合せを、shadow比較する「マージを勧める」条件としてよいか
-4. 同じprojectの改名・移転による重複と、別projectへの後継・統合を、通常merge reviewから時間関係reviewへ分岐させるか
-
-合意後にだけcomparatorを実装し、正本DBのsample reviewを行います。その比較結果を見てから、現行scoreの置換、保存済み派生値の扱い、Web reviewの表示、schema変更の要否を決めます。
+ここまでの比較では自動マージを許可する類型はありません。初期接続はreview支援に限定し、保存契約やproduction behaviorはUIとschema移行の設計合意後に変更します。

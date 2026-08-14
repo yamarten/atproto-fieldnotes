@@ -1,6 +1,6 @@
 # 登録プロジェクトのマージ規則shadow比較
 
-> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-13の正本DBをread-only transactionで評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-shadow-v3.json`に生成し、コミットしません。
+> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-14に正本DBをread-only transactionで評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-retrospective-v4.json`に生成し、コミットしません。
 
 ## 結論
 
@@ -31,14 +31,14 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 
 `project-registry compare-merge-policy`で正本DBをSQLite `mode=ro`の単一transactionとして読みました。実運用のmulti-tenant domain設定はDBと同じcheckoutにある`config/domain-overrides.json`を自動検出しています。reportは指定したJSONだけを書き出し、DBを変更しないことと同一入力での再現性をtemp DB testで確認しています。
 
-正本DBは並行してenrichされ得るため、件数は実行開始時のsnapshotです。以下はcontent hash `abe10116bef3d7f4520726a59da482c7a538f3df9f2ac3f6101ff63526091dac`のreportを基準にします。
+正本DBは並行してenrichされ得るため、件数は実行開始時のsnapshotです。以下はcontent hash `8979f94982eb23d130111ebc6b73b0c04a04f275ae2abf954adb842421adc5c2`のreportを基準にします。
 
 - project: 4,416件
-- current identifier: 24,901件
-- relation: 71,168件
+- current identifier: 24,907件
+- relation: 71,172件
 - schema v3のidentifier adoption: 0件。入力DBはまだschema v2
 - 固定case: 19件中19件合格
-- 評価時間: 約5.8秒
+- 評価時間: 約6.4秒
 
 ## 現在の候補比較
 
@@ -167,6 +167,40 @@ ATProtoFans / high-fiveも同じくhost状のcandidate由来名だけでは吸�
 
 過去snapshotはマージ操作直前のtransaction stateそのものではなく、operatorが見た外部根拠も保存していません。したがって28件は正解数ではなく、「同じ静的理由を現在の保存情報から再構成できる件数」です。将来自動規則を接続する場合は、decision source、policy version、成立したruleを監査可能に残す必要があります。
 
+## 過去マージと現在候補の形状再分類
+
+前節の476件は「静的な理由がない」件数ではなく、collection fragment規則だけではマージを勧めなかった件数です。そこで、同じ判定規則を増やす前に、504件をマージ前snapshotから再構成できる最も具体的な形状で分類しました。主類型は排他的ではない複数の特徴から優先順に一つを選んだ説明用区分であり、マージの正解labelではありません。
+
+| 過去マージの主類型 | 件数 | 読み方 |
+| --- | ---: | --- |
+| collection fragment | 28 | 既にreviewした非対称な吸収候補 |
+| 同じconfirmed serviceなど共有しにくい構成要素 | 18 | 18件すべてservice URL一致で、source側のconfirmed構成はtarget側に包含された |
+| 登録起点が相手構成または両recordで一致 | 18 | 16件は同じcollection seed、2件はsource repo seedとtarget repoの一致 |
+| 同じcandidate構成要素 | 86 | service候補70件、repo候補11件、account/handle候補7件など。種類は重複する |
+| 旧recorded namespace一致 | 81 | full owned NSIDではなく旧保存値の一致 |
+| 同じregistrableなcollection authority | 209 | 兄弟namespaceや同一authority配下を含む |
+| alias一致 | 36 | 上記の具体的形状を持たず、名前文脈が一致 |
+| domain文脈だけ | 6 | authority familyやdomain tokenだけが一致 |
+| 保存情報から再構成できない | 22 | 外部情報、時間関係、または失われた旧情報が必要 |
+
+同じconfirmed service URLを持つ18件は、Kimbia、Leaflet、cred.blue、Oolong、Monomarks、Unthreadなど、実行済みマージとして自然な重複recordでした。18件すべてでsource側のconfirmed構成要素がtarget側へ包含され、14件は両側の構成要素が同一でした。これは今後同じ衝突が生じた場合に最優先でreviewする根拠になります。ただし現在候補にはconfirmed service衝突がなく、既知の別project 18 pairにも同型がありません。正例しかない過去データから自動実行の安全性までは示せないため、現時点では「優先review」と「新規作成前の衝突検査」に留めます。
+
+登録起点の一致は30件に副次的な特徴として現れ、主類型になったのは18件でした。同じcollection seedが両recordに残る16件は、同じsync入力から重複recordを作った可能性を強く示します。source repo seedがtargetのconfirmed repoと一致する2件も優先reviewに向きます。一方、旧`seed_type`と`seed_value`だけでは同じ収集eventか、後から手動追加された起点かを区別できません。schema v3移行後は同じclaim・source eventのadoption provenanceでこの類型を置き換え、外部projectの同一性そのものではなくDB内の重複生成理由として表示します。
+
+candidate構成要素の一致、同じauthority、alias、domain文脈は、過去マージを多く拾いますが別projectにも現れます。現在3,233 pairではcandidate一致が890件、collection authority共有が2,661件、alias一致が1,034件、domain文脈が2,677件あります。既知の`separate_project` 18 pairにもcandidate一致6件、authority共有5件、alias一致8件、domain文脈14件があり、candidate一致にはservice 2件、account/handle 4件、repo 1件が含まれます。したがってこれらは候補を非表示にするfilterや自動マージ根拠にはせず、理由別の並び順と表示にだけ使います。
+
+保存情報から何も再構成できない過去マージは、より広い形状を含めても22件まで減りました。Nomare / DateSkyの時間関係、個別feature recordの吸収、accountやservice surfaceの統合、teal.fmのような未解決例が混ざります。この22件を一つの一般則で埋めるのは不適切です。時間関係は予定どおり別reviewへ分け、個別featureの帰属は構成relationまたは採用provenanceを収集し、それでも残るものは人が外部情報を確認します。
+
+この再分類から、現時点の候補優先度は次の順が妥当です。優先度は表示順を変えるだけで、下位候補を隠しません。
+
+1. activeな`separate_project`を先にguardとして除く
+2. collection fragment、同じconfirmed serviceなど共有しにくい構成要素の衝突、同じ具体的claimの重複採用を最優先reviewにする
+3. exactなcandidate surface、旧recorded namespace、直属namespaceを次のreview群にする。ただしcandidateのclassificationとroleを明示する
+4. registrable authority、alias、domain、共有repositoryだけのpairは低優先度の探索候補として残す
+5. 時間・派生関係が疑われるpairは通常merge優先度とは別のreviewへ送る
+
+この段階でも自動マージを許可する類型はありません。追加分析で得られた主な利益は、3,105件の`REVIEW`を同質な一群として扱わず、強い衝突、運用上の重複生成、未確認一致、弱い文脈、保存情報不足に分けられることです。
+
 ## schema移行後でないと評価できない項目
 
 入力DBはschema v2なので、identifier adoptionと登録起点は0件です。ただし旧recordに残る作成時の`seed_type`と`seed_value`は、現在の構成要素から再計算せず比較に利用します。Postgameのように、作成後に主identifierが変わっても兄弟namespaceから作られた経緯を失わないためです。
@@ -181,14 +215,14 @@ fork、mirror、successor、predecessor、ownership transferのtypedなproject�
 
 まだ支持されないのは、この110件を自動実行することと、fragment側を常にsourceとして消すことです。独立project、共有authority、未分類Lexicon、包括recordの取り違えが残ります。初期接続では人が確認し、承認または`separate_project`判断を残すreview支援に限定します。
 
-110件のtarget単位reviewでは、107件が同じ編集単位への統合を支持し、newdin ReadとUntangledの2件は別projectの維持を支持しました。teal.fmの1件は帰属とidentifierの時間上の立場をともに保留します。次は、project境界の判断とidentifier処遇を分けたreview UIのメリットが、表示・判断・guard記録の実装量に見合うかを決めます。
+110件のtarget単位reviewでは、107件が同じ編集単位への統合を支持し、newdin ReadとUntangledの2件は別projectの維持を支持しました。teal.fmの1件は帰属とidentifierの時間上の立場をともに保留します。過去マージと現在候補の再分類からは、collection fragment以外にもconfirmed service衝突と同一claimの重複採用を優先reviewへ加える価値が確認できました。candidate、authority、alias、domainは既知の別projectにも現れるため、候補を隠さない範囲の並び順と説明に限定します。次は、この理由区分とproject境界・identifier処遇を分けたreview UIのメリットが、表示・判断・guard記録の実装量に見合うかを決めます。
 
 ## 検証
 
 - 固定case catalog: 19/19合格
-- comparator unit/temp DB test: 10件合格
+- comparator unit/temp DB test: 12件合格
 - 正本DB: read-only CLI実行成功
 - 現行v2候補件数: 通常loaderと比較器で一致
 - 過去マージのv2区分: 既存監査の18/213/144/129と一致
 - `uses_collection`単独ではfragment吸収を勧めないnegative caseを固定
-- `bin/project-registry-test`: 626件合格
+- `bin/project-registry-test`: 628件合格
