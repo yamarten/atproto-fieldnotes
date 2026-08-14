@@ -10,7 +10,7 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 
 過去510マージでは、両側snapshotがある504件中28件を同じ規則で説明できました。GainForest、PopFeed、Skyrdle、TZ2ATなど、個別collection recordを包括recordへまとめた実例が含まれます。過去判断は正解データではありませんが、初版の0件から、実際の手動作業の一部を根拠付きで優先できるところまでは改善しました。
 
-比較器はread-onlyの開発補助であり、自動マージ、候補保存、Web UI、schema、正本DBを変更しません。次の設計ゲートは、110件をいくつかのまとまりに分けてsample reviewし、この理由区分をWebのreview動線へ接続する価値があるかを判断することです。
+比較器はread-onlyの開発補助であり、自動マージ、候補保存、Web UI、schema、正本DBを変更しません。110件をtarget単位でreviewした結果、107件は同じ編集単位へ収める判断を支持でき、newdin ReadとUntangledの2件は独立した提供物として分離を維持する方が妥当と分かりました。teal.fmの1件は、collectionの実在だけではprojectへの帰属も過去の正式採用も確認できないため保留します。次の設計ゲートは、この理由区分をWebのreview動線へ接続する価値と、追加すべき表示・判断・guard記録の範囲を確認することです。
 
 ## 人間向けに言い換えた比較内容
 
@@ -73,7 +73,7 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 人の判断を残すべき代表例もあります。
 
 - ATProtoFans / high-five: authorityと名前の文脈は一致するが、high-fiveは別レイヤとして分ける方が妥当という既知判断がある。現在のDBにpair単位のguardがないため候補に出る
-- Chive / Chive API、GroundMist Library / GroundMist Sync: 保存された構成要素だけでは、どちらが包括projectか、別projectかを確定しにくい
+- GroundMist Library / GroundMist Sync: 保存された構成要素だけでは、どちらが包括projectか、別projectかを確定しにくい
 - 共有Lexicon authority: categoryが`lexicon`と分かるrecordはfragmentから除外するが、未分類なら人が役割を確認する必要がある
 
 この誤り方は、件数を増やすために許した自動誤マージではなく、reviewで解消する情報不足です。初期接続を行うなら、候補ごとにfragment/target、collection一覧、独立構成要素、authority、名前・alias、構成relation、hard guardを表示する必要があります。
@@ -83,6 +83,48 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 110 pairには44のtarget projectがあります。13 targetは複数fragmentを持ち、合計79 pairを占めます。大きいものはTZ2AT 21件、Aether OS 11件、GainForest 11件、Skyrdle 10件、FreeMix 5件、grain 5件です。残る31 targetは各1件です。
 
 この分布では、pairを110回独立に調査するより、targetの構成と説明を一度確認し、その下にfragmentとNSIDを並べる方が判断を再利用できます。ただし一括承認は前提にしません。同じtarget群でも、productionの構成要素、旧版、開発用、別レイヤのprojectが混ざり得ます。
+
+### 複数fragmentを持つtargetのレビュー
+
+13 target・79 pairについて、targetとfragmentのsummary、current identifier、service、source repositoryを正本DBの同じsnapshotから確認しました。fragment側には独立したconfirmed serviceまたはsource repositoryがなく、現時点で別projectと判断できるものはありませんでした。したがって79 pairはいずれもproject recordとしてはtargetへ収める方向が妥当です。ただしこれは79件を無条件に一括マージしてよいという意味ではなく、移すNSIDの処遇と、保存時に失われる情報を別に確認する必要があります。
+
+| target | fragment数 | project境界の暫定判断 | identifier側の注意 |
+| --- | ---: | --- | --- |
+| TZ2AT | 21 | 同じTezos観測・投影schema群として統合 | `store.tz2at.*`と`xyz.tz2at.*`の並存を通常構成と移行由来のどちらとして扱うかは未確認 |
+| Aether OS | 11 | WebOS内のアプリ・機能schemaとして統合 | 各アプリの稼働状況はproject境界と分けて扱う |
+| GainForest | 11 | 同じLexicon群・service・repositoryへ統合 | observationsからDarwin Core系への移行記述など、旧schemaの処遇は個別確認 |
+| Skyrdle | 10 | 同じゲームへ統合 | `beta*`、`atmos`、`player`をcurrent、former、non-productionのどれで残すかを個別確認 |
+| FreeMix | 5 | 同じ音楽serviceへ統合 | `com.freemix.*`と`fm.freemix.*`の並存・重複が移行由来かを確認 |
+| grain | 5 | 同じ写真共有serviceへ統合 | `v0`、`filmStock`の表記差、labeler schemaの稼働状況を確認 |
+| Offprint | 3 | 同じ出版serviceへ統合 | `experimental`はnon-production候補。actor/profileとblock/imageは通常構成候補 |
+| StratosFund | 3 | 同じ資金調達serviceへ統合 | `.dev`はnon-production候補。production名との対応を確認 |
+| Backyard | 2 | actor/profileとgraphを同じserviceの構成として統合 | 特段の時間markerなし |
+| Impact Indexer | 2 | 同じschema群へ統合 | service終了はproject全体の時間状態であり、個々のNSIDの帰属とは分ける |
+| Prefect | 2 | 既にtargetにもある同一NSIDの重複recordとして統合 | identifier移送ではなく重複除去になる |
+| Simocracy | 2 | floorとsenateを同じplatformの構成として統合 | Senateに独立した提供面が後から確認された場合は再判定 |
+| laugh.town | 2 | suggestionとresyncを同じserviceの構成として統合 | 特段の時間markerなし |
+
+このreviewから、project境界だけなら13回のtarget確認で79 pairを処理できる見込みです。一方、identifierの処遇まで一括指定できるのはBackyardやlaugh.townのような単純な群に限られます。FreeMix、grain、Skyrdle、Offprint、StratosFundの26 pairは、project統合に同意してもNSIDごとの分類reviewを残します。Impact Indexerの提供終了はidentifierのnoise扱いではなく、projectまたはserviceの時間状態として扱う論点です。
+
+### 単一fragment targetのレビュー
+
+残る31 target・31 pairは、正本DBの同じsnapshotに2026年8月14日時点の公式資料とsource repositoryの確認を加えてreviewしました。28 pairは、包括recordと同じproduct名・authorityを持つ通常の機能schema、target側にも同じfull NSIDがある重複record、または公式資料とproject境界の原則から同じprojectの構成・移行と確認できたrecordであり、project境界としては統合が妥当です。該当するのはATlas、at.fund、Chive、cllctv.art、CollectiveSocial、Coves、darkworld.download、DeckBelcher、Flashes、GoodFeeds、Homeport、Hypercerts、Infonomenon、Lanyards、Layers、Leaflet、LinkRing、Matadisco、OpnShelf、Postgame、ProtoPro、Rito、Roomy Space、SkyBeMoreBlue、Skyreader、とまり木、Viewsift、Yotenです。MatadiscoとRoomy Spaceはproject境界に問題はありませんが、`tmp`、`dev`、`local`を含むNSIDをnon-productionとして整理するreviewが残ります。
+
+ATlasは[公式commit](https://github.com/lawhiteley/ATlas/commit/2328ac267dd55c7e4937f36d0ec6695308a06c62)で、同じLexicon定義と実装コードが`io.whiteley.luke.ATlas.pin`から`io.whiteley.ATlas.pin`へ同時に変更され、commit messageもLexiconの再公開と明記されています。したがってproject recordは統合し、旧NSIDはformer、現行NSIDはcurrentとして扱うのが妥当です。
+
+Covesの[公式Aggregator PRD](https://tangled.org/bretton.dev/coves/blob/main/docs/aggregators/PRD_AGGREGATORS.md)は、AggregatorをCovesから独立したシステムではなく、Covesのcommunityへ投稿するactorとして定義しています。第三者が個別Aggregatorを実装・運用することはできますが、`social.coves.aggregator.service`はその個別実装ではなく、Coves側のauthorization・discovery機構を構成するLexiconです。したがってcollection fragmentはCovesへ統合します。
+
+Homeport Graphは`graph.homeport.social`というservice surfaceの観測と`social.homeport.graph.subscribe`だけを持ち、独立した名称、source repository、運用主体は確認できません。同じprojectが複数service surfaceを持つこと自体はproject分離の根拠にならないため、Homeportの構成として統合します。
+
+Hypercertsの[公式CLI](https://github.com/GainForest/hypercerts-cli)は、`org.hypercerts.helper.workScopeTag`をActivity、Measurement、Funding Receiptなどと同じdata modelとcommand setの一項目として実装し、Activityから参照する再利用可能なtaxonomy recordとして扱っています。`helper`は独立toolの名称ではないため、Hypercerts本体へ統合します。
+
+newdinの[公式告知](https://bsky.app/profile/newdin.com/post/3lfpr5axjns2m)は、`read.newdin.com`をthreadへmentionすると展開結果を返すbotとして、専用の入口と利用手順を伴って案内しています。subdomainだけでなく本体と異なる独立した機能・利用単位が公式に示されているため、Newdin Readは別projectとして維持し、本体とのpairへ`separate_project`判断を置くのが妥当です。
+
+teal.fmの`fm.teal.thirdparty.feed.play`は、2026年2月に外部userがLast.fm由来の再生履歴を記録した実在するcollectionです。ただし、ここから分かるのはNSIDが使われたことだけです。teal.fmによる定義・正式採用・委譲は確認できず、公開定義も回収できません。teal.fmの[公式Piper repository](https://tangled.org/teal.fm/piper)がSpotify・Last.fmの再生履歴を扱うことと、後に`fm.teal.alpha.feed.play`から`fm.teal.feed.play`へ移行したことは確認できますが、機能の類似だけで問題のNSIDをその過去版とは判定できません。したがって、projectの統合も、`current`、`former`、`non_production`、`noise`のどのidentifier処遇も保留します。判断には、当時のLexicon authority、schema record、公式の参照、または実装履歴のいずれかが追加で必要です。
+
+Untangledは別です。[公式repository](https://tangled.org/ptr.pet/untangled)はTangledを利用する独立クライアントと明記し、`untangled.wisp.place`という入口と、問題の`place.wisp.untangled.v1.watch`を定義・利用する実装を持ちます。wisp.placeのsubdomainとauthorityを使っていても、名称、repository、利用目的、入口のすべてが分かれているため、Untangledは別projectとして維持し、wisp.placeとのpairへ`separate_project`判断を置くのが妥当です。
+
+teal.fmとUntangledは、同じauthorityと名前文脈が統合を調べる入口にはなっても、結論を与えないことを示します。Untangledは独立したrepository・提供面・利用単位が分離根拠になります。teal.fmは判断に必要な正の帰属根拠も独立projectの根拠も足りないため、現状を維持してreviewを残します。
 
 ### identifierの処遇が別に必要
 
@@ -139,7 +181,7 @@ fork、mirror、successor、predecessor、ownership transferのtypedなproject�
 
 まだ支持されないのは、この110件を自動実行することと、fragment側を常にsourceとして消すことです。独立project、共有authority、未分類Lexicon、包括recordの取り違えが残ります。初期接続では人が確認し、承認または`separate_project`判断を残すreview支援に限定します。
 
-次の比較単位は、110件をauthorityごとの大きな群、full NSIDの真部分集合、同名・alias、名前包含だけに分けたsampleです。既知の誤候補と判断不能例を見た上で、review UIへ接続するメリットが、表示・判断・guard記録の実装量に見合うかを決めます。
+110件のtarget単位reviewでは、107件が同じ編集単位への統合を支持し、newdin ReadとUntangledの2件は別projectの維持を支持しました。teal.fmの1件は帰属とidentifierの時間上の立場をともに保留します。次は、project境界の判断とidentifier処遇を分けたreview UIのメリットが、表示・判断・guard記録の実装量に見合うかを決めます。
 
 ## 検証
 
