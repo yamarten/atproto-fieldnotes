@@ -1,6 +1,6 @@
 # 登録プロジェクトへの帰属と信頼グラフの設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-13までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3は実装・複製DB検証済みですが、正本DBへの切替と本書の正文化は未実施です。マトリクス中の仮称relationや未実装policyは、比較結果のreviewなしに正本挙動へ反映しません。
+> 作業用・検討用文書です。現行仕様の正本ではありません。この文書は、信頼グラフ（実装名: Trust Graph / `trust_graph`）の接続規則を決める前に必要な原理、2026-08-17までの議論で合意した方針、レビュー済みの接続マトリクスを保持します。identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3は正本DBへ適用済みです。マトリクス中の仮称relationや未接続policyは、比較結果のreviewなしに正本挙動へ反映しません。
 
 ## この設計が扱うこと
 
@@ -20,6 +20,22 @@
 5. 評価結果、block/deferなどの採用を止める条件、手動判断を採用規則が組み合わせ、採用可否を決める
 
 候補生成と信頼評価は、同じrelationを参照する場合があっても別の判断です。二つの登録プロジェクトをマージする判断も、既存の囲いへ構成要素を追加する判断とは前提が異なるため、別policyとして扱います。
+
+### collector観測からrelationまでを分ける
+
+collectorは外部sourceを取得し、そのsourceで実際に観測した方向付きのlinkやfieldを保存します。service pageのlink text、`aria-label`、title、GitHub homepage field、README内URLなどはこの段階では観測であり、構成要素間の意味付きrelationではありません。
+
+collector固有の補助解析は、一つのsource内で分かるlinkの用途を整理します。たとえば`Source code`と明示されたrepository link、provider iconだけのlink、docs、funding、package pageを区別します。この解析は「そのsourceが何を表示または主張しているか」を扱い、現在の登録プロジェクトと同じprojectかを単独では決めません。
+
+GitHub repository metadataのhomepageは、repository管理者がそのURLをWebsiteとして指定したrepo→URLの直接観測です。この直接参照と、repositoryが現在のprojectへ帰属するか、target URLがservice surfaceかは別々に評価します。homepageが正しく同じrepositoryのdocumentation、代表Website、accountを指していてもservice identifierにはならず、逆にrepository自体が誤ったprojectへ採用されていればhomepage観測だけを否定しても帰属問題は解消しません。
+
+決定規則だけで意味を確定できない場合は、構成要素間関係判定が一つの提案relationについて両endpointの限定材料を比較します。自由に複数sourceを混ぜる推論器にはせず、当面は`service_url`と`repo_url`の間の一つの方向付きpredicateだけを評価します。入力は起点側の観測、相手側のbounded snapshot、利用できるrepository analysis、登録起点とrole付きの既存構成要素へ限定します。project名やprofileは参考情報にできますが、それだけでは支持としません。
+
+関係判定は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`を返し、新しいURL、predicate、逆方向relationを生成しません。観測された逆方向のlinkが別にあれば、別の提案relationとして評価します。LLMを使う場合も、その役割は観測の意味を解釈することであり、identifierのconfirmやgraph pathの合成ではありません。
+
+`SUPPORTED`になった方向だけをsemantic relationへ投影します。採用済みの構成要素から対象identifierへの許可済み直接relationはcandidate admissionへ使えますが、一方向だけではauto-confirmしません。auto-confirmは後段の静的な信頼policyが登録起点までの往路と復路を評価します。
+
+意味付け前の最新link観測は、当面`state_json.evidence`のbounded current observationとして保持する方針です。runごとの観測履歴は`investigation_runs.bundle_json`、意味付きrelationは`project_relations`へ分けます。collectorが対象全体を正常に再取得した時だけ消滅したlinkをcurrent observationから外し、partialまたはfailedでは前回成功観測を否定へ変えません。新しいnormalized observation tableは、shadow運用でSQL横断監査や専用review UIが必要だと確認されるまで追加しません。
 
 ## 登録プロジェクトの暫定的な意味
 

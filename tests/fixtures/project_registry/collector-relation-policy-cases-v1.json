@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "explicit-source-code-link",
+      "description": "A compact Source code label is a direct service-to-repository reference.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/example/app",
+        "link_label": "Source code",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "SUPPORTED",
+        "strict": "SUPPORTED",
+        "endpoint_status": "repository_root"
+      }
+    },
+    {
+      "case_id": "compact-repo-arrow-link",
+      "description": "A terse repo arrow label remains an explicit source reference.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/example/app",
+        "link_label": "repo ↗",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "SUPPORTED",
+        "strict": "SUPPORTED"
+      }
+    },
+    {
+      "case_id": "open-source-sponsors",
+      "description": "Source as part of a funding phrase is not a source repository label.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/open-source/sponsors",
+        "link_label": "GitHub Sponsors Fund open source developers",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED"
+      }
+    },
+    {
+      "case_id": "provider-icon-only",
+      "description": "A provider-only icon preserves the observation for bounded relationship assessment.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://tangled.org/example.com/app",
+        "link_label": "Tangled",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NEEDS_ASSESSMENT",
+        "strict": "NEEDS_ASSESSMENT"
+      }
+    },
+    {
+      "case_id": "missing-saved-label",
+      "description": "A legacy first-party relation without saved presentation context is not treated as negative evidence.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/example/app",
+        "link_label": "",
+        "context_reconstructible": false
+      },
+      "expected": {
+        "deterministic": "NOT_RECONSTRUCTIBLE",
+        "strict": "NOT_RECONSTRUCTIBLE"
+      }
+    },
+    {
+      "case_id": "deep-repository-locator",
+      "description": "A repository file URL keeps its locator while identifying the repository root.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/example/app/tree/main/packages/web",
+        "link_label": "Repository",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "SUPPORTED",
+        "strict": "SUPPORTED",
+        "endpoint_status": "repository_locator"
+      }
+    },
+    {
+      "case_id": "provider-root",
+      "description": "A forge provider root is not a repository identifier.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com",
+        "link_label": "GitHub",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED",
+        "endpoint_status": "invalid"
+      }
+    },
+    {
+      "case_id": "github-homepage-service",
+      "description": "A repository homepage that looks like a service still requires a same-project relationship assessment.",
+      "observation": {
+        "direction": "repo_to_url",
+        "object_value": "https://app.example.com",
+        "target_surface": "observed",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NEEDS_ASSESSMENT",
+        "strict": "NEEDS_ASSESSMENT"
+      }
+    },
+    {
+      "case_id": "github-homepage-with-reciprocal-source",
+      "description": "A verified service surface and a reciprocal explicit source reference support the repository-to-service direction.",
+      "observation": {
+        "direction": "repo_to_url",
+        "object_value": "https://app.example.com",
+        "target_surface": "observed",
+        "context_reconstructible": true
+      },
+      "reciprocal_deterministic_support": true,
+      "expected": {
+        "deterministic": "NEEDS_ASSESSMENT",
+        "strict": "SUPPORTED"
+      }
+    },
+    {
+      "case_id": "github-homepage-documentation",
+      "description": "Documentation remains useful project information but is not a service surface relation.",
+      "observation": {
+        "direction": "repo_to_url",
+        "object_value": "https://docs.example.com",
+        "target_surface": "none",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED"
+      }
+    },
+    {
+      "case_id": "github-homepage-funding",
+      "description": "A funding destination is not a service surface relation.",
+      "observation": {
+        "direction": "repo_to_url",
+        "object_value": "https://www.patreon.com/example",
+        "target_surface": "none",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED"
+      }
+    },
+    {
+      "case_id": "github-homepage-package",
+      "description": "A package registry page is not a service surface relation.",
+      "observation": {
+        "direction": "repo_to_url",
+        "object_value": "https://swiftpackageindex.com/example/app",
+        "target_surface": "none",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED"
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .. import registry as core
+from .. import collector_relation_shadow
 from .. import database
 from .. import domain_policy
 from .. import identifier_storage_shadow
@@ -79,6 +80,45 @@ def cmd_compare_trust_policy(args: argparse.Namespace) -> int:
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["review_gate"]["case_catalog_passed"] and not report["review_gate"]["strategy_divergence_count"] else 1
+
+
+def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    db_path = Path(args.db_path).expanduser()
+    if output.resolve() == db_path.resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    report = collector_relation_shadow.compare_database_path(
+        db_path,
+        case_catalog_path=(
+            core.ROOT
+            / "tests"
+            / "fixtures"
+            / "project_registry"
+            / "collector-relation-policy-cases-v1.json"
+        ),
+        example_limit=int(args.example_limit),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = {
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "input": report["input"],
+        "case_catalog": {
+            key: report["case_catalog"][key]
+            for key in ("case_count", "passed_count", "failed_count")
+        },
+        "deterministic_policy": report["deterministic_policy"],
+        "strict_projection": report["strict_projection"],
+        "candidate_admission": report["candidate_admission"],
+        "github_homepage_profiles": report["github_homepage_profiles"],
+        "github_homepage_three_axis": report["github_homepage_three_axis"],
+        "github_homepage_storage_projection": report["github_homepage_storage_projection"],
+        "github_homepage_website_projection": report["github_homepage_website_projection"],
+        "review_gate": report["review_gate"],
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["review_gate"]["ready_for_user_review"] else 1
 
 
 def cmd_compare_merge_policy(args: argparse.Namespace) -> int:
