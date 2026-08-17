@@ -1,119 +1,116 @@
 # 信頼ポリシーshadow比較
 
-> 2026-08-11時点の作業用比較結果です。現行仕様の正本ではありません。この比較だけではproductionの自動採用規則、保存契約、DBを変更しません。
+> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-17にschema version 3の正本DBをread-onlyで評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/trust-policy-v5-20260817.json`に生成し、コミットしません。
 
 ## 結論
 
-role付きclaimと静的な方向付きrelationで信頼判定を行う構造は成立し、固定case 12件はすべて期待結果と一致しました。full-originとtrace-reuseのverdict差は0件で、今回のDBではfull-originの方が探索edge数も時間も少なかったため、次の試作では登録起点から毎回探索する単純な方式を既定案にできます。自動採用済みclaimへ判定経路を引き継ぐ保存契約を先に導入する利点は確認できませんでした。
+role付きの構成要素、方向付きの直接関係、登録起点を分けて信頼判定する構造は、schema version 3の保存データでも成立しました。固定12事例はすべて期待どおりで、二つの探索方式の判定差は0件です。登録起点から毎回たどる単純な方式の方が探索量も少ないため、判定経路を永続化して再利用する仕組みを先に導入する利点は確認できませんでした。
 
-一方、productionへ接続できる段階ではありません。最大の阻害要因は、旧confirm decisionが同じrepo URLの`source_repository`と`source_repository_record`へ曖昧に対応することと、現行`service_links_repo`が設計上の「明示されたsource repository」より広い意味で保存されていることです。前者を解消せずにrole付き監査を有効化すると大量のrepo確認が再発し、後者を解消せずにcandidate admissionを有効化するとスポンサーlinkや補助URLまでsource/service候補へ入ります。
+保存移行の目的も達成しています。比較器は有効な`project_identifier_adoptions`のうち`registration_origin=true`のrole付き採用理由だけを起点として使います。旧confirm decisionからroleを推測せず、全confirmed collectionを暗黙の起点にするfallbackもschema version 3では使いません。移行前に2件残っていた起点のrole曖昧性は0件になり、confirmedだが信頼経路を再構成できないclaimは387件から181件へ減りました。
 
-したがって次の設計ゲートは、探索方式の選択ではなく、decisionをrole付きclaimへ対応させる移行規則、collection inventoryを登録起点として明示するprovenance、Admissionへ使えるdirect relationの生成契約を決めることです。ここを直したshadow reportを再レビューするまで、自動confirm、candidate保存、Web UI、schema migrationへは進みません。
+ただし自動採用へ接続する段階ではありません。既存の直接関係から新規candidateを作る投影297件のうち265件はrepositoryからserviceへの関係で、GitHub Pagesのaccount root、package documentation、一般homepageなど、projectのservice surfaceとは限らないURLが多く含まれます。残る32件のserviceからrepositoryへの関係にもsponsor repositoryやbranch pathが含まれます。これは個別URLを除外する問題ではなく、collectorが正式なproject参照と一般linkを異なるpredicateまたは観測として保存する契約が未完成という問題です。
 
-## 初回実行条件
+したがって次の設計ゲートは、探索方式やDB schemaではなく、Admissionに使える直接関係の意味をcollector横断で定義することです。relation収集を100%正確にすることは前提にせず、誤りを人が確認でき、確認結果を一般則の改善へ戻せるreview境界を併せて設計します。この比較は自動confirm、candidate保存、Web UI、正本DBを変更していません。
 
-2026-08-11 02:38 JSTに、正本DBをSQLite `mode=ro`の単一transactionで読み、次を実行しました。
+## 人間向けに言い換えた比較内容
+
+「登録起点から毎回探索する方式」は、判定したいidentifierごとに、採用済みの入口まで行き帰りの根拠がつながるかを現在のgraphから調べ直します。report内の名前は`full-origin`です。
+
+「根拠付き経路を再利用する方式」は、以前に支持したidentifierへ元の入口と経路を持たせ、それを足場に後続identifierを判定します。report内の名前は`trace-reuse`です。正しく無効化するには循環、起点喪失、relation消失への管理が必要です。
+
+今回の正本DBでは両者の結論は同じで、単純に毎回調べる方式の方が少ないedge探索で済みました。そのため実装上は前者を既定案とし、入力fingerprint単位の再計算回避だけを将来の最適化候補にします。
+
+## 実行条件
+
+次のコマンドで正本DBをSQLite `mode=ro`の単一transactionとして読みました。指定したJSON以外は書き換えません。
 
 ```sh
 bin/project-registry compare-trust-policy \
   --db-path data/survey.db \
-  --output .tmp/trust-policy-shadow-report.json \
-  --example-limit 40
+  --output .tmp/trust-policy-v5-20260817.json \
+  --example-limit 1000
 ```
 
-- report schema: 1
-- policy: `trust-policy-shadow-v1`
-- report content hash: `34218a1a6f521c64dc29fe73e8e13ea7c2506bb69f1b83930a89827de32d7295`
-- 4,415 projects、24,660 role付きidentifier claims
-- 66,651 deduplicated direct edgesのうち、静的policyがpathへ許可したものは8,004件
-- 保存形をgraph nodeへ写せなかったrelationは5,644件。主に`project`、`account`、`oauth_client`のように現行matrixの6 kindへ直接対応しないendpointであり、強いedgeへ推測変換していない
-- edgeの正本由来は`project_relations`のみ53,962件、旧`trust_graph`のみ7,304件、両方に存在5,385件
-
-正本DBは別processから更新され得るため、上記hashと件数をこの比較snapshotの識別子にします。完全なJSONは`.tmp/trust-policy-shadow-report.json`に置き、commitしません。
-
-### Identifier standing追加後の再実行
-
-2026-08-11に、旧identifierとnon-production identifierを現行Trust pathから除外する`trust-policy-shadow-v2`を追加し、同じread-only条件で再実行しました。固定caseは従来の10件から、旧identifier、non-production identifier、`alpha`等を名前に含む現行identifierのcaseを加えた12件となり、全件が期待結果と一致しました。探索方式のverdict差は0件です。
-
-`standing`はこの比較内で現行・旧・non-productionの区分を渡すための補助属性名で、値は`current`、`former`、`non_production`です。production schemaの列名や保存場所を決めたものではありません。
-
-再実行時点の正本DBは4412 project、24777 claim、66717 deduplicated edgeで、初回snapshotから更新されています。report content hashは`fb2fdb27b198fca1b6245e589d499c5867e9d07a106ba20a0ed84d50f2fed74e`です。production schemaにはidentifier standingがまだないため、正本DBの既存claimはすべて暫定的に`current`として読みました。このため今回確認できたのは固定case上の論理境界であり、旧identifierとnon-production identifierを実DBから除外した後の件数差ではありません。完全なJSONは`.tmp/trust-policy-standing-comparison.json`に置き、commitしません。
-
-### Redirect観測分類追加後の再実行
-
-`trust-policy-shadow-v3`では、raw `redirects_to`を移転へ読み替えず、URL正規化、root/`www` alias候補、同一host内routing、同一site family内の別surface、別siteへのredirectへread-only分類しました。1121観測のうち、既存のservice claimまたはconfirm履歴から人が確認する価値があるものは25組まで絞れました。report content hashは`dd7684841aa15dea6b01ddb942c34bbb44ed0d7f0f4cc175b6788bbb059d35e1`で、完全なJSONは`.tmp/trust-policy-redirect-comparison.json`に置いています。固定case 12件は全件成功し、探索方式のverdict差は0件で、production behaviorは変更していません。
-
-### Redirect sample review反映後
-
-`trust-policy-shadow-v4`では、GitHub repositoryとpub.dev packageへの着地を`resource_destination`として移転reviewから除外し、既定HTTP/HTTPS portと末尾slashを正規化したURLを人間の確認単位に使います。同じprojectの同じsubjectから複数の行先が観測された場合は、通常の移転候補ではなく`multiple_observed_targets_from_current_or_former_confirmed_service`として分けます。
-
-保存済みv3 reportの25件へこの規則を投影すると、repository・packageへの案内4件が時間関係reviewから外れます。複数行先は`psky.social`からPhotoSkyとZeensへの2件で、Poptartの二本は`pub.dev`の既定port表記差を正規化すると同じ組です。正本DBが現在このworktreeにないためv4の正本再実行は未実施であり、この21件という値は保存済みreportからの投影値です。temp DB testではresource除外、複数行先の分離、read-only再現性を確認しています。
+- policy: `trust-policy-shadow-v5`
+- report content hash: `68a1bacef478b3602c920f34e72f4680498c387c621366a6687593a604ceb40b`
+- project: 4,538件
+- current role付きidentifier claim: 19,823件
+- identifier adoption: 全10,829件、有効10,709件、有効な登録起点10,217行
+- deduplicated direct edge: 63,542件、うち静的policyがpathへ許可したもの8,110件
+- graph nodeへ写さなかったrelation: 14,744件
+- 固定case: 12件中12件合格
 
 ## Source profile別の結果
 
-| Source profile | 登録起点 | 曖昧な起点decision | SUPPORTED | INSUFFICIENT | CONFLICTING | NOT_EVALUATED |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| operator | 13 | 1 | 0 | 12,316 | 11 | 12,333 |
-| operator + legacy migration | 1,065 | 1,204 | 347 | 10,917 | 11 | 13,385 |
-| all current sources | 8,894 | 1,204 | 210 | 3,225 | 11 | 21,214 |
+Source profileは、どの採用入口までを登録起点として認めたら現在のgraphをどこまで説明できるかを見る累積比較です。手動だから自動より正しいという順位付けではありません。
 
-operatorだけでは現在の登録状態を説明できません。Web UI confirmは10件、operator add-seedは4件しか残っておらず、現在の大半はlegacy migrationまたはcollector由来です。
+| Source profile | 論理的な登録起点 | SUPPORTED | INSUFFICIENT | CONFLICTING | NOT_EVALUATED |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| operator | 15 | 0 | 12,654 | 8 | 7,161 |
+| operator + legacy migration | 2,253 | 387 | 10,029 | 8 | 9,399 |
+| all current sources | 10,210 | 253 | 2,206 | 8 | 17,356 |
 
-`all current sources`では8,314件のconfirmed `owned_nsid`を`implicit_collection_inventory`という登録起点として扱いました。これは信頼グラフがownershipを証明したという意味ではなく、現行保存契約にcollection sync等のprovenanceが残っていないためのshadow上の明示的fallbackです。この扱いを入れない場合、confirmed根拠不足は8,927件となり、collection観測からprojectを作る現行入口を誤って監査対象にしてしまいます。productionでは同じ暗黙規則を固定せず、登録起点のsourceを保存する必要があります。
+`all current sources`はWebとadd-seed 15行、legacy migration 2,238行、collection inventory migration 7,810行、collection import 113行、collection sync 33行、canonical redirect 7行、manual seed 1行を含みます。有効な登録起点10,217行と論理的な起点10,210件の差は、同じrole付きclaimへ複数の採用理由が残る分です。理由を捨てず、graph上では同じ起点として一度だけ数えています。
 
-`all current sources`の210件の`SUPPORTED`は既存candidate 171件とconfirmed 39件です。candidate内訳はowned NSID 117件とproject handle 54件で、service候補とsource repository候補の自動採用は0件でした。保存済みrelationから直接生成できる新規candidateの投影は19件でした。
+移行前の比較器は旧decisionと暗黙collection inventoryから起点を復元していたため、同じrepo URLに`source_repository`と`source_repository_record`がある場合にroleを選べませんでした。v5はadoptionの`kind + value + role`をそのまま使い、曖昧な起点、現行claimと対応しない起点、review_requiredな起点はいずれも0件でした。
 
 ## 運用負担としての読み方
 
+`all current sources`の内訳は次です。
+
 | 区分 | 件数 | 扱い |
 | --- | ---: | --- |
-| 登録起点として採用済み | 8,894 | Trustによる自己評価をせず、登録sourceを表示する |
-| component向けTrust auditの対象外 | 12,320 | developer、source record、authority domain、project account URL等。component降格reviewから外せる |
-| candidateを自動採用可能 | 171 | relation生成契約を確認した後なら反復confirmを省ける可能性がある |
-| candidateのままreview不要 | 1,952 | 新規reviewを発生させない |
-| confirmedだがTrust不足 | 1,273 | そのまま1,273件の手動監査とは数えず、保存契約・collector不足ごとに原因をまとめて直す |
-| conflict | 11 | guardとの衝突としてreviewする。うち1件は手動登録起点との併存 |
+| 登録起点として採用済み | 10,210 | Trustによる自己評価をせず、採用理由を表示する |
+| component向けTrust auditの対象外 | 7,146 | developer、organization、project account等を構成要素の自動採用監査から外す |
+| candidateを自動採用できる可能性 | 188 | relationの意味とsampleを確認してから接続する |
+| candidateのまま追加review不要 | 2,025 | 現状を維持する |
+| confirmedだがTrust不足 | 181 | 即時降格せず、登録起点漏れかrelation不足かを類型で監査する |
+| conflict | 8 | active guardとの衝突として人が確認する |
 
-confirmedだがTrust不足の内訳はsource repository 1,200件、service 73件です。repo 1,200件の大半はrelation不足そのものよりdecisionのrole曖昧性の影響を受けています。active confirmのうち1,204件は、同じ`repo_url`値に`source_repository`と`source_repository_record`の二つのclaimが存在し、現行decisionにはroleがないため、shadow evaluatorがどちらを登録起点とするか推測しませんでした。これは各repoを再確認する問題ではなく、`source_repository_record`を観測用claimとして分離したうえで旧decisionを`source_repository`へ移す契約を決める問題です。
+自動採用可能と出たcandidate 188件は`owned_nsid` 127件と`project_handle` 61件です。collectionについては、真collectionに未使用や騙りが少数混ざることより、別projectを混ぜることとATProto外domainをproject化することを重く見る既存方針のままsample reviewします。
 
-cleared confirmは9件あり、shadow policyが自動的に再採用するものは0件でした。既存clearを勝手に復活させないというnegative checkは通っています。
+confirmedだがTrust不足の181件は`owned_nsid` 146件、service 25件、source repository 10件です。これは181件を直ちに人が再確認するqueueではありません。migration時の採用理由が登録起点でなかったもの、後から追加された構成要素、現行predicateでは往復を表現できないものを分け、一般則で減らせる範囲を先に調べます。
 
-## 探索方式の比較
-
-`all current sources`ではfull-originが23,316 edge探索、約20.4 ms、trace-reuseが60,123 edge探索、約31.2 msでした。verdict差は全profile合計で0件です。trace-reuseは各project内で採用済みclaimを反復的にfrontierへ加えるため、このsnapshotでは探索量を減らさず、保存するtraceや無効化規則だけを増やします。
-
-SUPPORTEDな往路・復路は長さ1が78本、長さ2が342本で、3以上はありませんでした。これは将来の最大長を2へ確定する根拠ではありませんが、現在の既知データでは恣意的な長い推移pathを必要としていないことを示します。
-
-この結果から、次のshadow実装もfull-originを維持し、入力fingerprint単位の再計算だけを最適化候補とします。trace-reuse用の永続schemaは追加しません。
+cleared confirmは10件あり、shadow policyが自動的に再採用するものは0件でした。既存clearを勝手に復活させないnegative checkは維持されています。
 
 ## Candidate admissionの安全性
 
-投影された新規candidate 19件には、MatadiscoやSoapstoneのserviceから明示されたrepositoryのように妥当そうな例がある一方、`https://github.com/open-source/sponsors`をsource repositoryとする例、repository READMEから`/.well-known/did.json`をservice surfaceとする例、同じrepositoryのrootとsubdirectoryを別source repositoryとする例が含まれました。
+新規candidate投影297件は、`repo_links_service`によるservice 265件と、`service_links_repo`によるsource repository 32件です。由来はGitHub repository metadata 199件、GitHub page探索65件、service page 31件、service probe 1件、Tangled README 1件でした。
 
-これは静的matrixの`service_links_repo` / `repo_links_service`規則が過剰なのではなく、現行保存predicateがその意味をまだ保証していないことを示します。現在のconfirmed `source_repository` relationには、明示的なSource/Repository表記だけでなく一般linkやREADME URLが混在しています。Admissionを有効化する前に、collectorがproject-scopedな正式参照だけへ強いpredicateを付け、一般linkを別predicateまたは観測へ残す必要があります。19件をそのまま自動登録する案は採用しません。
+妥当そうな正式homepageやsource repositoryも含みますが、同じ規則でGitHub account root、Swift Package Index、documentation path、sponsor repository、repository内のbranch pathも候補になります。ホスト名やURL patternのdeny listを増やすのではなく、collectorが「repository metadataにある任意homepage」と「そのprojectのserviceとして明示されたURL」、「page内の一般GitHub link」と「Source/Repositoryとして明示されたlink」を区別する必要があります。
 
-OAuth permission、`uses_collection`、`mentions_collection`、redirect、handle resolverはAdmissionへ使っていません。adopted nodeから出る関係のうち、`mentions_collection` 1,148件、`uses_collection` 325件などは明示的に抑止されました。
+OAuth permission、`uses_collection`、`mentions_collection`、redirect、handle resolverはAdmissionへ使っていません。既存起点から出る`mentions_collection` 33,596件、`uses_collection` 14,577件などは明示的に抑止されました。collectionは現状`sync-collections`が主入口なので、他経路からのcandidate生成を広げる優先度は低いままです。
 
-## 既知事例と履歴の確認
+## 探索方式と経路長
 
-固定catalogでは、service/repo相互参照、accountからの片方向claim、OAuthとauthorityの復路、handle/DID、organization account、Arabica/Oolong型共有repo、fork/mirror、旧identifier、non-production surface、`alpha`や`temp`を含む現行identifier、subdomain、共有Lexicon authorityの12件が期待どおりでした。旧identifier、non-production identifier、fork、organization actorはpositive Trust pathへ入らず、名前に`alpha`や`temp`を含むこと自体は現行identifierを除外する条件になりません。
+`all current sources`では、登録起点まで毎回調べる方式が25,134 edge探索、約19.1 ms、経路を再利用する方式が50,559 edge探索、約26.3 msでした。verdict差は全profile合計で0件です。
 
-この追加比較ではshadow fixture内のclaimへ`standing`を持たせましたが、production schemaは変更していません。正本DBから読む既存identifierはすべて暫定的に`current`として扱うため、新しいstanding規則によって実DBのclaimを除外してはいません。Admission候補は19件、探索方式のverdict差は0件でした。これは保存移行後の件数差を測った結果ではなく、保存形を決める前に論理境界を固定した結果です。
+SUPPORTEDな往路・復路は長さ1が127本、長さ2が364本、長さ3が15本でした。これは最大長3をpolicyとして確定する根拠ではありませんが、現在の既知データでは任意に長い推移を必要としていないことを示します。固定最大長はまだ置かず、有限なproject内graphの最短経路を使います。
 
-正本DBのArabicaではcollection inventoryと旧service seedを登録起点として保持し、`social.arabica.alpha.*`のcandidate collection 7件をSUPPORTEDとしました。一方、GitHub/Tangled repoは直接の相互pathまたはrole付き起点を欠くためINSUFFICIENTです。Oolongのcandidate repoも独立にINSUFFICIENTであり、repo共有をmerge根拠へ流用していません。
+## 既知事例、merge履歴、時間関係
 
-Basker、InfoEnon、DateSky/Nomareでは、各時点のcollectionまたはserviceを登録起点として保持するだけで、旧名と新名、前身と後継をTrust pathから推定しません。時間関係を別policyへ残す方針と一致します。
+固定catalogでは、service/repository相互参照、OAuthとauthorityの復路、handle/DID、organization account、Arabica/Oolong型共有repository、fork/mirror、旧identifier、non-production surface、subdomain、共有Lexicon authorityを確認しました。共有repository、organization account、fork、旧identifierはpositive Trust pathやmerge根拠へ昇格しません。
 
-merge alias 506件すべてでmerge前snapshotを読めました。抽出したcomponent identifierのうち953件は現在の存続projectにもあり、126件はありませんでした。欠落sampleにはdocs/subpageなど網羅不要なservice surfaceが多く、collectionやrepoも少数含まれます。この比較はcoverage確認であり、実行済みmergeをTrustの正解にも、欠落126件をregressionにも数えません。将来のmerge replayではresource identityと時間関係を分けて分類する必要があります。
+merge aliasは520件あり、merge前snapshotから取り出したidentifierの987件は存続projectにもあり、127件はありませんでした。これはcoverage比較であり、過去mergeを正解データにも、欠落を自動regressionにも数えません。
 
-## 次の判断材料
+redirect観測1,160件はURL形状と既存claimだけで分類し、移転とは決めませんでした。人が見る候補は22組です。Basker / InfoEnonやDateSky / Nomareのような改名・後継、fork、mirror、同内容surfaceは、通常の帰属・merge判定から分けた時間・派生関係として引き続き保留します。忘却を避けるため、時間関係の導入条件は[登録プロジェクトの帰属と信頼グラフ設計](project-attribution-and-trust-design.md)と[登録プロジェクトのマージ規則設計](project-merge-policy-design.md)に残します。
 
-次のshadow比較へ進む前に、以下を設計します。1、2、4と保存責務の論理契約は[Identifierの採用理由と保存契約の設計メモ](identifier-adoption-storage-design.md)へ整理しました。物理schemaは時間関係の設計後に確定します。
+## 次の設計ゲート
 
-1. roleなしの旧`confirm_identifier(repo_url)`を、観測用`source_repository_record`ではなくproject componentの`source_repository`へ対応させる移行契約
-2. collection inventory、canonical redirect、source sync、operator add-seedを、暗黙のclassificationではなくrole付き登録起点として保存する契約
-3. `service_links_repo` / `repo_links_service`を正式なsource/service参照へ限定し、一般link、support、sponsor、docs、arbitrary README URLを分離するcollector契約
-4. 手動confirmとblock/deferが併存する1件について、最新の明示的な手動判断を有効にし、自動処理ではguardを解除しない規則
-5. confirmed service 73件の不足が、登録起点migration、collector不足、時間変化のどれかをsample分類する追加監査
+1. Admissionに使える正式参照と、表示・調査だけに使う一般linkの保存契約をcollector横断で定義する
+2. 297件をrelation sourceとpredicateの類型ごとにsample reviewし、人の判断を保存して一般則へ戻せる最小のreview動線を決める
+3. confirmedだが不足する181件を、登録起点ではない採用、relation未収集、時間変化、誤帰属へ類型化する
+4. candidate 188件の自動採用が既存手動confirmとどこまで一致し、どの確認を省き、どの追加reviewを生むかを評価する
+5. 以上が運用負担に見合う場合だけ、productionの自動採用とcandidate保存への接続計画を作る
 
-これらを反映したshadowでcandidate admission sampleが安全になり、repoの一括的な疑似reviewが解消した場合にだけ、保存schemaとproduction接続の実装計画を作ります。
+## 検証
+
+- trust comparator unit/temp DB test: 18件合格
+- 固定case catalog: 12/12合格
+- schema version 3のrole付き登録起点、非起点adoption、review_required、旧fallback境界をtestで固定
+- 正本DB: read-only CLI実行成功
+- 二つの探索方式: verdict差0件
+- production behavior: 変更なし
+- `bin/project-registry-test`: 632件合格
+
+移行前の`trust-policy-shadow-v1`からv4までの詳細値はGit履歴に残します。現行判断ではv5のschema version 3比較を基準にします。

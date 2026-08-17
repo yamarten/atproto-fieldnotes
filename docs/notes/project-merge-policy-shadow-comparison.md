@@ -1,16 +1,36 @@
 # 登録プロジェクトのマージ規則shadow比較
 
-> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-14に正本DBをread-only transactionで評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-retrospective-v4.json`に生成し、コミットしません。
+> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-17にschema version 3の正本DBをread-only transactionで再評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-v4-schema3-20260817.json`に生成し、コミットしません。
 
 ## 結論
 
-role、直接relation、手動の別project指定を分ける境界を維持したまま、collectionだけを持つrecordを包括的なproject recordへ吸収する候補を非対称に評価すると、現在の3,233 pair中110件を「マージを勧めるが人の確認が必要」と分類できました。うち109件は現行`auto_merge_ready`にも含まれ、1件は新しいauthority単位の探索で見つかりました。固定19事例はすべて期待どおりです。
+role、直接relation、手動の別project指定を分ける境界を維持したまま、collectionだけを持つrecordを包括的なproject recordへ吸収する候補を非対称に評価すると、schema version 3の現在3,492 pair中110件を「マージを勧めるが人の確認が必要」と分類できました。20件のactiveな`separate_project`は別扱いを守り、残る3,362件は優先度を付けても要確認のままです。固定19事例はすべて期待どおりです。
 
 この110件を自動マージしてよいとは判断していません。規則は「独立した提供物を表しにくいcollection断片」という現在の手動判断をreview理由へ落としたもので、存続recordの自動決定もしません。未確認service候補のhostと一致するproject名はマージ根拠から除外し、ATProtoFans / high-fiveやLexicon Garden周辺のrecordは「マージを勧める」から要確認へ戻しました。この種の違いを保存情報だけで決めつけず、人が確認して`separate_project`などの判断を残すことが初期用途です。
 
-過去510マージでは、両側snapshotがある504件中28件を同じ規則で説明できました。GainForest、PopFeed、Skyrdle、TZ2ATなど、個別collection recordを包括recordへまとめた実例が含まれます。過去判断は正解データではありませんが、初版の0件から、実際の手動作業の一部を根拠付きで優先できるところまでは改善しました。
+過去520マージでは29件を同じcollection fragment規則で説明でき、485件は要確認、6件はtarget snapshot不足でした。GainForest、PopFeed、Skyrdle、TZ2ATなど、個別collection recordを包括recordへまとめた実例が含まれます。過去判断は正解データではありませんが、実際の手動作業の一部を根拠付きで優先できるところまでは改善しました。
+
+schema version 3のadoption provenance 10,709件も入力できるようになりました。ただし現在候補で「同じ具体的claimを同じ収集eventから二重採用した」pairは0件でした。これはsignalが無効という意味ではなく、移行時点のcurrent project間に該当する重複生成が残っていないというnegative resultです。採用sourceが同じというだけではマージ根拠にせず、今後実際の重複作成が起きた時の優先review情報として維持します。
 
 比較器はread-onlyの開発補助であり、自動マージ、候補保存、Web UI、schema、正本DBを変更しません。110件をtarget単位でreviewした結果、107件は同じ編集単位へ収める判断を支持でき、newdin ReadとUntangledの2件は独立した提供物として分離を維持する方が妥当と分かりました。teal.fmの1件は、collectionの実在だけではprojectへの帰属も過去の正式採用も確認できないため保留します。次の設計ゲートは、この理由区分をWebのreview動線へ接続する価値と、追加すべき表示・判断・guard記録の範囲を確認することです。
+
+## schema version 3での再比較
+
+2026-08-17の再比較はcontent hash `feef4852d9eacd282127a2e004b0875ae10fa2ae472397a90a9b7b07b4b962f8`です。4,538 project、19,823 current identifier、71,312 relation、10,709 active adoptionを読み、固定case 19/19、production behavior変更なしを確認しました。
+
+| 区分 | schema v2時点 | schema v3再比較 |
+| --- | ---: | ---: |
+| 現行またはshadowで見つけた全pair | 3,233 | 3,492 |
+| 現行`auto_merge_ready` | 2,663 | 2,912 |
+| shadow: マージを勧める | 110 | 110 |
+| shadow: 要確認 | 3,105 | 3,362 |
+| shadow: 別扱いを守る | 18 | 20 |
+| 過去merge alias | 510 | 520 |
+| 過去mergeをfragment規則で説明 | 28 | 29 |
+
+候補総数はDB更新に伴って増えましたが、マージを勧める件数は110件のままで、弱い一致を新たに昇格していません。新しいpairの大半は`REVIEW`に残ります。adoption provenanceは利用可能であることをreportへ明示し、時間・派生関係だけを未入力として扱います。
+
+以下の件数とsample reviewは、特記しない限り2026-08-14のschema v2比較を行った時点の詳細です。設計理由は現在も有効ですが、現在件数は上のschema version 3再比較を基準にします。
 
 ## 人間向けに言い換えた比較内容
 
@@ -201,11 +221,11 @@ candidate構成要素の一致、同じauthority、alias、domain文脈は、過
 
 この段階でも自動マージを許可する類型はありません。追加分析で得られた主な利益は、3,105件の`REVIEW`を同質な一群として扱わず、強い衝突、運用上の重複生成、未確認一致、弱い文脈、保存情報不足に分けられることです。
 
-## schema移行後でないと評価できない項目
+## schema version 3で確認した採用provenanceと、未入力の時間関係
 
-入力DBはschema v2なので、identifier adoptionと登録起点は0件です。ただし旧recordに残る作成時の`seed_type`と`seed_value`は、現在の構成要素から再計算せず比較に利用します。Postgameのように、作成後に主identifierが変わっても兄弟namespaceから作られた経緯を失わないためです。
+schema version 3の再比較では10,709件のactive identifier adoptionを読みました。現在候補では、同じ具体的claimを同じ`source_ref`と入力fingerprintから二重採用したpairは0件でした。旧recordの`seed_type`と`seed_value`による登録起点一致は引き続き履歴比較に使いますが、現在の採用理由がある場合にそれを代用するものではありません。
 
-schema v3移行後は、同じsync eventから同じclaimを二重projectへ作ったケース、既存projectへattachしたケース、新規projectを作ったケースを区別できます。これは外部projectの同一性を直接証明しませんが、DB内の重複生成を優先reviewする運用情報になります。
+今後同じsync eventから同じclaimを二重projectへ作る事例が現れた場合は、既存projectへattachしたケース、新規projectを作ったケースと区別できます。これは外部projectの同一性を直接証明しませんが、DB内の重複生成を優先reviewする運用情報になります。
 
 fork、mirror、successor、predecessor、ownership transferのtypedなproject間relationも現在は保存されていません。DateSky/NomareやBasker/InfoEnonの実データを時間関係として分類する作業は、通常merge scoreへ混ぜず、時間関係設計を差し込む段階まで保留します。
 
@@ -225,4 +245,4 @@ fork、mirror、successor、predecessor、ownership transferのtypedなproject�
 - 現行v2候補件数: 通常loaderと比較器で一致
 - 過去マージのv2区分: 既存監査の18/213/144/129と一致
 - `uses_collection`単独ではfragment吸収を勧めないnegative caseを固定
-- `bin/project-registry-test`: 628件合格
+- `bin/project-registry-test`: 632件合格
