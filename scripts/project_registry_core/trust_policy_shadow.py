@@ -14,7 +14,7 @@ from . import domain_policy, storage
 
 
 REPORT_SCHEMA_VERSION = 1
-POLICY_VERSION = "trust-policy-shadow-v4"
+POLICY_VERSION = "trust-policy-shadow-v5"
 VERDICTS = ("SUPPORTED", "INSUFFICIENT", "CONFLICTING", "NOT_EVALUATED")
 CURRENT_IDENTIFIER_STANDING = "current"
 IDENTIFIER_STANDINGS = {CURRENT_IDENTIFIER_STANDING, "former", "non_production"}
@@ -36,6 +36,9 @@ PROFILE_SOURCES = {
         "operator_add_seed",
         "legacy_manual_seed_migration",
         "canonical_redirect",
+        "collection_inventory_import",
+        "migration_inferred_collection_inventory",
+        "manual_seed",
         "semble_collection_sync",
     },
 }
@@ -101,6 +104,13 @@ def _json(value: str, default: Any) -> Any:
         return json.loads(value) if value else default
     except (TypeError, ValueError):
         return default
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone() is not None
 
 
 def _node(kind: str, value: str) -> tuple[str, str]:
@@ -438,15 +448,86 @@ def _evaluate_with_trace_reuse(
 def _origins_for_profile(
     claims: list[dict[str, Any]],
     decisions: list[dict[str, Any]],
+    adoptions: list[dict[str, Any]],
     profile: str,
+    *,
+    adoption_provenance_available: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    def dedupe_origins(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in items:
+            key = (*item["node"], item["role"])
+            sources = {str(item.get("source") or "")}
+            adoption_kinds = {str(item.get("adoption_kind") or "")} - {""}
+            if key in grouped:
+                sources.update(grouped[key].get("sources", []))
+                adoption_kinds.update(grouped[key].get("adoption_kinds", []))
+            grouped[key] = {
+                "node": item["node"],
+                "role": item["role"],
+                "source": sorted(sources)[0],
+                "sources": sorted(sources),
+                "adoption_kinds": sorted(adoption_kinds),
+            }
+        return list(grouped.values())
+
     allowed_sources = PROFILE_SOURCES[profile]
     by_node: dict[tuple[str, str], list[dict[str, Any]]] = collections.defaultdict(list)
+    by_claim: dict[tuple[str, str, str], list[dict[str, Any]]] = collections.defaultdict(list)
     for claim in claims:
         by_node[claim["node"]].append(claim)
+        by_claim[_claim_key(claim)].append(claim)
     origins: list[dict[str, Any]] = []
     ambiguities: list[dict[str, Any]] = []
     exclusions: list[dict[str, Any]] = []
+    if adoption_provenance_available:
+        for adoption in adoptions:
+            if adoption.get("cleared_at"):
+                continue
+            source = str(adoption.get("source") or "")
+            if source not in allowed_sources or not bool(adoption.get("registration_origin")):
+                continue
+            kind = IDENTIFIER_KIND.get(str(adoption.get("kind") or ""))
+            if not kind:
+                exclusions.append({"adoption": adoption, "reason": "unsupported_identifier_kind"})
+                continue
+            claim_key = (*_node(kind, str(adoption.get("value") or "")), str(adoption.get("role") or ""))
+            matches = by_claim.get(claim_key, [])
+            if len(matches) != 1:
+                ambiguities.append({"adoption": adoption, "matching_claim_count": len(matches)})
+                continue
+            claim = matches[0]
+            if _claim_standing(claim) != CURRENT_IDENTIFIER_STANDING:
+                exclusions.append({
+                    "adoption": adoption,
+                    "claim": claim,
+                    "reason": "identifier_standing_outside_current_policy",
+                })
+                continue
+            if claim.get("classification") != "confirmed":
+                exclusions.append({
+                    "adoption": adoption,
+                    "claim": claim,
+                    "reason": "registration_origin_claim_not_confirmed",
+                })
+                continue
+            if bool(adoption.get("review_required")):
+                exclusions.append({
+                    "adoption": adoption,
+                    "claim": claim,
+                    "reason": "registration_origin_requires_review",
+                })
+                continue
+            origins.append({
+                "node": claim["node"],
+                "role": claim["role"],
+                "source": source,
+                "adoption_kind": str(adoption.get("adoption_kind") or ""),
+            })
+        return dedupe_origins(origins), ambiguities, exclusions
+
+    # Pre-v3 comparison fallback. Schema-v3 databases use the role-qualified
+    # adoption rows above and never infer origins from decisions or inventory.
     for decision in decisions:
         if decision["kind"] != "confirm_identifier" or decision.get("cleared_at"):
             continue
@@ -482,8 +563,7 @@ def _origins_for_profile(
                     "role": claim["role"],
                     "source": "implicit_collection_inventory",
                 })
-    deduped = {(*origin["node"], origin["role"]): origin for origin in origins}
-    return list(deduped.values()), ambiguities, exclusions
+    return dedupe_origins(origins), ambiguities, exclusions
 
 
 def _admission_projection(
@@ -531,13 +611,20 @@ def evaluate_project(
     claims = list(project.get("claims", []))
     edges = dedupe_edges(project.get("edges", []))
     decisions = list(project.get("decisions", []))
+    adoptions = list(project.get("adoptions", []))
     guards = {
         _node(IDENTIFIER_KIND.get(str(item.get("target_type") or ""), ""), str(item.get("target_value") or ""))
         for item in decisions
         if item.get("kind") in {"block_identifier", "defer_identifier"} and not item.get("cleared_at")
     }
     guards.discard(("", ""))
-    origins, ambiguities, origin_exclusions = _origins_for_profile(claims, decisions, profile)
+    origins, ambiguities, origin_exclusions = _origins_for_profile(
+        claims,
+        decisions,
+        adoptions,
+        profile,
+        adoption_provenance_available=bool(project.get("adoption_provenance_available", False)),
+    )
     origin_guard_conflicts = [origin for origin in origins if origin["node"] in guards]
     started = time.perf_counter()
     full, full_metrics = _evaluate_from_origins(claims, edges, origins, guards)
@@ -571,6 +658,7 @@ def evaluate_project(
 
 
 def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    adoption_provenance_available = _table_exists(conn, "project_identifier_adoptions")
     projects: dict[str, dict[str, Any]] = {}
     for row in conn.execute("SELECT project_key, state_json FROM projects ORDER BY project_key"):
         state = _json(str(row["state_json"]), {})
@@ -581,6 +669,8 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "claims": [],
             "edges": [],
             "decisions": [],
+            "adoptions": [],
+            "adoption_provenance_available": adoption_provenance_available,
             "v1_evaluations": list(graph.get("evaluations") or []),
         }
     for row in conn.execute("SELECT * FROM project_identifiers ORDER BY project_key, ordinal"):
@@ -636,6 +726,11 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "cleared_at": str(row["cleared_at"]),
             "source": str(metadata.get("source") or ""),
         })
+    if adoption_provenance_available:
+        for row in conn.execute(
+            "SELECT * FROM project_identifier_adoptions ORDER BY project_key, created_at, adoption_id"
+        ):
+            projects[str(row["project_key"])]["adoptions"].append({key: row[key] for key in row.keys()})
     return list(projects.values())
 
 
@@ -685,7 +780,10 @@ def _summarize_results(
             ambiguity_count += len(result["origin_ambiguities"])
             exclusion_count += len(result["origin_exclusions"])
             origin_count += len(result["origins"])
-            origin_sources.update(str(origin.get("source") or "(none)") for origin in result["origins"])
+            for origin in result["origins"]:
+                origin_sources.update(
+                    str(source or "(none)") for source in (origin.get("sources") or [origin.get("source")])
+                )
             origin_guard_conflicts += int(result["origin_guard_conflict_count"])
             divergence_count += len(result["strategy_divergence"])
             admission_count += len(result["admission_projection"])
@@ -1032,6 +1130,11 @@ def _redirect_observation_summary(
 def compare_database(conn: sqlite3.Connection, *, case_catalog: dict[str, Any], example_limit: int = 20) -> dict[str, Any]:
     started_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     projects = _load_projects(conn)
+    all_adoptions = [adoption for project in projects for adoption in project.get("adoptions", [])]
+    active_adoptions = [adoption for adoption in all_adoptions if not adoption.get("cleared_at")]
+    active_registration_origins = [
+        adoption for adoption in active_adoptions if bool(adoption.get("registration_origin"))
+    ]
     evaluations: dict[str, dict[str, dict[str, Any]]] = {}
     for project in projects:
         evaluations[project["project_key"]] = {
@@ -1064,6 +1167,18 @@ def compare_database(conn: sqlite3.Connection, *, case_catalog: dict[str, Any], 
             "unmapped_relation_count": unmapped,
             "edge_origin_counts": _counter_dict(edge_origins),
             "edge_policy_counts": _counter_dict(edge_policy),
+            "adoption_provenance_available": bool(
+                projects and projects[0].get("adoption_provenance_available", False)
+            ),
+            "adoption_count": len(all_adoptions),
+            "active_adoption_count": len(active_adoptions),
+            "active_registration_origin_count": len(active_registration_origins),
+            "active_adoption_source_counts": _counter_dict(collections.Counter(
+                str(adoption.get("source") or "(none)") for adoption in active_adoptions
+            )),
+            "active_registration_origin_source_counts": _counter_dict(collections.Counter(
+                str(adoption.get("source") or "(none)") for adoption in active_registration_origins
+            )),
         },
         "case_catalog": case_results,
         "profiles": _summarize_results(projects, evaluations, example_limit=example_limit),

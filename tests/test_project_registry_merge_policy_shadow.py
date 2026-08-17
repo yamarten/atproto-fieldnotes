@@ -224,6 +224,8 @@ class MergePolicyShadowDatabaseTest(TempRegistryDbTestCase):
         )
         self.assertEqual(before, after)
         self.assertTrue(first["source"]["read_only"])
+        self.assertTrue(first["missing_inputs"]["schema_v3_adoption_provenance_available"])
+        self.assertNotIn("adoption provenance are not available", first["missing_inputs"]["interpretation"])
         self.assertEqual(first["content_hash"], second["content_hash"])
         self.assertEqual(first["current_and_shadow"], second["current_and_shadow"])
         self.assertEqual(

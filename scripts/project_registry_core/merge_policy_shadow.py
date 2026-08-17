@@ -1466,6 +1466,7 @@ def compare_database(
         shadow_discovery,
         example_limit=max(0, example_limit),
     )
+    adoption_provenance_available = _table_exists(conn, "project_identifier_adoptions")
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "policy_version": POLICY_VERSION,
@@ -1484,7 +1485,12 @@ def compare_database(
             "typed_cross_project_temporal_relations_available": False,
             "typed_cross_project_derivation_relations_available": False,
             "sync_attach_outcome_available": bool(sum(len(project["adoptions"]) for project in projects)),
-            "interpretation": "typed project-level time/derivation facts and schema-v3 adoption provenance are not available in this input; absence is not counterevidence",
+            "schema_v3_adoption_provenance_available": adoption_provenance_available,
+            "interpretation": (
+                "typed project-level time/derivation facts are not available in this input; absence is not counterevidence"
+                if adoption_provenance_available
+                else "typed project-level time/derivation facts and schema-v3 adoption provenance are not available in this input; absence is not counterevidence"
+            ),
         },
         "policy": {
             "verdicts": list(VERDICTS),

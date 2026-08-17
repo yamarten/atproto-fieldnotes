@@ -40,6 +40,27 @@ def decision(kind: str, target_type: str, target_value: str, source: str = "web_
     }
 
 
+def adoption(
+    kind: str,
+    value: str,
+    role: str,
+    source: str,
+    *,
+    registration_origin: bool = True,
+    review_required: bool = False,
+) -> dict:
+    return {
+        "kind": kind,
+        "value": value,
+        "role": role,
+        "adoption_kind": "operator" if source in {"web_ui", "operator_add_seed"} else "bootstrap",
+        "source": source,
+        "registration_origin": registration_origin,
+        "cleared_at": "",
+        "review_required": review_required,
+    }
+
+
 class TrustPolicyShadowUnitTest(unittest.TestCase):
     def test_website_is_not_an_identifier_or_relation_endpoint_by_itself(self) -> None:
         self.assertEqual(
@@ -115,6 +136,62 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(operator["full_origin"][0]["verdict"], "INSUFFICIENT")
         self.assertEqual(current["full_origin"][0]["reason"], "adopted_registration_origin")
         self.assertEqual(current["origins"][0]["source"], "implicit_collection_inventory")
+
+    def test_schema_v3_uses_role_qualified_registration_adoption_instead_of_decision(self) -> None:
+        repo = "https://github.com/e/app"
+        project = {
+            "project_key": "adoption-origin",
+            "claims": [
+                claim("repo_url", repo, "source_repository", "confirmed"),
+                claim("repo_url", repo, "source_repository_record", "confirmed"),
+            ],
+            "decisions": [decision("confirm_identifier", "repo_url", repo, "legacy_manual_seed_migration")],
+            "adoptions": [adoption("repo_url", repo, "source_repository", "legacy_manual_seed_migration")],
+            "adoption_provenance_available": True,
+            "edges": [],
+        }
+        result = trust_policy_shadow.evaluate_project(project, profile="operator_plus_legacy")
+        self.assertEqual(result["origin_ambiguities"], [])
+        self.assertEqual(len(result["origins"]), 1)
+        self.assertEqual(result["origins"][0]["node"], ("repo_url", repo))
+        self.assertEqual(result["origins"][0]["role"], "source_repository")
+        self.assertEqual(result["origins"][0]["sources"], ["legacy_manual_seed_migration"])
+        self.assertEqual(result["origins"][0]["adoption_kinds"], ["bootstrap"])
+        by_role = {item["claim"]["role"]: item for item in result["full_origin"]}
+        self.assertEqual(by_role["source_repository"]["reason"], "adopted_registration_origin")
+        self.assertEqual(by_role["source_repository_record"]["verdict"], "NOT_EVALUATED")
+
+    def test_schema_v3_excludes_non_origin_and_review_required_adoptions(self) -> None:
+        project = {
+            "project_key": "adoption-exclusions",
+            "claims": [
+                claim("service_url", "https://later.example", "service", "confirmed"),
+                claim("repo_url", "https://github.com/e/review", "source_repository", "confirmed"),
+            ],
+            "decisions": [],
+            "adoptions": [
+                adoption("service_url", "https://later.example", "service", "web_ui", registration_origin=False),
+                adoption(
+                    "repo_url",
+                    "https://github.com/e/review",
+                    "source_repository",
+                    "operator_add_seed",
+                    review_required=True,
+                ),
+            ],
+            "adoption_provenance_available": True,
+            "edges": [],
+        }
+        result = trust_policy_shadow.evaluate_project(project, profile="operator")
+        self.assertEqual(result["origins"], [])
+        self.assertEqual(
+            [item["reason"] for item in result["origin_exclusions"]],
+            ["registration_origin_requires_review"],
+        )
+        self.assertEqual(
+            {item["claim"]["role"]: item["verdict"] for item in result["full_origin"]},
+            {"service": "INSUFFICIENT", "source_repository": "INSUFFICIENT"},
+        )
 
     def test_ambiguous_decision_role_is_reported_not_guessed(self) -> None:
         project = {
@@ -245,6 +322,51 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
 
 
 class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
+    def test_database_report_uses_schema_v3_registration_origins(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO projects(
+                    project_key, name, website_url, service_status, profile_json, state_json,
+                    first_seen_at, last_seen_at
+                ) VALUES (?, ?, '', 'unknown', '{}', '{}', ?, ?)
+                """,
+                ("proj:adoption", "Adoption", "2026-08-17", "2026-08-17"),
+            )
+            conn.execute(
+                """
+                INSERT INTO project_identifiers(
+                    project_key, ordinal, kind, value, role, classification, observed_at
+                ) VALUES (?, 0, 'service_url', ?, 'service', 'confirmed', ?)
+                """,
+                ("proj:adoption", "https://adoption.example", "2026-08-17"),
+            )
+            conn.execute(
+                """
+                INSERT INTO project_identifier_adoptions(
+                    adoption_id, project_key, kind, value, role, adoption_kind, source,
+                    registration_origin, created_at, origin_project_key
+                ) VALUES (?, ?, 'service_url', ?, 'service', 'operator', 'web_ui', 1, ?, ?)
+                """,
+                (
+                    "adoption:test",
+                    "proj:adoption",
+                    "https://adoption.example",
+                    "2026-08-17",
+                    "proj:adoption",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        report = trust_policy_shadow.compare_database_path(
+            self.db_path, case_catalog_path=FIXTURE, example_limit=2,
+        )
+        self.assertTrue(report["input"]["adoption_provenance_available"])
+        self.assertEqual(report["input"]["active_registration_origin_count"], 1)
+        self.assertEqual(report["profiles"]["operator"]["origin_source_counts"], {"web_ui": 1})
+
     def test_redirect_summary_separates_resource_and_multiple_target_observations(self) -> None:
         conn = sqlite3.connect(self.db_path)
         try:
