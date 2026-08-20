@@ -6,7 +6,7 @@
 
 - identifierの採用理由、旧identifier、non-production、確定した時間関係、noiseを分離するschema version 3と通常mutationを実装し、review済み108 claimを適用した正本DBへ2026-08-14に切り替えました。High Five / ATProtoFansとMalfestio / Writerには相互のproject分離判断を保存し、Website、service URL、補助pageのruntime責務も分離済みです。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)にあります。
 - schema version 3切替後の典型操作、定期sources sync、enrichは問題なく完了しました。信頼・マージshadow比較もschema version 3の採用履歴を入力して再実行し、結果を[信頼ポリシーshadow比較](notes/trust-policy-shadow-comparison.md)と[マージ規則shadow比較](notes/project-merge-policy-shadow-comparison.md)へ反映しました。productionの自動採用・自動マージは未接続です。
-- service/repository linkをcollector観測、repoのproject帰属、repo→URL直接参照、target roleへ分けるread-only比較を実装し、正本DBの結果を[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)へ記録しました。review後、GitHub homepageをconfirmed `repository_homepage`として保存し、service候補への静的投影と信頼edgeを分離するproduction codeを実装しました。複製DBでは旧424 rowから420 claimへ移行し、旧homepage edge 785本を除去してexact相互参照80本だけを再構成しました。正本DBへの移行は未実施です。
+- service/repository linkをcollector観測、repoのproject帰属、repo→URL直接参照、target roleへ分けるread-only比較を実装し、正本DBの結果を[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)へ記録しました。review後、GitHub homepageをconfirmed `repository_homepage`として保存し、service候補への静的投影と信頼edgeを分離するproduction codeを実装しました。2026-08-21に正本DBの旧424 rowを420 claimへ移行し、旧homepage edge 785本を除去してexact相互参照80本だけを再構成しました。通常経路の一時移行処理は削除済みです。
 - promotion queueのservice確認度、手動優先度、固定fixture評価と正本DB sample reviewまで完了しました。
 - Qwen / Gemmaの通常処理model評価は完了しました。Gemmaはproject-level triageで一部優位でしたが、現行repository analysis policyの固定`goat` material 10回でJSON成功5・失敗5となったため通常処理候補から外し、既定modelと定期jobはQwenを維持します。正本DBでのGemma試用は実施していません。
 - category契約、元profileなし／あり、prompt調整用／調整後確認用case、反復、文章、重い入力、memory、複製DB、repository解析と後段triageを分ける評価方法を実装・文書化しました。
@@ -20,7 +20,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub homepage変更の全testと正本DB read-only比較を確認し、正本DBへ`repair-db --execute`を適用するか判断する。適用後はservice→repo、README、GitHub searchの`homepage_exact` attachを含むrelation assessment全体と固定corpus評価へ戻る。
+- service→repo、README、GitHub searchの`homepage_exact` attachを含むrelation assessment全体と固定corpus評価へ戻る。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。
 - `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を見直す。処理自体とwatermark更新は正常に完了している。
 
@@ -31,6 +31,8 @@
 history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行っておらず、解放pageは今後の書き込みで再利用します。file sizeを直ちに縮める必要が生じた場合だけ、別processを止めてVACUUMを判断してください。
 
 schema version 3切替前のrollback用backupは`data/survey.schema-v2-before-v3-20260814.db`です。version 3の通常運用を確認して不要になった時点で削除してください。
+
+GitHub homepage relation移行直前のbackupは`data/survey.before-repository-homepage-20260821.db`です。新predicate対応codeをmasterへ取り込むまでWeb serverは停止したままにし、取り込み後に再起動してください。
 
 ## 未検証・未接続
 

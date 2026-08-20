@@ -651,11 +651,11 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             for edge in registry.trust_graph_core.graph(project)["edges"]
         ))
 
-    def test_legacy_homepage_relation_migrates_and_deduplicates(self) -> None:
+    def test_replay_normalizes_legacy_homepage_relation_and_stale_edge(self) -> None:
         repo_url = "https://github.com/example/app"
         homepage = "https://app.example.com/path"
-        project = self.make_project("proj:repository-migration", "repo_url", repo_url)
-        base = {
+        project = self.make_project("proj:repository-replay", "repo_url", repo_url)
+        legacy_relation = {
             "relation": {
                 "subject": {"type": "repo", "value": f"{repo_url}/tree/main"},
                 "predicate": "source_repository",
@@ -667,27 +667,49 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "classification": "candidate",
             "observed_at": "2026-08-19T00:00:00+00:00",
         }
-        project["relation_evidence"] = [base, {
-            **base,
-            "relation": {
-                **base["relation"],
-                "subject": {"type": "repo", "value": repo_url},
-                "predicate": "repository_homepage",
-                "object": {"type": "website", "value": homepage},
-            },
-            "classification": "confirmed",
-            "observed_at": "2026-08-20T00:00:00+00:00",
-        }]
+        project["relation_evidence"] = [legacy_relation]
+        registry.project_record.record_trust_edge(
+            project,
+            "repo_url",
+            repo_url,
+            "repo_links_service",
+            "service_url",
+            homepage,
+            source=legacy_relation["source"],
+            method="github_homepage",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-08-20T00:00:00+00:00",
+            records=[EvidenceRecord(
+                kind="relation",
+                source=legacy_relation["source"],
+                classification="candidate",
+                observed_at="2026-08-20T00:00:00+00:00",
+                value=legacy_relation["relation"],
+            )],
+        )
 
-        result = relation_core.migrate_repository_homepage_relations(project)
+        replayed = registry.replay_core.replay_bundle(
+            project, bundle, registry.replay_dependencies()
+        )
 
-        self.assertEqual(result["converted_count"], 1)
-        self.assertEqual(len(project["relation_evidence"]), 1)
-        migrated = project["relation_evidence"][0]
-        self.assertEqual(migrated["relation"]["predicate"], "repository_homepage")
-        self.assertEqual(migrated["relation"]["subject"]["value"], repo_url)
-        self.assertEqual(migrated["relation"]["object"], {"type": "website", "value": homepage})
-        self.assertEqual(migrated["classification"], "confirmed")
+        homepage_relations = [
+            item for item in replayed["relation_evidence"]
+            if (item.get("relation") or {}).get("predicate") == "repository_homepage"
+        ]
+        self.assertEqual(len(homepage_relations), 1)
+        self.assertEqual(homepage_relations[0]["classification"], "confirmed")
+        self.assertEqual(
+            homepage_relations[0]["relation"]["object"],
+            {"type": "website", "value": homepage},
+        )
+        self.assertFalse(any(
+            edge.get("method") == "github_homepage"
+            for edge in registry.trust_graph_core.graph(replayed)["edges"]
+        ))
 
     def test_github_readme_url_snapshot_has_count_and_byte_budget(self) -> None:
         values = [f"https://example.com/path-{index}" for index in range(100)] + [

@@ -574,6 +574,21 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             "context": {},
         }
 
+    def _repository_homepage_relation(self, repo_url: str, homepage: str) -> dict:
+        return {
+            "relation": {
+                "subject": {"type": "repo", "value": repo_url},
+                "predicate": "repository_homepage",
+                "object": {"type": "website", "value": homepage},
+                "locator": "test",
+                "method": "github_homepage",
+            },
+            "source": "test:github_homepage",
+            "classification": "confirmed",
+            "observed_at": "2026-06-25T00:00:00+00:00",
+            "context": {},
+        }
+
     def test_audit_classifies_confirmed_url_issues(self) -> None:
         conn = registry.open_db()
         try:
@@ -582,9 +597,8 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             registry.add_confirmed_identifier_decision(missing, "repo_url", "https://github.com/example/app", source="test")
             missing["service_urls"] = ["https://app.example.com"]
             missing["relation_evidence"] = [
-                self._source_repository_relation(
-                    "repo", "https://github.com/example/app", "website", "https://app.example.com",
-                    method="github_homepage",
+                self._repository_homepage_relation(
+                    "https://github.com/example/app", "https://app.example.com",
                 ),
                 self._source_repository_relation(
                     "service", "https://app.example.com", "repo", "https://github.com/example/app",
@@ -598,9 +612,8 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             registry.add_confirmed_identifier_decision(reprobe, "repo_url", "https://github.com/example/app", source="test")
             reprobe["service_urls"] = ["https://docs.example.com"]
             reprobe["relation_evidence"] = [
-                self._source_repository_relation(
-                    "repo", "https://github.com/example/app", "website", "https://docs.example.com",
-                    method="github_homepage",
+                self._repository_homepage_relation(
+                    "https://github.com/example/app", "https://docs.example.com",
                 ),
             ]
             project_record.save_project(conn, reprobe)
@@ -625,9 +638,8 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
             project["service_urls"] = ["https://app.example.com"]
             project["relation_evidence"] = [
-                self._source_repository_relation(
-                    "repo", "https://github.com/example/app", "website", "https://app.example.com",
-                    method="github_homepage",
+                self._repository_homepage_relation(
+                    "https://github.com/example/app", "https://app.example.com",
                 ),
                 self._source_repository_relation(
                     "service", "https://app.example.com", "repo", "https://github.com/example/app",

@@ -1,6 +1,6 @@
 # collector relation policyのshadow比較
 
-> 作業用・比較用文書です。2026-08-20時点の正本DBをread-onlyで評価した結果と、そのreview後に実装した変更を記録します。production codeは変更済みですが、正本DBへの既存relation移行はまだ実行していません。
+> 作業用・比較用文書です。2026-08-20時点の正本DBをread-onlyで評価した結果と、そのreview後に実装・適用した変更を記録します。
 
 ## 結論
 
@@ -153,9 +153,11 @@ review後、collectorと保存処理を次の契約へ変更しました。
 - homepage単独では`repo_links_service` trust edgeを作らない
 - confirmed service→repositoryの明示的source relationと、repository→同一exact URLのhomepage観測が揃った場合だけ、往路・復路の意味を持つ`repository_homepage_pair` edgeを作る
 - repositoryを正常に再取得した時は、そのrepositoryの旧homepage relationとそれに由来するedgeを置換する。取得失敗やsnapshotのない限定検査では消さない
-- 旧`source_repository/github_homepage` relationは通常の`repair-db`正規化で専用predicateへ移す。全評価再計算では古い候補・経路コピーを残さず、現行identifierから評価一覧を作り直す
+- 旧`source_repository/github_homepage` relationは一度だけ通常の`repair-db`正規化で専用predicateへ移した。正本DB適用後は通常load/save経路の移行処理を除去し、過去investigation runのreplay入口だけで旧EvidenceBundleを新形式へ読み替える
 
-2026-08-20の正本DBからSQLite online backupで作った複製へ適用した結果、旧424 rowは、重複2 rowと公開URLとして不正な2 claimを除いてconfirmed `repository_homepage` 420 claimになりました。旧`github_homepage` trust edgeは785本から0本になり、exactな相互参照が揃う`repository_homepage_pair` edge 80本を77 projectで再構成しました。旧methodを含む保存済み評価は0件、foreign key違反は0件、`integrity_check`は`ok`です。正本DBは未変更です。
+2026-08-20の正本DBからSQLite online backupで作った複製へ適用した結果、旧424 rowは、重複2 rowと公開URLとして不正な2 claimを除いてconfirmed `repository_homepage` 420 claimになりました。旧`github_homepage` trust edgeは785本から0本になり、exactな相互参照が揃う`repository_homepage_pair` edge 80本を77 projectで再構成しました。旧methodを含む保存済み評価は0件、foreign key違反は0件、`integrity_check`は`ok`です。
+
+2026-08-21にWeb serverを停止し、`survey.before-repository-homepage-20260821.db`を作成してから同じ移行を正本DBへ適用しました。正本でもrelation、edge、評価、foreign key、integrityの結果は複製DBと一致しました。適用後は通常経路の一時移行処理を削除し、過去runのnetwork-free replayだけに旧EvidenceBundle互換を隔離しました。
 
 専用predicateへ分ける理由は、同じ一つの観測から次の異なる用途を直結させないためです。
 
@@ -200,4 +202,4 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 5. candidate生成では逆方向の支持を必須にせず、auto-confirmでのみ静的trust policyの往路と復路を要求する。
 6. relation assessorの固定corpusは、名前不一致、公式の広域Website、個人・organization site、shared repo、deployment、time caseを含む層化sampleから作る。名前一致自体はpolicyへ使わない。
 
-上記1〜5はproduction codeへ反映しました。6のrelation assessor固定corpusと、service→repo、README、GitHub searchの`homepage_exact` attachを含む構成要素間関係判定全体は次の設計・実装単位です。正本DBの既存relation cleanup、Website候補のreview UI、DB schema変更はまだ実施していません。
+上記1〜5はproduction codeと正本DBへ反映しました。6のrelation assessor固定corpusと、service→repo、README、GitHub searchの`homepage_exact` attachを含む構成要素間関係判定全体は次の設計・実装単位です。Website候補のreview UIとDB schema変更は実施していません。

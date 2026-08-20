@@ -106,57 +106,6 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
     return output
 
 
-def migrate_repository_homepage_relations(project: dict[str, Any]) -> dict[str, int]:
-    output: list[dict[str, Any]] = []
-    converted = 0
-    normalized_count = 0
-    dropped = 0
-    for item in normalize_relation_records(project.get("relation_evidence", [])):
-        relation = dict(item["relation"])
-        subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
-        obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
-        legacy = (
-            relation.get("predicate") == "source_repository"
-            and str(relation.get("method") or "") == "github_homepage"
-            and subject.get("type") == "repo"
-            and obj.get("type") in {"service", "website"}
-        )
-        current = (
-            relation.get("predicate") == "repository_homepage"
-            and subject.get("type") == "repo"
-            and obj.get("type") == "website"
-        )
-        if not legacy and not current:
-            output.append(item)
-            continue
-        repo_url = repo_urls.canonical_repo_url(str(subject.get("value") or ""))
-        homepage = collector_relation_policy.normalize_repository_homepage(
-            str(obj.get("value") or "")
-        )
-        if not repo_url or not homepage:
-            dropped += 1
-            continue
-        rewritten = {
-            **item,
-            "relation": {
-                **relation,
-                "subject": {"type": "repo", "value": repo_url},
-                "predicate": "repository_homepage",
-                "object": {"type": "website", "value": homepage},
-            },
-            "classification": "confirmed",
-        }
-        converted += int(legacy)
-        normalized_count += int(rewritten != item)
-        output.append(rewritten)
-    project["relation_evidence"] = normalize_relation_records(output)
-    return {
-        "converted_count": converted,
-        "normalized_count": normalized_count,
-        "dropped_count": dropped,
-    }
-
-
 def classify_lexicon_path(path: str, schema: dict[str, Any]) -> tuple[str, str]:
     lowered = str(path or "").lower()
     excluded_segments = ("/vendor/", "/generated/", "/fixtures/", "/fixture/", "/test/", "/tests/")

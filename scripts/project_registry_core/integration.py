@@ -385,19 +385,14 @@ def apply_github_repo_evidence(
                 and dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
                 in inspected_repo_urls
             )
-            is_current_homepage_relation = relation.get("predicate") == "repository_homepage"
-            is_legacy_homepage_relation = (
-                relation.get("predicate") == "source_repository"
-                and str(relation.get("method") or "") == "github_homepage"
-            )
-            if is_inspected_repo and (is_current_homepage_relation or is_legacy_homepage_relation):
+            if is_inspected_repo and relation.get("predicate") == "repository_homepage":
                 continue
             retained_relations.append(item)
         project["relation_evidence"] = retained_relations
         dependencies.remove_trust_edges(
             project,
             predicate="repo_links_service",
-            methods={"github_homepage", "repository_homepage_pair"},
+            methods={"repository_homepage_pair"},
         )
 
     snapshot_lexicon_ids: dict[str, list[str]] = {}
@@ -423,27 +418,6 @@ def apply_github_repo_evidence(
                 classification,
                 dependencies,
             )
-            subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
-            obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
-            if (
-                relation.get("predicate") == "source_repository"
-                and str(relation.get("method") or "") == "github_homepage"
-                and subject.get("type") == "repo"
-                and obj.get("type") in {"service", "website"}
-            ):
-                repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
-                homepage = collector_relation_policy.normalize_repository_homepage(
-                    str(obj.get("value") or "")
-                )
-                if not repo_url or not homepage:
-                    continue
-                relation = {
-                    **relation,
-                    "subject": {"type": "repo", "value": repo_url},
-                    "predicate": "repository_homepage",
-                    "object": {"type": "website", "value": homepage},
-                }
-                classification = "confirmed"
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
                 + [{"relation": relation, "source": record.source,

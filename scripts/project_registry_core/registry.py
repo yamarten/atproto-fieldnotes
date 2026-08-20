@@ -28,7 +28,7 @@ from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import replay as replay_core
 from project_registry_core import storage as investigation_storage
-from project_registry_core.evidence import add_collector_result_summary
+from project_registry_core.evidence import EvidenceRecord, add_collector_result_summary
 from project_registry_core import relations as relation_core
 from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
@@ -4972,7 +4972,7 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
     trust_graph_core.remove_edges(
         project,
         predicate="repo_links_service",
-        methods={"github_homepage", "repository_homepage_pair"},
+        methods={"repository_homepage_pair"},
     )
     for item in relations:
         relation = item["relation"]
@@ -4984,8 +4984,6 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
         source = str(item.get("source") or "")
         observed_at = str(item.get("observed_at") or "")
         if subject.get("type") == "repo" and obj.get("type") in {"website", "service"}:
-            if method == "github_homepage":
-                continue
             project_record.record_trust_edge(
                 project,
                 "repo_url",
@@ -5027,14 +5025,7 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
     ]
     for item in relations:
         relation = item["relation"]
-        legacy_homepage = (
-            relation.get("predicate") == "source_repository"
-            and str(relation.get("method") or "") == "github_homepage"
-        )
-        if (
-            relation.get("predicate") != "repository_homepage"
-            and not legacy_homepage
-        ) or item.get("classification") != "confirmed":
+        if relation.get("predicate") != "repository_homepage" or item.get("classification") != "confirmed":
             continue
         subject = relation.get("subject") or {}
         obj = relation.get("object") or {}
@@ -10317,9 +10308,6 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         if url not in project.get("source_code_urls", [])
     ]
     project_record.sync_source_repo_provider_views(project)
-    homepage_relation_migration = relation_core.migrate_repository_homepage_relations(project)
-    if any(homepage_relation_migration.values()):
-        refresh_trust_graph_evaluations(project)
     normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)
@@ -10591,15 +10579,103 @@ def verify_service_project(
     }
 
 
+def _replay_repository_homepage_relation(value: Any) -> dict[str, Any] | None:
+    relation = dict(value) if isinstance(value, dict) else {}
+    subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+    obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+    if not (
+        relation.get("predicate") == "source_repository"
+        and str(relation.get("method") or "") == "github_homepage"
+        and subject.get("type") == "repo"
+        and obj.get("type") in {"service", "website"}
+    ):
+        return relation
+    repo_url = repo_url_core.canonical_repo_url(str(subject.get("value") or ""))
+    homepage = collector_relation_policy.normalize_repository_homepage(
+        str(obj.get("value") or "")
+    )
+    if not repo_url or not homepage:
+        return None
+    return {
+        **relation,
+        "subject": {"type": "repo", "value": repo_url},
+        "predicate": "repository_homepage",
+        "object": {"type": "website", "value": homepage},
+    }
+
+
+def normalize_legacy_repository_homepage_replay(
+    project: dict[str, Any], bundle: EvidenceBundle,
+) -> tuple[EvidenceBundle, bool]:
+    compatibility_applied = False
+    relations: list[dict[str, Any]] = []
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = _replay_repository_homepage_relation(item["relation"])
+        relation_changed = relation != item["relation"]
+        if relation_changed:
+            compatibility_applied = True
+        if relation is None:
+            continue
+        relations.append({
+            **item,
+            "relation": relation,
+            "classification": (
+                "confirmed"
+                if relation_changed
+                else item["classification"]
+            ),
+        })
+    project["relation_evidence"] = relation_core.normalize_relation_records(relations)
+
+    records: list[EvidenceRecord] = []
+    for record in bundle.records:
+        if record.kind != "relation":
+            records.append(record)
+            continue
+        relation = _replay_repository_homepage_relation(record.value)
+        if relation == record.value:
+            records.append(record)
+            continue
+        compatibility_applied = True
+        if relation is None:
+            continue
+        records.append(EvidenceRecord(
+            kind=record.kind,
+            source=record.source,
+            classification="confirmed",
+            observed_at=record.observed_at,
+            value=relation,
+            context=dict(record.context),
+        ))
+    return EvidenceBundle(
+        project_key=bundle.project_key,
+        collected_at=bundle.collected_at,
+        records=records,
+        failures=list(bundle.failures),
+        collector_results=list(bundle.collector_results),
+        schema_version=bundle.schema_version,
+    ), compatibility_applied
+
+
 def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> None:
     shaped = project_record.ensure_project_shape(project)
     project.clear()
     project.update(shaped)
+    bundle, legacy_homepage_compatibility_applied = normalize_legacy_repository_homepage_replay(
+        project, bundle
+    )
     apply_investigation_evidence(project, bundle)
     apply_github_repo_evidence(project, bundle)
     apply_saved_service_evidence(project, bundle)
     apply_tangled_evidence(project, bundle)
     apply_collector_snapshot_evidence(project, bundle)
+    if legacy_homepage_compatibility_applied:
+        trust_graph_core.remove_edges(
+            project,
+            predicate="repo_links_service",
+            methods={"github_homepage"},
+        )
+        refresh_trust_graph_evaluations(project)
     for repo_url in relation_core.corroborate_source_repositories(project):
         confirm_source_code_url(
             project,
