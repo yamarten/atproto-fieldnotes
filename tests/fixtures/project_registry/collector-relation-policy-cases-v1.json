@@ -172,6 +172,66 @@
         "deterministic": "NOT_SUPPORTED",
         "strict": "NOT_SUPPORTED"
       }
+    },
+    {
+      "case_id": "github-search-homepage-exact-one-way",
+      "description": "A unique exact homepage match remains review-only when it is only the repository owner's claim.",
+      "observation": {},
+      "github_search_attachment": {
+        "best_match_count": 1,
+        "best_match_standing": "confirmed",
+        "outward_relation_supported": true,
+        "return_relation_supported": false
+      },
+      "expected": {
+        "github_search_attachment": "REVIEW",
+        "github_search_attachment_reason": "component_relation_is_one_way"
+      }
+    },
+    {
+      "case_id": "github-search-homepage-exact-reciprocal",
+      "description": "A unique confirmed service and reciprocal explicit source reference permit automatic attachment.",
+      "observation": {},
+      "github_search_attachment": {
+        "best_match_count": 1,
+        "best_match_standing": "confirmed",
+        "outward_relation_supported": true,
+        "return_relation_supported": true
+      },
+      "expected": {
+        "github_search_attachment": "AUTO_ATTACH",
+        "github_search_attachment_reason": "unique_confirmed_anchor_and_bidirectional_component_relations"
+      }
+    },
+    {
+      "case_id": "github-search-homepage-candidate-target",
+      "description": "An exact match to a candidate service cannot act as an automatic project anchor.",
+      "observation": {},
+      "github_search_attachment": {
+        "best_match_count": 1,
+        "best_match_standing": "candidate",
+        "outward_relation_supported": true,
+        "return_relation_supported": false
+      },
+      "expected": {
+        "github_search_attachment": "REVIEW",
+        "github_search_attachment_reason": "matched_identifier_is_candidate"
+      }
+    },
+    {
+      "case_id": "github-search-homepage-ambiguous-target",
+      "description": "An exact service URL shared by multiple projects cannot select an attachment target.",
+      "observation": {},
+      "github_search_attachment": {
+        "best_match_count": 2,
+        "best_match_standing": "candidate",
+        "outward_relation_supported": true,
+        "return_relation_supported": false
+      },
+      "expected": {
+        "github_search_attachment": "REVIEW",
+        "github_search_attachment_reason": "multiple_projects_share_best_identifier_match"
+      }
     }
   ]
 }

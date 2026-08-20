@@ -182,6 +182,49 @@ confirmed source repositoryから得たhomepageを、service identifierとは別
 
 既存Websiteと異なる26件には、`www`やHTTP/HTTPSの表記差、Arabicaのalpha surfaceと正式Website、Nomareと旧Datesky、repository固有のdocs/API、同一project内の別toolなどが混在します。homepage policyだけで一つへ畳まず、URL identity、surface role、時間関係をそれぞれの設計へ渡します。
 
+## GitHub Searchの既存project取り込み
+
+`sync-github-search`には、まだ登録されていないrepositoryを検索結果から既存projectへ取り込む経路があります。現行処理はrepository URLが既存identifierと完全一致すればそのprojectを使い、そうでなければGitHub homepageとservice URLの完全一致を探します。`homepage_exact`は自動attachし、同じ登録可能domainに属するだけの`homepage_family`はsuggestionへ留めます。自動attachされたrepositoryは単なるcandidateではなく、登録起点を持つconfirmed `source_repository`になります。
+
+このうち問題になるのは`homepage_exact`です。repo→URLのhomepage観測はrepository管理者による一方向の主張なので、URLが同じというだけでは、そのrepositoryを既存projectの構成要素と確定するには足りません。また、現行lookupはconfirmed serviceだけでなくcandidate serviceも一致先にし、同じ優先度の一致先が複数あってもproject key順の先頭を選びます。
+
+正本DBの420 homepage claimを、各repositoryが未登録の状態で現在のidentifierへ再照合するcounterfactual comparisonでは次の結果になりました。過去のsync eventそのものの再生ではありません。
+
+| 現在の再照合結果 | claim | shadowでの処遇 |
+| --- | ---: | --- |
+| exact一致なし | 239 | unmatched。うち37件は`homepage_family` suggestionを提示可能 |
+| 一意なconfirmed service＋逆向きのconfirmed `source_repository` | 22 | auto-attach可能 |
+| 一意なconfirmed serviceだがhomepage一方向だけ | 131 | review suggestion |
+| 一意なcandidate service | 24 | review suggestion |
+| 同順位のcandidate serviceが複数projectにある | 4 | ambiguous review |
+
+変更前の規則ならexact一致181件をすべて自動attach対象にします。採用した規則では22件だけを自動attach可能とし、159件をreview suggestionへ落とします。現在のrelation保存projectと変更前lookupが選ぶprojectが異なるclaimも9件ありました。これには重複project、後で分離したproject、誤帰属候補が混在するため、9件をそのまま過去の誤attach件数とは数えません。
+
+22件にはHangar、Zeitgeist、Dandelion、AgentScan、Spark Social等が含まれ、confirmed service→repoの直接参照とrepo→同一service URLのhomepage観測が揃っています。逆に候補一致にはLexicon Communityと`lexicon.community`、複数一致にはOpnShelf、Postgame、Improがあり、candidateやproject key順をproject選択の根拠にしない必要性が見えます。
+
+過去のGitHub Search結果にはrepositoryごとの`match_kind`が保存されておらず、schema version 3移行前のseed由来も`legacy_manual_seed_migration`へ平坦化されています。そのため、過去に`homepage_exact`で実際に何件attachしたかや、現在の9件がその結果かは復元できません。今回の比較は現在の観測とidentifierに同じ規則を再適用した影響見積もりです。
+
+この比較から採用した一般則は次の通りです。`homepage_exact`自体を共通規則へ昇格したのではなく、identifier一致はproject候補の照合、relation評価は共通policy、attachは用途別の操作として分けます。
+
+1. repository URL自体が既存confirmed `source_repository`と一致する場合は、既存projectを継続して使う。
+2. homepage完全一致は、一致先が一意なconfirmed serviceであり、同じserviceから同じrepositoryへのconfirmed `source_repository`が保存されている場合だけ自動attach可能とする。
+3. 一方向のhomepage一致、candidate/non-current serviceへの一致、複数projectへの一致は自動attachせず、根拠を添えたreview suggestionにする。
+4. `homepage_family`は現行通りsuggestionだけに使い、自動attachへ昇格しない。
+
+ここで使う二方向のrelationは独立した証拠である必要はありません。目的は証拠数を稼ぐことではなく、一方の管理者だけが任意の相手を指した騙りを避けることです。`repository_homepage`とconfirmed `source_repository`が意味上の両方向をそれぞれ保証していれば足ります。
+
+固定caseは従来12件に4件を加え、一方向exact、相互参照付きexact、candidate service一致、複数project一致を確認します。2026-08-21の正本DB read-only reportは`.tmp/collector-relation-policy-v3-homepage-attach-20260821.json`、content hashは`790b5feb36dba0fd057c48c9a9de822a2c9e7157a8742763ad5095c3792fc587`です。production接続後もcomparator自体はDBを変更しません。
+
+review後、GitHub Searchを次の責務分離でproductionへ接続しました。
+
+- collectorはGitHub Website欄をconfirmed `repository_homepage`観測として作る
+- identifier lookupは一致する既存project候補と、その一致がconfirmed、candidate、former、non-production、複数一致のどれかを返す
+- 既存の共通信頼policyが、confirmed service→repoとrepo→同じserviceの両方向を評価する
+- 共通policyが支持した場合だけ`trust_policy` adoptionとしてrepoをconfirmし、GitHub Search用manual seedや登録起点は作らない
+- 支持しない一致は既存projectを変更せず、`suggested_project_keys`と理由を返す
+
+これにより、collector固有なのはGitHub metadataの観測と候補照合までになり、帰属・confirm判断はrepository調査等と同じ信頼policyを使います。正本DBへの書込みや既存identifierの再分類は行っていません。
+
 ## homepage以外にも使う分離規則
 
 homepageの調査で得た一般則は、collector relation全体でも次の順序を維持することです。
@@ -202,4 +245,4 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 5. candidate生成では逆方向の支持を必須にせず、auto-confirmでのみ静的trust policyの往路と復路を要求する。
 6. relation assessorの固定corpusは、名前不一致、公式の広域Website、個人・organization site、shared repo、deployment、time caseを含む層化sampleから作る。名前一致自体はpolicyへ使わない。
 
-上記1〜5はproduction codeと正本DBへ反映しました。6のrelation assessor固定corpusと、service→repo、README、GitHub searchの`homepage_exact` attachを含む構成要素間関係判定全体は次の設計・実装単位です。Website候補のreview UIとDB schema変更は実施していません。
+上記1〜5とGitHub Searchの責務分離はproduction codeへ反映しました。次はservice→repoの曖昧な表示、README、複数sourceを使うrelation assessor固定corpusです。Website候補のreview UIとDB schema変更は実施していません。

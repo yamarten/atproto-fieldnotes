@@ -834,8 +834,11 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   1. `repo_url`
   2. `homepage_exact`
   3. `homepage_family`
-- 自動 attach するのは 1 と 2 だけです
-- 3 は suggestion に落とします
+- `repo_url`のconfirmed完全一致は既存projectを継続して使います
+- `homepage_exact`はproject候補の照合です。GitHub Website欄の`repository_homepage`観測を作り、一致先が一意なconfirmed serviceで、同じserviceからrepositoryへのconfirmed `source_repository`も存在する場合だけ、既存の共通信頼policyでrepositoryをconfirmします
+- 一方向の`homepage_exact`、candidate / non-current serviceへの一致、同順位で複数projectに一致する場合はsuggestionに落とします。複数一致ではproject key順の一件を選びません
+- `homepage_family`もsuggestionに留めます
+- 既存projectへ共通信頼policyで採用したrepositoryは`trust_policy` adoptionになり、GitHub Search用のmanual seedや登録起点にはしません
 - unmatched を `--screen-unmatched` する場合:
   - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
   - lexicon hint、lexiconらしいpath、derived NSID、lexicon schema sample、repo homepage、service candidate、atproto keyword hitのいずれかがあれば通します

@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from . import collector_relation_policy
+from . import domain_policy
 from . import identifiers
 from . import repo_urls
 
 
-REPORT_SCHEMA_VERSION = 2
-POLICY_VERSION = "collector-relation-shadow-v2"
+REPORT_SCHEMA_VERSION = 3
+POLICY_VERSION = "collector-relation-shadow-v3"
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "NEEDS_ASSESSMENT", "NOT_RECONSTRUCTIBLE"}
 TRACEABLE_REPOSITORY_ADOPTION_SOURCES = {
     "operator_add_seed",
@@ -58,6 +59,8 @@ SERVICE_SURFACE_MARKERS = {
     "browser_public_app_surface_detected",
     "login_surface_detected",
 }
+
+
 def _json(value: Any, default: Any) -> Any:
     if isinstance(value, (dict, list)):
         return value
@@ -213,6 +216,35 @@ def homepage_is_website_candidate(observation: dict[str, Any]) -> bool:
     )
 
 
+def evaluate_component_attachment_projection(observation: dict[str, Any]) -> dict[str, str]:
+    """Project a matched identifier and directional relations to an attach action."""
+    match_count = int(observation.get("best_match_count") or 0)
+    match_standing = str(observation.get("best_match_standing") or "")
+    outward_relation = bool(observation.get("outward_relation_supported"))
+    return_relation = bool(observation.get("return_relation_supported"))
+    if match_count == 0:
+        return {"disposition": "UNMATCHED", "reason": "no_identifier_match"}
+    if match_count > 1:
+        return {
+            "disposition": "REVIEW",
+            "reason": "multiple_projects_share_best_identifier_match",
+        }
+    if match_standing != "confirmed":
+        return {
+            "disposition": "REVIEW",
+            "reason": f"matched_identifier_is_{match_standing or 'unknown'}",
+        }
+    if outward_relation and return_relation:
+        return {
+            "disposition": "AUTO_ATTACH",
+            "reason": "unique_confirmed_anchor_and_bidirectional_component_relations",
+        }
+    return {
+        "disposition": "REVIEW",
+        "reason": "component_relation_is_one_way",
+    }
+
+
 def endpoint_status(value: str) -> dict[str, str]:
     normalized = identifiers.normalize_url(str(value or ""))
     canonical = repo_urls.canonical_repo_url(normalized)
@@ -310,6 +342,11 @@ def evaluate_case_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
             "strict": strict["verdict"],
             "endpoint_status": str((deterministic.get("endpoint") or {}).get("status") or ""),
         }
+        attachment = case.get("github_search_attachment")
+        if isinstance(attachment, dict):
+            attachment_result = evaluate_component_attachment_projection(attachment)
+            actual["github_search_attachment"] = attachment_result["disposition"]
+            actual["github_search_attachment_reason"] = attachment_result["reason"]
         expected = dict(case.get("expected") or {})
         passed = all(actual.get(key) == value for key, value in expected.items())
         results.append({
@@ -514,6 +551,154 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return list(projects.values())
 
 
+def _github_search_attachment_audit(
+    conn: sqlite3.Connection,
+    projects: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    *,
+    example_limit: int,
+) -> dict[str, Any]:
+    project_names = {str(item["project_key"]): str(item["name"]) for item in projects}
+    exact_matches: dict[str, list[tuple[int, str, str]]] = collections.defaultdict(list)
+    confirmed_family_matches: dict[str, set[str]] = collections.defaultdict(set)
+    for row in conn.execute(
+        """
+        SELECT project_key, value, classification
+        FROM project_identifiers
+        WHERE kind='service_url' AND role='service'
+          AND classification IN ('confirmed', 'candidate')
+        """
+    ):
+        value = identifiers.normalize_url(str(row["value"]))
+        standing = str(row["classification"])
+        exact_matches[value].append(
+            (0 if standing == "confirmed" else 1, str(row["project_key"]), standing)
+        )
+        if standing == "confirmed":
+            family = domain_policy.root_domain(urllib.parse.urlparse(value).netloc.lower())
+            if family:
+                confirmed_family_matches[family].add(str(row["project_key"]))
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_noncurrent_identifiers'"
+    ).fetchone():
+        for row in conn.execute(
+            """
+            SELECT project_key, value, standing
+            FROM project_noncurrent_identifiers
+            WHERE kind='service_url' AND role='service'
+            """
+        ):
+            standing = str(row["standing"])
+            exact_matches[identifiers.normalize_url(str(row["value"]))].append(
+                (2 if standing == "former" else 3, str(row["project_key"]), standing)
+            )
+
+    reciprocal_references = {
+        (
+            str(item["project_key"]),
+            str(item["subject_value"]),
+            str(item.get("canonical_object_value") or item["object_value"]),
+        )
+        for item in observations
+        if item["direction"] == "service_to_repo"
+        and item["current_relation_classification"] == "confirmed"
+    }
+    homepage_claims: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in observations:
+        if item["direction"] != "repo_to_url" or item["method"] != "github_homepage":
+            continue
+        homepage_claims.setdefault(
+            (str(item["project_key"]), str(item["subject_value"]), str(item["object_value"])),
+            item,
+        )
+
+    rows: list[dict[str, Any]] = []
+    family_counts: collections.Counter[str] = collections.Counter()
+    for (relation_project_key, repo, homepage), item in homepage_claims.items():
+        matches = sorted(exact_matches.get(homepage, []))
+        if matches:
+            best_priority = matches[0][0]
+            best = [entry for entry in matches if entry[0] == best_priority]
+        else:
+            best = []
+        best_project_keys = sorted({entry[1] for entry in best})
+        best_standings = sorted({entry[2] for entry in best})
+        chosen_project_key = best_project_keys[0] if best_project_keys else ""
+        reciprocal = (
+            chosen_project_key,
+            homepage,
+            repo,
+        ) in reciprocal_references
+        evaluation = evaluate_component_attachment_projection({
+            "best_match_count": len(best_project_keys),
+            "best_match_standing": best_standings[0] if len(best_standings) == 1 else "mixed",
+            "outward_relation_supported": True,
+            "return_relation_supported": reciprocal,
+        })
+        if chosen_project_key:
+            placement = "same_project" if chosen_project_key == relation_project_key else "different_project"
+            family_disposition = "exact_match_precedes_family"
+        else:
+            placement = "no_exact_match"
+            family = domain_policy.root_domain(urllib.parse.urlparse(homepage).netloc.lower())
+            family_project_keys = confirmed_family_matches.get(family, set()) if family else set()
+            if len(family_project_keys) == 1:
+                family_disposition = "unique_family_suggestion"
+            elif len(family_project_keys) > 1:
+                family_disposition = "ambiguous_family"
+            else:
+                family_disposition = "no_family_match"
+        family_counts[family_disposition] += 1
+        rows.append({
+            "relation_project_key": relation_project_key,
+            "relation_project_name": project_names.get(relation_project_key, ""),
+            "relation_project_url": _project_ui_url(relation_project_key),
+            "repo_url": repo,
+            "homepage": homepage,
+            "best_match_project_keys": best_project_keys,
+            "best_match_project_names": [project_names.get(key, "") for key in best_project_keys],
+            "best_match_standing": best_standings[0] if len(best_standings) == 1 else ("mixed" if best else ""),
+            "previous_policy_disposition": "AUTO_ATTACH" if best else "UNMATCHED",
+            "shadow_disposition": evaluation["disposition"],
+            "shadow_reason": evaluation["reason"],
+            "reciprocal_source_reference": reciprocal,
+            "current_placement": placement,
+            "family_disposition": family_disposition,
+        })
+
+    shadow_counts = collections.Counter(item["shadow_disposition"] for item in rows)
+    reason_counts = collections.Counter(item["shadow_reason"] for item in rows)
+    standing_counts = collections.Counter(
+        item["best_match_standing"] or "none" for item in rows
+    )
+    placement_counts = collections.Counter(item["current_placement"] for item in rows)
+    examples: dict[str, list[dict[str, Any]]] = {}
+    for reason in sorted(reason_counts):
+        examples[reason] = [item for item in rows if item["shadow_reason"] == reason][
+            :example_limit
+        ]
+    return {
+        "reconstructed_homepage_claim_count": len(rows),
+        "historical_match_kind_event_count": None,
+        "historical_match_kind_reconstructible": False,
+        "historical_limit": (
+            "sync result history does not preserve per-repository match_kind; this is a "
+            "counterfactual replay over current identifiers and relations"
+        ),
+        "previous_policy_auto_attach_count": sum(
+            item["previous_policy_disposition"] == "AUTO_ATTACH" for item in rows
+        ),
+        "shadow_disposition_counts": _counter(shadow_counts),
+        "shadow_reason_counts": _counter(reason_counts),
+        "best_match_standing_counts": _counter(standing_counts),
+        "current_placement_counts": _counter(placement_counts),
+        "family_disposition_counts": _counter(family_counts),
+        "examples": examples,
+        "comparison_is_read_only": True,
+        "production_policy_connected": True,
+    }
+
+
 def _confirmed_component(entries: list[dict[str, str]], role: str) -> bool:
     return any(item.get("role") == role and item.get("classification") == "confirmed" for item in entries)
 
@@ -589,6 +774,12 @@ def compare_database(
 ) -> dict[str, Any]:
     projects = _load_projects(conn)
     observations = [item for project in projects for item in project["observations"]]
+    github_search_attachment = _github_search_attachment_audit(
+        conn,
+        projects,
+        observations,
+        example_limit=example_limit,
+    )
     pair_index = {
         (
             item["project_key"],
@@ -965,11 +1156,13 @@ def compare_database(
             },
             "auto_update_executed": False,
         },
+        "github_search_homepage_attachment": github_search_attachment,
         "examples": examples,
         "review_gate": {
             "case_catalog_passed": case_results["failed_count"] == 0,
             "ready_for_user_review": case_results["failed_count"] == 0,
-            "production_behavior_changed": False,
+            "comparison_is_read_only": True,
+            "production_policy_connected": True,
             "database_schema_changed": False,
         },
     }

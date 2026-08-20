@@ -24,7 +24,7 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
         result = collector_relation_shadow.evaluate_case_catalog(
             collector_relation_shadow.load_case_catalog(FIXTURE)
         )
-        self.assertEqual(result["case_count"], 12)
+        self.assertEqual(result["case_count"], 16)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
     def test_source_word_inside_funding_phrase_is_not_an_explicit_source_link(self) -> None:
@@ -117,6 +117,26 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
         })
         self.assertEqual(result["role"], "primary_website")
         self.assertEqual(result["verdict"], "NEEDS_ASSESSMENT")
+
+    def test_github_search_attachment_requires_a_confirmed_reciprocal_match(self) -> None:
+        self.assertEqual(
+            collector_relation_shadow.evaluate_component_attachment_projection({
+                "best_match_count": 1,
+                "best_match_standing": "confirmed",
+                "outward_relation_supported": True,
+                "return_relation_supported": True,
+            })["disposition"],
+            "AUTO_ATTACH",
+        )
+        self.assertEqual(
+            collector_relation_shadow.evaluate_component_attachment_projection({
+                "best_match_count": 1,
+                "best_match_standing": "candidate",
+                "outward_relation_supported": True,
+                "return_relation_supported": True,
+            })["disposition"],
+            "REVIEW",
+        )
 
     def test_website_projection_keeps_docs_but_excludes_profiles_and_funding(self) -> None:
         self.assertTrue(collector_relation_shadow.homepage_is_website_candidate({
@@ -259,6 +279,13 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
         self.assertEqual(
             report["github_homepage_storage_projection"]["proposed_relation_classification"],
             "confirmed",
+        )
+        self.assertEqual(
+            report["github_search_homepage_attachment"]["shadow_disposition_counts"],
+            {"AUTO_ATTACH": 1},
+        )
+        self.assertFalse(
+            report["github_search_homepage_attachment"]["historical_match_kind_reconstructible"]
         )
         self.assertEqual(
             report["examples"]["deterministic_supported"][0]["link_label"],

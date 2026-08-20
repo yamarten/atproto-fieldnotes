@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import sqlite3
@@ -17,6 +18,7 @@ from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import identifier_storage
+from project_registry_core import relations as relation_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_material as repository_material_core
 from project_registry_core import repository_sources as repository_source_core
@@ -29,17 +31,20 @@ from project_registry_core.registry import (
     UFOS_API,
     activity_is_recent,
     add_candidate_text,
+    add_candidate_source_code_url,
     add_candidate_url,
     add_collection_owned_nsid,
     add_manual_seed,
     all_projects,
     apply_tangled_evidence,
+    apply_candidate_repo_trust_evidence,
     build_collection_project_matchers,
     classify_text_seed_value,
     clean_string_list,
     collect_applog_entries,
     compute_duplicate_candidates,
     compute_merge_recommendation,
+    confirm_source_code_url_with_trust,
     confirmed_developer_dids,
     enrich_from_github_repo,
     ensure_project_for_seed,
@@ -54,7 +59,6 @@ from project_registry_core.registry import (
     registrable_namespace_from_namespace,
     resolve_semble_project_key_for_seed_value,
     search_bsky_posts_payload,
-    sync_match_is_auto_attach_safe,
     sync_watermark_datetime,
     upsert_collection_observation,
     write_sync_state,
@@ -66,6 +70,7 @@ from project_registry_core.project_record import (
     fetch_project,
     find_project_key_by_identifier,
     generate_project_key,
+    indexed_identifier_matches,
     iso_now,
     list_projects,
     namespace_from_collection_nsid,
@@ -1064,25 +1069,118 @@ def resolve_github_search_project_key(
     entry: dict[str, Any],
     *,
     service_host_lookup: dict[str, str],
-) -> tuple[str | None, str]:
+) -> tuple[str | None, str, list[str]]:
     repo_url = identifier_core.normalize_url(str(entry.get("url") or ""))
     if repo_url:
         project_key = find_project_key_by_identifier(conn, "repo_url", repo_url)
         if project_key:
-            return project_key, "repo_url"
+            return project_key, "repo_url", [project_key]
 
     homepage = normalize_service_candidate_url(str(entry.get("homepage") or ""))
     if homepage:
-        project_key = find_project_key_by_identifier(conn, "service_url", homepage)
-        if project_key:
-            return project_key, "homepage_exact"
+        matches = indexed_identifier_matches(conn, "service_url", homepage)
+        if matches:
+            best_priority = matches[0][0]
+            project_keys = sorted({project_key for priority, project_key in matches if priority == best_priority})
+            standing = {
+                0: "confirmed",
+                1: "candidate",
+                2: "former",
+                3: "non_production",
+            }.get(best_priority, "unknown")
+            if len(project_keys) == 1:
+                return project_keys[0], f"homepage_exact_{standing}", project_keys
+            return None, f"homepage_exact_{standing}_ambiguous", project_keys
         host = urllib.parse.urlparse(homepage).netloc.lower()
         host_family = domain_policy_core.root_domain(host)
         if host_family:
             project_key = service_host_lookup.get(host_family)
             if project_key:
-                return project_key, "homepage_family"
-    return None, ""
+                return project_key, "homepage_family", [project_key]
+    return None, "", []
+
+
+def _github_homepage_relation_record(
+    repo_url: str,
+    homepage: str,
+    *,
+    observed_at: str,
+) -> Any:
+    return relation_core.relation_record(
+        source=f"github_repo_metadata:{repo_url}",
+        classification="confirmed",
+        observed_at=observed_at or iso_now(),
+        subject_type="repo",
+        subject_value=repo_url,
+        predicate="repository_homepage",
+        object_type="website",
+        object_value=homepage,
+        locator=repo_url,
+        method="github_homepage",
+        context={"collector": "github_search"},
+    )
+
+
+def _store_github_homepage_observation(
+    project: dict[str, Any],
+    repo_url: str,
+    homepage: str,
+    *,
+    observed_at: str,
+) -> None:
+    if not repo_url or not homepage:
+        return
+    record = _github_homepage_relation_record(
+        repo_url,
+        homepage,
+        observed_at=observed_at,
+    )
+    project["relation_evidence"] = relation_core.normalize_relation_records(
+        list(project.get("relation_evidence", [])) + [record.to_dict()]
+    )
+
+
+def _apply_github_homepage_attachment_policy(
+    project: dict[str, Any],
+    repo_url: str,
+    homepage: str,
+    *,
+    observed_at: str,
+    repo_updated_at: str,
+) -> dict[str, Any] | None:
+    candidate = copy.deepcopy(project)
+    add_candidate_source_code_url(
+        candidate,
+        repo_url,
+        "github_repo_search_sync",
+        reason="repository homepage exactly matches a confirmed service identifier",
+        evidence_kind="github_repository_homepage",
+        evidence_url=homepage,
+        updated_at=repo_updated_at,
+    )
+    bundle = EvidenceBundle(
+        project_key=str(candidate.get("project_key") or ""),
+        collected_at=observed_at or iso_now(),
+    )
+    bundle.add_record(_github_homepage_relation_record(
+        repo_url,
+        homepage,
+        observed_at=observed_at,
+    ))
+    if not apply_candidate_repo_trust_evidence(candidate, repo_url, bundle):
+        return None
+    if not confirm_source_code_url_with_trust(
+        candidate,
+        repo_url,
+        "github_repo_search_sync",
+        relation="mutual_first_party_link",
+        reason="repository homepage and confirmed service source relation agree",
+        evidence_kind="github_repository_homepage",
+        evidence_url=homepage,
+        updated_at=repo_updated_at,
+    ):
+        return None
+    return candidate
 
 
 def sync_github_search(
@@ -1149,6 +1247,7 @@ def sync_github_search(
         repo_url = identifier_core.normalize_url(str(entry.get("url") or ""))
         if not repo_url:
             continue
+        observed_at = iso_now()
         if repo_url in known_repo_urls:
             skipped_known += 1
             continue
@@ -1176,15 +1275,31 @@ def sync_github_search(
             continue
         if progress:
             progress(entry_index, len(eligible), {"kind": "source_item", "source": "github", "value": repo_url})
-        project_key, match_kind = resolve_github_search_project_key(
+        project_key, match_kind, matched_project_keys = resolve_github_search_project_key(
             conn,
             entry,
             service_host_lookup=service_host_lookup,
         )
         suggested_project_key = None
+        suggested_project_keys: list[str] = []
         suggested_match_kind = ""
-        if project_key and match_kind and not sync_match_is_auto_attach_safe(match_kind):
-            suggested_project_key = project_key
+        matched_project: dict[str, Any] | None = None
+        if project_key and match_kind == "homepage_exact_confirmed":
+            existing_project = fetch_project(conn, project_key)
+            if existing_project is not None:
+                matched_project = _apply_github_homepage_attachment_policy(
+                    existing_project,
+                    repo_url,
+                    normalize_service_candidate_url(str(entry.get("homepage") or "")),
+                    observed_at=observed_at,
+                    repo_updated_at=str(entry.get("updated_at") or ""),
+                )
+            if matched_project is not None:
+                match_kind = "homepage_exact_trust_policy"
+        auto_attach_safe = match_kind in {"repo_url", "homepage_exact_trust_policy"}
+        if match_kind and not auto_attach_safe:
+            suggested_project_keys = list(matched_project_keys)
+            suggested_project_key = suggested_project_keys[0] if len(suggested_project_keys) == 1 else None
             suggested_match_kind = match_kind
             suggested_existing_matches += 1
             suggested_entries.append(
@@ -1195,6 +1310,7 @@ def sync_github_search(
                     "description": str(entry.get("description") or ""),
                     "updated_at": str(entry.get("updated_at") or ""),
                     "suggested_project_key": suggested_project_key,
+                    "suggested_project_keys": suggested_project_keys,
                     "suggested_match_kind": suggested_match_kind,
                 }
             )
@@ -1215,9 +1331,10 @@ def sync_github_search(
                     **(
                         {
                             "suggested_project_key": suggested_project_key,
+                            "suggested_project_keys": suggested_project_keys,
                             "suggested_match_kind": suggested_match_kind,
                         }
-                        if suggested_project_key else {}
+                        if suggested_project_keys else {}
                     ),
                 }
             )
@@ -1251,8 +1368,11 @@ def sync_github_search(
             matched_existing += 1
             if match_kind:
                 match_reasons[match_kind] = int(match_reasons.get(match_kind, 0)) + 1
-        project = fetch_project(conn, project_key) or default_project_record(project_key, "repo_url", repo_url)
-        add_manual_seed(project, "repo_url", repo_url, source="github_repo_search_sync")
+        project = matched_project or fetch_project(conn, project_key) or default_project_record(
+            project_key, "repo_url", repo_url
+        )
+        if is_new:
+            add_manual_seed(project, "repo_url", repo_url, source="github_repo_search_sync")
         project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "github_repo_search_sync")
         description = str(entry.get("description") or "").strip()
         if description:
@@ -1260,6 +1380,12 @@ def sync_github_search(
             add_candidate_text(project, "tagline", description, f"github_search_sync:{entry.get('query') or ''}")
         homepage = normalize_service_candidate_url(str(entry.get("homepage") or ""))
         if homepage:
+            _store_github_homepage_observation(
+                project,
+                repo_url,
+                homepage,
+                observed_at=observed_at,
+            )
             add_candidate_url(project, "service_url", homepage)
         project = finalize_project_shape(project)
         project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)

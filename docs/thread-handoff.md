@@ -20,7 +20,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- service→repo、README、GitHub searchの`homepage_exact` attachを含むrelation assessment全体と固定corpus評価へ戻る。
+- GitHub Searchの`homepage_exact`は、collectorの観測・候補照合と共通信頼policyを分離してproductionへ接続済みです。次はservice→repo、README、relation assessor固定corpusへ進む。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。
 - `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を見直す。処理自体とwatermark更新は正常に完了している。
 
@@ -32,7 +32,7 @@ history JSON圧縮は2026-07-26に正本DBへ適用済みです。VACUUMは行�
 
 schema version 3切替前のrollback用backupは`data/survey.schema-v2-before-v3-20260814.db`です。version 3の通常運用を確認して不要になった時点で削除してください。
 
-GitHub homepage relation移行直前のbackupは`data/survey.before-repository-homepage-20260821.db`です。新predicate対応codeをmasterへ取り込むまでWeb serverは停止したままにし、取り込み後に再起動してください。
+GitHub homepage relation移行直前のbackupは`data/survey.before-repository-homepage-20260821.db`です。新predicate対応codeはmasterへ取り込み済みで、Web serverも再起動済みです。
 
 ## 未検証・未接続
 

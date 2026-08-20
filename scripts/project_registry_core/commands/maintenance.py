@@ -115,6 +115,21 @@ def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
         "github_homepage_three_axis": report["github_homepage_three_axis"],
         "github_homepage_storage_projection": report["github_homepage_storage_projection"],
         "github_homepage_website_projection": report["github_homepage_website_projection"],
+        "github_search_homepage_attachment": {
+            key: report["github_search_homepage_attachment"][key]
+            for key in (
+                "reconstructed_homepage_claim_count",
+                "previous_policy_auto_attach_count",
+                "shadow_disposition_counts",
+                "shadow_reason_counts",
+                "best_match_standing_counts",
+                "current_placement_counts",
+                "family_disposition_counts",
+                "historical_match_kind_reconstructible",
+                "comparison_is_read_only",
+                "production_policy_connected",
+            )
+        },
         "review_gate": report["review_gate"],
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))

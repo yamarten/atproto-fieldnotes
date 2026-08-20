@@ -1327,7 +1327,6 @@ def sync_match_is_auto_attach_safe(match_kind: str) -> bool:
         "exact_namespace_scan",
         "seed_parent_namespace",
         "repo_url",
-        "homepage_exact",
     }
 
 

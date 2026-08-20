@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
-from project_registry_core import cli, database, domain_policy, source_sync
+from project_registry_core import cli, database, domain_policy, relations, source_sync
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
@@ -1157,6 +1157,172 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(summary["unmatched"], 1)
         self.assertFalse(summary["state_updated"])
         self.assertEqual(state["watermark"], {})
+
+    def test_github_homepage_exact_is_suggestion_without_reverse_source_relation(self) -> None:
+        self.assertFalse(registry.sync_match_is_auto_attach_safe("homepage_exact"))
+        conn = registry.open_db()
+        query = "atproto"
+        repo_url = "https://github.com/example/one-way"
+        service_url = "https://one-way.example.com"
+        project = self.make_project("proj:oneway", "service_url", service_url)
+        registry.add_manual_seed(project, "service_url", service_url, source="test")
+        project_record.save_project(conn, project)
+        scan = {
+            "query": query,
+            "results": [{
+                "url": repo_url,
+                "full_name": "example/one-way",
+                "description": "",
+                "homepage": service_url,
+                "updated_at": "2026-06-10T00:00:00Z",
+                "stargazers_count": 0,
+                "query": query,
+            }],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = source_sync.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=False,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                )
+            saved = project_record.fetch_project(conn, "proj:oneway")
+        finally:
+            conn.close()
+
+        assert saved is not None
+        self.assertEqual(summary["matched_existing"], 0)
+        self.assertEqual(summary["suggested_existing_matches"], 1)
+        self.assertEqual(summary["suggested_entries"][0]["suggested_match_kind"], "homepage_exact_confirmed")
+        self.assertEqual(summary["suggested_entries"][0]["suggested_project_keys"], ["proj:oneway"])
+        self.assertNotIn(repo_url, saved["source_code_urls"])
+        self.assertNotIn(repo_url, saved["candidate_source_code_urls"])
+
+    def test_github_homepage_exact_uses_shared_trust_policy_for_mutual_relation(self) -> None:
+        conn = registry.open_db()
+        query = "atproto"
+        repo_url = "https://github.com/example/mutual"
+        service_url = "https://mutual.example.com"
+        project = self.make_project("proj:mutual", "service_url", service_url)
+        registry.add_manual_seed(project, "service_url", service_url, source="test")
+        project["relation_evidence"] = relations.normalize_relation_records([{
+            "relation": {
+                "subject": {"type": "service", "value": service_url},
+                "predicate": "source_repository",
+                "object": {"type": "repo", "value": repo_url},
+                "locator": service_url,
+                "method": "first_party_link",
+            },
+            "source": f"service_page:{service_url}",
+            "classification": "confirmed",
+            "observed_at": "2026-06-09T00:00:00+00:00",
+            "context": {"link_text": "Source code"},
+        }])
+        project_record.save_project(conn, project)
+        scan = {
+            "query": query,
+            "results": [{
+                "url": repo_url,
+                "full_name": "example/mutual",
+                "description": "",
+                "homepage": service_url,
+                "updated_at": "2026-06-10T00:00:00Z",
+                "stargazers_count": 0,
+                "query": query,
+            }],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = source_sync.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=False,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                )
+            saved = project_record.fetch_project(conn, "proj:mutual")
+            adoption = conn.execute(
+                """
+                SELECT source, registration_origin
+                FROM project_identifier_adoptions
+                WHERE project_key='proj:mutual' AND kind='repo_url' AND value=? AND cleared_at=''
+                """,
+                (repo_url,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert saved is not None
+        assert adoption is not None
+        self.assertEqual(summary["matched_existing"], 1)
+        self.assertEqual(summary["match_reasons"], {"homepage_exact_trust_policy": 1})
+        self.assertEqual(summary["suggested_existing_matches"], 0)
+        self.assertIn(repo_url, saved["source_code_urls"])
+        self.assertNotIn(repo_url, [item["value"] for item in saved["manual_seeds"]])
+        self.assertEqual((str(adoption["source"]), bool(adoption["registration_origin"])), ("trust_policy", False))
+
+    def test_github_homepage_exact_does_not_choose_between_ambiguous_candidates(self) -> None:
+        conn = registry.open_db()
+        query = "atproto"
+        repo_url = "https://github.com/example/ambiguous"
+        service_url = "https://ambiguous.example.com"
+        for project_key in ("proj:ambiguous1", "proj:ambiguous2"):
+            project = self.make_project(project_key, "repo_url", f"https://github.com/example/{project_key}")
+            project_record.set_service_url_candidate_values(project, [service_url])
+            project_record.save_project(conn, project)
+        scan = {
+            "query": query,
+            "results": [{
+                "url": repo_url,
+                "full_name": "example/ambiguous",
+                "description": "",
+                "homepage": service_url,
+                "updated_at": "2026-06-10T00:00:00Z",
+                "stargazers_count": 0,
+                "query": query,
+            }],
+            "pages": 1,
+            "boundary_reached": True,
+            "scan_complete": True,
+            "newest_timestamp": "2026-06-10T00:00:00+00:00",
+        }
+        try:
+            with mock.patch.object(source_sync, "fetch_github_search_query_sync_results", return_value=scan):
+                summary = source_sync.sync_github_search(
+                    conn,
+                    queries=[query],
+                    execute=True,
+                    create_unmatched=False,
+                    pages=1,
+                    per_page=10,
+                    lookback_days=10,
+                )
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["matched_existing"], 0)
+        self.assertEqual(summary["suggested_existing_matches"], 1)
+        suggestion = summary["suggested_entries"][0]
+        self.assertIsNone(suggestion["suggested_project_key"])
+        self.assertEqual(
+            suggestion["suggested_project_keys"],
+            ["proj:ambiguous1", "proj:ambiguous2"],
+        )
+        self.assertEqual(suggestion["suggested_match_kind"], "homepage_exact_candidate_ambiguous")
 
     def test_github_create_unmatched_keeps_operator_notes_empty(self) -> None:
         conn = registry.open_db()
