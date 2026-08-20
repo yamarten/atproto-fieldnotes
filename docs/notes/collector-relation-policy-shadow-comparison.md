@@ -1,6 +1,6 @@
 # collector relation policyのshadow比較
 
-> 作業用・比較用文書です。現行仕様の正本ではありません。2026-08-20時点の正本DBをread-onlyで評価した結果を記録します。productionのcollector、relation保存、candidate admission、auto-confirmは変更していません。
+> 作業用・比較用文書です。2026-08-20時点の正本DBをread-onlyで評価した結果と、そのreview後に実装した変更を記録します。production codeは変更済みですが、正本DBへの既存relation移行はまだ実行していません。
 
 ## 結論
 
@@ -12,7 +12,7 @@ GitHub repository metadataのhomepageは、repository管理者がそのURLをrep
 
 したがって、GitHub homepageについて現時点で支持できる方針は、「直接参照として保持する」「target roleを別に判定する」「candidate生成とauto-confirmを分ける」です。GitHub homepage単独でserviceをconfirmedにはしませんが、現在のconfirmed repositoryから得たURLを調査candidateにする処理まで一律に止める根拠もありません。
 
-保存上は、GitHub homepageを`source_repository`ではなく、repo→URLの`repository_homepage`という専用predicateで保持する案が最も素直です。このrelationの`confirmed`は「GitHub metadataでそのhomepage指定を直接観測した」という事実の確定であり、target URLがserviceであることやproject identifierとしてconfirmedであることを意味しません。現行の`repo_links_service` trust edgeもhomepageだけからは作らず、service候補、Website候補、docs等への投影を後段policyへ分けます。
+保存上は、GitHub homepageを`source_repository`ではなく、repo→URLの`repository_homepage`という専用predicateで保持します。このrelationの`confirmed`は「GitHub metadataでそのhomepage指定を直接観測した」という事実の確定であり、target URLがserviceであることやproject identifierとしてconfirmedであることを意味しません。`repo_links_service` trust edgeもhomepageだけからは作らず、service候補、Website候補、docs等への投影を後段policyへ分けます。
 
 ## 分離した三つの判断
 
@@ -62,7 +62,7 @@ bin/project-registry compare-collector-relation-policy \
 
 SQLiteは`mode=ro`と`PRAGMA query_only=ON`の単一read transactionで開きます。temp DB testでは実行前後のDB byte列が一致することを確認します。reportのcontent hashは`2fe42e5161c4f70f5652976bc0c6b1c7c58ec5518b55421eaf0d9274c5902eac`です。
 
-固定case 12件はすべて成功しました。明示的source link、外部リンク記号を伴う表示文言、GitHub Sponsorsの`open source`誤認、provider icon、保存文脈欠落、deep path、provider root、service homepage、相互参照、docs、funding、package pageを含みます。三軸分離については、profile URLをserviceへしないこと、legacy採用と追跡可能な採用でcandidate profileが分かれること、代表Websiteをserviceへ読み替えないことをunit testで確認しました。全unit testは643件に成功しました。
+固定case 12件はすべて成功しました。明示的source link、外部リンク記号を伴う表示文言、GitHub Sponsorsの`open source`誤認、provider icon、保存文脈欠落、deep path、provider root、service homepage、相互参照、docs、funding、package pageを含みます。三軸分離については、profile URLをserviceへしないこと、legacy採用と追跡可能な採用でcandidate profileが分かれること、代表Websiteをserviceへ読み替えないことをunit testで確認しました。production接続後の全unit testは648件に成功しました。
 
 ## 入力の全体像
 
@@ -142,7 +142,20 @@ project名とrepository名の単純な一致・包含は214件、不一致は43�
 | 不正URLのためrun observationだけに残す | 2 |
 | 重複している現行row | 2 |
 
-これはSQL table追加を必要としません。`project_relations`のpredicateとpolicyを分ければ表現できます。ただしproductionへ接続する際は、現行homepage由来の`source_repository` 421 claimと、それから作られたtrust edgeを置換・再評価する必要があります。この比較はその変更を実行していません。
+これはSQL table追加を必要としません。`project_relations`のpredicateとpolicyを分ければ表現できます。上表はreviewに使った2026-08-20時点のsnapshotであり、その後の正本DBでは旧rowが1件増えています。
+
+## production接続と複製DB検証
+
+review後、collectorと保存処理を次の契約へ変更しました。
+
+- GitHub homepageは公開URLとして妥当ならconfirmed `repository_homepage` relationとして保存する
+- account/profile、docs、package、funding、別repository、非公開・不正URLをservice candidateへ投影しない
+- homepage単独では`repo_links_service` trust edgeを作らない
+- confirmed service→repositoryの明示的source relationと、repository→同一exact URLのhomepage観測が揃った場合だけ、往路・復路の意味を持つ`repository_homepage_pair` edgeを作る
+- repositoryを正常に再取得した時は、そのrepositoryの旧homepage relationとそれに由来するedgeを置換する。取得失敗やsnapshotのない限定検査では消さない
+- 旧`source_repository/github_homepage` relationは通常の`repair-db`正規化で専用predicateへ移す。全評価再計算では古い候補・経路コピーを残さず、現行identifierから評価一覧を作り直す
+
+2026-08-20の正本DBからSQLite online backupで作った複製へ適用した結果、旧424 rowは、重複2 rowと公開URLとして不正な2 claimを除いてconfirmed `repository_homepage` 420 claimになりました。旧`github_homepage` trust edgeは785本から0本になり、exactな相互参照が揃う`repository_homepage_pair` edge 80本を77 projectで再構成しました。旧methodを含む保存済み評価は0件、foreign key違反は0件、`integrity_check`は`ok`です。正本DBは未変更です。
 
 専用predicateへ分ける理由は、同じ一つの観測から次の異なる用途を直結させないためです。
 
@@ -178,7 +191,7 @@ homepageの調査で得た一般則は、collector relation全体でも次の順
 
 GitHub homepageはこの分離を具体化する最初の代表例です。合意後は、service pageのrepository link、README link、GitHub searchの`homepage_exact` attachへ同じ考え方を適用し、構成要素間関係判定全体へ戻ります。なお`homepage_exact`による既存projectへのrepository自動attachはrepo→URLの一方向自己申告をproject選択にも使う別経路であり、このshadow変更には含めません。
 
-## 次のreviewで決めること
+## reviewで合意したこと
 
 1. GitHub homepageは公開URLとして妥当なら、confirmedな直接観測relation `repository_homepage`として保持し、homepage由来の`source_repository`とtrust edgeを置き換える。
 2. account/profile、docs、package、funding、別repositoryはservice candidateから除外するが、Websiteや補助情報としての利用を別に判断する。
@@ -187,4 +200,4 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 5. candidate生成では逆方向の支持を必須にせず、auto-confirmでのみ静的trust policyの往路と復路を要求する。
 6. relation assessorの固定corpusは、名前不一致、公式の広域Website、個人・organization site、shared repo、deployment、time caseを含む層化sampleから作る。名前一致自体はpolicyへ使わない。
 
-このreview後に、collectorがGitHub homepageをservice URLへ直接投影する現行処理を、専用relation保存、target role判定、用途別candidate生成へ分けるproduction計画を作ります。その後、homepageで確立した分離規則をservice→repo等の構成要素間関係判定へ戻します。既存relation cleanup、DB schema、Web UIはまだ変更しません。
+上記1〜5はproduction codeへ反映しました。6のrelation assessor固定corpusと、service→repo、README、GitHub searchの`homepage_exact` attachを含む構成要素間関係判定全体は次の設計・実装単位です。正本DBの既存relation cleanup、Website候補のreview UI、DB schema変更はまだ実施していません。

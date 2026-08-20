@@ -196,6 +196,8 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 - `context_json`: operation、score、bounded extractなどの補助情報
 - `observed_at`
 
+relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。
+
 主要predicate:
 
 - `defines_schema`: accepted repoやaccountがaccepted schemaを定義する
@@ -203,6 +205,7 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 - `mentions_collection`: docs、example、test、unaccepted schema fileなどで言及するだけ
 - `official_account`: siteやrepoがaccountを公式として示す
 - `operates_service`: identityがserviceを運営する
+- `repository_homepage`: repository metadataのWebsite欄がURLを直接示す。URLのtarget roleやproject帰属は含意しない
 - `source_repository`: app/siteとrepoがsource関係にある
 - `requests_permission`: OAuth metadataがrepo permissionを要求する
 - `redirects_to`: URL間の実観測redirect/canonical関係

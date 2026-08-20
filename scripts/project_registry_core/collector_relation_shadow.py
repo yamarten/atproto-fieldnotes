@@ -10,6 +10,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from . import collector_relation_policy
 from . import identifiers
 from . import repo_urls
 
@@ -57,31 +58,6 @@ SERVICE_SURFACE_MARKERS = {
     "browser_public_app_surface_detected",
     "login_surface_detected",
 }
-FUNDING_HOSTS = {
-    "buymeacoffee.com",
-    "ko-fi.com",
-    "opencollective.com",
-    "patreon.com",
-}
-PACKAGE_HOSTS = {
-    "crates.io",
-    "greasyfork.org",
-    "jsr.io",
-    "metacpan.org",
-    "npmjs.com",
-    "packagist.org",
-    "pkg.go.dev",
-    "pypi.org",
-    "pub.dev",
-    "swiftpackageindex.com",
-}
-DOCUMENTATION_HOSTS = {
-    "docs.rs",
-    "hexdocs.pm",
-    "readthedocs.io",
-}
-
-
 def _json(value: Any, default: Any) -> Any:
     if isinstance(value, (dict, list)):
         return value
@@ -124,40 +100,7 @@ def classify_service_link_label(value: str) -> str:
 
 
 def classify_url_role(value: str) -> str:
-    normalized = identifiers.normalize_url(str(value or ""))
-    parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower().removeprefix("www.")
-    path = parsed.path.lower().rstrip("/")
-    if not normalized or parsed.scheme not in {"http", "https"} or not host:
-        return "invalid"
-    if (
-        "." not in host
-        or host == "localhost"
-        or host.endswith((".localhost", ".example", ".invalid", ".local", ".test"))
-    ):
-        return "non_public"
-    if repo_urls.is_supported_repo_url(normalized):
-        return "repository"
-    if host == "github.com" and path.startswith("/sponsors"):
-        return "funding"
-    if host in FUNDING_HOSTS:
-        return "funding"
-    if host in PACKAGE_HOSTS:
-        return "package"
-    if host == "wordpress.org" and path.startswith("/plugins/"):
-        return "package"
-    if host == "bsky.app" and path.startswith("/profile/"):
-        return "account_profile"
-    if (
-        host in DOCUMENTATION_HOSTS
-        or host.startswith("docs.")
-        or path == "/docs"
-        or path.startswith("/docs/")
-        or path == "/documentation"
-        or path.startswith("/documentation/")
-    ):
-        return "documentation"
-    return "unknown"
+    return collector_relation_policy.classify_url_role(value)
 
 
 def _subject_adoption_sources(observation: dict[str, Any]) -> set[str]:
@@ -265,8 +208,9 @@ def evaluate_homepage_candidate_profiles(observation: dict[str, Any]) -> dict[st
 
 
 def homepage_is_website_candidate(observation: dict[str, Any]) -> bool:
-    role = evaluate_homepage_target_role(observation)["role"]
-    return role not in {"account_profile", "funding", "invalid", "non_public", "repository"}
+    return collector_relation_policy.repository_homepage_is_website_candidate(
+        str(observation.get("object_value") or "")
+    )
 
 
 def endpoint_status(value: str) -> dict[str, str]:
@@ -500,7 +444,11 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         project["link_index"] = _service_link_index(project["state"])
         project["surface_statuses"] = _surface_statuses(project["state"], project["identifiers"])
     for row in conn.execute(
-        "SELECT * FROM project_relations WHERE predicate='source_repository' ORDER BY project_key, ordinal"
+        """
+        SELECT * FROM project_relations
+        WHERE predicate IN ('source_repository', 'repository_homepage')
+        ORDER BY project_key, ordinal
+        """
     ):
         project = projects.get(str(row["project_key"]))
         if project is None:
@@ -556,6 +504,7 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "source": str(row["source"]),
             "locator": str(row["locator"]),
             "method": str(row["method"]),
+            "current_relation_predicate": str(row["predicate"]),
             "current_relation_classification": str(row["classification"]),
             "observed_at": str(row["observed_at"]),
             "subject_identifiers": list(project["identifiers"].get(subject_key, [])),
@@ -886,7 +835,14 @@ def compare_database(
         "source": {"read_only": True},
         "input": {
             "project_count": len(projects),
-            "source_repository_relation_count": len(observations),
+            "relation_observation_count": len(observations),
+            "source_repository_relation_count": sum(
+                item["current_relation_predicate"] == "source_repository"
+                for item in observations
+            ),
+            "relation_predicate_counts": _counter(
+                item["current_relation_predicate"] for item in observations
+            ),
             "direction_counts": _counter(item["direction"] for item in observations),
             "method_counts": _counter(method_counts),
             "current_relation_classification_counts": _counter(
@@ -969,10 +925,16 @@ def compare_database(
             },
         },
         "github_homepage_storage_projection": {
-            "current_source_repository_row_count": len(homepage_rows),
-            "current_distinct_source_repository_claim_count": len(homepage_unique_rows),
-            "current_duplicate_source_repository_row_count": len(homepage_rows)
-            - len(homepage_unique_rows),
+            "current_source_repository_row_count": sum(
+                item["current_relation_predicate"] == "source_repository"
+                for item, _strict in homepage_rows
+            ),
+            "current_repository_homepage_row_count": sum(
+                item["current_relation_predicate"] == "repository_homepage"
+                for item, _strict in homepage_rows
+            ),
+            "current_distinct_homepage_claim_count": len(homepage_unique_rows),
+            "current_duplicate_homepage_row_count": len(homepage_rows) - len(homepage_unique_rows),
             "current_row_classification_counts": _counter(homepage_row_classifications),
             "current_distinct_claim_classification_counts": _counter(
                 homepage_current_relation_classifications

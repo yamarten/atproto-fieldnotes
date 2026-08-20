@@ -106,6 +106,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
+- relationの`confirmed`はpredicateの直接事実が確定したことを表し、endpoint identifierのconfirmedやtrust edgeへの採用を意味しません。信頼経路ではpredicate、方向、roleを静的policyへ照合し、適格なedgeだけを使います
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
 - 未clearの`confirm_identifier`はgraph外anchorです。sourceでoperator入力と採用済みsource syncを区別します
@@ -367,7 +368,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - repo metadata から取るもの:
   - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
-  - `homepage` は `service_url_candidates`
+  - `homepage` は公開URLとして妥当ならconfirmed `repository_homepage` relationとして保存する。account/profile、docs、package、funding、別repositoryを静的に除外したURLだけを`service_url_candidates`へ投影し、homepage単独ではtrust edgeを作らない
   - `updated_at` は `source_repo_records[].updated_at`
 - tree / lexicon hint の扱い:
   - `lexicon/`, `lexicons/`, `schema/` 配下などの JSON を lexicon 候補として走査します
@@ -419,7 +420,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
   - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
   - service probe由来edgeとその再生成元のrelationは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
-  - GitHub repository metadata の homepage は `repo_links_service`
+  - GitHub repository metadataのhomepageは`repository_homepage`として観測を保存する。confirmed first-party serviceから同じrepositoryへの明示的`source_repository` relationがあり、service URLとhomepageがexact一致する場合だけ、信頼経路用の`repo_links_service`を再構成する
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
   - activeなservice URL採用decisionのhostそのものはanchorとしてsupportします
 - service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。`service -> repo` と `repo -> service` の相互信頼が成立する場合だけ URL confirmed に使います。

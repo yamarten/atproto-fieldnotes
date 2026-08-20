@@ -104,6 +104,34 @@ class TrustGraphCoreTest(unittest.TestCase):
 
 
 class RegistryTrustGraphIntegrationTest(unittest.TestCase):
+    def test_full_evaluation_refresh_removes_stale_candidates_and_paths(self) -> None:
+        project = project_record.default_project_record(
+            "proj:refreshtrust", "repo_url", "https://github.com/example/app"
+        )
+        registry.add_manual_seed(
+            project, "repo_url", "https://github.com/example/app", source="test"
+        )
+        trust_graph.upsert_evaluation(project, {
+            "candidate": {"kind": "service_url", "value": "https://stale.example.com"},
+            "auto_confirm": True,
+            "reason": "mutual_trust_path",
+            "forward_path": [{"method": "github_homepage"}],
+            "backward_path": [],
+            "policy_version": trust_graph.TRUST_POLICY_VERSION,
+        })
+
+        registry.refresh_trust_graph_evaluations(project)
+
+        evaluations = trust_graph.graph(project)["evaluations"]
+        self.assertFalse(any(
+            (item.get("candidate") or {}).get("value") == "https://stale.example.com"
+            for item in evaluations
+        ))
+        self.assertTrue(any(
+            (item.get("candidate") or {}).get("value") == "https://github.com/example/app"
+            for item in evaluations
+        ))
+
     def test_blocked_service_candidate_does_not_auto_confirm(self) -> None:
         project = project_record.default_project_record("proj:blockedtrust", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
@@ -586,8 +614,8 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             conn.close()
 
         self.assertEqual(audit["issue_counts"]["missing_recomputed_edge"], 1)
-        self.assertEqual(audit["issue_counts"]["needs_reprobe"], 1)
-        self.assertEqual(audit["issue_counts"]["should_downgrade"], 1)
+        self.assertEqual(audit["issue_counts"]["needs_reprobe"], 0)
+        self.assertEqual(audit["issue_counts"]["should_downgrade"], 2)
 
     def test_repair_trust_graph_persists_recomputed_edges_without_downgrade_by_default(self) -> None:
         conn = registry.open_db()

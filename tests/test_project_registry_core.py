@@ -2228,13 +2228,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             {
                 "relation": {
                     "subject": {"type": "repo", "value": "https://github.com/example/app"},
-                    "predicate": "source_repository",
+                    "predicate": "repository_homepage",
                     "object": {"type": "website", "value": "https://app.example.com"},
                     "locator": "README",
                     "method": "github_homepage",
                 },
                 "source": "github_repo_metadata:https://github.com/example/app",
-                "classification": "candidate",
+                "classification": "confirmed",
             }
         ]
         result = {
@@ -2268,13 +2268,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
-                "predicate": "source_repository",
+                "predicate": "repository_homepage",
                 "object": {"type": "website", "value": "https://app.example.com"},
                 "locator": "README",
                 "method": "github_homepage",
             },
             "source": "github_repo_metadata:https://github.com/example/app",
-            "classification": "candidate",
+            "classification": "confirmed",
         }]
         result = {
             "status_code": 200,
@@ -2308,13 +2308,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/plugin"},
-                "predicate": "source_repository",
+                "predicate": "repository_homepage",
                 "object": {"type": "website", "value": "https://framework.example"},
                 "locator": "README",
                 "method": "github_homepage",
             },
             "source": "github_repo_metadata:https://github.com/example/plugin",
-            "classification": "candidate",
+            "classification": "confirmed",
         }]
         registry.service_probe_supports_project(project, "https://framework.example", {
             "status_code": 200,
@@ -2345,13 +2345,13 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
-                "predicate": "source_repository",
+                "predicate": "repository_homepage",
                 "object": {"type": "website", "value": "https://app.example.com"},
                 "locator": "README",
                 "method": "github_homepage",
             },
             "source": "github_repo_metadata:https://github.com/example/app",
-            "classification": "candidate",
+            "classification": "confirmed",
         }]
         base_result = {
             "status_code": 200,

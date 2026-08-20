@@ -4,6 +4,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from . import collector_relation_policy
 from . import service
 from .evidence import EvidenceBundle
 from .relations import normalize_relation_records
@@ -40,6 +41,7 @@ class GitHubRepoIntegrationDependencies:
     add_candidate_source_code_url: Callable[..., None]
     repo_context_service_candidate_allowed: Callable[..., bool]
     record_trust_edge: Callable[..., dict[str, Any]]
+    remove_trust_edges: Callable[..., int]
 
 
 @dataclass(frozen=True)
@@ -367,6 +369,37 @@ def apply_github_repo_evidence(
     if str(project.get("project_key") or "") != bundle.project_key:
         raise ValueError("evidence project_key does not match target project")
 
+    inspected_repo_urls = {
+        dependencies.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
+        for record in bundle.records
+        if record.kind == "github_repo_snapshot" and isinstance(record.value, dict)
+    }
+    inspected_repo_urls.discard(None)
+    if inspected_repo_urls:
+        retained_relations: list[dict[str, Any]] = []
+        for item in normalize_relation_records(project.get("relation_evidence", [])):
+            relation = item["relation"]
+            subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+            is_inspected_repo = (
+                subject.get("type") == "repo"
+                and dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+                in inspected_repo_urls
+            )
+            is_current_homepage_relation = relation.get("predicate") == "repository_homepage"
+            is_legacy_homepage_relation = (
+                relation.get("predicate") == "source_repository"
+                and str(relation.get("method") or "") == "github_homepage"
+            )
+            if is_inspected_repo and (is_current_homepage_relation or is_legacy_homepage_relation):
+                continue
+            retained_relations.append(item)
+        project["relation_evidence"] = retained_relations
+        dependencies.remove_trust_edges(
+            project,
+            predicate="repo_links_service",
+            methods={"github_homepage", "repository_homepage_pair"},
+        )
+
     snapshot_lexicon_ids: dict[str, list[str]] = {}
     for record in bundle.records:
         if record.kind != "github_repo_snapshot" or not isinstance(record.value, dict):
@@ -390,6 +423,27 @@ def apply_github_repo_evidence(
                 classification,
                 dependencies,
             )
+            subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+            obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+            if (
+                relation.get("predicate") == "source_repository"
+                and str(relation.get("method") or "") == "github_homepage"
+                and subject.get("type") == "repo"
+                and obj.get("type") in {"service", "website"}
+            ):
+                repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+                homepage = collector_relation_policy.normalize_repository_homepage(
+                    str(obj.get("value") or "")
+                )
+                if not repo_url or not homepage:
+                    continue
+                relation = {
+                    **relation,
+                    "subject": {"type": "repo", "value": repo_url},
+                    "predicate": "repository_homepage",
+                    "object": {"type": "website", "value": homepage},
+                }
+                classification = "confirmed"
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
                 + [{"relation": relation, "source": record.source,
@@ -398,6 +452,17 @@ def apply_github_repo_evidence(
             )
             subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
             obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+            if (
+                relation.get("predicate") == "repository_homepage"
+                and subject.get("type") == "repo"
+                and obj.get("type") == "website"
+            ):
+                service_candidate = collector_relation_policy.repository_homepage_service_candidate(
+                    str(obj.get("value") or "")
+                )
+                if service_candidate:
+                    dependencies.add_candidate_url(project, "service_url", service_candidate)
+                continue
             if (
                 relation.get("predicate") == "source_repository"
                 and subject.get("type") == "repo"
@@ -414,8 +479,8 @@ def apply_github_repo_evidence(
                     source=record.source,
                     locator=str(relation.get("locator") or ""),
                     method=method,
-                    classification="confirmed" if method == "github_homepage" else classification,
-                    eligible_for_auto_confirm=method == "github_homepage",
+                    classification=classification,
+                    eligible_for_auto_confirm=classification == "confirmed",
                     observed_at=record.observed_at,
                     context={"from_relation": True},
                 )
@@ -457,7 +522,6 @@ def apply_github_repo_evidence(
         repo_url = str(snapshot.get("repo_url") or "")
         repo = dict(snapshot.get("repo") or {})
         description = str(repo.get("description") or "")
-        homepage = str(repo.get("homepage") or "")
         full_name = str(repo.get("full_name") or "")
         repo_updated_at = str(repo.get("updated_at") or "")
         fork = bool(repo.get("fork"))
@@ -497,25 +561,6 @@ def apply_github_repo_evidence(
         source_label = full_name or dependencies.normalize_url(repo_url)
         dependencies.add_candidate_text(project, "summary", description, f"github:{source_label}")
         dependencies.add_candidate_text(project, "tagline", description, f"github:{source_label}")
-        if homepage:
-            normalized_homepage = dependencies.normalize_service_candidate_url(homepage)
-            if normalized_homepage:
-                dependencies.record_trust_edge(
-                    project,
-                    "repo_url",
-                    repo_url,
-                    "repo_links_service",
-                    "service_url",
-                    normalized_homepage,
-                    source=record.source,
-                    locator=repo_url,
-                    method="github_homepage",
-                    classification="confirmed",
-                    eligible_for_auto_confirm=True,
-                    observed_at=record.observed_at,
-                    context={"from_snapshot": True},
-                )
-                dependencies.add_candidate_url(project, "service_url", normalized_homepage)
 
         lexicon_hints = [
             dict(item) for item in snapshot.get("lexicon_hints", [])

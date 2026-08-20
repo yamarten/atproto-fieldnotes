@@ -4,6 +4,8 @@ import re
 import urllib.parse
 from typing import Any
 
+from . import collector_relation_policy
+from . import repo_urls
 from .evidence import EVIDENCE_CLASSIFICATIONS, EvidenceEntity, EvidenceRecord, RelationEvidence
 
 
@@ -13,6 +15,7 @@ RELATION_PREDICATES = {
     "mentions_collection",
     "official_account",
     "operates_service",
+    "repository_homepage",
     "source_repository",
     "requests_permission",
     "redirects_to",
@@ -101,6 +104,57 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             existing["observed_at"] = normalized["observed_at"]
         existing["context"] = {**existing["context"], **normalized["context"]}
     return output
+
+
+def migrate_repository_homepage_relations(project: dict[str, Any]) -> dict[str, int]:
+    output: list[dict[str, Any]] = []
+    converted = 0
+    normalized_count = 0
+    dropped = 0
+    for item in normalize_relation_records(project.get("relation_evidence", [])):
+        relation = dict(item["relation"])
+        subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
+        obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+        legacy = (
+            relation.get("predicate") == "source_repository"
+            and str(relation.get("method") or "") == "github_homepage"
+            and subject.get("type") == "repo"
+            and obj.get("type") in {"service", "website"}
+        )
+        current = (
+            relation.get("predicate") == "repository_homepage"
+            and subject.get("type") == "repo"
+            and obj.get("type") == "website"
+        )
+        if not legacy and not current:
+            output.append(item)
+            continue
+        repo_url = repo_urls.canonical_repo_url(str(subject.get("value") or ""))
+        homepage = collector_relation_policy.normalize_repository_homepage(
+            str(obj.get("value") or "")
+        )
+        if not repo_url or not homepage:
+            dropped += 1
+            continue
+        rewritten = {
+            **item,
+            "relation": {
+                **relation,
+                "subject": {"type": "repo", "value": repo_url},
+                "predicate": "repository_homepage",
+                "object": {"type": "website", "value": homepage},
+            },
+            "classification": "confirmed",
+        }
+        converted += int(legacy)
+        normalized_count += int(rewritten != item)
+        output.append(rewritten)
+    project["relation_evidence"] = normalize_relation_records(output)
+    return {
+        "converted_count": converted,
+        "normalized_count": normalized_count,
+        "dropped_count": dropped,
+    }
 
 
 def classify_lexicon_path(path: str, schema: dict[str, Any]) -> tuple[str, str]:
@@ -208,16 +262,37 @@ def corroborate_source_repositories(project: dict[str, Any]) -> list[str]:
     app_to_repo: dict[str, set[str]] = {}
     repo_to_app: dict[str, set[str]] = {}
     for item in relations:
-        relation = item["relation"]
-        if relation["predicate"] != "source_repository":
+        if item["classification"] != "confirmed":
             continue
+        relation = item["relation"]
         subject, obj = relation["subject"], relation["object"]
-        if subject["type"] in {"service", "website"} and obj["type"] == "repo":
-            app_to_repo.setdefault(obj["value"].rstrip("/"), set()).add(item["source"].split(":", 1)[0])
-        elif subject["type"] == "repo" and obj["type"] in {"service", "website"}:
-            repo_to_app.setdefault(subject["value"].rstrip("/"), set()).add(item["source"].split(":", 1)[0])
+        if relation["predicate"] == "source_repository":
+            if subject["type"] in {"service", "website"} and obj["type"] == "repo":
+                repo_url = repo_urls.canonical_repo_url(obj["value"])
+                service_url = collector_relation_policy.normalize_repository_homepage(subject["value"])
+                if repo_url and service_url:
+                    app_to_repo.setdefault(repo_url, set()).add(service_url)
+            elif subject["type"] == "repo" and obj["type"] in {"service", "website"}:
+                repo_url = repo_urls.canonical_repo_url(subject["value"])
+                service_url = collector_relation_policy.normalize_repository_homepage(obj["value"])
+                if repo_url and service_url:
+                    repo_to_app.setdefault(repo_url, set()).add(service_url)
+        elif (
+            relation["predicate"] == "repository_homepage"
+            and subject["type"] == "repo"
+            and obj["type"] == "website"
+        ):
+            repo_url = repo_urls.canonical_repo_url(subject["value"])
+            homepage = collector_relation_policy.normalize_repository_homepage(obj["value"])
+            if (
+                repo_url
+                and homepage
+                and collector_relation_policy.repository_homepage_service_candidate(homepage)
+            ):
+                repo_to_app.setdefault(repo_url, set()).add(homepage)
     return sorted(
         repo
         for repo in set(app_to_repo) & set(repo_to_app)
-        if app_to_repo[repo] != repo_to_app[repo] and not identifier_is_guarded(project, "repo_url", repo)
+        if app_to_repo[repo] & repo_to_app[repo]
+        and not identifier_is_guarded(project, "repo_url", repo)
     )

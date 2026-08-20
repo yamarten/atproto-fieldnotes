@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from project_registry_core import CollectorResult, EvidenceBundle
+from project_registry_core import collector_relation_policy
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
@@ -2280,6 +2281,9 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
 def refresh_trust_graph_evaluations(project: dict[str, Any]) -> dict[str, Any]:
     before = project_record.dump_json(trust_graph_core.graph(project))
     sync_trust_edges_from_project_relations(project)
+    graph = trust_graph_core.graph(project)
+    graph["evaluations"] = []
+    trust_graph_core.set_graph(project, graph)
     evaluated = 0
     auto_confirmable = 0
     for item in runtime_view.project_identifiers(project):
@@ -4964,7 +4968,13 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
-    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+    relations = relation_core.normalize_relation_records(project.get("relation_evidence", []))
+    trust_graph_core.remove_edges(
+        project,
+        predicate="repo_links_service",
+        methods={"github_homepage", "repository_homepage_pair"},
+    )
+    for item in relations:
         relation = item["relation"]
         if relation.get("predicate") != "source_repository":
             continue
@@ -4974,6 +4984,8 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
         source = str(item.get("source") or "")
         observed_at = str(item.get("observed_at") or "")
         if subject.get("type") == "repo" and obj.get("type") in {"website", "service"}:
+            if method == "github_homepage":
+                continue
             project_record.record_trust_edge(
                 project,
                 "repo_url",
@@ -4984,8 +4996,8 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
                 source=source,
                 locator=str(relation.get("locator") or ""),
                 method=method,
-                classification="confirmed" if method == "github_homepage" else str(item.get("classification") or "candidate"),
-                eligible_for_auto_confirm=method == "github_homepage",
+                classification=str(item.get("classification") or "candidate"),
+                eligible_for_auto_confirm=str(item.get("classification") or "") == "confirmed",
                 observed_at=observed_at,
                 context={"from_relation": True},
             )
@@ -5005,6 +5017,64 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
                 observed_at=observed_at,
                 context={"from_relation": True},
             )
+
+    forward_edges = [
+        edge
+        for edge in trust_graph_core.graph(project).get("edges", [])
+        if edge.get("predicate") == "service_links_repo"
+        and edge.get("classification") == "confirmed"
+        and bool(edge.get("eligible_for_auto_confirm"))
+    ]
+    for item in relations:
+        relation = item["relation"]
+        legacy_homepage = (
+            relation.get("predicate") == "source_repository"
+            and str(relation.get("method") or "") == "github_homepage"
+        )
+        if (
+            relation.get("predicate") != "repository_homepage"
+            and not legacy_homepage
+        ) or item.get("classification") != "confirmed":
+            continue
+        subject = relation.get("subject") or {}
+        obj = relation.get("object") or {}
+        if subject.get("type") != "repo" or obj.get("type") != "website":
+            continue
+        homepage = collector_relation_policy.normalize_repository_homepage(
+            str(obj.get("value") or "")
+        )
+        if not homepage or not collector_relation_policy.repository_homepage_service_candidate(homepage):
+            continue
+        repo_url = repo_url_core.canonical_repo_url(str(subject.get("value") or ""))
+        for forward in forward_edges:
+            forward_subject = forward.get("subject") if isinstance(forward.get("subject"), dict) else {}
+            forward_object = forward.get("object") if isinstance(forward.get("object"), dict) else {}
+            if (
+                forward_subject.get("kind") != "service_url"
+                or identifier_core.normalize_url(str(forward_subject.get("value") or "")) != homepage
+                or forward_object.get("kind") != "repo_url"
+                or repo_url_core.canonical_repo_url(str(forward_object.get("value") or "")) != repo_url
+            ):
+                continue
+            project_record.record_trust_edge(
+                project,
+                "repo_url",
+                repo_url,
+                "repo_links_service",
+                "service_url",
+                homepage,
+                source=str(item.get("source") or ""),
+                locator=str(relation.get("locator") or ""),
+                method="repository_homepage_pair",
+                classification="confirmed",
+                eligible_for_auto_confirm=True,
+                observed_at=str(item.get("observed_at") or ""),
+                context={
+                    "from_relation": True,
+                    "paired_service_relation_source": str(forward.get("source") or ""),
+                },
+            )
+            break
 
 
 COLLECTION_TRUST_NODE_KINDS = {"service_url", "did", "collection", "domain", "handle"}
@@ -5463,15 +5533,27 @@ def apply_candidate_repo_trust_evidence(
         relation = dict(record.value)
         subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
         obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
+        predicate = str(relation.get("predicate") or "")
+        object_value = identifier_core.normalize_url(str(obj.get("value") or ""))
+        homepage_matches_project_service = (
+            predicate == "repository_homepage"
+            and object_value in set(confirmed_service_identity_urls(project))
+        )
         if (
-            relation.get("predicate") != "source_repository"
+            predicate not in {"repository_homepage", "source_repository"}
             or subject.get("type") != "repo"
             or repo_url_core.canonical_repo_url(str(subject.get("value") or "")) != normalized_repo
             or obj.get("type") not in {"website", "service"}
-            or not service_reference_matches_project(project, str(obj.get("value") or ""))
+            or (
+                not homepage_matches_project_service
+                and not (
+                    predicate == "source_repository"
+                    and service_reference_matches_project(project, str(obj.get("value") or ""))
+                )
+            )
         ):
             continue
-        normalized_service = identifier_core.normalize_url(str(obj.get("value") or ""))
+        normalized_service = object_value
         relation["subject"] = {"type": "repo", "value": normalized_repo}
         relation["object"] = {"type": "website", "value": normalized_service}
         project["relation_evidence"] = relation_core.normalize_relation_records(
@@ -5484,6 +5566,10 @@ def apply_candidate_repo_trust_evidence(
                 "context": {**dict(record.context), "candidate_repo_trust_inspection": True},
             }]
         )
+        if predicate == "repository_homepage":
+            sync_trust_edges_from_project_relations(project)
+            accepted += 1
+            continue
         project_record.record_trust_edge(
             project,
             "repo_url",
@@ -6721,6 +6807,7 @@ def apply_github_repo_evidence(
             add_candidate_source_code_url=add_candidate_source_code_url,
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
             record_trust_edge=project_record.record_trust_edge,
+            remove_trust_edges=trust_graph_core.remove_edges,
         ),
         confirm_repo_snapshot=confirm_repo_snapshot,
     )
@@ -10230,6 +10317,9 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         if url not in project.get("source_code_urls", [])
     ]
     project_record.sync_source_repo_provider_views(project)
+    homepage_relation_migration = relation_core.migrate_repository_homepage_relations(project)
+    if any(homepage_relation_migration.values()):
+        refresh_trust_graph_evaluations(project)
     normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)

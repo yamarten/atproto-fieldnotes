@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from html import unescape
 from typing import Any, Callable
 
+from . import collector_relation_policy
 from .evidence import (
     CollectorFailure,
     EvidenceBundle,
@@ -723,11 +724,19 @@ def collect_repository_evidence(
         ))
     normalized_repo_url = str(repo_url).rstrip("/")
     homepage = str(repo.get("homepage") or "").strip()
-    if homepage:
+    normalized_homepage = collector_relation_policy.normalize_repository_homepage(homepage)
+    if normalized_homepage:
         bundle.add_record(relation_record(
-            source=f"github_repo_metadata:{repo_url}", classification="candidate", observed_at=observed_at,
-            subject_type="repo", subject_value=normalized_repo_url, predicate="source_repository",
-            object_type="website", object_value=homepage, locator=repo_url, method="github_homepage",
+            source=f"{dependencies.provider}_repo_metadata:{repo_url}",
+            classification="confirmed",
+            observed_at=observed_at,
+            subject_type="repo",
+            subject_value=normalized_repo_url,
+            predicate="repository_homepage",
+            object_type="website",
+            object_value=normalized_homepage,
+            locator=repo_url,
+            method="github_homepage",
         ))
     for item in repo_lexicons:
         nsid = str(item.get("nsid") or "").strip()

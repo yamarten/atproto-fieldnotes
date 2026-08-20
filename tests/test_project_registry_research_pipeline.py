@@ -519,9 +519,175 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         )
 
         self.assertFalse(any(record.kind == "github_repo_snapshot" for record in bundle.records))
-        self.assertTrue(any(record.kind == "relation" for record in bundle.records))
+        homepage_relation = next(record for record in bundle.records if record.kind == "relation")
+        self.assertEqual(homepage_relation.value["predicate"], "repository_homepage")
+        self.assertEqual(homepage_relation.classification, "confirmed")
         lexicon_hints.assert_not_called()
         semantic_hints.assert_not_called()
+
+    def test_repository_homepage_is_saved_without_creating_a_trust_edge(self) -> None:
+        project = self.make_project(
+            "proj:repository-homepage",
+            "repo_url",
+            "https://github.com/example/app",
+        )
+        dependencies = investigation_core.RepositoryCollectorDependencies(
+            now=lambda: "2026-08-20T00:00:00+00:00",
+            fetch_repo=lambda _repo_url: {
+                "repo": {
+                    "name": "app",
+                    "full_name": "example/app",
+                    "homepage": "https://app.example.com",
+                },
+                "readme_text": "",
+                "tree": [],
+                "default_branch": "main",
+            },
+            repo_lexicon_hints=lambda _repo_url, **_kwargs: [],
+            extract_urls=lambda _text: [],
+        )
+        bundle = investigation_core.collect_repository_evidence(
+            project,
+            "https://github.com/example/app",
+            dependencies,
+        )
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        homepage_relations = [
+            item
+            for item in project["relation_evidence"]
+            if (item.get("relation") or {}).get("predicate") == "repository_homepage"
+        ]
+        self.assertEqual(len(homepage_relations), 1)
+        self.assertEqual(homepage_relations[0]["classification"], "confirmed")
+        self.assertIn("https://app.example.com", project["service_url_candidates"])
+        self.assertFalse(any(
+            edge.get("predicate") == "repo_links_service"
+            for edge in registry.trust_graph_core.graph(project)["edges"]
+        ))
+
+    def test_repository_homepage_static_role_exclusions_do_not_create_service_candidates(self) -> None:
+        project = self.make_project(
+            "proj:repository-docs",
+            "repo_url",
+            "https://github.com/example/app",
+        )
+        bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-08-20T00:00:00+00:00",
+        )
+        bundle.add_record(relation_core.relation_record(
+            source="github_repo_metadata:https://github.com/example/app",
+            classification="confirmed",
+            observed_at=bundle.collected_at,
+            subject_type="repo",
+            subject_value="https://github.com/example/app",
+            predicate="repository_homepage",
+            object_type="website",
+            object_value="https://docs.example.com",
+            locator="https://github.com/example/app",
+            method="github_homepage",
+        ))
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        self.assertEqual(project["service_url_candidates"], [])
+
+    def test_successful_repository_refresh_replaces_stale_homepage_observation(self) -> None:
+        repo_url = "https://github.com/example/app"
+        project = self.make_project("proj:repository-refresh", "repo_url", repo_url)
+        project["relation_evidence"] = [{
+            "relation": {
+                "subject": {"type": "repo", "value": repo_url},
+                "predicate": "repository_homepage",
+                "object": {"type": "website", "value": "https://old.example.com"},
+                "locator": repo_url,
+                "method": "github_homepage",
+            },
+            "source": f"github_repo_metadata:{repo_url}",
+            "classification": "confirmed",
+            "observed_at": "2026-08-19T00:00:00+00:00",
+        }]
+        registry.project_record.record_trust_edge(
+            project,
+            "repo_url",
+            repo_url,
+            "repo_links_service",
+            "service_url",
+            "https://old.example.com",
+            source=f"github_repo_metadata:{repo_url}",
+            method="repository_homepage_pair",
+            classification="confirmed",
+            eligible_for_auto_confirm=True,
+        )
+        bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-08-20T00:00:00+00:00",
+        )
+        bundle.add_record(EvidenceRecord(
+            kind="github_repo_snapshot",
+            source=f"github_repo:{repo_url}",
+            classification="confirmed",
+            observed_at=bundle.collected_at,
+            value={
+                "repo_url": repo_url,
+                "repo": {"name": "app", "full_name": "example/app", "homepage": ""},
+                "readme_excerpt": "",
+                "readme_urls": [],
+                "lexicon_hints": [],
+                "semantic_hints": {},
+            },
+        ))
+
+        registry.apply_github_repo_evidence(project, bundle)
+
+        self.assertFalse(any(
+            (item.get("relation") or {}).get("predicate") == "repository_homepage"
+            for item in project["relation_evidence"]
+        ))
+        self.assertFalse(any(
+            edge.get("method") in {"github_homepage", "repository_homepage_pair"}
+            for edge in registry.trust_graph_core.graph(project)["edges"]
+        ))
+
+    def test_legacy_homepage_relation_migrates_and_deduplicates(self) -> None:
+        repo_url = "https://github.com/example/app"
+        homepage = "https://app.example.com/path"
+        project = self.make_project("proj:repository-migration", "repo_url", repo_url)
+        base = {
+            "relation": {
+                "subject": {"type": "repo", "value": f"{repo_url}/tree/main"},
+                "predicate": "source_repository",
+                "object": {"type": "service", "value": f"{homepage}/"},
+                "locator": repo_url,
+                "method": "github_homepage",
+            },
+            "source": f"github_repo_metadata:{repo_url}",
+            "classification": "candidate",
+            "observed_at": "2026-08-19T00:00:00+00:00",
+        }
+        project["relation_evidence"] = [base, {
+            **base,
+            "relation": {
+                **base["relation"],
+                "subject": {"type": "repo", "value": repo_url},
+                "predicate": "repository_homepage",
+                "object": {"type": "website", "value": homepage},
+            },
+            "classification": "confirmed",
+            "observed_at": "2026-08-20T00:00:00+00:00",
+        }]
+
+        result = relation_core.migrate_repository_homepage_relations(project)
+
+        self.assertEqual(result["converted_count"], 1)
+        self.assertEqual(len(project["relation_evidence"]), 1)
+        migrated = project["relation_evidence"][0]
+        self.assertEqual(migrated["relation"]["predicate"], "repository_homepage")
+        self.assertEqual(migrated["relation"]["subject"]["value"], repo_url)
+        self.assertEqual(migrated["relation"]["object"], {"type": "website", "value": homepage})
+        self.assertEqual(migrated["classification"], "confirmed")
 
     def test_github_readme_url_snapshot_has_count_and_byte_budget(self) -> None:
         values = [f"https://example.com/path-{index}" for index in range(100)] + [
