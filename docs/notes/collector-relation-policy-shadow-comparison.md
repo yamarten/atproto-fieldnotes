@@ -413,9 +413,13 @@ Website空欄のprojectについて、confirmed repositoryの`repository_homepag
 
 これら227件は既存Websiteの移行対象ではありません。repository homepageは正しい直接観測でも、親framework、project群の公式site、個人site等を指せるため、一方向leadを`project_site`へ自動採用しません。相互参照2件も、起点repository自体のproject帰属がlegacy採用である可能性を残すためreviewです。初期導入を止める必須reviewは、既存Websiteの596件を除く16件に限定し、空欄へのleadは将来の候補queueとして扱います。
 
-2026-08-25のoperator reviewでは、独立候補9件のうちBluesky Comments、clippr、idiolect、Lexicon Community、mastrojs/atproto、Tiles、ToolShed、Writerの8件を`project_site`としました。clipprはserviceとの境界を外部事実だけでは明確にできませんが、初期移行上は代表site側へ置きます。desertthunder.devはトップURL自体を`service`とし、blogとTILがstandard.siteを利用していることを登録理由とするため、`project_site`へは移しません。これらはreview結果であり、production roleと正本DBへの適用はまだ行っていません。
+2026-08-25のoperator reviewでは、独立候補9件のうちBluesky Comments、clippr、idiolect、Lexicon Community、mastrojs/atproto、Tiles、ToolShed、Writer、Kyronを`project_site`としました。clipprはserviceとの境界を外部事実だけでは明確にできませんが、初期移行上は代表site側へ置きます。Kyronは同URLのcandidate serviceを外し、former serviceは履歴として維持します。desertthunder.devはトップURL自体を`service`とし、blogとTILがstandard.siteを利用していることを登録理由とするため、`project_site`へは移しません。
 
-完全reportのcontent hashは`cb22869e34cd322de79077b0c281ed7578755533ca7c8f03d2ec4d3a6c4e26c5`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`の単一read transactionで開き、report以外を更新しません。
+残る7件も同じreviewで確定しました。PopFeedの`https://popfeed.social`はPopFeed側のconfirmed serviceを維持し、PopSky側へ混入した同じservice identifierだけを外します。atweb-vue、Impact Indexer、PubLib、Skypushのformer URLとSoleiaのnon-production URLはnon-current identifierを維持したままcurrent Website欄を空にします。誤検出としてblockするのではなく、すでに保存された時間・環境上のstandingを保持します。
+
+この16件を固定manifestとして新しいshadow DBへ投影した結果、Website 612件はcurrent Website 607件へ整理され、その全件がconfirmed service再利用598件またはconfirmed `project_site` 9件になりました。追加した`project_site`にはoperator adoptionとregistration originを保存し、Kyronのcandidate service 1件とPopSkyの衝突service 1件を除去しました。確認結果はSQLite integrity `ok`、foreign key違反0、current site/service exact URL重複0です。正本DBはread-onlyであり、production role、schema、DBへの適用はまだ行っていません。
+
+review manifestとshadow materialization結果を含む完全reportのcontent hashは`25437d8b7d625f81bb39a6af94d1a5daa82a56f7968e89eb04e28a7312f934a8`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`で開き、正本DBを更新しません。投影先は新規shadow DBに限定します。
 
 ### 正本DBのread-only監査
 
