@@ -168,6 +168,57 @@ def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
     return 0 if report["review_gate"]["ready_for_user_review"] else 1
 
 
+def cmd_compare_project_repository_context(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    db_path = Path(args.db_path).expanduser()
+    if output.resolve() == db_path.resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    source_report = collector_relation_shadow.compare_database_path(
+        db_path,
+        case_catalog_path=(
+            core.ROOT / "tests" / "fixtures" / "project_registry"
+            / "collector-relation-policy-cases-v1.json"
+        ),
+        example_limit=100000,
+    )
+    promotion = source_report["relation_assessor_inventory"]["candidate_relation_promotion"]
+    proposals: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for rows in promotion.get("examples", {}).values():
+        for row in rows:
+            key = (
+                str(row.get("project_key") or ""),
+                str(row.get("service_url") or ""),
+                str(row.get("repo_url") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            proposals.append(dict(row))
+    comparison = collector_relation_shadow.compare_current_project_repository_pages(
+        proposals,
+        fetch_page=lambda url: core.probe_service_url(url, timeout=float(args.timeout)),
+        page_limit=int(args.page_limit),
+    )
+    report = {
+        "schema_version": 1,
+        "policy": "project-repository-context-shadow-v1",
+        "source_database": str(db_path.resolve()),
+        "source_report_hash": str(source_report.get("content_hash") or ""),
+        "database_read_only": True,
+        "collector_or_database_writes": False,
+        **comparison,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps({
+        "output": str(output),
+        "selected_page_count": comparison["selected_page_count"],
+        "proposal_match_counts": comparison["proposal_match_counts"],
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_compare_merge_policy(args: argparse.Namespace) -> int:
     output = Path(args.output).expanduser()
     db_path = Path(args.db_path).expanduser()

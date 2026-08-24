@@ -38,6 +38,7 @@ subcommands=(
   'audit-trust-graph:Report trust-graph confirmation issues'
   'compare-trust-policy:Compare current and role-aware trust policies'
   'compare-collector-relation-policy:Compare current and direction-aware collector relation policies'
+  'compare-project-repository-context:Recollect bounded project repository link context'
   'compare-merge-policy:Compare current merge candidates and role-aware review policy'
   'compare-identifier-storage:Prototype noncurrent identifier and adoption storage'
   'repair-trust-graph:Recompute stored trust graph details'
@@ -423,6 +424,13 @@ case "$cmd" in
       '--db-path[Existing registry database opened read-only]:database file:_files' \
       '--output[Structured comparison report JSON path]:report file:_files' \
       '--example-limit[Maximum examples per verdict]:count:'
+    ;;
+  compare-project-repository-context)
+    _arguments -S \
+      '--db-path[Existing registry database opened read-only]:database file:_files' \
+      '--output[Structured current-page comparison report JSON path]:report file:_files' \
+      '--page-limit[Maximum distinct current pages to fetch]:count:' \
+      '--timeout[Per-page fetch timeout in seconds]:seconds:'
     ;;
   compare-merge-policy)
     _arguments -S \

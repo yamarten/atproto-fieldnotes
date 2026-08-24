@@ -103,6 +103,15 @@ def canonical_repo_url(url: str) -> str:
     return identifiers.normalize_url(url)
 
 
+def repo_identity_key(url: str) -> str:
+    """Return a comparison key without changing the displayed canonical URL."""
+    canonical = canonical_repo_url(url)
+    parsed = urllib.parse.urlparse(canonical)
+    if parsed.netloc.lower() == "github.com":
+        return canonical.lower()
+    return canonical
+
+
 def repo_owner_identity(url: str) -> str:
     parsed = urllib.parse.urlparse(identifiers.normalize_url(url))
     segments = [segment for segment in parsed.path.split("/") if segment]

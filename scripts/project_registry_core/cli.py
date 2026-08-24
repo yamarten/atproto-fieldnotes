@@ -433,6 +433,26 @@ def build_parser() -> argparse.ArgumentParser:
         func=maintenance_commands.cmd_compare_collector_relation_policy
     )
 
+    compare_project_repository_context_parser = subparsers.add_parser(
+        "compare-project-repository-context",
+        help="Recollect bounded project/repository link context without changing the database.",
+    )
+    compare_project_repository_context_parser.add_argument(
+        "--db-path", required=True, help="Existing registry database opened read-only."
+    )
+    compare_project_repository_context_parser.add_argument(
+        "--output", required=True, help="Structured current-page comparison report JSON path."
+    )
+    compare_project_repository_context_parser.add_argument(
+        "--page-limit", type=int, default=10, help="Maximum distinct current pages to fetch. Default: 10."
+    )
+    compare_project_repository_context_parser.add_argument(
+        "--timeout", type=float, default=10.0, help="Per-page fetch timeout in seconds. Default: 10."
+    )
+    compare_project_repository_context_parser.set_defaults(
+        func=maintenance_commands.cmd_compare_project_repository_context
+    )
+
     compare_merge_policy_parser = subparsers.add_parser(
         "compare-merge-policy",
         help="Compare current merge candidates with the role-aware review policy without changing the database.",

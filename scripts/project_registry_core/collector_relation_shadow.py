@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from . import collector_relation_policy
 from . import domain_policy
 from . import identifiers
 from . import repo_urls
+from . import repository_link_context
 
 
 REPORT_SCHEMA_VERSION = 5
@@ -77,6 +79,15 @@ SERVICE_SURFACE_MARKERS = {
     "browser_public_app_surface_detected",
     "login_surface_detected",
 }
+EXTERNAL_REFERENCE_CONTEXT_PATTERN = re.compile(
+    r"(?:awesome(?:\s+list)?|related (?:projects?|tools?|resources?)|"
+    r"community projects?|dependencies|dependency|built with|powered by|"
+    r"acknowledg(?:e)?ments?|credits?|third[ -]party|ecosystem projects?)"
+)
+DIRECT_PROJECT_REPOSITORY_CONTEXT_PATTERN = re.compile(
+    r"(?:source code|view (?:the )?(?:source|code)|"
+    r"open source.{0,240}\bcode\b|\bcode\b.{0,240}(?:runs|powers) (?:this|the) (?:app|site|service))"
+)
 
 
 def _json(value: Any, default: Any) -> Any:
@@ -255,6 +266,209 @@ def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str,
         "reason": "presentation_requires_review",
         "purpose": purposes[0] if len(purposes) == 1 else "multiple_presentations",
         "purposes": purposes,
+    }
+
+
+def evaluate_project_repository_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate one observed project-page link under the broader repository meaning."""
+    label = " ".join(
+        str(context.get(key) or "").strip()
+        for key in ("text", "aria_label", "title", "descendant_label")
+        if str(context.get(key) or "").strip()
+    )
+    purpose = classify_relation_candidate_purpose(label)
+    surrounding = _normalized_label(" ".join(
+        str(context.get(key) or "")
+        for key in ("nearest_heading", "container_text", "container_hint", "group_hint")
+    ))
+    if EXTERNAL_REFERENCE_CONTEXT_PATTERN.search(surrounding):
+        return {
+            "disposition": "DO_NOT_PROMOTE",
+            "reason": "surrounding_context_identifies_external_reference",
+            "purpose": purpose,
+        }
+    if purpose == "funding_or_support":
+        return {
+            "disposition": "DO_NOT_PROMOTE",
+            "reason": "link_identifies_funding_or_support",
+            "purpose": purpose,
+        }
+    if DIRECT_PROJECT_REPOSITORY_CONTEXT_PATTERN.search(surrounding):
+        return {
+            "disposition": "CONFIRM_PROJECT_REPOSITORY",
+            "reason": "surrounding_context_directly_identifies_project_repository",
+            "purpose": purpose,
+        }
+    accepted_purposes = {
+        "documentation_source", "explicit_source", "issue_or_community", "license",
+        "release_or_download", "schema_or_specification", "self_hosting_implementation",
+    }
+    if purpose in accepted_purposes:
+        return {
+            "disposition": "CONFIRM_PROJECT_REPOSITORY",
+            "reason": f"presentation_identifies_{purpose}",
+            "purpose": purpose,
+        }
+    landmarks = {str(item) for item in context.get("landmarks", []) if str(item)}
+    if purpose in {"provider_only", "unlabeled"} and landmarks.intersection({"header", "footer", "nav"}):
+        if int(context.get("page_repository_count") or 0) == 1:
+            return {
+                "disposition": "CONFIRM_PROJECT_REPOSITORY",
+                "reason": "global_chrome_has_one_repository_target",
+                "purpose": purpose,
+            }
+    if int(context.get("group_repository_count") or 0) > 1:
+        return {
+            "disposition": "REVIEW_PROJECT_REPOSITORY",
+            "reason": "link_is_in_multi_repository_group",
+            "purpose": purpose,
+        }
+    return {
+        "disposition": "REVIEW_PROJECT_REPOSITORY",
+        "reason": "local_context_does_not_determine_repository_role",
+        "purpose": purpose,
+    }
+
+
+def evaluate_project_repository_html(html: str, base_url: str) -> dict[str, Any]:
+    """Extract and evaluate bounded contexts without writing collector or DB state."""
+    contexts = repository_link_context.extract_repository_link_contexts(html, base_url)
+    rows = [{**context, **evaluate_project_repository_context(context)} for context in contexts]
+    grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for row in rows:
+        grouped[str(row["repository_identity"])].append(row)
+    pairs: list[dict[str, Any]] = []
+    priority = {
+        "CONFIRM_PROJECT_REPOSITORY": 3,
+        "REVIEW_PROJECT_REPOSITORY": 2,
+        "DO_NOT_PROMOTE": 1,
+    }
+    for repository_identity, observations in sorted(grouped.items()):
+        repository_url = str(observations[0]["repository_url"])
+        disposition = max(
+            (str(item["disposition"]) for item in observations),
+            key=lambda value: priority[value],
+        )
+        pairs.append({
+            "repository_url": repository_url,
+            "repository_identity": repository_identity,
+            "disposition": disposition,
+            "observation_count": len(observations),
+            "reasons": sorted({str(item["reason"]) for item in observations}),
+            "locators": sorted({str(item["locator"]) for item in observations}),
+        })
+    return {
+        "base_url": identifiers.normalize_url(base_url),
+        "repository_link_count": len(rows),
+        "rows": rows,
+        "disposition_counts": _counter(row["disposition"] for row in rows),
+        "repository_pair_count": len(pairs),
+        "pairs": pairs,
+        "pair_disposition_counts": _counter(pair["disposition"] for pair in pairs),
+    }
+
+
+def compare_current_project_repository_pages(
+    proposals: list[dict[str, Any]],
+    *,
+    fetch_page: Any,
+    page_limit: int,
+) -> dict[str, Any]:
+    """Recollect current pages for a bounded, read-only shadow comparison."""
+    started = time.perf_counter()
+    priority = {
+        "RECOLLECT_PRESENTATION": 0,
+        "REVIEW_SOURCE_REPOSITORY": 1,
+        "DO_NOT_PROMOTE": 2,
+        "CONFIRM_SOURCE_REPOSITORY": 3,
+        "NOT_EVALUATED": 4,
+    }
+    selected = sorted(
+        [dict(item) for item in proposals if str(item.get("service_url") or "")],
+        key=lambda item: (
+            priority.get(str(item.get("promotion_disposition") or ""), 9),
+            str(item.get("project_key") or ""),
+            str(item.get("service_url") or ""),
+            str(item.get("repo_url") or ""),
+        ),
+    )
+    grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for item in selected:
+        grouped[identifiers.normalize_url(str(item["service_url"]))].append(item)
+    urls = list(grouped)[:max(0, int(page_limit))]
+    match_counts: collections.Counter[str] = collections.Counter()
+    pages: list[dict[str, Any]] = []
+    for service_url in urls:
+        page_started = time.perf_counter()
+        try:
+            fetched = fetch_page(service_url)
+        except Exception as exc:
+            pages.append({
+                "service_url": service_url,
+                "fetch_error": type(exc).__name__,
+                "proposal_count": len(grouped[service_url]),
+                "elapsed_seconds": round(time.perf_counter() - page_started, 3),
+            })
+            match_counts["FETCH_FAILED"] += len(grouped[service_url])
+            continue
+        html = str(fetched.get("html") or "") if isinstance(fetched, dict) else str(fetched or "")
+        final_url = identifiers.normalize_url(str(fetched.get("final_url") or "")) if isinstance(fetched, dict) else ""
+        redirected_repository = (
+            repo_urls.canonical_repo_url(final_url)
+            if final_url and repo_urls.is_supported_repo_url(final_url)
+            else ""
+        )
+        comparison = (
+            {
+                "repository_pair_count": 1,
+                "pair_disposition_counts": {"CONFIRM_PROJECT_REPOSITORY": 1},
+                "pairs": [{
+                    "repository_url": redirected_repository,
+                    "disposition": "CONFIRM_PROJECT_REPOSITORY",
+                    "observation_count": 1,
+                    "reasons": ["subject_redirects_to_repository"],
+                    "locators": [final_url],
+                }],
+            }
+            if redirected_repository
+            else evaluate_project_repository_html(html, final_url or service_url)
+        )
+        pair_index = {str(item.get("repository_identity") or repo_urls.repo_identity_key(str(item["repository_url"]))): item for item in comparison["pairs"]}
+        matches: list[dict[str, Any]] = []
+        for proposal in grouped[service_url]:
+            repo_url = repo_urls.canonical_repo_url(str(proposal.get("repo_url") or ""))
+            pair = pair_index.get(repo_urls.repo_identity_key(repo_url))
+            disposition = str(pair.get("disposition")) if pair else "NOT_OBSERVED_CURRENTLY"
+            match_counts[disposition] += 1
+            matches.append({
+                "project_key": str(proposal.get("project_key") or ""),
+                "project_name": str(proposal.get("project_name") or ""),
+                "repository_url": repo_url,
+                "previous_disposition": str(proposal.get("promotion_disposition") or ""),
+                "current_disposition": disposition,
+                "observation_count": int(pair.get("observation_count") or 0) if pair else 0,
+                "reasons": list(pair.get("reasons") or []) if pair else [],
+            })
+        pages.append({
+            "service_url": service_url,
+            "final_url": final_url,
+            "status_code": int(fetched.get("status_code") or 0) if isinstance(fetched, dict) else 0,
+            "fetch_error": str(fetched.get("fetch_error") or "") if isinstance(fetched, dict) else "",
+            "proposal_count": len(matches),
+            "matches": matches,
+            "repository_pair_count": comparison["repository_pair_count"],
+            "pair_disposition_counts": comparison["pair_disposition_counts"],
+            "pairs": comparison["pairs"],
+            "elapsed_seconds": round(time.perf_counter() - page_started, 3),
+        })
+    return {
+        "input_proposal_count": len(proposals),
+        "available_page_count": len(grouped),
+        "selected_page_count": len(urls),
+        "page_limit": int(page_limit),
+        "proposal_match_counts": _counter(match_counts),
+        "pages": pages,
+        "elapsed_seconds": round(time.perf_counter() - started, 3),
     }
 
 
