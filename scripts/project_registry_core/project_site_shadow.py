@@ -238,6 +238,9 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
         if not website:
             continue
         key = project["project_key"]
+        conflicting_keys = sorted(
+            confirmed_component_projects.get(website, set()) - {key}
+        )
         repo_reference = any(pair[0] == key and pair[1] == website for pair in outward | homepage_pairs)
         bidirectional = any(
             pair in outward and pair in homepage_pairs
@@ -249,9 +252,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
             "candidate_services": candidate_services.get(key, set()),
             "noncurrent_services": noncurrent_by_project.get(key, set()),
             "cross_project_count": len(website_projects[website]),
-            "cross_project_component_count": len(
-                confirmed_component_projects.get(website, set()) - {key}
-            ),
+            "cross_project_component_count": len(conflicting_keys),
             "resource_roles": _resource_roles(project["state"], website),
             "repository_reference": repo_reference,
             "bidirectional_repository_reference": bidirectional,
@@ -261,6 +262,14 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
             "project_name": project["project_name"],
             "project_url": _project_url(key),
             "website_url": website,
+            "conflicting_projects": [
+                {
+                    "project_key": conflict_key,
+                    "project_name": projects.get(conflict_key, {}).get("project_name", ""),
+                    "project_url": _project_url(conflict_key),
+                }
+                for conflict_key in conflicting_keys
+            ],
             **evaluation,
         })
 
@@ -288,18 +297,27 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
             (key, str(row["url"]), str(repo))
             for repo in row["repository_urls"]
         }
+        conflicting_keys = sorted(
+            confirmed_component_projects.get(str(row["url"]), set()) - {key}
+        )
         evaluation = evaluate_empty_website_candidate({
             "url": row["url"],
             "confirmed_service": row["url"] in confirmed_services.get(key, set()),
             "candidate_service": row["url"] in candidate_services.get(key, set()),
-            "cross_project_component": bool(
-                confirmed_component_projects.get(str(row["url"]), set()) - {key}
-            ),
+            "cross_project_component": bool(conflicting_keys),
             "bidirectional_repository_reference": bool(references & outward),
         })
         empty_rows.append({
             **{k: v for k, v in row.items() if k != "repository_urls"},
             "repository_urls": sorted(row["repository_urls"]),
+            "conflicting_projects": [
+                {
+                    "project_key": conflict_key,
+                    "project_name": projects.get(conflict_key, {}).get("project_name", ""),
+                    "project_url": _project_url(conflict_key),
+                }
+                for conflict_key in conflicting_keys
+            ],
             **evaluation,
         })
 

@@ -131,6 +131,13 @@ class ProjectSiteShadowDatabaseTest(TempRegistryDbTestCase):
             first["empty_website_repository_homepage_leads"]["disposition_counts"],
             {"REVIEW_SITE_LEAD": 1},
         )
+        collision = first["existing_website_migration"]["examples"][
+            "REVIEW_CROSS_PROJECT_COLLISION"
+        ][0]
+        self.assertEqual(
+            [item["project_key"] for item in collision["conflicting_projects"]],
+            ["proj:collision-b"] if collision["project_key"] == "proj:collision-a" else ["proj:collision-a"],
+        )
         self.assertEqual(
             first["existing_website_migration"]["automatic_project_site_creation_count"],
             0,
