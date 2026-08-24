@@ -45,6 +45,21 @@
       }
     },
     {
+      "case_id": "github-sponsors-is-not-a-repository-endpoint",
+      "description": "A GitHub Sponsors profile is funding metadata even when it has an owner/repository-shaped path.",
+      "observation": {
+        "direction": "service_to_repo",
+        "object_value": "https://github.com/sponsors/example",
+        "link_label": "Support",
+        "context_reconstructible": true
+      },
+      "expected": {
+        "deterministic": "NOT_SUPPORTED",
+        "strict": "NOT_SUPPORTED",
+        "endpoint_status": "invalid"
+      }
+    },
+    {
       "case_id": "provider-icon-only",
       "description": "A provider-only icon preserves the observation for bounded relationship assessment.",
       "observation": {
@@ -231,6 +246,82 @@
       "expected": {
         "github_search_attachment": "REVIEW",
         "github_search_attachment_reason": "multiple_projects_share_best_identifier_match"
+      }
+    },
+    {
+      "case_id": "relation-assessment-subject-without-component-role",
+      "description": "A supporting page or unrelated website without a service role is outside component relation assessment.",
+      "observation": {},
+      "relation_assessment_route": {
+        "subject_has_component_role": false,
+        "deterministic_verdict": "NEEDS_ASSESSMENT",
+        "source_observation_available": true,
+        "bounded_target_material_available": true
+      },
+      "expected": {
+        "relation_assessment_route": "NOT_EVALUATED",
+        "relation_assessment_route_reason": "subject_has_no_service_component_role"
+      }
+    },
+    {
+      "case_id": "relation-assessment-deterministic-source-link",
+      "description": "A deterministic source link bypasses semantic endpoint assessment.",
+      "observation": {},
+      "relation_assessment_route": {
+        "subject_has_component_role": true,
+        "deterministic_verdict": "SUPPORTED",
+        "source_observation_available": true,
+        "bounded_target_material_available": false
+      },
+      "expected": {
+        "relation_assessment_route": "POLICY_DECIDED",
+        "relation_assessment_route_reason": "deterministic_policy_supports_relation"
+      }
+    },
+    {
+      "case_id": "relation-assessment-reciprocal-direct-facts",
+      "description": "Two matching direct relations do not need an LLM relationship judgment.",
+      "observation": {},
+      "relation_assessment_route": {
+        "subject_has_component_role": true,
+        "deterministic_verdict": "NEEDS_ASSESSMENT",
+        "reciprocal_direct_relation_supported": true,
+        "source_observation_available": true,
+        "bounded_target_material_available": false
+      },
+      "expected": {
+        "relation_assessment_route": "POLICY_DECIDED",
+        "relation_assessment_route_reason": "direct_relations_already_support_pair"
+      }
+    },
+    {
+      "case_id": "relation-assessment-needs-repository-probe",
+      "description": "An ambiguous service link cannot be assessed from the service endpoint alone.",
+      "observation": {},
+      "relation_assessment_route": {
+        "subject_has_component_role": true,
+        "deterministic_verdict": "NEEDS_ASSESSMENT",
+        "source_observation_available": true,
+        "bounded_target_material_available": false
+      },
+      "expected": {
+        "relation_assessment_route": "NEEDS_PROBE",
+        "relation_assessment_route_reason": "bounded_repository_material_is_missing"
+      }
+    },
+    {
+      "case_id": "relation-assessment-ready",
+      "description": "A directional proposal with bounded material from both endpoints is assessable.",
+      "observation": {},
+      "relation_assessment_route": {
+        "subject_has_component_role": true,
+        "deterministic_verdict": "NEEDS_ASSESSMENT",
+        "source_observation_available": true,
+        "bounded_target_material_available": true
+      },
+      "expected": {
+        "relation_assessment_route": "ASSESS",
+        "relation_assessment_route_reason": "directional_proposal_has_bounded_endpoint_material"
       }
     }
   ]

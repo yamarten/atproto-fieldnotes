@@ -213,7 +213,7 @@ confirmed source repositoryから得たhomepageを、service identifierとは別
 
 ここで使う二方向のrelationは独立した証拠である必要はありません。目的は証拠数を稼ぐことではなく、一方の管理者だけが任意の相手を指した騙りを避けることです。`repository_homepage`とconfirmed `source_repository`が意味上の両方向をそれぞれ保証していれば足ります。
 
-固定caseは従来12件に4件を加え、一方向exact、相互参照付きexact、candidate service一致、複数project一致を確認します。2026-08-21の正本DB read-only reportは`.tmp/collector-relation-policy-v3-homepage-attach-20260821.json`、content hashは`790b5feb36dba0fd057c48c9a9de822a2c9e7157a8742763ad5095c3792fc587`です。production接続後もcomparator自体はDBを変更しません。
+固定caseはhomepage attachとrelation assessorのroutingを加えた22件を確認します。2026-08-24の正本DB read-only reportは`.tmp/collector-relation-policy-v4-assessor-inventory-20260824.json`、content hashは`7451ca5b3ae374047d434b6e8a580e25c0479017e012ba1f2bd098ab7ede6733`です。production接続後もcomparator自体はDBを変更しません。
 
 review後、GitHub Searchを次の責務分離でproductionへ接続しました。
 
@@ -224,6 +224,37 @@ review後、GitHub Searchを次の責務分離でproductionへ接続しました
 - 支持しない一致は既存projectを変更せず、`suggested_project_keys`と理由を返す
 
 これにより、collector固有なのはGitHub metadataの観測と候補照合までになり、帰属・confirm判断はrepository調査等と同じ信頼policyを使います。正本DBへの書込みや既存identifierの再分類は行っていません。
+
+## 現行relation assessmentの監査
+
+現行実装には、専用relation assessorを作る以前から、project-level triageの`repository_link_assessments`が存在します。candidate `service_links_repo` edgeをtriage入力へ混ぜ、LLMが`same_project`を返すとconfirmedかつauto-confirm利用可能な`llm_same_project` edgeへ昇格します。この判定はprojectのcategoryや説明文と同じrequestで行われ、保存入力は主にservice側のlink text、`aria-label`、title、page title、page descriptionです。candidate repositoryのbounded materialは通常confirm前に収集しないため、判定時の両endpoint比較は保証されません。
+
+正本DBの現在snapshotでは、保存済みproposal 194組に対して`same_project` 177、`related` 14、`uncertain` 1、出力欠落2でした。現在proposalから外れた保存済みassessmentも38組あります。これは過去runの出力と現在のcandidate edgeが別の更新周期を持つためで、現行出力をそのまま固定corpusの正解にはできません。
+
+一つの方向付き`service_url`→`repo_url` proposalとしてroutingし直すと、次の分布になります。
+
+| routing | 組 | 意味 |
+| --- | ---: | --- |
+| `POLICY_DECIDED` | 63 | 明示的source link等の決定規則4、非repository URLの除外1、保存済みの直接相互relation 58。LLM判定は不要 |
+| `NOT_EVALUATED` | 85 | subject URLにcurrentなservice構成要素roleがない。link観測は残せるが、構成要素間`source_repository`判定へは入れない |
+| `NEEDS_PROBE` | 30 | service roleとlink観測はあるが、bounded repository materialがない |
+| `ASSESS` | 16 | 現在snapshotにはservice観測とbounded repository materialがあるため、専用corpus候補にできる |
+
+relationの意味判定ではconfirmed subjectだけに限定しません。candidate service→confirmed repoという関係も、candidate serviceの信頼を逆方向から評価する材料になり得るためです。ただしcandidate serviceから新しいrepo candidateを生成することとは別で、candidate admissionは引き続きconfirmed構成要素からの許可済み直接relationに限定します。ここで必要なのはconfirmed/candidateの区別ではなく、subjectにserviceという構成要素roleの主張があることです。
+
+現行の`same_project` 177組のうち、73組は現在subjectにservice roleがなく、45組は保存されたtriage入力にbounded target materialがありません。理由文にも、保存入力にないREADME、Dockerfile、同一owner、repository descriptionを根拠として挙げた例があります。また63組では`llm_same_project`が同じpairの唯一のforward trust edgeで、少なくとも一方のidentifierに`trust_policy` adoptionがあります。この63組は別経路のpathを持つ可能性があるため即座に63 identifierがunsupportedになるという意味ではありませんが、既存edgeを一括削除せず、専用policyで再評価してからcleanupする必要があります。
+
+この監査から、専用relation assessorは次の契約に分けるのが妥当です。
+
+1. collector固有処理は、一つのsourceで観測したlink表示とbounded endpoint snapshotを作る。
+2. 共通routingはsubject/objectのrole、predicate、決定規則、既存の直接relationを確認し、`POLICY_DECIDED`、`NOT_EVALUATED`、`NEEDS_PROBE`、`ASSESS`へ分ける。
+3. semantic assessorは`ASSESS`になった一つの方向付きpredicateだけを評価し、`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`と入力内の根拠位置を返す。
+4. `related`は提案された`source_repository` predicateを支持する中間verdictにはせず、このpredicateについては`NOT_SUPPORTED`とする。関連情報として残す必要があれば別の観測またはpredicateで扱う。
+5. assessorは新しいURL、逆方向relation、candidate、confirmを生成しない。採用と信頼経路は後段の静的policyが決める。
+
+現在の`same_project`という質問も広すぎます。同じ登録project内に収まるrepositoryでも、docs source、schemaだけのrepository、shared implementation、monorepo内componentなどがあり、serviceのsource repositoryというpredicateを常に支持するわけではありません。専用評価では「このservice surfaceからこのrepositoryへの観測は、このrepositoryを当該serviceの`source_repository`として直接参照しているか」のようにpredicateを固定します。
+
+`ASSESS` 16組は現在snapshotから固定corpus候補を作れます。`NEEDS_PROBE` 30組は、candidate repository全体を通常enrichへ入れず、metadata、homepage、READMEの関連箇所だけをbounded probeとして取得した後に同じcorpus形式へ追加します。現在materialがある16組も、以前のLLM採用後にrepositoryがconfirmされて通常解析された可能性があるため、当時の判断が両endpoint材料に基づいていたとは扱いません。
 
 ## homepage以外にも使う分離規則
 

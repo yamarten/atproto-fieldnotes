@@ -24,7 +24,7 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
         result = collector_relation_shadow.evaluate_case_catalog(
             collector_relation_shadow.load_case_catalog(FIXTURE)
         )
-        self.assertEqual(result["case_count"], 16)
+        self.assertEqual(result["case_count"], 22)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
     def test_source_word_inside_funding_phrase_is_not_an_explicit_source_link(self) -> None:
@@ -138,6 +138,26 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
             "REVIEW",
         )
 
+    def test_relation_assessment_requires_bounded_material_from_both_endpoints(self) -> None:
+        self.assertEqual(
+            collector_relation_shadow.route_relation_assessment({
+                "subject_has_component_role": True,
+                "deterministic_verdict": "NEEDS_ASSESSMENT",
+                "source_observation_available": True,
+                "bounded_target_material_available": False,
+            })["route"],
+            "NEEDS_PROBE",
+        )
+        self.assertEqual(
+            collector_relation_shadow.route_relation_assessment({
+                "subject_has_component_role": True,
+                "deterministic_verdict": "NEEDS_ASSESSMENT",
+                "source_observation_available": True,
+                "bounded_target_material_available": True,
+            })["route"],
+            "ASSESS",
+        )
+
     def test_website_projection_keeps_docs_but_excludes_profiles_and_funding(self) -> None:
         self.assertTrue(collector_relation_shadow.homepage_is_website_candidate({
             "object_value": "https://docs.example.com",
@@ -179,7 +199,29 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
                         }],
                         "content_sha256": "page-material",
                         "service_status_evidence": ["app_shell_detected"],
-                    }]
+                    }],
+                    "llm_source": {
+                        "evidence": {
+                            "repository_link_candidates": [{
+                                "service_url": "https://app.example.com",
+                                "repo_url": "https://github.com/example/app",
+                                "link_text": "repo ↗",
+                                "aria_label": "",
+                                "link_title": "",
+                                "page_title": "Example App",
+                                "page_description": "Example application",
+                            }],
+                            "repository_analysis_results": [],
+                        }
+                    },
+                    "llm_output": {
+                        "repository_link_assessments": [{
+                            "service_url": "https://app.example.com",
+                            "repo_url": "https://github.com/example/app",
+                            "relationship": "same_project",
+                            "reason": "Legacy mixed triage decision",
+                        }]
+                    },
                 }
             }
             conn.execute(
@@ -286,6 +328,11 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
         )
         self.assertFalse(
             report["github_search_homepage_attachment"]["historical_match_kind_reconstructible"]
+        )
+        self.assertEqual(report["relation_assessor_inventory"]["current_proposal_count"], 1)
+        self.assertEqual(
+            report["relation_assessor_inventory"]["route_counts"],
+            {"POLICY_DECIDED": 1},
         )
         self.assertEqual(
             report["examples"]["deterministic_supported"][0]["link_label"],

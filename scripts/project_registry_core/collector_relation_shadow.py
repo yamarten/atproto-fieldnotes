@@ -16,8 +16,8 @@ from . import identifiers
 from . import repo_urls
 
 
-REPORT_SCHEMA_VERSION = 3
-POLICY_VERSION = "collector-relation-shadow-v3"
+REPORT_SCHEMA_VERSION = 4
+POLICY_VERSION = "collector-relation-shadow-v4"
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "NEEDS_ASSESSMENT", "NOT_RECONSTRUCTIBLE"}
 TRACEABLE_REPOSITORY_ADOPTION_SOURCES = {
     "operator_add_seed",
@@ -245,9 +245,52 @@ def evaluate_component_attachment_projection(observation: dict[str, Any]) -> dic
     }
 
 
+def route_relation_assessment(proposal: dict[str, Any]) -> dict[str, str]:
+    """Route one directional proposal without deciding its semantic relationship."""
+    deterministic_verdict = str(proposal.get("deterministic_verdict") or "")
+    if not bool(proposal.get("subject_has_component_role")):
+        return {
+            "route": "NOT_EVALUATED",
+            "reason": "subject_has_no_service_component_role",
+        }
+    if deterministic_verdict == "SUPPORTED":
+        return {
+            "route": "POLICY_DECIDED",
+            "reason": "deterministic_policy_supports_relation",
+        }
+    if deterministic_verdict == "NOT_SUPPORTED":
+        return {
+            "route": "POLICY_DECIDED",
+            "reason": "deterministic_policy_rejects_relation",
+        }
+    if bool(proposal.get("reciprocal_direct_relation_supported")):
+        return {
+            "route": "POLICY_DECIDED",
+            "reason": "direct_relations_already_support_pair",
+        }
+    if not bool(proposal.get("source_observation_available")):
+        return {
+            "route": "INSUFFICIENT",
+            "reason": "source_observation_is_missing",
+        }
+    if not bool(proposal.get("bounded_target_material_available")):
+        return {
+            "route": "NEEDS_PROBE",
+            "reason": "bounded_repository_material_is_missing",
+        }
+    return {
+        "route": "ASSESS",
+        "reason": "directional_proposal_has_bounded_endpoint_material",
+    }
+
+
 def endpoint_status(value: str) -> dict[str, str]:
     normalized = identifiers.normalize_url(str(value or ""))
     canonical = repo_urls.canonical_repo_url(normalized)
+    parsed = urllib.parse.urlparse(normalized)
+    path_parts = [part.lower() for part in parsed.path.split("/") if part]
+    if parsed.netloc.lower().removeprefix("www.") == "github.com" and path_parts[:1] == ["sponsors"]:
+        return {"status": "invalid", "canonical_value": canonical or normalized, "locator": normalized}
     if not normalized or not repo_urls.is_supported_repo_url(normalized):
         return {"status": "invalid", "canonical_value": canonical or normalized, "locator": normalized}
     return {
@@ -347,6 +390,11 @@ def evaluate_case_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
             attachment_result = evaluate_component_attachment_projection(attachment)
             actual["github_search_attachment"] = attachment_result["disposition"]
             actual["github_search_attachment_reason"] = attachment_result["reason"]
+        assessment_route = case.get("relation_assessment_route")
+        if isinstance(assessment_route, dict):
+            route_result = route_relation_assessment(assessment_route)
+            actual["relation_assessment_route"] = route_result["route"]
+            actual["relation_assessment_route_reason"] = route_result["reason"]
         expected = dict(case.get("expected") or {})
         passed = all(actual.get(key) == value for key, value in expected.items())
         results.append({
@@ -699,6 +747,223 @@ def _github_search_attachment_audit(
     }
 
 
+def _relation_assessor_inventory(
+    projects: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    *,
+    example_limit: int,
+) -> dict[str, Any]:
+    reciprocal_relations = {
+        (
+            str(item["project_key"]),
+            repo_urls.canonical_repo_url(str(item["subject_value"])),
+            identifiers.normalize_url(str(item["object_value"])),
+        )
+        for item in observations
+        if item["direction"] == "repo_to_url"
+        and item["current_relation_classification"] == "confirmed"
+    }
+    route_counts: collections.Counter[str] = collections.Counter()
+    route_reason_counts: collections.Counter[str] = collections.Counter()
+    link_presentation_counts: collections.Counter[str] = collections.Counter()
+    current_assessment_counts: collections.Counter[str] = collections.Counter()
+    current_edge_counts: collections.Counter[str] = collections.Counter()
+    rows: list[dict[str, Any]] = []
+    all_saved_assessments: set[tuple[str, str, str]] = set()
+
+    for project in projects:
+        project_key = str(project["project_key"])
+        state = project["state"] if isinstance(project.get("state"), dict) else {}
+        state_evidence = state.get("evidence") if isinstance(state.get("evidence"), dict) else {}
+        llm_source = state_evidence.get("llm_source") if isinstance(state_evidence.get("llm_source"), dict) else {}
+        llm_input = llm_source.get("evidence") if isinstance(llm_source.get("evidence"), dict) else {}
+        llm_output = state_evidence.get("llm_output") if isinstance(state_evidence.get("llm_output"), dict) else {}
+
+        saved_assessments: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in llm_output.get("repository_link_assessments", []):
+            if not isinstance(item, dict):
+                continue
+            service_url = identifiers.normalize_url(str(item.get("service_url") or ""))
+            repo_url = repo_urls.canonical_repo_url(str(item.get("repo_url") or ""))
+            if not service_url or not repo_url:
+                continue
+            saved_assessments[(service_url, repo_url)] = item
+            all_saved_assessments.add((project_key, service_url, repo_url))
+
+        repository_material = {
+            repo_urls.canonical_repo_url(str(item.get("repo_url") or ""))
+            for item in llm_input.get("repository_analysis_results", [])
+            if isinstance(item, dict)
+            and not bool(item.get("stale"))
+            and repo_urls.canonical_repo_url(str(item.get("repo_url") or ""))
+        }
+        graph_edges = [
+            edge
+            for edge in ((state_evidence.get("trust_graph") or {}).get("edges", []))
+            if isinstance(edge, dict)
+        ]
+        llm_edges = {
+            (
+                identifiers.normalize_url(str((edge.get("subject") or {}).get("value") or "")),
+                repo_urls.canonical_repo_url(str((edge.get("object") or {}).get("value") or "")),
+            )
+            for edge in graph_edges
+            if edge.get("predicate") == "service_links_repo"
+            and edge.get("method") == "llm_same_project"
+            and edge.get("classification") == "confirmed"
+        }
+        non_llm_forward_support = {
+            (
+                identifiers.normalize_url(str((edge.get("subject") or {}).get("value") or "")),
+                repo_urls.canonical_repo_url(str((edge.get("object") or {}).get("value") or "")),
+            )
+            for edge in graph_edges
+            if edge.get("predicate") == "service_links_repo"
+            and edge.get("method") != "llm_same_project"
+            and edge.get("classification") == "confirmed"
+            and bool(edge.get("eligible_for_auto_confirm"))
+        }
+        for item in llm_input.get("repository_link_candidates", []):
+            if not isinstance(item, dict):
+                continue
+            service_url = identifiers.normalize_url(str(item.get("service_url") or ""))
+            repo_url = repo_urls.canonical_repo_url(str(item.get("repo_url") or ""))
+            if not service_url or not repo_url:
+                continue
+            labels = " ".join(
+                str(item.get(key) or "").strip()
+                for key in ("link_text", "aria_label", "link_title")
+                if str(item.get(key) or "").strip()
+            )
+            observation = {
+                "direction": "service_to_repo",
+                "object_value": repo_url,
+                "link_label": labels,
+                "context_reconstructible": bool(
+                    labels
+                    or str(item.get("page_title") or "").strip()
+                    or str(item.get("page_description") or "").strip()
+                ),
+            }
+            deterministic = evaluate_observation(observation)
+            subject_entries = project["identifiers"].get(("service_url", service_url), [])
+            subject_standings = sorted({
+                str(entry.get("classification") or "")
+                for entry in subject_entries
+                if entry.get("role") == "service"
+                and str(entry.get("classification") or "") in {"confirmed", "candidate"}
+            })
+            subject_has_component_role = bool(subject_standings)
+            subject_standing = (
+                subject_standings[0]
+                if len(subject_standings) == 1
+                else ("mixed" if subject_standings else "missing")
+            )
+            target_entries = project["identifiers"].get(("repo_url", repo_url), [])
+            subject_adoption_sources = sorted({
+                str(adoption.get("source") or "")
+                for entry in subject_entries
+                if entry.get("role") == "service"
+                for adoption in entry.get("adoptions", [])
+                if str(adoption.get("source") or "")
+            })
+            target_adoption_sources = sorted({
+                str(adoption.get("source") or "")
+                for entry in target_entries
+                if entry.get("role") == "source_repository"
+                for adoption in entry.get("adoptions", [])
+                if str(adoption.get("source") or "")
+            })
+            reciprocal = (project_key, repo_url, service_url) in reciprocal_relations
+            route = route_relation_assessment({
+                "subject_has_component_role": subject_has_component_role,
+                "deterministic_verdict": deterministic["verdict"],
+                "reciprocal_direct_relation_supported": reciprocal,
+                "source_observation_available": bool(observation["context_reconstructible"]),
+                "bounded_target_material_available": repo_url in repository_material,
+            })
+            assessment = saved_assessments.get((service_url, repo_url), {})
+            relationship = str(assessment.get("relationship") or "missing")
+            has_llm_edge = (service_url, repo_url) in llm_edges
+            llm_is_only_forward_support = (
+                has_llm_edge and (service_url, repo_url) not in non_llm_forward_support
+            )
+            route_counts[route["route"]] += 1
+            route_reason_counts[route["reason"]] += 1
+            link_presentation_counts[classify_service_link_label(labels)] += 1
+            current_assessment_counts[relationship] += 1
+            current_edge_counts["llm_same_project" if has_llm_edge else "no_llm_edge"] += 1
+            rows.append({
+                "project_key": project_key,
+                "project_name": str(project["name"]),
+                "project_url": _project_ui_url(project_key),
+                "service_url": service_url,
+                "repo_url": repo_url,
+                "link_text": str(item.get("link_text") or ""),
+                "aria_label": str(item.get("aria_label") or ""),
+                "link_title": str(item.get("link_title") or ""),
+                "page_title": str(item.get("page_title") or ""),
+                "page_description": str(item.get("page_description") or ""),
+                "subject_has_component_role": subject_has_component_role,
+                "subject_standing": subject_standing,
+                "subject_adoption_sources": subject_adoption_sources,
+                "target_adoption_sources": target_adoption_sources,
+                "deterministic_verdict": deterministic["verdict"],
+                "reciprocal_direct_relation_supported": reciprocal,
+                "bounded_target_material_available": repo_url in repository_material,
+                "route": route["route"],
+                "route_reason": route["reason"],
+                "current_relationship": relationship,
+                "current_reason": str(assessment.get("reason") or ""),
+                "current_llm_edge": has_llm_edge,
+                "llm_is_only_forward_support_for_pair": llm_is_only_forward_support,
+            })
+
+    current_pairs = {
+        (item["project_key"], item["service_url"], item["repo_url"])
+        for item in rows
+    }
+    stale_assessments = all_saved_assessments - current_pairs
+    examples: dict[str, list[dict[str, Any]]] = {}
+    for reason in sorted(route_reason_counts):
+        examples[reason] = [item for item in rows if item["route_reason"] == reason][
+            :example_limit
+        ]
+    return {
+        "current_proposal_count": len(rows),
+        "saved_assessment_pair_count": len(all_saved_assessments),
+        "saved_assessment_without_current_proposal_count": len(stale_assessments),
+        "route_counts": _counter(route_counts),
+        "route_reason_counts": _counter(route_reason_counts),
+        "link_presentation_counts": _counter(link_presentation_counts),
+        "current_assessment_counts": _counter(current_assessment_counts),
+        "current_edge_counts": _counter(current_edge_counts),
+        "same_project_without_bounded_target_material_count": sum(
+            item["current_relationship"] == "same_project"
+            and not item["bounded_target_material_available"]
+            for item in rows
+        ),
+        "same_project_on_unconfirmed_subject_count": sum(
+            item["current_relationship"] == "same_project"
+            and item["subject_standing"] != "confirmed"
+            for item in rows
+        ),
+        "same_project_without_component_role_count": sum(
+            item["current_relationship"] == "same_project"
+            and not item["subject_has_component_role"]
+            for item in rows
+        ),
+        "llm_only_forward_pair_with_trust_adoption_count": sum(
+            item["llm_is_only_forward_support_for_pair"]
+            and "trust_policy" in set(item["subject_adoption_sources"] + item["target_adoption_sources"])
+            for item in rows
+        ),
+        "examples": examples,
+        "comparison_is_read_only": True,
+        "production_behavior_changed": False,
+    }
+
+
 def _confirmed_component(entries: list[dict[str, str]], role: str) -> bool:
     return any(item.get("role") == role and item.get("classification") == "confirmed" for item in entries)
 
@@ -776,6 +1041,11 @@ def compare_database(
     observations = [item for project in projects for item in project["observations"]]
     github_search_attachment = _github_search_attachment_audit(
         conn,
+        projects,
+        observations,
+        example_limit=example_limit,
+    )
+    relation_assessor_inventory = _relation_assessor_inventory(
         projects,
         observations,
         example_limit=example_limit,
@@ -1157,6 +1427,7 @@ def compare_database(
             "auto_update_executed": False,
         },
         "github_search_homepage_attachment": github_search_attachment,
+        "relation_assessor_inventory": relation_assessor_inventory,
         "examples": examples,
         "review_gate": {
             "case_catalog_passed": case_results["failed_count"] == 0,

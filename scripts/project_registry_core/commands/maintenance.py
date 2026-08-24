@@ -130,6 +130,25 @@ def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
                 "production_policy_connected",
             )
         },
+        "relation_assessor_inventory": {
+            key: report["relation_assessor_inventory"][key]
+            for key in (
+                "current_proposal_count",
+                "saved_assessment_pair_count",
+                "saved_assessment_without_current_proposal_count",
+                "route_counts",
+                "route_reason_counts",
+                "link_presentation_counts",
+                "current_assessment_counts",
+                "current_edge_counts",
+                "same_project_without_bounded_target_material_count",
+                "same_project_on_unconfirmed_subject_count",
+                "same_project_without_component_role_count",
+                "llm_only_forward_pair_with_trust_adoption_count",
+                "comparison_is_read_only",
+                "production_behavior_changed",
+            )
+        },
         "review_gate": report["review_gate"],
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
