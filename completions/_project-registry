@@ -437,7 +437,9 @@ case "$cmd" in
     _arguments -S \
       '--db-path[Existing registry database opened read-only]:database file:_files' \
       '--output[Structured migration comparison report JSON path]:report file:_files' \
-      '--example-limit[Maximum examples per disposition]:count:'
+      '--example-limit[Maximum examples per disposition]:count:' \
+      '--materialized-db[New shadow database receiving reviewed decisions]:database file:_files' \
+      '--review-manifest[Reviewed decision manifest]:JSON file:_files'
     ;;
   compare-merge-policy)
     _arguments -S \

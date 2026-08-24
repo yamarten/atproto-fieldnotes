@@ -466,6 +466,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare_project_site_migration_parser.add_argument(
         "--example-limit", type=int, default=20, help="Maximum examples per disposition. Default: 20."
     )
+    compare_project_site_migration_parser.add_argument(
+        "--materialized-db", help="Optional new shadow database path receiving the reviewed decisions."
+    )
+    compare_project_site_migration_parser.add_argument(
+        "--review-manifest", help="Optional reviewed decision manifest used with --materialized-db."
+    )
     compare_project_site_migration_parser.set_defaults(
         func=maintenance_commands.cmd_compare_project_site_migration
     )

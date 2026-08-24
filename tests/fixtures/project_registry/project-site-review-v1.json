@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-25",
+  "actions": [
+    {"project_key": "proj:1195485f4e06", "expected_website_url": "https://bluesky-comments-docs.mhamlin.workers.dev", "action": "add_project_site"},
+    {"project_key": "proj:8d1b54c79a87", "expected_website_url": "https://clippr.social", "action": "add_project_site"},
+    {"project_key": "proj:1c7a9313031b", "expected_website_url": "https://idiolect.dev", "action": "add_project_site"},
+    {"project_key": "proj:3dae36ac4ecf", "expected_website_url": "https://lexicon.community", "action": "add_project_site"},
+    {"project_key": "proj:301bb26c4eeb", "expected_website_url": "https://mastrojs.github.io", "action": "add_project_site"},
+    {"project_key": "proj:9656822699bd", "expected_website_url": "https://www.tiles.run", "action": "add_project_site"},
+    {"project_key": "proj:19a20ea5b015", "expected_website_url": "https://toolshed.sh", "action": "add_project_site"},
+    {"project_key": "proj:38bea19f59c3", "expected_website_url": "https://writer.stormlightlabs.org", "action": "add_project_site"},
+    {"project_key": "proj:a24717b429de", "expected_website_url": "https://kyron.spidroid.com", "action": "add_project_site"},
+    {"project_key": "proj:643bfa3ae425", "expected_website_url": "https://desertthunder.dev", "action": "confirm_service"},
+    {"project_key": "proj:7c0bfcde55ae", "expected_website_url": "https://popfeed.social", "action": "keep_service_remove_conflict", "conflicting_project_key": "proj:7c19c3b13943"},
+    {"project_key": "proj:cdedad4d69eb", "expected_website_url": "https://atweb-vue.github.io", "action": "clear_website_keep_noncurrent"},
+    {"project_key": "proj:fd72f40ebe1e", "expected_website_url": "https://www.impactindexer.org", "action": "clear_website_keep_noncurrent"},
+    {"project_key": "proj:dbf4c6597041", "expected_website_url": "https://www.publib.social", "action": "clear_website_keep_noncurrent"},
+    {"project_key": "proj:ea9378ef5f52", "expected_website_url": "https://skypush.tomo-x.win", "action": "clear_website_keep_noncurrent"},
+    {"project_key": "proj:e5f7a5da4236", "expected_website_url": "https://dev.soleia.app", "action": "clear_website_keep_noncurrent"}
+  ]
+}

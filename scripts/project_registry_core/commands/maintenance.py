@@ -12,7 +12,7 @@ from .. import domain_policy
 from .. import identifier_storage_shadow
 from .. import identifier_storage_materialization
 from .. import merge_policy_shadow
-from .. import project_site_shadow
+from .. import project_site_materialization, project_site_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
 
@@ -225,10 +225,24 @@ def cmd_compare_project_site_migration(args: argparse.Namespace) -> int:
     db_path = Path(args.db_path).expanduser()
     if output.resolve() == db_path.resolve():
         raise ValueError("--output must not overwrite --db-path")
+    materialized_db_value = getattr(args, "materialized_db", None)
+    materialized_db = Path(materialized_db_value).expanduser() if materialized_db_value else None
+    if materialized_db is not None and materialized_db.resolve() in {db_path.resolve(), output.resolve()}:
+        raise ValueError("--materialized-db must differ from --db-path and --output")
     report = project_site_shadow.compare_database_path(
         db_path,
         example_limit=int(args.example_limit),
     )
+    if materialized_db is not None:
+        manifest_value = getattr(args, "review_manifest", None)
+        manifest_path = (
+            Path(manifest_value).expanduser() if manifest_value else
+            core.ROOT / "tests" / "fixtures" / "project_registry" / "project-site-review-v1.json"
+        )
+        report["materialization"] = project_site_materialization.materialize_reviewed_copy(
+            db_path, materialized_db, manifest_path
+        )
+        report["content_hash"] = project_site_shadow._content_hash(report)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -241,6 +255,7 @@ def cmd_compare_project_site_migration(args: argparse.Namespace) -> int:
         "existing_website_disposition_counts": report["existing_website_migration"]["disposition_counts"],
         "empty_website_lead_disposition_counts": report["empty_website_repository_homepage_leads"]["disposition_counts"],
         "review_gate": report["review_gate"],
+        "materialization": report.get("materialization"),
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

@@ -60,6 +60,7 @@ def evaluate_existing_website(item: dict[str, Any]) -> dict[str, Any]:
     url = identifiers.normalize_url(str(item.get("website_url") or ""))
     static_role = collector_relation_policy.classify_url_role(url)
     confirmed_services = set(item.get("confirmed_services") or [])
+    confirmed_project_sites = set(item.get("confirmed_project_sites") or [])
     candidate_services = set(item.get("candidate_services") or [])
     noncurrent_services = set(item.get("noncurrent_services") or [])
     collision_count = int(item.get("cross_project_count") or 1)
@@ -74,6 +75,9 @@ def evaluate_existing_website(item: dict[str, Any]) -> dict[str, Any]:
             if cross_project_component_count
             else "same_website_is_used_by_multiple_projects"
         )
+    elif url in confirmed_project_sites:
+        disposition = "REUSE_CONFIRMED_PROJECT_SITE"
+        reason = "website_exactly_matches_current_confirmed_project_site"
     elif url in confirmed_services:
         disposition = "REUSE_CONFIRMED_SERVICE"
         reason = "website_exactly_matches_current_confirmed_service"
@@ -115,6 +119,9 @@ def evaluate_empty_website_candidate(item: dict[str, Any]) -> dict[str, Any]:
     elif bool(item.get("cross_project_component")):
         disposition = "REVIEW_CROSS_PROJECT_COLLISION"
         reason = "repository_homepage_matches_another_project_component"
+    elif bool(item.get("confirmed_project_site")):
+        disposition = "REUSE_CONFIRMED_PROJECT_SITE"
+        reason = "repository_homepage_matches_current_confirmed_project_site"
     elif bool(item.get("confirmed_service")):
         disposition = "REUSE_CONFIRMED_SERVICE"
         reason = "repository_homepage_matches_current_confirmed_service"
@@ -187,6 +194,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
 
     confirmed_repositories: dict[str, set[str]] = collections.defaultdict(set)
     confirmed_services: dict[str, set[str]] = collections.defaultdict(set)
+    confirmed_project_sites: dict[str, set[str]] = collections.defaultdict(set)
     candidate_services: dict[str, set[str]] = collections.defaultdict(set)
     for key, entries in identifiers_by_project.items():
         for entry in entries:
@@ -195,9 +203,14 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
             if entry["kind"] == "service_url" and entry["role"] == "service":
                 target = confirmed_services if entry["classification"] == "confirmed" else candidate_services
                 target[key].add(entry["value"])
+            if entry["kind"] == "site_url" and entry["role"] == "project_site" and entry["classification"] == "confirmed":
+                confirmed_project_sites[key].add(entry["value"])
 
     confirmed_component_projects: dict[str, set[str]] = collections.defaultdict(set)
     for key, values in confirmed_services.items():
+        for value in values:
+            confirmed_component_projects[value].add(key)
+    for key, values in confirmed_project_sites.items():
         for value in values:
             confirmed_component_projects[value].add(key)
     for value, keys in website_projects.items():
@@ -249,6 +262,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
         evaluation = evaluate_existing_website({
             "website_url": website,
             "confirmed_services": confirmed_services.get(key, set()),
+            "confirmed_project_sites": confirmed_project_sites.get(key, set()),
             "candidate_services": candidate_services.get(key, set()),
             "noncurrent_services": noncurrent_by_project.get(key, set()),
             "cross_project_count": len(website_projects[website]),
@@ -303,6 +317,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
         evaluation = evaluate_empty_website_candidate({
             "url": row["url"],
             "confirmed_service": row["url"] in confirmed_services.get(key, set()),
+            "confirmed_project_site": row["url"] in confirmed_project_sites.get(key, set()),
             "candidate_service": row["url"] in candidate_services.get(key, set()),
             "cross_project_component": bool(conflicting_keys),
             "bidirectional_repository_reference": bool(references & outward),
@@ -342,6 +357,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
             "project_count": len(projects),
             "website_count": len(existing_rows),
             "confirmed_service_count": sum(len(values) for values in confirmed_services.values()),
+            "confirmed_project_site_count": sum(len(values) for values in confirmed_project_sites.values()),
             "candidate_service_count": sum(len(values) for values in candidate_services.values()),
             "confirmed_repository_count": sum(len(values) for values in confirmed_repositories.values()),
             "confirmed_repository_homepage_count": len(homepages),
