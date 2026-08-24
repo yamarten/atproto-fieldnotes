@@ -339,7 +339,7 @@ collectorはCSS、アイコン画像、周辺配置を保存していないた�
 
 ## project repositoryへの拡張とDOM context
 
-reviewでは必要なrelationを、実装sourceに限定した`source_repository`ではなく、そのprojectが公式に利用するrepositoryと定義しました。ソースコード、docs、仕様、Lexicon、issue tracker、release、licenseの置き場を含みます。subjectもservice surfaceへ限定せず、projectのdocsやWebsite等の構成要素からの直接linkを利用します。この意味には`source_repository`という名前が合わないため、production保存契約を変更する段階で`project_repository`へ改名します。二つのpredicateへ分割はしません。
+reviewでは必要なrelationを、実装sourceに限定した`source_repository`ではなく、そのprojectが公式に利用するrepositoryと定義しました。ソースコード、docs、仕様、Lexicon、issue tracker、release、licenseの置き場を含みます。subjectもservice surfaceへ限定せず、独立した構成要素である`project_site`からの直接linkを利用します。この意味には`source_repository`という名前が合わないため、production保存契約を変更する段階で`project_repository`へ改名します。二つのpredicateへ分割はしません。
 
 ただしrepository hostへのlinkだけでは、dependency、related project、awesome list掲載を区別できません。shadow専用のbounded HTML extractorを追加し、一つのlinkについてexact locator、canonical repository root、表示文字、`aria-label`、`title`、子画像・SVGのlabel、最寄り見出し、最寄りblockの短い本文、header/footer/nav等のlandmark、同一groupとpageのrepository数を抽出します。完全HTMLやDOMは保存しません。同じcanonical repositoryへの複数linkは一件へ上書きせず、全観測を保持してからpair verdictへ集約します。
 
@@ -373,14 +373,22 @@ bin/project-registry compare-project-repository-context \
 
 保存と判断は次の段階に分けます。
 
-1. service、Website、docs等のpage probeは、exact locator、canonical repository root、可視文字、accessibility label、子要素label、最寄り見出し・block、landmark、list内か、page/group内のrepository identity数をbounded observationとしてcurrent `service_verification_results`とrun historyへ保存する。
+1. service surfaceとproject siteのpage probeは、exact locator、canonical repository root、可視文字、accessibility label、子要素label、最寄り見出し・block、landmark、list内か、page/group内のrepository identity数をbounded observationとしてcurrent resultとrun historyへ保存する。個別docs subpage等の補助resourceも観測源にはできるが、構成要素へ採用されたこととは分ける。
 2. 外部一覧、dependency、funding、provider/account root等を静的に除外し、公式repositoryらしいが意味を確定できないlinkだけをcandidate `project_repository` relationにする。直接表示で確定できるlinkはconfirmed relationにできる。
 3. relationの`confirmed`は「この方向付きlinkが当該projectの公式repository関係を表す」というsemantic判断であり、repo identifier自体のconfirmedではない。relation classificationとidentifier classificationを分ける。
-4. confirmed relationのsubjectが現在のprojectに属するpageであれば、repoをcandidate `project_repository` identifierへ投影できる。対象はcurrent confirmed component、operatorが選んだWebsite、またはcurrent componentからのtraceを持つconfirmed resourceに限定し、任意のcandidate/derived docs pageを起点にしない。Websiteやdocsはtrusted anchorに昇格せず、auto-confirmには既存confirmed anchorとの往路・復路を別途要求する。
+4. confirmed relationのsubjectがcurrent confirmed `service`または`project_site` componentなら、repoをcandidate `project_repository` identifierへ投影できる。candidate site、導出URL、個別docs subpage等の補助resourceはrelationの観測・判断材料にはできるが、candidate admissionの起点にはしない。`project_site`を信頼判定の起点にできるかは、classificationだけでなく採用理由を含む通常のanchor policyに従い、auto-confirmには登録起点までの許可された往路・復路を要求する。
 5. repository側からpageを示す方向も、同じ`project_repository` predicateの反対方向として別relationにする。GitHub Website欄の`repository_homepage`は直接観測predicateのまま維持し、それだけでは`project_repository`にしない。READMEの一般linkも、bounded contextで公式project surfaceへの参照と判断できるまで`project_repository`へ昇格しない。
 6. 同じ観測が意味上の両方向を保証する場合は、同じprovenanceから二本の方向付きrelationを作ってよい。ただしraw linkを機械的にinverse化せず、各方向が表す意味をpolicyで確認する。
 
 初期production接続では静的に確定できるrelationだけをconfirmedへ昇格し、LLMによる自動昇格は接続しません。曖昧なcandidate relationは残してもidentifier candidateを生成せず、既存のrelation assessorまたは人のreview対象にします。現在の専用assessorは限定materialで`INSUFFICIENT`が多く、旧`llm_same_project`より入力契約は改善していますが、productionの自動判断器として採用できる品質はまだ示していません。
+
+### project siteの導入境界
+
+`project_site`は、projectを説明・提示する代表的なWeb presenceです。documentation、specification、promotion、landing pageを含み得ますが、利用・操作する`service`と、個別のdocs、support、blog、distribution page等の補助resourceは含めません。serviceを持たない仕様・documentation主体projectでも構成要素を持てるようにするためのroleであり、一般URLをすべて構成要素へ昇格する仕組みではありません。
+
+2026-08-24の正本DBでは、`projects.website_url`が空でないprojectは612件です。文字列末尾のslashだけを無視した比較では597件が同じprojectのconfirmed `service`と一致し、1件がcandidate `service`と一致し、service/repository identifierと一致しない値は14件でした。後者にはLexicon Community、Bluesky Comments、ToolShed、idiolect等が含まれます。この分布は、既存Website欄の大半が過去のservice初期値と重なる一方、独立したproject site候補も実在することを示します。Website値だけでは採用理由とroleを再構築できないため、612件を一括してconfirmed `project_site`へ移しません。
+
+導入時は、同じexact URLのconfirmed serviceがWebsite表示を兼ねられるものは二重登録せず維持します。独立した14件と、Website空欄のproject site候補をread-only比較し、operator判断または許可された直接関係で帰属を確認できるものだけ`site_url` / `project_site`へ採用します。project siteの保存、表示、採用理由、serviceとの相互relationを先に実装してから、service以外を起点にする`project_repository` relationを接続します。補助resourceを例外的なtrusted anchorへする案は採りません。
 
 ### 正本DBのread-only監査
 
@@ -408,14 +416,15 @@ page→repo 634行のうち397行はrepository root、131行はissue/release等�
 
 ### 実装と適用の順序
 
-1. role、predicate、runtime view、Web/API表示を`project_repository` / repositoryへ揃え、`source_code_urls`を正本語彙として残さない。repository analysis等、repo URL一般を入力にする処理は新しいrepository viewへ接続する。
-2. production page parserへshadowのbounded DOM contextを移し、probe置換時に同じsurface由来のcandidate/confirmed `project_repository` relationを再生成する。任意最大長やLLM判断はここへ混ぜない。
-3. temp DBでidentifier role、adoption、decision、non-current rowの意味とprovenanceを保って改名し、GitHub case違いの同一identity 3組を統合し、旧relationを上表どおり選別する。既存confirmed identifierはrelation不足を理由に降格しない。
-4. 259 projectの旧first-party relationを対象にbounded再収集を行い、静的確定、candidate、除外、取得不能をreportする。取得不能は旧relationを自動支持せずreviewへ残す。
-5. account.info、GitHub case違いのAgentScan等3組、固定事例、初回26 proposal、無標link追加sampleを確認し、旧`llm_same_project` edgeと旧`source_repository` relationを除去した後のtrust verdict差を比較する。
-6. comparator実装、production code、DB適用を別コミットに分ける。正本DB適用はserverとwriterを止め、backup、単一transaction、foreign key、integrity、再dry-run、通常操作確認を行う。
+1. `site_url` / `project_site`の保存・runtime view・Web/API表示と採用理由を設計し、既存Website 612件のread-only移行比較でservice兼用、独立site候補、補助resource、要reviewを分ける。
+2. role、predicate、runtime view、Web/API表示を`project_repository` / repositoryへ揃え、`source_code_urls`を正本語彙として残さない。repository analysis等、repo URL一般を入力にする処理は新しいrepository viewへ接続する。
+3. production page parserをservice surfaceとproject siteの両方から利用できるbounded observationへ分け、再取得時にcandidate/confirmed `project_repository` relationを再生成する。任意最大長やLLM判断はここへ混ぜない。
+4. temp DBでsite導入とrepositoryのidentifier role、adoption、decision、non-current rowの意味とprovenanceを保つことを確認する。repositoryではGitHub case違いの同一identity 3組を統合し、旧relationを上表どおり選別する。既存confirmed identifierはrelation不足を理由に降格しない。
+5. 259 projectの旧first-party relationを対象にbounded再収集を行い、静的確定、candidate、除外、取得不能をreportする。取得不能は旧relationを自動支持せずreviewへ残す。
+6. account.info、GitHub case違いのAgentScan等3組、固定事例、初回26 proposal、無標link追加sampleを確認し、旧`llm_same_project` edgeと旧`source_repository` relationを除去した後のtrust verdict差を比較する。
+7. comparator実装、production code、DB適用を別コミットに分ける。正本DB適用はserverとwriterを止め、backup、単一transaction、foreign key、integrity、再dry-run、通常操作確認を行う。
 
-この段階では保存契約と移行範囲の提案までで、production code、正本DB、Web UI、schemaは変更していません。次の設計ゲートは、identifier roleまで`project_repository`へ揃えること、旧relationを一括改名せず再生成すること、初期productionではLLM自動昇格を接続しないことの三点です。
+この段階では保存契約と移行範囲の提案までで、production code、正本DB、Web UI、schemaは変更していません。次の設計ゲートは、`project_site`を独立componentとして導入し補助resourceと分けること、identifier roleまで`project_repository`へ揃えること、旧relationを一括改名せず再生成すること、初期productionではLLM自動昇格を接続しないことの四点です。
 
 完全reportは`.tmp/project-repository-context-v4-20260824.json`、content hashは`796eb81a7204575755cc53568e27361cadcbc85b6a0327f7be8d8f2adcbf3167`です。25 pageの逐次取得は一部応答待ちにより約12分かかったため、commandの既定page limitは10とし、以後のreportにはpage別・全体の経過時間を記録します。これは評価用commandの実行量の問題であり、relation判定結果には影響しません。
 
