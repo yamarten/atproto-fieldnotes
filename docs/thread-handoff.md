@@ -20,7 +20,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub Searchの`homepage_exact`はproductionへ接続済みです。公式repository relationのshadow比較、追加15 page、無標link規則まで確認し、残るAirport等4種は誤りではなく一般化困難としてreviewへ残す。production案は、serviceと混ぜない`site_url` / `project_site` componentを先に導入し、identifier roleとpredicateを`project_repository`へ揃え、page relationをbounded再収集から再生成する。既存Website 612件のうち要判断16件は2026-08-25にreview済みで、project site 9、service confirm 1、別projectの誤ったservice除去1、non-currentを維持したWebsite解除5に確定した。固定manifestを新しいshadow DBへ投影し、current Website 607件がservice再利用598またはproject site 9、site/service exact重複0、foreign key違反0、integrity `ok`となることを確認した。production codeも`site_url` / `project_site`の保存、runtime view、merge、Web/API表示に対応した。次は全testとmaterialized DBの通常読込・無変更save・API表示を確認し、正本DB切替の承認を得る。Website空欄へのrepository homepage 227 URLは初期移行へ含めない。repository role改名とrelation再生成はその後に行い、初期段階ではLLM自動昇格を接続しない。
+- GitHub Searchの`homepage_exact`はproductionへ接続済みです。公式repository relationのshadow比較、追加15 page、無標link規則まで確認し、残るAirport等4種は誤りではなく一般化困難としてreviewへ残す。serviceと混ぜない`site_url` / `project_site` componentはproduction codeと正本DBへ2026-08-25に導入済みです。review済み16件を適用し、current Website 607件がservice再利用598またはproject site 9、active site adoption 9、site/service exact重複0、foreign key違反0、integrity `ok`となりました。切替前DBは`data/backups/project-site-20260825T011520+0900/`へ退避しています。Website空欄へのrepository homepage 227 URLは初期移行へ含めません。次はidentifier roleとpredicateを`project_repository`へ揃え、page relationをbounded再収集から再生成します。初期段階ではLLM自動昇格を接続しません。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。

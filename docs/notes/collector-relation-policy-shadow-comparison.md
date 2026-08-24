@@ -417,7 +417,7 @@ Website空欄のprojectについて、confirmed repositoryの`repository_homepag
 
 残る7件も同じreviewで確定しました。PopFeedの`https://popfeed.social`はPopFeed側のconfirmed serviceを維持し、PopSky側へ混入した同じservice identifierだけを外します。atweb-vue、Impact Indexer、PubLib、Skypushのformer URLとSoleiaのnon-production URLはnon-current identifierを維持したままcurrent Website欄を空にします。誤検出としてblockするのではなく、すでに保存された時間・環境上のstandingを保持します。
 
-この16件を固定manifestとして新しいshadow DBへ投影した結果、Website 612件はcurrent Website 607件へ整理され、その全件がconfirmed service再利用598件またはconfirmed `project_site` 9件になりました。追加した`project_site`にはoperator adoptionとregistration originを保存し、Kyronのcandidate service 1件とPopSkyの衝突service 1件を除去しました。確認結果はSQLite integrity `ok`、foreign key違反0、current site/service exact URL重複0です。正本DBはread-onlyであり、production role、schema、DBへの適用はまだ行っていません。
+この16件を固定manifestとして新しいshadow DBへ投影した結果、Website 612件はcurrent Website 607件へ整理され、その全件がconfirmed service再利用598件またはconfirmed `project_site` 9件になりました。追加した`project_site`にはoperator adoptionとregistration originを保存し、Kyronのcandidate service 1件とPopSkyの衝突service 1件を除去しました。確認結果はSQLite integrity `ok`、foreign key違反0、current site/service exact URL重複0です。2026-08-25に同じmanifestを停止中の最新正本DBへ再適用して結果が一致することを確認し、production codeと正本DBへ反映しました。切替前DBは`data/backups/project-site-20260825T011520+0900/`へ退避しています。
 
 review manifestとshadow materialization結果を含む完全reportのcontent hashは`25437d8b7d625f81bb39a6af94d1a5daa82a56f7968e89eb04e28a7312f934a8`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`で開き、正本DBを更新しません。投影先は新規shadow DBに限定します。
 
