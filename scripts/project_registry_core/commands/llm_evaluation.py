@@ -259,6 +259,7 @@ def cmd_evaluate_relation_assessment_corpus(args: argparse.Namespace) -> int:
         ),
         "api_style": str(args.llm_api_style or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
         "output_cap": output_cap,
+        "support_evidence_mode": str(args.support_evidence_mode),
     }
     output = Path(args.output)
     case_ids = set(args.case_id or [])
@@ -269,6 +270,7 @@ def cmd_evaluate_relation_assessment_corpus(args: argparse.Namespace) -> int:
         model_spec=model_spec,
         repeat=int(args.repeat),
         case_ids=case_ids,
+        support_evidence_mode=str(args.support_evidence_mode),
         root=core.ROOT,
         progress_callback=lambda results: _write_json(
             output, relation_assessment.checkpoint_report(corpus, model_spec, results)
@@ -277,3 +279,19 @@ def cmd_evaluate_relation_assessment_corpus(args: argparse.Namespace) -> int:
     _write_json(output, report)
     print(json.dumps({"output": str(output), **report["summary"]}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["summary"]["failure_count"] == 0 else 1
+
+
+def cmd_export_relation_assessment_corpus(args: argparse.Namespace) -> int:
+    corpus = relation_assessment.export_database_corpus(
+        Path(args.db_path),
+        case_catalog_path=(
+            core.ROOT / "tests" / "fixtures" / "project_registry"
+            / "collector-relation-policy-cases-v1.json"
+        ),
+    )
+    output = Path(args.output)
+    if output.expanduser().resolve() == Path(args.db_path).expanduser().resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    _write_json(output, corpus)
+    print(json.dumps({"output": str(output), **corpus["selection"]}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0

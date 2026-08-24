@@ -351,6 +351,16 @@ def build_parser() -> argparse.ArgumentParser:
         func=llm_evaluation_commands.cmd_compare_repository_analysis_reports
     )
 
+    export_relation_assessment_parser = subparsers.add_parser(
+        "export-relation-assessment-corpus",
+        help="Export current ASSESS-routed relation material from a registry database opened read-only.",
+    )
+    export_relation_assessment_parser.add_argument("--db-path", required=True, help="Source SQLite DB opened read-only.")
+    export_relation_assessment_parser.add_argument("--output", required=True, help="Output corpus JSON path.")
+    export_relation_assessment_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_export_relation_assessment_corpus
+    )
+
     evaluate_relation_assessment_parser = subparsers.add_parser(
         "evaluate-relation-assessment-corpus",
         help="Run the predicate-specific relation assessor against a fixed shadow corpus.",
@@ -360,6 +370,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_relation_assessment_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
     evaluate_relation_assessment_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
     evaluate_relation_assessment_parser.add_argument("--output-cap", type=int, default=512, help="Maximum output tokens. Default: 512.")
+    evaluate_relation_assessment_parser.add_argument(
+        "--support-evidence-mode", choices=["both_endpoints", "bounded_any"], default="both_endpoints",
+        help="Require cited support from both endpoints, or allow any sufficient bounded evidence. Default: both_endpoints.",
+    )
     evaluate_relation_assessment_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
     evaluate_relation_assessment_parser.add_argument("--quantization", help="Quantization label recorded in the report.")
     evaluate_relation_assessment_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")

@@ -47,6 +47,19 @@ class RelationAssessmentTest(unittest.TestCase):
         )
         self.assertTrue(validation["valid"])
 
+    def test_bounded_any_mode_accepts_one_supplied_reference(self) -> None:
+        validation = relation_assessment.validate_output(
+            {"verdict": "SUPPORTED", "reason": "direct statement", "evidence_refs": ["R1"]},
+            self.case["input"],
+            support_evidence_mode="bounded_any",
+        )
+        self.assertTrue(validation["valid"])
+        self.assertEqual(validation["normalized_result"]["support_evidence_mode"], "bounded_any")
+        prompt = relation_assessment.build_prompt(
+            self.case["input"], support_evidence_mode="bounded_any",
+        )
+        self.assertIn("one endpoint is allowed", prompt)
+
     def test_output_rejects_unknown_evidence_and_extra_claims(self) -> None:
         validation = relation_assessment.validate_output(
             {
@@ -72,6 +85,7 @@ class RelationAssessmentTest(unittest.TestCase):
             model_spec={"model": "fake"},
         )
         self.assertEqual(report["summary"]["valid_count"], 2)
+        self.assertEqual(report["summary"]["expected_comparable_count"], 2)
         self.assertEqual(report["summary"]["expected_match_count"], 2)
         self.assertEqual(report["summary"]["legacy_comparable_count"], 2)
         self.assertEqual(report["summary"]["legacy_match_count"], 2)
@@ -83,7 +97,33 @@ class RelationAssessmentTest(unittest.TestCase):
             "--output", ".tmp/report.json",
         ])
         self.assertEqual(args.output_cap, 512)
+        self.assertEqual(args.support_evidence_mode, "both_endpoints")
         self.assertEqual(args.func.__name__, "cmd_evaluate_relation_assessment_corpus")
+
+    def test_database_case_uses_raw_excerpts_without_project_context_in_input(self) -> None:
+        row = {
+            "project_key": "proj:test", "project_url": "http://example.test/project",
+            "service_url": "https://service.example/", "repo_url": "https://github.com/example/repo",
+            "link_text": "GitHub", "aria_label": "", "link_title": "",
+            "page_title": "Service", "page_description": "A service", "subject_standing": "confirmed",
+            "current_relationship": "same_project",
+        }
+        state = {"evidence": {"llm_source": {"evidence": {"repository_analysis_results": [{
+            "repo_url": "https://github.com/example/repo", "stale": False,
+            "summary": "model summary must not be copied",
+            "evidence_excerpts": [{"path": "README.md", "excerpt": "Live at service.example"}],
+        }]}}}}
+        case = relation_assessment._database_case(row, state)
+        self.assertEqual(case["legacy_verdict"], "SUPPORTED")
+        self.assertNotIn("project_key", case["input"])
+        self.assertEqual(case["input"]["target_evidence"][0]["excerpt"], "Live at service.example")
+        self.assertNotIn("model summary", json.dumps(case["input"]))
+
+    def test_cli_exposes_database_corpus_export(self) -> None:
+        args = cli.build_parser().parse_args([
+            "export-relation-assessment-corpus", "--db-path", "survey.db", "--output", "corpus.json",
+        ])
+        self.assertEqual(args.func.__name__, "cmd_export_relation_assessment_corpus")
 
 
 if __name__ == "__main__":

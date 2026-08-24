@@ -30,6 +30,7 @@ subcommands=(
   'export-repository-analysis-corpus:Export fixed repository analysis material from saved runs'
   'evaluate-repository-analysis-corpus:Run one model configuration against fixed repository material'
   'compare-repository-analysis-reports:Compare two repository analysis reports'
+  'export-relation-assessment-corpus:Export current relation assessment material read-only'
   'evaluate-relation-assessment-corpus:Run the predicate-specific relation assessor against a fixed corpus'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
@@ -376,6 +377,7 @@ case "$cmd" in
       '*--case-id[Run only this case ID]:case id:' \
       '--repeat[Runs per case]:count:' \
       '--output-cap[Maximum output tokens]:count:' \
+      '--support-evidence-mode[Evidence requirement for SUPPORTED]:mode:(both_endpoints bounded_any)' \
       '--runtime[Runner name and version]:runtime:' \
       '--quantization[Quantization label]:quantization:' \
       '--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:' \
@@ -383,6 +385,11 @@ case "$cmd" in
       '--llm-api-key[Optional API key for the LLM endpoint]:api key:' \
       '--llm-api-style[LLM endpoint API style preference]:api style:_project_registry_llm_api_styles' \
       '--llm-reasoning-effort[Optional reasoning or thinking effort]:effort:_project_registry_llm_reasoning_efforts'
+    ;;
+  export-relation-assessment-corpus)
+    _arguments -S \
+      '--db-path[Source SQLite DB opened read-only]:path:_files' \
+      '--output[Output corpus JSON path]:path:_files'
     ;;
   verify-service)
     _arguments -S \

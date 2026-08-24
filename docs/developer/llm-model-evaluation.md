@@ -204,6 +204,7 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 - `export-repository-analysis-corpus`: 保存済みrunからrevision固定のrepository materialをread-onlyで取り出す
 - `evaluate-repository-analysis-corpus`: 一つの実行構成でrepository解析と保存前検査を行う
 - `compare-repository-analysis-reports`: 同じmaterialとrepeatの機械検査結果を比較する
+- `export-relation-assessment-corpus`: 現在`ASSESS`へroutingされるpairと保存済みraw excerptをDBからread-onlyで固定する
 - `evaluate-relation-assessment-corpus`: project-level triageと分離した一つの方向付きpredicateを、入力内根拠だけで評価する
 
 機械比較が扱うのは成功、schema、根拠外identifier、確認用caseのcategory一致、所要時間です。文章品質、正本DBへ

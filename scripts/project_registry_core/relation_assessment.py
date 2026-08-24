@@ -3,18 +3,21 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from . import llm_model_evaluation as llm_evaluation
 from . import llm_transport
+from . import collector_relation_shadow
 
 
 POLICY_VERSION = "relation-assessment-v1"
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "INSUFFICIENT"}
+SUPPORT_EVIDENCE_MODES = {"both_endpoints", "bounded_any"}
 ALLOWED_PREDICATES = {"source_repository"}
 ALLOWED_DIRECTIONS = {"service_to_repo"}
 FORBIDDEN_INPUT_FIELDS = {
@@ -28,6 +31,135 @@ def corpus_content_hash(corpus: dict[str, Any]) -> str:
         "schema_version": corpus.get("schema_version"),
         "cases": corpus.get("cases", []),
     })
+
+
+def _legacy_verdict(relationship: str) -> str:
+    return {
+        "same_project": "SUPPORTED",
+        "related": "NOT_SUPPORTED",
+        "uncertain": "INSUFFICIENT",
+    }.get(relationship, "")
+
+
+def _database_case(row: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    evidence = state.get("evidence") if isinstance(state.get("evidence"), dict) else {}
+    llm_source = evidence.get("llm_source") if isinstance(evidence.get("llm_source"), dict) else {}
+    llm_input = llm_source.get("evidence") if isinstance(llm_source.get("evidence"), dict) else {}
+    analysis = next((
+        item for item in llm_input.get("repository_analysis_results", [])
+        if isinstance(item, dict)
+        and str(item.get("repo_url") or "") == str(row.get("repo_url") or "")
+        and not bool(item.get("stale"))
+    ), {})
+    source_evidence: list[dict[str, str]] = []
+    label = " ".join(
+        str(row.get(key) or "").strip()
+        for key in ("link_text", "aria_label", "link_title")
+        if str(row.get(key) or "").strip()
+    )
+    if label:
+        source_evidence.append({
+            "id": "S1", "kind": "html_link", "locator": str(row.get("service_url") or ""),
+            "label": label, "excerpt": label,
+        })
+    page_context = " — ".join(
+        str(row.get(key) or "").strip()
+        for key in ("page_title", "page_description")
+        if str(row.get(key) or "").strip()
+    )
+    if page_context:
+        source_evidence.append({
+            "id": f"S{len(source_evidence) + 1}", "kind": "service_page_metadata",
+            "locator": str(row.get("service_url") or ""), "label": "page title and description",
+            "excerpt": page_context,
+        })
+    target_evidence: list[dict[str, str]] = []
+    for raw in analysis.get("evidence_excerpts", []) if isinstance(analysis, dict) else []:
+        if not isinstance(raw, dict) or not str(raw.get("excerpt") or "").strip():
+            continue
+        path = str(raw.get("path") or "")
+        line = int(raw.get("line") or 0)
+        locator = f"{path}:{line}" if path and line > 0 else path
+        target_evidence.append({
+            "id": f"R{len(target_evidence) + 1}", "kind": "repository_file",
+            "locator": locator, "label": path, "excerpt": str(raw.get("excerpt") or ""),
+        })
+        if len(target_evidence) >= 8:
+            break
+    relationship = str(row.get("current_relationship") or "")
+    identity = f"{row.get('service_url')}\0{row.get('repo_url')}"
+    return {
+        "case_id": f"{row.get('project_key')}:{hashlib.sha256(identity.encode()).hexdigest()[:12]}",
+        "source_kind": "canonical_db_current_snapshot",
+        "project_key": str(row.get("project_key") or ""),
+        "project_url": str(row.get("project_url") or ""),
+        "expected_verdict": "",
+        "legacy_relationship": relationship,
+        "legacy_verdict": _legacy_verdict(relationship),
+        "input": {
+            "predicate": "source_repository", "direction": "service_to_repo",
+            "subject": {
+                "identifier": str(row.get("service_url") or ""), "kind": "service_url",
+                "role": "service_surface", "standing": str(row.get("subject_standing") or ""),
+            },
+            "object": {
+                "identifier": str(row.get("repo_url") or ""), "kind": "repo_url",
+                "role": "source_repository", "standing": "",
+            },
+            "source_evidence": source_evidence,
+            "target_evidence": target_evidence,
+        },
+    }
+
+
+def export_database_corpus(
+    db_path: Path, *, case_catalog_path: Path,
+) -> dict[str, Any]:
+    resolved = db_path.expanduser().resolve()
+    report = collector_relation_shadow.compare_database_path(
+        resolved, case_catalog_path=case_catalog_path, example_limit=100000,
+    )
+    rows = list(
+        report.get("relation_assessor_inventory", {})
+        .get("examples", {})
+        .get("directional_proposal_has_bounded_endpoint_material", [])
+    )
+    uri = f"{resolved.as_uri()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA query_only = ON")
+        conn.execute("BEGIN")
+        states = {
+            str(row["project_key"]): json.loads(str(row["state_json"] or "{}"))
+            for row in conn.execute(
+                "SELECT project_key, state_json FROM projects WHERE project_key IN (%s)"
+                % ",".join("?" for _ in {str(item.get("project_key") or "") for item in rows}),
+                sorted({str(item.get("project_key") or "") for item in rows}),
+            )
+        } if rows else {}
+        conn.rollback()
+    finally:
+        conn.close()
+    cases = [
+        _database_case(row, states.get(str(row.get("project_key") or ""), {}))
+        for row in rows
+    ]
+    return {
+        "schema_version": CORPUS_SCHEMA_VERSION,
+        "created_at": llm_evaluation.iso_now(),
+        "description": "Current ASSESS-routed service_to_repo proposals with saved bounded repository excerpts; expected verdicts require review.",
+        "source": {
+            "kind": "canonical_db_current_snapshot", "db_path": str(resolved),
+            "read_only": True, "collector_report_hash": str(report.get("content_hash") or ""),
+        },
+        "selection": {
+            "selected_count": len(cases),
+            "missing_target_excerpt_count": sum(not case["input"]["target_evidence"] for case in cases),
+            "expected_verdicts_reviewed": False,
+        },
+        "cases": cases,
+    }
 
 
 def _contains_forbidden_field(value: Any) -> str:
@@ -96,9 +228,16 @@ def normalize_input(value: Any) -> dict[str, Any]:
     }
 
 
-def build_prompt(value: Any) -> str:
+def build_prompt(value: Any, *, support_evidence_mode: str = "both_endpoints") -> str:
+    if support_evidence_mode not in SUPPORT_EVIDENCE_MODES:
+        raise ValueError(f"unsupported support evidence mode: {support_evidence_mode}")
     relation_input = normalize_input(value)
     evidence_json = json.dumps(relation_input, ensure_ascii=False, indent=2, sort_keys=True)
+    support_rule = (
+        "SUPPORTED must cite at least one S reference and at least one R reference."
+        if support_evidence_mode == "both_endpoints"
+        else "SUPPORTED must cite the supplied references that directly support the statement; one endpoint is allowed when its evidence is sufficient."
+    )
     return f"""You assess one proposed directional relation. Do not decide whether two items broadly belong to the same project.
 
 Proposed statement:
@@ -111,7 +250,7 @@ Verdicts:
 
 Rules:
 - Use only the supplied evidence. Do not infer from owner names, repository names, shared hosts, or general familiarity.
-- SUPPORTED must cite at least one S reference and at least one R reference.
+- {support_rule}
 - NOT_SUPPORTED must cite at least one supplied reference.
 - A service-side provider icon or generic GitHub link and a repository Website field are not sufficient by themselves.
 - A shared implementation may be a source repository for more than one service; do not infer project merge.
@@ -125,8 +264,12 @@ Input:
 """
 
 
-def validate_output(payload: Any, relation_input: Any) -> dict[str, Any]:
+def validate_output(
+    payload: Any, relation_input: Any, *, support_evidence_mode: str = "both_endpoints",
+) -> dict[str, Any]:
     errors: list[str] = []
+    if support_evidence_mode not in SUPPORT_EVIDENCE_MODES:
+        raise ValueError(f"unsupported support evidence mode: {support_evidence_mode}")
     normalized_input = normalize_input(relation_input)
     if not isinstance(payload, dict):
         return {"valid": False, "errors": ["invalid_type:top_level:object"], "normalized_result": None}
@@ -154,7 +297,9 @@ def validate_output(payload: Any, relation_input: Any) -> dict[str, Any]:
     unsupported = sorted({str(ref) for ref in refs if str(ref) not in allowed_refs})
     if unsupported:
         errors.append(f"unsupported_evidence_refs:{','.join(unsupported)}")
-    if verdict == "SUPPORTED" and not (
+    if verdict == "SUPPORTED" and not refs:
+        errors.append("supported_requires_evidence")
+    if verdict == "SUPPORTED" and support_evidence_mode == "both_endpoints" and not (
         any(str(ref).startswith("S") for ref in refs)
         and any(str(ref).startswith("R") for ref in refs)
     ):
@@ -170,6 +315,7 @@ def validate_output(payload: Any, relation_input: Any) -> dict[str, Any]:
             "predicate": normalized_input["predicate"],
             "direction": normalized_input["direction"],
             "policy_version": POLICY_VERSION,
+            "support_evidence_mode": support_evidence_mode,
         }
     return {"valid": not errors, "errors": errors, "normalized_result": normalized_result}
 
@@ -177,6 +323,7 @@ def validate_output(payload: Any, relation_input: Any) -> dict[str, Any]:
 def run_corpus(
     corpus: dict[str, Any], *, run_llm: Callable[[str], tuple[dict[str, Any], dict[str, Any]]],
     model_spec: dict[str, Any], repeat: int = 1, case_ids: set[str] | None = None,
+    support_evidence_mode: str = "both_endpoints",
     root: Path | None = None, progress_callback: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> dict[str, Any]:
     if int(corpus.get("schema_version") or 0) != CORPUS_SCHEMA_VERSION:
@@ -193,7 +340,7 @@ def run_corpus(
     results: list[dict[str, Any]] = []
     for case in cases:
         relation_input = case.get("input")
-        prompt = build_prompt(relation_input)
+        prompt = build_prompt(relation_input, support_evidence_mode=support_evidence_mode)
         for repeat_index in range(repeat):
             started = time.perf_counter()
             result: dict[str, Any] = {
@@ -207,7 +354,9 @@ def run_corpus(
             }
             try:
                 payload, meta = run_llm(prompt)
-                validation = validate_output(payload, relation_input)
+                validation = validate_output(
+                    payload, relation_input, support_evidence_mode=support_evidence_mode,
+                )
                 actual = str(dict(validation.get("normalized_result") or {}).get("verdict") or "")
                 result.update({
                     "status": "success", "payload": payload, "meta": meta,
@@ -237,11 +386,13 @@ def run_corpus(
         "corpus_case_count": len(cases),
         "git": llm_evaluation.git_state(root) if root else {"commit": "", "dirty": None},
         "model_spec": copy.deepcopy(model_spec),
+        "support_evidence_mode": support_evidence_mode,
         "summary": {
             "request_count": len(results),
             "success_count": len(successful),
             "failure_count": len(results) - len(successful),
             "valid_count": len(valid),
+            "expected_comparable_count": sum(bool(result.get("expected_verdict")) for result in valid),
             "expected_match_count": sum(bool(result.get("verdict_matches_expected")) for result in valid),
             "legacy_comparable_count": sum(bool(result.get("legacy_verdict")) for result in valid),
             "legacy_match_count": sum(bool(result.get("verdict_matches_legacy")) for result in valid),

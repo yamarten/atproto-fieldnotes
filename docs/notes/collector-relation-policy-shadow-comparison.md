@@ -282,7 +282,7 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 
 現行の`same_project`を置き換える候補として、`source_repository`だけを評価するread-only assessorを追加しました。入力は一つの`service_url`→`repo_url` proposal、service側のlink観測、repository側のbounded materialに限定します。project名、既存profile、現在のLLM assessmentは入力に含めません。これらを含めると、既に同じprojectへ登録されていることを根拠に同じprojectだと答える循環が生じるためです。
 
-出力は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`、短い理由、入力内の根拠IDだけです。`SUPPORTED`にはservice側とrepository側の両方の根拠を要求します。証拠の独立性を要求するためではなく、片側だけを見た推測を防ぐためです。`NOT_SUPPORTED`はdocs、dependency、developer site等の別relationを示す根拠を必要とします。名前やownerが似ている、provider iconがある、repositoryのWebsiteがservice URLと一致するだけなら`INSUFFICIENT`です。
+出力は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`、短い理由、入力内の根拠IDだけです。根拠は機械的に真偽判定できる事実に限らず、link label、周辺文、README等の位置を特定できる限定材料を含みます。機械検査するのは回答が提示済み材料を参照したことまでで、その意味解釈はLLMが行います。`SUPPORTED`の根拠条件は、service側とrepository側の両方を要求する`both_endpoints`と、一方の直接的な材料で十分と判断することを許す`bounded_any`を比較し、まだ確定しません。`NOT_SUPPORTED`はdocs、dependency、developer site等の別relationを示す根拠を必要とします。名前やownerが似ている、provider iconがある、repositoryのWebsiteがservice URLと一致するだけなら`INSUFFICIENT`です。
 
 この契約が判断するのは方向付きrelationだけです。shared implementationが複数serviceの`source_repository`であることは許容し、project mergeは導きません。逆方向relation、candidate admission、identifier confirmも生成しません。routing、relation評価、採用、信頼判定を別段階として維持します。
 
@@ -293,9 +293,20 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 ```sh
 bin/project-registry evaluate-relation-assessment-corpus \
   --corpus tests/fixtures/project_registry/relation-assessor-cases-v1.json \
+  --support-evidence-mode both_endpoints \
   --output .tmp/relation-assessor-v1.json
 ```
 
-reportはJSON schema、根拠ID、`SUPPORTED`の両endpoint参照を検査し、期待値との一致と、実際の旧判断が付いたcaseではその一致を別々に集計します。設計fixture 12件には架空の旧判断を置いていないため、旧方式との比較母数は0です。現在のshellにはLLM commandまたはendpointが設定されておらず、実model比較はまだ実行していません。productionのtriage prompt、`llm_same_project` edge、DBは変更していません。
+reportはJSON schema、根拠ID、選択した`SUPPORTED`根拠条件を検査し、期待値との一致と、実際の旧判断が付いたcaseではその一致を別々に集計します。設計fixture 12件には架空の旧判断を置いていないため、旧方式との比較母数は0です。現在のshellにはLLM commandまたはendpointが設定されておらず、実model比較はまだ実行していません。productionのtriage prompt、`llm_same_project` edge、DBは変更していません。
 
-次のreviewでは、両endpoint根拠を`SUPPORTED`の必須条件にすること、別relationを`NOT_SUPPORTED`として扱うこと、時間関係を`source_repository`だけで決めず`INSUFFICIENT`へ残すこと、固定corpusの境界を確認します。合意後に実modelを反復評価し、正本DBの`ASSESS` 16組と追加probe対象へ同じ入力契約を適用します。
+正本DBの現在snapshotから`ASSESS`へroutingされた16組を限定材料corpusへread-onlyで抽出するcommandも追加しました。
+
+```sh
+bin/project-registry export-relation-assessment-corpus \
+  --db-path data/survey.db \
+  --output .tmp/relation-assessor-current-20260824.json
+```
+
+16組の現行判断はすべて`same_project`です。service側根拠は9組が1件、7組が2件あります。repository側の位置付き抜粋は13組に1〜6件ありますが、3組は0件でした。該当するのはSovereign Comms、Glean、gamesgamesgamesgames.gamesのpairです。materialが保存されていることと、relation assessorへ渡せるraw excerptがあることは同義ではありません。`both_endpoints`ではこの3組を内容にかかわらず支持できず、`bounded_any`ではservice側材料だけで支持するかをmodelが判断できます。この差は、精度だけでなく追加probeと人力reviewの量として比較します。出力hashは`f22166cd43a82182f11668db2ead2d6264a6c9290c624e2f0421ed450993d1f0`です。
+
+次の比較では、`both_endpoints`と`bounded_any`を同じmodel・corpus・repeatで実行し、期待値一致だけでなく`INSUFFICIENT`の増減、根拠外参照、所要時間、人力reviewへ残る量を確認します。別relationを提案された`source_repository`について`NOT_SUPPORTED`と扱うことと、時間関係をこのpredicateだけで決めず`INSUFFICIENT`へ残すことは合意済みです。実model比較後に、正本DBの`ASSESS` 16組と追加probe対象へ採用する入力契約を決めます。
