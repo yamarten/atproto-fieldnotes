@@ -20,7 +20,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub Searchの`homepage_exact`はproductionへ接続済みです。relation assessorは現行mixed triageのread-only inventory、専用shadow契約、LM Studio比較まで実施した。固定corpusとcurrent 25 page・26 proposalの初回比較では確定候補20、review 6だった。追加15 pageでは可視文字なしの対象repository link 6件がすべて公式で、複数repositoryを持つpub.devでは運営側bug-report iconも確認した。shadowは可視文字なし・page内repository identity一つ・list外を組み合わせ、過去保存で表示が欠けただけのrowには適用しない。初回26 proposalは確定候補22、review 4となる見込みだが、再取得実測はしていない。次は残る4種のreviewを関係判定器へ残す範囲と、production保存契約、`source_repository`改名、旧relation移行の変更量を提示する。合意前にproduction接続や既存`llm_same_project` cleanupへ進まない。
+- GitHub Searchの`homepage_exact`はproductionへ接続済みです。公式repository relationのshadow比較、追加15 page、無標link規則まで確認し、残るAirport等4種は誤りではなく一般化困難としてreviewへ残す。正本DB監査では旧`source_repository` relation 9,219行のうちpage→repoは634行だけで、README mention 8,220行とTangled DID→repo 365行が混在するため一括改名できないと確認した。production案はidentifier roleとpredicateを`project_repository`へ揃え、page relationをbounded再収集から再生成し、初期段階ではLLM自動昇格を接続しない。role改名はidentifier 1,473行、adoption 1,362行、decision 1,219行等で、GitHub case違いの同一identifier 3組を統合する。resource identityで見ると旧trust relationだけが採用根拠になるrepoはaccount.infoだけ。次はこの三点の設計review後、temp DB comparatorとproduction実装へ進む。合意前にproduction接続や既存`llm_same_project` cleanupへ進まない。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。
 - `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を見直す。処理自体とwatermark更新は正常に完了している。
 
