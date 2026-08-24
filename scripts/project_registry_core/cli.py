@@ -351,6 +351,26 @@ def build_parser() -> argparse.ArgumentParser:
         func=llm_evaluation_commands.cmd_compare_repository_analysis_reports
     )
 
+    evaluate_relation_assessment_parser = subparsers.add_parser(
+        "evaluate-relation-assessment-corpus",
+        help="Run the predicate-specific relation assessor against a fixed shadow corpus.",
+    )
+    evaluate_relation_assessment_parser.add_argument("--corpus", required=True, help="Fixed corpus JSON path.")
+    evaluate_relation_assessment_parser.add_argument("--output", required=True, help="Structured report JSON path.")
+    evaluate_relation_assessment_parser.add_argument("--case-id", action="append", help="Run only this case ID. Repeatable.")
+    evaluate_relation_assessment_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
+    evaluate_relation_assessment_parser.add_argument("--output-cap", type=int, default=512, help="Maximum output tokens. Default: 512.")
+    evaluate_relation_assessment_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
+    evaluate_relation_assessment_parser.add_argument("--quantization", help="Quantization label recorded in the report.")
+    evaluate_relation_assessment_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
+    evaluate_relation_assessment_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
+    evaluate_relation_assessment_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")
+    evaluate_relation_assessment_parser.add_argument("--llm-api-style", choices=["auto", "chat", "responses", "completions"], help="LLM endpoint API style preference.")
+    evaluate_relation_assessment_parser.add_argument("--llm-reasoning-effort", choices=["none", "minimal", "low", "medium", "high"], help="Reasoning/thinking effort.")
+    evaluate_relation_assessment_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_evaluate_relation_assessment_corpus
+    )
+
     verify_service_parser = subparsers.add_parser("verify-service", help="Run static, deep, or anonymous browser verification for one service.")
     verify_target = verify_service_parser.add_mutually_exclusive_group(required=True)
     verify_target.add_argument("-p", "--project-key")

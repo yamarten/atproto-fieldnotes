@@ -277,3 +277,25 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 6. relation assessorの固定corpusは、名前不一致、公式の広域Website、個人・organization site、shared repo、deployment、time caseを含む層化sampleから作る。名前一致自体はpolicyへ使わない。
 
 上記1〜5とGitHub Searchの責務分離はproduction codeへ反映しました。次はservice→repoの曖昧な表示、README、複数sourceを使うrelation assessor固定corpusです。Website候補のreview UIとDB schema変更は実施していません。
+
+## 専用relation assessorのshadow契約
+
+現行の`same_project`を置き換える候補として、`source_repository`だけを評価するread-only assessorを追加しました。入力は一つの`service_url`→`repo_url` proposal、service側のlink観測、repository側のbounded materialに限定します。project名、既存profile、現在のLLM assessmentは入力に含めません。これらを含めると、既に同じprojectへ登録されていることを根拠に同じprojectだと答える循環が生じるためです。
+
+出力は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`、短い理由、入力内の根拠IDだけです。`SUPPORTED`にはservice側とrepository側の両方の根拠を要求します。証拠の独立性を要求するためではなく、片側だけを見た推測を防ぐためです。`NOT_SUPPORTED`はdocs、dependency、developer site等の別relationを示す根拠を必要とします。名前やownerが似ている、provider iconがある、repositoryのWebsiteがservice URLと一致するだけなら`INSUFFICIENT`です。
+
+この契約が判断するのは方向付きrelationだけです。shared implementationが複数serviceの`source_repository`であることは許容し、project mergeは導きません。逆方向relation、candidate admission、identifier confirmも生成しません。routing、relation評価、採用、信頼判定を別段階として維持します。
+
+固定corpus v1は12件で、期待値を`SUPPORTED` 4、`NOT_SUPPORTED` 4、`INSUFFICIENT` 4に分けました。明示的source link、bug/contribution link、shared implementation、複数projectを含むrepository内のdeep locator、docs source、dependency、developer site、provider iconとWebsiteだけの組合せ、名前・owner類似、target material欠落、公式docs、改名・後継を含みます。これは設計境界を固定するfixtureであり、正本DBの個々のrelationを正解として転記したものではありません。
+
+実行commandは次です。
+
+```sh
+bin/project-registry evaluate-relation-assessment-corpus \
+  --corpus tests/fixtures/project_registry/relation-assessor-cases-v1.json \
+  --output .tmp/relation-assessor-v1.json
+```
+
+reportはJSON schema、根拠ID、`SUPPORTED`の両endpoint参照を検査し、期待値との一致と、実際の旧判断が付いたcaseではその一致を別々に集計します。設計fixture 12件には架空の旧判断を置いていないため、旧方式との比較母数は0です。現在のshellにはLLM commandまたはendpointが設定されておらず、実model比較はまだ実行していません。productionのtriage prompt、`llm_same_project` edge、DBは変更していません。
+
+次のreviewでは、両endpoint根拠を`SUPPORTED`の必須条件にすること、別relationを`NOT_SUPPORTED`として扱うこと、時間関係を`source_repository`だけで決めず`INSUFFICIENT`へ残すこと、固定corpusの境界を確認します。合意後に実modelを反復評価し、正本DBの`ASSESS` 16組と追加probe対象へ同じ入力契約を適用します。
