@@ -13,11 +13,11 @@ from . import llm_transport
 from . import collector_relation_shadow
 
 
-POLICY_VERSION = "relation-assessment-v1"
+POLICY_VERSION = "relation-assessment-v5"
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "INSUFFICIENT"}
-SUPPORT_EVIDENCE_MODES = {"both_endpoints", "bounded_any"}
+SUPPORT_EVIDENCE_MODES = {"both_endpoints", "direct_any"}
 ALLOWED_PREDICATES = {"source_repository"}
 ALLOWED_DIRECTIONS = {"service_to_repo"}
 FORBIDDEN_INPUT_FIELDS = {
@@ -60,7 +60,7 @@ def _database_case(row: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]
     if label:
         source_evidence.append({
             "id": "S1", "kind": "html_link", "locator": str(row.get("service_url") or ""),
-            "label": label, "excerpt": label,
+            "target": str(row.get("repo_url") or ""), "label": label, "excerpt": label,
         })
     page_context = " — ".join(
         str(row.get(key) or "").strip()
@@ -198,7 +198,7 @@ def _clean_evidence(values: Any, prefix: str) -> list[dict[str, str]]:
         seen.add(evidence_id)
         item = {
             key: str(raw.get(key) or "")[:2000]
-            for key in ("id", "kind", "locator", "label", "excerpt")
+            for key in ("id", "kind", "locator", "target", "label", "excerpt")
         }
         output.append(item)
     return output[:16]
@@ -218,11 +218,20 @@ def normalize_input(value: Any) -> dict[str, Any]:
         raise ValueError(f"unsupported relation direction: {direction}")
     source_evidence = _clean_evidence(value.get("source_evidence"), "S")
     target_evidence = _clean_evidence(value.get("target_evidence"), "R")
+    subject_endpoint = _clean_endpoint(value.get("subject"))
+    object_endpoint = _clean_endpoint(value.get("object"))
+    if subject_endpoint["standing"] in {"historical", "former", "non_production"}:
+        raise ValueError("temporal or non-production subject is outside relation assessment scope")
+    if object_endpoint["standing"] in {"historical", "former", "non_production"}:
+        raise ValueError("temporal or non-production object is outside relation assessment scope")
+    for item in source_evidence:
+        if item["kind"] == "html_link" and not item["target"]:
+            item["target"] = object_endpoint["identifier"]
     return {
         "predicate": predicate,
         "direction": direction,
-        "subject": _clean_endpoint(value.get("subject")),
-        "object": _clean_endpoint(value.get("object")),
+        "subject": subject_endpoint,
+        "object": object_endpoint,
         "source_evidence": source_evidence,
         "target_evidence": target_evidence,
     }
@@ -236,7 +245,7 @@ def build_prompt(value: Any, *, support_evidence_mode: str = "both_endpoints") -
     support_rule = (
         "SUPPORTED must cite at least one S reference and at least one R reference."
         if support_evidence_mode == "both_endpoints"
-        else "SUPPORTED must cite the supplied references that directly support the statement; one endpoint is allowed when its evidence is sufficient."
+        else "SUPPORTED requires at least one supplied reference that directly asserts the exact source_repository statement; that decisive reference may come from either endpoint."
     )
     return f"""You assess one proposed directional relation. Do not decide whether two items broadly belong to the same project.
 
@@ -250,11 +259,25 @@ Verdicts:
 
 Rules:
 - Use only the supplied evidence. Do not infer from owner names, repository names, shared hosts, or general familiarity.
+- An html_link evidence item records an observed link from locator to target. The target is the exact object URL, not merely a provider root.
 - {support_rule}
 - NOT_SUPPORTED must cite at least one supplied reference.
-- A service-side provider icon or generic GitHub link and a repository Website field are not sufficient by themselves.
+- Missing or weak evidence is INSUFFICIENT, not NOT_SUPPORTED. Use NOT_SUPPORTED only when evidence positively indicates a different relation or contradicts the proposed statement.
+- "Built with", dependency, package, SDK, documentation, and sponsorship links do not identify the linked repository as the service source.
+- A provider icon, generic GitHub/Tangled link, owner or name similarity, and a repository Website field establish association at most. They never directly assert source_repository and cannot support it without a decisive statement elsewhere.
+- The exact href in an html_link proves which repository was linked, but not why it was linked. Do not call the link a direct source assertion unless its label or surrounding text expresses source, code, contribution, or self-hosting semantics.
+- Repository implementation files prove that the repository contains software, but do not by themselves prove that the software is the subject service deployment.
+- A repository excerpt that explicitly says its code is deployed at the subject service URL or that it contains that service's source may support the statement by itself.
+- A documentation site linking its documentation repository, or a repository generating documentation at the subject URL, is a documentation relation and is NOT_SUPPORTED for this service source predicate.
+- Evidence that the subject is a developer or organization site rather than the deployed service is NOT_SUPPORTED for this service source predicate.
 - A shared implementation may be a source repository for more than one service; do not infer project merge.
+- Archived or moved evidence alone does not disprove a historical source relation and does not establish the current one; without a direct time-scoped statement, use INSUFFICIENT.
 - Evaluate only source_repository in the stated direction. Do not propose other predicates, reverse relations, identifiers, candidates, or confirmation decisions.
+
+Decision order:
+1. If a supplied reference directly asserts the exact source_repository statement and no evidence contradicts it, return SUPPORTED.
+2. Otherwise, if supplied evidence positively identifies a different relation or contradicts the statement, return NOT_SUPPORTED.
+3. Otherwise return INSUFFICIENT. Do not use NOT_SUPPORTED merely because direct support is missing.
 
 Return exactly one JSON object:
 {{"verdict":"SUPPORTED|NOT_SUPPORTED|INSUFFICIENT","reason":"short explanation","evidence_refs":["S1","R1"]}}

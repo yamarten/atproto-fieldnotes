@@ -23,6 +23,11 @@ class RelationAssessmentTest(unittest.TestCase):
             prompt = relation_assessment.build_prompt(case["input"])
             self.assertIn("Do not decide whether two items broadly belong to the same project", prompt)
             self.assertNotIn("project_key", prompt)
+            html_links = [
+                item for item in relation_assessment.normalize_input(case["input"])["source_evidence"]
+                if item["kind"] == "html_link"
+            ]
+            self.assertTrue(all(item["target"] == case["input"]["object"]["identifier"] for item in html_links))
 
     def test_input_rejects_project_context_and_unsupported_direction(self) -> None:
         value = dict(self.case["input"])
@@ -32,6 +37,10 @@ class RelationAssessmentTest(unittest.TestCase):
         value = dict(self.case["input"])
         value["direction"] = "repo_to_service"
         with self.assertRaisesRegex(ValueError, "unsupported relation direction"):
+            relation_assessment.build_prompt(value)
+        value = json.loads(json.dumps(self.case["input"]))
+        value["object"]["standing"] = "historical"
+        with self.assertRaisesRegex(ValueError, "outside relation assessment scope"):
             relation_assessment.build_prompt(value)
 
     def test_supported_requires_supplied_evidence_from_both_endpoints(self) -> None:
@@ -47,18 +56,18 @@ class RelationAssessmentTest(unittest.TestCase):
         )
         self.assertTrue(validation["valid"])
 
-    def test_bounded_any_mode_accepts_one_supplied_reference(self) -> None:
+    def test_direct_any_mode_accepts_one_supplied_reference(self) -> None:
         validation = relation_assessment.validate_output(
             {"verdict": "SUPPORTED", "reason": "direct statement", "evidence_refs": ["R1"]},
             self.case["input"],
-            support_evidence_mode="bounded_any",
+            support_evidence_mode="direct_any",
         )
         self.assertTrue(validation["valid"])
-        self.assertEqual(validation["normalized_result"]["support_evidence_mode"], "bounded_any")
+        self.assertEqual(validation["normalized_result"]["support_evidence_mode"], "direct_any")
         prompt = relation_assessment.build_prompt(
-            self.case["input"], support_evidence_mode="bounded_any",
+            self.case["input"], support_evidence_mode="direct_any",
         )
-        self.assertIn("one endpoint is allowed", prompt)
+        self.assertIn("decisive reference may come from either endpoint", prompt)
 
     def test_output_rejects_unknown_evidence_and_extra_claims(self) -> None:
         validation = relation_assessment.validate_output(
@@ -117,6 +126,7 @@ class RelationAssessmentTest(unittest.TestCase):
         self.assertEqual(case["legacy_verdict"], "SUPPORTED")
         self.assertNotIn("project_key", case["input"])
         self.assertEqual(case["input"]["target_evidence"][0]["excerpt"], "Live at service.example")
+        self.assertEqual(case["input"]["source_evidence"][0]["target"], row["repo_url"])
         self.assertNotIn("model summary", json.dumps(case["input"]))
 
     def test_cli_exposes_database_corpus_export(self) -> None:

@@ -282,31 +282,35 @@ GitHub homepageはこの分離を具体化する最初の代表例です。合�
 
 現行の`same_project`を置き換える候補として、`source_repository`だけを評価するread-only assessorを追加しました。入力は一つの`service_url`→`repo_url` proposal、service側のlink観測、repository側のbounded materialに限定します。project名、既存profile、現在のLLM assessmentは入力に含めません。これらを含めると、既に同じprojectへ登録されていることを根拠に同じprojectだと答える循環が生じるためです。
 
-出力は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`、短い理由、入力内の根拠IDだけです。根拠は機械的に真偽判定できる事実に限らず、link label、周辺文、README等の位置を特定できる限定材料を含みます。機械検査するのは回答が提示済み材料を参照したことまでで、その意味解釈はLLMが行います。`SUPPORTED`の根拠条件は、service側とrepository側の両方を要求する`both_endpoints`と、一方の直接的な材料で十分と判断することを許す`bounded_any`を比較し、まだ確定しません。`NOT_SUPPORTED`はdocs、dependency、developer site等の別relationを示す根拠を必要とします。名前やownerが似ている、provider iconがある、repositoryのWebsiteがservice URLと一致するだけなら`INSUFFICIENT`です。
+出力は`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`、短い理由、入力内の根拠IDだけです。根拠は機械的に真偽判定できる事実に限らず、link label、周辺文、README等の位置を特定できる限定材料を含みます。機械検査するのは回答が提示済み材料を参照したことまでで、その意味解釈はLLMが行います。`SUPPORTED`の根拠条件は、service側とrepository側の両方を要求する`both_endpoints`と、どちらか一方にexact predicateを直接述べる材料があればよい`direct_any`を比較しました。`NOT_SUPPORTED`はdocs、dependency、developer site等の別relationを示す根拠を必要とします。名前やownerが似ている、provider iconがある、repositoryのWebsiteがservice URLと一致するだけなら`INSUFFICIENT`です。
 
 この契約が判断するのは方向付きrelationだけです。shared implementationが複数serviceの`source_repository`であることは許容し、project mergeは導きません。逆方向relation、candidate admission、identifier confirmも生成しません。routing、relation評価、採用、信頼判定を別段階として維持します。
 
-固定corpus v1は12件で、期待値を`SUPPORTED` 4、`NOT_SUPPORTED` 4、`INSUFFICIENT` 4に分けました。明示的source link、bug/contribution link、shared implementation、複数projectを含むrepository内のdeep locator、docs source、dependency、developer site、provider iconとWebsiteだけの組合せ、名前・owner類似、target material欠落、公式docs、改名・後継を含みます。これは設計境界を固定するfixtureであり、正本DBの個々のrelationを正解として転記したものではありません。
+固定corpus v1は12件で、期待値を`SUPPORTED` 4、`NOT_SUPPORTED` 4、`INSUFFICIENT` 4に分けました。明示的source link、bug/contribution link、shared implementation、複数projectを含むrepository内のdeep locator、docs source、dependency、developer site、provider iconとWebsiteだけの組合せ、名前・owner類似、generic provider linkと実装code、target material欠落、公式docsを含みます。時間関係は意味判定へ送らずscope外として入力時に除外します。これは設計境界を固定するfixtureであり、正本DBの個々のrelationを正解として転記したものではありません。
 
 実行commandは次です。
 
 ```sh
 bin/project-registry evaluate-relation-assessment-corpus \
   --corpus tests/fixtures/project_registry/relation-assessor-cases-v1.json \
-  --support-evidence-mode both_endpoints \
+  --support-evidence-mode direct_any \
   --output .tmp/relation-assessor-v1.json
 ```
 
-reportはJSON schema、根拠ID、選択した`SUPPORTED`根拠条件を検査し、期待値との一致と、実際の旧判断が付いたcaseではその一致を別々に集計します。設計fixture 12件には架空の旧判断を置いていないため、旧方式との比較母数は0です。現在のshellにはLLM commandまたはendpointが設定されておらず、実model比較はまだ実行していません。productionのtriage prompt、`llm_same_project` edge、DBは変更していません。
+reportはJSON schema、根拠ID、選択した`SUPPORTED`根拠条件を検査し、期待値との一致と、実際の旧判断が付いたcaseではその一致を別々に集計します。設計fixture 12件には架空の旧判断を置いていないため、旧方式との比較母数は0です。worktreeには`.envrc`がないため、元checkoutの`.envrc`からLM Studio設定を読み、Qwen 3.6 35B A3Bで実model比較しました。productionのtriage prompt、`llm_same_project` edge、DBは変更していません。
 
 正本DBの現在snapshotから`ASSESS`へroutingされた16組を限定材料corpusへread-onlyで抽出するcommandも追加しました。
 
 ```sh
 bin/project-registry export-relation-assessment-corpus \
   --db-path data/survey.db \
-  --output .tmp/relation-assessor-current-20260824.json
+  --output .tmp/relation-assessor-current-20260824-v2.json
 ```
 
-16組の現行判断はすべて`same_project`です。service側根拠は9組が1件、7組が2件あります。repository側の位置付き抜粋は13組に1〜6件ありますが、3組は0件でした。該当するのはSovereign Comms、Glean、gamesgamesgamesgames.gamesのpairです。materialが保存されていることと、relation assessorへ渡せるraw excerptがあることは同義ではありません。`both_endpoints`ではこの3組を内容にかかわらず支持できず、`bounded_any`ではservice側材料だけで支持するかをmodelが判断できます。この差は、精度だけでなく追加probeと人力reviewの量として比較します。出力hashは`f22166cd43a82182f11668db2ead2d6264a6c9290c624e2f0421ed450993d1f0`です。
+16組の現行判断はすべて`same_project`です。service側根拠は9組が1件、7組が2件あります。repository側の位置付き抜粋は13組に1〜6件ありますが、3組は0件でした。該当するのはSovereign Comms、Glean、gamesgamesgamesgames.gamesのpairです。materialが保存されていることと、relation assessorへ渡せるraw excerptがあることは同義ではありません。service側の観測にはexact hrefを明示するよう入力契約を修正しました。corpus hashは`c1d8d687f8bed3867e52a41d24c9d7f8369b444d64749a52ceab7644873c8c53`です。
 
-次の比較では、`both_endpoints`と`bounded_any`を同じmodel・corpus・repeatで実行し、期待値一致だけでなく`INSUFFICIENT`の増減、根拠外参照、所要時間、人力reviewへ残る量を確認します。別relationを提案された`source_repository`について`NOT_SUPPORTED`と扱うことと、時間関係をこのpredicateだけで決めず`INSUFFICIENT`へ残すことは合意済みです。実model比較後に、正本DBの`ASSESS` 16組と追加probe対象へ採用する入力契約を決めます。
+初期promptでは固定12件の期待値一致が`both_endpoints` 7/12、片側許容8/12でした。exact href、根拠不足と否定の区別、dependency、docs、shared implementation、時間関係を整理すると、`direct_any` v3は12件×3回で36/36でした。generic provider linkと実装codeを追加した後は、時間関係をscope外へ戻し、判定順序を明示したv5が35/36、唯一揺れたdeveloper siteの根拠文を明確化したtargeted 5回は5/5でした。固定corpusだけを見る限り、両endpoint必須よりdirect assertionを要求する方が良好です。
+
+一方、正本DBの実16組をv5で一回評価すると`SUPPORTED` 3、`INSUFFICIENT` 11、`NOT_SUPPORTED` 2で、現行`same_project`との一致は3/16でした。さらに支持3件のうちOzoneの`LICENSE-APACHE`とBridgeBeats docsの`LICENSE`はliteralなsource assertionではなく、誤支持です。Ozoneを追加3回評価しても2回支持・1回根拠不足に揺れました。完全reportは`.tmp/relation-assessor-current-direct-v5-20260824.json`、hashは`c3f27718a90ac9044cc590ff14d487c636a4f1e0d0692fa2d1c864f9331e30a1`です。
+
+この結果から、自由な意味判定だけに`SUPPORTED`を任せる案はまだproductionへ接続できません。また、literalな「serviceのsource code」を問うと、実際には同じprojectのrepositoryと思われるgeneric provider、license、issue tracker等のlinkを多く`INSUFFICIENT`へ残します。次の設計判断は、candidate admissionで必要なのが厳密な`source_repository`なのか、それともsource、issue tracker、license等を含む「このserviceが当該projectのrepositoryを指した」という帰属関係なのかです。後者を採る場合も、観測済みexact linkとrepository subtypeを分け、auto-confirmやmergeへ同じ強さで流用しません。

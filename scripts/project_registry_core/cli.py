@@ -371,7 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_relation_assessment_parser.add_argument("--repeat", type=int, default=1, help="Runs per case. Default: 1.")
     evaluate_relation_assessment_parser.add_argument("--output-cap", type=int, default=512, help="Maximum output tokens. Default: 512.")
     evaluate_relation_assessment_parser.add_argument(
-        "--support-evidence-mode", choices=["both_endpoints", "bounded_any"], default="both_endpoints",
+        "--support-evidence-mode", choices=["both_endpoints", "direct_any"], default="both_endpoints",
         help="Require cited support from both endpoints, or allow any sufficient bounded evidence. Default: both_endpoints.",
     )
     evaluate_relation_assessment_parser.add_argument("--runtime", help="Runner name/version recorded in the report.")
