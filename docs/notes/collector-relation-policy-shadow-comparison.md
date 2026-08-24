@@ -355,7 +355,13 @@ bin/project-registry compare-project-repository-context \
   --timeout 10
 ```
 
-旧比較で表示再収集またはreviewだったものを優先した25 page、26 proposalでは、`CONFIRM_PROJECT_REPOSITORY` 20、`REVIEW_PROJECT_REPOSITORY` 6でした。確定候補には単独のglobal chrome repository link、issue/release/docs/license表示、service URLからrepositoryへの直接redirect、open-source blockを含みます。GitHub URLのowner/repository case違いは表示URLを変更せず同一identityとして集約します。残った6件は$ATA Protocol、Airport、Rito Labeler Kitの無題または視覚依存link、複数repoを説明するsocialweb.computer、plugin名だけを示すobsidian-pds-sync、個人portfolio内のWritten Worldです。これらは機械規則を広げずrelation assessorまたは人のreviewへ残します。
+旧比較で表示再収集またはreviewだったものを優先した25 page、26 proposalでは、`CONFIRM_PROJECT_REPOSITORY` 20、`REVIEW_PROJECT_REPOSITORY` 6でした。確定候補には単独のglobal chrome repository link、issue/release/docs/license表示、service URLからrepositoryへの直接redirect、open-source blockを含みます。GitHub URLのowner/repository case違いは表示URLを変更せず同一identityとして集約します。残った6件は$ATA Protocol、Airport、Rito Labeler Kitの無題または視覚依存link、複数repoを説明するsocialweb.computer、plugin名だけを示すobsidian-pds-sync、個人portfolio内のWritten Worldでした。
+
+視覚的に無標のlinkを追加で15 page確認しました。対象projectのrepositoryを可視文字なしで示していたのはSeams、Rito、tsky、Longpost、RelationalText、Linkatの6 pageで、6件とも公式repositoryでした。`aria-label=GitHub`や`aria-label=Tangled`を持つ場合もありますが、これは支援技術向け表示であり、画面上の可視文字とは区別します。残る9 pageの対象linkには`GitHub`、`src`、`View on GitHub`等の可視文字がありました。
+
+一方、Poptartが遷移するpub.devには、package自身のrepositoryに加えて、可視文字のないpub.dev運営側のbug-report iconがありました。したがって、可視文字がないことだけでは採用しません。評価する仮説として、現在pageを再収集した結果について、対象がsupported repositoryで、可視文字がなく、page内の異なるrepository identityが一つだけで、list item内でもない場合を`visually_unlabeled_single_repository_link`としてshadow上の確定候補にします。複数repository、一覧、awesome/related/dependency等の外部参照文脈はreviewまたは不採用へ残します。過去保存で表示情報が欠落しているだけのrowは正の材料にせず、再収集対象のままです。
+
+この規則を最初の26 proposalへ当てると、$ATA ProtocolとRito Labeler Kitは確定候補になり、`CONFIRM_PROJECT_REPOSITORY` 22、`REVIEW_PROJECT_REPOSITORY` 4となる見込みです。これは保存済みreportの再集計であり、25 pageを再取得した実測値ではありません。Airportの数値badge、複数repoを持つsocialweb.computer、plugin名だけのobsidian-pds-sync、個人portfolio内のWritten Worldは引き続きreviewです。
 
 完全reportは`.tmp/project-repository-context-v4-20260824.json`、content hashは`796eb81a7204575755cc53568e27361cadcbc85b6a0327f7be8d8f2adcbf3167`です。25 pageの逐次取得は一部応答待ちにより約12分かかったため、commandの既定page limitは10とし、以後のreportにはpage別・全体の経過時間を記録します。これは評価用commandの実行量の問題であり、relation判定結果には影響しません。
 
