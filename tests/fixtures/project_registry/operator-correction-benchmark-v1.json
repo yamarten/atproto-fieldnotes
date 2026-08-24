@@ -49,14 +49,14 @@
         "source": "fixture:repository-search",
         "classification": "candidate",
         "observed_at": "2000-01-01T00:00:00+00:00",
-        "value": {"fields": {"source_code_urls": ["https://github.com/random-mdn/random-mdn-bot"]}},
-        "context": {"allowed_fields": ["source_code_urls"]}
+        "value": {"fields": {"project_repository_urls": ["https://github.com/random-mdn/random-mdn-bot"]}},
+        "context": {"allowed_fields": ["project_repository_urls"]}
       }],
       "failures": [],
       "collector_results": []
     },
     "expected_evaluation": {
-      "source_code_urls": []
+      "project_repository_urls": []
     }
   },
   {

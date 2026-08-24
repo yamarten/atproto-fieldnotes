@@ -9,7 +9,7 @@ from typing import Any
 COMPONENT_ROLES = frozenset({
     "service",
     "project_site",
-    "source_repository",
+    "project_repository",
     "owned_nsid",
     "project_account",
     "project_handle",

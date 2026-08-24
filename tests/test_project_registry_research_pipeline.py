@@ -658,7 +658,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         legacy_relation = {
             "relation": {
                 "subject": {"type": "repo", "value": f"{repo_url}/tree/main"},
-                "predicate": "source_repository",
+                "predicate": "project_repository",
                 "object": {"type": "service", "value": f"{homepage}/"},
                 "locator": repo_url,
                 "method": "github_homepage",
@@ -755,7 +755,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_confirmed_candidate_github_content_does_not_add_manual_seed_provenance(self) -> None:
         project = self.make_project("proj:confirmed-candidate", "service_url", "https://app.example.com")
         repo_url = "https://github.com/example/app"
-        registry.confirm_source_code_url(
+        registry.confirm_project_repository_url(
             project,
             repo_url,
             "candidate_repo_trust_inspection",
@@ -920,7 +920,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             registry.run_investigation_collectors(project, plan)
 
         self.assertEqual(github_search.call_count, 1)
-        self.assertEqual(project["candidate_source_code_urls"], ["https://github.com/example/app"])
+        self.assertEqual(project["candidate_project_repository_urls"], ["https://github.com/example/app"])
         self.assertIn("https://example.com", project["service_url_candidates"])
         self.assertTrue(any("actor timeout" in item for item in project["_run_errors"]))
         github_logs = [item for item in project["investigation_log"] if item.get("kind") == "github_repo_search"]
@@ -965,7 +965,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             if item.get("kind") == "github_repo_lexicon_reference"
         ]
         self.assertEqual(reference_logs[0]["nsid"], "app.external.post")
-        self.assertIn("https://github.com/example/helper", project["candidate_source_code_urls"])
+        self.assertIn("https://github.com/example/helper", project["candidate_project_repository_urls"])
         self.assertIn("https://app.example.com", project["service_url_candidates"])
 
     def test_enrich_save_fetch_preserves_top_level_contract(self) -> None:
@@ -1026,7 +1026,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_enrich_collects_known_github_repo_once_per_run(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:single-repo-collection", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
         repo_bundle.add_collector_result(CollectorResult(
             source="github_repo", operation="inspect", status="success",
@@ -1053,7 +1053,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
     def test_repository_analysis_adds_declared_docs_site_as_candidate_resource(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:repo-docs", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-26T00:00:00+00:00")
         repo_bundle.add_record(EvidenceRecord(
             kind="github_repo_snapshot",
@@ -1080,7 +1080,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
 
         def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
-            if "Analyze a confirmed source repository" in prompt:
+            if "Analyze a confirmed project repository" in prompt:
                 return ({
                     "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
                     "summary_evidence": ["E02"],
@@ -1156,7 +1156,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         project = self.make_project("proj:candidate-repo-trust")
         repo_url = "https://github.com/example/app"
-        project["candidate_source_code_urls"] = [repo_url]
+        project["candidate_project_repository_urls"] = [repo_url]
         trust_bundle = EvidenceBundle(
             project_key=project["project_key"],
             collected_at="2026-07-18T00:00:00+00:00",
@@ -1180,7 +1180,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     side_effect=[trust_bundle, repo_bundle],
                 ) as collect_repo,
                 mock.patch.object(enrichment_pipeline, "apply_candidate_repo_trust_evidence"),
-                mock.patch.object(enrichment_pipeline, "confirm_source_code_url_with_trust", return_value=True),
+                mock.patch.object(enrichment_pipeline, "confirm_project_repository_url_with_trust", return_value=True),
                 mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence") as apply_repo,
                 mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
                 mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
@@ -1322,7 +1322,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         bundle.add_record(relation_core.relation_record(
             source="github_readme:https://github.com/example/app", classification="candidate",
             observed_at=bundle.collected_at, subject_type="repo", subject_value="https://github.com/example/app",
-            predicate="source_repository", object_type="website", object_value="https://example.com",
+            predicate="project_repository", object_type="website", object_value="https://example.com",
         ))
         bundle.add_collector_result(CollectorResult(
             source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
@@ -1422,7 +1422,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         )
         self.assertTrue(any(
             record.kind == "relation"
-            and record.value.get("predicate") == "source_repository"
+            and record.value.get("predicate") == "project_repository"
             for record in bundle.records
         ))
 
@@ -1710,7 +1710,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_repair_db_detects_relation_only_normalized_child_change(self) -> None:
         project = self.make_project("proj:relation-only-repair", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
                 "relation": {
@@ -1824,7 +1824,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_repo_schema_relation_without_accepted_nsid_does_not_prove_nsid_ownership(self) -> None:
         project = self.make_project("proj:repodefines", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
                 "relation": {
@@ -1857,7 +1857,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_github_integration_downgrades_unowned_repo_lexicon_relation(self) -> None:
         project = self.make_project("proj:reporelation", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["manual_seeds"] = [{"type": "repo_url", "value": "https://github.com/example/app"}]
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
         bundle.add_record(relation_core.relation_record(
@@ -1881,7 +1881,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
 
     def test_github_integration_accepts_repo_schema_relation_for_owned_nsid(self) -> None:
         project = self.make_project("proj:acceptedrepodefine", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["manual_seeds"] = [
             {"type": "repo_url", "value": "https://github.com/example/app"},
             {"type": "nsid", "value": "app.example.post"},

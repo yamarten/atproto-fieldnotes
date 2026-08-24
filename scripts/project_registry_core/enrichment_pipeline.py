@@ -47,8 +47,8 @@ from project_registry_core.registry import (
     collect_tangled_repo_evidence,
     compute_duplicate_candidates,
     compute_merge_recommendation,
-    confirm_source_code_url,
-    confirm_source_code_url_with_trust,
+    confirm_project_repository_url,
+    confirm_project_repository_url_with_trust,
     derived_authority_probe_urls,
     enrich_from_resource_pages,
     failed_collector_bundle,
@@ -73,7 +73,7 @@ from project_registry_core.project_record import (
     iso_now,
     provider_repo_url_values,
     service_url_candidate_values,
-    source_code_url_values,
+    project_repository_url_values,
     unique_list,
 )
 
@@ -160,7 +160,7 @@ def enrich_project(
                 project, source="ufos_record_samples", operation="sample", target=str(project.get("project_key") or ""), exc=exc,
             ))
 
-    initial_repo_urls = unique_list(source_code_url_values(project))
+    initial_repo_urls = unique_list(project_repository_url_values(project))
     collected_github_repo_urls: set[str] = set()
     collected_tangled_repo_urls: set[str] = set()
     collected_repo_evidence: dict[str, EvidenceBundle] = {}
@@ -305,7 +305,7 @@ def enrich_project(
                 continue
             run_evidence.extend(trust_evidence)
             apply_candidate_repo_trust_evidence(project, repo_url, trust_evidence)
-            confirmed = confirm_source_code_url_with_trust(
+            confirmed = confirm_project_repository_url_with_trust(
                 project,
                 repo_url,
                 "candidate_repo_trust_inspection",
@@ -327,7 +327,7 @@ def enrich_project(
             run_evidence.extend(repo_evidence)
             collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
         except Exception as exc:
-            if repo_url_core.canonical_repo_url(repo_url) in source_code_url_values(project):
+            if repo_url_core.canonical_repo_url(repo_url) in project_repository_url_values(project):
                 record_repository_collection_failure(project, repo_url)
             note_failure(project, f"candidate repository trust inspection failed for {repo_url}: {exc}")
             run_evidence.extend(failed_collector_bundle(
@@ -465,7 +465,7 @@ def enrich_project(
             ))
 
     for repo_url in relation_core.corroborate_source_repositories(project):
-        confirm_source_code_url(
+        confirm_project_repository_url(
             project, repo_url, "relation_corroboration", relation="mutual_first_party_link",
             reason="repository and first-party application independently link to each other",
             evidence_kind="relation_corroboration", evidence_url=repo_url,
@@ -539,7 +539,7 @@ def enrich_project(
         note_failure(project, f"LLM review failed: {exc}")
 
     for repo_url in candidate_repo_trust_probe_urls(project):
-        if repo_url in trust_inspected_repo_urls or repo_url in source_code_url_values(project):
+        if repo_url in trust_inspected_repo_urls or repo_url in project_repository_url_values(project):
             continue
         trust_inspected_repo_urls.add(repo_url)
         provider = repo_url_core.infer_repo_provider(repo_url)
@@ -552,7 +552,7 @@ def enrich_project(
                 continue
             run_evidence.extend(trust_evidence)
             apply_candidate_repo_trust_evidence(project, repo_url, trust_evidence)
-            confirm_source_code_url_with_trust(
+            confirm_project_repository_url_with_trust(
                 project,
                 repo_url,
                 "candidate_repo_trust_inspection",

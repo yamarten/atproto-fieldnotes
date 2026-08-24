@@ -162,11 +162,11 @@ GENERIC_NAVIGATION_PAGE_TITLE_VALUES = {
 URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "website_url", "layer": "canonical", "role": "primary public website"},
     {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference"},
-    {"field": "source_code_url", "layer": "canonical", "role": "primary source repository"},
+    {"field": "project_repository_url", "layer": "canonical", "role": "primary project repository"},
     {"field": "service_urls", "layer": "confirmed_set", "role": "confirmed service surfaces"},
-    {"field": "source_code_urls", "layer": "confirmed_set", "role": "confirmed source repositories"},
+    {"field": "project_repository_urls", "layer": "confirmed_set", "role": "confirmed project repositories"},
     {"field": "service_url_candidates", "layer": "candidate", "role": "unconfirmed service surfaces"},
-    {"field": "candidate_source_code_urls", "layer": "candidate", "role": "unconfirmed source repositories"},
+    {"field": "candidate_project_repository_urls", "layer": "candidate", "role": "unconfirmed project repositories"},
     {"field": "resource_url_records", "layer": "observation", "role": "structured supporting page observations"},
     {"field": "evidence_urls", "layer": "observation", "role": "general supporting URLs"},
     {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes"},
@@ -780,7 +780,7 @@ def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
                 token = identifier_core.normalize_alias_token(segment)
                 if token:
                     tokens.add(token)
-    for url in project_record.manual_seed_values(project, "repo_url") + project.get("source_code_urls", []):
+    for url in project_record.manual_seed_values(project, "repo_url") + project.get("project_repository_urls", []):
         repo_url = repo_url_core.canonical_repo_url(str(url or ""))
         if not repo_url:
             continue
@@ -1015,7 +1015,7 @@ def normalized_url_field_values(project: dict[str, Any], field_name: str) -> set
     if field_name == "resource_url_records":
         return {record["url"] for record in project_record.normalize_resource_url_records(value if isinstance(value, list) else [])}
     values = value if isinstance(value, list) else ([value] if value else [])
-    if field_name in {"source_code_url", "source_code_urls", "candidate_source_code_urls"}:
+    if field_name in {"project_repository_url", "project_repository_urls", "candidate_project_repository_urls"}:
         return {normalized for item in values if (normalized := repo_url_core.canonical_repo_url(str(item)))}
     return {normalized for item in values if (normalized := identifier_core.normalize_url(str(item)))}
 
@@ -1043,7 +1043,7 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         )
 
     alias_pairs = (
-        ("source_code_url", "source_code_urls", "canonical_in_confirmed_set"),
+        ("project_repository_url", "project_repository_urls", "canonical_in_confirmed_set"),
     )
     alias_summaries: list[dict[str, Any]] = []
     for left, right, relation in alias_pairs:
@@ -1075,13 +1075,13 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
         )
 
     anomaly_specs = (
-        ("source_code_url_missing_from_source_code_urls", lambda p: normalized_url_field_values(p, "source_code_url") - normalized_url_field_values(p, "source_code_urls")),
+        ("project_repository_url_missing_from_project_repository_urls", lambda p: normalized_url_field_values(p, "project_repository_url") - normalized_url_field_values(p, "project_repository_urls")),
         ("confirmed_candidate_service_overlap", lambda p: normalized_url_field_values(p, "service_urls") & normalized_url_field_values(p, "service_url_candidates")),
         ("observed_url_alias_still_candidate", lambda p: {
             identifier_core.normalize_url(str(item.get("alias") or ""))
             for item in url_alias_core.observed_url_aliases(p)
         } & normalized_url_field_values(p, "service_url_candidates")),
-        ("confirmed_candidate_repo_overlap", lambda p: normalized_url_field_values(p, "source_code_urls") & normalized_url_field_values(p, "candidate_source_code_urls")),
+        ("confirmed_candidate_repo_overlap", lambda p: normalized_url_field_values(p, "project_repository_urls") & normalized_url_field_values(p, "candidate_project_repository_urls")),
         ("introduced_url_in_evidence_urls", lambda p: normalized_url_field_values(p, "introduced_url") & normalized_url_field_values(p, "evidence_urls")),
     )
     anomalies: list[dict[str, Any]] = []
@@ -1146,7 +1146,7 @@ def name_is_safe_for_record(project: dict[str, Any]) -> bool:
     llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
     if isinstance(llm_output, dict) and str(llm_output.get("name") or "").strip() == name:
         return True
-    if project.get("website_url") or project.get("source_code_urls"):
+    if project.get("website_url") or project.get("project_repository_urls"):
         nsid_tails = {
             identifier_core.normalize_alias_token(str(item or "").split(".")[-1])
             for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
@@ -1219,7 +1219,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "technical_interest_score": int(project.get("technical_interest_score", 0) or 0),
         "technical_interest_summary": str(project.get("technical_interest_summary") or ""),
         "watch_reason": str(project.get("watch_reason") or ""),
-        "source_code_url": str(project.get("source_code_url") or ""),
+        "project_repository_url": str(project.get("project_repository_url") or ""),
         "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
     }
     list_fields = (
@@ -1241,8 +1241,8 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "project_site_urls",
         "project_site_url_candidates",
         "failed_service_urls",
-        "source_code_urls",
-        "candidate_source_code_urls",
+        "project_repository_urls",
+        "candidate_project_repository_urls",
         "resource_url_records",
         "collection_observations",
         "source_repo_records",
@@ -1261,8 +1261,8 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
             shaped[field] = [value]
         else:
             shaped[field] = []
-    if shaped["source_code_url"] and shaped["source_code_url"] not in shaped["source_code_urls"]:
-        shaped["source_code_urls"] = [shaped["source_code_url"], *shaped["source_code_urls"]]
+    if shaped["project_repository_url"] and shaped["project_repository_url"] not in shaped["project_repository_urls"]:
+        shaped["project_repository_urls"] = [shaped["project_repository_url"], *shaped["project_repository_urls"]]
     shaped["recorded_lexicon_namespaces"] = project_record.unique_list(
         [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
         + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
@@ -1486,7 +1486,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
             add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
             return
-        project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
+        project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
         parsed = urllib.parse.urlparse(normalized)
         segments = [segment for segment in parsed.path.split("/") if segment]
@@ -1531,7 +1531,7 @@ def project_collision_identifiers(project: dict[str, Any]) -> set[tuple[str, str
     identifiers: set[tuple[str, str]] = set()
     for nsid in current_confirmed_nsids(project):
         identifiers.add(("nsid", identifier_core.normalize_nsid(nsid)))
-    for url in project_record.source_code_url_values(project):
+    for url in project_record.project_repository_url_values(project):
         identifiers.add(("repo_url", identifier_core.normalize_url(url)))
     for url in project.get("service_urls", []):
         identifiers.add(("service_url", identifier_core.normalize_url(url)))
@@ -1614,7 +1614,7 @@ def downgrade_identifier_to_candidate(
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
     elif identifier_type == "repo_url":
         remove_identifier_from_project(project, identifier_type, normalized)
-        project["candidate_source_code_urls"] = project_record.add_unique(project.get("candidate_source_code_urls", []), normalized)
+        project["candidate_project_repository_urls"] = project_record.add_unique(project.get("candidate_project_repository_urls", []), normalized)
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
     elif identifier_type == "nsid":
         if not keep_candidate:
@@ -1805,10 +1805,10 @@ def purge_blocked_identifiers(project: dict[str, Any]) -> None:
         project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if identifier_core.normalize_url(str(url or "")) not in blocked_services]
 
     if blocked_repos:
-        if repo_url_core.canonical_repo_url(str(project.get("source_code_url") or "")) in blocked_repos:
-            project["source_code_url"] = ""
-        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
-        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
+        if repo_url_core.canonical_repo_url(str(project.get("project_repository_url") or "")) in blocked_repos:
+            project["project_repository_url"] = ""
+        project["project_repository_urls"] = [url for url in project.get("project_repository_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
+        project["candidate_project_repository_urls"] = [url for url in project.get("candidate_project_repository_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) not in blocked_repos]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
@@ -1869,10 +1869,10 @@ def remove_identifier_from_project(
         project["failed_service_urls"] = [url for url in project.get("failed_service_urls", []) if identifier_core.normalize_url(str(url or "")) != normalized]
         project["supported_service_urls"] = [url for url in project.get("supported_service_urls", []) if identifier_core.normalize_url(str(url or "")) != normalized]
     elif identifier_type == "repo_url":
-        if repo_url_core.canonical_repo_url(str(project.get("source_code_url") or "")) == normalized:
-            project["source_code_url"] = ""
-        project["source_code_urls"] = [url for url in project.get("source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
-        project["candidate_source_code_urls"] = [url for url in project.get("candidate_source_code_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
+        if repo_url_core.canonical_repo_url(str(project.get("project_repository_url") or "")) == normalized:
+            project["project_repository_url"] = ""
+        project["project_repository_urls"] = [url for url in project.get("project_repository_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
+        project["candidate_project_repository_urls"] = [url for url in project.get("candidate_project_repository_urls", []) if repo_url_core.canonical_repo_url(str(url or "")) != normalized]
         project["source_repo_records"] = [
             dict(item)
             for item in project.get("source_repo_records", [])
@@ -2023,7 +2023,7 @@ def audit_and_repair_identifiers(conn: sqlite3.Connection, *, execute: bool = Fa
         developer_account_repairs += malformed_developer_accounts + malformed_developer_identifier_rows
         raw = project_record.project_from_row(conn, row)
         original = project_record.ensure_project_shape(raw)
-        original_repo_urls = set(repo_url_core.normalize_repo_collection(project_record.source_code_url_values(original)))
+        original_repo_urls = set(repo_url_core.normalize_repo_collection(project_record.project_repository_url_values(original)))
         manual_repo_seed_repairs += len(active_manual_repo_urls(original) - original_repo_urls)
         normalized = project_record.ensure_project_shape(dict(original))
         normalized = finalize_project_shape(normalized)
@@ -2877,7 +2877,7 @@ def generic_platform_name_candidate(project: dict[str, Any], value: str, source:
         return False
     repo_names = {
         naming_core.normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
-        for url in project_record.source_code_url_values(project)
+        for url in project_record.project_repository_url_values(project)
         if urllib.parse.urlparse(identifier_core.normalize_url(str(url or ""))).path.rstrip("/")
     }
     return normalized not in repo_names
@@ -3023,7 +3023,7 @@ def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
         *[str(item or "") for item in project.get("input_nsids", [])],
         *[str(item or "") for item in project.get("resolved_nsids", [])],
         *[str(item or "") for item in project.get("authority_domains", [])],
-        *[str(item or "") for item in project.get("source_code_urls", [])],
+        *[str(item or "") for item in project.get("project_repository_urls", [])],
     ]
     for raw_value in raw_values:
         lowered = str(raw_value or "").strip().lower()
@@ -3051,8 +3051,8 @@ def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
     candidate_urls = [
         str(project.get("seed_value") or ""),
         *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
-        *[str(item or "") for item in project.get("source_code_urls", [])],
-        *[str(item or "") for item in project.get("candidate_source_code_urls", [])],
+        *[str(item or "") for item in project.get("project_repository_urls", [])],
+        *[str(item or "") for item in project.get("candidate_project_repository_urls", [])],
         *[str(item or "") for item in project.get("service_urls", [])],
         *[str(item or "") for item in project_record.service_url_candidate_values(project)],
     ]
@@ -3344,7 +3344,7 @@ def repo_link_matches_project_identity(project: dict[str, Any], url: str) -> boo
 
 def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
     owners: set[str] = set()
-    trusted_urls = set(manual_repo_urls(project)) | set(project.get("source_code_urls", []))
+    trusted_urls = set(manual_repo_urls(project)) | set(project.get("project_repository_urls", []))
     for url in trusted_urls:
         owner = repo_url_core.repo_owner_identity(str(url or ""))
         if owner:
@@ -3369,7 +3369,7 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> boo
         and not developer_handle_match
     ):
         return False
-    if normalized in manual_repo_urls(project) or normalized in project.get("source_code_urls", []):
+    if normalized in manual_repo_urls(project) or normalized in project.get("project_repository_urls", []):
         return True
     trusted_owners = trusted_repo_owner_identities(project)
     if trusted_owners:
@@ -3616,7 +3616,7 @@ def add_candidate_url(project: dict[str, Any], field_name: str, url: str) -> Non
     project[key] = project_record.add_unique(project.get(key, []), normalized)
 
 
-def add_candidate_source_code_url(
+def add_candidate_project_repository_url(
     project: dict[str, Any],
     url: str,
     source: str,
@@ -3632,9 +3632,9 @@ def add_candidate_source_code_url(
         return
     if not repo_candidate_allowed_for_project(project, normalized):
         return
-    if normalized in project.get("source_code_urls", []):
+    if normalized in project.get("project_repository_urls", []):
         return
-    project["candidate_source_code_urls"] = project_record.add_unique(project.get("candidate_source_code_urls", []), normalized)
+    project["candidate_project_repository_urls"] = project_record.add_unique(project.get("candidate_project_repository_urls", []), normalized)
     record = {
         "url": normalized,
         "provider": repo_url_core.infer_repo_provider(normalized),
@@ -3658,7 +3658,7 @@ def add_candidate_source_code_url(
         project["source_repo_records"].append(record)
     project.setdefault("investigation_log", [])
     entry = {
-        "kind": "candidate_source_code_url",
+        "kind": "candidate_project_repository_url",
         "url": normalized,
         "source": source,
         "reason": reason,
@@ -3670,7 +3670,7 @@ def add_candidate_source_code_url(
         project["investigation_log"].append(entry)
 
 
-def confirm_source_code_url(
+def confirm_project_repository_url(
     project: dict[str, Any],
     url: str,
     source: str,
@@ -3690,8 +3690,8 @@ def confirm_source_code_url(
         or identifier_is_deferred(project, "repo_url", normalized)
     ):
         return
-    project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
-    project["candidate_source_code_urls"] = [item for item in project.get("candidate_source_code_urls", []) if item != normalized]
+    project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
+    project["candidate_project_repository_urls"] = [item for item in project.get("candidate_project_repository_urls", []) if item != normalized]
     provider = repo_url_core.infer_repo_provider(normalized)
     record = {
         "url": normalized,
@@ -4016,30 +4016,21 @@ def prune_project_urls(project: dict[str, Any]) -> None:
 
     kept_confirmed = {
         url
-        for url in repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
+        for url in repo_url_core.normalize_repo_collection(project.get("project_repository_urls", []))
         if not identifier_is_blocked(project, "repo_url", url)
         and not identifier_is_deferred(project, "repo_url", url)
-    } | {
-        record["url"]
-        for record in project["source_repo_records"]
-        if record.get("confidence") == "confirmed"
-        and not identifier_is_blocked(project, "repo_url", str(record.get("url") or ""))
-        and not identifier_is_deferred(project, "repo_url", str(record.get("url") or ""))
     }
-    kept_candidates = {record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"}
 
-    project["source_code_urls"] = [
+    project["project_repository_urls"] = [
         url
-        for url in repo_url_core.normalize_repo_collection(project_record.unique_list(project.get("source_code_urls", []) + sorted(active_manual_repos)))
-        if repo_url_allowed_for_project(project, url) and (url in active_manual_repos or url in kept_confirmed)
+        for url in repo_url_core.normalize_repo_collection(project_record.unique_list(project.get("project_repository_urls", []) + sorted(active_manual_repos)))
+        if url in kept_confirmed or url in active_manual_repos
     ]
-    project["candidate_source_code_urls"] = [
+    project["candidate_project_repository_urls"] = [
         url
-        for url in repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", []))
-        if repo_candidate_allowed_for_project(project, url) and url not in project["source_code_urls"]
+        for url in repo_url_core.normalize_repo_collection(project.get("candidate_project_repository_urls", []))
+        if repo_candidate_allowed_for_project(project, url) and url not in project["project_repository_urls"]
     ]
-    project["candidate_source_code_urls"] = project_record.unique_list(project["candidate_source_code_urls"] + sorted(kept_candidates - set(project["source_code_urls"])))
-    project["source_code_urls"] = project_record.unique_list(project["source_code_urls"] + sorted(kept_confirmed))
 
     project_record.sync_source_repo_provider_views(project)
 
@@ -4226,7 +4217,7 @@ def add_manual_seed(project: dict[str, Any], seed_type: str, seed_value: str, *,
             note="identifier accepted as a project seed",
             role={
                 "service_url": "service",
-                "repo_url": "source_repository",
+                "repo_url": "project_repository",
                 "nsid": "owned_nsid",
             }.get(seed_type, ""),
             registration_origin=True,
@@ -4296,11 +4287,11 @@ def confirm_repo_seed(project: dict[str, Any], repo_url: str, *, source: str) ->
         return ""
     add_manual_seed(project, "repo_url", normalized, source=source)
     if repo_url_allowed_for_project(project, normalized):
-        project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
+        project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
         project_record.sync_source_repo_provider_views(project)
-    project["candidate_source_code_urls"] = [
-        item for item in project.get("candidate_source_code_urls", [])
+    project["candidate_project_repository_urls"] = [
+        item for item in project.get("candidate_project_repository_urls", [])
         if repo_url_core.canonical_repo_url(str(item or "")) != normalized
     ]
     return normalized
@@ -4338,7 +4329,7 @@ def project_search_candidates(
             + [str(item or "") for item in project.get("resolved_nsids", [])]
             + ([str(project.get("website_url") or "")] if project.get("website_url") else [])
             + [str(item or "") for item in project.get("service_urls", [])]
-            + [str(item or "") for item in project.get("source_code_urls", [])]
+            + [str(item or "") for item in project.get("project_repository_urls", [])]
         )
         if project_key == text:
             score += 100
@@ -4922,7 +4913,7 @@ def repo_references_service(project: dict[str, Any], repo_url: str, service_url:
         return False
     for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
         relation = item["relation"]
-        if relation["predicate"] != "source_repository":
+        if relation["predicate"] != "project_repository":
             continue
         if relation["subject"]["type"] != "repo" or repo_url_core.canonical_repo_url(relation["subject"]["value"]) != normalized_repo:
             continue
@@ -4977,7 +4968,7 @@ def sync_trust_edges_from_project_relations(project: dict[str, Any]) -> None:
     )
     for item in relations:
         relation = item["relation"]
-        if relation.get("predicate") != "source_repository":
+        if relation.get("predicate") != "project_repository":
             continue
         subject = relation.get("subject") or {}
         obj = relation.get("object") or {}
@@ -5345,7 +5336,7 @@ def confirm_service_url_with_trust(project: dict[str, Any], url: str) -> bool:
     return True
 
 
-def confirm_source_code_url_with_trust(
+def confirm_project_repository_url_with_trust(
     project: dict[str, Any],
     url: str,
     source: str,
@@ -5362,7 +5353,7 @@ def confirm_source_code_url_with_trust(
     evaluation = trust_auto_confirm_identifier(project, "repo_url", normalized)
     if not evaluation.get("auto_confirm"):
         return False
-    confirm_source_code_url(
+    confirm_project_repository_url(
         project,
         normalized,
         source,
@@ -5378,7 +5369,7 @@ def confirm_source_code_url_with_trust(
         normalized,
         source="trust_policy",
         note="repository accepted by the configured trust policy",
-        role="source_repository",
+        role="project_repository",
         source_ref=project_record.dump_json(evaluation),
         policy_version=trust_graph_core.TRUST_POLICY_VERSION,
     )
@@ -5440,11 +5431,11 @@ def reconcile_trust_supported_url_candidates(project: dict[str, Any]) -> dict[st
             confirmed_services.append(identifier_core.normalize_url(service_url))
 
     confirmed_repos: list[str] = []
-    for repo_url in list(project.get("candidate_source_code_urls", [])):
+    for repo_url in list(project.get("candidate_project_repository_urls", [])):
         normalized = repo_url_core.canonical_repo_url(str(repo_url or ""))
         if not normalized:
             continue
-        if confirm_source_code_url_with_trust(
+        if confirm_project_repository_url_with_trust(
             project,
             normalized,
             "trust_graph_finalization",
@@ -5485,7 +5476,7 @@ def service_reference_matches_project(project: dict[str, Any], value: str) -> bo
 def candidate_repo_trust_probe_urls(project: dict[str, Any]) -> list[str]:
     candidates = {
         repo_url_core.canonical_repo_url(str(value or ""))
-        for value in project.get("candidate_source_code_urls", [])
+        for value in project.get("candidate_project_repository_urls", [])
         if repo_url_core.canonical_repo_url(str(value or ""))
     }
     output: list[str] = []
@@ -5532,14 +5523,14 @@ def apply_candidate_repo_trust_evidence(
             and object_value in set(confirmed_service_identity_urls(project))
         )
         if (
-            predicate not in {"repository_homepage", "source_repository"}
+            predicate not in {"repository_homepage", "project_repository"}
             or subject.get("type") != "repo"
             or repo_url_core.canonical_repo_url(str(subject.get("value") or "")) != normalized_repo
             or obj.get("type") not in {"website", "service"}
             or (
                 not homepage_matches_project_service
                 and not (
-                    predicate == "source_repository"
+                    predicate == "project_repository"
                     and service_reference_matches_project(project, str(obj.get("value") or ""))
                 )
             )
@@ -5594,7 +5585,7 @@ def accepted_repo_schema_relation(project: dict[str, Any], relation: dict[str, A
         return False
     accepted_repos = set(manual_repo_urls(project)) | {
         repo_url_core.canonical_repo_url(str(item or ""))
-        for item in list(project.get("source_code_urls", [])) + [str(project.get("source_code_url") or "")]
+        for item in list(project.get("project_repository_urls", [])) + [str(project.get("project_repository_url") or "")]
         if repo_url_core.canonical_repo_url(str(item or ""))
     }
     return repo_url in accepted_repos and project_owned_lexicon_nsid(project, nsid)
@@ -5641,8 +5632,8 @@ def service_probe_supports_project(project: dict[str, Any], service_url: str, re
     )
     relevant_repos = {
         repo_url_core.canonical_repo_url(str(value or ""))
-        for value in list(project_record.source_code_url_values(project))
-        + list(project.get("candidate_source_code_urls", []))
+        for value in list(project_record.project_repository_url_values(project))
+        + list(project.get("candidate_project_repository_urls", []))
         if repo_url_core.canonical_repo_url(str(value or ""))
     }
     for link in result.get("links", []):
@@ -5981,7 +5972,7 @@ def collect_first_party_links(
                 context={"link_text": text[:200]},
             )
             if owner_matches_project(project, url) or domain_policy_core.is_same_site_family(base_url, url):
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     url,
                     source,
@@ -5990,7 +5981,7 @@ def collect_first_party_links(
                     evidence_url=base_url,
                     relation="official_link",
                 )
-                confirm_source_code_url_with_trust(
+                confirm_project_repository_url_with_trust(
                     project,
                     url,
                     source,
@@ -6000,7 +5991,7 @@ def collect_first_party_links(
                     evidence_url=base_url,
                 )
             else:
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     url,
                     source,
@@ -6013,7 +6004,7 @@ def collect_first_party_links(
             if domain_policy_core.is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
             else:
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     url,
                     source,
@@ -6054,7 +6045,7 @@ def collect_first_party_links(
                 observed_at=project_record.iso_now(),
                 context={"link_text": text[:200]},
             )
-            add_candidate_source_code_url(
+            add_candidate_project_repository_url(
                 project,
                 url,
                 source,
@@ -6080,7 +6071,7 @@ def collect_first_party_links(
                     observed_at=project_record.iso_now(),
                     context={"link_text": text[:200]},
                 )
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     url,
                     source,
@@ -6089,7 +6080,7 @@ def collect_first_party_links(
                     evidence_url=base_url,
                     relation="same_site_repo",
                 )
-                confirm_source_code_url_with_trust(
+                confirm_project_repository_url_with_trust(
                     project,
                     url,
                     source,
@@ -6099,7 +6090,7 @@ def collect_first_party_links(
                     evidence_url=base_url,
                 )
             elif any(token in text.lower() for token in ["source", "repo", "repository", "core"]):
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     url,
                     source,
@@ -6485,7 +6476,7 @@ def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
     presence = bool(
         project.get("website_url")
         or project.get("service_urls")
-        or project.get("source_code_urls")
+        or project.get("project_repository_urls")
         or project_record.resource_url_values(project)
     )
     if summary and (tagline or features or presence):
@@ -6786,7 +6777,7 @@ def apply_github_repo_evidence(
             normalize_url=identifier_core.normalize_url,
             normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
             normalize_service_candidate_url=project_record.normalize_service_candidate_url,
-            confirm_source_code_url=confirm_source_code_url,
+            confirm_project_repository_url=confirm_project_repository_url,
             add_investigation_log=add_investigation_log,
             add_name_candidate=add_name_candidate,
             add_candidate_text=add_candidate_text,
@@ -6796,7 +6787,7 @@ def apply_github_repo_evidence(
             add_authority_service_candidates=add_authority_service_candidates,
             upsert_lexicon_schema_sample=upsert_lexicon_schema_sample,
             repo_url_allowed_for_project=repo_url_allowed_for_project,
-            add_candidate_source_code_url=add_candidate_source_code_url,
+            add_candidate_project_repository_url=add_candidate_project_repository_url,
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
             record_trust_edge=project_record.record_trust_edge,
             remove_trust_edges=trust_graph_core.remove_edges,
@@ -7282,9 +7273,9 @@ def project_merge_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
 
 def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
     weights = {
-        "source_code_urls": 8,
+        "project_repository_urls": 8,
         "github_repo_urls": 8,
-        "candidate_source_code_urls": 5,
+        "candidate_project_repository_urls": 5,
         "service_urls": 7,
         "website_urls": 2,
         "recorded_lexicon_namespaces": 6,
@@ -7303,16 +7294,16 @@ def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
 def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> tuple[str, bool]:
     if "service_urls" in reasons:
         return "high", True
-    if any(key in reasons for key in {"source_code_urls", "github_repo_urls"}) and (
+    if any(key in reasons for key in {"project_repository_urls", "github_repo_urls"}) and (
         "merge_aliases" in reasons
         or "domain_identity_tokens" in reasons
         or "authority_service_families" in reasons
         or "recorded_lexicon_namespaces" in reasons
     ):
         return "high", True
-    if set(reasons).issubset({"source_code_urls", "github_repo_urls"}):
+    if set(reasons).issubset({"project_repository_urls", "github_repo_urls"}):
         return "medium", False
-    if "candidate_source_code_urls" in reasons and (
+    if "candidate_project_repository_urls" in reasons and (
         "domain_identity_tokens" in reasons
         or "merge_aliases" in reasons
         or "authority_service_families" in reasons
@@ -7339,18 +7330,18 @@ def build_llm_evidence_bundle(
     include_candidate_repos: bool = False,
 ) -> dict[str, Any]:
     candidate_repo_urls: list[str] = []
-    if include_candidate_repos and not project.get("source_code_urls"):
+    if include_candidate_repos and not project.get("project_repository_urls"):
         candidate_repo_urls = [
             url
-            for url in project.get("candidate_source_code_urls", [])
+            for url in project.get("candidate_project_repository_urls", [])
             if repo_candidate_allowed_for_project(project, str(url or ""))
         ]
     relationship_candidates: list[dict[str, str]] = []
     relationship_indexes: set[tuple[str, str]] = set()
     relevant_repos = {
         repo_url_core.canonical_repo_url(str(value or ""))
-        for value in list(project_record.source_code_url_values(project))
-        + list(project.get("candidate_source_code_urls", []))
+        for value in list(project_record.project_repository_url_values(project))
+        + list(project.get("candidate_project_repository_urls", []))
         if repo_url_core.canonical_repo_url(str(value or ""))
     }
     for edge in trust_graph_core.graph(project).get("edges", []):
@@ -7414,9 +7405,9 @@ def build_llm_evidence_bundle(
         "service_status_hint": project.get("service_status") or "unknown",
         "service_status_confidence": project.get("service_status_confidence") or "none",
         "service_status_evidence": project.get("service_status_evidence", []),
-        "source_code_urls": project.get("source_code_urls", []),
+        "project_repository_urls": project.get("project_repository_urls", []),
         "repository_analysis_results": repository_analysis_core.select_for_triage(project),
-        "candidate_source_code_urls": candidate_repo_urls[:2],
+        "candidate_project_repository_urls": candidate_repo_urls[:2],
         "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
@@ -7442,7 +7433,7 @@ def profile_update_sources(evidence: Any) -> set[str]:
         normalized = identifier_core.normalize_url(str(value or ""))
         if normalized:
             sources.add(f"supported_service:{normalized}")
-    for value in evidence.get("source_code_urls", []):
+    for value in evidence.get("project_repository_urls", []):
         normalized = repo_url_core.canonical_repo_url(str(value or ""))
         if normalized:
             sources.add(f"repository:{normalized}")
@@ -7625,7 +7616,7 @@ def apply_repository_link_assessments(
             context={"relationship": "same_project", "reason": reason[:500]},
         )
         confirm_service_url_with_trust(project, service_url)
-        confirm_source_code_url_with_trust(
+        confirm_project_repository_url_with_trust(
             project,
             repo_url,
             "llm_repository_relationship",
@@ -7697,7 +7688,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
         if parsed.netloc == "github.com":
             normalized = repo_url_core.normalize_github_repo_url(url)
             if normalized:
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     normalized,
                     source,
@@ -7708,7 +7699,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
         elif parsed.netloc == "tangled.org":
             normalized = repo_url_core.normalize_tangled_repo_url(url)
             if normalized:
-                add_candidate_source_code_url(
+                add_candidate_project_repository_url(
                     project,
                     normalized,
                     source,
@@ -7750,7 +7741,7 @@ def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle
         integration_core.IntegrationDependencies(
             add_investigation_query=add_investigation_query,
             add_investigation_log=add_investigation_log,
-            add_candidate_source_code_url=add_candidate_source_code_url,
+            add_candidate_project_repository_url=add_candidate_project_repository_url,
             add_candidate_url=add_candidate_url,
             normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
             normalize_tangled_repo_url=repo_url_core.normalize_tangled_repo_url,
@@ -7875,8 +7866,8 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
         project,
         bundle,
         integration_core.TangledIntegrationDependencies(
-            confirm_source_code_url=confirm_source_code_url,
-            add_candidate_source_code_url=add_candidate_source_code_url,
+            confirm_project_repository_url=confirm_project_repository_url,
+            add_candidate_project_repository_url=add_candidate_project_repository_url,
             add_developer_account=lambda target, handle, source, did: project_record.add_developer_account(target, handle, source, did=did),
             add_name_candidate=add_name_candidate,
             add_candidate_text=add_candidate_text,
@@ -8042,16 +8033,16 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     llm_service_status = str(payload.get("service_status") or "").strip()
     if llm_service_status:
         project["service_status"] = merge_service_status(str(project.get("service_status") or "unknown"), llm_service_status)
-    for url in clean_string_list(payload.get("source_code_urls")):
+    for url in clean_string_list(payload.get("project_repository_urls")):
         parsed = urllib.parse.urlparse(url)
         if parsed.netloc == "github.com":
             normalized = repo_url_core.normalize_github_repo_url(url)
             if normalized:
-                if normalized in project_record.source_code_url_values(project):
-                    project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
+                if normalized in project_record.project_repository_url_values(project):
+                    project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
                     project_record.sync_source_repo_provider_views(project)
                 else:
-                    add_candidate_source_code_url(
+                    add_candidate_project_repository_url(
                         project,
                         normalized,
                         "llm_output",
@@ -8062,11 +8053,11 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         elif parsed.netloc == "tangled.org":
             normalized = repo_url_core.normalize_tangled_repo_url(url)
             if normalized:
-                if normalized in project_record.source_code_url_values(project):
-                    project["source_code_urls"] = project_record.add_unique(project.get("source_code_urls", []), normalized)
+                if normalized in project_record.project_repository_url_values(project):
+                    project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
                     project_record.sync_source_repo_provider_views(project)
                 else:
-                    add_candidate_source_code_url(
+                    add_candidate_project_repository_url(
                         project,
                         normalized,
                         "llm_output",
@@ -8075,7 +8066,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
                         evidence_url=url,
                     )
         elif parsed.scheme in {"http", "https"}:
-            add_candidate_source_code_url(
+            add_candidate_project_repository_url(
                 project,
                 url,
                 "llm_output",
@@ -8116,7 +8107,7 @@ def evaluate_promotion(project: dict[str, Any]) -> list[str]:
     blockers: list[str] = []
     has_confirmed_identifier = bool(
         project.get("service_urls")
-        or project_record.source_code_url_values(project)
+        or project_record.project_repository_url_values(project)
         or project.get("resolved_nsids")
     )
     if not has_confirmed_identifier:
@@ -8173,7 +8164,7 @@ def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
     count = 0
     if project.get("service_urls"):
         count += 1
-    if project.get("source_code_urls"):
+    if project.get("project_repository_urls"):
         count += 1
     if project.get("resolved_nsids"):
         count += 1
@@ -8183,8 +8174,8 @@ def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
 def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
     hints = repo_url_core.normalize_repo_collection(
         project_record.unique_list(
-            [str(item or "") for item in project_record.source_code_url_values(project)]
-            + [str(item or "") for item in project.get("candidate_source_code_urls", [])]
+            [str(item or "") for item in project_record.project_repository_url_values(project)]
+            + [str(item or "") for item in project.get("candidate_project_repository_urls", [])]
         )
     )
     manual_repo_hints: list[str] = []
@@ -8335,7 +8326,7 @@ def compute_review_signals(
             }
         )
 
-    if not shaped.get("source_code_urls") and repo_candidates:
+    if not shaped.get("project_repository_urls") and repo_candidates:
         signals.append(
             {
                 "kind": "candidate_repo_needs_confirmation",
@@ -8534,7 +8525,7 @@ def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> b
         return False
     if not (
         project.get("website_url")
-        or project.get("source_code_urls")
+        or project.get("project_repository_urls")
         or project_repo_hint_urls(project)
         or project_record.resource_url_values(project)
     ):
@@ -8640,7 +8631,7 @@ def fork_without_independent_identity_reasons(project: dict[str, Any]) -> list[s
     service_status = project_record.normalize_service_status(str(project.get("service_status") or "unknown"))
     if service_status in {"live", "beta", "invite_only"}:
         return []
-    reasons = [f"confirmed source repo is a GitHub fork: {fork_records[0].get('url') or ''}"]
+    reasons = [f"confirmed project repository is a GitHub fork: {fork_records[0].get('url') or ''}"]
     reasons.append("no independent website or service surface")
     reasons.append("no owned lexicon or collection surface")
     if service_status:
@@ -8684,7 +8675,7 @@ def ignore_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
         + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
     )
     repo_urls = project_record.unique_list(
-        [str(item or "") for item in project_record.source_code_url_values(project) if str(item or "").strip()]
+        [str(item or "") for item in project_record.project_repository_url_values(project) if str(item or "").strip()]
     )
     return {
         "project_key": project.get("project_key", ""),
@@ -8729,7 +8720,7 @@ def out_of_scope_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
             "seed_value": project.get("seed_value", ""),
             "website_url": str(project.get("website_url") or ""),
             "repo_urls": project_record.unique_list(
-                [str(item or "") for item in project_record.source_code_url_values(project) if str(item or "").strip()]
+                [str(item or "") for item in project_record.project_repository_url_values(project) if str(item or "").strip()]
             ),
             "nsids": project_record.unique_list(
                 [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
@@ -8771,7 +8762,7 @@ def out_of_scope_review_entry(project: dict[str, Any]) -> dict[str, Any] | None:
         "seed_value": project.get("seed_value", ""),
         "website_url": str(project.get("website_url") or ""),
         "repo_urls": project_record.unique_list(
-            [str(item or "") for item in project_record.source_code_url_values(project) if str(item or "").strip()]
+            [str(item or "") for item in project_record.project_repository_url_values(project) if str(item or "").strip()]
         ),
         "nsids": nsids,
         "reasons": reasons,
@@ -9449,15 +9440,15 @@ def duplicate_candidate_for_pair(
     target_profile = project_profile or duplicate_profile(project)
     candidate_profile = other_profile or duplicate_profile(other)
     reasons: dict[str, list[str]] = {}
-    source_overlap = sorted(target_profile["source_code_urls"] & candidate_profile["source_code_urls"])
+    source_overlap = sorted(target_profile["project_repository_urls"] & candidate_profile["project_repository_urls"])
     if source_overlap:
-        reasons["source_code_urls"] = source_overlap
+        reasons["project_repository_urls"] = source_overlap
     github_overlap = sorted(target_profile["github_repo_urls"] & candidate_profile["github_repo_urls"])
     if github_overlap:
         reasons["github_repo_urls"] = github_overlap
-    candidate_repo_overlap = sorted(target_profile["candidate_source_code_urls"] & candidate_profile["candidate_source_code_urls"])
+    candidate_repo_overlap = sorted(target_profile["candidate_project_repository_urls"] & candidate_profile["candidate_project_repository_urls"])
     if candidate_repo_overlap:
-        reasons["candidate_source_code_urls"] = candidate_repo_overlap
+        reasons["candidate_project_repository_urls"] = candidate_repo_overlap
     service_overlap = sorted(target_profile["service_urls"] & candidate_profile["service_urls"])
     if service_overlap:
         reasons["service_urls"] = service_overlap
@@ -9560,9 +9551,9 @@ def compute_merge_recommendation(project: dict[str, Any]) -> dict[str, Any]:
 
 def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
     return {
-        "source_code_urls": set(project_record.source_code_url_values(project)),
+        "project_repository_urls": set(project_record.project_repository_url_values(project)),
         "github_repo_urls": set(project_record.provider_repo_url_values(project, "github")),
-        "candidate_source_code_urls": set(project.get("candidate_source_code_urls", [])),
+        "candidate_project_repository_urls": set(project.get("candidate_project_repository_urls", [])),
         "service_urls": set(project.get("service_urls", [])),
         "website_urls": {str(project.get("website_url") or "")} if project.get("website_url") else set(),
         "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),
@@ -9599,9 +9590,9 @@ def namespace_lineage_overlap(project_a: dict[str, Any], project_b: dict[str, An
 def build_duplicate_candidate_index(projects: list[dict[str, Any]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
     profiles: dict[str, dict[str, set[str]]] = {}
     index: dict[str, dict[str, set[str]]] = {
-        "source_code_urls": {},
+        "project_repository_urls": {},
         "github_repo_urls": {},
-        "candidate_source_code_urls": {},
+        "candidate_project_repository_urls": {},
         "service_urls": {},
         "website_urls": {},
         "recorded_lexicon_namespaces": {},
@@ -9669,7 +9660,7 @@ def batch_repo_seed_urls(project: dict[str, Any]) -> set[str]:
 
 
 def batch_candidate_repo_urls(project: dict[str, Any]) -> set[str]:
-    return set(repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", [])))
+    return set(repo_url_core.normalize_repo_collection(project.get("candidate_project_repository_urls", [])))
 
 
 def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -> dict[str, list[str]]:
@@ -9677,14 +9668,14 @@ def batch_strict_overlap(project_a: dict[str, Any], project_b: dict[str, Any]) -
         return {}
     reasons: dict[str, list[str]] = {}
     alias_overlap = sorted(project_alias_tokens(project_a) & project_alias_tokens(project_b))
-    source_overlap = sorted(set(project_record.source_code_url_values(project_a)) & set(project_record.source_code_url_values(project_b)))
+    source_overlap = sorted(set(project_record.project_repository_url_values(project_a)) & set(project_record.project_repository_url_values(project_b)))
     if source_overlap:
         valid = [
             value for value in source_overlap
             if is_strict_github_repo_url(value) or is_strict_tangled_repo_url(value)
         ]
         if valid and alias_overlap:
-            reasons["source_code_urls"] = valid
+            reasons["project_repository_urls"] = valid
             reasons["alias_overlap"] = alias_overlap
     github_overlap = sorted(set(project_record.provider_repo_url_values(project_a, "github")) & set(project_record.provider_repo_url_values(project_b, "github")))
     if github_overlap:
@@ -9796,7 +9787,7 @@ def project_editorial_preference(project: dict[str, Any]) -> tuple[int, int, int
         service_surface += 2
     if project.get("service_urls"):
         service_surface += 3
-    if project.get("source_code_urls"):
+    if project.get("project_repository_urls"):
         service_surface += 2
     if project_record.resource_url_values(project):
         service_surface += 1
@@ -9824,13 +9815,13 @@ def project_batch_merge_preference(project: dict[str, Any]) -> tuple[int, tuple[
         seed_priority = 2
     elif project.get("resolved_nsids"):
         seed_priority = 2
-    elif project_record.source_code_url_values(project):
+    elif project_record.project_repository_url_values(project):
         seed_priority = 1
     editorial_score = project_editorial_preference(project)
     confirmed_count = sum(
         1 for value in [
             bool(project.get("service_urls")),
-            bool(project_record.source_code_url_values(project)),
+            bool(project_record.project_repository_url_values(project)),
             bool(project.get("resolved_nsids")),
         ]
         if value
@@ -10060,9 +10051,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
         list(merged.get("service_status_evidence", [])) + list(source.get("service_status_evidence", []))
     )
 
-    merged["source_code_urls"] = repo_url_core.normalize_repo_collection(project_record.source_code_url_values(merged) + project_record.source_code_url_values(source))
-    merged["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(
-        list(merged.get("candidate_source_code_urls", [])) + list(source.get("candidate_source_code_urls", []))
+    merged["project_repository_urls"] = repo_url_core.normalize_repo_collection(project_record.project_repository_url_values(merged) + project_record.project_repository_url_values(source))
+    merged["candidate_project_repository_urls"] = repo_url_core.normalize_repo_collection(
+        list(merged.get("candidate_project_repository_urls", [])) + list(source.get("candidate_project_repository_urls", []))
     )
     merged["source_repo_records"] = project_record.normalize_source_repo_records(
         list(merged.get("source_repo_records", [])) + list(source.get("source_repo_records", []))
@@ -10294,26 +10285,29 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     )
     project_record.reclassify_service_specific_lexicon(project)
     project["source_repo_records"] = project_record.normalize_source_repo_records(project.get("source_repo_records", []))
-    confirmed_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") == "confirmed"]
-    candidate_urls = [record["url"] for record in project["source_repo_records"] if record.get("confidence") != "confirmed"]
-    project["source_code_urls"] = repo_url_core.normalize_repo_collection(
-        project_record.unique_list(project.get("source_code_urls", []) + confirmed_urls + sorted(active_manual_repo_urls(project)))
+    project["project_repository_urls"] = repo_url_core.normalize_repo_collection(
+        project_record.unique_list(
+            project.get("project_repository_urls", []) + sorted(active_manual_repo_urls(project))
+        )
     )
-    project["source_code_urls"] = [
+    project["project_repository_urls"] = [
         url
-        for url in project["source_code_urls"]
+        for url in project["project_repository_urls"]
         if not identifier_is_blocked(project, "repo_url", url)
         and not identifier_is_deferred(project, "repo_url", url)
     ]
-    confirmed_repo_set = set(project["source_code_urls"])
+    confirmed_repo_set = set(project["project_repository_urls"])
     project["repository_analysis_results"] = [
         item
         for item in repository_analysis_core.normalize_results(project.get("repository_analysis_results", []))
         if item.get("repo_url") in confirmed_repo_set
     ]
-    project["candidate_source_code_urls"] = [
-        url for url in repo_url_core.normalize_repo_collection(project_record.unique_list(project.get("candidate_source_code_urls", []) + candidate_urls))
-        if url not in project.get("source_code_urls", [])
+    project["candidate_project_repository_urls"] = [
+        url
+        for url in repo_url_core.normalize_repo_collection(
+            project_record.unique_list(project.get("candidate_project_repository_urls", []))
+        )
+        if url not in project.get("project_repository_urls", [])
     ]
     project_record.sync_source_repo_provider_views(project)
     normalize_schema_definition_relations(project)
@@ -10490,7 +10484,7 @@ def stalled_review_entry(
     elif service_status in {"unknown", "none"}:
         reasons.append(f"service_status={service_status}")
 
-    confirmed_identity_count = int(bool(project.get("service_urls"))) + int(bool(project.get("source_code_urls"))) + int(bool(project.get("resolved_nsids")))
+    confirmed_identity_count = int(bool(project.get("service_urls"))) + int(bool(project.get("project_repository_urls"))) + int(bool(project.get("resolved_nsids")))
     if confirmed_identity_count <= 1:
         reasons.append("weak confirmed identity")
 
@@ -10592,7 +10586,7 @@ def _replay_repository_homepage_relation(value: Any) -> dict[str, Any] | None:
     subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
     obj = relation.get("object") if isinstance(relation.get("object"), dict) else {}
     if not (
-        relation.get("predicate") == "source_repository"
+        relation.get("predicate") == "project_repository"
         and str(relation.get("method") or "") == "github_homepage"
         and subject.get("type") == "repo"
         and obj.get("type") in {"service", "website"}
@@ -10685,7 +10679,7 @@ def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> No
         )
         refresh_trust_graph_evaluations(project)
     for repo_url in relation_core.corroborate_source_repositories(project):
-        confirm_source_code_url(
+        confirm_project_repository_url(
             project,
             repo_url,
             "relation_corroboration",
@@ -11053,11 +11047,11 @@ def split_project_identifier_group(
         "source_input_nsids": source.get("input_nsids", []),
         "source_service_urls": source.get("service_urls", []),
         "source_authority_domains": source.get("authority_domains", []),
-        "source_source_code_urls": source.get("source_code_urls", []),
+        "source_project_repository_urls": source.get("project_repository_urls", []),
         "target_input_nsids": target.get("input_nsids", []),
         "target_service_urls": target.get("service_urls", []),
         "target_authority_domains": target.get("authority_domains", []),
-        "target_source_code_urls": target.get("source_code_urls", []),
+        "target_project_repository_urls": target.get("project_repository_urls", []),
         "target_merge_recommendation": target.get("merge_recommendation", {}),
     }
 
@@ -11149,8 +11143,8 @@ def build_source_config_split_suggestions(conn: sqlite3.Connection, suffixes: li
                     "tenant_groups": tenant_groups,
                     "shared_or_ambiguous_identifiers": {
                         "repo_urls": project_record.unique_list(
-                            list(project.get("source_code_urls", []))
-                            + list(project.get("candidate_source_code_urls", []))
+                            list(project.get("project_repository_urls", []))
+                            + list(project.get("candidate_project_repository_urls", []))
                         ),
                     },
                     "requires_manual_confirmation": True,

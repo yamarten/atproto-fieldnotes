@@ -112,7 +112,7 @@ def _summary(project: dict[str, Any]) -> dict[str, Any]:
         "first_seen_at": str(project.get("first_seen_at") or ""),
         "last_seen_at": str(project.get("last_seen_at") or ""),
         "last_enriched_at": str(project.get("last_enriched_at") or ""),
-        "has_candidates": bool(project.get("_query_has_candidates", project.get("service_url_candidates") or project.get("candidate_source_code_urls"))),
+        "has_candidates": bool(project.get("_query_has_candidates", project.get("service_url_candidates") or project.get("candidate_project_repository_urls"))),
         "has_errors": bool(project.get("last_run_errors")),
         "promotion_hold": bool(project.get("_query_promotion_hold", core.active_promotion_deferral(project) is not None)),
     }
@@ -258,14 +258,14 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     role_labels = {
         "owned_nsid": "owned",
         "project_site": "project site",
-        "source_repository": "source",
+        "project_repository": "repository",
         "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
         "project_account": "project", "project_handle": "project handle",
         "authority_domain": "authority",
     }
     display_roles = {
-        "source_repository_record": "source_repository",
+        "source_repository_record": "project_repository",
     }
     confirmed_identifier_values = {
         (item["kind"], item["value"])
@@ -697,13 +697,12 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     }
     payload["merge_target_revision"] = ""
     identifiers = payload["identifiers"]
-    primary_repo = next((item for item in identifiers if item["family"] == "repository" and item["is_primary"]), None)
     primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
     payload["overview"] = {
         "website": raw_project["website_url"],
         "confirmed_services": list(prepared.get("service_urls") or []),
         "project_sites": list(prepared.get("project_site_urls") or []),
-        "repository": primary_repo["value"] if primary_repo else "",
+        "repositories": list(prepared.get("project_repository_urls") or []),
         "account": primary_account["value"] if primary_account else "",
         "app_links": project_record.build_project_app_links(prepared),
         "resource_urls": project_record.normalize_resource_url_records(
@@ -816,7 +815,7 @@ def confirm_candidate(
         note="candidate confirmed by operator",
         role={
             "service_url": "service",
-            "repo_url": "source_repository",
+            "repo_url": "project_repository",
             "nsid": "owned_nsid",
         }.get(identifier_type, ""),
     )
@@ -904,8 +903,8 @@ def merge_pair(
             "seed": {"type": shaped.get("seed_type", ""), "value": shaped.get("seed_value", "")},
             "service_urls": list(shaped.get("service_urls") or []),
             "candidate_service_urls": list(shaped.get("candidate_service_urls") or []),
-            "source_code_urls": list(shaped.get("source_code_urls") or []),
-            "candidate_source_code_urls": list(shaped.get("candidate_source_code_urls") or []),
+            "project_repository_urls": list(shaped.get("project_repository_urls") or []),
+            "candidate_project_repository_urls": list(shaped.get("candidate_project_repository_urls") or []),
             "input_nsids": list(shaped.get("input_nsids") or []),
             "candidate_nsids": list(shaped.get("candidate_nsids") or []),
             "developer_accounts": list(shaped.get("developer_accounts") or []),

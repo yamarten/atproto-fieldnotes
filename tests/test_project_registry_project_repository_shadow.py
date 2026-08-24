@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import cli, project_repository_shadow
+from project_registry_core import cli, project_record, project_repository_materialization, project_repository_shadow
 
 
 class ProjectRepositoryShadowUnitTest(unittest.TestCase):
@@ -61,6 +61,7 @@ class ProjectRepositoryShadowUnitTest(unittest.TestCase):
         self.assertEqual(args.db_path, "input.db")
         self.assertEqual(args.output, "report.json")
         self.assertEqual(args.example_limit, 7)
+        self.assertIsNone(args.materialized_db)
 
 
 class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
@@ -74,6 +75,22 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
                     project_key, name, website_url, service_status, profile_json, state_json,
                     first_seen_at, last_seen_at
                 ) VALUES ('proj:test', 'Test', '', 'unknown', '{}', '{}', '2026-08-25', '2026-08-25')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO project_identifier_adoptions(
+                    adoption_id, project_key, kind, value, role, adoption_kind, source, cleared_at
+                ) VALUES ('adopt:former', 'proj:test', 'repo_url', 'https://github.com/example/former',
+                          'source_repository', 'operator', 'web_confirm', '2026-08-25')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO project_noncurrent_identifiers(
+                    project_key, kind, value, role, standing, reason
+                ) VALUES ('proj:test', 'repo_url', 'https://github.com/example/former',
+                          'source_repository', 'former', 'test')
                 """
             )
             conn.executemany(
@@ -135,7 +152,8 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
             first["identifier_role_projection"]["duplicate_examples"][0]["projected_classification"],
             "confirmed",
         )
-        self.assertEqual(first["dependent_role_references"]["project_identifier_adoptions"], 1)
+        self.assertEqual(first["dependent_role_references"]["project_identifier_adoptions"], 2)
+        self.assertEqual(first["dependent_role_references"]["project_noncurrent_identifiers"], 1)
         self.assertEqual(first["dependent_role_references"]["project_decisions"], 1)
         self.assertEqual(first["relation_disposition"]["disposition_counts"], {
             "DROP_LEGACY_README_MENTION": 1,
@@ -143,6 +161,52 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
             "RECOLLECT_FIRST_PARTY_CONTEXT": 1,
         })
         self.assertTrue(first["review_gate"]["ready_for_user_review"])
+
+    def test_materialized_copy_renames_roles_deduplicates_and_drops_legacy_relations(self) -> None:
+        before = self.db_path.read_bytes()
+        target = Path(self.tempdir.name) / "project-repository.db"
+        result = project_repository_materialization.materialize_copy(self.db_path, target)
+        self.assertEqual(self.db_path.read_bytes(), before)
+        self.assertTrue(result["review_gate"]["ready"])
+        self.assertEqual(result["changes"]["identifier_input_count"], 2)
+        self.assertEqual(result["changes"]["identifier_output_count"], 1)
+        self.assertEqual(result["changes"]["removed_legacy_relation_count"], 3)
+
+        conn = sqlite3.connect(target)
+        conn.row_factory = sqlite3.Row
+        try:
+            roles = conn.execute(
+                "SELECT role, classification, value FROM project_identifiers WHERE kind='repo_url'"
+            ).fetchall()
+            self.assertEqual(
+                [(row["role"], row["classification"], row["value"]) for row in roles],
+                [("project_repository", "confirmed", "https://github.com/example/repo")],
+            )
+            adoption = conn.execute(
+                "SELECT role, value FROM project_identifier_adoptions WHERE adoption_id='adopt:test'"
+            ).fetchone()
+            self.assertEqual(
+                (adoption["role"], adoption["value"]),
+                ("project_repository", "https://github.com/example/repo"),
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_identifier_adoptions WHERE role='project_repository'"
+                ).fetchone()[0],
+                2,
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT role FROM project_noncurrent_identifiers"
+                ).fetchone()[0],
+                "project_repository",
+            )
+            loaded = project_record.fetch_project(conn, "proj:test")
+            self.assertEqual(loaded["project_repository_urls"], ["https://github.com/example/repo"])
+            self.assertNotIn("source_code_urls", loaded)
+            self.assertEqual(loaded["relation_evidence"], [])
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":

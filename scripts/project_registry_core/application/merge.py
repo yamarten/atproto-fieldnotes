@@ -117,7 +117,7 @@ def merge_projects(
         "merged_tagline": merged.get("tagline", ""),
         "merged_tagline_is_provisional": merged.get("tagline_is_provisional", False),
         "merged_service_status": merged.get("service_status", ""),
-        "merged_source_code_urls": merged.get("source_code_urls", []),
+        "merged_project_repository_urls": merged.get("project_repository_urls", []),
         "introduced": bool(merged.get("introduced_url")),
         "introduced_url": merged.get("introduced_url", ""),
         "merge_recommendation": source.get("merge_recommendation", {}),
@@ -230,10 +230,10 @@ def split_identifier(
         "source_blocked_identifiers": source.get("blocked_identifiers", []),
         "source_input_nsids": source.get("input_nsids", []),
         "source_service_urls": source.get("service_urls", []),
-        "source_source_code_urls": source.get("source_code_urls", []),
+        "source_project_repository_urls": source.get("project_repository_urls", []),
         "target_input_nsids": target.get("input_nsids", []),
         "target_service_urls": target.get("service_urls", []),
-        "target_source_code_urls": target.get("source_code_urls", []),
+        "target_project_repository_urls": target.get("project_repository_urls", []),
     }
     if execute:
         with conn:

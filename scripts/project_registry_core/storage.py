@@ -237,7 +237,7 @@ def evaluation_snapshot(project: dict[str, Any]) -> dict[str, Any]:
         "atproto_contribution_score": int(project.get("atproto_contribution_score") or 0),
         "service_status": str(project.get("service_status") or "unknown"),
         "service_status_confidence": str(project.get("service_status_confidence") or "none"),
-        "source_code_urls": sorted(str(item) for item in project.get("source_code_urls", []) if str(item)),
+        "project_repository_urls": sorted(str(item) for item in project.get("project_repository_urls", []) if str(item)),
         "service_urls": sorted(str(item) for item in project.get("service_urls", []) if str(item)),
         "service_url_candidates": sorted(str(item) for item in project.get("service_url_candidates", []) if str(item)),
         "url_aliases": list(project.get("url_aliases", [])),

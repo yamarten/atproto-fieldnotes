@@ -296,7 +296,7 @@ def collect_service_probe_evidence(
         ):
             bundle.add_record(relation_record(
                 source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
-                subject_type="website", subject_value=requested_url.rstrip("/"), predicate="source_repository",
+                subject_type="website", subject_value=requested_url.rstrip("/"), predicate="project_repository",
                 object_type="repo", object_value=url, locator=requested_url, method="first_party_link",
             ))
         if host in {"bsky.app", "staging.bsky.app"} and "/profile/" in urllib.parse.urlparse(url).path:

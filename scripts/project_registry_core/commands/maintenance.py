@@ -12,7 +12,7 @@ from .. import domain_policy
 from .. import identifier_storage_shadow
 from .. import identifier_storage_materialization
 from .. import merge_policy_shadow
-from .. import project_repository_shadow
+from .. import project_repository_materialization, project_repository_shadow
 from .. import project_site_materialization, project_site_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
@@ -226,10 +226,19 @@ def cmd_compare_project_repository_migration(args: argparse.Namespace) -> int:
     db_path = Path(args.db_path).expanduser()
     if output.resolve() == db_path.resolve():
         raise ValueError("--output must not overwrite --db-path")
+    materialized_db_value = getattr(args, "materialized_db", None)
+    materialized_db = Path(materialized_db_value).expanduser() if materialized_db_value else None
+    if materialized_db is not None and materialized_db.resolve() in {db_path.resolve(), output.resolve()}:
+        raise ValueError("--materialized-db must differ from --db-path and --output")
     report = project_repository_shadow.compare_database_path(
         db_path,
         example_limit=int(args.example_limit),
     )
+    if materialized_db is not None:
+        report["materialization"] = project_repository_materialization.materialize_copy(
+            db_path, materialized_db
+        )
+        report["content_hash"] = project_repository_shadow._content_hash(report)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -243,6 +252,7 @@ def cmd_compare_project_repository_migration(args: argparse.Namespace) -> int:
         "relation_disposition": report["relation_disposition"],
         "migration_boundary": report["migration_boundary"],
         "review_gate": report["review_gate"],
+        "materialization": report.get("materialization"),
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["review_gate"]["ready_for_user_review"] else 1
 

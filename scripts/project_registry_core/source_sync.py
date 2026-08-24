@@ -31,7 +31,7 @@ from project_registry_core.registry import (
     UFOS_API,
     activity_is_recent,
     add_candidate_text,
-    add_candidate_source_code_url,
+    add_candidate_project_repository_url,
     add_candidate_url,
     add_collection_owned_nsid,
     add_manual_seed,
@@ -44,7 +44,7 @@ from project_registry_core.registry import (
     collect_applog_entries,
     compute_duplicate_candidates,
     compute_merge_recommendation,
-    confirm_source_code_url_with_trust,
+    confirm_project_repository_url_with_trust,
     confirmed_developer_dids,
     enrich_from_github_repo,
     ensure_project_for_seed,
@@ -78,7 +78,7 @@ from project_registry_core.project_record import (
     parse_iso,
     save_project,
     service_url_candidate_values,
-    source_code_url_values,
+    project_repository_url_values,
     unique_list,
 )
 from project_registry_core.registry import import_text_seed_list as _import_text_seed_list
@@ -1149,7 +1149,7 @@ def _apply_github_homepage_attachment_policy(
     repo_updated_at: str,
 ) -> dict[str, Any] | None:
     candidate = copy.deepcopy(project)
-    add_candidate_source_code_url(
+    add_candidate_project_repository_url(
         candidate,
         repo_url,
         "github_repo_search_sync",
@@ -1169,7 +1169,7 @@ def _apply_github_homepage_attachment_policy(
     ))
     if not apply_candidate_repo_trust_evidence(candidate, repo_url, bundle):
         return None
-    if not confirm_source_code_url_with_trust(
+    if not confirm_project_repository_url_with_trust(
         candidate,
         repo_url,
         "github_repo_search_sync",
@@ -1236,7 +1236,7 @@ def sync_github_search(
     known_repo_urls = {
         identifier_core.normalize_url(url)
         for project in existing_projects
-        for url in source_code_url_values(project)
+        for url in project_repository_url_values(project)
         if identifier_core.normalize_url(url)
     }
     existing_keys = {str(project["project_key"]) for project in existing_projects}

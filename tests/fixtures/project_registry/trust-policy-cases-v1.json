@@ -6,7 +6,7 @@
       "description": "A confirmed service and a source repository explicitly reference each other.",
       "claims": [
         {"node": ["service_url", "https://app.example"], "role": "service", "classification": "confirmed"},
-        {"node": ["repo_url", "https://github.com/example/app"], "role": "source_repository", "classification": "candidate"}
+        {"node": ["repo_url", "https://github.com/example/app"], "role": "project_repository", "classification": "candidate"}
       ],
       "decisions": [
         {"kind": "confirm_identifier", "target_type": "service_url", "target_value": "https://app.example", "source": "web_ui", "cleared_at": ""}
@@ -17,7 +17,7 @@
       ],
       "expected_verdicts": {
         "service_url|https://app.example|service": "NOT_EVALUATED",
-        "repo_url|https://github.com/example/app|source_repository": "SUPPORTED"
+        "repo_url|https://github.com/example/app|project_repository": "SUPPORTED"
       }
     },
     {
@@ -93,12 +93,12 @@
       "case_id": "arabica-oolong-shared-repo",
       "description": "A repository shared by multiple projects is evaluated within each project and is not a merge signal.",
       "claims": [
-        {"node": ["repo_url", "https://github.com/arabica-social/arabica"], "role": "source_repository", "classification": "candidate"}
+        {"node": ["repo_url", "https://github.com/arabica-social/arabica"], "role": "project_repository", "classification": "candidate"}
       ],
       "decisions": [],
       "edges": [],
       "expected_verdicts": {
-        "repo_url|https://github.com/arabica-social/arabica|source_repository": "INSUFFICIENT"
+        "repo_url|https://github.com/arabica-social/arabica|project_repository": "INSUFFICIENT"
       }
     },
     {
@@ -143,7 +143,7 @@
       "profile": "all_current_sources",
       "claims": [
         {"node": ["collection", "social.example.alpha.post"], "role": "owned_nsid", "classification": "confirmed", "standing": "current"},
-        {"node": ["repo_url", "https://github.com/example/project"], "role": "source_repository", "classification": "candidate", "standing": "current"}
+        {"node": ["repo_url", "https://github.com/example/project"], "role": "project_repository", "classification": "candidate", "standing": "current"}
       ],
       "decisions": [],
       "edges": [
@@ -152,7 +152,7 @@
       ],
       "expected_verdicts": {
         "collection|social.example.alpha.post|owned_nsid": "NOT_EVALUATED",
-        "repo_url|https://github.com/example/project|source_repository": "SUPPORTED"
+        "repo_url|https://github.com/example/project|project_repository": "SUPPORTED"
       }
     },
     {

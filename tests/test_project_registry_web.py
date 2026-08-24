@@ -152,8 +152,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         project["service_status"] = "live"
         registry.add_manual_seed(project, "nsid", "app.example.post", source="fixture")
         project["service_url_candidates"] = ["https://app.example.com"]
-        project["source_code_urls"] = ["https://github.com/example/app"]
-        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+        project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
         project["candidate_developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:developer", "source": "fixture"}]
         project["url_aliases"] = [{"alias": "https://example.com", "canonical": "https://app.example.com", "reason": "redirect", "confidence": "candidate"}]
         project["relation_evidence"] = [{
@@ -720,9 +720,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(
             {entry["role"] for entry in repository["entries"]},
-            {"source_repository"},
+            {"project_repository"},
         )
-        self.assertEqual({entry["role_label"] for entry in repository["entries"]}, {"source"})
+        self.assertEqual(
+            {entry["role_label"] for entry in repository["entries"]},
+            {"repository", "source"},
+        )
         candidate = next(entry for entry in repository["entries"] if entry["classification"] == "candidate")
         self.assertIn("source_repository_record", candidate["source_roles"])
         self.assertFalse(candidate["actions"]["confirm"])
@@ -1210,7 +1213,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         remaining = self.make_project("proj:mergechain03", "service_url", "https://merge-remaining.example")
         shared_repo = "https://github.com/example/merge-chain"
         for project in (source, target, remaining):
-            registry.confirm_source_code_url(project, shared_repo, "test")
+            registry.confirm_project_repository_url(project, shared_repo, "test")
             project_record.save_project(conn, project)
         conn.commit()
         conn.close()
@@ -1350,7 +1353,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             project = project_record.fetch_project(conn, "proj:111111111111")
         finally:
             conn.close()
-        self.assertIn("https://github.com/example/second", project["source_code_urls"])
+        self.assertIn("https://github.com/example/second", project["project_repository_urls"])
         self.assertTrue(registry.identifier_has_active_confirm_decision(
             project, "repo_url", "https://github.com/example/second"
         ))

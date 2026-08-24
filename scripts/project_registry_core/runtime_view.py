@@ -82,9 +82,9 @@ IDENTIFIER_FIELDS = {
     "service_url_candidates",
     "project_site_urls",
     "project_site_url_candidates",
-    "source_code_url",
-    "source_code_urls",
-    "candidate_source_code_urls",
+    "project_repository_url",
+    "project_repository_urls",
+    "candidate_project_repository_urls",
     "developer_accounts",
     "candidate_developer_accounts",
     "bluesky_handles",
@@ -105,6 +105,7 @@ DECISION_FIELDS = {
 }
 
 NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence"}
+LEGACY_NORMALIZED_FIELDS = {"source_code_url", "source_code_urls", "candidate_source_code_urls"}
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,7 @@ def strip_runtime_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: strip_nested(value)
         for key, value in payload.items()
-        if key not in NORMALIZED_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
+        if key not in NORMALIZED_FIELDS and key not in LEGACY_NORMALIZED_FIELDS and key not in RUNTIME_INTERNAL_FIELDS
     }
 
 
@@ -282,11 +283,11 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
     for value in project.get("project_site_url_candidates", []):
         add("site_url", value, "project_site", "candidate")
 
-    add("repo_url", project.get("source_code_url"), "source_repository", "confirmed", primary=True)
-    for value in project.get("source_code_urls", []):
-        add("repo_url", value, "source_repository", "confirmed")
-    for value in project.get("candidate_source_code_urls", []):
-        add("repo_url", value, "source_repository", "candidate")
+    add("repo_url", project.get("project_repository_url"), "project_repository", "confirmed", primary=True)
+    for value in project.get("project_repository_urls", []):
+        add("repo_url", value, "project_repository", "confirmed")
+    for value in project.get("candidate_project_repository_urls", []):
+        add("repo_url", value, "project_repository", "candidate")
     for field, classification in (
         ("developer_accounts", "confirmed"),
         ("candidate_developer_accounts", "candidate"),
@@ -491,6 +492,8 @@ def hydrate(
     adoption_rows: Iterable[Mapping[str, Any]] = (),
     load_json: Any,
 ) -> dict[str, Any]:
+    for key in LEGACY_NORMALIZED_FIELDS:
+        project.pop(key, None)
     identifier_payload = [
         {
             "kind": str(row["kind"]),
@@ -538,7 +541,7 @@ def hydrate(
         "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
         "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],
         "service_url_candidates": [], "project_site_urls": [], "project_site_url_candidates": [],
-        "source_code_urls": [], "candidate_source_code_urls": [],
+        "project_repository_urls": [], "candidate_project_repository_urls": [],
         "developer_accounts": [], "candidate_developer_accounts": [],
         "bluesky_handles": [], "tangled_handles": [], "manual_seeds": [],
     })
@@ -557,8 +560,8 @@ def hydrate(
             target = "project_site_urls" if classification == "confirmed" else "project_site_url_candidates"
             project[target].append(value)
         elif kind == "repo_url":
-            if bool(row["is_primary"]) and classification == "confirmed": project["source_code_url"] = value
-            target = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
+            if bool(row["is_primary"]) and classification == "confirmed": project["project_repository_url"] = value
+            target = "project_repository_urls" if classification == "confirmed" else "candidate_project_repository_urls"
             project[target].append(value)
         elif kind == "account":
             if role == "developer_account":

@@ -150,7 +150,7 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
             "object_value": "https://bsky.app/profile/example.com",
             "target_surface": "none",
             "subject_identifiers": [{
-                "role": "source_repository",
+                "role": "project_repository",
                 "classification": "confirmed",
                 "adoptions": [{"source": "legacy_manual_seed_migration"}],
             }],
@@ -173,7 +173,7 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
             "object_value": "https://example-app.pages.dev",
             "target_surface": "observed",
             "subject_identifiers": [{
-                "role": "source_repository",
+                "role": "project_repository",
                 "classification": "confirmed",
                 "adoptions": [{"source": "legacy_manual_seed_migration"}],
             }],
@@ -320,7 +320,7 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
                 """,
                 [
                     (0, "service_url", "https://app.example.com", "service", "confirmed"),
-                    (1, "repo_url", "https://github.com/example/app", "source_repository", "candidate"),
+                    (1, "repo_url", "https://github.com/example/app", "project_repository", "candidate"),
                 ],
             )
             conn.executemany(
@@ -336,7 +336,7 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
                         0,
                         "website",
                         "https://app.example.com",
-                        "source_repository",
+                        "project_repository",
                         "repo",
                         "https://github.com/example/app/tree/main/packages/web",
                         "confirmed",
@@ -374,10 +374,10 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
         self.assertEqual(before, after)
         self.assertTrue(report["source"]["read_only"])
         self.assertEqual(report["input"]["relation_observation_count"], 2)
-        self.assertEqual(report["input"]["source_repository_relation_count"], 1)
+        self.assertEqual(report["input"]["project_repository_relation_count"], 1)
         self.assertEqual(
             report["input"]["relation_predicate_counts"],
-            {"repository_homepage": 1, "source_repository": 1},
+            {"repository_homepage": 1, "project_repository": 1},
         )
         self.assertEqual(report["deterministic_policy"]["verdict_counts"]["SUPPORTED"], 1)
         self.assertEqual(report["strict_projection"]["verdict_counts"]["SUPPORTED"], 2)
@@ -388,7 +388,7 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
             0,
         )
         self.assertEqual(
-            report["github_homepage_storage_projection"]["current_source_repository_row_count"], 0,
+            report["github_homepage_storage_projection"]["current_project_repository_row_count"], 0,
         )
         self.assertEqual(
             report["github_homepage_storage_projection"]["current_repository_homepage_row_count"], 1,

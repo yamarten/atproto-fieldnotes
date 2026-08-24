@@ -58,7 +58,7 @@ def compute_atproto_contribution(project: dict[str, Any]) -> dict[str, Any]:
     input_nsids = list(project.get("input_nsids", []))
     external_lexicons = list(project.get("external_lexicons", []))
     relation_predicates: list[str] = []
-    confirmed_repos = {str(item).rstrip("/") for item in project.get("source_code_urls", [])}
+    confirmed_repos = {str(item).rstrip("/") for item in project.get("project_repository_urls", [])}
     guarded_nsids = {
         str(item.get("value") or "")
         for field in ("blocked_identifiers", "deferred_identifiers")

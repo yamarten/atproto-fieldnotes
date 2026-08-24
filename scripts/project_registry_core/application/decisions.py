@@ -11,7 +11,7 @@ from project_registry_core import project_record
 
 UNAMBIGUOUS_COMPONENT_ROLES = {
     "service_url": "service",
-    "repo_url": "source_repository",
+    "repo_url": "project_repository",
     "nsid": "owned_nsid",
 }
 
@@ -118,7 +118,7 @@ def set_identifier_block(
         "blocked_identifiers": project.get("blocked_identifiers", []),
         "website_url": project.get("website_url", ""),
         "service_urls": project.get("service_urls", []),
-        "source_code_urls": project.get("source_code_urls", []),
+        "project_repository_urls": project.get("project_repository_urls", []),
         "input_nsids": project.get("input_nsids", []),
     }
 
@@ -172,8 +172,8 @@ def set_identifier_defer(
         "website_url": project.get("website_url", ""),
         "service_urls": project.get("service_urls", []),
         "service_url_candidates": project.get("service_url_candidates", []),
-        "source_code_urls": project.get("source_code_urls", []),
-        "candidate_source_code_urls": project.get("candidate_source_code_urls", []),
+        "project_repository_urls": project.get("project_repository_urls", []),
+        "candidate_project_repository_urls": project.get("candidate_project_repository_urls", []),
         "input_nsids": project.get("input_nsids", []),
     }
 

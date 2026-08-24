@@ -455,7 +455,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     compare_project_repository_migration_parser = subparsers.add_parser(
         "compare-project-repository-migration",
-        help="Compare source_repository role and relation migration without changing the database.",
+        help="Compare migration from the legacy source repository role to project_repository without changing the database.",
     )
     compare_project_repository_migration_parser.add_argument(
         "--db-path", required=True, help="Existing registry database opened read-only."
@@ -465,6 +465,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare_project_repository_migration_parser.add_argument(
         "--example-limit", type=int, default=20, help="Maximum examples per disposition. Default: 20."
+    )
+    compare_project_repository_migration_parser.add_argument(
+        "--materialized-db", help="New shadow database receiving the projected migration."
     )
     compare_project_repository_migration_parser.set_defaults(
         func=maintenance_commands.cmd_compare_project_repository_migration

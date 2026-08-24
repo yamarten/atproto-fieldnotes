@@ -194,7 +194,7 @@ def relation_candidate_presentation_channel(proposal: dict[str, Any]) -> str:
 
 
 def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str, Any]:
-    """Evaluate promotion of one candidate source_repository relation from its own direction.
+    """Evaluate promotion of one candidate project_repository relation from its own direction.
 
     Reciprocal relations deliberately are not inputs. They may support later attribution or
     trust decisions, but cannot change what this service-side observation directly states.
@@ -934,7 +934,7 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     for row in conn.execute(
         """
         SELECT * FROM project_relations
-        WHERE predicate IN ('source_repository', 'repository_homepage')
+        WHERE predicate IN ('project_repository', 'repository_homepage')
         ORDER BY project_key, ordinal
         """
     ):
@@ -1279,7 +1279,7 @@ def _relation_assessor_inventory(
             target_adoption_sources = sorted({
                 str(adoption.get("source") or "")
                 for entry in target_entries
-                if entry.get("role") == "source_repository"
+                if entry.get("role") == "project_repository"
                 for adoption in entry.get("adoptions", [])
                 if str(adoption.get("source") or "")
             })
@@ -1423,12 +1423,12 @@ def _confirmed_component(entries: list[dict[str, str]], role: str) -> bool:
 
 
 def _target_confirmed(observation: dict[str, Any]) -> bool:
-    role = "source_repository" if observation["direction"] == "service_to_repo" else "service"
+    role = "project_repository" if observation["direction"] == "service_to_repo" else "service"
     return _confirmed_component(list(observation.get("target_identifiers", [])), role)
 
 
 def _subject_confirmed(observation: dict[str, Any]) -> bool:
-    role = "service" if observation["direction"] == "service_to_repo" else "source_repository"
+    role = "service" if observation["direction"] == "service_to_repo" else "project_repository"
     return _confirmed_component(list(observation.get("subject_identifiers", [])), role)
 
 
@@ -1441,7 +1441,7 @@ def _combined_claim_verdict(values: set[str]) -> str:
 
 def _claim_key(observation: dict[str, Any]) -> tuple[str, str, str, str]:
     value = str(observation.get("canonical_object_value") or observation.get("object_value") or "")
-    role = "source_repository" if observation["direction"] == "service_to_repo" else "service"
+    role = "project_repository" if observation["direction"] == "service_to_repo" else "service"
     return str(observation["project_key"]), str(observation["object_kind"]), value, role
 
 
@@ -1751,8 +1751,8 @@ def compare_database(
         "input": {
             "project_count": len(projects),
             "relation_observation_count": len(observations),
-            "source_repository_relation_count": sum(
-                item["current_relation_predicate"] == "source_repository"
+            "project_repository_relation_count": sum(
+                item["current_relation_predicate"] == "project_repository"
                 for item in observations
             ),
             "relation_predicate_counts": _counter(
@@ -1840,8 +1840,8 @@ def compare_database(
             },
         },
         "github_homepage_storage_projection": {
-            "current_source_repository_row_count": sum(
-                item["current_relation_predicate"] == "source_repository"
+            "current_project_repository_row_count": sum(
+                item["current_relation_predicate"] == "project_repository"
                 for item, _strict in homepage_rows
             ),
             "current_repository_homepage_row_count": sum(
@@ -1860,7 +1860,7 @@ def compare_database(
             "proposed_relation_classification": "confirmed",
             "invalid_homepage_observation_only_count": len(homepage_unique_rows)
             - len(homepage_valid_direct_relations),
-            "projected_source_repository_claims_replaced_count": len(
+            "projected_project_repository_claims_replaced_count": len(
                 homepage_unique_rows
             ),
             "projected_trust_edges_deferred_count": len(homepage_unique_rows),

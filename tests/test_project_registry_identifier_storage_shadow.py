@@ -44,7 +44,7 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
                     (2, "repo_url", "https://github.com/example/project", "source_repository_record", "confirmed"),
                     (3, "handle", "developer.example.com", "developer_handle", "confirmed"),
                     (4, "service_url", "https://blocked.example.com", "service", "confirmed"),
-                    (5, "repo_url", "https://github.com/example/project", "source_repository", "confirmed"),
+                    (5, "repo_url", "https://github.com/example/project", "project_repository", "confirmed"),
                 ],
             )
             conn.execute(
@@ -63,7 +63,7 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
                     object_type, object_value, classification, source, method
                 ) VALUES (
                     'project', 0, 'repo', 'https://github.com/example/project',
-                    'source_repository', 'website', 'https://example.com',
+                    'project_repository', 'website', 'https://example.com',
                     'confirmed', 'github_repo_metadata:https://github.com/example/project',
                     'github_homepage'
                 )
@@ -156,7 +156,7 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
                 "project_key": "project",
                 "kind": "repo_url",
                 "value": "https://github.com/example/project",
-                "role": "source_repository",
+                "role": "project_repository",
             },
         ]
         manifest = {
@@ -229,7 +229,7 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
                     "SELECT source FROM project_identifier_adoptions "
                     "WHERE project_key='project' AND kind='repo_url' "
                     "AND value='https://github.com/example/project' "
-                    "AND role='source_repository' AND cleared_at=''"
+                    "AND role='project_repository' AND cleared_at=''"
                 ).fetchall(),
                 [(identifier_storage_materialization.REVIEW_SOURCE,)],
             )

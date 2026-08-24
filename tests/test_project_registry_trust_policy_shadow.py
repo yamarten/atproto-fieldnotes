@@ -70,7 +70,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         relation = {
             "subject_type": "repo",
             "subject_value": "https://github.com/example/app",
-            "predicate": "source_repository",
+            "predicate": "project_repository",
             "object_type": "website",
             "object_value": "https://example.com",
             "classification": "confirmed",
@@ -103,13 +103,13 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             "project_key": "inverse",
             "claims": [
                 claim("service_url", "https://app.example", "service", "confirmed"),
-                claim("repo_url", "https://github.com/e/app", "source_repository"),
+                claim("repo_url", "https://github.com/e/app", "project_repository"),
             ],
             "decisions": [decision("confirm_identifier", "service_url", "https://app.example")],
             "edges": [edge(("service_url", "https://app.example"), "service_links_repo", ("repo_url", "https://github.com/e/app"))],
         }
         result = trust_policy_shadow.evaluate_project(project, profile="operator")
-        repo = next(item for item in result["full_origin"] if item["claim"]["role"] == "source_repository")
+        repo = next(item for item in result["full_origin"] if item["claim"]["role"] == "project_repository")
         self.assertEqual(repo["verdict"], "INSUFFICIENT")
 
     def test_source_profiles_do_not_silently_promote_legacy_origin(self) -> None:
@@ -142,11 +142,11 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         project = {
             "project_key": "adoption-origin",
             "claims": [
-                claim("repo_url", repo, "source_repository", "confirmed"),
+                claim("repo_url", repo, "project_repository", "confirmed"),
                 claim("repo_url", repo, "source_repository_record", "confirmed"),
             ],
             "decisions": [decision("confirm_identifier", "repo_url", repo, "legacy_manual_seed_migration")],
-            "adoptions": [adoption("repo_url", repo, "source_repository", "legacy_manual_seed_migration")],
+            "adoptions": [adoption("repo_url", repo, "project_repository", "legacy_manual_seed_migration")],
             "adoption_provenance_available": True,
             "edges": [],
         }
@@ -154,11 +154,11 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(result["origin_ambiguities"], [])
         self.assertEqual(len(result["origins"]), 1)
         self.assertEqual(result["origins"][0]["node"], ("repo_url", repo))
-        self.assertEqual(result["origins"][0]["role"], "source_repository")
+        self.assertEqual(result["origins"][0]["role"], "project_repository")
         self.assertEqual(result["origins"][0]["sources"], ["legacy_manual_seed_migration"])
         self.assertEqual(result["origins"][0]["adoption_kinds"], ["bootstrap"])
         by_role = {item["claim"]["role"]: item for item in result["full_origin"]}
-        self.assertEqual(by_role["source_repository"]["reason"], "adopted_registration_origin")
+        self.assertEqual(by_role["project_repository"]["reason"], "adopted_registration_origin")
         self.assertEqual(by_role["source_repository_record"]["verdict"], "NOT_EVALUATED")
 
     def test_schema_v3_excludes_non_origin_and_review_required_adoptions(self) -> None:
@@ -166,7 +166,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             "project_key": "adoption-exclusions",
             "claims": [
                 claim("service_url", "https://later.example", "service", "confirmed"),
-                claim("repo_url", "https://github.com/e/review", "source_repository", "confirmed"),
+                claim("repo_url", "https://github.com/e/review", "project_repository", "confirmed"),
             ],
             "decisions": [],
             "adoptions": [
@@ -174,7 +174,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
                 adoption(
                     "repo_url",
                     "https://github.com/e/review",
-                    "source_repository",
+                    "project_repository",
                     "operator_add_seed",
                     review_required=True,
                 ),
@@ -190,14 +190,14 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         )
         self.assertEqual(
             {item["claim"]["role"]: item["verdict"] for item in result["full_origin"]},
-            {"service": "INSUFFICIENT", "source_repository": "INSUFFICIENT"},
+            {"service": "INSUFFICIENT", "project_repository": "INSUFFICIENT"},
         )
 
     def test_ambiguous_decision_role_is_reported_not_guessed(self) -> None:
         project = {
             "project_key": "ambiguous",
             "claims": [
-                claim("repo_url", "https://github.com/e/app", "source_repository", "confirmed"),
+                claim("repo_url", "https://github.com/e/app", "project_repository", "confirmed"),
                 claim("repo_url", "https://github.com/e/app", "source_repository_record", "confirmed"),
             ],
             "decisions": [decision("confirm_identifier", "repo_url", "https://github.com/e/app")],
@@ -212,7 +212,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             "project_key": "guards",
             "claims": [
                 claim("service_url", "https://app.example", "service", "confirmed"),
-                claim("repo_url", "https://github.com/e/app", "source_repository"),
+                claim("repo_url", "https://github.com/e/app", "project_repository"),
             ],
             "decisions": [
                 decision("confirm_identifier", "service_url", "https://app.example"),
@@ -226,7 +226,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         }
         result = trust_policy_shadow.evaluate_project(project, profile="operator")
         verdicts = {item["claim"]["role"]: item["verdict"] for item in result["full_origin"]}
-        self.assertEqual(verdicts, {"service": "NOT_EVALUATED", "source_repository": "CONFLICTING"})
+        self.assertEqual(verdicts, {"service": "NOT_EVALUATED", "project_repository": "CONFLICTING"})
         self.assertEqual(result["origin_guard_conflict_count"], 1)
 
     def test_admission_requires_confirmed_allowed_direct_relation(self) -> None:
@@ -242,7 +242,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         result = trust_policy_shadow.evaluate_project(project, profile="operator")
         self.assertEqual(result["admission_projection"], [{
             "node": ["repo_url", "https://github.com/e/app"],
-            "role": "source_repository",
+            "role": "project_repository",
             "via": {"subject": ["service_url", "https://app.example"], "predicate": "service_links_repo", "source": "test"},
         }])
         self.assertEqual(result["admission_suppression_counts"], {"predicate_not_admissible:requests_permission": 1})
@@ -253,7 +253,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
             "standing": "former",
         }
         preview_repo = {
-            **claim("repo_url", "https://github.com/e/preview", "source_repository", "confirmed"),
+            **claim("repo_url", "https://github.com/e/preview", "project_repository", "confirmed"),
             "standing": "non_production",
         }
         project = {
@@ -271,7 +271,7 @@ class TrustPolicyShadowUnitTest(unittest.TestCase):
         self.assertEqual(result["origin_exclusions"][0]["reason"], "identifier_standing_outside_current_policy")
         self.assertEqual(
             {item["claim"]["role"]: item["verdict"] for item in result["full_origin"]},
-            {"service": "NOT_EVALUATED", "source_repository": "NOT_EVALUATED"},
+            {"service": "NOT_EVALUATED", "project_repository": "NOT_EVALUATED"},
         )
 
         current_project = {

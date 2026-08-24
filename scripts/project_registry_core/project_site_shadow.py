@@ -12,7 +12,7 @@ from . import collector_relation_policy, identifiers, repo_urls
 
 REPORT_SCHEMA_VERSION = 1
 POLICY_VERSION = "project-site-migration-shadow-v1"
-CURRENT_REPOSITORY_ROLE = "source_repository"
+CURRENT_REPOSITORY_ROLE = "project_repository"
 PROJECT_UI_BASE = "http://127.0.0.1:8888/?project="
 STATIC_NON_SITE_ROLES = {"account_profile", "funding", "invalid", "non_public", "package", "repository"}
 
@@ -223,7 +223,7 @@ def compare_database(conn: sqlite3.Connection, *, example_limit: int = 20) -> di
         SELECT project_key, subject_value, predicate, object_value, classification
         FROM project_relations
         WHERE classification='confirmed'
-          AND predicate IN ('source_repository', 'repository_homepage')
+          AND predicate IN ('project_repository', 'repository_homepage')
         """
     ):
         key = str(row["project_key"])

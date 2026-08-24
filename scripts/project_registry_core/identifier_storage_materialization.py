@@ -663,7 +663,7 @@ def _validation(conn: sqlite3.Connection) -> dict[str, Any]:
             SELECT COUNT(*)
             FROM project_identifiers i
             WHERE i.classification='confirmed'
-              AND i.role IN ('service', 'source_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')
+              AND i.role IN ('service', 'project_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')
               AND NOT EXISTS (
                   SELECT 1 FROM project_identifier_adoptions a
                   WHERE a.project_key=i.project_key AND a.kind=i.kind AND a.value=i.value AND a.role=i.role
@@ -720,7 +720,7 @@ def materialize_reviewed_copy(
             "confirmed_component_count": int(
                 target.execute(
                     "SELECT COUNT(*) FROM project_identifiers WHERE classification='confirmed' "
-                    "AND role IN ('service', 'source_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')"
+                    "AND role IN ('service', 'project_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')"
                 ).fetchone()[0]
             ),
         }
@@ -748,7 +748,7 @@ def materialize_reviewed_copy(
             "confirmed_component_count": int(
                 target.execute(
                     "SELECT COUNT(*) FROM project_identifiers WHERE classification='confirmed' "
-                    "AND role IN ('service', 'source_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')"
+                    "AND role IN ('service', 'project_repository', 'owned_nsid', 'project_account', 'project_handle', 'brand_did')"
                 ).fetchone()[0]
             ),
             "noncurrent_identifier_count": int(target.execute("SELECT COUNT(*) FROM project_noncurrent_identifiers").fetchone()[0]),

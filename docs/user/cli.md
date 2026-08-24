@@ -196,7 +196,7 @@ JSON functionで4つのhistory列を直接検索しません。
 | `evaluate-repository-analysis-corpus` | 固定repository materialを一つのmodel構成で解析し、保存前検査を含むreportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-repository-analysis-reports` | 同じrepository caseとrepeatのbaseline/candidate reportを比較 | DB・LLM接続なし。指定ファイルへ書き込み |
 | `export-relation-assessment-corpus` | 指定DBから現在`ASSESS`対象となる方向付きrelationと保存済み限定根拠を固定corpusへ抽出 | DBはread-only。指定ファイルへ書き込み |
-| `evaluate-relation-assessment-corpus` | 一つの方向付き`source_repository`提案と限定材料からなる固定corpusを評価する。`--support-evidence-mode both_endpoints|direct_any`で両endpoint参照と、一方の直接的根拠を許容する条件を比較し、期待値・旧判断との一致を`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
+| `evaluate-relation-assessment-corpus` | 一つの方向付き`project_repository`提案と限定材料からなる固定corpusを評価する。`--support-evidence-mode both_endpoints|direct_any`で両endpoint参照と、一方の直接的根拠を許容する条件を比較し、期待値・旧判断との一致を`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-trust-policy` | 指定DBのidentifier、relation、判断履歴を現行v1とrole付きshadow policyで比較し、`--output`へ構造化reportを出力 | DBはread-only。指定ファイルへ書き込み |
 | `compare-merge-policy` | 指定DBの現行マージ候補と、role・直接relation・hard guardを分けたshadow policyを比較し、`--output`へ構造化reportを出力。DBと同じcheckoutの`config/domain-overrides.json`を自動検出し、別配置なら`--domain-overrides`で指定する | DBはread-only。指定ファイルへ書き込み |
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |

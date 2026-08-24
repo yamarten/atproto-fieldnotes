@@ -119,7 +119,7 @@ candidate生成はbudget適用前の全取得結果から行います。
 通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenとして区別します。
 
 主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
-`official_account`, `operates_service`, `source_repository`, `requests_permission`, `redirects_to` です。
+`official_account`, `operates_service`, `project_repository`, `requests_permission`, `redirects_to` です。
 同じ README から複数抽出した claim は独立 source と数えません。
 
 ## 正本と保存
@@ -163,9 +163,9 @@ repository analysisでは、revisionへ固定したbounded materialを`repositor
 - repositoryにlexicon JSONらしいファイルが存在するだけの場合は、`defines_schema` ではなく弱い `mentions_collection` として扱う
 - `uses_collection` と OAuth の `repo:` permission は利用関係であり ownership を確定しない
 - `mentions_collection` は docs、example、test、fixture、vendor、generated などの弱い言及
-- confirmed repo と first-party app が独立 source から相互リンクした場合、`source_repository` を昇格できる
+- confirmed repo と first-party app が独立 source から相互リンクした場合、`project_repository` を昇格できる
 - NSID ownership は operator-confirmed `owned_nsid`、公式 account の PDS schema record、authority までの identity path を優先する
-- operator-confirmed repoはsource repositoryの根拠であり、そのrepo内にある全NSIDのownership根拠ではない
+- operator-confirmed repoはproject repositoryの根拠であり、そのrepo内にある全NSIDのownership根拠ではない
 - service到達確認は`service_verification`として保存するが、`operates_service` relationはproject support判定後にだけ保存する
 - defer / block された identifier は relation corroboration より優先して抑止する
 

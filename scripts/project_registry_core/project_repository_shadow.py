@@ -86,7 +86,7 @@ def evaluate_relation_row(row: dict[str, Any]) -> dict[str, str]:
 
 
 def _classification_rank(value: str) -> int:
-    return {"candidate": 1, "confirmed": 2}.get(value, 0)
+    return {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}.get(value, -1)
 
 
 def _is_same_or_descendant_page(page: str, surface: str) -> bool:

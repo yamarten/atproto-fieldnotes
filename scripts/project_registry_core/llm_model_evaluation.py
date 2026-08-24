@@ -45,7 +45,7 @@ MANUAL_REVIEW_PRIORITY_VALUES = {"none", "low", "medium", "high"}
 REPOSITORY_RELATIONSHIP_VALUES = {"same_project", "related", "uncertain"}
 REQUIRED_OUTPUT_FIELDS = {
     "category", "atproto_auth_only", "lexicon_scope", "status", "name", "tagline", "tagline_is_provisional",
-    "summary", "features", "inspired_by", "source_code_urls", "service_urls",
+    "summary", "features", "inspired_by", "project_repository_urls", "service_urls",
     "service_status", "lexicons", "why_keep", "why_reject", "watch_reason",
     "technical_interest_level", "technical_interest_reasons", "technical_interest_summary",
     "manual_review_recommended", "manual_review_kind", "manual_review_priority",
@@ -475,7 +475,7 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
         if field in payload and str(payload.get(field)) not in allowed:
             errors.append(f"invalid_enum:{field}:{payload.get(field)}")
     list_fields = (
-        "features", "inspired_by", "source_code_urls", "service_urls", "lexicons",
+        "features", "inspired_by", "project_repository_urls", "service_urls", "lexicons",
         "technical_interest_reasons", "repository_link_assessments",
     )
     for field in list_fields:
@@ -561,7 +561,7 @@ def repeat_comparison(results: list[dict[str, Any]]) -> dict[str, Any]:
     comparisons: list[dict[str, Any]] = []
     compared_fields = (
         "category", "atproto_auth_only", "lexicon_scope", "status", "name", "tagline", "summary", "features",
-        "source_code_urls", "service_urls", "service_status", "lexicons",
+        "project_repository_urls", "service_urls", "service_status", "lexicons",
         "technical_interest_level", "manual_review_recommended", "manual_review_kind",
         "manual_review_priority", "repository_link_assessments",
     )

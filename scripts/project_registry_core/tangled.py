@@ -101,7 +101,7 @@ def collect_account_repos(project: dict[str, Any], handle: str, dependencies: Ta
                 ))
                 bundle.add_record(relation_record(
                     source=f"tangled_pds:{handle}", classification="confirmed", observed_at=observed_at,
-                    subject_type="did", subject_value=did, predicate="source_repository",
+                    subject_type="did", subject_value=did, predicate="project_repository",
                     object_type="repo", object_value=url, locator=uri, method="pds_list_records",
                 ))
                 record_count += 1

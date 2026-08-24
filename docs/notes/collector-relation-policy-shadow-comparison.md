@@ -466,7 +466,11 @@ GitHubではURLの大文字小文字だけが異なる同一resourceが9 project
 6. account.info、GitHub case違いのAgentScan等3組、固定事例、初回26 proposal、無標link追加sampleを確認し、旧`llm_same_project` edgeと旧`source_repository` relationを除去した後のtrust verdict差を比較する。
 7. comparator実装、production code、DB適用を別コミットに分ける。正本DB適用はserverとwriterを止め、backup、単一transaction、foreign key、integrity、再dry-run、通常操作確認を行う。
 
-`project_site`のproduction codeと正本DBへの導入は完了しています。今回追加した`project_repository` comparatorはread-onlyであり、repository role、relation predicate、Web UI、正本DBはまだ変更していません。次の設計ゲートは、identifier roleをclassification維持で`project_repository`へ揃えること、旧relationを一括改名せず上表どおり再生成・分離すること、初期productionではLLM自動昇格を接続しないことの三点です。
+`project_site`のproduction codeと正本DBへの導入は完了しています。`project_repository` comparatorのreview後、production code側はrole、runtime view、Web/API表示、静的policyを`project_repository`へ揃え、旧`source_code_urls`を通常runtime契約から除去しました。`source_repository_record`は引き続きrepo調査の観測記録であり、confirmed recordであってもproject repositoryのcomponent viewへ混ぜません。初期productionではLLM自動昇格を接続していません。正本DBはまだ変更しておらず、次の設計ゲートはshadow materializationの結果を確認してDB適用を承認することです。
+
+新しいmaterializerを正本DBのread-only copyへ適用した結果、repo identifierは1,471行から1,461行になり、GitHubのcase違い9組10行を統合しました。adoption、decision、non-currentのroleと値も同じresource identityへ追従し、旧`source_repository` relation 9,219行は一括改名せず削除しました。削除内訳は`first_party_link` 634、`pds_list_records` 365、`readme_link` 8,220です。移行後のSQLite integrityは`ok`、foreign key違反は0、旧identifier/adoption/decision/non-current roleと旧predicateの残存はすべて0でした。shadow DBを現行Web UIで開き、confirmed repositoryが重複せず`Repositories` / `repository`として表示されることも確認しました。
+
+materialization reportは`.tmp/project-repository-production-shadow.json`、content hashは`bcd1c70800c2a5bc3d4ad443e8a6f19e1d3d8c4d8a9b2e574656e348f720c90f`です。正本DBはこの検証で変更していません。
 
 完全reportは`.tmp/project-repository-migration-v1-20260825.json`、content hashは`c105cb064f1bcc3e55dc029b8c494faec2bdc3ee7509c9989a75ebeb94df943e`です。SQLiteは`mode=ro`、`PRAGMA query_only=ON`、単一read transactionで開き、正本DBを更新していません。
 

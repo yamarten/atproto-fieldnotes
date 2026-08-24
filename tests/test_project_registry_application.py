@@ -990,7 +990,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             for project_key in (source["project_key"], target["project_key"], remaining["project_key"]):
                 project = project_record.fetch_project(conn, project_key)
                 assert project is not None
-                registry.confirm_source_code_url(project, shared_repo, "test")
+                registry.confirm_project_repository_url(project, shared_repo, "test")
                 project_record.save_project(conn, project, preserve_timestamps=True)
             conn.commit()
 
@@ -1053,7 +1053,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             source = project_record.fetch_project(conn, created["project_key"])
             assert source is not None
             source["notes"] = "operator note"
-            registry.confirm_source_code_url(source, "https://github.com/example/app", source="manual_seed")
+            registry.confirm_project_repository_url(source, "https://github.com/example/app", source="manual_seed")
             project_record.save_project(conn, source)
             conn.commit()
 

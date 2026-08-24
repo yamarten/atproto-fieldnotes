@@ -16,7 +16,7 @@ RELATION_PREDICATES = {
     "official_account",
     "operates_service",
     "repository_homepage",
-    "source_repository",
+    "project_repository",
     "requests_permission",
     "redirects_to",
 }
@@ -215,7 +215,7 @@ def corroborate_source_repositories(project: dict[str, Any]) -> list[str]:
             continue
         relation = item["relation"]
         subject, obj = relation["subject"], relation["object"]
-        if relation["predicate"] == "source_repository":
+        if relation["predicate"] == "project_repository":
             if subject["type"] in {"service", "website"} and obj["type"] == "repo":
                 repo_url = repo_urls.canonical_repo_url(obj["value"])
                 service_url = collector_relation_policy.normalize_repository_homepage(subject["value"])

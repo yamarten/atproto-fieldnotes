@@ -216,7 +216,7 @@ class LLMOutputValidationTest(unittest.TestCase):
             "summary": "AT Protocol用plugin",
             "features": [],
             "inspired_by": [],
-            "source_code_urls": ["https://example.com/repo"],
+            "project_repository_urls": ["https://example.com/repo"],
             "service_urls": [],
             "service_status": "none",
             "lexicons": [],
@@ -249,7 +249,7 @@ class LLMOutputValidationTest(unittest.TestCase):
         payload = self.valid_payload()
         payload["category"] = "auth_only"
 
-        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+        result = evaluation.validate_output(payload, {"project_repository_urls": ["https://example.com/repo"]})
 
         self.assertFalse(result["valid"])
         self.assertIn("invalid_enum:category:auth_only", result["errors"])
@@ -258,7 +258,7 @@ class LLMOutputValidationTest(unittest.TestCase):
         payload = self.valid_payload()
         payload["atproto_auth_only"] = "false"
 
-        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+        result = evaluation.validate_output(payload, {"project_repository_urls": ["https://example.com/repo"]})
 
         self.assertFalse(result["valid"])
         self.assertIn("invalid_type:atproto_auth_only:bool", result["errors"])
@@ -268,7 +268,7 @@ class LLMOutputValidationTest(unittest.TestCase):
         payload["category"] = "library"
         payload["atproto_auth_only"] = True
 
-        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+        result = evaluation.validate_output(payload, {"project_repository_urls": ["https://example.com/repo"]})
 
         self.assertFalse(result["valid"])
         self.assertIn("atproto_auth_only_requires_independent_app_or_service", result["errors"])
@@ -279,7 +279,7 @@ class LLMOutputValidationTest(unittest.TestCase):
             "cases": [
                 {
                     "case_id": "ok",
-                    "evidence": {"source_code_urls": ["https://example.com/repo"]},
+                    "evidence": {"project_repository_urls": ["https://example.com/repo"]},
                     "expected_output": {"category": "project"},
                     "label_status": "confirmed",
                     "used_for_prompt_adjustment": False,
@@ -337,7 +337,7 @@ class LLMOutputValidationTest(unittest.TestCase):
             calls += 1
             payload = self.valid_payload()
             payload["category"] = "project" if calls == 1 else "infra_tool"
-            payload["source_code_urls"] = [] if calls == 1 else ["https://new.example/repo"]
+            payload["project_repository_urls"] = [] if calls == 1 else ["https://new.example/repo"]
             return payload, {"model": "test"}
 
         report = evaluation.run_corpus(
@@ -486,7 +486,7 @@ class LLMOutputValidationTest(unittest.TestCase):
         payload = self.valid_payload()
         payload["summary"] = "Grain.social の操作用CLIです。"
 
-        result = evaluation.validate_output(payload, {"source_code_urls": ["https://example.com/repo"]})
+        result = evaluation.validate_output(payload, {"project_repository_urls": ["https://example.com/repo"]})
 
         self.assertTrue(result["valid"])
         self.assertEqual(result["style_warnings"], ["mixed_script_spacing:summary"])

@@ -18,7 +18,7 @@ CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "INSUFFICIENT"}
 SUPPORT_EVIDENCE_MODES = {"both_endpoints", "direct_any"}
-ALLOWED_PREDICATES = {"source_repository"}
+ALLOWED_PREDICATES = {"project_repository"}
 ALLOWED_DIRECTIONS = {"service_to_repo"}
 FORBIDDEN_INPUT_FIELDS = {
     "project", "project_key", "project_name", "profile", "current_profile",
@@ -97,14 +97,14 @@ def _database_case(row: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]
         "legacy_relationship": relationship,
         "legacy_verdict": _legacy_verdict(relationship),
         "input": {
-            "predicate": "source_repository", "direction": "service_to_repo",
+            "predicate": "project_repository", "direction": "service_to_repo",
             "subject": {
                 "identifier": str(row.get("service_url") or ""), "kind": "service_url",
                 "role": "service_surface", "standing": str(row.get("subject_standing") or ""),
             },
             "object": {
                 "identifier": str(row.get("repo_url") or ""), "kind": "repo_url",
-                "role": "source_repository", "standing": "",
+                "role": "project_repository", "standing": "",
             },
             "source_evidence": source_evidence,
             "target_evidence": target_evidence,
@@ -245,12 +245,12 @@ def build_prompt(value: Any, *, support_evidence_mode: str = "both_endpoints") -
     support_rule = (
         "SUPPORTED must cite at least one S reference and at least one R reference."
         if support_evidence_mode == "both_endpoints"
-        else "SUPPORTED requires at least one supplied reference that directly asserts the exact source_repository statement; that decisive reference may come from either endpoint."
+        else "SUPPORTED requires at least one supplied reference that directly asserts the exact project_repository statement; that decisive reference may come from either endpoint."
     )
     return f"""You assess one proposed directional relation. Do not decide whether two items broadly belong to the same project.
 
 Proposed statement:
-The service URL in subject directly identifies the repository URL in object as a source repository for that service.
+The project page URL in subject directly identifies the repository URL in object as an official repository for that project.
 
 Verdicts:
 - SUPPORTED: the supplied evidence supports exactly that statement.
@@ -264,18 +264,18 @@ Rules:
 - NOT_SUPPORTED must cite at least one supplied reference.
 - Missing or weak evidence is INSUFFICIENT, not NOT_SUPPORTED. Use NOT_SUPPORTED only when evidence positively indicates a different relation or contradicts the proposed statement.
 - "Built with", dependency, package, SDK, documentation, and sponsorship links do not identify the linked repository as the service source.
-- A provider icon, generic GitHub/Tangled link, owner or name similarity, and a repository Website field establish association at most. They never directly assert source_repository and cannot support it without a decisive statement elsewhere.
+- A provider icon, generic GitHub/Tangled link, owner or name similarity, and a repository Website field establish association at most. They never directly assert project_repository and cannot support it without a decisive statement elsewhere.
 - The exact href in an html_link proves which repository was linked, but not why it was linked. Do not call the link a direct source assertion unless its label or surrounding text expresses source, code, contribution, or self-hosting semantics.
 - Repository implementation files prove that the repository contains software, but do not by themselves prove that the software is the subject service deployment.
 - A repository excerpt that explicitly says its code is deployed at the subject service URL or that it contains that service's source may support the statement by itself.
 - A documentation site linking its documentation repository, or a repository generating documentation at the subject URL, is a documentation relation and is NOT_SUPPORTED for this service source predicate.
 - Evidence that the subject is a developer or organization site rather than the deployed service is NOT_SUPPORTED for this service source predicate.
-- A shared implementation may be a source repository for more than one service; do not infer project merge.
+- A shared implementation may be an official repository for more than one project; do not infer project merge.
 - Archived or moved evidence alone does not disprove a historical source relation and does not establish the current one; without a direct time-scoped statement, use INSUFFICIENT.
-- Evaluate only source_repository in the stated direction. Do not propose other predicates, reverse relations, identifiers, candidates, or confirmation decisions.
+- Evaluate only project_repository in the stated direction. Do not propose other predicates, reverse relations, identifiers, candidates, or confirmation decisions.
 
 Decision order:
-1. If a supplied reference directly asserts the exact source_repository statement and no evidence contradicts it, return SUPPORTED.
+1. If a supplied reference directly asserts the exact project_repository statement and no evidence contradicts it, return SUPPORTED.
 2. Otherwise, if supplied evidence positively identifies a different relation or contradicts the statement, return NOT_SUPPORTED.
 3. Otherwise return INSUFFICIENT. Do not use NOT_SUPPORTED merely because direct support is missing.
 

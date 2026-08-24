@@ -116,8 +116,8 @@ class ProjectSiteShadowDatabaseTest(TempRegistryDbTestCase):
                 [
                     ("proj:service", 0, "service_url", "https://service.example.org", "service", "confirmed"),
                     ("proj:candidate", 0, "service_url", "https://candidate.example.org", "service", "candidate"),
-                    ("proj:site", 0, "repo_url", "https://github.com/example/site", "source_repository", "confirmed"),
-                    ("proj:empty", 0, "repo_url", "https://github.com/example/empty", "source_repository", "confirmed"),
+                    ("proj:site", 0, "repo_url", "https://github.com/example/site", "project_repository", "confirmed"),
+                    ("proj:empty", 0, "repo_url", "https://github.com/example/empty", "project_repository", "confirmed"),
                 ],
             )
             conn.executemany(
@@ -131,7 +131,7 @@ class ProjectSiteShadowDatabaseTest(TempRegistryDbTestCase):
                 [
                     (
                         "proj:site", 0, "website", "https://docs.site.example.org",
-                        "source_repository", "repo", "https://github.com/example/site",
+                        "project_repository", "repo", "https://github.com/example/site",
                     ),
                     (
                         "proj:site", 1, "repo", "https://github.com/example/site",

@@ -197,7 +197,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         )
         registry.add_manual_seed(project, "service_url", "https://app.example.com", source="test")
         repo_url = "https://github.com/unrelated-owner/unrelated-repo"
-        project["candidate_source_code_urls"] = [repo_url]
+        project["candidate_project_repository_urls"] = [repo_url]
         project["source_repo_records"] = [{
             "url": repo_url,
             "provider": "github",
@@ -235,8 +235,8 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         registry.finalize_project_shape(project)
 
         self.assertEqual(result["confirmed_repo_urls"], [repo_url])
-        self.assertIn(repo_url, project["source_code_urls"])
-        self.assertNotIn(repo_url, project["candidate_source_code_urls"])
+        self.assertIn(repo_url, project["project_repository_urls"])
+        self.assertNotIn(repo_url, project["candidate_project_repository_urls"])
         candidate_observations = [
             item
             for item in project["source_repo_records"]
@@ -305,8 +305,8 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
 
         registry.apply_tangled_evidence(project, bundle)
 
-        self.assertEqual(project["source_code_urls"], [])
-        self.assertEqual(project["candidate_source_code_urls"], ["https://tangled.org/dev.example/app"])
+        self.assertEqual(project["project_repository_urls"], [])
+        self.assertEqual(project["candidate_project_repository_urls"], ["https://tangled.org/dev.example/app"])
         edges = trust_graph.graph(project)["edges"]
         self.assertTrue(any(edge["predicate"] == "handle_resolves_did" for edge in edges))
         self.assertTrue(any(edge["predicate"] == "did_links_repo" for edge in edges))
@@ -550,7 +550,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
 
 
 class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
-    def _source_repository_relation(
+    def _project_repository_relation(
         self,
         subject_type: str,
         subject_value: str,
@@ -563,7 +563,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         return {
             "relation": {
                 "subject": {"type": subject_type, "value": subject_value},
-                "predicate": "source_repository",
+                "predicate": "project_repository",
                 "object": {"type": object_type, "value": object_value},
                 "locator": "test",
                 "method": method,
@@ -600,7 +600,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                 self._repository_homepage_relation(
                     "https://github.com/example/app", "https://app.example.com",
                 ),
-                self._source_repository_relation(
+                self._project_repository_relation(
                     "service", "https://app.example.com", "repo", "https://github.com/example/app",
                     method="html_link",
                 ),
@@ -641,7 +641,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
                 self._repository_homepage_relation(
                     "https://github.com/example/app", "https://app.example.com",
                 ),
-                self._source_repository_relation(
+                self._project_repository_relation(
                     "service", "https://app.example.com", "repo", "https://github.com/example/app",
                     method="html_link",
                 ),

@@ -138,9 +138,9 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
 
 class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
-    def test_provider_repo_views_are_derived_from_confirmed_source_records(self) -> None:
+    def test_repository_observation_does_not_become_component_view(self) -> None:
         project = project_record.default_project_record("proj:repoview", "nsid", "app.example.post")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["source_repo_records"] = [
             {
                 "url": "https://tangled.sh/@example/lexicons",
@@ -151,11 +151,26 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
             }
         ]
 
-        shaped = project_record.ensure_project_shape(project)
+        shaped = registry.finalize_project_shape(project)
 
         self.assertEqual(project_record.provider_repo_url_values(shaped, "github"), ["https://github.com/example/app"])
-        self.assertEqual(project_record.provider_repo_url_values(shaped, "tangled"), ["https://tangled.org/example/lexicons"])
-        self.assertIn("https://tangled.org/example/lexicons", shaped["source_code_urls"])
+        self.assertEqual(project_record.provider_repo_url_values(shaped, "tangled"), [])
+        self.assertNotIn("https://tangled.org/example/lexicons", shaped["project_repository_urls"])
+
+    def test_project_repository_adds_repository_app_link(self) -> None:
+        project = project_record.default_project_record(
+            "proj:repositorylink", "repo_url", "https://github.com/example/app"
+        )
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+
+        self.assertIn(
+            {
+                "uri": "https://github.com/example/app",
+                "role": "repository",
+                "official": True,
+            },
+            project_record.build_project_app_links(project),
+        )
 
     def test_codeberg_repo_seed_is_generic_repo_url(self) -> None:
         project = project_record.default_project_record("proj:codeberg", "repo_url", "https://codeberg.org/cartes/web/src/branch/main")
@@ -164,8 +179,8 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
 
         self.assertEqual(registry.detect_seed_type("https://codeberg.org/cartes/web"), "repo_url")
         self.assertEqual(project_record.canonical_seed_value("repo_url", "https://codeberg.org/cartes/web/src/branch/main"), "https://codeberg.org/cartes/web")
-        self.assertEqual(shaped["source_code_urls"], ["https://codeberg.org/cartes/web"])
-        self.assertEqual(repo_url_core.infer_repo_provider(shaped["source_code_urls"][0]), "codeberg.org")
+        self.assertEqual(shaped["project_repository_urls"], ["https://codeberg.org/cartes/web"])
+        self.assertEqual(repo_url_core.infer_repo_provider(shaped["project_repository_urls"][0]), "codeberg.org")
 
     def test_sourcehut_repo_seed_is_generic_repo_url(self) -> None:
         project = project_record.default_project_record("proj:sourcehut", "repo_url", "https://git.sr.ht/~example/app/tree/main")
@@ -173,8 +188,8 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
         shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(registry.detect_seed_type("https://git.sr.ht/~example/app"), "repo_url")
-        self.assertEqual(shaped["source_code_urls"], ["https://git.sr.ht/~example/app"])
-        self.assertEqual(repo_url_core.infer_repo_provider(shaped["source_code_urls"][0]), "git.sr.ht")
+        self.assertEqual(shaped["project_repository_urls"], ["https://git.sr.ht/~example/app"])
+        self.assertEqual(repo_url_core.infer_repo_provider(shaped["project_repository_urls"][0]), "git.sr.ht")
 
     def test_provider_repo_url_helpers_are_canonical_and_strict(self) -> None:
         self.assertEqual(
@@ -193,19 +208,19 @@ class ProjectRegistryCanonicalUrlTest(unittest.TestCase):
 
     def test_provider_repo_views_ignore_candidate_source_records(self) -> None:
         project = project_record.default_project_record("proj:repocandidateview", "nsid", "app.example.post")
-        registry.add_candidate_source_code_url(
+        registry.add_candidate_project_repository_url(
             project,
             "https://github.com/example/candidate",
             "test",
             reason="candidate only",
         )
-        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+        project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
 
         shaped = project_record.ensure_project_shape(project)
 
-        self.assertEqual(shaped["source_code_urls"], [])
+        self.assertEqual(shaped["project_repository_urls"], [])
         self.assertEqual(project_record.provider_repo_url_values(shaped, "github"), [])
-        self.assertEqual(shaped["candidate_source_code_urls"], ["https://github.com/example/candidate"])
+        self.assertEqual(shaped["candidate_project_repository_urls"], ["https://github.com/example/candidate"])
 
 
 class ProjectRegistryOutboundFetchSafetyTest(unittest.TestCase):
@@ -791,7 +806,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["app.atprotomkt.marketplace.listing", "app.openmkt.marketplace.listing"]
         project["resolved_nsids"] = ["app.openmkt.marketplace.listing"]
         project["authority_domains"] = ["marketplace.atprotomkt.app", "marketplace.openmkt.app"]
-        project["source_code_urls"] = ["https://github.com/openmkt-app/marketplace"]
+        project["project_repository_urls"] = ["https://github.com/openmkt-app/marketplace"]
 
         values = [item["value"] for item in registry.current_name_candidates(project)]
 
@@ -1886,7 +1901,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record(
             "proj:relatedsite", "repo_url", "https://github.com/example/adapter"
         )
-        registry.confirm_source_code_url(project, "https://github.com/example/adapter", "test")
+        registry.confirm_project_repository_url(project, "https://github.com/example/adapter", "test")
         project["resource_url_records"] = [
             {
                 "url": "https://framework.example/docs/adapter",
@@ -2072,7 +2087,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record("proj:candidatereposervice", "service_url", "https://kimbia.app")
         project["name"] = "Kimbia"
         project["manual_seeds"] = [{"type": "service_url", "value": "https://kimbia.app"}]
-        project["candidate_source_code_urls"] = ["https://github.com/mistweaverco/kimbia"]
+        project["candidate_project_repository_urls"] = ["https://github.com/mistweaverco/kimbia"]
         result = {
             "status_code": 200,
             "title": "Kimbia",
@@ -2097,7 +2112,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            project["candidate_source_code_urls"],
+            project["candidate_project_repository_urls"],
             ["https://tangled.org/sealight.xyz/seams.so"],
         )
         self.assertEqual(registry.candidate_repo_trust_probe_urls(project), [])
@@ -2128,7 +2143,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
             "service_page:https://seams.so",
         )
-        repo_url = project["candidate_source_code_urls"][0]
+        repo_url = project["candidate_project_repository_urls"][0]
         evidence = registry.build_llm_evidence_bundle(project)
         registry.apply_repository_link_assessments(project, {
             "repository_link_assessments": [{
@@ -2159,14 +2174,14 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(project["summary_candidates"], [])
         self.assertEqual(registry.apply_candidate_repo_trust_evidence(project, repo_url, bundle), 1)
         self.assertTrue(
-            registry.confirm_source_code_url_with_trust(
+            registry.confirm_project_repository_url_with_trust(
                 project,
                 repo_url,
                 "test",
                 relation="mutual_first_party_link",
             )
         )
-        self.assertEqual(project["source_code_urls"], [repo_url])
+        self.assertEqual(project["project_repository_urls"], [repo_url])
         self.assertEqual(project["summary_candidates"], [])
 
     def test_candidate_repo_trust_inspection_rejects_unrelated_reverse_link(self) -> None:
@@ -2182,7 +2197,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
             "service_page:https://seams.so",
         )
-        repo_url = project["candidate_source_code_urls"][0]
+        repo_url = project["candidate_project_repository_urls"][0]
         bundle = registry.EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-18T00:00:00+00:00")
         bundle.add_record(registry.investigation_core.evidence_record(
             kind="relation",
@@ -2191,7 +2206,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             observed_at="2026-07-18T00:00:00+00:00",
             value={
                 "subject": {"type": "repo", "value": repo_url},
-                "predicate": "source_repository",
+                "predicate": "project_repository",
                 "object": {"type": "website", "value": "https://unrelated.example"},
                 "locator": repo_url,
                 "method": "readme_link",
@@ -2200,19 +2215,19 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertEqual(registry.apply_candidate_repo_trust_evidence(project, repo_url, bundle), 0)
         self.assertFalse(
-            registry.confirm_source_code_url_with_trust(
+            registry.confirm_project_repository_url_with_trust(
                 project,
                 repo_url,
                 "test",
                 relation="mutual_first_party_link",
             )
         )
-        self.assertEqual(project["source_code_urls"], [])
+        self.assertEqual(project["project_repository_urls"], [])
 
     def test_candidate_repo_does_not_supply_project_identity_tokens(self) -> None:
         project = project_record.default_project_record("proj:example", "service_url", "https://example.com")
         project["name"] = "Example"
-        project["candidate_source_code_urls"] = ["https://github.com/candidate-owner/untrusted-repo-name"]
+        project["candidate_project_repository_urls"] = ["https://github.com/candidate-owner/untrusted-repo-name"]
 
         tokens = registry.project_identity_anchor_tokens(project)
 
@@ -2223,7 +2238,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
                 "relation": {
@@ -2249,7 +2264,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
     def test_confirmed_repo_link_without_repo_to_service_reference_does_not_support_service_probe(self) -> None:
         project = project_record.default_project_record("proj:repoonlyservice", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         result = {
             "status_code": 200,
             "title": "Example App",
@@ -2264,7 +2279,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record("proj:ambiguousreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
@@ -2304,7 +2319,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record("proj:relatedreposervice", "repo_url", "https://github.com/example/plugin")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/plugin", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/plugin", source="test")
-        project["source_code_urls"] = ["https://github.com/example/plugin"]
+        project["project_repository_urls"] = ["https://github.com/example/plugin"]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/plugin"},
@@ -2341,7 +2356,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project = project_record.default_project_record("proj:reprobeservice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "repo", "value": "https://github.com/example/app"},
@@ -2383,11 +2398,11 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["name"] = "Example"
         project["website_url"] = "https://app.example.com"
         project["service_urls"] = ["https://app.example.com"]
-        project["candidate_source_code_urls"] = ["https://tangled.org/example.com/example"]
+        project["candidate_project_repository_urls"] = ["https://tangled.org/example.com/example"]
         project["relation_evidence"] = [{
             "relation": {
                 "subject": {"type": "website", "value": "https://app.example.com"},
-                "predicate": "source_repository",
+                "predicate": "project_repository",
                 "object": {"type": "repo", "value": "https://tangled.org/example.com/example"},
                 "locator": "https://app.example.com",
                 "method": "first_party_link",
@@ -2417,7 +2432,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         source_relations = [
             item
             for item in project["relation_evidence"]
-            if (item.get("relation") or {}).get("predicate") == "source_repository"
+            if (item.get("relation") or {}).get("predicate") == "project_repository"
             and item.get("source") == "service_page:https://app.example.com"
         ]
         self.assertEqual(source_relations, [])
@@ -2582,7 +2597,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
     def test_finalize_downgrades_unaccepted_repo_defines_schema_relation(self) -> None:
         project = project_record.default_project_record("proj:repoonlyschema", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["relation_evidence"] = [
             {
                 "relation": {
@@ -2607,7 +2622,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
     def test_finalize_keeps_defines_schema_for_accepted_repo_and_nsid(self) -> None:
         project = project_record.default_project_record("proj:acceptedschema", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["manual_seeds"] = [
             {"type": "repo_url", "value": "https://github.com/example/app"},
             {"type": "nsid", "value": "app.example.post"},
@@ -2726,8 +2741,8 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
         self.assertEqual(evidence, repeated)
         self.assertEqual(evidence, triage_evidence)
-        self.assertEqual(evidence["candidate_source_code_urls"], [])
-        self.assertEqual(planning_evidence["candidate_source_code_urls"], [])
+        self.assertEqual(evidence["candidate_project_repository_urls"], [])
+        self.assertEqual(planning_evidence["candidate_project_repository_urls"], [])
         self.assertLessEqual(
             llm_evidence_core.evidence_bytes(evidence),
             llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
@@ -2761,14 +2776,14 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
     def test_candidate_repo_is_available_to_investigation_planning_but_not_triage(self) -> None:
         project = self.nsid_project()
         project["name"] = "Candidate"
-        project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+        project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
 
         _triage_prompt, triage_evidence = registry.build_triage_prompt(project)
         _planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
 
-        self.assertEqual(triage_evidence["candidate_source_code_urls"], [])
+        self.assertEqual(triage_evidence["candidate_project_repository_urls"], [])
         self.assertEqual(
-            planning_evidence["candidate_source_code_urls"],
+            planning_evidence["candidate_project_repository_urls"],
             ["https://github.com/example/candidate"],
         )
 
@@ -2850,7 +2865,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         self.assertEqual(self.confidence_for({"service_urls": ["https://example.com"]}), ("high", True))
 
     def test_repo_only_match_is_medium_confidence_without_auto_merge(self) -> None:
-        self.assertEqual(self.confidence_for({"source_code_urls": ["https://github.com/example/app"]}), ("medium", False))
+        self.assertEqual(self.confidence_for({"project_repository_urls": ["https://github.com/example/app"]}), ("medium", False))
 
     def test_domain_identity_with_alias_is_medium_confidence_auto_merge(self) -> None:
         self.assertEqual(
@@ -2865,7 +2880,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         source["input_nsids"] = ["pub.leaflet.document", "pub.leaflet.comment"]
         source["lexicons"] = ["pub.leaflet.document", "pub.leaflet.comment"]
         source["service_url_candidates"] = ["https://leaflet.pub", "https://blocks.leaflet.pub"]
-        source["source_code_urls"] = ["https://github.com/WaveringAna/atproto-ui"]
+        source["project_repository_urls"] = ["https://github.com/WaveringAna/atproto-ui"]
 
         target = project_record.default_project_record("proj:targetleaflet", "repo_url", "https://github.com/ETJeanMachine/jeanmachine.dev")
         target["name"] = "Leaflet"
@@ -2873,7 +2888,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         target["input_nsids"] = ["pub.leaflet.document"]
         target["lexicons"] = ["pub.leaflet.document"]
         target["service_url_candidates"] = ["https://leaflet.pub"]
-        target["source_code_urls"] = ["https://github.com/ETJeanMachine/jeanmachine.dev"]
+        target["project_repository_urls"] = ["https://github.com/ETJeanMachine/jeanmachine.dev"]
 
         candidates = registry.compute_duplicate_candidates(None, source, projects=[source, target])
 
@@ -3180,7 +3195,7 @@ class ProjectRegistryStalledReviewTest(unittest.TestCase):
         project = project_record.default_project_record("proj:inactive", "repo_url", "https://github.com/example/inactive")
         project["tracking_state"] = "active"
         project["service_status"] = "unknown"
-        project["source_code_urls"] = ["https://github.com/example/inactive"]
+        project["project_repository_urls"] = ["https://github.com/example/inactive"]
         project["source_repo_records"] = [
             {
                 "url": "https://github.com/example/inactive",
@@ -3387,7 +3402,7 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
                 {"url": "https://service.example/docs/start", "role": "docs", "confidence": "confirmed"},
                 {"url": "https://service.example/privacy", "role": "privacyPolicy", "confidence": "confirmed"},
             ],
-            "source_code_urls": ["https://github.com/example/service"],
+            "project_repository_urls": ["https://github.com/example/service"],
         }
 
         self.assertEqual(
@@ -3400,11 +3415,11 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
 
     def test_new_repository_analysis_revision_is_an_editorial_source(self) -> None:
         previous_evidence = {
-            "source_code_urls": ["https://github.com/example/service"],
+            "project_repository_urls": ["https://github.com/example/service"],
             "repository_analysis_results": [],
         }
         current_evidence = {
-            "source_code_urls": ["https://github.com/example/service"],
+            "project_repository_urls": ["https://github.com/example/service"],
             "repository_analysis_results": [{
                 "repo_url": "https://github.com/example/service",
                 "revision": "abc123",
@@ -3419,7 +3434,7 @@ class ProjectRegistryEditorialProfileTest(unittest.TestCase):
     def test_repository_analysis_saved_before_current_policy_refreshes_profile_once(self) -> None:
         project = self.project()
         evidence = {
-            "source_code_urls": ["https://github.com/example/service"],
+            "project_repository_urls": ["https://github.com/example/service"],
             "repository_analysis_results": [{
                 "repo_url": "https://github.com/example/service",
                 "revision": "abc123",

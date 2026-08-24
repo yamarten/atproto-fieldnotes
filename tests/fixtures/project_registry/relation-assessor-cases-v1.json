@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "description": "Balanced shadow corpus for one directional service_to_repo source_repository claim. Cases are design fixtures, not claims about current production data.",
+  "description": "Balanced shadow corpus for one directional service_to_repo project_repository claim. Cases are design fixtures, not claims about current production data.",
   "cases": [
     {
       "case_id": "explicit-source-link-and-readme",
       "expected_verdict": "SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository",
+        "predicate": "project_repository",
         "direction": "service_to_repo",
         "subject": {"identifier": "https://example.app/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/example-app", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/example-app", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://example.app/", "label": "Source code", "excerpt": "Source code"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:1", "label": "README", "excerpt": "Example App source. Production: https://example.app/"}]
       }
@@ -20,9 +20,9 @@
       "expected_verdict": "SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://reader.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://tangled.sh/example/reader", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://tangled.sh/example/reader", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://reader.example/about", "label": "Report a bug", "excerpt": "Report bugs or contribute on Tangled"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:3", "label": "README", "excerpt": "This repository contains the Reader service deployed at reader.example."}]
       }
@@ -32,9 +32,9 @@
       "expected_verdict": "SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://sfo.firehose.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/firehose", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/firehose", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://sfo.firehose.example/", "label": "repo ↗", "excerpt": "repo ↗"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:8", "label": "Deployments", "excerpt": "Deployments of the service implemented by this repository include sfo.firehose.example and nyc.firehose.example."}]
       }
@@ -44,9 +44,9 @@
       "expected_verdict": "SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://comments.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/apps", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/apps", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://comments.example/about", "label": "Source", "excerpt": "Source"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "apps/comments/README.md:1", "label": "Comments app", "excerpt": "Source and deployment instructions for comments.example."}]
       }
@@ -56,9 +56,9 @@
       "expected_verdict": "NOT_SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://api.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/api-docs", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/api-docs", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://api.example/docs", "label": "Edit these docs", "excerpt": "Edit these docs on GitHub"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:1", "label": "Docs", "excerpt": "Documentation source for the separately hosted API service. This repository does not contain the service implementation."}]
       }
@@ -68,9 +68,9 @@
       "expected_verdict": "NOT_SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://client.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/vendor/protocol-sdk", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/vendor/protocol-sdk", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://client.example/about", "label": "Built with protocol-sdk", "excerpt": "Built with protocol-sdk"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:1", "label": "SDK", "excerpt": "Reusable protocol SDK for many independent applications."}]
       }
@@ -80,9 +80,9 @@
       "expected_verdict": "NOT_SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://person.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/person/cool-service", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/person/cool-service", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://person.example/", "label": "GitHub", "excerpt": "GitHub"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:2", "label": "Author", "excerpt": "Created by Person. person.example is the developer's personal website, not the deployed service. The service is deployed elsewhere."}]
       }
@@ -92,9 +92,9 @@
       "expected_verdict": "INSUFFICIENT",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://music.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/music", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/music", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://music.example/", "label": "GitHub", "excerpt": "GitHub icon"}],
         "target_evidence": [{"id": "R1", "kind": "repository_homepage", "locator": "repository metadata", "label": "Website", "excerpt": "https://music.example/"}]
       }
@@ -104,9 +104,9 @@
       "expected_verdict": "INSUFFICIENT",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://notes.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/notes-web", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/notes-web", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://notes.example/", "label": "Example on GitHub", "excerpt": "Example on GitHub"}],
         "target_evidence": [{"id": "R1", "kind": "repository_metadata", "locator": "repository metadata", "label": "Description", "excerpt": "Notes experiments by Example"}]
       }
@@ -116,9 +116,9 @@
       "expected_verdict": "INSUFFICIENT",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://chat.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/chat", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/chat", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://chat.example/", "label": "GitHub", "excerpt": "GitHub"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "src/server.ts:1", "label": "server source", "excerpt": "export function startChatServer() { /* application implementation */ }"}]
       }
@@ -128,9 +128,9 @@
       "expected_verdict": "INSUFFICIENT",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://flash.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/flash", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/flash", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://flash.example/", "label": "GitHub", "excerpt": "GitHub"}],
         "target_evidence": []
       }
@@ -140,9 +140,9 @@
       "expected_verdict": "NOT_SUPPORTED",
       "legacy_verdict": "",
       "input": {
-        "predicate": "source_repository", "direction": "service_to_repo",
+        "predicate": "project_repository", "direction": "service_to_repo",
         "subject": {"identifier": "https://docs.example/", "kind": "service_url", "role": "service_surface", "standing": "current"},
-        "object": {"identifier": "https://github.com/example/server", "kind": "repo_url", "role": "source_repository", "standing": "current"},
+        "object": {"identifier": "https://github.com/example/server", "kind": "repo_url", "role": "project_repository", "standing": "current"},
         "source_evidence": [{"id": "S1", "kind": "html_link", "locator": "https://docs.example/", "label": "GitHub", "excerpt": "GitHub"}],
         "target_evidence": [{"id": "R1", "kind": "repository_file", "locator": "README.md:5", "label": "Documentation", "excerpt": "Server documentation is published at docs.example. The running server has a separate deployment URL."}]
       }

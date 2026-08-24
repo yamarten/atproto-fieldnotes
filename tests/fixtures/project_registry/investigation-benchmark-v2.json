@@ -13,7 +13,7 @@
   },
   {
     "case_id": "spores-confirmed-schema-relation",
-    "input_project": {"project_key": "proj:efb92087a7b5", "seed_type": "repo_url", "seed_value": "https://github.com/hyphacoop/spores.garden", "source_code_urls": ["https://github.com/hyphacoop/spores.garden"]},
+    "input_project": {"project_key": "proj:efb92087a7b5", "seed_type": "repo_url", "seed_value": "https://github.com/hyphacoop/spores.garden", "project_repository_urls": ["https://github.com/hyphacoop/spores.garden"]},
     "bundle": {"schema_version": 2, "project_key": "proj:efb92087a7b5", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "relation", "source": "github_repo:https://github.com/hyphacoop/spores.garden", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"subject": {"type": "repo", "value": "https://github.com/hyphacoop/spores.garden"}, "predicate": "defines_schema", "object": {"type": "nsid", "value": "coop.hypha.spores.content.text"}, "locator": "lexicons/content.json", "method": "lexicon_json"}, "context": {}}], "failures": [], "collector_results": []},
     "expected_evaluation": {"atproto_contribution_level": "optional"}
   },
@@ -27,7 +27,7 @@
     "case_id": "tangled-account-repository",
     "input_project": {"project_key": "proj:8926f562c0e5", "seed_type": "service_url", "seed_value": "https://tangled.org", "name": "Tangled", "developer_accounts": [{"handle": "tangled.org", "did": "did:plc:owner", "source": "manual"}]},
     "bundle": {"schema_version": 2, "project_key": "proj:8926f562c0e5", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "tangled_repo_snapshot", "source": "tangled_pds:tangled.org", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"owner_handle": "tangled.org", "owner_did": "did:plc:owner", "repo_url": "https://tangled.org/tangled.org/core", "repo_did": "did:plc:repo", "record": {"name": "core"}, "score": 5}, "context": {}}], "failures": [], "collector_results": []},
-    "expected_evaluation": {"source_code_urls": []}
+    "expected_evaluation": {"project_repository_urls": []}
   },
   {
     "case_id": "passing-reads-browser-surface",

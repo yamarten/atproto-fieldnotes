@@ -438,7 +438,8 @@ case "$cmd" in
     _arguments -S \
       '--db-path[Existing registry database opened read-only]:database file:_files' \
       '--output[Structured migration comparison report JSON path]:report file:_files' \
-      '--example-limit[Maximum examples per disposition]:count:'
+      '--example-limit[Maximum examples per disposition]:count:' \
+      '--materialized-db[New shadow database receiving the projected migration]:database file:_files'
     ;;
   compare-project-site-migration)
     _arguments -S \

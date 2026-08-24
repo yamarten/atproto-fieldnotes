@@ -84,7 +84,7 @@ def _lexicon_route(project: dict[str, Any]) -> dict[str, Any]:
             blockers.append("lexicon_nsid_missing")
         has_reference = bool(
             project.get("website_url")
-            or project.get("source_code_urls")
+            or project.get("project_repository_urls")
             or registry.project_repo_hint_urls(project)
             or project_record.resource_url_values(project)
         )

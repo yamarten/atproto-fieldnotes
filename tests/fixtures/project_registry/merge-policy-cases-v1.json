@@ -8,7 +8,7 @@
         "name": "Example",
         "claims": [
           {"kind": "service_url", "value": "https://example.com", "role": "service"},
-          {"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"}
+          {"kind": "repo_url", "value": "https://github.com/example/app", "role": "project_repository"}
         ],
         "relations": [
           {"subject": ["repo_url", "https://github.com/example/app"], "predicate": "defines_schema", "object": ["collection", "com.example.post"]}
@@ -43,14 +43,14 @@
       "left": {
         "name": "Arabica",
         "claims": [
-          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"},
+          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "project_repository"},
           {"kind": "service_url", "value": "https://arabica.social", "role": "service"}
         ]
       },
       "right": {
         "name": "Oolong",
         "claims": [
-          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"},
+          {"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "project_repository"},
           {"kind": "service_url", "value": "https://oolong.social", "role": "service"}
         ]
       },
@@ -61,12 +61,12 @@
       "description": "An active operator decision is a hard guard.",
       "left": {
         "project_key": "arabica",
-        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"}],
+        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "project_repository"}],
         "separate_project_keys": ["oolong"]
       },
       "right": {
         "project_key": "oolong",
-        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "source_repository"}]
+        "claims": [{"kind": "repo_url", "value": "https://github.com/arabica-social/arabica", "role": "project_repository"}]
       },
       "expected_verdict": "KEEP_SEPARATE"
     },
@@ -87,8 +87,8 @@
     {
       "case_id": "fork-relation",
       "description": "A fork is routed outside ordinary duplicate-record evaluation.",
-      "left": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "source_repository"}]},
-      "right": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "source_repository"}]},
+      "left": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "project_repository"}]},
+      "right": {"claims": [{"kind": "repo_url", "value": "https://github.com/example/upstream", "role": "project_repository"}]},
       "flags": ["fork"],
       "expected_verdict": "NOT_EVALUATED"
     },
@@ -112,11 +112,11 @@
       "description": "Candidate repository and name overlap remain discovery-only.",
       "left": {
         "name": "Example",
-        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository", "classification": "candidate"}]
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "project_repository", "classification": "candidate"}]
       },
       "right": {
         "name": "Example",
-        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository", "classification": "candidate"}]
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "project_repository", "classification": "candidate"}]
       },
       "expected_verdict": "REVIEW"
     },
@@ -170,7 +170,7 @@
         "name": "Postgame",
         "seed_type": "nsid",
         "seed_value": "at.postgame.badge",
-        "claims": [{"kind": "repo_url", "value": "https://github.com/example/postgame", "role": "source_repository"}]
+        "claims": [{"kind": "repo_url", "value": "https://github.com/example/postgame", "role": "project_repository"}]
       },
       "right": {
         "name": "Postgame",
@@ -207,7 +207,7 @@
         "name": "Graph Client",
         "claims": [
           {"kind": "nsid", "value": "com.example.client.record", "role": "owned_nsid"},
-          {"kind": "repo_url", "value": "https://github.com/example/graph-client", "role": "source_repository"}
+          {"kind": "repo_url", "value": "https://github.com/example/graph-client", "role": "project_repository"}
         ],
         "relations": [{
           "subject": ["repo_url", "https://github.com/example/graph-client"],

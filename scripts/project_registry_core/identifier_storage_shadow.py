@@ -15,7 +15,7 @@ ADOPTION_KINDS = {"operator", "bootstrap", "trust_policy"}
 COMPONENT_ROLES = {
     "service",
     "project_site",
-    "source_repository",
+    "project_repository",
     "owned_nsid",
     "project_account",
     "project_handle",
@@ -586,7 +586,7 @@ def evaluate_prototype_cases() -> dict[str, Any]:
     def merge_case(conn: sqlite3.Connection) -> dict[str, Any]:
         add_project(conn, "source")
         add_project(conn, "target")
-        add_current_identifier(conn, "source", "repo_url", "https://github.com/example/source", "source_repository")
+        add_current_identifier(conn, "source", "repo_url", "https://github.com/example/source", "project_repository")
         add_current_identifier(conn, "source", "service_url", "https://old.example", "service")
         move_identifier_to_noncurrent(
             conn,
@@ -598,7 +598,7 @@ def evaluate_prototype_cases() -> dict[str, Any]:
             reason="moved",
             recorded_at="2026-01-02",
         )
-        add_adoption(conn, "source-adoption", "source", "repo_url", "https://github.com/example/source", "source_repository", "operator", "web_ui")
+        add_adoption(conn, "source-adoption", "source", "repo_url", "https://github.com/example/source", "project_repository", "operator", "web_ui")
         add_current_identifier(conn, "target", "service_url", "https://new.example", "service")
         conn.execute(
             """
@@ -947,7 +947,7 @@ def _adoption_projection(
             inferred_projects.add(claim_key[0])
             if len(inferred) < example_limit:
                 inferred.append(adoption)
-        elif claim_key[3] in {"service", "source_repository"}:
+        elif claim_key[3] in {"service", "project_repository"}:
             graph_kind = {"service_url": "service", "repo_url": "repo"}.get(claim_key[1], claim_key[1])
             evidence = relation_evidence.get((claim_key[0], graph_kind, claim_key[2]), [])
             context = project_context.get(claim_key[0], {})

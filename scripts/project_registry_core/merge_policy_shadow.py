@@ -31,7 +31,7 @@ VERDICTS = (
 COMPONENT_ROLES = {
     "service",
     "project_site",
-    "source_repository",
+    "project_repository",
     "owned_nsid",
     "project_account",
     "project_handle",
@@ -43,7 +43,7 @@ EXCLUSIVE_ROLE_GROUPS = {
     "project_account": {"project_account", "project_handle", "brand_did"},
 }
 BRIDGING_PREDICATES = {
-    "source_repository",
+    "project_repository",
     "service_links_repo",
     "repo_links_service",
     "defines_schema",
@@ -87,7 +87,7 @@ RETROSPECTIVE_COHORT_ORDER = (
     "recorded_origin_matches_component",
     "shared_adoption_origin",
     "direct_component_relation",
-    "confirmed_source_repository",
+    "confirmed_project_repository",
     "candidate_component_overlap",
     "same_website",
     "legacy_repository_overlap",
@@ -204,8 +204,8 @@ def _legacy_payload(
         "authority_domains": [],
         "service_urls": [],
         "service_url_candidates": [],
-        "source_code_urls": [],
-        "candidate_source_code_urls": [],
+        "project_repository_urls": [],
+        "candidate_project_repository_urls": [],
         "source_repo_records": [],
         "developer_accounts": [],
         "candidate_developer_accounts": [],
@@ -226,10 +226,10 @@ def _legacy_payload(
             field = "service_urls" if classification == "confirmed" else "service_url_candidates"
             shaped[field] = project_record.add_unique(shaped[field], value)
         elif kind == "repo_url":
-            field = "source_code_urls" if classification == "confirmed" else "candidate_source_code_urls"
+            field = "project_repository_urls" if classification == "confirmed" else "candidate_project_repository_urls"
             shaped[field] = project_record.add_unique(shaped[field], value)
             if bool(claim.get("is_primary")) and classification == "confirmed":
-                shaped["source_code_url"] = value
+                shaped["project_repository_url"] = value
             if metadata and role == "source_repository_record":
                 shaped["source_repo_records"].append({**metadata, "confidence": classification})
         elif kind == "nsid" and role == "owned_nsid":
@@ -621,8 +621,8 @@ def _pair_signals(
         if shared:
             shared_exclusive[label] = [list(item) for item in shared]
     shared_repositories = sorted(
-        _values_for_roles(left, {"source_repository"})
-        & _values_for_roles(right, {"source_repository"})
+        _values_for_roles(left, {"project_repository"})
+        & _values_for_roles(right, {"project_repository"})
     )
     left_ns = {
         project_record.namespace_from_collection_nsid(value)
@@ -691,9 +691,9 @@ def _retrospective_features(left: dict[str, Any], right: dict[str, Any]) -> dict
     legacy_reason_keys = sorted(
         field
         for field in (
-            "source_code_urls",
+            "project_repository_urls",
             "github_repo_urls",
-            "candidate_source_code_urls",
+            "candidate_project_repository_urls",
             "service_urls",
             "recorded_lexicon_namespaces",
             "authority_service_families",
@@ -739,12 +739,12 @@ def _retrospective_features(left: dict[str, Any], right: dict[str, Any]) -> dict
     if signals["direct_component_relations"]:
         tags.append("direct_component_relation")
     if signals["shared_source_repositories"]:
-        tags.append("confirmed_source_repository")
+        tags.append("confirmed_project_repository")
     if shared_candidates:
         tags.append("candidate_component_overlap")
     if same_website:
         tags.append("same_website")
-    if any(key in legacy_reason_keys for key in ("source_code_urls", "github_repo_urls")):
+    if any(key in legacy_reason_keys for key in ("project_repository_urls", "github_repo_urls")):
         tags.append("legacy_repository_overlap")
     if "recorded_lexicon_namespaces" in legacy_reason_keys:
         tags.append("legacy_recorded_namespace_overlap")
@@ -952,9 +952,9 @@ def _current_v2_shape(project: dict[str, Any]) -> dict[str, Any]:
 def _current_v2_profile(project: dict[str, Any]) -> dict[str, set[str]]:
     shaped = _current_v2_shape(project)
     return {
-        "source_code_urls": set(project_record.source_code_url_values(shaped)),
+        "project_repository_urls": set(project_record.project_repository_url_values(shaped)),
         "github_repo_urls": set(project_record.provider_repo_url_values(shaped, "github")),
-        "candidate_source_code_urls": set(shaped.get("candidate_source_code_urls", [])),
+        "candidate_project_repository_urls": set(shaped.get("candidate_project_repository_urls", [])),
         "service_urls": set(shaped.get("service_urls", [])),
         "recorded_lexicon_namespaces": set(shaped.get("recorded_lexicon_namespaces", [])),
         "record_creators": set(shaped.get("record_creators", [])),
@@ -976,9 +976,9 @@ def _current_v2_candidate(
     left_values = left_profile or _current_v2_profile(left)
     right_values = right_profile or _current_v2_profile(right)
     reason_fields = (
-        "source_code_urls",
+        "project_repository_urls",
         "github_repo_urls",
-        "candidate_source_code_urls",
+        "candidate_project_repository_urls",
         "service_urls",
         "recorded_lexicon_namespaces",
         "authority_service_families",
@@ -1066,7 +1066,7 @@ def _shadow_candidate_pairs(projects: list[dict[str, Any]]) -> dict[tuple[str, s
         for label, roles in EXCLUSIVE_ROLE_GROUPS.items():
             for kind, value in _values_for_roles(project, roles):
                 indexes[f"exclusive:{label}"][f"{kind}|{value}"].add(key)
-        for kind, value in _values_for_roles(project, {"source_repository"}, confirmed_only=False):
+        for kind, value in _values_for_roles(project, {"project_repository"}, confirmed_only=False):
             indexes["repository"][f"{kind}|{value}"].add(key)
         for kind, value in _values_for_roles(project, {"owned_nsid"}, confirmed_only=False):
             namespace = project_record.namespace_from_collection_nsid(value) if kind == "collection" else ""

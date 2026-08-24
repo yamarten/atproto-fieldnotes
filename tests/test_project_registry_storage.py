@@ -198,7 +198,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["website_url"] = "https://example.com"
             project["service_urls"] = ["https://example.com"]
             project["service_url_candidates"] = ["https://candidate.example.com"]
-            project["source_code_urls"] = [
+            project["project_repository_urls"] = [
                 "https://github.com/example/app",
                 "https://tangled.sh/@example/app",
             ]
@@ -437,11 +437,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("https://bar.example.com", source["service_urls"])
         self.assertIn("com.example.bar.post", source["resolved_nsids"])
         self.assertIn("bar.example.com", source["authority_domains"])
-        self.assertEqual(source["source_code_urls"], ["https://github.com/example/mixed"])
+        self.assertEqual(source["project_repository_urls"], ["https://github.com/example/mixed"])
         self.assertIn("https://foo.example.com", target["service_urls"])
         self.assertIn("com.example.foo.post", target["resolved_nsids"])
         self.assertIn("foo.example.com", target["authority_domains"])
-        self.assertEqual(target["source_code_urls"], [])
+        self.assertEqual(target["project_repository_urls"], [])
         blocked = {(item["type"], item["value"]) for item in source["blocked_identifiers"]}
         self.assertIn(("service_url", "https://foo.example.com"), blocked)
         self.assertIn(("nsid", "com.example.foo.post"), blocked)
@@ -1203,8 +1203,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(summary["suggested_existing_matches"], 1)
         self.assertEqual(summary["suggested_entries"][0]["suggested_match_kind"], "homepage_exact_confirmed")
         self.assertEqual(summary["suggested_entries"][0]["suggested_project_keys"], ["proj:oneway"])
-        self.assertNotIn(repo_url, saved["source_code_urls"])
-        self.assertNotIn(repo_url, saved["candidate_source_code_urls"])
+        self.assertNotIn(repo_url, saved["project_repository_urls"])
+        self.assertNotIn(repo_url, saved["candidate_project_repository_urls"])
 
     def test_github_homepage_exact_uses_shared_trust_policy_for_mutual_relation(self) -> None:
         conn = registry.open_db()
@@ -1216,7 +1216,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         project["relation_evidence"] = relations.normalize_relation_records([{
             "relation": {
                 "subject": {"type": "service", "value": service_url},
-                "predicate": "source_repository",
+                "predicate": "project_repository",
                 "object": {"type": "repo", "value": repo_url},
                 "locator": service_url,
                 "method": "first_party_link",
@@ -1271,7 +1271,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(summary["matched_existing"], 1)
         self.assertEqual(summary["match_reasons"], {"homepage_exact_trust_policy": 1})
         self.assertEqual(summary["suggested_existing_matches"], 0)
-        self.assertIn(repo_url, saved["source_code_urls"])
+        self.assertIn(repo_url, saved["project_repository_urls"])
         self.assertNotIn(repo_url, [item["value"] for item in saved["manual_seeds"]])
         self.assertEqual((str(adoption["source"]), bool(adoption["registration_origin"])), ("trust_policy", False))
 
@@ -1366,7 +1366,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(projects[0]["notes"], "")
         self.assertIn("github_repo_search_sync", projects[0]["discovery_sources"])
         self.assertEqual(projects[0]["manual_seeds"], [])
-        self.assertIn(repo_url, projects[0]["source_code_urls"])
+        self.assertIn(repo_url, projects[0]["project_repository_urls"])
 
     def test_github_screen_failure_does_not_advance_watermark(self) -> None:
         conn = registry.open_db()
@@ -1787,24 +1787,24 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_defer_repo_url_downgrades_to_candidate(self) -> None:
         project = self.make_project("proj:343434343434", "repo_url", "https://github.com/example/app")
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
 
         registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
         project = registry.finalize_project_shape(project)
 
-        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
-        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
         self.assertEqual(project["deferred_identifiers"][0]["type"], "repo_url")
 
-    def test_manual_repo_seed_stays_confirmed_source_repository(self) -> None:
+    def test_manual_repo_seed_stays_confirmed_project_repository(self) -> None:
         project = self.make_project("proj:manualrepo", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
 
         project = registry.finalize_project_shape(project)
 
-        self.assertIn("https://github.com/example/app", project["source_code_urls"])
-        self.assertNotIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertNotIn("https://github.com/example/app", project["candidate_project_repository_urls"])
         self.assertIn(
             {"kind": "repo_url", "value": "https://github.com/example/app"},
             registry.trusted_anchor_nodes(project),
@@ -1817,8 +1817,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         project = registry.finalize_project_shape(project)
 
-        self.assertNotIn("https://github.com/example/app", project["source_code_urls"])
-        self.assertIn("https://github.com/example/app", project["candidate_source_code_urls"])
+        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
         self.assertNotIn(
             {"kind": "repo_url", "value": "https://github.com/example/app"},
             registry.trusted_anchor_nodes(project),
@@ -2254,8 +2254,8 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             first["website_url"] = "https://example.com"
             first["service_urls"] = ["https://example.com"]
             first["service_url_candidates"] = ["https://candidate.example.com"]
-            first["source_code_url"] = "https://github.com/example/app"
-            first["source_code_urls"] = ["https://github.com/example/app"]
+            first["project_repository_url"] = "https://github.com/example/app"
+            first["project_repository_urls"] = ["https://github.com/example/app"]
             project_record.save_project(conn, first)
 
             second = self.make_project("proj:urlfieldaudit2", "service_url", "https://broken.example")
@@ -2419,7 +2419,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project["manual_review_kind"] = "identity_resolution"
             project["manual_review_priority"] = "high"
             project["service_url_candidates"] = ["https://candidate.example"]
-            project["candidate_source_code_urls"] = ["https://github.com/example/candidate"]
+            project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
             project["collection_observations"] = [{"recent_count": 2, "observed_at": "2026-05-25T00:00:00+00:00"}]
             project_record.save_project(conn, project)
             conn.commit()
@@ -2593,11 +2593,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             repo_url = "https://github.com/example/shared"
             first = self.make_project("proj:eeeeeeeeeeee", "repo_url", repo_url)
-            first["source_code_urls"] = [repo_url]
+            first["project_repository_urls"] = [repo_url]
             project_record.save_project(conn, first)
 
             second = self.make_project("proj:ffffffffffff", "repo_url", repo_url)
-            second["source_code_urls"] = [repo_url]
+            second["project_repository_urls"] = [repo_url]
             project_record.save_project(conn, second)
             conn.commit()
 

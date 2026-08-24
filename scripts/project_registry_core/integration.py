@@ -13,7 +13,7 @@ from .relations import normalize_relation_records
 class IntegrationDependencies:
     add_investigation_query: Callable[[dict[str, Any], str], None]
     add_investigation_log: Callable[..., None]
-    add_candidate_source_code_url: Callable[..., None]
+    add_candidate_project_repository_url: Callable[..., None]
     add_candidate_url: Callable[[dict[str, Any], str, str], None]
     normalize_github_repo_url: Callable[[str], str | None]
     normalize_tangled_repo_url: Callable[[str], str | None]
@@ -28,7 +28,7 @@ class GitHubRepoIntegrationDependencies:
     normalize_url: Callable[[str], str]
     normalize_github_repo_url: Callable[[str], str | None]
     normalize_service_candidate_url: Callable[[str], str]
-    confirm_source_code_url: Callable[..., None]
+    confirm_project_repository_url: Callable[..., None]
     add_investigation_log: Callable[..., None]
     add_name_candidate: Callable[[dict[str, Any], str, str], None]
     add_candidate_text: Callable[[dict[str, Any], str, str, str], None]
@@ -38,7 +38,7 @@ class GitHubRepoIntegrationDependencies:
     add_authority_service_candidates: Callable[..., None]
     upsert_lexicon_schema_sample: Callable[[dict[str, Any], str, dict[str, Any]], None]
     repo_url_allowed_for_project: Callable[[dict[str, Any], str], bool]
-    add_candidate_source_code_url: Callable[..., None]
+    add_candidate_project_repository_url: Callable[..., None]
     repo_context_service_candidate_allowed: Callable[..., bool]
     record_trust_edge: Callable[..., dict[str, Any]]
     remove_trust_edges: Callable[..., int]
@@ -74,8 +74,8 @@ def apply_saved_service_probe(project: dict[str, Any], value: dict[str, Any]) ->
 
 @dataclass(frozen=True)
 class TangledIntegrationDependencies:
-    confirm_source_code_url: Callable[..., None]
-    add_candidate_source_code_url: Callable[..., None]
+    confirm_project_repository_url: Callable[..., None]
+    add_candidate_project_repository_url: Callable[..., None]
     add_developer_account: Callable[[dict[str, Any], str, str, str], None]
     add_name_candidate: Callable[[dict[str, Any], str, str], None]
     add_candidate_text: Callable[[dict[str, Any], str, str, str], None]
@@ -176,14 +176,14 @@ def apply_tangled_evidence(
                 context={"owner_handle": handle, "score": score},
             )
         if score >= 5:
-            dependencies.add_candidate_source_code_url(
+            dependencies.add_candidate_project_repository_url(
                 project, repo_url, record.source,
                 reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
                 evidence_kind="tangled_pds_record", evidence_url=repo_url,
                 relation="tangled_account_repo",
             )
         elif score >= 2:
-            dependencies.add_candidate_source_code_url(
+            dependencies.add_candidate_project_repository_url(
                 project, repo_url, record.source,
                 reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
                 evidence_kind="tangled_pds_record", evidence_url=repo_url,
@@ -277,7 +277,7 @@ def apply_service_evidence(
                         isinstance(item, dict)
                         and str(item.get("source") or "").rstrip("/") == page_source
                         and str((item.get("relation") or {}).get("predicate") or "")
-                        in {"source_repository", "official_account"}
+                        in {"project_repository", "official_account"}
                     )
                 ])
             project["service_verification_results"] = service.merge_service_verification_results(
@@ -327,7 +327,7 @@ def apply_investigation_evidence(
             repo_url = str(record.value.get("url") or "")
             score = int(record.context.get("score") or 0)
             query = str(record.context.get("query") or "")
-            dependencies.add_candidate_source_code_url(
+            dependencies.add_candidate_project_repository_url(
                 project,
                 repo_url,
                 record.source,
@@ -346,7 +346,7 @@ def apply_investigation_evidence(
             url = str(record.value or "")
             normalized = dependencies.canonical_repo_url(url) if dependencies.is_supported_repo_url(url) else ""
             if normalized:
-                dependencies.add_candidate_source_code_url(
+                dependencies.add_candidate_project_repository_url(
                     project,
                     normalized,
                     record.source,
@@ -438,7 +438,7 @@ def apply_github_repo_evidence(
                     dependencies.add_candidate_url(project, "service_url", service_candidate)
                 continue
             if (
-                relation.get("predicate") == "source_repository"
+                relation.get("predicate") == "project_repository"
                 and subject.get("type") == "repo"
                 and obj.get("type") in {"website", "service"}
             ):
@@ -468,7 +468,7 @@ def apply_github_repo_evidence(
                         and normalized_repo != repo_url
                         and dependencies.repo_url_allowed_for_project(project, normalized_repo)
                     ):
-                        dependencies.add_candidate_source_code_url(
+                        dependencies.add_candidate_project_repository_url(
                             project,
                             normalized_repo,
                             record.source,
@@ -504,7 +504,7 @@ def apply_github_repo_evidence(
         fork_parent_full_name = str(fork_parent.get("full_name") or "")
 
         if confirm_repo_snapshot:
-            dependencies.confirm_source_code_url(
+            dependencies.confirm_project_repository_url(
                 project,
                 repo_url,
                 "github_repo_seed",
@@ -581,7 +581,7 @@ def apply_github_repo_evidence(
                 if not normalized_repo:
                     continue
                 if normalized_repo == dependencies.normalize_github_repo_url(repo_url):
-                    dependencies.confirm_source_code_url(
+                    dependencies.confirm_project_repository_url(
                         project,
                         normalized_repo,
                         f"github_readme:{source_label}",
@@ -592,7 +592,7 @@ def apply_github_repo_evidence(
                         updated_at=repo_updated_at,
                     )
                 elif dependencies.repo_url_allowed_for_project(project, normalized_repo):
-                    dependencies.add_candidate_source_code_url(
+                    dependencies.add_candidate_project_repository_url(
                         project,
                         normalized_repo,
                         f"github_readme:{source_label}",
@@ -640,8 +640,8 @@ def _accepted_github_repo_urls(
 ) -> set[str]:
     urls: set[str] = set()
     for value in (
-        [str(project.get("source_code_url") or ""), str(project.get("seed_value") or "")]
-        + [str(item or "") for item in project.get("source_code_urls", [])]
+        [str(project.get("project_repository_url") or ""), str(project.get("seed_value") or "")]
+        + [str(item or "") for item in project.get("project_repository_urls", [])]
     ):
         normalized = normalize_github_repo_url(value)
         if normalized:

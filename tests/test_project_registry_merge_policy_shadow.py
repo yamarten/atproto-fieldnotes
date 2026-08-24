@@ -78,11 +78,11 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
     def test_shared_operational_provenance_does_not_replace_external_identity_review(self) -> None:
         payload = {
             "name": "Duplicate",
-            "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"}],
+            "claims": [{"kind": "repo_url", "value": "https://github.com/example/app", "role": "project_repository"}],
             "adoptions": [{
                 "kind": "repo_url",
                 "value": "https://github.com/example/app",
-                "role": "source_repository",
+                "role": "project_repository",
                 "source": "sync",
                 "source_ref": "run:1",
                 "input_fingerprint": "same",
@@ -137,7 +137,7 @@ class MergePolicyShadowUnitTest(unittest.TestCase):
             "right",
             {
                 "claims": [
-                    {"kind": "repo_url", "value": "https://github.com/example/app", "role": "source_repository"},
+                    {"kind": "repo_url", "value": "https://github.com/example/app", "role": "project_repository"},
                 ],
             },
         )
@@ -175,7 +175,7 @@ class MergePolicyShadowDatabaseTest(TempRegistryDbTestCase):
             left = project_record.default_project_record("proj:left", "service_url", "https://same.example")
             left["name"] = "Same App"
             left["service_urls"] = ["https://same.example"]
-            left["source_code_urls"] = ["https://github.com/example/app"]
+            left["project_repository_urls"] = ["https://github.com/example/app"]
             project_record.save_project(conn, left)
 
             right = project_record.default_project_record("proj:right", "service_url", "https://same.example")

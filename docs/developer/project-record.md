@@ -69,7 +69,7 @@ alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Web�
 - `platforms`: 対応platform
 - `links`: canonical identifierとconfirmed resourceから再構築できる公開link view
 
-`links`で現在使う主なroleは`website`, `webApp`, `sourceCode`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`, `webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`です。roleはopen unionとして扱い、未知値も保持します。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
+`links`で現在使う主なroleは`website`, `webApp`, `repository`, `docs`, `support`, `status`, `privacyPolicy`, `termsOfService`, `webManifest`, `changelog`, `appStore`, `playStore`, `fdroid`, `distribution`です。roleはopen unionとして扱い、未知値も保持します。identifierの正本ではなく表示・将来export用のviewなので、project保存時に既存値を引き継がず正本から再構築します。
 
 ### Category
 
@@ -158,7 +158,7 @@ projectの現行構成要素と、構成要素候補であるNSID、service URL�
 - project site
   - `project_site`: projectを説明・提示する代表的なWeb presence。`site_url` kindで保持し、利用・操作する`service`や個別の補助pageとは分ける
 - repository
-  - `source_repository`: projectのsource候補またはconfirmed repo
+  - `project_repository`: projectに属する公式repositoryの候補またはconfirmed値。source codeに限らず、documentation、specification、Lexicon、issue、release等を主目的とするrepositoryも含む
 - identity
   - `developer_account`: 開発者・運営者accountの保存・操作単位。値は同じaccount recordのDIDまたはhandleで、Web表示では対応するhandle/DID成分と1つのidentity groupに畳む。trust graph nodeにはしない
   - `developer_handle`: `developer_account` recordから展開したhandle成分。handle検索、domain/handle関係、表示上の補足に使う
@@ -170,7 +170,7 @@ projectの現行構成要素と、構成要素候補であるNSID、service URL�
 
 `source_repository_record`はrepoを調査した観測記録であり、`state_json.evidence.source_repo_records`に保存します。`authority_domain`はconfirmed `owned_nsid`からruntimeで導出し、identifier rowとして保存しません。いずれもproject構成要素、exact attribution、trusted anchorにはしません。
 
-現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `source_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
+現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 
 NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。`project_site_urls`と`project_site_url_candidates`は`site_url` / `project_site`のruntime viewです。人間向けの代表公開URLは引き続き`projects.website_url`を正本とし、Website値だけからidentifier、classification、採用理由を導出しません。同じURLのconfirmed `service`がWebsiteを兼ねる場合は`project_site`を二重登録せず、独立した代表siteが構成要素として必要な場合だけ`project_site`を保存します。
 
@@ -208,7 +208,7 @@ relationの`classification=confirmed`は、保存したpredicateの方向付き�
 - `official_account`: siteやrepoがaccountを公式として示す
 - `operates_service`: identityがserviceを運営する
 - `repository_homepage`: repository metadataのWebsite欄がURLを直接示す。URLのtarget roleやproject帰属は含意しない
-- `source_repository`: app/siteとrepoがsource関係にある
+- `project_repository`: app/siteとrepoの間に公式project repositoryとしての直接参照がある
 - `requests_permission`: OAuth metadataがrepo permissionを要求する
 - `redirects_to`: URL間の実観測redirect/canonical関係
 
@@ -257,7 +257,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 
 - primary website: `projects.website_url`
 - confirmed/candidate service: `project_identifiers(kind=service_url)`のclassification
-- primary source repo: repo identifierの`is_primary=1`
+- primary project repository: repo identifierの`is_primary=1`
 - confirmed/candidate repo: `project_identifiers(kind=repo_url)`のclassification
 - supporting page: `state_json.evidence.resource_url_records`
 - introduction state: `introduced_url`が空でないか

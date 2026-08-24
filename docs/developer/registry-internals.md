@@ -84,7 +84,7 @@ matching/classification/auto-attachはcodeとtestのままで、config DSL化し
 - `tagline`
 - `tagline_is_provisional`
 - `service_status`
-- `source_code_urls`
+- `project_repository_urls`
 - `introduced_url`
 - `tracking_state`
 - `tracking_note`
@@ -110,7 +110,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
 - `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
 - 未clearの`confirm_identifier`はgraph外anchorです。sourceでoperator入力と採用済みsource syncを区別します
-- `repo_url` decisionはactiveなconfirmed `source_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
+- `repo_url` decisionはactiveなconfirmed `project_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
 - 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
 
 `seed` / `manual_seed` roleは正本DBから移行済みで、現行コードは生成・読込しません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
@@ -119,7 +119,7 @@ service URLのrootに対するblock/deferは、その配下の自動候補にも
 
 URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 
-first-party page上の外部リンクは、通常はanchor textの`source` / `repository`等でsource repository候補と外部参照を区別します。iconだけでanchor textが空の場合も、対応providerのrepository URLで、repository名がproject名またはconfirmed service hostと一致する時だけcandidateとして記録します。この一致は候補化と`service -> repo`の観測にだけ使い、単独ではconfirmしません。
+first-party page上の外部リンクは、通常はanchor textの`source` / `repository`等でproject repository候補と外部参照を区別します。iconだけでanchor textが空の場合も、対応providerのrepository URLで、repository名がproject名またはconfirmed service hostと一致する時だけcandidateとして記録します。この一致は候補化とpage→repoの観測にだけ使い、単独ではconfirmしません。
 
 candidate repositoryは通常のrepository enrich、project nameのidentity token、紹介文生成用のLLM evidenceには使いません。ただし、confirmed first-party serviceから直接リンクされたcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけをtrust evidenceとして保存・適用します。service側のリンクが`Source`等で明示されていれば決定的な逆向きedgeとし、曖昧なら既に当該projectのconfirmed/candidate repoである組だけを通常triageの関係判定へ渡します。この専用入力にはURL、link text、`aria-label` / `title`、service pageのtitle/descriptionだけを含め、candidate repoのdescription、repository名、lexicon hint等は含めません。LLMの`same_project`判定とrepo側の現行逆リンクで相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めて通常repo contentを適用します。`related` / `uncertain`は昇格させません。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
 
@@ -364,7 +364,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 
 ### 2. GitHub repo から取るもの
 
-- 採用済み`repo_url` seedは`source_code_urls`にconfirmedで入り、入力元とは別に`confirm_identifier` decisionを持ちます
+- 採用済み`repo_url` seedは`project_repository_urls`にconfirmedで入り、入力元とは別に`confirm_identifier` decisionを持ちます
 - repo metadata から取るもの:
   - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
@@ -420,7 +420,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
   - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
   - service probe由来edgeとその再生成元のrelationは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
-  - GitHub repository metadataのhomepageは`repository_homepage`として観測を保存する。confirmed first-party serviceから同じrepositoryへの明示的`source_repository` relationがあり、service URLとhomepageがexact一致する場合だけ、信頼経路用の`repo_links_service`を再構成する
+  - GitHub repository metadataのhomepageは`repository_homepage`として観測を保存する。confirmed first-party serviceから同じrepositoryへの明示的`project_repository` relationがあり、service URLとhomepageがexact一致する場合だけ、信頼経路用の`repo_links_service`を再構成する
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
   - activeなservice URL採用decisionのhostそのものはanchorとしてsupportします
 - service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。`service -> repo` と `repo -> service` の相互信頼が成立する場合だけ URL confirmed に使います。
@@ -609,7 +609,7 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。
 collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
 
-repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはsource repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
+repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはproject repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
 OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
 domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
 [identity-ownership-evidence.md](../notes/identity-ownership-evidence.md) に分離しています。
@@ -654,7 +654,7 @@ domain、account、DID、NSID、repo、service 間の保証関係と検討中の
   - `confidence`
   - `service_status` の補助更新
 - ただし LLM 出力の identifier は保守的に扱います
-  - `source_code_urls`
+  - `project_repository_urls`
     - 既に confirmed 済みなら confirmed 側に残す
     - 新規提案なら candidate に留める
   - `service_urls`
@@ -835,7 +835,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
   2. `homepage_exact`
   3. `homepage_family`
 - `repo_url`のconfirmed完全一致は既存projectを継続して使います
-- `homepage_exact`はproject候補の照合です。GitHub Website欄の`repository_homepage`観測を作り、一致先が一意なconfirmed serviceで、同じserviceからrepositoryへのconfirmed `source_repository`も存在する場合だけ、既存の共通信頼policyでrepositoryをconfirmします
+- `homepage_exact`はproject候補の照合です。GitHub Website欄の`repository_homepage`観測を作り、一致先が一意なconfirmed serviceで、同じserviceからrepositoryへのconfirmed `project_repository`も存在する場合だけ、既存の共通信頼policyでrepositoryをconfirmします
 - 一方向の`homepage_exact`、candidate / non-current serviceへの一致、同順位で複数projectに一致する場合はsuggestionに落とします。複数一致ではproject key順の一件を選びません
 - `homepage_family`もsuggestionに留めます
 - 既存projectへ共通信頼policyで採用したrepositoryは`trust_policy` adoptionになり、GitHub Search用のmanual seedや登録起点にはしません
@@ -888,7 +888,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 - confirmed service surfaceがあるか
 - `website_url`
 - `service_urls`
-- `source_code_urls`
+- `project_repository_urls`
 - `resource_url_records`
 - `service_status`
 - `introduced_url`
@@ -1049,14 +1049,14 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 - confirmed
   - `website_url`
   - `service_urls`
-  - `source_code_urls`
+  - `project_repository_urls`
   - `confirmed_nsids`
 - observation
   - `resource_url_records`
   - record ごとに `candidate / confirmed` を持つ
 - candidate
   - `service_url_candidates`
-  - `candidate_source_code_urls`
+  - `candidate_project_repository_urls`
 - deferred
   - `deferred_identifiers`
   - URL / NSID を恒久 block せず一時保留する運用カテゴリ
@@ -1099,7 +1099,7 @@ planning/triageのevidence JSONは24 KiB上限です。大量候補を単純に�
 代表として残した後、総byte上限まで低優先listを縮約します。縮約件数は`evidence_budget`に残します。固定prompt
 template、response、保存済みcollector payloadはこのbudgetとは別です。
 
-unconfirmedな`candidate_source_code_urls`はtriage evidenceから除外します。候補URLを調査対象に含める必要があるinvestigation planningにだけURLを渡し、candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
+unconfirmedな`candidate_project_repository_urls`はtriage evidenceから除外します。候補URLを調査対象に含める必要があるinvestigation planningにだけURLを渡し、candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
 
 - `summary`
 - `tagline`
@@ -1200,9 +1200,9 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 ### duplicate candidate の作り方
 
 - まず各 project から duplicate profile を作ります
-  - `source_code_urls`
+  - `project_repository_urls`
   - `github_repo_urls`
-  - `candidate_source_code_urls`
+  - `candidate_project_repository_urls`
   - `service_urls`
     - `website_url` もここに含めます
   - `recorded_lexicon_namespaces`
@@ -1211,7 +1211,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
   - `domain_identity_tokens`
   - `merge_aliases`
 - これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
-- `github_repo_urls`は保存fieldではなく、`source_code_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
+- `github_repo_urls`は保存fieldではなく、`project_repository_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
 - duplicate / merge 用の `authority_service_families` と `domain_identity_tokens` は、確認済みのservice/manual service、operator confirmed domain、manual/confirmed/trust-policy confirmed collectionから導いたauthorityだけを使います
   - `input_nsids` / `lexicons` / `authority_domains` / `service_url_candidates` のような候補・観測fieldだけでは、merge用のdomain/family根拠にしません
   - 同じlexiconを使っている、または同じlexicon authorityを観測しただけでは、medium以上のmerge candidateにしません
@@ -1223,9 +1223,9 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 ### candidate の根拠
 
 - `compute_duplicate_candidates()` は候補相手ごとに次の overlap を見ます
-  - `source_code_urls`
+  - `project_repository_urls`
   - `github_repo_urls`
-  - `candidate_source_code_urls`
+  - `candidate_project_repository_urls`
   - `service_urls`
   - `recorded_lexicon_namespaces`
   - `record_creators_and_namespace_lineage`
@@ -1237,18 +1237,18 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
     - 明示的に heuristic を有効化した時だけ
 - `record_creators` 単独では merge 理由にしません
   - namespace lineage が同時に必要です
-- `candidate_source_code_urls` は confirmed repo より弱い根拠ですが、duplicate 候補の入口には使います
+- `candidate_project_repository_urls` は confirmed repo より弱い根拠ですが、duplicate 候補の入口には使います
 
 ### score と confidence
 
 - score は理由ごとの重み付き合計です
-  - `source_code_urls`: 8
+  - `project_repository_urls`: 8
   - `github_repo_urls`: 8
   - `service_urls`: 7
   - `record_creators_and_namespace_lineage`: 7
   - `recorded_lexicon_namespaces`: 6
   - `authority_service_families`: 6
-  - `candidate_source_code_urls`: 5
+  - `candidate_project_repository_urls`: 5
   - `domain_identity_tokens`: 5
   - `collection_first_record_creator_dids`: 6
   - `merge_aliases`: 3
@@ -1310,11 +1310,11 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 - `choose_batch_merge_direction()` は「どちらを target に残すか」を `project_batch_merge_preference()` で決めます
 - 優先順位は概ね次です
   - confirmed factual identifierの強さ
-    - service surface > owned NSID > source repository
+    - service surface > owned NSID > project repository
   - editorial richness
     - `website_url`
     - `service_urls`
-    - `source_code_urls`
+    - `project_repository_urls`
     - `resource_url_records`
     - `service_status`
     - `introduced_url`
@@ -1350,7 +1350,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 - `normalized_project_count`: `project_from_row()` で復元したpayloadを `ensure_project_shape()` に通しただけでJSON payloadが変わるproject数。
 - `pruned_project_count`: `finalize_project_shape()` 後のpayload、developer account/handle補正、またはatproto contribution保存値補正で、保存対象payloadが変わるproject数。名前は歴史的なものですが、project削除数や削除row数ではありません。
-- `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed `source_repository` に存在しない旧shapeを補正する件数。
+- `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed `project_repository` に存在しない旧shapeを補正する件数。
 - `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に保存された旧shapeの検出件数。payload内のdeveloper account listとidentifier rowの両方を数えます。
 - `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
 - `collision_count`: 正規化後に同じconfirmed canonical identifierを複数projectが所有する衝突数。candidateとprovider別の派生viewは除外する。
@@ -1413,7 +1413,7 @@ schema v3実装は`registry_meta.schema_version=3`、normalized child tables、�
   - `service_status=unknown` または `none`
   - confirmed identity が 1 件以下
     - `website_url`
-    - `source_code_urls`
+    - `project_repository_urls`
     - `resolved_nsids`
 - `stalled` を提案するには:
   - `hard_signal` が少なくとも 1 つ必要
@@ -1456,7 +1456,7 @@ accepted projectは `tracking_state=out_of_scope` になります。この状態
 現状の kind は次です。
 
 - `fork_without_independent_identity`
-  - confirmed な source repo が GitHub fork
+  - confirmed な project repository が GitHub fork
   - `website_url` / `service_urls` / `introduced_url` が無い
   - owned protocol surface (`resolved_nsids`, candidate `input_nsids`, `collection_observations`) も無い
   - `service_status=live|beta|invite_only` なら除外

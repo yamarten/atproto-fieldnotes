@@ -42,8 +42,8 @@ def seed_web_fixture() -> None:
         project["tracking_state"] = "active"
         project["service_status"] = "live"
         project["service_url_candidates"] = ["https://example.com"]
-        project["candidate_source_code_urls"] = ["https://github.com/example/app"]
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["candidate_project_repository_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project_record.save_project(conn, project)
 
         duplicate = project_record.default_project_record("proj:222222222222", "service_url", "https://example.com")

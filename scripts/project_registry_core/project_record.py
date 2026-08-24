@@ -175,8 +175,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "service_url_candidates",
         "failed_service_urls",
         "supported_service_urls",
-        "source_code_urls",
-        "candidate_source_code_urls",
+        "project_repository_urls",
+        "candidate_project_repository_urls",
         "developer_accounts",
         "candidate_developer_accounts",
         "bluesky_handles",
@@ -441,13 +441,13 @@ def build_project_app_links(project: dict[str, Any]) -> list[dict[str, Any]]:
     if website_url:
         append_or_merge_app_link(links, {"uri": website_url, "role": "website", "official": True})
 
-    source_code_url = repo_url_core.canonical_repo_url(str(project.get("source_code_url") or ""))
-    if not source_code_url:
-        source_code_urls = repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
-        if source_code_urls:
-            source_code_url = source_code_urls[0]
-    if source_code_url:
-        append_or_merge_app_link(links, {"uri": source_code_url, "role": "sourceCode", "official": True})
+    project_repository_url = repo_url_core.canonical_repo_url(str(project.get("project_repository_url") or ""))
+    if not project_repository_url:
+        project_repository_urls = repo_url_core.normalize_repo_collection(project.get("project_repository_urls", []))
+        if project_repository_urls:
+            project_repository_url = project_repository_urls[0]
+    if project_repository_url:
+        append_or_merge_app_link(links, {"uri": project_repository_url, "role": "repository", "official": True})
 
     for url in unique_list([identifier_core.normalize_url(str(item)) for item in project.get("service_urls", []) if identifier_core.normalize_url(str(item))]):
         role = app_link_role_from_service_url(url, website_url=website_url)
@@ -580,7 +580,7 @@ def refresh_project_seed_identity(project: dict[str, Any]) -> None:
     if nsid:
         set_project_seed_identity(project, "nsid", str(nsid))
         return
-    repo_url = next(iter(source_code_url_values(project)), "")
+    repo_url = next(iter(project_repository_url_values(project)), "")
     if repo_url:
         set_project_seed_identity(project, "repo_url", str(repo_url))
         return
@@ -748,9 +748,9 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "technical_interest_score": 0,
         "technical_interest_reasons": [],
         "technical_interest_summary": "",
-        "source_code_url": "",
-        "source_code_urls": [],
-        "candidate_source_code_urls": [],
+        "project_repository_url": "",
+        "project_repository_urls": [],
+        "candidate_project_repository_urls": [],
         "source_repo_records": [],
         "repository_analysis_results": [],
         "bluesky_handles": [],
@@ -1070,11 +1070,11 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     ]
     defaults["url_aliases"] = [dict(item) for item in defaults.get("url_aliases", []) if isinstance(item, dict)]
     defaults["manual_seeds"] = unique_manual_seeds(defaults.get("manual_seeds", []))
-    defaults["source_code_url"] = repo_url_core.canonical_repo_url(str(defaults.get("source_code_url") or ""))
-    defaults["source_code_urls"] = repo_url_core.normalize_repo_collection(defaults.get("source_code_urls", []))
-    if defaults["source_code_url"] and defaults["source_code_url"] not in defaults["source_code_urls"]:
-        defaults["source_code_urls"] = [defaults["source_code_url"], *defaults["source_code_urls"]]
-    defaults["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(defaults.get("candidate_source_code_urls", []))
+    defaults["project_repository_url"] = repo_url_core.canonical_repo_url(str(defaults.get("project_repository_url") or ""))
+    defaults["project_repository_urls"] = repo_url_core.normalize_repo_collection(defaults.get("project_repository_urls", []))
+    if defaults["project_repository_url"] and defaults["project_repository_url"] not in defaults["project_repository_urls"]:
+        defaults["project_repository_urls"] = [defaults["project_repository_url"], *defaults["project_repository_urls"]]
+    defaults["candidate_project_repository_urls"] = repo_url_core.normalize_repo_collection(defaults.get("candidate_project_repository_urls", []))
     defaults["source_repo_records"] = normalize_source_repo_records(defaults.get("source_repo_records", []))
     defaults["repository_analysis_results"] = repository_analysis_core.normalize_results(
         defaults.get("repository_analysis_results", [])
@@ -1392,7 +1392,7 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
     if identifier_type == "resolved_nsid":
         return (0, True) if normalized in [identifier_core.normalize_nsid(str(item)) for item in project.get("resolved_nsids", []) if item] else (99, False)
     if identifier_type == "repo_url":
-        return (0, True) if normalized in [identifier_core.normalize_url(str(item)) for item in source_code_url_values(project) if item] else (99, False)
+        return (0, True) if normalized in [identifier_core.normalize_url(str(item)) for item in project_repository_url_values(project) if item] else (99, False)
     if identifier_type == "did":
         if str(project.get("brand_did") or "").strip() == normalized:
             return 0, True
@@ -1466,12 +1466,12 @@ def indexed_identifier_matches(
         elif identifier_type == "resolved_nsid" and role == "owned_nsid":
             priority = 0
         elif identifier_type == "repo_url":
-            if role == "source_repository" and classification == "confirmed":
+            if role == "project_repository" and classification == "confirmed":
                 priority = 0
         elif identifier_type in {"github_repo_url", "tangled_repo_url"}:
             expected_provider = identifier_type.removesuffix("_repo_url")
             if (
-                role == "source_repository"
+                role == "project_repository"
                 and classification == "confirmed"
                 and provider == expected_provider
             ):
@@ -1563,8 +1563,8 @@ def save_project(
     project["service_status"] = normalize_service_status(project.get("service_status"))
     project["service_status_confidence"] = normalize_service_status_confidence(project.get("service_status_confidence"))
     project["service_status_evidence"] = unique_list([str(item).strip() for item in project.get("service_status_evidence", []) if str(item).strip()])
-    project["source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("source_code_urls", []))
-    project["candidate_source_code_urls"] = repo_url_core.normalize_repo_collection(project.get("candidate_source_code_urls", []))
+    project["project_repository_urls"] = repo_url_core.normalize_repo_collection(project.get("project_repository_urls", []))
+    project["candidate_project_repository_urls"] = repo_url_core.normalize_repo_collection(project.get("candidate_project_repository_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
     project["repository_analysis_results"] = repository_analysis_core.normalize_results(
         project.get("repository_analysis_results", [])
@@ -1878,21 +1878,15 @@ def manual_service_hosts(project: dict[str, Any]) -> set[str]:
     return hosts
 
 
-def source_code_url_values(project: dict[str, Any]) -> list[str]:
-    urls = list(project.get("source_code_urls", []))
-    urls += [
-        str(record.get("url") or "")
-        for record in normalize_source_repo_records(project.get("source_repo_records", []))
-        if str(record.get("confidence") or "") == "confirmed"
-    ]
-    return repo_url_core.normalize_repo_collection(urls)
+def project_repository_url_values(project: dict[str, Any]) -> list[str]:
+    return repo_url_core.normalize_repo_collection(project.get("project_repository_urls", []))
 
 
 def provider_repo_url_values(project: dict[str, Any], provider: str) -> list[str]:
     return repo_url_core.normalize_repo_collection(
         [
             url
-            for url in source_code_url_values(project)
+            for url in project_repository_url_values(project)
             if repo_url_core.infer_repo_provider(url) == provider
         ],
         provider=provider,
@@ -1900,7 +1894,7 @@ def provider_repo_url_values(project: dict[str, Any], provider: str) -> list[str
 
 
 def sync_source_repo_provider_views(project: dict[str, Any]) -> None:
-    project["source_code_urls"] = source_code_url_values(project)
+    project["project_repository_urls"] = project_repository_url_values(project)
 
 
 def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2330,7 +2324,7 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
         token = identifier_core.normalize_alias_token(first)
         if token:
             aliases.add(token)
-    for url in source_code_url_values(project):
+    for url in project_repository_url_values(project):
         parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
         segs = [s for s in parsed.path.split("/") if s]
         if segs:
@@ -2342,7 +2336,7 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
 
 def project_repo_owner_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
-    for url in source_code_url_values(project):
+    for url in project_repository_url_values(project):
         parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
         segs = [s for s in parsed.path.split("/") if s]
         if segs:

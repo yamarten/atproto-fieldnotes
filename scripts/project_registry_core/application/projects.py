@@ -68,7 +68,7 @@ def add_seed(
         if normalized_value in project.get("service_urls", []):
             confirmed_role = "service"
     elif resolved_type == "repo_url":
-        core.confirm_source_code_url(
+        core.confirm_project_repository_url(
             project,
             normalized_value,
             source="operator_add_seed",
@@ -77,8 +77,8 @@ def add_seed(
             evidence_kind="operator_seed",
             operator_override=True,
         )
-        if normalized_value in project_record.source_code_url_values(project):
-            confirmed_role = "source_repository"
+        if normalized_value in project_record.project_repository_url_values(project):
+            confirmed_role = "project_repository"
     elif resolved_type == "nsid":
         if normalized_value in project.get("resolved_nsids", []):
             confirmed_role = "owned_nsid"

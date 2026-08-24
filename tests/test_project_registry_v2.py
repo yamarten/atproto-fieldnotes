@@ -146,7 +146,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         project = self.make_project("proj:v2roundtrip")
         project["website_url"] = "https://example.com"
         project["service_urls"] = ["https://example.com"]
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["blocked_identifiers"] = [{
             "type": "nsid", "value": "app.example.noise", "note": "manual", "added_at": "2026-06-14T00:00:00+00:00",
         }]
@@ -169,7 +169,7 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
         fetched = project_record.fetch_project(conn, project["project_key"])
         self.assertIsNotNone(fetched)
         assert fetched is not None
-        self.assertEqual(fetched["source_code_urls"], ["https://github.com/example/app"])
+        self.assertEqual(fetched["project_repository_urls"], ["https://github.com/example/app"])
         self.assertEqual(fetched["blocked_identifiers"][0]["value"], "app.example.noise")
         self.assertEqual(len(fetched["relation_evidence"]), 1)
         self.assertEqual(database.validate_database(conn)["relation_count"], 1)

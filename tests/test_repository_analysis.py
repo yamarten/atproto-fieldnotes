@@ -368,7 +368,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         project = project_record.default_project_record(
             "proj:repo-analysis", "repo_url", "https://github.com/example/app"
         )
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["repository_analysis_results"] = [{
             "repo_url": "https://github.com/example/candidate",
             "source_revision": "candidate",
@@ -420,7 +420,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         project = project_record.default_project_record(
             "proj:repo-analysis", "repo_url", "https://github.com/example/app"
         )
-        project["source_code_urls"] = ["https://github.com/example/app"]
+        project["project_repository_urls"] = ["https://github.com/example/app"]
         project["repository_analysis_results"] = [{
             "repo_url": "https://github.com/example/app",
             "source_revision": "abc123",
@@ -568,7 +568,7 @@ class RepositoryAnalysisStorageTest(TempRegistryDbTestCase):
             project = self.make_project(
                 "proj:repo-analysis-roundtrip", "repo_url", "https://github.com/example/app"
             )
-            project["source_code_urls"] = ["https://github.com/example/app"]
+            project["project_repository_urls"] = ["https://github.com/example/app"]
             project["repository_analysis_results"] = [{
                 "version": repository_analysis.ANALYSIS_VERSION,
                 "policy_version": repository_analysis.POLICY_VERSION,

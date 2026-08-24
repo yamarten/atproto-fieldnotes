@@ -22,7 +22,7 @@ REDIRECT_REVIEW_CATEGORIES = {"same_site_surface_redirect", "cross_site_redirect
 
 EVALUATED_ROLES = {
     ("service_url", "service"),
-    ("repo_url", "source_repository"),
+    ("repo_url", "project_repository"),
     ("collection", "owned_nsid"),
     ("handle", "project_handle"),
     ("did", "brand_did"),
@@ -69,11 +69,11 @@ EDGE_POLICY = {
 }
 
 ADMISSION_POLICY = {
-    ("service_url", "service_links_repo", "repo_url"): "source_repository",
+    ("service_url", "service_links_repo", "repo_url"): "project_repository",
     ("repo_url", "repo_links_service", "service_url"): "service",
     ("repo_url", "defines_schema", "collection"): "owned_nsid",
     ("service_url", "official_alternate_surface", "service_url"): "service",
-    ("collection", "collection_canonical_source_repo", "repo_url"): "source_repository",
+    ("collection", "collection_canonical_source_repo", "repo_url"): "project_repository",
 }
 
 ENTITY_KIND = {
@@ -202,7 +202,7 @@ def _normalize_relation_edge(
     subject_kind = _relation_entity_kind(str(row["subject_type"]), str(row["subject_value"]), services)
     object_kind = _relation_entity_kind(str(row["object_type"]), str(row["object_value"]), services)
     predicate = str(row["predicate"])
-    if predicate == "source_repository":
+    if predicate == "project_repository":
         if subject_kind == "service_url" and object_kind == "repo_url":
             predicate = "service_links_repo"
         elif subject_kind == "repo_url" and object_kind == "service_url":
@@ -903,14 +903,14 @@ def _snapshot_identifiers(payload: dict[str, Any]) -> set[tuple[str, str]]:
     values: set[tuple[str, str]] = set()
     fields = {
         "service_urls": "service_url", "service_url_candidates": "service_url",
-        "source_code_urls": "repo_url", "candidate_source_code_urls": "repo_url",
+        "project_repository_urls": "repo_url", "candidate_project_repository_urls": "repo_url",
         "resolved_nsids": "collection", "input_nsids": "collection",
     }
     for field, kind in fields.items():
         for value in payload.get(field, []) if isinstance(payload.get(field), list) else []:
             if str(value):
                 values.add((kind, str(value)))
-    scalar_fields = {"source_code_url": "repo_url", "primary_nsid": "collection"}
+    scalar_fields = {"project_repository_url": "repo_url", "primary_nsid": "collection"}
     for field, kind in scalar_fields.items():
         value = str(payload.get(field) or "")
         if value:
