@@ -30,6 +30,102 @@ def _merge_json_objects(values: list[str]) -> str:
     return json.dumps(merged, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _dump_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _rewrite_current_json_views(conn: sqlite3.Connection) -> dict[str, int]:
+    decision_metadata_count = 0
+    for row in conn.execute(
+        "SELECT rowid AS decision_rowid, target_value, metadata_json FROM project_decisions "
+        "WHERE target_type='repo_url' AND target_role=?",
+        (NEW_ROLE,),
+    ):
+        try:
+            metadata = json.loads(str(row["metadata_json"] or "{}"))
+        except (TypeError, ValueError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        rewritten = dict(metadata)
+        rewritten.update({
+            "type": "repo_url",
+            "value": str(row["target_value"]),
+            "role": NEW_ROLE,
+        })
+        encoded = _dump_json(rewritten)
+        if encoded != str(row["metadata_json"] or "{}"):
+            conn.execute(
+                "UPDATE project_decisions SET metadata_json=? WHERE rowid=?",
+                (encoded, int(row["decision_rowid"])),
+            )
+            decision_metadata_count += 1
+
+    profile_link_count = 0
+    current_relation_cache_count = 0
+    for row in conn.execute("SELECT project_key, profile_json, state_json FROM projects"):
+        project_key = str(row["project_key"])
+        try:
+            profile = json.loads(str(row["profile_json"] or "{}"))
+        except (TypeError, ValueError):
+            profile = {}
+        if isinstance(profile, dict):
+            app = profile.get("app")
+            links = app.get("links") if isinstance(app, dict) else None
+            if isinstance(links, list):
+                changed = False
+                rewritten_links: list[Any] = []
+                for item in links:
+                    if isinstance(item, dict) and str(item.get("role") or "") == "sourceCode":
+                        item = {**item, "role": "repository"}
+                        profile_link_count += 1
+                        changed = True
+                    rewritten_links.append(item)
+                if changed:
+                    app["links"] = rewritten_links
+                    conn.execute(
+                        "UPDATE projects SET profile_json=? WHERE project_key=?",
+                        (_dump_json(profile), project_key),
+                    )
+
+        try:
+            state = json.loads(str(row["state_json"] or "{}"))
+        except (TypeError, ValueError):
+            state = {}
+        ops = state.get("ops") if isinstance(state, dict) else None
+        evidence = ops.get("atproto_contribution_evidence") if isinstance(ops, dict) else None
+        if not isinstance(evidence, list):
+            continue
+        changed = False
+        rewritten_evidence: list[Any] = []
+        for item in evidence:
+            if not isinstance(item, dict) or str(item.get("kind") or "") != "relation_predicates":
+                rewritten_evidence.append(item)
+                continue
+            values = [
+                value for value in item.get("values", [])
+                if str(value) != OLD_ROLE
+            ] if isinstance(item.get("values"), list) else []
+            if values == item.get("values"):
+                rewritten_evidence.append(item)
+                continue
+            current_relation_cache_count += 1
+            changed = True
+            if values:
+                rewritten_evidence.append({**item, "values": values, "count": len(values)})
+        if changed:
+            ops["atproto_contribution_evidence"] = rewritten_evidence
+            conn.execute(
+                "UPDATE projects SET state_json=? WHERE project_key=?",
+                (_dump_json(state), project_key),
+            )
+    return {
+        "rewritten_decision_metadata_count": decision_metadata_count,
+        "rewritten_profile_link_count": profile_link_count,
+        "removed_current_relation_cache_count": current_relation_cache_count,
+    }
+
+
 def _rewrite_dependent_claim(
     conn: sqlite3.Connection,
     *,
@@ -150,6 +246,7 @@ def apply_migration(conn: sqlite3.Connection) -> dict[str, Any]:
         "UPDATE project_decisions SET target_role=? WHERE target_role=?",
         (NEW_ROLE, OLD_ROLE),
     )
+    json_view_changes = _rewrite_current_json_views(conn)
 
     relation_counts = {
         str(row["method"] or "(missing)"): int(row["count"])
@@ -175,6 +272,7 @@ def apply_migration(conn: sqlite3.Connection) -> dict[str, Any]:
         "removed_duplicate_identifier_count": removed_identifier_count,
         "removed_legacy_relation_count": int(relation_cursor.rowcount),
         "removed_legacy_relation_counts_by_method": dict(sorted(relation_counts.items())),
+        **json_view_changes,
     }
 
 
@@ -204,6 +302,15 @@ def validation(conn: sqlite3.Connection) -> dict[str, Any]:
         ).fetchone()[0]),
         "legacy_relation_predicate_count": int(conn.execute(
             "SELECT COUNT(*) FROM project_relations WHERE predicate=?", (OLD_ROLE,)
+        ).fetchone()[0]),
+        "legacy_decision_metadata_role_count": int(conn.execute(
+            "SELECT COUNT(*) FROM project_decisions "
+            "WHERE target_type='repo_url' AND json_extract(metadata_json, '$.role')=?",
+            (OLD_ROLE,),
+        ).fetchone()[0]),
+        "legacy_profile_link_role_count": int(conn.execute(
+            "SELECT COUNT(*) FROM projects, json_each(projects.profile_json, '$.app.links') AS link "
+            "WHERE json_extract(link.value, '$.role')='sourceCode'"
         ).fetchone()[0]),
     }
 
@@ -240,7 +347,8 @@ def materialize_copy(source_path: Path, target_path: Path) -> dict[str, Any]:
                 for key in (
                     "legacy_identifier_role_count", "legacy_adoption_role_count",
                     "legacy_noncurrent_role_count", "legacy_decision_role_count",
-                    "legacy_relation_predicate_count",
+                    "legacy_relation_predicate_count", "legacy_decision_metadata_role_count",
+                    "legacy_profile_link_role_count",
                 )
             )
         )

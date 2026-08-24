@@ -74,7 +74,12 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
                 INSERT INTO projects(
                     project_key, name, website_url, service_status, profile_json, state_json,
                     first_seen_at, last_seen_at
-                ) VALUES ('proj:test', 'Test', '', 'unknown', '{}', '{}', '2026-08-25', '2026-08-25')
+                ) VALUES (
+                    'proj:test', 'Test', '', 'unknown',
+                    '{"app":{"links":[{"uri":"https://github.com/example/repo","role":"sourceCode","official":true}]}}',
+                    '{"ops":{"atproto_contribution_evidence":[{"kind":"relation_predicates","count":2,"values":["source_repository","uses_collection"]}]}}',
+                    '2026-08-25', '2026-08-25'
+                )
                 """
             )
             conn.execute(
@@ -116,9 +121,10 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
             conn.execute(
                 """
                 INSERT INTO project_decisions(
-                    project_key, ordinal, kind, target_type, target_value, target_role
-                ) VALUES ('proj:test', 0, 'confirm', 'repo_url',
-                          'https://github.com/example/repo', 'source_repository')
+                    project_key, ordinal, kind, target_type, target_value, target_role, metadata_json
+                ) VALUES ('proj:test', 0, 'confirm_identifier', 'repo_url',
+                          'https://github.com/example/repo', 'source_repository',
+                          '{"type":"repo_url","value":"https://github.com/Example/Repo","role":"source_repository","source":"test"}')
                 """
             )
             relations = [
@@ -201,8 +207,29 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
                 ).fetchone()[0],
                 "project_repository",
             )
+            decision = conn.execute(
+                "SELECT target_value, target_role, metadata_json FROM project_decisions"
+            ).fetchone()
+            decision_metadata = json.loads(decision["metadata_json"])
+            self.assertEqual(
+                (decision["target_value"], decision["target_role"]),
+                ("https://github.com/example/repo", "project_repository"),
+            )
+            self.assertEqual(decision_metadata["value"], "https://github.com/example/repo")
+            self.assertEqual(decision_metadata["role"], "project_repository")
+            project_row = conn.execute(
+                "SELECT profile_json, state_json FROM projects WHERE project_key='proj:test'"
+            ).fetchone()
+            profile = json.loads(project_row["profile_json"])
+            state = json.loads(project_row["state_json"])
+            self.assertEqual(profile["app"]["links"][0]["role"], "repository")
+            self.assertEqual(
+                state["ops"]["atproto_contribution_evidence"][0]["values"],
+                ["uses_collection"],
+            )
             loaded = project_record.fetch_project(conn, "proj:test")
             self.assertEqual(loaded["project_repository_urls"], ["https://github.com/example/repo"])
+            self.assertEqual(loaded["confirmed_identifiers"][0]["role"], "project_repository")
             self.assertNotIn("source_code_urls", loaded)
             self.assertEqual(loaded["relation_evidence"], [])
         finally:
