@@ -335,6 +335,30 @@ relation評価を「一方向のcandidate relationをconfirmedへ格上げでき
 
 collectorはCSS、アイコン画像、周辺配置を保存していないため、`link_text=GitHub`が実画面でも文字表示なのか、視覚的にはアイコンだけで支援技術向け文字だけを持つのかは完全には復元できません。アイコンだけなら高確率でproject repositoryを指すという経験則を評価するには、今後のbounded observationへ表示形態またはDOM上の限定contextを追加します。
 
-実画面とGitHub repositoryをsample reviewすると、[at.fund](https://www.at.fund/)は`Report a bug`とは別に`aria-label=GitHub repository`のrepo root link、[Semble](https://semble.so/)は無題のGitHub/Tangled repo root linkと`Submit an Issue`、[Bounce](https://bounce.anew.social/)は同じrepoへの`Code`と`Issues`、[atproto-backup](https://atbackup.pages.dev/)は無題のrepo root linkとreleaseへの`Download`を併存していました。これらは弱い表示だけを一つ残すと誤って保留されます。一方、[npmx](https://npmx.dev/)は現在画面でrelease tagだけを直接示し、[provcheck](https://provcheck.app/)は現在画面にGitHub linkが見つからず、保存観測の鮮度も論点になります。確認したGitHub repositoryはいずれも空ではなく、at.fund、Semble、Bounce、provcheck、atproto-backup、npmxは各serviceまたはprojectの実装・文書を保持していました。このsampleだけではrelease/issue link一般を自動格上げする規則にはしません。
+実画面とGitHub repositoryをsample reviewすると、[at.fund](https://www.at.fund/)は`Report a bug`とは別に`aria-label=GitHub repository`のrepo root link、[Semble](https://semble.so/)は無題のGitHub/Tangled repo root linkと`Submit an Issue`、[Bounce](https://bounce.anew.social/)は同じrepoへの`Code`と`Issues`、[atproto-backup](https://atbackup.pages.dev/)は無題のrepo root linkとreleaseへの`Download`を併存していました。これらは弱い表示だけを一つ残すと誤って保留されます。一方、[npmx](https://npmx.dev/)は現在画面でrelease tagだけを直接示し、[provcheck](https://provcheck.app/)は現在画面にGitHub linkが見つからず、保存観測の鮮度も論点になります。確認したGitHub repositoryはいずれも空ではなく、at.fund、Semble、Bounce、provcheck、atproto-backup、npmxは各serviceまたはprojectの実装・文書を保持していました。
+
+## project repositoryへの拡張とDOM context
+
+reviewでは必要なrelationを、実装sourceに限定した`source_repository`ではなく、そのprojectが公式に利用するrepositoryと定義しました。ソースコード、docs、仕様、Lexicon、issue tracker、release、licenseの置き場を含みます。subjectもservice surfaceへ限定せず、projectのdocsやWebsite等の構成要素からの直接linkを利用します。この意味には`source_repository`という名前が合わないため、production保存契約を変更する段階で`project_repository`へ改名します。二つのpredicateへ分割はしません。
+
+ただしrepository hostへのlinkだけでは、dependency、related project、awesome list掲載を区別できません。shadow専用のbounded HTML extractorを追加し、一つのlinkについてexact locator、canonical repository root、表示文字、`aria-label`、`title`、子画像・SVGのlabel、最寄り見出し、最寄りblockの短い本文、header/footer/nav等のlandmark、同一groupとpageのrepository数を抽出します。完全HTMLやDOMは保存しません。同じcanonical repositoryへの複数linkは一件へ上書きせず、全観測を保持してからpair verdictへ集約します。
+
+固定16 caseでは、公式docs source、issue、release、license、Lexicon、header/footerの単独provider icon、open sourceとsiteを動かすcodeの直接説明を`CONFIRM_PROJECT_REPOSITORY`、awesome list、related project、dependencyを`DO_NOT_PROMOTE`、本文中のgeneric iconと意味不明なdeep release linkを`REVIEW_PROJECT_REPOSITORY`としました。実サイトではSembleのページに公式repoのfooter/issue linkと別projectであるZotero pluginのrelease linkが同居し、locatorの`/releases/`だけでは帰属を決められないことを確認しました。npmXのversion link、AT Backupのdownload、Bounceの`Code`と`Issues`は表示文脈を伴って公式repositoryを支持します。
+
+current pageをboundedに再収集するread-only commandも追加しました。
+
+```sh
+bin/project-registry compare-project-repository-context \
+  --db-path data/survey.db \
+  --output .tmp/project-repository-context-v4-20260824.json \
+  --page-limit 25 \
+  --timeout 10
+```
+
+旧比較で表示再収集またはreviewだったものを優先した25 page、26 proposalでは、`CONFIRM_PROJECT_REPOSITORY` 20、`REVIEW_PROJECT_REPOSITORY` 6でした。確定候補には単独のglobal chrome repository link、issue/release/docs/license表示、service URLからrepositoryへの直接redirect、open-source blockを含みます。GitHub URLのowner/repository case違いは表示URLを変更せず同一identityとして集約します。残った6件は$ATA Protocol、Airport、Rito Labeler Kitの無題または視覚依存link、複数repoを説明するsocialweb.computer、plugin名だけを示すobsidian-pds-sync、個人portfolio内のWritten Worldです。これらは機械規則を広げずrelation assessorまたは人のreviewへ残します。
+
+完全reportは`.tmp/project-repository-context-v4-20260824.json`、content hashは`796eb81a7204575755cc53568e27361cadcbc85b6a0327f7be8d8f2adcbf3167`です。25 pageの逐次取得は一部応答待ちにより約12分かかったため、commandの既定page limitは10とし、以後のreportにはpage別・全体の経過時間を記録します。これは評価用commandの実行量の問題であり、relation判定結果には影響しません。
+
+既存DBにはこの局所DOM contextがないため、過去rowへ推測で補完しません。production接続時はcurrent pageを再収集し、確定できないものだけreviewへ残します。ここまでの変更はread-only shadow module、比較command、fixtureだけであり、collector保存、relation、identifier、正本DBは変更していません。
 
 完全reportは`.tmp/collector-relation-promotion-audit-v3-20260824.json`、content hashは`246e2d721edf36bc0ffea6f4463c0d34556cabee5446809a4bb9a010c50a7d31`です。これはread-only shadow比較であり、relation、identifier、trust edge、正本DB、production collectorを変更していません。
