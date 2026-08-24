@@ -12,6 +12,7 @@ from .. import domain_policy
 from .. import identifier_storage_shadow
 from .. import identifier_storage_materialization
 from .. import merge_policy_shadow
+from .. import project_repository_shadow
 from .. import project_site_materialization, project_site_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
@@ -218,6 +219,32 @@ def cmd_compare_project_repository_context(args: argparse.Namespace) -> int:
         "proposal_match_counts": comparison["proposal_match_counts"],
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_compare_project_repository_migration(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    db_path = Path(args.db_path).expanduser()
+    if output.resolve() == db_path.resolve():
+        raise ValueError("--output must not overwrite --db-path")
+    report = project_repository_shadow.compare_database_path(
+        db_path,
+        example_limit=int(args.example_limit),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "identifier_role_projection": report["identifier_role_projection"],
+        "dependent_role_references": report["dependent_role_references"],
+        "relation_disposition": report["relation_disposition"],
+        "migration_boundary": report["migration_boundary"],
+        "review_gate": report["review_gate"],
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["review_gate"]["ready_for_user_review"] else 1
 
 
 def cmd_compare_project_site_migration(args: argparse.Namespace) -> int:

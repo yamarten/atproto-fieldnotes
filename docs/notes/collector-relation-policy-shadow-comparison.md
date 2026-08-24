@@ -423,39 +423,52 @@ review manifestとshadow materialization結果を含む完全reportのcontent ha
 
 ### 正本DBのread-only監査
 
-2026-08-24の正本DBでは、role改名対象は次のとおりです。
+project site移行後の2026-08-25正本DBに対し、identifier roleと旧relationを別々に投影するread-only comparatorを追加しました。
+
+```sh
+bin/project-registry compare-project-repository-migration \
+  --db-path data/survey.db \
+  --output .tmp/project-repository-migration-v1-20260825.json \
+  --example-limit 20
+```
+
+role改名対象は次のとおりです。
 
 | 保存先 | `source_repository`行 | 処遇 |
 | --- | ---: | --- |
-| `project_identifiers` | 1,473 | 1,238 confirmed、235 candidateをclassification維持で`project_repository`へ改名。GitHub case違いの同一identity 3組は統合する |
-| `project_identifier_adoptions` | 1,362 | active 1,325を含めroleだけ改名し、登録起点とprovenanceを維持 |
+| `project_identifiers` | 1,471 | 1,238 confirmed、233 candidateをclassification維持で`project_repository`へ改名。GitHub case違いの同一identity 9組10行を統合し、1,461行になる |
+| `project_identifier_adoptions` | 1,362 | roleだけ改名し、登録起点とprovenanceを維持 |
 | `project_noncurrent_identifiers` | 1 | standingを維持してroleだけ改名 |
-| `project_decisions` | 1,219 | active 1,218を含めtarget roleを改名 |
+| `project_decisions` | 1,219 | target roleを改名 |
 
 active adoptionを保存値どおりにまとめると、`trust_policy`だけを採用根拠に持つrowは[account.info](http://127.0.0.1:8888/?project=proj%3A34ec9661afca)と[AgentScan](http://127.0.0.1:8888/?project=proj%3A693d18882df9)の2件です。ただしAgentScanはGitHub URLのcase違いでoperator採用済みの同一repository rowを別に持つため、resource identityで統合するとtrust-onlyなのはaccount.infoだけです。account.infoはservice側の`open source` linkとREADME側のexact linkを持つため、新policyで再確認してから旧trust edgeを除去します。他のtrust-policy採用repoにはoperatorまたはbootstrap由来もあり、relation再構成中も構成要素として維持できます。
 
-旧`source_repository` relation 9,219行は意味別に扱います。
+旧`source_repository` relation 9,219行は意味別に扱います。全行が次の5処遇へ分類でき、未分類行はありませんでした。
 
 | 旧relation | 行数 | 新契約での処遇 |
 | --- | ---: | --- |
-| page→repo `first_party_link` confirmed | 634 | 一括改名しない。106行はprovider/account root等でrepository endpointではない。残る528行はcanonical化すると498 claimで、current probeにexact linkが残る473 claimを含め、bounded DOM contextで再収集してcandidate/confirmed `project_repository`を再生成する |
+| page→repo `first_party_link` confirmed | 634 | 一括改名しない。105行はprovider/account root等でrepository endpointではない。残る529行はcanonical化すると499 claimで、bounded DOM contextを再収集してcandidate/confirmed `project_repository`を再生成する |
 | repo→URL `readme_link` candidate | 8,187 | 一般README mentionであり公式関係ではない。run historyとrepository materialを観測として維持し、旧predicate rowは`project_repository`へ移さない |
 | repo→URL `readme_link` confirmed | 33 | candidate repo trust inspectionでexact URLを認めた旧判断。bounded README contextで再評価し、反対方向の`project_repository`へ移せるものだけ昇格する |
 | DID→repo `pds_list_records` confirmed | 365 | Tangled accountがrepo recordを公開した直接観測であり、project帰属ではない。`tangled_repo_snapshot`と`did_links_repo` edgeを維持し、`project_repository`へ移さない |
 
-page→repo 634行のうち397行はrepository root、131行はissue/release等のlocator、106行は無効endpointでした。valid rowをcanonical identityへまとめた498 claimのうち496 claimは対応するcurrent surfaceを持ち、473 claimにはexact linkが残っています。しかしcurrent保存は可視文字とaccessibility labelまでで、list、周辺block、repository密度等の新しい判断材料を完全には持たないため、旧confirmed classificationを新predicateへそのまま引き継ぎません。
+page→repo 634行のうち、subjectが構成要素URLと完全一致するものは67行、構成要素配下のpageは26行、collectorのcurrent stateから取得ページを確認できるものはさらに539行で、現状態から取得元を再構築できないものは2行でした。この区分はrelationの強度ではなく再収集経路の有無だけを示します。valid 529行をcanonical identityへまとめた499 claimについて、current保存にはlist、周辺block、repository密度等の新しい判断材料が揃わないため、旧confirmed classificationを新predicateへそのまま引き継ぎません。
+
+GitHubではURLの大文字小文字だけが異なる同一resourceが9 projectにあり、10行が重複していました。統合時はconfirmedをcandidateより優先し、表示URLは既存のconfirmedまたはprimary行を残します。このidentity統合は公式repositoryかどうかの再判断ではなく、同じrepositoryを二重表示・二重採用しないための保存上の正規化です。
 
 ### 実装と適用の順序
 
 1. `site_url` / `project_site`の保存・runtime view・Web/API表示と採用理由を設計し、既存Website 612件のread-only移行比較でservice兼用、独立site候補、補助resource、要reviewを分ける。
 2. role、predicate、runtime view、Web/API表示を`project_repository` / repositoryへ揃え、`source_code_urls`を正本語彙として残さない。repository analysis等、repo URL一般を入力にする処理は新しいrepository viewへ接続する。
 3. production page parserをservice surfaceとproject siteの両方から利用できるbounded observationへ分け、再取得時にcandidate/confirmed `project_repository` relationを再生成する。任意最大長やLLM判断はここへ混ぜない。
-4. temp DBでsite導入とrepositoryのidentifier role、adoption、decision、non-current rowの意味とprovenanceを保つことを確認する。repositoryではGitHub case違いの同一identity 3組を統合し、旧relationを上表どおり選別する。既存confirmed identifierはrelation不足を理由に降格しない。
+4. temp DBでsite導入とrepositoryのidentifier role、adoption、decision、non-current rowの意味とprovenanceを保つことを確認する。repositoryではGitHub case違いの同一identity 9組を統合し、旧relationを上表どおり選別する。既存confirmed identifierはrelation不足を理由に降格しない。
 5. 259 projectの旧first-party relationを対象にbounded再収集を行い、静的確定、candidate、除外、取得不能をreportする。取得不能は旧relationを自動支持せずreviewへ残す。
 6. account.info、GitHub case違いのAgentScan等3組、固定事例、初回26 proposal、無標link追加sampleを確認し、旧`llm_same_project` edgeと旧`source_repository` relationを除去した後のtrust verdict差を比較する。
 7. comparator実装、production code、DB適用を別コミットに分ける。正本DB適用はserverとwriterを止め、backup、単一transaction、foreign key、integrity、再dry-run、通常操作確認を行う。
 
-この段階では保存契約と移行範囲の提案までで、production code、正本DB、Web UI、schemaは変更していません。次の設計ゲートは、`project_site`を独立componentとして導入し補助resourceと分けること、identifier roleまで`project_repository`へ揃えること、旧relationを一括改名せず再生成すること、初期productionではLLM自動昇格を接続しないことの四点です。
+`project_site`のproduction codeと正本DBへの導入は完了しています。今回追加した`project_repository` comparatorはread-onlyであり、repository role、relation predicate、Web UI、正本DBはまだ変更していません。次の設計ゲートは、identifier roleをclassification維持で`project_repository`へ揃えること、旧relationを一括改名せず上表どおり再生成・分離すること、初期productionではLLM自動昇格を接続しないことの三点です。
+
+完全reportは`.tmp/project-repository-migration-v1-20260825.json`、content hashは`c105cb064f1bcc3e55dc029b8c494faec2bdc3ee7509c9989a75ebeb94df943e`です。SQLiteは`mode=ro`、`PRAGMA query_only=ON`、単一read transactionで開き、正本DBを更新していません。
 
 完全reportは`.tmp/project-repository-context-v4-20260824.json`、content hashは`796eb81a7204575755cc53568e27361cadcbc85b6a0327f7be8d8f2adcbf3167`です。25 pageの逐次取得は一部応答待ちにより約12分かかったため、commandの既定page limitは10とし、以後のreportにはpage別・全体の経過時間を記録します。これは評価用commandの実行量の問題であり、relation判定結果には影響しません。
 

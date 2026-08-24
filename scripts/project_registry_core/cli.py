@@ -453,6 +453,23 @@ def build_parser() -> argparse.ArgumentParser:
         func=maintenance_commands.cmd_compare_project_repository_context
     )
 
+    compare_project_repository_migration_parser = subparsers.add_parser(
+        "compare-project-repository-migration",
+        help="Compare source_repository role and relation migration without changing the database.",
+    )
+    compare_project_repository_migration_parser.add_argument(
+        "--db-path", required=True, help="Existing registry database opened read-only."
+    )
+    compare_project_repository_migration_parser.add_argument(
+        "--output", required=True, help="Structured migration comparison report JSON path."
+    )
+    compare_project_repository_migration_parser.add_argument(
+        "--example-limit", type=int, default=20, help="Maximum examples per disposition. Default: 20."
+    )
+    compare_project_repository_migration_parser.set_defaults(
+        func=maintenance_commands.cmd_compare_project_repository_migration
+    )
+
     compare_project_site_migration_parser = subparsers.add_parser(
         "compare-project-site-migration",
         help="Compare existing Website values and repository homepage leads for a project_site role without changing the database.",
