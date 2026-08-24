@@ -386,9 +386,34 @@ bin/project-registry compare-project-repository-context \
 
 `project_site`は、projectを説明・提示する代表的なWeb presenceです。documentation、specification、promotion、landing pageを含み得ますが、利用・操作する`service`と、個別のdocs、support、blog、distribution page等の補助resourceは含めません。serviceを持たない仕様・documentation主体projectでも構成要素を持てるようにするためのroleであり、一般URLをすべて構成要素へ昇格する仕組みではありません。
 
-2026-08-24の正本DBでは、`projects.website_url`が空でないprojectは612件です。文字列末尾のslashだけを無視した比較では597件が同じprojectのconfirmed `service`と一致し、1件がcandidate `service`と一致し、service/repository identifierと一致しない値は14件でした。後者にはLexicon Community、Bluesky Comments、ToolShed、idiolect等が含まれます。この分布は、既存Website欄の大半が過去のservice初期値と重なる一方、独立したproject site候補も実在することを示します。Website値だけでは採用理由とroleを再構築できないため、612件を一括してconfirmed `project_site`へ移しません。
+2026-08-24の正本DBでは、`projects.website_url`が空でないprojectは612件です。URL正規化とcurrent/non-current identifier、別projectとの衝突を比較すると、596件は同じprojectのconfirmed `service`をWebsite表示へ再利用でき、1件はcandidate service、5件はnon-current service、1件は別projectのcomponentと衝突し、残る9件が独立したproject site候補でした。後者にはLexicon Community、Bluesky Comments、ToolShed、idiolect等が含まれます。この分布は、既存Website欄の大半が過去のservice初期値と重なる一方、独立したproject site候補も実在することを示します。Website値だけでは採用理由とroleを再構築できないため、612件を一括してconfirmed `project_site`へ移しません。
 
-導入時は、同じexact URLのconfirmed serviceがWebsite表示を兼ねられるものは二重登録せず維持します。独立した14件と、Website空欄のproject site候補をread-only比較し、operator判断または許可された直接関係で帰属を確認できるものだけ`site_url` / `project_site`へ採用します。project siteの保存、表示、採用理由、serviceとの相互relationを先に実装してから、service以外を起点にする`project_repository` relationを接続します。補助resourceを例外的なtrusted anchorへする案は採りません。
+導入時は、同じexact URLのconfirmed serviceがWebsite表示を兼ねられるものは二重登録せず維持します。confirmed serviceを再利用できない既存Website 16件をreviewし、operator判断または許可された直接関係で帰属を確認できるものだけ`site_url` / `project_site`へ採用します。project siteの保存、表示、採用理由、serviceとの相互relationを先に実装してから、service以外を起点にする`project_repository` relationを接続します。補助resourceを例外的なtrusted anchorへする案は採りません。
+
+read-only比較commandを追加しました。
+
+```sh
+bin/project-registry compare-project-site-migration \
+  --db-path data/survey.db \
+  --output .tmp/project-site-migration-shadow-v1-20260824.json \
+  --example-limit 1000
+```
+
+既存Websiteの内訳は次のとおりです。
+
+| shadow処遇 | 件数 | 初期移行での扱い |
+| --- | ---: | --- |
+| confirmed serviceをWebsite表示へ再利用 | 596 | `project_site`を二重作成しない |
+| candidate serviceと一致 | 1 | serviceかproject siteかreview |
+| non-current serviceと一致 | 5 | 旧serviceの検索・表示とcurrent Websiteを分けてreview |
+| 別project componentと衝突 | 1 | 自動移行しない |
+| 独立project site候補 | 9 | operatorまたは許可された帰属根拠で採用 |
+
+Website空欄のprojectについて、confirmed repositoryの`repository_homepage`から得られるURLも別に投影しました。227 URL / 206 projectがあり、52件はaccount、funding、package、repository等でsite候補外、1件は同じprojectのconfirmed service、20件はcandidate service、4件は別project componentと衝突しました。相互のrepository参照を保存済みのものは2件、repo→URLの一方向leadは148件です。複数leadを持つprojectは6件で、最大13 URLでした。
+
+これら227件は既存Websiteの移行対象ではありません。repository homepageは正しい直接観測でも、親framework、project群の公式site、個人site等を指せるため、一方向leadを`project_site`へ自動採用しません。相互参照2件も、起点repository自体のproject帰属がlegacy採用である可能性を残すためreviewです。初期導入を止める必須reviewは、既存Websiteの596件を除く16件に限定し、空欄へのleadは将来の候補queueとして扱います。
+
+完全reportのcontent hashは`72b0305a93ef383be418842aaf8a3e4d1972eda8a65608f35f3acb7540cef104`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`の単一read transactionで開き、report以外を更新しません。
 
 ### 正本DBのread-only監査
 
