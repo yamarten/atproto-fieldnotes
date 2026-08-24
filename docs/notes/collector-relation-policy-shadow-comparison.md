@@ -413,7 +413,7 @@ Website空欄のprojectについて、confirmed repositoryの`repository_homepag
 
 これら227件は既存Websiteの移行対象ではありません。repository homepageは正しい直接観測でも、親framework、project群の公式site、個人site等を指せるため、一方向leadを`project_site`へ自動採用しません。相互参照2件も、起点repository自体のproject帰属がlegacy採用である可能性を残すためreviewです。初期導入を止める必須reviewは、既存Websiteの596件を除く16件に限定し、空欄へのleadは将来の候補queueとして扱います。
 
-完全reportのcontent hashは`72b0305a93ef383be418842aaf8a3e4d1972eda8a65608f35f3acb7540cef104`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`の単一read transactionで開き、report以外を更新しません。
+完全reportのcontent hashは`cb22869e34cd322de79077b0c281ed7578755533ca7c8f03d2ec4d3a6c4e26c5`です。SQLiteは`mode=ro`と`PRAGMA query_only=ON`の単一read transactionで開き、report以外を更新しません。
 
 ### 正本DBのread-only監査
 
