@@ -76,6 +76,7 @@ class RepositoryLinkContextParser(HTMLParser):
             "title": _text(attr_map.get("title", ""), 300),
             "descendant_label_parts": [],
             "nearest_heading": next((frame.heading for frame in reversed(self.stack) if frame.heading), ""),
+            "ancestor_tags": [frame.tag for frame in self.stack],
             "landmarks": [frame.tag for frame in self.stack if frame.tag in LANDMARK_TAGS],
             "container_text": "",
             "container_hint": "",
@@ -159,7 +160,7 @@ def extract_repository_link_contexts(html: str, base_url: str) -> list[dict[str,
         key = (
             item["locator"], item["text"], item["aria_label"], item["title"],
             item["descendant_label"], item["nearest_heading"], item["container_text"],
-            tuple(item["landmarks"]),
+            tuple(item["ancestor_tags"]), tuple(item["landmarks"]),
         )
         if key in seen:
             continue

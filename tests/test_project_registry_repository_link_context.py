@@ -28,6 +28,7 @@ class RepositoryLinkContextTest(unittest.TestCase):
         self.assertEqual(rows[0]["container_text"], "Alpha")
         self.assertEqual(rows[0]["group_repository_count"], 2)
         self.assertEqual(rows[0]["page_repository_count"], 2)
+        self.assertIn("li", rows[0]["ancestor_tags"])
         self.assertIn("main", rows[0]["landmarks"])
 
     def test_non_repository_links_are_not_counted_as_repository_context(self) -> None:
@@ -42,7 +43,33 @@ class RepositoryLinkContextTest(unittest.TestCase):
             '<header><nav><a href="https://github.com/example/project" aria-label="GitHub"></a></nav></header>'
         )
         self.assertEqual(rows[0]["disposition"], "CONFIRM_PROJECT_REPOSITORY")
-        self.assertEqual(rows[0]["reason"], "global_chrome_has_one_repository_target")
+        self.assertEqual(rows[0]["reason"], "visually_unlabeled_single_repository_link")
+
+    def test_visually_unlabeled_unique_repository_link_is_positive_without_landmark(self) -> None:
+        for anchor in (
+            '<a href="https://github.com/example/project"></a>',
+            '<a href="https://github.com/example/project" aria-label="GitHub"></a>',
+        ):
+            with self.subTest(anchor=anchor):
+                rows = self.evaluate(f'<div class="social-link">{anchor}</div>')
+                self.assertEqual(rows[0]["disposition"], "CONFIRM_PROJECT_REPOSITORY")
+                self.assertEqual(rows[0]["reason"], "visually_unlabeled_single_repository_link")
+
+    def test_visually_unlabeled_link_in_list_or_multi_repository_page_is_not_auto_confirmed(self) -> None:
+        listed = self.evaluate(
+            '<ul><li><a href="https://github.com/other/project"></a></li></ul>'
+        )
+        self.assertEqual(listed[0]["disposition"], "REVIEW_PROJECT_REPOSITORY")
+        multiple = self.evaluate(
+            """
+            <div><a href="https://github.com/example/project"></a></div>
+            <footer><a href="https://github.com/platform/site" aria-label="bug report"></a></footer>
+            """
+        )
+        self.assertEqual({row["disposition"] for row in multiple}, {"REVIEW_PROJECT_REPOSITORY"})
+        platform = next(row for row in multiple if row["repository_url"].endswith("platform/site"))
+        self.assertEqual(platform["purpose"], "issue_or_community")
+        self.assertEqual(platform["reason"], "visually_unlabeled_link_requires_context")
 
     def test_descendant_image_alt_is_kept_as_icon_presentation(self) -> None:
         rows = self.evaluate(
@@ -101,11 +128,11 @@ class RepositoryLinkContextTest(unittest.TestCase):
         )
         self.assertEqual(rows[0]["disposition"], "DO_NOT_PROMOTE")
 
-    def test_generic_body_icon_remains_reviewable(self) -> None:
+    def test_generic_body_icon_is_positive_when_it_is_the_only_repository(self) -> None:
         rows = self.evaluate(
             '<main><p><a href="https://github.com/example/project" aria-label="GitHub"></a></p></main>'
         )
-        self.assertEqual(rows[0]["disposition"], "REVIEW_PROJECT_REPOSITORY")
+        self.assertEqual(rows[0]["disposition"], "CONFIRM_PROJECT_REPOSITORY")
 
     def test_same_repository_presentations_are_aggregated_without_discarding_evidence(self) -> None:
         result = collector_relation_shadow.evaluate_project_repository_html(

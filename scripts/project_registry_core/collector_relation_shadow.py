@@ -303,6 +303,24 @@ def evaluate_project_repository_context(context: dict[str, Any]) -> dict[str, An
         "documentation_source", "explicit_source", "issue_or_community", "license",
         "release_or_download", "schema_or_specification", "self_hosting_implementation",
     }
+    visibly_unlabeled = not str(context.get("text") or "").strip()
+    ancestor_tags = {str(item) for item in context.get("ancestor_tags", []) if str(item)}
+    if visibly_unlabeled:
+        if (
+            purpose in accepted_purposes.union({"provider_only", "unlabeled"})
+            and int(context.get("page_repository_count") or 0) == 1
+            and not ancestor_tags.intersection({"li", "ol", "ul"})
+        ):
+            return {
+                "disposition": "CONFIRM_PROJECT_REPOSITORY",
+                "reason": "visually_unlabeled_single_repository_link",
+                "purpose": purpose,
+            }
+        return {
+            "disposition": "REVIEW_PROJECT_REPOSITORY",
+            "reason": "visually_unlabeled_link_requires_context",
+            "purpose": purpose,
+        }
     if purpose in accepted_purposes:
         return {
             "disposition": "CONFIRM_PROJECT_REPOSITORY",
