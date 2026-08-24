@@ -146,7 +146,17 @@ def classify_relation_candidate_purpose(value: str) -> str:
     return "other_ambiguous"
 
 
-def relation_candidate_presentation_channel(proposal: dict[str, Any]) -> str:
+def _proposal_presentations(proposal: dict[str, Any]) -> list[dict[str, Any]]:
+    if "link_presentations" in proposal:
+        values = proposal.get("link_presentations")
+        return [dict(item) for item in values if isinstance(item, dict)] if isinstance(values, list) else []
+    return [{
+        key: proposal.get(key)
+        for key in ("link_text", "aria_label", "link_title")
+    }]
+
+
+def _single_presentation_channel(proposal: dict[str, Any]) -> str:
     """Report whether the saved data preserves visible text or only accessibility hints."""
     visible = bool(str(proposal.get("link_text") or "").strip())
     accessibility = bool(
@@ -162,7 +172,17 @@ def relation_candidate_presentation_channel(proposal: dict[str, Any]) -> str:
     return "unlabeled"
 
 
-def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str, str]:
+def relation_candidate_presentation_channel(proposal: dict[str, Any]) -> str:
+    presentations = _proposal_presentations(proposal)
+    if not presentations:
+        return "current_observation_missing"
+    channels = {_single_presentation_channel(item) for item in presentations}
+    if len(presentations) > 1:
+        return "multiple_presentations"
+    return next(iter(channels))
+
+
+def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str, Any]:
     """Evaluate promotion of one candidate source_repository relation from its own direction.
 
     Reciprocal relations deliberately are not inputs. They may support later attribution or
@@ -173,6 +193,7 @@ def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str,
             "disposition": "NOT_EVALUATED",
             "reason": "subject_has_no_service_component_role",
             "purpose": "not_evaluated",
+            "purposes": ["not_evaluated"],
         }
     endpoint = endpoint_status(str(proposal.get("repo_url") or ""))
     if endpoint["status"] == "invalid":
@@ -180,42 +201,60 @@ def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str,
             "disposition": "DO_NOT_PROMOTE",
             "reason": "target_is_not_repository_endpoint",
             "purpose": "invalid_repository_target",
+            "purposes": ["invalid_repository_target"],
         }
-    label = " ".join(
-        str(proposal.get(key) or "").strip()
-        for key in ("link_text", "aria_label", "link_title")
-        if str(proposal.get(key) or "").strip()
-    )
-    purpose = classify_relation_candidate_purpose(label)
-    if purpose in {"explicit_source", "self_hosting_implementation"}:
+    presentations = _proposal_presentations(proposal)
+    if not presentations:
+        return {
+            "disposition": "RECOLLECT_PRESENTATION",
+            "reason": "current_link_presentations_are_missing",
+            "purpose": "current_observation_missing",
+            "purposes": ["current_observation_missing"],
+        }
+    purposes = sorted({
+        classify_relation_candidate_purpose(" ".join(
+            str(item.get(key) or "").strip()
+            for key in ("link_text", "aria_label", "link_title")
+            if str(item.get(key) or "").strip()
+        ))
+        for item in presentations
+    })
+    strong_purposes = {"explicit_source", "self_hosting_implementation", "schema_or_specification"}
+    if set(purposes).intersection(strong_purposes):
+        supporting = next(purpose for purpose in purposes if purpose in strong_purposes)
         return {
             "disposition": "CONFIRM_SOURCE_REPOSITORY",
-            "reason": f"presentation_is_{purpose}",
-            "purpose": purpose,
+            "reason": f"presentation_is_{supporting}",
+            "purpose": supporting,
+            "purposes": purposes,
         }
-    if purpose == "unlabeled":
+    if "unlabeled" in purposes:
         return {
             "disposition": "RECOLLECT_PRESENTATION",
             "reason": "saved_link_presentation_is_missing",
-            "purpose": purpose,
+            "purpose": "unlabeled",
+            "purposes": purposes,
         }
-    if purpose in {
+    non_source_purposes = {
         "documentation_source",
         "funding_or_support",
         "issue_or_community",
         "license",
         "release_or_download",
-        "schema_or_specification",
-    }:
+    }
+    if set(purposes).issubset(non_source_purposes):
+        purpose = purposes[0] if len(purposes) == 1 else "multiple_non_source_purposes"
         return {
             "disposition": "DO_NOT_PROMOTE",
             "reason": f"observation_expresses_{purpose}",
             "purpose": purpose,
+            "purposes": purposes,
         }
     return {
         "disposition": "REVIEW_SOURCE_REPOSITORY",
-        "reason": f"presentation_is_{purpose}",
-        "purpose": purpose,
+        "reason": "presentation_requires_review",
+        "purpose": purposes[0] if len(purposes) == 1 else "multiple_presentations",
+        "purposes": purposes,
     }
 
 
@@ -535,8 +574,8 @@ def _service_results(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(item) for item in values if isinstance(item, dict)] if isinstance(values, list) else []
 
 
-def _service_link_index(state: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    output: dict[tuple[str, str], dict[str, Any]] = {}
+def _service_link_contexts(state: dict[str, Any]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    output: dict[tuple[str, str], list[dict[str, Any]]] = collections.defaultdict(list)
     for result in _service_results(state):
         bases = {
             identifiers.normalize_url(str(result.get(key) or ""))
@@ -559,8 +598,18 @@ def _service_link_index(state: dict[str, Any]) -> dict[tuple[str, str], dict[str
                 "content_sha256": str(result.get("content_sha256") or ""),
             }
             for base in bases:
-                output[(base, target)] = context
-    return output
+                if context not in output[(base, target)]:
+                    output[(base, target)].append(context)
+    return dict(output)
+
+
+def _service_link_index(state: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Compatibility view used by the earlier observation comparison."""
+    return {
+        key: contexts[-1]
+        for key, contexts in _service_link_contexts(state).items()
+        if contexts
+    }
 
 
 def _surface_statuses(
@@ -643,7 +692,12 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                     "review_required": bool(row["review_required"]),
                 })
     for project in projects.values():
-        project["link_index"] = _service_link_index(project["state"])
+        project["link_contexts"] = _service_link_contexts(project["state"])
+        project["link_index"] = {
+            key: contexts[-1]
+            for key, contexts in project["link_contexts"].items()
+            if contexts
+        }
         project["surface_statuses"] = _surface_statuses(project["state"], project["identifiers"])
     for row in conn.execute(
         """
@@ -889,6 +943,7 @@ def _relation_assessor_inventory(
     promotion_reason_counts: collections.Counter[str] = collections.Counter()
     promotion_purpose_counts: collections.Counter[str] = collections.Counter()
     presentation_channel_counts: collections.Counter[str] = collections.Counter()
+    presentation_count_counts: collections.Counter[int] = collections.Counter()
     promotion_by_reciprocal: collections.Counter[tuple[str, str]] = collections.Counter()
     rows: list[dict[str, Any]] = []
     all_saved_assessments: set[tuple[str, str, str]] = set()
@@ -1015,6 +1070,10 @@ def _relation_assessor_inventory(
             link_presentation_counts[classify_service_link_label(labels)] += 1
             current_assessment_counts[relationship] += 1
             current_edge_counts["llm_same_project" if has_llm_edge else "no_llm_edge"] += 1
+            link_presentations = [
+                dict(context)
+                for context in project.get("link_contexts", {}).get((service_url, repo_url), [])
+            ]
             row = {
                 "project_key": project_key,
                 "project_name": str(project["name"]),
@@ -1024,6 +1083,8 @@ def _relation_assessor_inventory(
                 "link_text": str(item.get("link_text") or ""),
                 "aria_label": str(item.get("aria_label") or ""),
                 "link_title": str(item.get("link_title") or ""),
+                "link_presentations": link_presentations,
+                "link_presentation_count": len(link_presentations),
                 "page_title": str(item.get("page_title") or ""),
                 "page_description": str(item.get("page_description") or ""),
                 "subject_has_component_role": subject_has_component_role,
@@ -1048,8 +1109,10 @@ def _relation_assessor_inventory(
             row["presentation_channel"] = presentation_channel
             promotion_disposition_counts[promotion["disposition"]] += 1
             promotion_reason_counts[promotion["reason"]] += 1
-            promotion_purpose_counts[promotion["purpose"]] += 1
+            for purpose in promotion["purposes"]:
+                promotion_purpose_counts[purpose] += 1
             presentation_channel_counts[presentation_channel] += 1
+            presentation_count_counts[len(link_presentations)] += 1
             promotion_by_reciprocal[(
                 "reciprocal_present" if reciprocal else "reciprocal_absent",
                 promotion["disposition"],
@@ -1085,6 +1148,7 @@ def _relation_assessor_inventory(
             "reason_counts": _counter(promotion_reason_counts),
             "purpose_counts": _counter(promotion_purpose_counts),
             "presentation_channel_counts": _counter(presentation_channel_counts),
+            "presentation_count_counts": _counter(presentation_count_counts),
             "disposition_by_reciprocal_presence": {
                 reciprocal: _counter({
                     disposition: count

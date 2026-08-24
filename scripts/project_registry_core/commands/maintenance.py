@@ -159,6 +159,7 @@ def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
             "reason_counts",
             "purpose_counts",
             "presentation_channel_counts",
+            "presentation_count_counts",
             "disposition_by_reciprocal_presence",
             "reciprocal_relation_is_promotion_input",
         )

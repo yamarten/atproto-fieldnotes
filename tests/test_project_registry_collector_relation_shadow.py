@@ -83,6 +83,29 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
         self.assertEqual(result["disposition"], "DO_NOT_PROMOTE")
         self.assertEqual(result["purpose"], "license")
 
+    def test_candidate_relation_promotion_keeps_all_presentations_for_one_pair(self) -> None:
+        result = collector_relation_shadow.evaluate_relation_candidate_promotion({
+            "subject_has_component_role": True,
+            "repo_url": "https://github.com/example/app",
+            "link_presentations": [
+                {"link_text": "Issues"},
+                {"link_text": "Code"},
+            ],
+        })
+        self.assertEqual(result["disposition"], "CONFIRM_SOURCE_REPOSITORY")
+        self.assertEqual(result["purpose"], "explicit_source")
+        self.assertEqual(result["purposes"], ["explicit_source", "issue_or_community"])
+
+    def test_candidate_relation_promotion_recollects_when_current_observation_is_missing(self) -> None:
+        result = collector_relation_shadow.evaluate_relation_candidate_promotion({
+            "subject_has_component_role": True,
+            "repo_url": "https://github.com/example/app",
+            "link_presentations": [],
+            "link_text": "Releases",
+        })
+        self.assertEqual(result["disposition"], "RECOLLECT_PRESENTATION")
+        self.assertEqual(result["reason"], "current_link_presentations_are_missing")
+
     def test_presentation_channel_exposes_missing_visual_context(self) -> None:
         self.assertEqual(
             collector_relation_shadow.relation_candidate_presentation_channel({
