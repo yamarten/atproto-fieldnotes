@@ -321,16 +321,20 @@ bin/project-registry export-relation-assessment-corpus \
 
 relation評価を「一方向のcandidate relationをconfirmedへ格上げできるか」という目的に限定して、194 proposalを再分類しました。逆向きrelation、project名、現在のLLM判断は格上げ根拠に使いません。subject URLにservice構成要素roleがある109件が評価対象で、残る85件はlink観測を保持したまま対象外とします。
 
+初回は既存`repository_link_candidates`と同じくservice/repo pairへ表示文脈を一つだけ残していましたが、実画面sample reviewで同じpairに`Code`と`Issues`、repo root iconと`Download`のような複数linkがあることを確認しました。raw `service_verification_results`から同じpairの全表示を束ね直すと、194件中104件、評価対象109件中61件が複数表示を持ちました。逆向きrelationを混ぜる問題とは別に、一方向の複数観測をpair単位で一つへ潰さないことが必要です。
+
 | 処遇 | 件数 | 意味 |
 | --- | ---: | --- |
-| `CONFIRM_SOURCE_REPOSITORY` | 8 | `Code`等の明示source 4件と、`Self-hostable` / `Run your own`等の実装を直接示す表示4件。静的confirm候補 |
-| `DO_NOT_PROMOTE` | 22 | この観測単独では`source_repository`へ格上げしない。issue/community 9、license 6、release/download 5、schema/specification 1、repositoryでないGitHub Sponsors 1 |
-| `REVIEW_SOURCE_REPOSITORY` | 69 | provider名だけ31件、その他の曖昧な表示38件。表示と対象repoの関係を人が確認する |
-| `RECOLLECT_PRESENTATION` | 10 | 保存済みlabelだけではリンク表示を復元できない。再取得または人によるページ確認が必要 |
+| `CONFIRM_SOURCE_REPOSITORY` | 17 | `Code`等の明示sourceを含む14件、self-hosting表示だけで支持する2件、Lexicons表示1件。self-hosting表示4件中2件は同じpairに明示sourceもある |
+| `DO_NOT_PROMOTE` | 4 | sourceを示す別表示がなくlicenseだけのOzone、releaseだけのnpmxとatproto-backup、repositoryでないGitHub Sponsors。atproto-backupはURL case違いでrepo root linkと別pairになっており要resource identity補正 |
+| `REVIEW_SOURCE_REPOSITORY` | 74 | provider名、repository名、その他の曖昧な表示を持つが、明示sourceまではない。用途の併存を含めて確認する |
+| `RECOLLECT_PRESENTATION` | 14 | 無題linkを含み、明示source表示がない。アイコン、CSS、周辺配置を再取得または人が確認する |
 | `NOT_EVALUATED` | 85 | subjectにservice構成要素roleがない。project帰属を推測せず観測だけ残す |
 
-`DO_NOT_PROMOTE`はrepositoryが別projectだという否定ではありません。たとえば`Issues`や`LICENSE`は同じprojectのrepositoryを指す場合が多いものの、そのリンクが直接表すのはissue窓口やlicenseであり、serviceのsourceだという主張ではありません。source以外のproject repository relationを将来導入する場合の再分類対象で、観測自体を削除しません。明確にendpointが誤っていたのはGitHub Sponsorsの1件だけでした。
+`DO_NOT_PROMOTE`はrepositoryが別projectだという否定ではありません。たとえば`Issues`や`LICENSE`は同じprojectのrepositoryを指す場合が多いものの、そのリンクが直接表すのはissue窓口やlicenseです。source以外のproject repository relationを将来導入する場合の再分類対象で、観測自体を削除しません。明確にendpointが誤っていたのはGitHub Sponsorsの1件だけでした。
 
-provider-only 31件のうち、保存上はvisible textを持つものが28件、`aria-label`等だけが3件でした。ただしcollectorはCSS、アイコン画像、周辺配置を保存していないため、`link_text=GitHub`が実画面でも文字表示なのか、視覚的にはアイコンだけで支援技術向け文字だけを持つのかは完全には復元できません。アイコンだけなら高確率でproject repositoryを指すという経験則を評価するには、今後のbounded observationへ表示形態またはDOM上の限定contextを追加し、現在の31件は人力sample reviewの対象にします。
+collectorはCSS、アイコン画像、周辺配置を保存していないため、`link_text=GitHub`が実画面でも文字表示なのか、視覚的にはアイコンだけで支援技術向け文字だけを持つのかは完全には復元できません。アイコンだけなら高確率でproject repositoryを指すという経験則を評価するには、今後のbounded observationへ表示形態またはDOM上の限定contextを追加します。
 
-完全reportは`.tmp/collector-relation-promotion-audit-v2-20260824.json`、content hashは`d7d16884db3bc57fc5a9fd27c29dbd69843d77a2f58050d78d47063c9538a316`です。これはread-only shadow比較であり、relation、identifier、trust edge、正本DB、production collectorを変更していません。
+実画面とGitHub repositoryをsample reviewすると、[at.fund](https://www.at.fund/)は`Report a bug`とは別に`aria-label=GitHub repository`のrepo root link、[Semble](https://semble.so/)は無題のGitHub/Tangled repo root linkと`Submit an Issue`、[Bounce](https://bounce.anew.social/)は同じrepoへの`Code`と`Issues`、[atproto-backup](https://atbackup.pages.dev/)は無題のrepo root linkとreleaseへの`Download`を併存していました。これらは弱い表示だけを一つ残すと誤って保留されます。一方、[npmx](https://npmx.dev/)は現在画面でrelease tagだけを直接示し、[provcheck](https://provcheck.app/)は現在画面にGitHub linkが見つからず、保存観測の鮮度も論点になります。確認したGitHub repositoryはいずれも空ではなく、at.fund、Semble、Bounce、provcheck、atproto-backup、npmxは各serviceまたはprojectの実装・文書を保持していました。このsampleだけではrelease/issue link一般を自動格上げする規則にはしません。
+
+完全reportは`.tmp/collector-relation-promotion-audit-v3-20260824.json`、content hashは`246e2d721edf36bc0ffea6f4463c0d34556cabee5446809a4bb9a010c50a7d31`です。これはread-only shadow比較であり、relation、identifier、trust edge、正本DB、production collectorを変更していません。

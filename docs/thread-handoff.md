@@ -20,7 +20,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub Searchの`homepage_exact`はproductionへ接続済みです。relation assessorは現行mixed triageのread-only inventory、専用shadow契約、LM Studio比較まで実施した。固定12件ではdirect assertion方式が安定した一方、実16組は3支持・11根拠不足・2不支持でLICENSE linkの誤支持も再現した。逆向きrelationを往路candidateの格上げ根拠にしないpromotion比較も追加し、service roleがある109件を静的confirm候補8、現predicateへ格上げしない22、review 69、表示再収集10に分けた。次はprovider-only 31件を中心に人力sample reviewし、candidate admissionにliteralな`source_repository`を要求するか、source・issue tracker・license等のsubtypeを持つproject repository帰属を使うかreviewする。合意前にproduction接続や既存`llm_same_project` cleanupへ進まない。
+- GitHub Searchの`homepage_exact`はproductionへ接続済みです。relation assessorは現行mixed triageのread-only inventory、専用shadow契約、LM Studio比較まで実施した。固定12件ではdirect assertion方式が安定した一方、実16組は3支持・11根拠不足・2不支持でLICENSE linkの誤支持も再現した。逆向きrelationを往路candidateの格上げ根拠にしないpromotion比較も追加した。service roleがある109件中61件は同じpairに複数表示があり、旧入力は`Code`と`Issues`等を一つへ潰していた。全表示を束ねたshadow比較は静的confirm候補17、現predicateへ格上げしない4、review 74、表示再収集14。次はissue/release linkを含むproject repository帰属の意味と、複数表示・locator・表示形態を保持するcollector入力契約をreviewする。合意前にproduction接続や既存`llm_same_project` cleanupへ進まない。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。
 - `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を見直す。処理自体とwatermark更新は正常に完了している。
 
