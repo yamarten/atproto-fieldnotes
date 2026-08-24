@@ -16,8 +16,8 @@ from . import identifiers
 from . import repo_urls
 
 
-REPORT_SCHEMA_VERSION = 4
-POLICY_VERSION = "collector-relation-shadow-v4"
+REPORT_SCHEMA_VERSION = 5
+POLICY_VERSION = "collector-relation-shadow-v5"
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "NEEDS_ASSESSMENT", "NOT_RECONSTRUCTIBLE"}
 TRACEABLE_REPOSITORY_ADOPTION_SOURCES = {
     "operator_add_seed",
@@ -51,6 +51,24 @@ NON_SOURCE_LABEL_WORDS = {
     "sponsors",
     "sponsorship",
 }
+ISSUE_AND_COMMUNITY_LABEL_PATTERN = re.compile(
+    r"(?:advisory|bug|contribut|discussion|feedback|feature request|issue|questions?)"
+)
+LICENSE_LABEL_PATTERN = re.compile(
+    r"(?:^|\s)(?:agpl|apache|gpl|license|mit)(?:$|\s|v?\d)"
+)
+RELEASE_LABEL_PATTERN = re.compile(
+    r"(?:download|release|release notes|releases page|^v\d+(?:\s|$))"
+)
+DOCUMENTATION_SOURCE_LABEL_PATTERN = re.compile(
+    r"(?:edit (?:this page|on tangled)|site contents)"
+)
+SCHEMA_REFERENCE_LABEL_PATTERN = re.compile(
+    r"(?:data schemas?|lexicon definitions|lexicons|openapi specification)"
+)
+SELF_HOSTING_LABEL_PATTERN = re.compile(
+    r"(?:host (?:a |an )?.+ server|run your own|self[ -]?host)"
+)
 SERVICE_SURFACE_MARKERS = {
     "app_shell_detected",
     "browser_identity_form_detected",
@@ -100,6 +118,105 @@ def classify_service_link_label(value: str) -> str:
     if label in {"github", "tangled", "codeberg", "gitlab"}:
         return "provider_only"
     return "ambiguous"
+
+
+def classify_relation_candidate_purpose(value: str) -> str:
+    """Classify what the saved one-way link presentation directly communicates."""
+    label = _normalized_label(value)
+    if not label:
+        return "unlabeled"
+    if classify_service_link_label(label) == "non_source":
+        return "funding_or_support"
+    if label in EXPLICIT_SOURCE_LABELS:
+        return "explicit_source"
+    if SELF_HOSTING_LABEL_PATTERN.search(label):
+        return "self_hosting_implementation"
+    if DOCUMENTATION_SOURCE_LABEL_PATTERN.search(label):
+        return "documentation_source"
+    if LICENSE_LABEL_PATTERN.search(label):
+        return "license"
+    if RELEASE_LABEL_PATTERN.search(label):
+        return "release_or_download"
+    if ISSUE_AND_COMMUNITY_LABEL_PATTERN.search(label):
+        return "issue_or_community"
+    if SCHEMA_REFERENCE_LABEL_PATTERN.search(label):
+        return "schema_or_specification"
+    if label in {"github", "tangled", "codeberg", "gitlab"}:
+        return "provider_only"
+    return "other_ambiguous"
+
+
+def relation_candidate_presentation_channel(proposal: dict[str, Any]) -> str:
+    """Report whether the saved data preserves visible text or only accessibility hints."""
+    visible = bool(str(proposal.get("link_text") or "").strip())
+    accessibility = bool(
+        str(proposal.get("aria_label") or "").strip()
+        or str(proposal.get("link_title") or "").strip()
+    )
+    if visible and accessibility:
+        return "visible_text_and_accessibility"
+    if visible:
+        return "visible_text_only"
+    if accessibility:
+        return "accessibility_only"
+    return "unlabeled"
+
+
+def evaluate_relation_candidate_promotion(proposal: dict[str, Any]) -> dict[str, str]:
+    """Evaluate promotion of one candidate source_repository relation from its own direction.
+
+    Reciprocal relations deliberately are not inputs. They may support later attribution or
+    trust decisions, but cannot change what this service-side observation directly states.
+    """
+    if not bool(proposal.get("subject_has_component_role")):
+        return {
+            "disposition": "NOT_EVALUATED",
+            "reason": "subject_has_no_service_component_role",
+            "purpose": "not_evaluated",
+        }
+    endpoint = endpoint_status(str(proposal.get("repo_url") or ""))
+    if endpoint["status"] == "invalid":
+        return {
+            "disposition": "DO_NOT_PROMOTE",
+            "reason": "target_is_not_repository_endpoint",
+            "purpose": "invalid_repository_target",
+        }
+    label = " ".join(
+        str(proposal.get(key) or "").strip()
+        for key in ("link_text", "aria_label", "link_title")
+        if str(proposal.get(key) or "").strip()
+    )
+    purpose = classify_relation_candidate_purpose(label)
+    if purpose in {"explicit_source", "self_hosting_implementation"}:
+        return {
+            "disposition": "CONFIRM_SOURCE_REPOSITORY",
+            "reason": f"presentation_is_{purpose}",
+            "purpose": purpose,
+        }
+    if purpose == "unlabeled":
+        return {
+            "disposition": "RECOLLECT_PRESENTATION",
+            "reason": "saved_link_presentation_is_missing",
+            "purpose": purpose,
+        }
+    if purpose in {
+        "documentation_source",
+        "funding_or_support",
+        "issue_or_community",
+        "license",
+        "release_or_download",
+        "schema_or_specification",
+    }:
+        return {
+            "disposition": "DO_NOT_PROMOTE",
+            "reason": f"observation_expresses_{purpose}",
+            "purpose": purpose,
+        }
+    return {
+        "disposition": "REVIEW_SOURCE_REPOSITORY",
+        "reason": f"presentation_is_{purpose}",
+        "purpose": purpose,
+    }
 
 
 def classify_url_role(value: str) -> str:
@@ -768,6 +885,11 @@ def _relation_assessor_inventory(
     link_presentation_counts: collections.Counter[str] = collections.Counter()
     current_assessment_counts: collections.Counter[str] = collections.Counter()
     current_edge_counts: collections.Counter[str] = collections.Counter()
+    promotion_disposition_counts: collections.Counter[str] = collections.Counter()
+    promotion_reason_counts: collections.Counter[str] = collections.Counter()
+    promotion_purpose_counts: collections.Counter[str] = collections.Counter()
+    presentation_channel_counts: collections.Counter[str] = collections.Counter()
+    promotion_by_reciprocal: collections.Counter[tuple[str, str]] = collections.Counter()
     rows: list[dict[str, Any]] = []
     all_saved_assessments: set[tuple[str, str, str]] = set()
 
@@ -893,7 +1015,7 @@ def _relation_assessor_inventory(
             link_presentation_counts[classify_service_link_label(labels)] += 1
             current_assessment_counts[relationship] += 1
             current_edge_counts["llm_same_project" if has_llm_edge else "no_llm_edge"] += 1
-            rows.append({
+            row = {
                 "project_key": project_key,
                 "project_name": str(project["name"]),
                 "project_url": _project_ui_url(project_key),
@@ -917,7 +1039,22 @@ def _relation_assessor_inventory(
                 "current_reason": str(assessment.get("reason") or ""),
                 "current_llm_edge": has_llm_edge,
                 "llm_is_only_forward_support_for_pair": llm_is_only_forward_support,
-            })
+            }
+            promotion = evaluate_relation_candidate_promotion(row)
+            presentation_channel = relation_candidate_presentation_channel(row)
+            row["promotion_disposition"] = promotion["disposition"]
+            row["promotion_reason"] = promotion["reason"]
+            row["promotion_purpose"] = promotion["purpose"]
+            row["presentation_channel"] = presentation_channel
+            promotion_disposition_counts[promotion["disposition"]] += 1
+            promotion_reason_counts[promotion["reason"]] += 1
+            promotion_purpose_counts[promotion["purpose"]] += 1
+            presentation_channel_counts[presentation_channel] += 1
+            promotion_by_reciprocal[(
+                "reciprocal_present" if reciprocal else "reciprocal_absent",
+                promotion["disposition"],
+            )] += 1
+            rows.append(row)
 
     current_pairs = {
         (item["project_key"], item["service_url"], item["repo_url"])
@@ -929,6 +1066,11 @@ def _relation_assessor_inventory(
         examples[reason] = [item for item in rows if item["route_reason"] == reason][
             :example_limit
         ]
+    promotion_examples: dict[str, list[dict[str, Any]]] = {}
+    for reason in sorted(promotion_reason_counts):
+        promotion_examples[reason] = [
+            item for item in rows if item["promotion_reason"] == reason
+        ][:example_limit]
     return {
         "current_proposal_count": len(rows),
         "saved_assessment_pair_count": len(all_saved_assessments),
@@ -938,6 +1080,22 @@ def _relation_assessor_inventory(
         "link_presentation_counts": _counter(link_presentation_counts),
         "current_assessment_counts": _counter(current_assessment_counts),
         "current_edge_counts": _counter(current_edge_counts),
+        "candidate_relation_promotion": {
+            "disposition_counts": _counter(promotion_disposition_counts),
+            "reason_counts": _counter(promotion_reason_counts),
+            "purpose_counts": _counter(promotion_purpose_counts),
+            "presentation_channel_counts": _counter(presentation_channel_counts),
+            "disposition_by_reciprocal_presence": {
+                reciprocal: _counter({
+                    disposition: count
+                    for (presence, disposition), count in promotion_by_reciprocal.items()
+                    if presence == reciprocal
+                })
+                for reciprocal in ("reciprocal_absent", "reciprocal_present")
+            },
+            "reciprocal_relation_is_promotion_input": False,
+            "examples": promotion_examples,
+        },
         "same_project_without_bounded_target_material_count": sum(
             item["current_relationship"] == "same_project"
             and not item["bounded_target_material_available"]

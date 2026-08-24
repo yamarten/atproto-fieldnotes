@@ -39,6 +39,62 @@ class CollectorRelationPolicyUnitTest(unittest.TestCase):
             "explicit_source",
         )
 
+    def test_candidate_relation_purpose_separates_source_from_other_link_uses(self) -> None:
+        expectations = {
+            "Source code": "explicit_source",
+            "Run your own instance": "self_hosting_implementation",
+            "Edit this page": "documentation_source",
+            "LICENSE-APACHE": "license",
+            "Report a bug": "issue_or_community",
+            "Release notes": "release_or_download",
+            "View our data schemas": "schema_or_specification",
+            "GitHub": "provider_only",
+            "View on GitHub": "other_ambiguous",
+        }
+        for label, expected in expectations.items():
+            with self.subTest(label=label):
+                self.assertEqual(
+                    collector_relation_shadow.classify_relation_candidate_purpose(label),
+                    expected,
+                )
+
+    def test_candidate_relation_promotion_does_not_use_reciprocal_relation(self) -> None:
+        base = {
+            "subject_has_component_role": True,
+            "repo_url": "https://github.com/example/app",
+            "link_text": "GitHub",
+            "aria_label": "",
+            "link_title": "",
+        }
+        without_reciprocal = collector_relation_shadow.evaluate_relation_candidate_promotion(base)
+        with_reciprocal = collector_relation_shadow.evaluate_relation_candidate_promotion({
+            **base,
+            "reciprocal_direct_relation_supported": True,
+        })
+        self.assertEqual(without_reciprocal, with_reciprocal)
+        self.assertEqual(with_reciprocal["disposition"], "REVIEW_SOURCE_REPOSITORY")
+
+    def test_candidate_relation_promotion_keeps_non_source_observation(self) -> None:
+        result = collector_relation_shadow.evaluate_relation_candidate_promotion({
+            "subject_has_component_role": True,
+            "repo_url": "https://github.com/example/app",
+            "link_text": "LICENSE",
+        })
+        self.assertEqual(result["disposition"], "DO_NOT_PROMOTE")
+        self.assertEqual(result["purpose"], "license")
+
+    def test_presentation_channel_exposes_missing_visual_context(self) -> None:
+        self.assertEqual(
+            collector_relation_shadow.relation_candidate_presentation_channel({
+                "link_text": "", "aria_label": "GitHub", "link_title": "",
+            }),
+            "accessibility_only",
+        )
+        self.assertEqual(
+            collector_relation_shadow.relation_candidate_presentation_channel({}),
+            "unlabeled",
+        )
+
     def test_deep_repository_path_keeps_root_and_locator(self) -> None:
         result = collector_relation_shadow.endpoint_status(
             "https://github.com/example/app/tree/main/packages/web"
@@ -334,6 +390,12 @@ class CollectorRelationPolicyDatabaseTest(TempRegistryDbTestCase):
             report["relation_assessor_inventory"]["route_counts"],
             {"POLICY_DECIDED": 1},
         )
+        promotion = report["relation_assessor_inventory"]["candidate_relation_promotion"]
+        self.assertEqual(
+            promotion["disposition_counts"],
+            {"CONFIRM_SOURCE_REPOSITORY": 1},
+        )
+        self.assertFalse(promotion["reciprocal_relation_is_promotion_input"])
         self.assertEqual(
             report["examples"]["deterministic_supported"][0]["link_label"],
             "repo ↗",

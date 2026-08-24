@@ -151,6 +151,18 @@ def cmd_compare_collector_relation_policy(args: argparse.Namespace) -> int:
         },
         "review_gate": report["review_gate"],
     }
+    promotion = report["relation_assessor_inventory"]["candidate_relation_promotion"]
+    summary["relation_assessor_inventory"]["candidate_relation_promotion"] = {
+        key: promotion[key]
+        for key in (
+            "disposition_counts",
+            "reason_counts",
+            "purpose_counts",
+            "presentation_channel_counts",
+            "disposition_by_reciprocal_presence",
+            "reciprocal_relation_is_promotion_input",
+        )
+    }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["review_gate"]["ready_for_user_review"] else 1
 
