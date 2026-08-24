@@ -240,6 +240,8 @@ review後、GitHub Searchを次の責務分離でproductionへ接続しました
 | `NEEDS_PROBE` | 30 | service roleとlink観測はあるが、bounded repository materialがない |
 | `ASSESS` | 16 | 現在snapshotにはservice観測とbounded repository materialがあるため、専用corpus候補にできる |
 
+このroutingは旧assessorの処理量を監査する分類です。`direct_relations_already_support_pair` 58件は逆向きの保存relationもあるため旧routingが評価不要にした件数であり、往路のcandidate relationをconfirmedへ格上げできる件数ではありません。逆向きrelationは別方向の事実として保持し、往路relationの意味を変える根拠には使わない方針へ修正しました。
+
 relationの意味判定ではconfirmed subjectだけに限定しません。candidate service→confirmed repoという関係も、candidate serviceの信頼を逆方向から評価する材料になり得るためです。ただしcandidate serviceから新しいrepo candidateを生成することとは別で、candidate admissionは引き続きconfirmed構成要素からの許可済み直接relationに限定します。ここで必要なのはconfirmed/candidateの区別ではなく、subjectにserviceという構成要素roleの主張があることです。
 
 現行の`same_project` 177組のうち、73組は現在subjectにservice roleがなく、45組は保存されたtriage入力にbounded target materialがありません。理由文にも、保存入力にないREADME、Dockerfile、同一owner、repository descriptionを根拠として挙げた例があります。また63組では`llm_same_project`が同じpairの唯一のforward trust edgeで、少なくとも一方のidentifierに`trust_policy` adoptionがあります。この63組は別経路のpathを持つ可能性があるため即座に63 identifierがunsupportedになるという意味ではありませんが、既存edgeを一括削除せず、専用policyで再評価してからcleanupする必要があります。
@@ -314,3 +316,21 @@ bin/project-registry export-relation-assessment-corpus \
 一方、正本DBの実16組をv5で一回評価すると`SUPPORTED` 3、`INSUFFICIENT` 11、`NOT_SUPPORTED` 2で、現行`same_project`との一致は3/16でした。さらに支持3件のうちOzoneの`LICENSE-APACHE`とBridgeBeats docsの`LICENSE`はliteralなsource assertionではなく、誤支持です。Ozoneを追加3回評価しても2回支持・1回根拠不足に揺れました。完全reportは`.tmp/relation-assessor-current-direct-v5-20260824.json`、hashは`c3f27718a90ac9044cc590ff14d487c636a4f1e0d0692fa2d1c864f9331e30a1`です。
 
 この結果から、自由な意味判定だけに`SUPPORTED`を任せる案はまだproductionへ接続できません。また、literalな「serviceのsource code」を問うと、実際には同じprojectのrepositoryと思われるgeneric provider、license、issue tracker等のlinkを多く`INSUFFICIENT`へ残します。次の設計判断は、candidate admissionで必要なのが厳密な`source_repository`なのか、それともsource、issue tracker、license等を含む「このserviceが当該projectのrepositoryを指した」という帰属関係なのかです。後者を採る場合も、観測済みexact linkとrepository subtypeを分け、auto-confirmやmergeへ同じ強さで流用しません。
+
+## candidate relationの格上げ比較
+
+relation評価を「一方向のcandidate relationをconfirmedへ格上げできるか」という目的に限定して、194 proposalを再分類しました。逆向きrelation、project名、現在のLLM判断は格上げ根拠に使いません。subject URLにservice構成要素roleがある109件が評価対象で、残る85件はlink観測を保持したまま対象外とします。
+
+| 処遇 | 件数 | 意味 |
+| --- | ---: | --- |
+| `CONFIRM_SOURCE_REPOSITORY` | 8 | `Code`等の明示source 4件と、`Self-hostable` / `Run your own`等の実装を直接示す表示4件。静的confirm候補 |
+| `DO_NOT_PROMOTE` | 22 | この観測単独では`source_repository`へ格上げしない。issue/community 9、license 6、release/download 5、schema/specification 1、repositoryでないGitHub Sponsors 1 |
+| `REVIEW_SOURCE_REPOSITORY` | 69 | provider名だけ31件、その他の曖昧な表示38件。表示と対象repoの関係を人が確認する |
+| `RECOLLECT_PRESENTATION` | 10 | 保存済みlabelだけではリンク表示を復元できない。再取得または人によるページ確認が必要 |
+| `NOT_EVALUATED` | 85 | subjectにservice構成要素roleがない。project帰属を推測せず観測だけ残す |
+
+`DO_NOT_PROMOTE`はrepositoryが別projectだという否定ではありません。たとえば`Issues`や`LICENSE`は同じprojectのrepositoryを指す場合が多いものの、そのリンクが直接表すのはissue窓口やlicenseであり、serviceのsourceだという主張ではありません。source以外のproject repository relationを将来導入する場合の再分類対象で、観測自体を削除しません。明確にendpointが誤っていたのはGitHub Sponsorsの1件だけでした。
+
+provider-only 31件のうち、保存上はvisible textを持つものが28件、`aria-label`等だけが3件でした。ただしcollectorはCSS、アイコン画像、周辺配置を保存していないため、`link_text=GitHub`が実画面でも文字表示なのか、視覚的にはアイコンだけで支援技術向け文字だけを持つのかは完全には復元できません。アイコンだけなら高確率でproject repositoryを指すという経験則を評価するには、今後のbounded observationへ表示形態またはDOM上の限定contextを追加し、現在の31件は人力sample reviewの対象にします。
+
+完全reportは`.tmp/collector-relation-promotion-audit-v2-20260824.json`、content hashは`d7d16884db3bc57fc5a9fd27c29dbd69843d77a2f58050d78d47063c9538a316`です。これはread-only shadow比較であり、relation、identifier、trust edge、正本DB、production collectorを変更していません。
