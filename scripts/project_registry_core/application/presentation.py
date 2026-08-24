@@ -246,6 +246,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
             item["is_primary"] = False
     raw = [item for item in raw if _identifier_row_is_displayable(item)]
     family_specs = {
+        "site_url": ("site", "Project sites"),
         "service_url": ("service", "Services"),
         "repo_url": ("repository", "Repositories"),
         "nsid": ("schema", "NSIDs"),
@@ -256,6 +257,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
     }
     role_labels = {
         "owned_nsid": "owned",
+        "project_site": "project site",
         "source_repository": "source",
         "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
@@ -700,6 +702,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     payload["overview"] = {
         "website": raw_project["website_url"],
         "confirmed_services": list(prepared.get("service_urls") or []),
+        "project_sites": list(prepared.get("project_site_urls") or []),
         "repository": primary_repo["value"] if primary_repo else "",
         "account": primary_account["value"] if primary_account else "",
         "app_links": project_record.build_project_app_links(prepared),

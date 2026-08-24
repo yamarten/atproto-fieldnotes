@@ -80,6 +80,8 @@ IDENTIFIER_FIELDS = {
     "authority_domains",
     "service_urls",
     "service_url_candidates",
+    "project_site_urls",
+    "project_site_url_candidates",
     "source_code_url",
     "source_code_urls",
     "candidate_source_code_urls",
@@ -244,7 +246,7 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         text = str(value or "").strip()
         if kind == "repo_url":
             text = repo_urls.canonical_repo_url(text)
-        elif kind == "service_url":
+        elif kind in {"service_url", "site_url"}:
             text = identifiers.normalize_url(text)
         elif kind == "nsid":
             text = identifiers.normalize_nsid(text)
@@ -275,6 +277,10 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         add("service_url", value, "service", "confirmed")
     for value in project.get("service_url_candidates", []):
         add("service_url", value, "service", "candidate")
+    for value in project.get("project_site_urls", []):
+        add("site_url", value, "project_site", "confirmed")
+    for value in project.get("project_site_url_candidates", []):
+        add("site_url", value, "project_site", "candidate")
 
     add("repo_url", project.get("source_code_url"), "source_repository", "confirmed", primary=True)
     for value in project.get("source_code_urls", []):
@@ -531,7 +537,8 @@ def hydrate(
     project.update({
         "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
         "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],
-        "service_url_candidates": [], "source_code_urls": [], "candidate_source_code_urls": [],
+        "service_url_candidates": [], "project_site_urls": [], "project_site_url_candidates": [],
+        "source_code_urls": [], "candidate_source_code_urls": [],
         "developer_accounts": [], "candidate_developer_accounts": [],
         "bluesky_handles": [], "tangled_handles": [], "manual_seeds": [],
     })
@@ -545,6 +552,9 @@ def hydrate(
                 project[target].append(value)
         elif kind == "service_url":
             target = "service_urls" if classification == "confirmed" else "service_url_candidates"
+            project[target].append(value)
+        elif kind == "site_url" and role == "project_site":
+            target = "project_site_urls" if classification == "confirmed" else "project_site_url_candidates"
             project[target].append(value)
         elif kind == "repo_url":
             if bool(row["is_primary"]) and classification == "confirmed": project["source_code_url"] = value
@@ -567,6 +577,15 @@ def hydrate(
         str(item)
         for item in project["service_url_candidates"]
         if str(item) and str(item) not in confirmed_service_urls
+    ])
+    project["project_site_urls"] = _unique([
+        str(item) for item in project["project_site_urls"] if str(item)
+    ])
+    confirmed_project_site_urls = set(project["project_site_urls"])
+    project["project_site_url_candidates"] = _unique([
+        str(item)
+        for item in project["project_site_url_candidates"]
+        if str(item) and str(item) not in confirmed_project_site_urls
     ])
     project["resolved_nsids"] = _unique([str(item) for item in project["resolved_nsids"] if str(item)])
     project["authority_domains"] = _unique([

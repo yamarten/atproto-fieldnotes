@@ -29,7 +29,7 @@ const filterOptionFallbacks = {
   tracking_states: ["active", "archived", "ignore", "out_of_scope", "stable", "stalled"],
   service_statuses: ["beta", "dead", "invite_only", "live", "none", "private", "unknown", "unreleased", "unverified"],
   contribution_levels: ["auth_only", "core", "optional", "substantial", "unknown"],
-  identifier_kinds: ["account", "did", "domain", "handle", "nsid", "repo_url", "service_url"],
+  identifier_kinds: ["account", "did", "domain", "handle", "nsid", "repo_url", "service_url", "site_url"],
   identifier_classifications: ["candidate", "confirmed", "derived", "heuristic"],
   relation_predicates: ["defines_schema", "mentions_collection", "official_account", "operates_service", "redirects_to", "requests_permission", "source_repository", "uses_collection"],
   relation_subject_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
@@ -796,6 +796,7 @@ function renderDetail(data) {
 }
 
 const identifierFamilies = [
+  {key: "site", label: "Project sites"},
   {key: "service", label: "Services"},
   {key: "repository", label: "Repositories"},
   {key: "schema", label: "NSIDs"},
@@ -818,7 +819,7 @@ function pdslsIdentityUrl(value) {
 function identifierValueLink(item) {
   const kinds = list(item.kinds);
   const value = String(item.value || "").trim();
-  if (kinds.some((kind) => ["service_url", "repo_url"].includes(kind))) return link(value);
+  if (kinds.some((kind) => ["site_url", "service_url", "repo_url"].includes(kind))) return link(value);
   if (kinds.some((kind) => ["account", "did", "handle"].includes(kind))) {
     const href = pdslsIdentityUrl(value);
     return href ? externalLink(href, value) : esc(value);

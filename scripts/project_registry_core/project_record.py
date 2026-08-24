@@ -169,6 +169,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "summary_candidates",
         "tagline_candidates",
         "service_urls",
+        "project_site_urls",
+        "project_site_url_candidates",
         "resource_url_records",
         "service_url_candidates",
         "failed_service_urls",
@@ -727,6 +729,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "external_lexicons": [],
         "website_url": "",
         "service_urls": [],
+        "project_site_urls": [],
+        "project_site_url_candidates": [],
         "resource_url_records": [],
         "service_url_candidates": [],
         "failed_service_urls": [],
@@ -1542,6 +1546,17 @@ def save_project(
     project["external_lexicons"] = unique_list(project.get("external_lexicons", []) + compute_external_lexicons(project))
     set_service_url_candidate_values(project, service_url_candidate_values(project))
     project["service_urls"] = unique_list(project.get("service_urls", []))
+    project["project_site_urls"] = unique_list([
+        identifier_core.normalize_url(str(item))
+        for item in project.get("project_site_urls", [])
+        if identifier_core.normalize_url(str(item))
+    ])
+    confirmed_project_sites = set(project["project_site_urls"])
+    project["project_site_url_candidates"] = unique_list([
+        identifier_core.normalize_url(str(item))
+        for item in project.get("project_site_url_candidates", [])
+        if identifier_core.normalize_url(str(item)) not in confirmed_project_sites
+    ])
     sync_resource_url_records(project)
     project["failed_service_urls"] = unique_list(project.get("failed_service_urls", []))
     project["supported_service_urls"] = unique_list([identifier_core.normalize_url(str(item)) for item in project.get("supported_service_urls", []) if identifier_core.normalize_url(str(item))])
@@ -2075,6 +2090,17 @@ def normalize_website_and_service_urls(project: dict[str, Any]) -> None:
     if project.get("website_url") and is_bluesky_profile_url(str(project["website_url"])):
         record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
+    project["project_site_urls"] = unique_list([
+        identifier_core.normalize_url(str(item))
+        for item in project.get("project_site_urls", [])
+        if identifier_core.normalize_url(str(item))
+    ])
+    confirmed_project_sites = set(project["project_site_urls"])
+    project["project_site_url_candidates"] = unique_list([
+        identifier_core.normalize_url(str(item))
+        for item in project.get("project_site_url_candidates", [])
+        if identifier_core.normalize_url(str(item)) not in confirmed_project_sites
+    ])
     set_service_url_candidate_values(project, service_url_candidate_values(project))
     project["website_url"] = (
         identifier_core.normalize_url(str(project.get("website_url") or ""))

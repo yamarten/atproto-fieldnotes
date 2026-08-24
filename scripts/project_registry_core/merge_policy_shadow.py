@@ -30,6 +30,7 @@ VERDICTS = (
 
 COMPONENT_ROLES = {
     "service",
+    "project_site",
     "source_repository",
     "owned_nsid",
     "project_account",

@@ -7,7 +7,8 @@ from argparse import Namespace
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import cli, project_site_materialization, project_site_shadow
+from project_registry_core import cli, database, project_record, project_site_materialization, project_site_shadow, registry
+from project_registry_core.application import presentation
 from project_registry_core.commands import maintenance
 
 
@@ -48,6 +49,19 @@ class ProjectSiteShadowUnitTest(unittest.TestCase):
             "confirmed_project_sites": {"https://docs.example.org"},
         })
         self.assertEqual(result["disposition"], "REUSE_CONFIRMED_PROJECT_SITE")
+
+    def test_merge_preserves_confirmed_and_candidate_project_sites(self) -> None:
+        target = project_record.default_project_record("proj:target", "nsid", "app.target.post")
+        source = project_record.default_project_record("proj:source", "nsid", "app.source.post")
+        target["project_site_urls"] = ["https://target.example"]
+        source["project_site_urls"] = ["https://source.example"]
+        source["project_site_url_candidates"] = ["https://candidate.example"]
+        merged = registry.merge_project_records(target, source)
+        self.assertEqual(
+            merged["project_site_urls"],
+            ["https://target.example", "https://source.example"],
+        )
+        self.assertEqual(merged["project_site_url_candidates"], ["https://candidate.example"])
 
     def test_account_profile_is_not_project_site_candidate(self) -> None:
         result = project_site_shadow.evaluate_empty_website_candidate({
@@ -238,6 +252,26 @@ class ProjectSiteShadowDatabaseTest(TempRegistryDbTestCase):
             ).fetchone()[0], 1)
         finally:
             shadow.close()
+
+        runtime = database.open_database(target, create=False)
+        try:
+            project = project_record.fetch_project(runtime, "proj:site")
+            self.assertIsNotNone(project)
+            assert project is not None
+            self.assertEqual(project["project_site_urls"], ["https://docs.site.example.org"])
+            project_record.save_project(runtime, project)
+            runtime.commit()
+            self.assertEqual(runtime.execute(
+                "SELECT COUNT(*) FROM project_identifier_adoptions WHERE project_key='proj:site' "
+                "AND kind='site_url' AND role='project_site' AND cleared_at=''"
+            ).fetchone()[0], 1)
+            detail = presentation.project_detail(runtime, project_key="proj:site")
+            site_group = next(item for item in detail["identifiers"] if item["family"] == "site")
+            self.assertEqual(site_group["value"], "https://docs.site.example.org")
+            self.assertEqual(site_group["role_labels"], ["project site"])
+            self.assertEqual(detail["overview"]["project_sites"], ["https://docs.site.example.org"])
+        finally:
+            runtime.close()
 
 
 if __name__ == "__main__":

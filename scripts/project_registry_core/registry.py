@@ -1238,6 +1238,8 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "service_status_evidence",
         "service_urls",
         "service_url_candidates",
+        "project_site_urls",
+        "project_site_url_candidates",
         "failed_service_urls",
         "source_code_urls",
         "candidate_source_code_urls",
@@ -10037,6 +10039,13 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["website_url"] = choose_editorial_scalar(merged.get("website_url"), source.get("website_url"), prefer_incoming=prefer_source_editorial)
     project_record.set_service_url_candidate_values(merged, project_record.service_url_candidate_values(merged) + project_record.service_url_candidate_values(source))
     merged["service_urls"] = project_record.unique_list(list(merged.get("service_urls", [])) + list(source.get("service_urls", [])))
+    merged["project_site_urls"] = project_record.unique_list(
+        list(merged.get("project_site_urls", [])) + list(source.get("project_site_urls", []))
+    )
+    merged["project_site_url_candidates"] = project_record.unique_list(
+        list(merged.get("project_site_url_candidates", []))
+        + list(source.get("project_site_url_candidates", []))
+    )
     merged["resource_url_records"] = project_record.normalize_resource_url_records(
         list(project_record.resource_url_record_values(merged)) + list(project_record.resource_url_record_values(source))
     )

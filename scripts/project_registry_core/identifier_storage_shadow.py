@@ -14,6 +14,7 @@ NONCURRENT_STANDINGS = {"former", "non_production"}
 ADOPTION_KINDS = {"operator", "bootstrap", "trust_policy"}
 COMPONENT_ROLES = {
     "service",
+    "project_site",
     "source_repository",
     "owned_nsid",
     "project_account",
@@ -22,6 +23,7 @@ COMPONENT_ROLES = {
 }
 OBSERVATION_ONLY_ROLES = {"source_repository_record", "authority_domain"}
 TARGET_KIND = {
+    "site_url": "site_url",
     "service_url": "service_url",
     "repo_url": "repo_url",
     "nsid": "nsid",

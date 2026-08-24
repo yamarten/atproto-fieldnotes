@@ -8,6 +8,7 @@ from typing import Any
 
 COMPONENT_ROLES = frozenset({
     "service",
+    "project_site",
     "source_repository",
     "owned_nsid",
     "project_account",
@@ -17,6 +18,8 @@ COMPONENT_ROLES = frozenset({
 TARGET_KIND = {
     "service": "service_url",
     "service_url": "service_url",
+    "site": "site_url",
+    "site_url": "site_url",
     "repo": "repo_url",
     "repo_url": "repo_url",
     "collection": "nsid",
