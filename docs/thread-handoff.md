@@ -21,7 +21,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub Searchの`homepage_exact`、`site_url` / `project_site`、`project_repository`のproduction保存契約と正本DB移行は完了しています。次は旧page→repo relationから抽出したcanonical 499 claimをbounded再収集し、静的に確定できるrelation、candidate、除外、取得不能へ分類して`project_repository` relationを再生成します。初期段階ではLLM自動昇格を接続しません。
+- GitHub Searchの`homepage_exact`、`site_url` / `project_site`、`project_repository`のproduction保存契約と正本DB移行は完了しています。旧page→repo 499 claimのbounded再収集もread-onlyで完了し、exact confirmed component起点だけに絞るとcanonical confirmed relation 46、既存candidate支持5、未登録repository候補15となりました。次はこのcomponent境界と15候補をreviewし、合意後にだけrelation・candidate identifierのmaterializerを作ります。review 333、現在未観測104、取得失敗7は初期適用へ含めず、LLM自動昇格も接続しません。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。

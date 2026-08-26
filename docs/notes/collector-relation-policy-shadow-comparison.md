@@ -481,3 +481,26 @@ GitHubではURLの大文字小文字だけが異なる同一resourceが9 project
 既存DBにはこの局所DOM contextがないため、過去rowへ推測で補完しません。production接続時はcurrent pageを再収集し、確定できないものだけreviewへ残します。ここまでの変更はread-only shadow module、比較command、fixtureだけであり、collector保存、relation、identifier、正本DBは変更していません。
 
 完全reportは`.tmp/collector-relation-promotion-audit-v3-20260824.json`、content hashは`246e2d721edf36bc0ffea6f4463c0d34556cabee5446809a4bb9a010c50a7d31`です。これはread-only shadow比較であり、relation、identifier、trust edge、正本DB、production collectorを変更していません。
+
+## 旧page relationのbounded再収集
+
+正本DBのrole移行後も旧relationを一括改名せず再評価できるよう、移行前backupからcanonical claimを読み、現在DBの構成要素とrepository classificationを照合して公開ページだけを再取得するread-only commandを追加しました。二つのSQLite入力は`mode=ro`と`PRAGMA query_only=ON`のtransactionで開き、JSON report以外へは書き込みません。
+
+```sh
+bin/project-registry compare-project-repository-recollection \
+  --legacy-db-path data/backups/project-repository-20260825T022442+0900/survey.db \
+  --db-path data/survey.db \
+  --output .tmp/project-repository-recollection-v7-20260826.json \
+  --page-limit 1000 \
+  --timeout 10 \
+  --concurrency 6 \
+  --retries 2
+```
+
+入力は旧first-party link 529行をresource identityでまとめた499 claim、273 page、234 projectです。現在のpage standingはconfirmed componentと完全一致66、同じcomponent配下26、component外407でした。repositoryは現在confirmed 79、candidate 22、未登録398です。
+
+リンク表示だけを評価すると強く見えるclaimが多数ありますが、project scopedな`project_repository`へ確定するには、取得ページ自体が対象projectのconfirmed componentである必要があります。component外のTangled共通ページからTangled本体repoを指す例や、at-storeの商品ページからLeaflet repoを指す例が実際にありました。同じhostやcomponent配下だけではtenant、商品、投稿等の別projectを排除できないため、自動確定はcomponent URLそのものからの直接linkに限定します。配下docsを起点にしたい場合は、そのdocs rootを`project_site`として採用してから評価します。
+
+2026-08-26の最終snapshotでは、確定claim 46、canonical confirmed relation 46、review 333、外部参照として除外9、現在未観測104、取得失敗7でした。確定relationが支持するrepositoryは現在confirmed 26、candidate 5、未登録15です。既存identifierのclassificationは変更せず、LLM自動昇格も使っていません。公開ページの一時失敗により直前実行との間で確定45〜46、取得失敗6〜9の揺れがありましたが、新規候補15件とcomponent境界の結論は同じでした。
+
+最終reportは`.tmp/project-repository-recollection-v7-20260826.json`、content hashは`8f41485c26606c60eb7b855ef59734afc899038643eb064072eca527191139ba`です。次の設計ゲートは、exact componentだけを自動確定起点とする方針と、新規identifier候補15件のsample reviewです。合意後にだけconfirmed relationとcandidate identifierのmaterializerを作り、review、未観測、取得失敗は保存変更から外します。
