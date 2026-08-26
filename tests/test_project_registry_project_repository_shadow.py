@@ -63,6 +63,21 @@ class ProjectRepositoryShadowUnitTest(unittest.TestCase):
         self.assertEqual(args.example_limit, 7)
         self.assertIsNone(args.materialized_db)
 
+    def test_cli_exposes_bounded_recollection_inputs(self) -> None:
+        args = cli.build_parser().parse_args([
+            "compare-project-repository-recollection",
+            "--legacy-db-path", "legacy.db",
+            "--db-path", "current.db",
+            "--output", "report.json",
+            "--page-limit", "25",
+            "--concurrency", "4",
+        ])
+        self.assertEqual(args.legacy_db_path, "legacy.db")
+        self.assertEqual(args.db_path, "current.db")
+        self.assertEqual(args.page_limit, 25)
+        self.assertEqual(args.concurrency, 4)
+        self.assertEqual(args.retries, 1)
+
 
 class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
     def setUp(self) -> None:
@@ -167,6 +182,21 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
             "RECOLLECT_FIRST_PARTY_CONTEXT": 1,
         })
         self.assertTrue(first["review_gate"]["ready_for_user_review"])
+
+    def test_recollection_claims_are_canonical_and_annotated_from_current_state(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            claims = project_repository_shadow.legacy_first_party_recollection_claims(conn)
+            annotated = project_repository_shadow.annotate_recollection_claims(conn, claims)
+        finally:
+            conn.close()
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["repository_url"], "https://github.com/example/repo")
+        self.assertEqual(claims[0]["legacy_row_count"], 1)
+        self.assertEqual(annotated[0]["page_standing"], "exact_current_component")
+        self.assertEqual(annotated[0]["component_url"], "https://example.org")
+        self.assertEqual(annotated[0]["repository_classification"], "absent")
 
     def test_materialized_copy_renames_roles_deduplicates_and_drops_legacy_relations(self) -> None:
         before = self.db_path.read_bytes()

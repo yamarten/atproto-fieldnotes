@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import collections
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -217,6 +219,151 @@ def cmd_compare_project_repository_context(args: argparse.Namespace) -> int:
         "output": str(output),
         "selected_page_count": comparison["selected_page_count"],
         "proposal_match_counts": comparison["proposal_match_counts"],
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_compare_project_repository_recollection(args: argparse.Namespace) -> int:
+    output = Path(args.output).expanduser()
+    legacy_db_path = Path(args.legacy_db_path).expanduser()
+    current_db_path = Path(args.db_path).expanduser()
+    if output.resolve() in {legacy_db_path.resolve(), current_db_path.resolve()}:
+        raise ValueError("--output must not overwrite either database input")
+    claims = project_repository_shadow.recollection_claims_path(
+        legacy_db_path,
+        current_db_path,
+    )
+    proposals = [
+        {**claim, "promotion_disposition": "RECOLLECT_PRESENTATION"}
+        for claim in claims
+    ]
+
+    def fetch_with_retries(url: str):
+        attempts = max(1, int(args.retries) + 1)
+        last_result = None
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                last_result = core.probe_service_url(url, timeout=float(args.timeout))
+            except Exception as exc:
+                last_error = exc
+                continue
+            if not isinstance(last_result, dict):
+                return last_result
+            if str(last_result.get("html") or "") or not str(last_result.get("fetch_error") or ""):
+                return {**last_result, "fetch_attempt_count": attempt}
+        if last_result is None and last_error is not None:
+            raise last_error
+        return {**dict(last_result or {}), "fetch_attempt_count": attempts}
+
+    comparison = collector_relation_shadow.compare_current_project_repository_pages(
+        proposals,
+        fetch_page=fetch_with_retries,
+        page_limit=int(args.page_limit),
+        concurrency=int(args.concurrency),
+    )
+    page_standing_counts = collections.Counter(
+        str(claim.get("page_standing") or "") for claim in claims
+    )
+    repository_classification_counts = collections.Counter(
+        str(claim.get("repository_classification") or "") for claim in claims
+    )
+    verdict_counts = dict(comparison["proposal_match_counts"])
+    matches = [
+        match
+        for page in comparison["pages"]
+        for match in list(page.get("matches") or [])
+    ]
+    confirmed_matches = [
+        match for match in matches
+        if str(match.get("policy_disposition") or match.get("current_disposition") or "")
+        == "CONFIRM_PROJECT_REPOSITORY"
+    ]
+    confirmed_relation_keys = {
+        (
+            str(match.get("project_key") or ""),
+            str(match.get("component_url") or ""),
+            str(match.get("repository_identity") or ""),
+        )
+        for match in confirmed_matches
+    }
+    confirmed_repository_keys = {
+        (
+            str(match.get("project_key") or ""),
+            str(match.get("repository_identity") or ""),
+        )
+        for match in confirmed_matches
+    }
+    repository_standing_by_key = {
+        (
+            str(match.get("project_key") or ""),
+            str(match.get("repository_identity") or ""),
+        ): str(match.get("repository_classification") or "")
+        for match in confirmed_matches
+    }
+    report = {
+        "schema_version": 1,
+        "policy": "project-repository-bounded-recollection-v1",
+        "legacy_database": str(legacy_db_path.resolve()),
+        "current_database": str(current_db_path.resolve()),
+        "database_inputs_read_only": True,
+        "collector_or_database_writes": False,
+        "input": {
+            "canonical_claim_count": len(claims),
+            "distinct_page_count": len({str(claim.get("page_url") or "") for claim in claims}),
+            "project_count": len({str(claim.get("project_key") or "") for claim in claims}),
+            "page_standing_counts": {
+                key: int(page_standing_counts[key]) for key in sorted(page_standing_counts)
+            },
+            "repository_classification_counts": {
+                key: int(repository_classification_counts[key])
+                for key in sorted(repository_classification_counts)
+            },
+        },
+        "projection": {
+            "confirmed_claim_count": int(verdict_counts.get("CONFIRM_PROJECT_REPOSITORY", 0)),
+            "canonical_confirmed_relation_count": len(confirmed_relation_keys),
+            "review_claim_count": int(verdict_counts.get("REVIEW_PROJECT_REPOSITORY", 0)),
+            "excluded_claim_count": int(verdict_counts.get("DO_NOT_PROMOTE", 0)),
+            "not_observed_count": int(verdict_counts.get("NOT_OBSERVED_CURRENTLY", 0)),
+            "fetch_failed_count": int(verdict_counts.get("FETCH_FAILED", 0)),
+            "unregistered_identifier_candidate_count": sum(
+                repository_standing_by_key[key] == "absent"
+                for key in confirmed_repository_keys
+            ),
+            "existing_candidate_supported_count": sum(
+                repository_standing_by_key[key] == "candidate"
+                for key in confirmed_repository_keys
+            ),
+            "existing_confirmed_relation_count": sum(
+                repository_standing_by_key[key] == "confirmed"
+                for key in confirmed_repository_keys
+            ),
+            "nonexact_component_raw_strong_count": sum(
+                str(match.get("current_disposition") or "") == "CONFIRM_PROJECT_REPOSITORY"
+                and str(match.get("policy_disposition") or "") == "REVIEW_PROJECT_REPOSITORY"
+                for match in matches
+            ),
+            "identifier_classification_changed": False,
+            "llm_auto_promotion_used": False,
+        },
+        **comparison,
+    }
+    canonical = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    report["content_hash"] = hashlib.sha256(canonical.encode()).hexdigest()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "input": report["input"],
+        "selected_page_count": comparison["selected_page_count"],
+        "proposal_match_counts": comparison["proposal_match_counts"],
+        "projection": report["projection"],
+        "elapsed_seconds": comparison["elapsed_seconds"],
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

@@ -122,6 +122,153 @@ def _collected_pages_by_project(conn: sqlite3.Connection) -> dict[str, set[str]]
     return output
 
 
+def legacy_first_party_recollection_claims(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return canonical page-to-repository claims from the pre-migration relation table."""
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = collections.defaultdict(list)
+    for row in conn.execute(
+        """
+        SELECT r.project_key, p.name AS project_name, r.subject_type, r.subject_value,
+               r.object_value, r.classification, r.source, r.locator
+        FROM project_relations AS r
+        LEFT JOIN projects AS p ON p.project_key = r.project_key
+        WHERE r.predicate='source_repository' AND r.method='first_party_link'
+        ORDER BY r.project_key, r.ordinal
+        """
+    ):
+        evaluation = evaluate_relation_row({
+            **dict(row),
+            "object_type": "repo",
+            "method": "first_party_link",
+        })
+        if evaluation["disposition"] != "RECOLLECT_FIRST_PARTY_CONTEXT":
+            continue
+        page_url = identifiers.normalize_url(str(row["subject_value"] or ""))
+        repository_url = str(evaluation["canonical_repository"] or "")
+        if not page_url or not repository_url:
+            continue
+        grouped[(
+            str(row["project_key"]),
+            page_url,
+            repo_urls.repo_identity_key(repository_url),
+        )].append({
+            "project_name": str(row["project_name"] or ""),
+            "subject_type": str(row["subject_type"] or ""),
+            "repository_url": repository_url,
+            "classification": str(row["classification"] or ""),
+            "source": str(row["source"] or ""),
+            "locator": str(row["locator"] or ""),
+        })
+
+    claims: list[dict[str, Any]] = []
+    for (project_key, page_url, repository_identity), rows in sorted(grouped.items()):
+        claims.append({
+            "project_key": project_key,
+            "project_name": str(rows[0]["project_name"]),
+            "project_url": _project_url(project_key),
+            "page_url": page_url,
+            "subject_types": sorted({str(row["subject_type"]) for row in rows}),
+            "repository_url": str(rows[0]["repository_url"]),
+            "repository_identity": repository_identity,
+            "legacy_row_count": len(rows),
+            "legacy_classifications": sorted({str(row["classification"]) for row in rows}),
+            "legacy_sources": sorted({str(row["source"]) for row in rows if row["source"]}),
+            "legacy_locators": sorted({str(row["locator"]) for row in rows if row["locator"]}),
+        })
+    return claims
+
+
+def annotate_recollection_claims(
+    conn: sqlite3.Connection,
+    claims: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Annotate legacy claims with current project, component, and repository standing."""
+    projects = {
+        str(row["project_key"]): str(row["name"] or "")
+        for row in conn.execute("SELECT project_key, name FROM projects")
+    }
+    components: dict[str, set[str]] = collections.defaultdict(set)
+    repositories: dict[tuple[str, str], str] = {}
+    for row in conn.execute(
+        """
+        SELECT project_key, kind, value, role, classification
+        FROM project_identifiers
+        WHERE (classification='confirmed' AND
+               ((kind='service_url' AND role='service') OR
+                (kind='site_url' AND role='project_site')))
+           OR (kind='repo_url' AND role='project_repository')
+        """
+    ):
+        project_key = str(row["project_key"])
+        if str(row["kind"]) in {"service_url", "site_url"}:
+            components[project_key].add(identifiers.normalize_url(str(row["value"])))
+            continue
+        key = (project_key, repo_urls.repo_identity_key(str(row["value"])))
+        classification = str(row["classification"])
+        previous = repositories.get(key, "")
+        if _classification_rank(classification) > _classification_rank(previous):
+            repositories[key] = classification
+
+    output: list[dict[str, Any]] = []
+    for source in claims:
+        claim = dict(source)
+        project_key = str(claim.get("project_key") or "")
+        page_url = identifiers.normalize_url(str(claim.get("page_url") or ""))
+        current_components = components.get(project_key, set())
+        component_url = ""
+        if project_key not in projects:
+            page_standing = "project_missing"
+        elif page_url in current_components:
+            page_standing = "exact_current_component"
+            component_url = page_url
+        elif matching_components := [
+            value for value in current_components
+            if _is_same_or_descendant_page(page_url, value)
+        ]:
+            page_standing = "below_current_component"
+            component_url = max(matching_components, key=len)
+        else:
+            page_standing = "outside_current_component"
+        repository_classification = repositories.get(
+            (project_key, str(claim.get("repository_identity") or "")),
+            "absent",
+        )
+        claim.update({
+            "project_name": projects.get(project_key, str(claim.get("project_name") or "")),
+            "current_project_exists": project_key in projects,
+            "page_standing": page_standing,
+            "component_url": component_url,
+            "repository_classification": repository_classification,
+        })
+        output.append(claim)
+    return output
+
+
+def recollection_claims_path(
+    legacy_db_path: Path,
+    current_db_path: Path,
+) -> list[dict[str, Any]]:
+    legacy_target = legacy_db_path.expanduser().resolve()
+    current_target = current_db_path.expanduser().resolve()
+    if not legacy_target.is_file():
+        raise FileNotFoundError(f"legacy database does not exist: {legacy_target}")
+    if not current_target.is_file():
+        raise FileNotFoundError(f"current database does not exist: {current_target}")
+    legacy_conn = sqlite3.connect(f"{legacy_target.as_uri()}?mode=ro", uri=True)
+    current_conn = sqlite3.connect(f"{current_target.as_uri()}?mode=ro", uri=True)
+    legacy_conn.row_factory = sqlite3.Row
+    current_conn.row_factory = sqlite3.Row
+    try:
+        legacy_conn.execute("PRAGMA query_only = ON")
+        current_conn.execute("PRAGMA query_only = ON")
+        legacy_conn.execute("BEGIN")
+        current_conn.execute("BEGIN")
+        claims = legacy_first_party_recollection_claims(legacy_conn)
+        return annotate_recollection_claims(current_conn, claims)
+    finally:
+        current_conn.close()
+        legacy_conn.close()
+
+
 def _role_projection(rows: list[sqlite3.Row]) -> dict[str, Any]:
     groups: dict[tuple[str, str, str], list[sqlite3.Row]] = collections.defaultdict(list)
     classification_counts: collections.Counter[str] = collections.Counter()

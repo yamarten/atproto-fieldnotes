@@ -453,6 +453,35 @@ def build_parser() -> argparse.ArgumentParser:
         func=maintenance_commands.cmd_compare_project_repository_context
     )
 
+    compare_project_repository_recollection_parser = subparsers.add_parser(
+        "compare-project-repository-recollection",
+        help="Recollect pre-migration page/repository claims against current pages without database writes.",
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--legacy-db-path", required=True, help="Pre-migration registry database opened read-only."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--db-path", required=True, help="Current registry database opened read-only."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--output", required=True, help="Structured bounded recollection report JSON path."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--page-limit", type=int, default=10, help="Maximum distinct current pages to fetch. Default: 10."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--timeout", type=float, default=10.0, help="Per-page fetch timeout in seconds. Default: 10."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--concurrency", type=int, default=6, help="Maximum concurrent page fetches. Default: 6."
+    )
+    compare_project_repository_recollection_parser.add_argument(
+        "--retries", type=int, default=1, help="Retries after an empty fetch failure. Default: 1."
+    )
+    compare_project_repository_recollection_parser.set_defaults(
+        func=maintenance_commands.cmd_compare_project_repository_recollection
+    )
+
     compare_project_repository_migration_parser = subparsers.add_parser(
         "compare-project-repository-migration",
         help="Compare migration from the legacy source repository role to project_repository without changing the database.",

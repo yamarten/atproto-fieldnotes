@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import concurrent.futures
 import datetime as dt
 import hashlib
 import json
@@ -391,6 +392,7 @@ def compare_current_project_repository_pages(
     *,
     fetch_page: Any,
     page_limit: int,
+    concurrency: int = 1,
 ) -> dict[str, Any]:
     """Recollect current pages for a bounded, read-only shadow comparison."""
     started = time.perf_counter()
@@ -402,12 +404,16 @@ def compare_current_project_repository_pages(
         "NOT_EVALUATED": 4,
     }
     selected = sorted(
-        [dict(item) for item in proposals if str(item.get("service_url") or "")],
+        [
+            {**dict(item), "service_url": str(item.get("page_url") or item.get("service_url") or "")}
+            for item in proposals
+            if str(item.get("page_url") or item.get("service_url") or "")
+        ],
         key=lambda item: (
             priority.get(str(item.get("promotion_disposition") or ""), 9),
             str(item.get("project_key") or ""),
             str(item.get("service_url") or ""),
-            str(item.get("repo_url") or ""),
+            str(item.get("repo_url") or item.get("repository_url") or ""),
         ),
     )
     grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -415,22 +421,47 @@ def compare_current_project_repository_pages(
         grouped[identifiers.normalize_url(str(item["service_url"]))].append(item)
     urls = list(grouped)[:max(0, int(page_limit))]
     match_counts: collections.Counter[str] = collections.Counter()
-    pages: list[dict[str, Any]] = []
-    for service_url in urls:
+    passthrough_keys = (
+        "project_url",
+        "page_standing",
+        "component_url",
+        "repository_classification",
+        "current_project_exists",
+        "legacy_row_count",
+        "legacy_classifications",
+        "legacy_sources",
+        "legacy_locators",
+        "repository_identity",
+    )
+
+    def compare_page(service_url: str) -> dict[str, Any]:
         page_started = time.perf_counter()
         try:
             fetched = fetch_page(service_url)
         except Exception as exc:
-            pages.append({
+            return {
+                "page_url": service_url,
                 "service_url": service_url,
                 "fetch_error": type(exc).__name__,
                 "proposal_count": len(grouped[service_url]),
+                "proposal_match_counts": {"FETCH_FAILED": len(grouped[service_url])},
                 "elapsed_seconds": round(time.perf_counter() - page_started, 3),
-            })
-            match_counts["FETCH_FAILED"] += len(grouped[service_url])
-            continue
+            }
         html = str(fetched.get("html") or "") if isinstance(fetched, dict) else str(fetched or "")
         final_url = identifiers.normalize_url(str(fetched.get("final_url") or "")) if isinstance(fetched, dict) else ""
+        fetch_error = str(fetched.get("fetch_error") or "") if isinstance(fetched, dict) else ""
+        if fetch_error and not html:
+            return {
+                "page_url": service_url,
+                "service_url": service_url,
+                "final_url": final_url,
+                "status_code": int(fetched.get("status_code") or 0),
+                "fetch_error": fetch_error,
+                "fetch_attempt_count": int(fetched.get("fetch_attempt_count") or 1),
+                "proposal_count": len(grouped[service_url]),
+                "proposal_match_counts": {"FETCH_FAILED": len(grouped[service_url])},
+                "elapsed_seconds": round(time.perf_counter() - page_started, 3),
+            }
         redirected_repository = (
             repo_urls.canonical_repo_url(final_url)
             if final_url and repo_urls.is_supported_repo_url(final_url)
@@ -438,8 +469,10 @@ def compare_current_project_repository_pages(
         )
         comparison = (
             {
+                "repository_link_count": 1,
                 "repository_pair_count": 1,
                 "pair_disposition_counts": {"CONFIRM_PROJECT_REPOSITORY": 1},
+                "rows": [],
                 "pairs": [{
                     "repository_url": redirected_repository,
                     "disposition": "CONFIRM_PROJECT_REPOSITORY",
@@ -453,37 +486,68 @@ def compare_current_project_repository_pages(
         )
         pair_index = {str(item.get("repository_identity") or repo_urls.repo_identity_key(str(item["repository_url"]))): item for item in comparison["pairs"]}
         matches: list[dict[str, Any]] = []
+        page_match_counts: collections.Counter[str] = collections.Counter()
         for proposal in grouped[service_url]:
-            repo_url = repo_urls.canonical_repo_url(str(proposal.get("repo_url") or ""))
+            repo_url = repo_urls.canonical_repo_url(
+                str(proposal.get("repo_url") or proposal.get("repository_url") or "")
+            )
             pair = pair_index.get(repo_urls.repo_identity_key(repo_url))
             disposition = str(pair.get("disposition")) if pair else "NOT_OBSERVED_CURRENTLY"
-            match_counts[disposition] += 1
-            matches.append({
+            policy_disposition = disposition
+            policy_reasons: list[str] = []
+            page_standing = str(proposal.get("page_standing") or "")
+            if disposition == "CONFIRM_PROJECT_REPOSITORY" and page_standing and page_standing != "exact_current_component":
+                policy_disposition = "REVIEW_PROJECT_REPOSITORY"
+                policy_reasons.append("page_is_not_the_exact_current_project_component")
+            page_match_counts[policy_disposition] += 1
+            match = {
                 "project_key": str(proposal.get("project_key") or ""),
                 "project_name": str(proposal.get("project_name") or ""),
+                "page_url": service_url,
                 "repository_url": repo_url,
                 "previous_disposition": str(proposal.get("promotion_disposition") or ""),
                 "current_disposition": disposition,
+                "policy_disposition": policy_disposition,
+                "policy_reasons": policy_reasons,
                 "observation_count": int(pair.get("observation_count") or 0) if pair else 0,
                 "reasons": list(pair.get("reasons") or []) if pair else [],
-            })
-        pages.append({
+            }
+            for key in passthrough_keys:
+                if key in proposal:
+                    match[key] = proposal[key]
+            matches.append(match)
+        return {
+            "page_url": service_url,
             "service_url": service_url,
             "final_url": final_url,
             "status_code": int(fetched.get("status_code") or 0) if isinstance(fetched, dict) else 0,
-            "fetch_error": str(fetched.get("fetch_error") or "") if isinstance(fetched, dict) else "",
+            "fetch_error": fetch_error,
+            "fetch_attempt_count": int(fetched.get("fetch_attempt_count") or 1) if isinstance(fetched, dict) else 1,
             "proposal_count": len(matches),
+            "proposal_match_counts": _counter(page_match_counts),
             "matches": matches,
             "repository_pair_count": comparison["repository_pair_count"],
             "pair_disposition_counts": comparison["pair_disposition_counts"],
             "pairs": comparison["pairs"],
+            "bounded_observations": list(comparison.get("rows") or []),
             "elapsed_seconds": round(time.perf_counter() - page_started, 3),
-        })
+        }
+
+    worker_count = max(1, int(concurrency))
+    if worker_count == 1:
+        pages = [compare_page(url) for url in urls]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            pages = list(executor.map(compare_page, urls))
+    for page in pages:
+        for disposition, count in dict(page.get("proposal_match_counts") or {}).items():
+            match_counts[str(disposition)] += int(count)
     return {
         "input_proposal_count": len(proposals),
         "available_page_count": len(grouped),
         "selected_page_count": len(urls),
         "page_limit": int(page_limit),
+        "concurrency": worker_count,
         "proposal_match_counts": _counter(match_counts),
         "pages": pages,
         "elapsed_seconds": round(time.perf_counter() - started, 3),

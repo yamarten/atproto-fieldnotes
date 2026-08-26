@@ -236,6 +236,46 @@ class RepositoryLinkContextTest(unittest.TestCase):
         self.assertEqual(match["current_disposition"], "CONFIRM_PROJECT_REPOSITORY")
         self.assertEqual(match["reasons"], ["subject_redirects_to_repository"])
 
+    def test_recollection_accepts_page_url_and_separates_fetch_failure(self) -> None:
+        report = collector_relation_shadow.compare_current_project_repository_pages(
+            [{
+                "project_key": "proj:test",
+                "page_url": "https://docs.example",
+                "repository_url": "https://github.com/example/project",
+                "page_standing": "outside_current_component",
+            }],
+            fetch_page=lambda _url: {"fetch_error": "timeout"},
+            page_limit=10,
+            concurrency=2,
+        )
+        self.assertEqual(report["proposal_match_counts"], {"FETCH_FAILED": 1})
+        self.assertEqual(report["pages"][0]["page_url"], "https://docs.example")
+        self.assertEqual(report["pages"][0]["proposal_match_counts"], {"FETCH_FAILED": 1})
+
+    def test_strong_link_requires_the_exact_current_component(self) -> None:
+        for standing in ("below_current_component", "outside_current_component"):
+            with self.subTest(standing=standing):
+                report = collector_relation_shadow.compare_current_project_repository_pages(
+                    [{
+                        "project_key": "proj:test",
+                        "page_url": "https://shared-host.example/item",
+                        "repository_url": "https://github.com/platform/core",
+                        "page_standing": standing,
+                    }],
+                    fetch_page=lambda _url: {
+                        "html": '<a href="https://github.com/platform/core">Source code</a>',
+                    },
+                    page_limit=10,
+                )
+                match = report["pages"][0]["matches"][0]
+                self.assertEqual(match["current_disposition"], "CONFIRM_PROJECT_REPOSITORY")
+                self.assertEqual(match["policy_disposition"], "REVIEW_PROJECT_REPOSITORY")
+                self.assertEqual(
+                    match["policy_reasons"],
+                    ["page_is_not_the_exact_current_project_component"],
+                )
+                self.assertEqual(report["proposal_match_counts"], {"REVIEW_PROJECT_REPOSITORY": 1})
+
 
 if __name__ == "__main__":
     unittest.main()
