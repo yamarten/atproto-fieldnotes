@@ -514,3 +514,42 @@ shadow作成時点ではenrichが正本DBを更新中でした。対象project�
 2026-08-27の正本適用では、実行中enrichへ協調的な停止要求を送り、687 / 2897件のproject境界でcheckpointを保存してからWeb serviceを停止しました。停止後の最新DBからshadowを作り直して14件以外の差分がないことを確認し、切替前DBを`data/backups/project-repository-review-20260827T204144+0900/survey.db`へ保存しました。backupのSHA-256は`fa446d9e7e898005f13b9001bf144343a4e420ae2128f2b04695beb497173dc1`です。
 
 最終materialization reportは`.tmp/project-repository-review-final-20260827.json`、content hashは`1a346b011486739d700ce17d025ecded005554d1398dc750e8c9e06ffbbeb907`です。切替後DBはrelation、identifier、decision、operator adoption各14件、project数4,598不変、foreign key違反0、SQLite integrity `ok`で、aTIProtoへのskytip-simple登録は0件です。Web APIでMatadiscoの新repositoryがconfirmed `project_repository`として表示されることも確認しました。Web再起動時にscheduleが新規enrichを19件まで開始したため協調停止し、687件まで完了していた元run `enrich-20260827T060057Z-68598db3`を再開しました。元runが689 / 2897件から進行し、二重実行がないことを確認済みです。
+
+## 未確定relationの層化比較
+
+旧page relationの再収集でreviewになった334 claimを、リンクの意味判定とpage自体のproject帰属へ分けました。exactなconfirmed componentから曖昧なrepository linkが出ているrelation assessment対象は12件だけです。残る322件は構成要素配下pageが24件、構成要素外pageが298件であり、relation assessorへ渡す前に、そのpageをproject componentとして採用するかを判断する必要があります。LLMがリンク先との類似やproject名からこの帰属を補完すると循環になるため、322件をrelation assessmentへ混ぜません。
+
+このroutingを再現するread-only commandを追加しました。
+
+```sh
+bin/project-registry export-recollection-relation-assessment-corpus \
+  --report .tmp/project-repository-recollection-v8-20260827.json \
+  --output .tmp/relation-assessor-recollection-exact-v1-20260827.json
+```
+
+出力corpusのcontent hashは`62cb405abbaa3efab08e750a33f95b96ff5a87442765c888cb1773af89b46d08`です。入力reportとJSON以外を変更せず、project名や既存profileはLLM入力から除外し、exact component上で観測したlink表示と限定DOM contextだけを渡します。
+
+assessorの契約も、旧`service_to_repo`のsource code判定から、`component_to_repo`の広義`project_repository`判定へ更新しました。ここでいうrepositoryは、source codeだけでなくdocs、仕様、Lexicon、issue tracker、release、licenseの公式置き場を含みます。dependency、package、SDK、sponsor、外部project一覧、一般resource一覧は含みません。subjectは既にconfirmedなproject componentであることをroutingの前提とし、service surfaceとproject siteを同じ意味判定へ渡せます。
+
+更新した固定caseはQwen 3.6 35B A3Bで12/12一致し、schema・根拠参照も全件有効でした。reportは`.tmp/relation-assessor-fixed-project-repository-v6-final-20260827.json`、content hashは`4207ffa86a739eff0a9e35cea4ca6cdc4ac128c850ed528a8e5f9e8de395ccc9`です。
+
+実データ12件を3回ずつ評価した結果は次のとおりです。
+
+| project | bounded表示 | LLM結果 | 現時点の解釈 |
+| --- | --- | --- | --- |
+| Zeitgeist | `Open source on GitHub` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| account.info | `open source` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| Events | `Fair source` | `INSUFFICIENT` 3/3 | license表現だけではrepository用途を確定しない |
+| atmo.rsvp | `View source on GitHub` | `SUPPORTED` 3/3 | 静的規則で確定可能。operator review済み |
+| Airglow | `Source` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| Coves | `open source` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| atproto.dart | `GitHub Repository` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| SkyPicker | `View source on GitHub` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| pdscheck | `source`とexact repository表示 | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| lieslese | `Open Source` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| OWD Project | `GitHub repository` | `SUPPORTED` 3/3 | 静的規則で確定可能 |
+| didplc.directory | `go-didplc read replica`、`source of truth this mirrors` | `SUPPORTED` 2/3、`INSUFFICIENT` 1/3 | 公式利用repositoryと外部dependency・mirrorの境界をreviewする |
+
+完全reportは`.tmp/relation-assessor-recollection-exact-v6-20260827.json`、content hashは`e6c5fc3491d349a73e38b0c00a1e7f2581bf37253ca511b7db17deef205e1150`です。10件の安定した支持はLLM固有の能力というより、明示的な`Open source`、`View source`、`Repository`表示を現行静的規則が取りこぼしていることを示します。これらの表示はGitHub固有にせず、`View source on Tangled`、`Tangled Repository`、Codeberg、GitLabを同じ意味で扱います。provider名だけの`GitHub`や`Tangled`は明示表示とせず、既存の無標・単独repository link規則で別に評価します。
+
+reviewでは、`Open source`を`Fair source`等のlicense表現と区別して静的確定に使うこと、`View source`・単独`Source`・provider-neutralな`Repository`表示を静的確定に使うこと、mirrorや外部実装を指すrelationは自動昇格せずreviewへ残すことに合意しました。shadow静的規則と固定testへ反映しましたが、production collector、relation自動昇格、identifier candidate生成、正本DBは変更していません。

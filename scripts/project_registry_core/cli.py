@@ -361,6 +361,20 @@ def build_parser() -> argparse.ArgumentParser:
         func=llm_evaluation_commands.cmd_export_relation_assessment_corpus
     )
 
+    export_recollection_relation_assessment_parser = subparsers.add_parser(
+        "export-recollection-relation-assessment-corpus",
+        help="Route a bounded recollection report and export exact-component relation cases.",
+    )
+    export_recollection_relation_assessment_parser.add_argument(
+        "--report", required=True, help="Bounded project repository recollection JSON report."
+    )
+    export_recollection_relation_assessment_parser.add_argument(
+        "--output", required=True, help="Output corpus JSON path."
+    )
+    export_recollection_relation_assessment_parser.set_defaults(
+        func=llm_evaluation_commands.cmd_export_recollection_relation_assessment_corpus
+    )
+
     evaluate_relation_assessment_parser = subparsers.add_parser(
         "evaluate-relation-assessment-corpus",
         help="Run the predicate-specific relation assessor against a fixed shadow corpus.",

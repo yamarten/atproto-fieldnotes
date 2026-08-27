@@ -20,7 +20,7 @@ from . import repository_link_context
 
 
 REPORT_SCHEMA_VERSION = 5
-POLICY_VERSION = "collector-relation-shadow-v5"
+POLICY_VERSION = "collector-relation-shadow-v6"
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "NEEDS_ASSESSMENT", "NOT_RECONSTRUCTIBLE"}
 TRACEABLE_REPOSITORY_ADOPTION_SOURCES = {
     "operator_add_seed",
@@ -42,6 +42,17 @@ EXPLICIT_SOURCE_LABELS = {
     "view source",
     "view source code",
 }
+REPOSITORY_PROVIDER_PATTERN = r"(?:github|tangled|codeberg|gitlab)"
+EXPLICIT_PROJECT_REPOSITORY_LABEL_PATTERN = re.compile(
+    rf"(?:\bview (?:the )?(?:source|code)(?: code)?(?: on {REPOSITORY_PROVIDER_PATTERN})?\b|"
+    rf"\bopen source(?: on {REPOSITORY_PROVIDER_PATTERN})?\b|"
+    rf"\b{REPOSITORY_PROVIDER_PATTERN} repository\b)"
+)
+SOURCE_ONLY_PRESENTATION_PATTERN = re.compile(
+    r"^(?:source(?: code)?|code|repo|repository)"
+    r"(?: (?:source(?: code)?|code|repo|repository))?"
+    r"(?: opens? in (?:a )?new tab| external link)?$"
+)
 NON_SOURCE_LABEL_WORDS = {
     "backer",
     "backers",
@@ -141,10 +152,14 @@ def classify_relation_candidate_purpose(value: str) -> str:
         return "unlabeled"
     if classify_service_link_label(label) == "non_source":
         return "funding_or_support"
-    if label in EXPLICIT_SOURCE_LABELS:
-        return "explicit_source"
     if SELF_HOSTING_LABEL_PATTERN.search(label):
         return "self_hosting_implementation"
+    if (
+        label in EXPLICIT_SOURCE_LABELS
+        or SOURCE_ONLY_PRESENTATION_PATTERN.fullmatch(label)
+        or EXPLICIT_PROJECT_REPOSITORY_LABEL_PATTERN.search(label)
+    ):
+        return "explicit_source"
     if DOCUMENTATION_SOURCE_LABEL_PATTERN.search(label):
         return "documentation_source"
     if LICENSE_LABEL_PATTERN.search(label):

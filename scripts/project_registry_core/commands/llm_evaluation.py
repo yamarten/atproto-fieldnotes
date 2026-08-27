@@ -295,3 +295,13 @@ def cmd_export_relation_assessment_corpus(args: argparse.Namespace) -> int:
     _write_json(output, corpus)
     print(json.dumps({"output": str(output), **corpus["selection"]}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_export_recollection_relation_assessment_corpus(args: argparse.Namespace) -> int:
+    corpus = relation_assessment.export_recollection_corpus(Path(args.report))
+    output = Path(args.output)
+    if output.expanduser().resolve() == Path(args.report).expanduser().resolve():
+        raise ValueError("--output must not overwrite --report")
+    _write_json(output, corpus)
+    print(json.dumps({"output": str(output), **corpus["selection"]}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0

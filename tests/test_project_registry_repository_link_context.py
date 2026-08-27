@@ -79,6 +79,31 @@ class RepositoryLinkContextTest(unittest.TestCase):
         self.assertEqual(rows[0]["purpose"], "explicit_source")
         self.assertEqual(rows[0]["disposition"], "CONFIRM_PROJECT_REPOSITORY")
 
+    def test_explicit_repository_presentations_are_provider_neutral(self) -> None:
+        labels = (
+            "View source on GitHub",
+            "View source on Tangled",
+            "Codeberg Repository",
+            "GitLab Repository",
+            "Open source on Tangled",
+            "Source (opens in new tab)",
+        )
+        for label in labels:
+            with self.subTest(label=label):
+                rows = self.evaluate(
+                    f'<main><a href="https://tangled.org/example/project">{label}</a></main>'
+                )
+                self.assertEqual(rows[0]["purpose"], "explicit_source")
+                self.assertEqual(rows[0]["disposition"], "CONFIRM_PROJECT_REPOSITORY")
+
+    def test_provider_name_and_fair_source_are_not_explicit_repository_presentations(self) -> None:
+        for label in ("GitHub", "Tangled", "Fair source"):
+            with self.subTest(label=label):
+                self.assertNotEqual(
+                    collector_relation_shadow.classify_relation_candidate_purpose(label),
+                    "explicit_source",
+                )
+
     def test_awesome_list_icons_are_external_references(self) -> None:
         rows = self.evaluate(
             """

@@ -13,13 +13,13 @@ from . import llm_transport
 from . import collector_relation_shadow
 
 
-POLICY_VERSION = "relation-assessment-v5"
+POLICY_VERSION = "relation-assessment-v6"
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 VERDICTS = {"SUPPORTED", "NOT_SUPPORTED", "INSUFFICIENT"}
 SUPPORT_EVIDENCE_MODES = {"both_endpoints", "direct_any"}
 ALLOWED_PREDICATES = {"project_repository"}
-ALLOWED_DIRECTIONS = {"service_to_repo"}
+ALLOWED_DIRECTIONS = {"component_to_repo"}
 FORBIDDEN_INPUT_FIELDS = {
     "project", "project_key", "project_name", "profile", "current_profile",
     "existing_assessment", "existing_verdict", "legacy_verdict",
@@ -97,7 +97,7 @@ def _database_case(row: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]
         "legacy_relationship": relationship,
         "legacy_verdict": _legacy_verdict(relationship),
         "input": {
-            "predicate": "project_repository", "direction": "service_to_repo",
+            "predicate": "project_repository", "direction": "component_to_repo",
             "subject": {
                 "identifier": str(row.get("service_url") or ""), "kind": "service_url",
                 "role": "service_surface", "standing": str(row.get("subject_standing") or ""),
@@ -148,7 +148,7 @@ def export_database_corpus(
     return {
         "schema_version": CORPUS_SCHEMA_VERSION,
         "created_at": llm_evaluation.iso_now(),
-        "description": "Current ASSESS-routed service_to_repo proposals with saved bounded repository excerpts; expected verdicts require review.",
+        "description": "Current ASSESS-routed component_to_repo proposals with saved bounded repository excerpts; expected verdicts require review.",
         "source": {
             "kind": "canonical_db_current_snapshot", "db_path": str(resolved),
             "read_only": True, "collector_report_hash": str(report.get("content_hash") or ""),
@@ -159,6 +159,148 @@ def export_database_corpus(
             "expected_verdicts_reviewed": False,
         },
         "cases": cases,
+    }
+
+
+def _bounded_observation_evidence(
+    observation: dict[str, Any], *, index: int, page_url: str, repository_url: str,
+) -> dict[str, str]:
+    label = " ".join(
+        str(observation.get(key) or "").strip()
+        for key in ("text", "aria_label", "title", "descendant_label")
+        if str(observation.get(key) or "").strip()
+    )
+    context_parts = []
+    for key, display in (
+        ("nearest_heading", "heading"),
+        ("container_text", "container"),
+        ("group_text", "group"),
+        ("container_hint", "container_hint"),
+        ("group_hint", "group_hint"),
+    ):
+        value = str(observation.get(key) or "").strip()
+        if value:
+            context_parts.append(f"{display}: {value}")
+    landmarks = [str(item) for item in observation.get("landmarks", []) if str(item)]
+    if landmarks:
+        context_parts.append(f"landmarks: {', '.join(landmarks)}")
+    return {
+        "id": f"S{index}",
+        "kind": "html_link",
+        "locator": page_url,
+        "target": repository_url,
+        "label": label,
+        "excerpt": " | ".join(context_parts)[:2000] or label,
+    }
+
+
+def export_recollection_corpus(report_path: Path) -> dict[str, Any]:
+    """Route a bounded recollection report and export only semantic relation cases.
+
+    A relation assessor may interpret a link from an exact confirmed project component.
+    It must not compensate for an unconfirmed page-to-project attribution.
+    """
+    resolved = report_path.expanduser().resolve()
+    report = json.loads(resolved.read_text(encoding="utf-8"))
+    if str(report.get("policy") or "") != "project-repository-bounded-recollection-v1":
+        raise ValueError("unsupported project repository recollection report")
+
+    cases: list[dict[str, Any]] = []
+    component_review_counts: dict[str, int] = {}
+    policy_review_count = 0
+    for page in report.get("pages", []):
+        if not isinstance(page, dict):
+            continue
+        observations = [
+            item for item in page.get("bounded_observations", []) if isinstance(item, dict)
+        ]
+        for match in page.get("matches", []) or []:
+            if not isinstance(match, dict):
+                continue
+            if str(match.get("policy_disposition") or "") != "REVIEW_PROJECT_REPOSITORY":
+                continue
+            policy_review_count += 1
+            standing = str(match.get("page_standing") or "")
+            if standing != "exact_current_component":
+                component_review_counts[standing] = component_review_counts.get(standing, 0) + 1
+                continue
+            if str(match.get("current_disposition") or "") != "REVIEW_PROJECT_REPOSITORY":
+                raise ValueError("exact component relation case unexpectedly has a strong static verdict")
+            repository_identity = str(match.get("repository_identity") or "")
+            pair_observations = [
+                item for item in observations
+                if str(item.get("repository_identity") or "") == repository_identity
+            ]
+            page_url = str(match.get("page_url") or page.get("page_url") or "")
+            repository_url = str(match.get("repository_url") or "")
+            identity = f"{match.get('project_key')}\0{page_url}\0{repository_identity}"
+            cases.append({
+                "case_id": f"{match.get('project_key')}:{hashlib.sha256(identity.encode()).hexdigest()[:12]}",
+                "source_kind": "bounded_recollection_exact_component",
+                "project_key": str(match.get("project_key") or ""),
+                "project_name": str(match.get("project_name") or ""),
+                "project_url": str(match.get("project_url") or ""),
+                "expected_verdict": "",
+                "legacy_verdict": "",
+                "static_disposition": str(match.get("current_disposition") or ""),
+                "static_reasons": list(match.get("reasons") or []),
+                "input": {
+                    "predicate": "project_repository",
+                    "direction": "component_to_repo",
+                    "subject": {
+                        "identifier": str(match.get("component_url") or page_url),
+                        "kind": "service_url",
+                        "role": "project_component",
+                        "standing": "current",
+                    },
+                    "object": {
+                        "identifier": repository_url,
+                        "kind": "repo_url",
+                        "role": "project_repository",
+                        "standing": str(match.get("repository_classification") or ""),
+                    },
+                    "source_evidence": [
+                        _bounded_observation_evidence(
+                            item, index=index, page_url=page_url, repository_url=repository_url,
+                        )
+                        for index, item in enumerate(pair_observations, start=1)
+                    ],
+                    "target_evidence": [],
+                },
+            })
+
+    projected_review_count = int(
+        dict(report.get("projection") or {}).get("review_claim_count") or policy_review_count
+    )
+    unrepresented_component_reviews = projected_review_count - policy_review_count
+    if unrepresented_component_reviews < 0:
+        raise ValueError("recollection review counts are inconsistent")
+    if unrepresented_component_reviews:
+        component_review_counts["nonexact_raw_strong"] = unrepresented_component_reviews
+    component_review_count = sum(component_review_counts.values())
+    if len(cases) + component_review_count != projected_review_count:
+        raise ValueError("recollection review routing does not cover all review claims")
+
+    return {
+        "schema_version": CORPUS_SCHEMA_VERSION,
+        "created_at": llm_evaluation.iso_now(),
+        "description": "Ambiguous project_repository links from exact confirmed components; page attribution reviews are excluded from semantic assessment.",
+        "source": {
+            "kind": "bounded_recollection_report",
+            "report_path": str(resolved),
+            "report_hash": str(report.get("content_hash") or ""),
+            "database_inputs_read_only": bool(report.get("database_inputs_read_only")),
+        },
+        "selection": {
+            "review_claim_count": projected_review_count,
+            "relation_assessment_count": len(cases),
+            "component_attribution_review_count": component_review_count,
+            "component_attribution_review_counts": {
+                key: component_review_counts[key] for key in sorted(component_review_counts)
+            },
+            "expected_verdicts_reviewed": False,
+        },
+        "cases": sorted(cases, key=lambda item: str(item.get("case_id") or "")),
     }
 
 
@@ -250,7 +392,7 @@ def build_prompt(value: Any, *, support_evidence_mode: str = "both_endpoints") -
     return f"""You assess one proposed directional relation. Do not decide whether two items broadly belong to the same project.
 
 Proposed statement:
-The project page URL in subject directly identifies the repository URL in object as an official repository for that project.
+The confirmed project component URL in subject directly identifies the repository URL in object as an official repository used by that project.
 
 Verdicts:
 - SUPPORTED: the supplied evidence supports exactly that statement.
@@ -263,13 +405,14 @@ Rules:
 - {support_rule}
 - NOT_SUPPORTED must cite at least one supplied reference.
 - Missing or weak evidence is INSUFFICIENT, not NOT_SUPPORTED. Use NOT_SUPPORTED only when evidence positively indicates a different relation or contradicts the proposed statement.
-- "Built with", dependency, package, SDK, documentation, and sponsorship links do not identify the linked repository as the service source.
+- project_repository includes repositories officially used for source code, documentation, specifications, Lexicons, issue tracking, releases, or licensing. It does not require the repository to contain deployed service source code.
+- A direct link labelled as source, code, repository, issues, releases, documentation source, specification, Lexicon, or license may support project_repository.
+- "Built with", dependencies, packages, SDKs, sponsorship, external examples, related projects, and general resource lists do not establish project_repository.
 - A provider icon, generic GitHub/Tangled link, owner or name similarity, and a repository Website field establish association at most. They never directly assert project_repository and cannot support it without a decisive statement elsewhere.
 - The exact href in an html_link proves which repository was linked, but not why it was linked. Do not call the link a direct source assertion unless its label or surrounding text expresses source, code, contribution, or self-hosting semantics.
-- Repository implementation files prove that the repository contains software, but do not by themselves prove that the software is the subject service deployment.
-- A repository excerpt that explicitly says its code is deployed at the subject service URL or that it contains that service's source may support the statement by itself.
-- A documentation site linking its documentation repository, or a repository generating documentation at the subject URL, is a documentation relation and is NOT_SUPPORTED for this service source predicate.
-- Evidence that the subject is a developer or organization site rather than the deployed service is NOT_SUPPORTED for this service source predicate.
+- Repository implementation files prove that the repository contains software, but do not by themselves prove that it is an official repository of the subject project.
+- A repository excerpt that explicitly identifies the subject component as the project site, deployment, documentation, or other official surface may support the statement by itself.
+- A confirmed project documentation site may identify its documentation repository as project_repository.
 - A shared implementation may be an official repository for more than one project; do not infer project merge.
 - Archived or moved evidence alone does not disprove a historical source relation and does not establish the current one; without a direct time-scoped statement, use INSUFFICIENT.
 - Evaluate only project_repository in the stated direction. Do not propose other predicates, reverse relations, identifiers, candidates, or confirmation decisions.

@@ -31,6 +31,7 @@ subcommands=(
   'evaluate-repository-analysis-corpus:Run one model configuration against fixed repository material'
   'compare-repository-analysis-reports:Compare two repository analysis reports'
   'export-relation-assessment-corpus:Export current relation assessment material read-only'
+  'export-recollection-relation-assessment-corpus:Export exact-component cases from a recollection report'
   'evaluate-relation-assessment-corpus:Run the predicate-specific relation assessor against a fixed corpus'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'repair-db:Normalize stored data and refresh derived fields'
@@ -394,6 +395,11 @@ case "$cmd" in
   export-relation-assessment-corpus)
     _arguments -S \
       '--db-path[Source SQLite DB opened read-only]:path:_files' \
+      '--output[Output corpus JSON path]:path:_files'
+    ;;
+  export-recollection-relation-assessment-corpus)
+    _arguments -S \
+      '--report[Bounded project repository recollection JSON report]:path:_files' \
       '--output[Output corpus JSON path]:path:_files'
     ;;
   verify-service)

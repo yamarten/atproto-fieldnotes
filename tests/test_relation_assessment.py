@@ -35,7 +35,7 @@ class RelationAssessmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "forbidden field: project_name"):
             relation_assessment.build_prompt(value)
         value = dict(self.case["input"])
-        value["direction"] = "repo_to_service"
+        value["direction"] = "repo_to_component"
         with self.assertRaisesRegex(ValueError, "unsupported relation direction"):
             relation_assessment.build_prompt(value)
         value = json.loads(json.dumps(self.case["input"]))
@@ -134,6 +134,63 @@ class RelationAssessmentTest(unittest.TestCase):
             "export-relation-assessment-corpus", "--db-path", "survey.db", "--output", "corpus.json",
         ])
         self.assertEqual(args.func.__name__, "cmd_export_relation_assessment_corpus")
+
+    def test_recollection_export_routes_page_attribution_before_relation_assessment(self) -> None:
+        report = {
+            "policy": "project-repository-bounded-recollection-v1",
+            "content_hash": "report-hash",
+            "database_inputs_read_only": True,
+            "projection": {"review_claim_count": 3},
+            "pages": [{
+                "page_url": "https://example.test/",
+                "bounded_observations": [{
+                    "repository_identity": "https://github.com/example/app",
+                    "text": "GitHub", "title": "Repository", "container_text": "Project links",
+                    "locator": "https://github.com/example/app",
+                }],
+                "matches": [
+                    {
+                        "policy_disposition": "REVIEW_PROJECT_REPOSITORY",
+                        "current_disposition": "REVIEW_PROJECT_REPOSITORY",
+                        "page_standing": "exact_current_component",
+                        "project_key": "proj:test", "project_name": "Example",
+                        "project_url": "http://example.test/project", "page_url": "https://example.test/",
+                        "component_url": "https://example.test/",
+                        "repository_url": "https://github.com/example/app",
+                        "repository_identity": "https://github.com/example/app",
+                        "repository_classification": "absent", "reasons": ["ambiguous"],
+                    },
+                    {
+                        "policy_disposition": "REVIEW_PROJECT_REPOSITORY",
+                        "current_disposition": "REVIEW_PROJECT_REPOSITORY",
+                        "page_standing": "outside_current_component",
+                    },
+                ],
+            }],
+        }
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / "report.json"
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            corpus = relation_assessment.export_recollection_corpus(report_path)
+        self.assertEqual(corpus["selection"]["relation_assessment_count"], 1)
+        self.assertEqual(corpus["selection"]["component_attribution_review_count"], 2)
+        self.assertEqual(
+            corpus["selection"]["component_attribution_review_counts"],
+            {"nonexact_raw_strong": 1, "outside_current_component": 1},
+        )
+        self.assertEqual(corpus["cases"][0]["input"]["direction"], "component_to_repo")
+        self.assertEqual(corpus["cases"][0]["input"]["source_evidence"][0]["target"], "https://github.com/example/app")
+
+    def test_cli_exposes_recollection_corpus_export(self) -> None:
+        args = cli.build_parser().parse_args([
+            "export-recollection-relation-assessment-corpus",
+            "--report", "recollection.json", "--output", "corpus.json",
+        ])
+        self.assertEqual(
+            args.func.__name__, "cmd_export_recollection_relation_assessment_corpus"
+        )
 
 
 if __name__ == "__main__":
