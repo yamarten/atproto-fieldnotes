@@ -55,17 +55,20 @@ serviceを持たない共有Lexicon/specification initiativeもprojectになれ�
 
 二つのURL、DID、handleなどが、同じresourceまたはそのcanonical aliasを指すかを扱います。
 
-### 登録プロジェクトへの帰属（project attribution）
+### 登録プロジェクトの境界（project boundary）
 
-あるresourceを、このregistryで同じproject recordへ所属させるべき構成要素と判断するかを扱います。resource同士が同一物である必要はありません。
+登録プロジェクトの境界判断には、主に二つの対象があります。
+
+- identifier attribution: あるresourceを、既存のproject recordと特定roleで関連づけるかを扱う。resource同士が同一物である必要はなく、repositoryのように複数projectと関係し得る対象では排他的な所属を意味しない
+- project merge / separation: 独立して形成された二つのproject recordが、同じ説明・追跡単位を二重に表しているかを扱い、統合または分離を判断する
+
+前者は既存projectへrole付きidentifierを追加する判断、後者はproject record同士の囲いを見直す判断です。どちらもproject境界を扱いますが、前提と対象が異なるため同じpolicyにはしません。
+
+project mergeでは、既存projectへ新しい構成要素を追加するconfirmationとは非対称性と前提が異なるため、信頼グラフのpathをそのままmerge scoreへ流用しません。
 
 ### 信頼（trust）
 
 「このresourceはこのprojectの構成要素である」という主張が、騙りや偶然のlinkではなく、信頼できるsourceと関係で裏付けられているかを扱います。
-
-### マージ（project merge）
-
-独立して形成された二つのproject recordが、同じ説明・追跡単位を二重に表しているかを扱います。既存projectへ新しい構成要素を追加するconfirmationとは非対称性と前提が異なるため、信頼グラフのpathをそのままmerge scoreへ流用しません。
 
 ### 説明用情報の評価
 
@@ -120,7 +123,7 @@ developer DIDやauthority domainは、登録プロジェクトの構成要素候
 | 対象 | この文書で指すもの | 現行graph node | 登録プロジェクトとの関係の例 |
 | --- | --- | --- | --- |
 | service surface | serviceを利用・操作するために到達するURL上の面。serviceという機能のまとまりやdeployment/instance全体とは区別する | `service_url`。値はsurfaceのURL | projectが提供する代表的surfaceは`service`。第三者client、tenant、mirror、補助pageは別relationまたは観測になり得る |
-| project site | projectを説明・提示する代表的なWeb presence。documentation、specification、promotion、landing pageを含み得るが、利用・操作するservice surfaceと個別の補助pageは含めない | 新設案: `site_url`。値は代表siteのURL | projectを代表する場合は`project_site`。通常はcurrent primaryを一系統とし、明示的alternateと履歴を別扱いにする |
+| project site | projectを説明・提示する代表的なWeb presence。documentation、specification、promotion、landing pageを含み得るが、利用・操作するservice surfaceと個別の補助pageは含めない | `site_url`。値は代表siteのURL | projectを代表する場合は`project_site`。通常はcurrent primaryを一系統とし、明示的alternateと履歴を別扱いにする |
 | repository | source code、schema、文書、issue、release、build定義などを版管理する外部resource | `repo_url`。値はrepositoryを参照するURL | projectが公式に利用する場合は`project_repository`。dependency、fork、mirror、単なる参照は別relation |
 | ATProto account | DIDを安定した識別子、handleを変更可能な現在名として持つ論理的なaccount | account全体のnodeは置かず、`did`と`handle`を別nodeとして保持する | project account、developer、organization、publisher、service operatorなど。roleはidentity解決だけから決めない |
 | domain | DNS名。service host、handle、NSID authority、`did:web` identityなど複数の文脈に現れる | `domain` | 文脈に応じてservice host、handle、authority、中継点などになる。domainというkindだけではproject roleは決まらない |
@@ -136,6 +139,8 @@ resource identityは、二つのidentifierが同じ外部resourceまたはその
 ### 登録プロジェクトでのrole
 
 project roleは「外部対象がこのproject recordにとって何であるか」という主張です。`project_site`、`project_repository`、`owned_nsid`は対象自体の種類ではなく帰属の意味を表し、developer、dependency、mirrorなどとの関係は同じkindのnodeに対しても別に記述できます。role、`candidate` / `confirmed`、根拠のprovenanceはそれぞれ別の軸として評価します。
+
+後述する「構成要素」「構成要素ではない関係者」「関連情報」はroleまたはrelationを説明するための上位区分であり、roleと並ぶ独立した保存軸ではありません。未分類linkやauthority domainなど、まだproject roleを主張しない観測対象はproject identifierにせず、graph-only nodeまたはevidenceとして扱います。
 
 ## 収集対象の暫定分類
 
@@ -179,7 +184,7 @@ projectとの関係は事実でも、そのprojectの構成要素ではない対
 - 未分類link
 - 追加取得先としてだけ必要なidentifier
 
-identifier kindだけでは分類を決めません。同じrepo URLでも、source repository、dependency、mirrorではprojectとの関係が異なります。
+identifier kindだけでは分類を決めません。同じrepo URLでも、project repository、dependency、mirrorではprojectとの関係が異なります。
 
 ## `candidate`と`confirmed`の意味
 
@@ -187,7 +192,7 @@ identifier kindだけでは分類を決めません。同じrepo URLでも、sou
 
 `confirmed` identifierは、そのrole付き主張が採用可能かつ信頼できると判断された状態です。confirmedの意味を構成要素への所属だけへ狭めません。confirmedな補助actorも存在できますが、それだけでproject構成要素または信頼判定の起点になるわけではなく、用途はroleごとの規則で決めます。
 
-roleは「何を主張しているか」、candidate/confirmedは「その主張を採用・信頼したか」です。`derived` / `heuristic`は本来、導出方法やprovenanceであり、Trust状態とは別の軸です。現行の`classification = confirmed | candidate | derived | heuristic`は二つの軸を混在させているため、保存契約の差分監査対象とします。
+roleは「何を主張しているか」、candidate/confirmedは「その主張を採用・信頼したか」です。`derived` / `heuristic`は導出方法やprovenanceであり、identifierの採用状態ではありません。schema version 3の現行`project_identifiers`は`confirmed | candidate`だけを保存し、導出値やheuristicをproject identifierへ混ぜない契約へ移行済みです。relation側のclassificationとprovenanceは別途整理します。
 
 candidate生成を厳密にする目的は、project境界とreview品質を保ち、後段で誤用される対象を減らすことです。信頼評価上の主要な安全条件は、candidate、graph-only node、導出識別子を信頼判定の起点にしないことと、candidate自身の自己申告だけで自動採用を成立させないことです。
 
@@ -349,7 +354,13 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 
 現行schema version 3の`project_noncurrent_identifiers`と`project_identifier_transitions`は、同一project内のformer/non-productionと確定transitionを保持する器です。project間のsuccessor、買収、分割、統合、派生関係はまだ表現せず、必要性と実例のreview後に別途設計します。この時間整理のために、新しいidentifier kindまたはroleは追加しません。
 
-### 関係の品質を三段階に分ける
+### Predicateの静的定義とrelation instanceを分ける
+
+接続マトリクスで定義するのは、predicateの意味、方向、許可するendpoint kind、多重度、candidate admission・信頼経路・merge・表示への用途です。個々のrelation instanceには、実際のsubject/object、成立状態、source、method、locator、observed_at、provenanceと限定contextを記録します。
+
+あるrelation instanceを特定の判断へ使えるかは、predicateの静的policy、instanceの状態とprovenance、endpointのrole/classificationの組合せで決めます。各rowへ用途別の可否を重複保存することや、relationの成立状態だけからTrust利用可否を決めることは前提にしません。
+
+### Predicateの用途を考える補助分類
 
 - 正式な参照・直接保証: protocolが入力identifierに対して特定の相手を返す、またはprojectが制御するsurfaceがSource、official account、official service等として相手を明示する関係。Admissionまたは強いTrustの候補になる
 - 共有可能な正しい参照: `uses_collection`、dependency、mirror、provider owner、developer/organization actorなど、relation自体は事実でもprojectへの排他的帰属を意味しない関係。説明・調査または限定したTrustに使う
@@ -357,15 +368,17 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 
 「一次情報に書かれている」ことだけで正式な帰属参照にはなりません。そのlinkがsource、official account、利用、依存、単なるmentionのどれを意味するかをpredicateで区別します。
 
+この三分類は接続マトリクスをレビューするための説明上の区分であり、すべてのrelationを三値enumで保存する設計ではありません。実際の利用可否はpredicateごとの静的規則で定めます。
+
 ## Identifier kind接続マトリクス
 
 行をsubject kind、列をobject kindとします。ここでは、帰属候補の生成、信頼評価、またはpath endpointのresource identity確認に使う正の接続関係を扱います。projectの構成要素同士だけでなく、DID、handle、domainのような情報の発信元、identity表現、中継点も含みます。一方、project同一性を否定する材料、マージを抑止する材料、説明・診断・調査だけに使う観測は外に分けます。`現行`は現在の信頼グラフまたは`project_relations`に存在するpredicate、`仮称`は今回の議論でrelationの意味を区別するために置いた名前です。セル内で状態が異なる名前はグループを分けて表示します。`なし`は、現在のproject判断に使う直接relationを設けないセルです。
 
 | subject \ object | `site_url` | `service_url` | `repo_url` | `handle` | `did` | `domain` | `collection` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `site_url` | 仮称: `site_canonical`、`site_redirects_to`、`official_alternate_site` | 仮称: `site_links_service`。projectが利用先としてserviceを明示 | 仮称: `project_repository`。公式repositoryの直接表示 | 仮称: `official_account`。明示されたaccount role | 仮称: `official_account`。明示されたaccount role | 仮称: `site_exact_domain` | 仮称: `defines_schema`。仕様siteがmatching schemaを直接定義する場合だけ |
-| `service_url` | 仮称: `service_links_site`。serviceが代表project siteを明示 | 現行: `service_canonical`、`redirects_to`。仮称: `official_alternate_surface` | 現行: `service_links_repo` / `source_repository`。新設計: `project_repository` | 現行: `official_account`。明示されたaccount role | 現行: `official_account`。明示されたaccount role | 現行: `service_exact_domain` | 現行: `requests_permission` / `uses_collection` / `defines_schema`。`defines_schema`は明示的な定義claimに限定 |
-| `repo_url` | 仮称: `project_repository`。repositoryが代表project siteを明示する場合 | 現行: `repo_links_service` / `source_repository`。新設計: `project_repository` | 仮称: `same_repository_identity` | 仮称: provider ownerまたは明示的account link。GitHubではprovider accountの中継が必要 | 仮称: Tangled owner DID、または検証済みprovider account link。現行`did_links_repo`の逆引きだけでは生成しない | なし | 現行: `defines_schema` / `uses_collection` |
+| `site_url` | 仮称: `site_canonical`、`site_redirects_to`、`official_alternate_site` | 仮称: `site_links_service`。projectが利用先としてserviceを明示 | 現行relation: `project_repository`。公式repositoryの直接表示 | 仮称: `official_account`。明示されたaccount role | 仮称: `official_account`。明示されたaccount role | 仮称: `site_exact_domain` | 仮称: `defines_schema`。仕様siteがmatching schemaを直接定義する場合だけ |
+| `service_url` | 仮称: `service_links_site`。serviceが代表project siteを明示 | 現行: `service_canonical`、`redirects_to`。仮称: `official_alternate_surface` | 現行relation: `project_repository`。Trust edge: `service_links_repo` | 現行: `official_account`。明示されたaccount role | 現行: `official_account`。明示されたaccount role | 現行: `service_exact_domain` | 現行: `requests_permission` / `uses_collection` / `defines_schema`。`defines_schema`は明示的な定義claimに限定 |
+| `repo_url` | 仮称: repositoryから代表project siteへの直接relation | 現行: `repository_homepage`観測。公式service関係の意味判定とTrust edge `repo_links_service`は別policy | 仮称: `same_repository_identity` | 仮称: provider ownerまたは明示的account link。GitHubではprovider accountの中継が必要 | 仮称: Tangled owner DID、または検証済みprovider account link。現行`did_links_repo`の逆引きだけでは生成しない | なし | 現行: `defines_schema` / `uses_collection` |
 | `handle` | 仮称: accountからの明示的なproject site claim。Admissionには使わない | 仮称: accountからの明示的なservice claim。Admissionには使わない | 仮称: accountのrepo link/ownership。Admissionには使わない | なし。変更履歴は時間関係 | 現行: `handle_resolves_did` | 現行: `handle_exact_domain` | なし。DIDを中継する |
 | `did` | 仮称: accountからの明示的なproject site claim。Admissionには使わない | 現行: `operates_service`（`project_relations`）。明示claimに限定 | 現行: `did_links_repo`（Tangled、auto-confirm対象外）などのrepo link/ownership。Admissionには使わない | 現行: `did_document_claims_handle` | なし。follow等は保留 | 仮称: `did_web_identity_domain`。PDS endpointはproject関係に使わない | 現行: `did_publishes_schema`。仮称: `has_record_in`、`earliest_observed_creator` |
 | `domain` | 仮称: `domain_exact_site` | 現行: `domain_exact_service` | なし | 現行: `domain_exact_handle` | 仮称: `_lexicon`の`lexicon_authority_resolves_to_did`、`did:web` document公開 | なし | 現行: `domain_publishes_lexicon_record`は複合事実。設計上はauthority/DID/schemaへ分解 |
@@ -390,7 +403,7 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 
 用途は、似たrepoを同じprojectとして自動マージしないための負の証拠です。ただし、provider上のforkという事実だけで別projectだと断定はしません。独自service surface、domain、collection、accountなど別projectとしてのidentityも観測できた場合は強い抑止にし、それらが不明な場合はmerge confidenceを下げてreviewへ回す材料にします。系譜の表示や調査には利用できますが、AdmissionとTrust pathには利用しません。
 
-`mirror_of`、replica、対等なGitHub/Tangled hostingも、それだけではprojectへの帰属やTrustを支持しません。双方を公式source repositoryとして扱う場合は、各repoについてprojectからの直接参照を別々に確認します。repo間の複製・同期関係は、系譜表示、同期診断、マージreviewへ使う別relationとして保持できます。
+`mirror_of`、replica、対等なGitHub/Tangled hostingも、それだけではprojectへの帰属やTrustを支持しません。双方を公式project repositoryとして扱う場合は、各repoについてprojectからの直接参照を別々に確認します。repo間の複製・同期関係は、系譜表示、同期診断、マージreviewへ使う別relationとして保持できます。
 
 派生project、template/example由来、source-only forkを含む詳しい扱いは[派生関係の設計メモ](derivation-relations.md)で保持します。現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。
 
@@ -430,8 +443,8 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 | redirect（現行: `redirects_to`） | service→service、時間込みで多対多 | status、chain、時刻付きHTTP観測。同一exact host内の`/`→`/login`等は同じsurface内のpath差として扱い、外部login/support/payment等は除外 | confirmed surfaceから条件付き可 | 単独不可。別predicateの復路が必要 | 不可 | 可 |
 | project siteが公式repoを明示（仮称: `project_repository`） | site→repo、多対多 | Source、Repository、issue、docs、specification等としてprojectの公式repositoryを直接示す | 可 | 強い | 不可 | 可 |
 | repoが代表project siteを明示（仮称: `project_repository`） | repo→site、多対多 | description、README、manifest等でprojectとの対応範囲と代表siteが明確 | 可 | 強い | 不可 | 可 |
-| serviceが公式repoを明示（現行: `service_links_repo` / `source_repository`。新設計: `project_repository`） | service→repo、多対多 | Source、Repository、issue等としてprojectの公式repositoryを直接示す | 可 | 強い | 不可 | 可 |
-| repoが公式serviceを明示（現行: `repo_links_service` / `source_repository`。新設計: `project_repository`） | repo→service、多対多 | description、README、manifest等でprojectとの対応範囲が明確 | 可 | 強い | 不可 | 可 |
+| serviceが公式repoを明示（relation: `project_repository`、Trust edge: `service_links_repo`） | service→repo、多対多 | Source、Repository、issue等としてprojectの公式repositoryを直接示す | 可 | 強い | 不可 | 可 |
+| repoが公式serviceを明示（relation: `project_repository`または専用の直接観測、Trust edge: `repo_links_service`） | repo→service、多対多 | description、README、manifest等でprojectとの対応範囲が明確 | 可 | 強い | 不可 | 可 |
 | project siteがaccountを明示（仮称: `official_account`） | site→handle/DID、多対多 | project/developer/operator等。role不明なら未分類relationとして保持 | roleを明示できる場合可 | role policy次第 | 不可 | 可 |
 | serviceがaccountを明示（現行: `official_account`） | service→handle/DID、多対多 | project/developer/operator等。role不明なら未分類relationとして保持 | roleを明示できる場合可 | role policy次第 | 不可 | 可 |
 | accountがproject siteをlink（仮称） | handle/DID→site、多対多 | accountによるproject site claim。profile/bio/post等からの抽出・品質評価は別policy | 原則不可 | project-scopedな明示claimなら独立candidateへの逆方向evidence | 不可 | 可 |
@@ -480,7 +493,7 @@ confirmed service surface `S`がcandidate collection `C`をOAuth scopeで直接�
 
 `C -> S`という推移edgeは保存しません。`requests_permission`はcollection ownershipを主張しないため、それだけでowned NSID candidateを生成しません。当面、collectionは`sync-collections`等のcollection観測経路から形成する想定であり、OAuthや一般的な利用関係から候補を広げません。別経路で形成済みのownership candidateについて、service側の利用とexact authorityの対応をTrust確認に使います。service surfaceは一つのserviceに複数存在できるため観測上は多対多ですが、一つのfull NSIDのcurrent owner projectは最大一つとします。
 
-account→repoについても、profile link、投稿、provider ownershipだけではsource repository candidateを作りません。confirmed project accountが構造化されたproject-scopedなSource claimを直接返す関係は有用になり得ますが、現時点で正確に検出できる入力契約がないため、将来の再検討事項とします。
+account→repoについても、profile link、投稿、provider ownershipだけではproject repository candidateを作りません。confirmed project accountが構造化されたproject-scopedなSource claimを直接返す関係は有用になり得ますが、現時点で正確に検出できる入力契約がないため、将来の再検討事項とします。
 
 ### Accountが所有するrecordを使う代表経路
 
@@ -580,7 +593,7 @@ confirmedなproject構成、role、共有・排他性、独立surface、派生�
 
 ### 4. 時間関係の残件と現行kind外の別論点
 
-- 同じproject内のcurrent/former/non-productionと確定transitionは前述の原則で扱い、schema version 3へ保存する。正本DBへの切替は未実施
+- 同じproject内のcurrent/former/non-productionと確定transitionはschema version 3で正本DBへ適用済み。通常のidentifier、採用理由、noiseとは分離して保持する
 - project間の後継、買収、分割、統合、ownership移転と、それらを保存・表示する関係
 - mirror、instance、tenant、fork、派生projectの時間付き関係
 - Basker→InfoEnon、DateSky→Nomareなど既知事例のproject境界review
@@ -598,7 +611,7 @@ permission-setは同じsetに含まれるcollection同士のpairwise edgeへ展�
 
 `docs/brief.md`など利用者向けの層へ移す際は、project recordを「登録プロジェクト」、confirm操作を「採用」、operator decisionを「手動判断」とし、identifier以外も含む`confirmed`を一律に「採用済み」と読み替えません。
 
-schema version 3の保存契約と通常mutationは実装・複製DB検証まで完了しており、正本DBへの切替後に関連する正本文書へ反映します。信頼policyの有効化、仮称predicateや新しいroleの追加、project間の時間関係はこの切替へ混ぜず、それぞれ比較とreviewを経て判断します。追加実装では、対象test、全unit test、既知fixtureまたはsample review、temp DB、正本DB複製のdry-run/auditを変更内容に応じて実施します。
+schema version 3の保存契約と通常mutationは実装・正本DBへの切替まで完了しています。`project_site` / `project_repository`も保存・runtime view・Web/APIへ適用済みです。新しい信頼policyの全面有効化、仮称predicate、project間の時間関係は未接続であり、それぞれ比較とreviewを経て判断します。追加実装では、対象test、全unit test、既知fixtureまたはsample review、temp DB、正本DB複製のdry-run/auditを変更内容に応じて実施します。
 
 ## 現時点で固定しないもの
 

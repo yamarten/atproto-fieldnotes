@@ -12,7 +12,7 @@
 
 ## マージが判断するもの
 
-登録プロジェクトは、所有されたLexicon、主要実装、source repository、提供service、native appなどを一つの説明・追跡対象としてまとめる編集上の単位です。したがってマージは、外部世界に必ず存在する単一のproject IDを照合する処理ではありません。複数種類のresourceのまとまり、継続性、独立した提供物やブランドの有無を見て、二つの記録を今後も別々に説明・追跡する価値があるかを判断します。
+登録プロジェクトは、所有されたLexicon、主要実装、project repository、提供service、native appなどを一つの説明・追跡対象としてまとめる編集上の単位です。したがってマージは、外部世界に必ず存在する単一のproject IDを照合する処理ではありません。複数種類のresourceのまとまり、継続性、独立した提供物やブランドの有無を見て、二つの記録を今後も別々に説明・追跡する価値があるかを判断します。
 
 次は同じ意味ではありません。
 
@@ -58,7 +58,7 @@
 | current `owned_nsid` | 一つのprojectに帰属してほしい | 同じfull NSIDは優先review。ただし重複record、誤帰属、分割ミス、ownership移転を区別するまで自動マージしない |
 | `service` surface | 同じ正規化済みURLは通常一つの提供物だが、共有landing pageや同居surfaceはあり得る | 強いreview入口。URL一致だけで自動マージしない |
 | `project_account` | roleが正しければ通常一つのprojectを表す | 強いreview入口。organization/developer accountの誤分類を先に確認する |
-| `source_repository` | 複数projectが共有できる | 候補発見と補助情報。単独ではマージを勧めない |
+| `project_repository` | 複数projectが共有できる | 候補発見と補助情報。単独ではマージを勧めない |
 | website | organization、documentation、共有initiativeでも使える | 候補発見と表示。単独ではマージを勧めない |
 | developer・organization・publisher account | 複数projectが共有できる | 説明・調査用。同じaccountだけではマージを支持しない |
 | domain・authority domain | service、handle、NSID authority、organizationで共有できる | 候補発見と経路説明。同じroot domainやauthorityだけではマージを支持しない |
@@ -73,7 +73,7 @@
 | 同じcurrent confirmed service URL | 優先 | 強い衝突として要確認 | 同じsurfaceの重複である可能性が高いが、共有landing pageや誤ったservice分類がある |
 | 同じ専用project account | 優先 | role確認後に強い衝突として要確認 | project accountなら有力だが、organization/developerとの境界判定が難しい |
 | 同じ登録起点・同じ収集eventから二重作成された記録 | 優先 | DB上の重複生成を示す強い補助 | 外部のproject同一性そのものではないが、同じclaimを二つのrecordへ作った経緯を説明できる |
-| 同じconfirmed source repository | 可 | 補助のみ | monorepo、共通runtime、複数project同居repoがある |
+| 同じconfirmed project repository | 可 | 補助のみ | monorepo、共通runtime、複数project同居repoがある |
 | provider上の同じrepository identity | 可 | repository URLの同一性確認だけ | repositoryのrename/transferであり、project同一性ではない |
 | candidate repositoryの一致 | 可 | 正の根拠にしない | candidate自体が未採用で、dependencyやmentionも混ざり得る |
 | serviceとrepositoryの直接相互参照 | 優先 | 構成の整合を示す補助 | project-scopedな公式参照なら有用だが、共有repoから複数serviceを参照する例を排除できない |
@@ -105,7 +105,7 @@
 
 ### collection断片の吸収は非対称に扱う
 
-collection syncでは、project全体ではなく個別NSIDまたは小さな兄弟namespaceを起点にproject recordが作られることがあります。このrecordがcurrent confirmedな`owned_nsid`しか持たず、同じauthority配下にservice、source repository、project accountなど独立した構成要素を持つ包括recordがある場合は、通常の「二つの完成したprojectが同一か」とは別に、collection断片を包括recordへ吸収する候補として優先reviewします。
+collection syncでは、project全体ではなく個別NSIDまたは小さな兄弟namespaceを起点にproject recordが作られることがあります。このrecordがcurrent confirmedな`owned_nsid`しか持たず、同じauthority配下にservice、project repository、project accountなど独立した構成要素を持つ包括recordがある場合は、通常の「二つの完成したprojectが同一か」とは別に、collection断片を包括recordへ吸収する候補として優先reviewします。
 
 この規則は、二つのrecordを対称な重複として扱いません。fragment側とtarget側を明示し、次のいずれかを要求します。
 

@@ -75,7 +75,7 @@ syntheticな最小testだけでなく、正本DBまたは過去の調査で確�
 
 初期catalogには、少なくとも次の性質を持つ実例を含めます。
 
-- 正式なservice↔source repositoryの相互参照
+- 正式なservice↔project repositoryの相互参照
 - handle resolverとDID document claimの相互確認
 - OAuth scopeとexact service/authority domainによるcollection支持
 - Lexicon authority delegationとmatching schema publication
@@ -193,7 +193,7 @@ developer、organization、publisherから得た情報は個別の関係を裏�
 
 | 帰属主張の種類 | 主なrole | 自動採用 | 信頼判定の起点 | 備考 |
 | --- | --- | --- | --- | --- |
-| project component | `service`、`source_repository`、`owned_nsid` | 対象。role別の双方向pathと採用を止める条件を要求 | 手動採用または承認済みの登録起点となったcomponent | repo共有は許すため、repo一致だけでconflictまたはmergeにしない |
+| project component | `service`、`project_site`、`project_repository`、`owned_nsid` | 対象。role別の双方向pathと採用を止める条件を要求 | 手動採用または承認済みの登録起点となったcomponent | repo共有は許すため、repo一致だけでconflictまたはmergeにしない |
 | project identity | `project_account`、`project_handle` | 対象。projectが制御するsurfaceからの直接claimとaccount identity確認を要求 | 手動採用または承認済みのproject identity | organization accountと区別する |
 | actor relation | developer、organization、publisher | component自動採用の対象外 | 汎用の起点にはしない | relationの事実性は関係者向けの規則またはsource assignmentで扱う |
 | intermediary / observation | `authority_domain`、`source_repository_record`、graph-only node | 対象外 | 不可 | path中継またはprovenanceとしてのみ使う |

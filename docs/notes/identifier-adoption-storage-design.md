@@ -1,6 +1,6 @@
 # Identifierの採用理由と保存契約の設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。[信頼ポリシーのshadow比較](trust-policy-shadow-comparison.md)で見つかった保存上の曖昧さを解消する論理契約を記録します。production schema、既存DB、自動confirmの挙動はまだ変更しません。
+> 作業用・検討用文書です。現行仕様の正本ではありません。[信頼ポリシーのshadow比較](trust-policy-shadow-comparison.md)で見つかった保存上の曖昧さを解消する論理契約を記録します。identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3は正本DBへ適用済みですが、新しい信頼判定規則のproduction接続は行っていません。
 
 ## 結論
 
@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | `operator` | operatorが対象roleの帰属を明示的に採用した | Web confirm、operator add-seed |
 | `bootstrap` | 承認済みの収集入口が登録プロジェクトまたは帰属主張を作った | collection syncで観測したcollection、project作成時のseed、canonical sourceからの取込 |
-| `trust_policy` | 採用済みの起点との往路・復路を信頼判定規則が支持した | serviceとsource repositoryの正式な相互参照、OAuth利用とexact authorityによるcollection支持 |
+| `trust_policy` | 採用済みの起点との往路・復路を信頼判定規則が支持した | serviceとproject repositoryの正式な相互参照、OAuth利用とexact authorityによるcollection支持 |
 
 「登録起点」は四つ目の種類ではなく、採用理由の属性です。operatorが新規projectを作ったseedにも、collection syncが新規projectを作ったcollectionにも`registration_origin: true`を付けられます。これにより、「手動だから起点」「自動だから信頼判定が必要」という誤った二分を避けます。
 
@@ -60,7 +60,7 @@
 
 観測は「調査時に何が見えたか」であり、それだけでは登録プロジェクトへの帰属を意味しません。
 
-- `source_repository_record`はidentifier roleから外し、source repositoryを発見・取得したrecordとそのprovenanceとして保持します。project componentとしてのrepository URLは`source_repository`だけです。
+- `source_repository_record`はidentifier roleから外し、repositoryを発見・取得した観測recordとそのprovenanceとして保持します。project componentとしてのrepository URLは`project_repository`です。
 - `authority_domain`はcollectionの解決や信頼経路に使うgraph nodeまたは観測であり、登録プロジェクトのidentifierにはしません。
 - 一般link、mention、OAuth利用、検索hit、record creatorなどは、許可された直接関係または調査用観測として保存しても、それだけで採用理由にはしません。
 
@@ -115,7 +115,7 @@ bootstrap sourceは決め打ちの一種類にせず、少なくともcollection
 
 ## Candidate admissionとの境界
 
-Admissionは許可済みの直接関係から帰属主張を`candidate`として投影するだけで、採用理由を作りません。serviceから明示されたsource repository、repositoryから明示されたservice、明示的なschema定義など、接続マトリクスで許可した関係に限定します。
+Admissionは許可済みの直接関係から帰属主張を`candidate`として投影するだけで、採用理由を作りません。serviceまたはproject siteから明示されたproject repository、repositoryから明示されたservice、明示的なschema定義など、接続マトリクスで許可した関係に限定します。
 
 OAuth利用、accountからのservice/repository link、mention、共通host、一般README linkからcandidateを作りません。ただしcollectorの意味分類を現時点で100%にすることは移行条件にしません。人間のreviewで誤candidateを棄却し、その判断を将来の一般則とcollector改善へ戻せることを優先します。collector固有の例外を積み重ねて19件すべてを事前に無害化する方針は採りません。
 
@@ -148,9 +148,9 @@ operatorが明示的にservice URLを`add-seed`して新規projectを作り、We
 
 物理schemaを決める前に、複製DB上で次の論理移行を再現できることを確認します。
 
-1. `source_repository_record`を`project_identifiers`から除き、record metadataとprovenanceを観測へ戻します。componentとして残すURLは`source_repository`です。
+1. `source_repository_record`を`project_identifiers`から除き、record metadataとprovenanceを観測へ戻します。componentとして残すURLは`project_repository`です。
 2. `authority_domain`を`project_identifiers`から除き、collection解決の観測と直接relationを残します。
-3. identifier対象のdecisionへroleを対応させます。同じrepo URLの`source_repository`と`source_repository_record`に曖昧だった旧confirmは、record側を除いた後の`source_repository`へ移します。roleを一意に決められないdecisionは推測せずmigration reviewへ出します。
+3. identifier対象のdecisionへroleを対応させます。同じrepo URLの旧`source_repository`と`source_repository_record`に曖昧だった旧confirmは、record側を除いた後の`project_repository`へ移します。roleを一意に決められないdecisionは推測せずmigration reviewへ出します。
 4. activeなWeb confirmとoperator add-seedから`operator`採用理由を作ります。legacy manual seed migrationは現在のoperator判断と同一視せず、移行由来を明示した`bootstrap`として扱います。
 5. collection sync等で作られたconfirmed collectionには`bootstrap`採用理由と登録起点の文脈を復元します。復元できない場合は暗黙のTrust支持を作らず、`migration_inferred`としてsample reviewの対象にします。
 6. 現行classificationを採用理由から再構成し、採用理由のないconfirmedをsource・role別に監査します。件数をそのまま個別review件数とはみなしません。

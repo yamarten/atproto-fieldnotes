@@ -200,7 +200,7 @@ identifier値に`dev`、`test`、`temp`、`staging`、`preview`、`alpha`、`bet
 | 人間向けの分類 | raw観測 | 組 | 扱い |
 | --- | ---: | ---: | --- |
 | 明示的な改名・移転 | 1 | 1 | [Pinksky profile](https://bsky.app/profile/pinksky.app)がPinkleapへ発展したと明示するため、同じproject内の置き換え候補にできる |
-| repository・packageへの案内 | 4 | 3 | Bluesky MCP Server、Okazu Diary、Poptart。service移転ではなく、source repositoryまたはpackage resourceへのlinkとして時間関係から除外する |
+| repository・packageへの案内 | 4 | 3 | Bluesky MCP Server、Okazu Diary、Poptart。service移転ではなく、project repositoryまたはpackage resourceへのlinkとして時間関係から除外する |
 | 同一site family内の別surface | 6 | 6 | Barazo、If This Then、Scribe、Slices、ATPcraft、Drydown。別surface、canonical、production切替のどれかをURLだけでは決めない |
 | 行先が安定していない観測 | 3 | 3 | PhotoSky／PskyからPhotoSkyまたはZeensへの観測。[PhotoSky](https://photosky.at/)が現在は独自の案内面を返すことも含め、確定した移転へ昇格しない |
 | 別siteへの移転・改名候補 | 11 | 11 | `main.bsky.dev`→`bsky.app`、DateSky→Nomare、Pipup→Lemma、Provcheck、Eurosky、Thread Viewer、Cirrus、LastFM.blue、Denazen→Rhize、Flapnote→Yuunagi、Cabildo Abierto。個別確認対象には残すが、raw redirectから一括確定しない |
