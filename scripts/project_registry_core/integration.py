@@ -48,6 +48,7 @@ class GitHubRepoIntegrationDependencies:
 class ServiceIntegrationDependencies:
     apply_probe: Callable[[dict[str, Any], str, dict[str, Any]], None]
     service_url_is_guarded: Callable[[dict[str, Any], str], bool]
+    add_candidate_project_repository_url: Callable[..., None]
     note_failure: Callable[[dict[str, Any], str], None]
 
 
@@ -259,6 +260,25 @@ def apply_service_evidence(
                 )
             ):
                 continue
+            if (
+                relation.get("predicate") == "project_repository"
+                and relation.get("subject", {}).get("type") in {"service", "website"}
+                and relation.get("object", {}).get("type") == "repo"
+                and record.classification == "confirmed"
+                and relation.get("method") == "bounded_first_party_link"
+                and bool(record.context.get("subject_is_exact_component"))
+            ):
+                dependencies.add_candidate_project_repository_url(
+                    project,
+                    str(relation.get("object", {}).get("value") or ""),
+                    record.source,
+                    reason="exact project component directly identifies an official project repository",
+                    evidence_kind="bounded_first_party_link",
+                    evidence_url=str(relation.get("locator") or ""),
+                    relation="project_repository_relation",
+                    updated_at=record.observed_at,
+                    admitted_by_relation=True,
+                )
             project["relation_evidence"] = normalize_relation_records(
                 list(project.get("relation_evidence", []))
                 + [{"relation": relation, "source": record.source,

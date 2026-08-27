@@ -3626,11 +3626,12 @@ def add_candidate_project_repository_url(
     evidence_url: str = "",
     relation: str = "candidate_repo",
     updated_at: str = "",
+    admitted_by_relation: bool = False,
 ) -> None:
     normalized = repo_url_core.canonical_repo_url(url)
     if identifier_is_blocked(project, "repo_url", normalized):
         return
-    if not repo_candidate_allowed_for_project(project, normalized):
+    if not admitted_by_relation and not repo_candidate_allowed_for_project(project, normalized):
         return
     if normalized in project.get("project_repository_urls", []):
         return
@@ -5954,65 +5955,15 @@ def collect_first_party_links(
             continue
         if not collect_surfaces and not repo_url_core.is_supported_repo_url(url):
             continue
+        # Repository attribution is collected from bounded page context in
+        # service.collect_service_probe_evidence. Do not run the legacy label/name
+        # heuristics in parallel with that relation policy.
+        if repo_url_core.is_supported_repo_url(url):
+            continue
         classification = classify_official_link(base_url, url, text)
-        if classification == "source_repo":
-            project_record.record_trust_edge(
-                project,
-                "service_url",
-                base_url,
-                "service_links_repo",
-                "repo_url",
-                url,
-                source=source,
-                locator=base_url,
-                method="first_party_link",
-                classification="confirmed",
-                eligible_for_auto_confirm=True,
-                observed_at=project_record.iso_now(),
-                context={"link_text": text[:200]},
-            )
-            if owner_matches_project(project, url) or domain_policy_core.is_same_site_family(base_url, url):
-                add_candidate_project_repository_url(
-                    project,
-                    url,
-                    source,
-                    reason=f"first-party page linked repo with anchor text: {text[:120]}",
-                    evidence_kind="first_party_link",
-                    evidence_url=base_url,
-                    relation="official_link",
-                )
-                confirm_project_repository_url_with_trust(
-                    project,
-                    url,
-                    source,
-                    relation="official_link",
-                    reason=f"first-party page linked repo with anchor text: {text[:120]}",
-                    evidence_kind="first_party_link",
-                    evidence_url=base_url,
-                )
-            else:
-                add_candidate_project_repository_url(
-                    project,
-                    url,
-                    source,
-                    reason=f"first-party page linked external repo-like URL with anchor text: {text[:120]}",
-                    evidence_kind="first_party_link",
-                    evidence_url=base_url,
-                    relation="linked_repo_candidate",
-                )
-        elif classification == "source_like":
+        if classification == "source_like":
             if domain_policy_core.is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
-            else:
-                add_candidate_project_repository_url(
-                    project,
-                    url,
-                    source,
-                    reason=f"first-party page linked source-like external URL with anchor text: {text[:120]}",
-                    evidence_kind="first_party_link",
-                    evidence_url=base_url,
-                    relation="linked_repo_candidate",
-                )
         elif classification in {"docs", "blog"}:
             add_resource_url(
                 project,
@@ -6025,90 +5976,16 @@ def collect_first_party_links(
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
             project_record.record_developer_profile_url(project, url, source)
-        elif (
-            classification == "other"
-            and repo_url_core.is_supported_repo_url(url)
-            and repo_link_matches_project_identity(project, url)
-        ):
-            project_record.record_trust_edge(
-                project,
-                "service_url",
-                base_url,
-                "service_links_repo",
-                "repo_url",
-                repo_url_core.canonical_repo_url(url),
-                source=source,
-                locator=base_url,
-                method="first_party_repo_identity_match",
-                classification="candidate",
-                eligible_for_auto_confirm=False,
-                observed_at=project_record.iso_now(),
-                context={"link_text": text[:200]},
-            )
-            add_candidate_project_repository_url(
-                project,
-                url,
-                source,
-                reason="first-party page linked a repository whose name matches the project service",
-                evidence_kind="first_party_repo_identity_match",
-                evidence_url=base_url,
-                relation="linked_repo_candidate",
-            )
         elif classification == "same_site":
-            if (repo_url_core.normalize_github_repo_url(url) or repo_url_core.normalize_tangled_repo_url(url)) and owner_matches_project(project, url):
-                project_record.record_trust_edge(
+            resource_role = project_record.app_link_role_from_resource_url(url)
+            if resource_role:
+                add_resource_url(
                     project,
-                    "service_url",
-                    base_url,
-                    "service_links_repo",
-                    "repo_url",
                     url,
+                    role=resource_role,
                     source=source,
-                    locator=base_url,
-                    method="same_site_link",
-                    classification="confirmed",
-                    eligible_for_auto_confirm=True,
-                    observed_at=project_record.iso_now(),
-                    context={"link_text": text[:200]},
+                    confidence="confirmed",
                 )
-                add_candidate_project_repository_url(
-                    project,
-                    url,
-                    source,
-                    reason=f"same-site family link resolved to repo URL with anchor text: {text[:120]}",
-                    evidence_kind="same_site_link",
-                    evidence_url=base_url,
-                    relation="same_site_repo",
-                )
-                confirm_project_repository_url_with_trust(
-                    project,
-                    url,
-                    source,
-                    relation="same_site_repo",
-                    reason=f"same-site family link resolved to repo URL with anchor text: {text[:120]}",
-                    evidence_kind="same_site_link",
-                    evidence_url=base_url,
-                )
-            elif any(token in text.lower() for token in ["source", "repo", "repository", "core"]):
-                add_candidate_project_repository_url(
-                    project,
-                    url,
-                    source,
-                    reason=f"same-site page linked repo-like path with anchor text: {text[:120]}",
-                    evidence_kind="same_site_link",
-                    evidence_url=base_url,
-                    relation="same_site_candidate",
-                )
-            else:
-                resource_role = project_record.app_link_role_from_resource_url(url)
-                if resource_role:
-                    add_resource_url(
-                        project,
-                        url,
-                        role=resource_role,
-                        source=source,
-                        confidence="confirmed",
-                    )
     return project_record.unique_list(follow_up_urls)
 
 
@@ -7084,6 +6961,56 @@ def apply_current_service_observation_state(project: dict[str, Any]) -> bool:
     return changed
 
 
+def exact_project_page_component_role(project: dict[str, Any], url: str) -> str:
+    normalized = identifier_core.normalize_url(url)
+    if not normalized:
+        return ""
+    if normalized in {
+        identifier_core.normalize_url(str(item))
+        for item in project.get("service_urls", [])
+        if identifier_core.normalize_url(str(item))
+    }:
+        return "service"
+    if normalized in {
+        identifier_core.normalize_url(str(item))
+        for item in project.get("project_site_urls", [])
+        if identifier_core.normalize_url(str(item))
+    }:
+        return "project_site"
+    return ""
+
+
+def apply_project_repository_page_observations(
+    project: dict[str, Any],
+    page_url: str,
+    html: str,
+    *,
+    source: str,
+) -> None:
+    observed_at = project_record.iso_now()
+    project["relation_evidence"] = relation_core.normalize_relation_records([
+        item
+        for item in project.get("relation_evidence", [])
+        if not (
+            str(item.get("source") or "") == source
+            and str((item.get("relation") or {}).get("predicate") or "") == "project_repository"
+        )
+    ])
+    bundle = EvidenceBundle(
+        project_key=str(project.get("project_key") or ""),
+        collected_at=observed_at,
+    )
+    for record in service_core.project_repository_relation_records(
+        page_url,
+        html,
+        observed_at=observed_at,
+        subject_component_role=exact_project_page_component_role(project, page_url),
+        source=source,
+    ):
+        bundle.add_record(record)
+    apply_service_evidence(project, bundle)
+
+
 def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -> None:
     queued = deep_investigation_page_urls(project, max_pages=max_pages)
     visited: set[str] = set()
@@ -7094,6 +7021,12 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
         visited.add(normalized_resource_url)
         result = probe_service_url(normalized_resource_url)
         apply_resource_page_probe_status(project, normalized_resource_url, result)
+        apply_project_repository_page_observations(
+            project,
+            normalized_resource_url,
+            str(result.get("html") or ""),
+            source=f"resource_page:{normalized_resource_url}",
+        )
         title = naming_core.clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
@@ -7119,6 +7052,12 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             visited.add(normalized_follow_url)
             nested = probe_service_url(normalized_follow_url)
             apply_resource_page_probe_status(project, normalized_follow_url, nested)
+            apply_project_repository_page_observations(
+                project,
+                normalized_follow_url,
+                str(nested.get("html") or ""),
+                source=f"resource_follow_up:{normalized_follow_url}",
+            )
             nested_title = naming_core.clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
@@ -7769,9 +7708,11 @@ def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
                 identifier_is_blocked(target, "service_url", url)
                 or identifier_is_deferred(target, "service_url", url)
             ),
+            add_candidate_project_repository_url=add_candidate_project_repository_url,
             note_failure=note_failure,
         ),
     )
+    sync_trust_edges_from_project_relations(project)
     apply_current_service_observation_state(project)
 
 
@@ -7783,9 +7724,12 @@ def collect_service_evidence_with_followups(
     lane: str = "static",
 ) -> EvidenceBundle:
     supports_project = service_probe_supports_project(project, service_url, result)
+    normalized_service_url = identifier_core.normalize_url(service_url)
+    component_role = exact_project_page_component_role(project, normalized_service_url)
     bundle = service_core.collect_service_probe_evidence(
         str(project.get("project_key") or ""), service_url, result, observed_at=project_record.iso_now(), lane=lane,
         supports_project=supports_project,
+        subject_component_role=component_role,
     )
     working = copy.deepcopy(project)
     follow_urls = collect_first_party_links(
@@ -7805,6 +7749,7 @@ def collect_service_evidence_with_followups(
                 str(project.get("project_key") or ""), follow_url, follow_result,
                 observed_at=project_record.iso_now(), lane="follow_up",
                 supports_project=service_probe_supports_project(project, follow_url, follow_result),
+                subject_component_role="",
             )
         except Exception as exc:
             follow_bundle = failed_collector_bundle(
@@ -7830,6 +7775,7 @@ def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle
                 identifier_is_blocked(target, "service_url", url)
                 or identifier_is_deferred(target, "service_url", url)
             ),
+            add_candidate_project_repository_url=add_candidate_project_repository_url,
             note_failure=note_failure,
         ),
     )

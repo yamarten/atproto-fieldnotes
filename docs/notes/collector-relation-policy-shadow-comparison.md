@@ -552,4 +552,14 @@ assessorの契約も、旧`service_to_repo`のsource code判定から、`compone
 
 完全reportは`.tmp/relation-assessor-recollection-exact-v6-20260827.json`、content hashは`e6c5fc3491d349a73e38b0c00a1e7f2581bf37253ca511b7db17deef205e1150`です。10件の安定した支持はLLM固有の能力というより、明示的な`Open source`、`View source`、`Repository`表示を現行静的規則が取りこぼしていることを示します。これらの表示はGitHub固有にせず、`View source on Tangled`、`Tangled Repository`、Codeberg、GitLabを同じ意味で扱います。provider名だけの`GitHub`や`Tangled`は明示表示とせず、既存の無標・単独repository link規則で別に評価します。
 
-reviewでは、`Open source`を`Fair source`等のlicense表現と区別して静的確定に使うこと、`View source`・単独`Source`・provider-neutralな`Repository`表示を静的確定に使うこと、mirrorや外部実装を指すrelationは自動昇格せずreviewへ残すことに合意しました。shadow静的規則と固定testへ反映しましたが、production collector、relation自動昇格、identifier candidate生成、正本DBは変更していません。
+reviewでは、`Open source`を`Fair source`等のlicense表現と区別して静的確定に使うこと、`View source`・単独`Source`・provider-neutralな`Repository`表示を静的確定に使うこと、mirrorや外部実装を指すrelationは自動昇格せずreviewへ残すことに合意しました。
+
+## 初期production接続
+
+合意した静的規則をshadow moduleからproduction共通policyへ移し、service surfaceとproject siteのpage取得に接続しました。collectorは完全HTMLやproject名類似を保存せず、exact locator、canonical repository root、表示、accessibility label、子要素label、最寄り見出し・block、landmark、repository数からなるbounded observationを`project_repository` relationのcontextへ保存します。GitHub、Tangled、Codeberg、GitLabを同じ規則で扱います。
+
+静的に支持でき、取得pageがcurrent confirmed `service`または`project_site`と完全一致する場合だけrelationをconfirmedにし、repository identifierをcandidateへ投影します。この投影は旧来のowner・project名一致を要求しませんが、block等のguardは維持します。曖昧な表示やcomponent外pageはcandidate relationに留め、identifier candidateを作りません。外部一覧、dependency、funding等はrelationへ昇格しません。
+
+旧`collect_first_party_links`によるanchor text、owner、project名一致からのrepository candidate化・confirmは停止しました。confirmed relationは既存の`service_links_repo` edgeへ投影しますが、identifierのauto-confirmにはrepository側からの許可された逆向きpathが引き続き必要です。したがって、`View source on Tangled`等はcandidate admissionには使えても、一方向だけでrepository identifierをconfirmedにしません。LLM relation assessorのproduction自動昇格も接続していません。
+
+この変更はproduction codeとtestへの接続までで、正本DBの一括再収集・書換えは行っていません。既存rowを推測で補完せず、今後の通常page再取得でcurrent relationを置き換えます。

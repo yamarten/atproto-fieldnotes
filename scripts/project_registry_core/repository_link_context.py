@@ -36,8 +36,8 @@ class _Frame:
 class RepositoryLinkContextParser(HTMLParser):
     """Extract bounded local context for links to supported repository hosts.
 
-    This is a shadow contract. It intentionally keeps short semantic excerpts rather
-    than the full page or a serialized DOM.
+    It intentionally keeps short semantic excerpts rather than the full page or a
+    serialized DOM so the same bounded observation can be saved and replayed.
     """
 
     def __init__(self, base_url: str) -> None:

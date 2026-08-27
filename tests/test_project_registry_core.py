@@ -1897,7 +1897,32 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertEqual(records["https://external.example.net/docs"]["confidence"], "candidate")
         self.assertEqual(records["https://example.attacker.net/docs"]["confidence"], "candidate")
 
-    def test_unsupported_service_only_contributes_repository_relationship_evidence(self) -> None:
+    def test_exact_project_site_uses_same_bounded_repository_policy_as_service(self) -> None:
+        project = project_record.default_project_record(
+            "proj:projectsite-repository", "service_url", "https://app.example.com"
+        )
+        project["project_site_urls"] = ["https://www.example.com"]
+
+        registry.apply_project_repository_page_observations(
+            project,
+            "https://www.example.com",
+            '<a href="https://codeberg.org/example/project/issues">Report an issue</a>',
+            source="resource_page:https://www.example.com",
+        )
+
+        relation = next(
+            item for item in project["relation_evidence"]
+            if (item.get("relation") or {}).get("predicate") == "project_repository"
+        )
+        self.assertEqual(relation["classification"], "confirmed")
+        self.assertEqual(relation["context"]["subject_component_role"], "project_site")
+        self.assertEqual(
+            project["candidate_project_repository_urls"],
+            ["https://codeberg.org/example/project"],
+        )
+        self.assertEqual(project["project_repository_urls"], [])
+
+    def test_unsupported_service_does_not_contribute_component_repository_evidence(self) -> None:
         project = project_record.default_project_record(
             "proj:relatedsite", "repo_url", "https://github.com/example/adapter"
         )
@@ -1945,8 +1970,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             for edge in registry.trust_graph_core.graph(project).get("edges", [])
             if edge.get("predicate") == "service_links_repo"
         ]
-        self.assertEqual(len(repo_edges), 1)
-        self.assertEqual(repo_edges[0]["object"]["value"], "https://github.com/example/adapter")
+        self.assertEqual(repo_edges, [])
         self.assertEqual(project["resource_url_records"], [])
         self.assertEqual(project["candidate_developer_accounts"], [])
         self.assertEqual(project["bluesky_handles"], [])
@@ -2098,33 +2122,30 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertFalse(registry.service_probe_supports_project(project, "https://kimbia.mwco.app", result))
 
-    def test_unlabelled_first_party_tangled_repo_link_waits_for_llm_before_trust_probe(self) -> None:
+    def test_unlabelled_unique_repository_link_uses_bounded_context_before_trust_probe(self) -> None:
         project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
         project["name"] = "Seams"
         project["website_url"] = "https://seams.so"
         project["service_urls"] = ["https://seams.so"]
 
-        registry.collect_first_party_links(
-            project,
-            "https://seams.so",
-            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
-            "service_page:https://seams.so",
+        bundle = registry.service_core.collect_service_probe_evidence(
+            project["project_key"], "https://seams.so",
+            {
+                "status_code": 200, "final_url": "https://seams.so", "title": "Seams",
+                "description": "Seams", "service_status": "live",
+                "service_status_confidence": "medium", "service_status_evidence": ["http_200"],
+                "html": '<a href="https://tangled.org/@sealight.xyz/seams.so"><svg></svg></a>',
+                "links": [], "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00", supports_project=True,
+            subject_component_role="service",
         )
+        registry.apply_service_evidence(project, bundle)
 
         self.assertEqual(
             project["candidate_project_repository_urls"],
             ["https://tangled.org/sealight.xyz/seams.so"],
         )
-        self.assertEqual(registry.candidate_repo_trust_probe_urls(project), [])
-        evidence = registry.build_llm_evidence_bundle(project)
-        registry.apply_repository_link_assessments(project, {
-            "repository_link_assessments": [{
-                "service_url": "https://seams.so",
-                "repo_url": "https://tangled.org/sealight.xyz/seams.so",
-                "relationship": "same_project",
-                "reason": "The names and first-party link identify the same project.",
-            }],
-        }, evidence)
         self.assertEqual(
             registry.candidate_repo_trust_probe_urls(project),
             ["https://tangled.org/sealight.xyz/seams.so"],
@@ -2137,22 +2158,21 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["service_urls"] = ["https://seams.so"]
         registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
         registry.add_confirmed_identifier_decision(project, "service_url", "https://seams.so", source="test")
-        registry.collect_first_party_links(
-            project,
-            "https://seams.so",
-            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
-            "service_page:https://seams.so",
+        service_bundle = registry.service_core.collect_service_probe_evidence(
+            project["project_key"], "https://seams.so",
+            {
+                "status_code": 200, "final_url": "https://seams.so", "title": "Seams",
+                "description": "Seams", "service_status": "live",
+                "service_status_confidence": "medium", "service_status_evidence": ["http_200"],
+                "html": '<a href="https://tangled.org/@sealight.xyz/seams.so"><svg></svg></a>',
+                "links": [], "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00", supports_project=True,
+            subject_component_role="service",
         )
+        registry.apply_service_evidence(project, service_bundle)
         repo_url = project["candidate_project_repository_urls"][0]
-        evidence = registry.build_llm_evidence_bundle(project)
-        registry.apply_repository_link_assessments(project, {
-            "repository_link_assessments": [{
-                "service_url": "https://seams.so",
-                "repo_url": repo_url,
-                "relationship": "same_project",
-                "reason": "The names and first-party link identify the same project.",
-            }],
-        }, evidence)
+        service_summary_candidates = [dict(item) for item in project["summary_candidates"]]
 
         with mock.patch.object(
             repository_sources,
@@ -2171,7 +2191,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             bundle = registry.collect_tangled_repo_evidence(project, repo_url, trust_only=True)
 
         self.assertFalse(any(record.kind == "tangled_repo_inspection" for record in bundle.records))
-        self.assertEqual(project["summary_candidates"], [])
+        self.assertEqual(project["summary_candidates"], service_summary_candidates)
         self.assertEqual(registry.apply_candidate_repo_trust_evidence(project, repo_url, bundle), 1)
         self.assertTrue(
             registry.confirm_project_repository_url_with_trust(
@@ -2182,7 +2202,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             )
         )
         self.assertEqual(project["project_repository_urls"], [repo_url])
-        self.assertEqual(project["summary_candidates"], [])
+        self.assertEqual(project["summary_candidates"], service_summary_candidates)
 
     def test_candidate_repo_trust_inspection_rejects_unrelated_reverse_link(self) -> None:
         project = project_record.default_project_record("proj:seams", "service_url", "https://seams.so")
@@ -2191,12 +2211,19 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["service_urls"] = ["https://seams.so"]
         registry.add_manual_seed(project, "service_url", "https://seams.so", source="test")
         registry.add_confirmed_identifier_decision(project, "service_url", "https://seams.so", source="test")
-        registry.collect_first_party_links(
-            project,
-            "https://seams.so",
-            [{"url": "https://tangled.org/@sealight.xyz/seams.so", "text": ""}],
-            "service_page:https://seams.so",
+        service_bundle = registry.service_core.collect_service_probe_evidence(
+            project["project_key"], "https://seams.so",
+            {
+                "status_code": 200, "final_url": "https://seams.so", "title": "Seams",
+                "description": "Seams", "service_status": "live",
+                "service_status_confidence": "medium", "service_status_evidence": ["http_200"],
+                "html": '<a href="https://tangled.org/@sealight.xyz/seams.so"><svg></svg></a>',
+                "links": [], "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00", supports_project=True,
+            subject_component_role="service",
         )
+        registry.apply_service_evidence(project, service_bundle)
         repo_url = project["candidate_project_repository_urls"][0]
         bundle = registry.EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-18T00:00:00+00:00")
         bundle.add_record(registry.investigation_core.evidence_record(
@@ -2436,7 +2463,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             and item.get("source") == "service_page:https://app.example.com"
         ]
         self.assertEqual(source_relations, [])
-        self.assertEqual(len(registry.build_llm_evidence_bundle(project)["repository_link_candidates"]), 1)
+        self.assertEqual(registry.build_llm_evidence_bundle(project)["repository_link_candidates"], [])
 
     def test_nsid_text_mention_alone_does_not_support_service_probe(self) -> None:
         project = project_record.default_project_record("proj:whitewind", "nsid", "com.whtwnd.blog.entry")

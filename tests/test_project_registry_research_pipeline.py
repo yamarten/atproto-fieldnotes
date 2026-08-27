@@ -1369,7 +1369,10 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIn("app_shell_detected", replayed["service_status_evidence"])
 
     def test_service_probe_evidence_applies_count_and_byte_budgets(self) -> None:
-        html = "調査" * 10000
+        html = (
+            '<footer><a href="https://github.com/example/app">Source code</a></footer>'
+            + "調査" * 10000
+        )
         links = [
             {"url": f"https://noise-{index}.example/path", "text": "noise" * 200}
             for index in range(500)
@@ -1425,6 +1428,110 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             and record.value.get("predicate") == "project_repository"
             for record in bundle.records
         ))
+
+    def test_exact_component_repository_relation_adds_candidate_without_confirming_identifier(self) -> None:
+        project = self.make_project(
+            "proj:bounded-repository", "service_url", "https://example.com"
+        )
+        project["service_urls"] = ["https://example.com"]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            "https://example.com",
+            {
+                "status_code": 200,
+                "title": "Example",
+                "description": "Example project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200"],
+                "html": (
+                    '<footer><a href="https://tangled.org/@example.com/app/tree/main">'
+                    "View source on Tangled</a></footer>"
+                ),
+                "links": [],
+                "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00",
+            supports_project=True,
+            subject_component_role="service",
+        )
+
+        relation = next(
+            record for record in bundle.records
+            if record.kind == "relation"
+            and record.value.get("predicate") == "project_repository"
+        )
+        self.assertEqual(relation.classification, "confirmed")
+        self.assertEqual(relation.value["object"]["value"], "https://tangled.org/example.com/app")
+        self.assertEqual(relation.value["method"], "bounded_first_party_link")
+        self.assertEqual(relation.context["subject_component_role"], "service")
+
+        registry.apply_service_evidence(project, bundle)
+
+        self.assertEqual(
+            project["candidate_project_repository_urls"],
+            ["https://tangled.org/example.com/app"],
+        )
+        self.assertEqual(project["project_repository_urls"], [])
+
+    def test_noncomponent_or_external_repository_link_does_not_admit_identifier(self) -> None:
+        project = self.make_project(
+            "proj:bounded-review", "service_url", "https://example.com"
+        )
+        external = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            "https://example.com",
+            {
+                "status_code": 200,
+                "title": "Example",
+                "description": "Example project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200"],
+                "html": (
+                    '<section><h2>Awesome projects</h2><ul><li>'
+                    '<a href="https://github.com/other/tool">Source code</a>'
+                    "</li></ul></section>"
+                ),
+                "links": [],
+                "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00",
+            supports_project=True,
+            subject_component_role="service",
+        )
+        self.assertFalse(any(
+            record.kind == "relation"
+            and record.value.get("predicate") == "project_repository"
+            for record in external.records
+        ))
+
+        noncomponent = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            "https://example.com/docs",
+            {
+                "status_code": 200,
+                "title": "Example docs",
+                "description": "Documentation",
+                "service_status": "none",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "docs_only_surface_detected"],
+                "html": '<a href="https://codeberg.org/example/docs">Repository</a>',
+                "links": [],
+                "urls": [],
+            },
+            observed_at="2026-08-28T00:01:00+00:00",
+            supports_project=True,
+            subject_component_role="",
+        )
+        relation = next(
+            record for record in noncomponent.records
+            if record.kind == "relation"
+            and record.value.get("predicate") == "project_repository"
+        )
+        self.assertEqual(relation.classification, "candidate")
+        registry.apply_service_evidence(project, noncomponent)
+        self.assertEqual(project["candidate_project_repository_urls"], [])
 
     def test_service_verification_current_state_keeps_latest_surface(self) -> None:
         results: list[dict] = []

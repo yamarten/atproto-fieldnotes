@@ -21,7 +21,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- GitHub Searchの`homepage_exact`、`site_url` / `project_site`、`project_repository`のproduction保存契約と正本DB移行は完了しています。旧page→repo 499 claimのbounded再収集と15件のsample reviewも完了し、外部実装一覧のskytip-simpleを除く14件を正本DBへ適用しました。relation・identifier・decision・operator adoption各14件、project数不変、foreign key違反0、integrity `ok`、Web API表示を確認済みです。review 334件はpage帰属review 322件とexact component上のrelation assessment 12件へ分離しました。12件のうち10件は明示的な`Open source` / `View source` / `Repository`表示を静的規則が取りこぼしたcase、Eventsは根拠不足、didplc.directoryはmirror境界で判定が揺れるcaseです。一般表示はGitHub、Tangled、Codeberg、GitLabで共通のshadow静的規則へ反映し、provider名だけは明示表示にせず、mirrorは自動昇格しない方針で合意済みです。未観測、取得失敗と既存candidate 5件は初期適用へ含めず、LLM自動昇格も接続していません。enrichは元run `enrich-20260827T060057Z-68598db3`を再開し、689 / 2897件から進行中です。Web再起動時にscheduleが作った`enrich-20260827T115033Z-e090f8b9`は19件で協調停止した重複runなので再開しません。
+- bounded page→repository policyの変更をmasterへmergeした後、通常enrichで新しいconfirmed/candidate relationとrepository candidateの代表例をsample reviewする。既存DBの一括再収集は前提にせず、LLM relation assessorの自動昇格は別の設計判断として接続しない。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。

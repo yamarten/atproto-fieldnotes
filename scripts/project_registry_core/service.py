@@ -7,7 +7,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import domain_policy, identifiers
+from . import domain_policy, identifiers, project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 
@@ -37,6 +37,7 @@ SERVICE_BROWSER_FORM_MAX_COUNT = 12
 SERVICE_BROWSER_INPUT_MAX_COUNT = 24
 SERVICE_BROWSER_ACTION_MAX_COUNT = 24
 SERVICE_BROWSER_PUBLIC_CONTENT_MIN_COUNT = 3
+PROJECT_REPOSITORY_OBSERVATION_MAX_COUNT = 8
 SERVICE_BROWSER_PUBLIC_ACTION_PHRASES = (
     "post new entry",
     "new entry",
@@ -229,6 +230,72 @@ def service_probe_represents_service_identity(requested_url: str, lane: str) -> 
     return not first_path or first_path not in SUPPORTING_PAGE_PATHS
 
 
+def project_repository_relation_records(
+    requested_url: str,
+    html: str,
+    *,
+    observed_at: str,
+    subject_component_role: str = "",
+    source: str = "",
+) -> list[EvidenceRecord]:
+    """Turn bounded page context into replayable project_repository observations."""
+    records: list[EvidenceRecord] = []
+    comparison = project_repository_policy.evaluate_project_repository_html(html, requested_url)
+    observations_by_identity: dict[str, list[dict[str, Any]]] = {}
+    for observation in comparison["rows"]:
+        observations_by_identity.setdefault(
+            str(observation.get("repository_identity") or ""), []
+        ).append(observation)
+    for pair in comparison["pairs"]:
+        disposition = str(pair.get("disposition") or "")
+        if disposition == "DO_NOT_PROMOTE":
+            continue
+        exact_component = subject_component_role in {"service", "project_site"}
+        classification = (
+            "confirmed"
+            if disposition == "CONFIRM_PROJECT_REPOSITORY" and exact_component
+            else "candidate"
+        )
+        observations = [
+            {
+                key: observation.get(key)
+                for key in (
+                    "locator", "text", "aria_label", "title", "descendant_label",
+                    "nearest_heading", "container_text", "container_hint", "group_hint",
+                    "ancestor_tags", "landmarks", "purpose", "reason", "disposition",
+                )
+                if observation.get(key) not in (None, "", [], {})
+            }
+            for observation in observations_by_identity.get(
+                str(pair.get("repository_identity") or ""), []
+            )[
+                :PROJECT_REPOSITORY_OBSERVATION_MAX_COUNT
+            ]
+        ]
+        records.append(relation_record(
+            source=source or f"service_page:{requested_url}",
+            classification=classification,
+            observed_at=observed_at,
+            subject_type="website",
+            subject_value=requested_url.rstrip("/"),
+            predicate="project_repository",
+            object_type="repo",
+            object_value=str(pair.get("repository_url") or ""),
+            locator=requested_url,
+            method="bounded_first_party_link",
+            context={
+                "policy_version": project_repository_policy.POLICY_VERSION,
+                "policy_disposition": disposition,
+                "policy_reasons": list(pair.get("reasons") or []),
+                "subject_component_role": subject_component_role,
+                "subject_is_exact_component": exact_component,
+                "observation_count": int(pair.get("observation_count") or 0),
+                "observations": observations,
+            },
+        ))
+    return records
+
+
 def collect_service_probe_evidence(
     project_key: str,
     requested_url: str,
@@ -237,6 +304,7 @@ def collect_service_probe_evidence(
     observed_at: str,
     lane: str = "static",
     supports_project: bool | None = None,
+    subject_component_role: str = "",
 ) -> EvidenceBundle:
     html = str(result.get("html") or "")
     value = {
@@ -283,22 +351,18 @@ def collect_service_probe_evidence(
             subject_type="project", subject_value=project_key, predicate="operates_service",
             object_type="service", object_value=requested_url.rstrip("/"), locator=requested_url, method=f"{lane}_probe",
         ))
+    for record in project_repository_relation_records(
+        requested_url,
+        html,
+        observed_at=observed_at,
+        subject_component_role=subject_component_role,
+    ):
+        bundle.add_record(record)
     for link in result.get("links", []) if isinstance(result.get("links"), list) else []:
         if not isinstance(link, dict):
             continue
         url = str(link.get("url") or link.get("href") or "").rstrip("/")
-        label = " ".join(
-            str(link.get(key) or "") for key in ("text", "aria_label", "title")
-        ).lower()
         host = urllib.parse.urlparse(url).netloc.lower()
-        if host in {"github.com", "tangled.org"} and re.search(
-            r"\b(?:source(?:\s+code)?|repo|repository|repositories|monorepo)\b", label
-        ):
-            bundle.add_record(relation_record(
-                source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
-                subject_type="website", subject_value=requested_url.rstrip("/"), predicate="project_repository",
-                object_type="repo", object_value=url, locator=requested_url, method="first_party_link",
-            ))
         if host in {"bsky.app", "staging.bsky.app"} and "/profile/" in urllib.parse.urlparse(url).path:
             bundle.add_record(relation_record(
                 source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
