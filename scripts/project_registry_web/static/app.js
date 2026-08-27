@@ -591,16 +591,18 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped f
   if (!sourceKey) return false;
   const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
   const current = cards.find((card) => card.dataset.projectKey === sourceKey && (!targetKey || card.dataset.mergeTarget === targetKey))
+    || (targetKey ? cards.find((card) => card.dataset.projectKey === targetKey && card.dataset.mergeTarget === sourceKey) : null)
     || cards.find((card) => card.dataset.projectKey === sourceKey)
     || cards.find((card) => card.classList.contains("selected"));
   if (!current) return false;
+  const isContinuation = current.dataset.reviewContinuation === "true";
   const currentIndex = cards.indexOf(current);
   const next = currentIndex >= 0 ? cards[currentIndex + 1] : null;
   const previous = currentIndex >= 0 ? cards[currentIndex - 1] : null;
   current.remove();
-  const remaining = Array.from(document.querySelectorAll("[data-project-key]")).length;
+  const remaining = Array.from(document.querySelectorAll("#list [data-project-key]")).length;
   const meta = $("list")?.querySelector(".meta-row strong");
-  if (meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
+  if (!isContinuation && meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
   if (next || previous) {
     status(`${statusPrefix} Moved to next item. ${remaining} visible; refresh to recalculate.`);
     openListCard(next || previous);
@@ -614,6 +616,19 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped f
     status(`${statusPrefix} No more visible review items; refresh to recalculate.`);
   }
   return true;
+}
+
+function insertMergeReviewContinuation(sourceKey, targetKey, anchorIndex) {
+  const marker = document.createElement("button");
+  marker.type = "button";
+  marker.hidden = true;
+  marker.dataset.projectKey = sourceKey;
+  marker.dataset.mergeTarget = targetKey;
+  marker.dataset.reviewContinuation = "true";
+  const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
+  const nextCard = cards[Math.min(Math.max(anchorIndex, 0), cards.length - 1)];
+  if (nextCard) nextCard.before(marker);
+  else $("list")?.append(marker);
 }
 
 function advanceReviewListAfterMutation(response, path) {
@@ -638,17 +653,19 @@ function advanceMergeReviewAfterMerge(response) {
     || affectedKeys.has(String(card.dataset.mergeTarget || ""))
   ));
   const anchorIndex = affected.length ? cards.indexOf(affected[0]) : -1;
+  const removedVisibleCount = affected.filter((card) => card.dataset.reviewContinuation !== "true").length;
   affected.forEach((card) => card.remove());
   const remainingCards = Array.from(document.querySelectorAll("#list [data-project-key]"));
   const meta = $("list")?.querySelector(".meta-row strong");
   if (meta && Number.isFinite(Number(meta.textContent))) {
-    meta.textContent = String(Math.max(0, Number(meta.textContent) - affected.length));
+    meta.textContent = String(Math.max(0, Number(meta.textContent) - removedVisibleCount));
   }
 
   const next = response.next_merge_review || {};
   const nextSource = String(next.source_project_key || "");
   const nextTarget = String(next.target_project_key || "");
   if (nextSource && nextTarget) {
+    insertMergeReviewContinuation(nextSource, nextTarget, anchorIndex);
     status(`Saved. Reviewing another candidate for the merged project (${response.remaining_merge_candidate_count || 0} remaining).`);
     loadMergeDetail(nextSource, nextTarget);
     return true;
@@ -670,8 +687,8 @@ function advanceMergeReviewAfterMerge(response) {
   return true;
 }
 
-function skipReviewItem(sourceKey = state.selected) {
-  if (!advanceReviewList(String(sourceKey || ""), {statusPrefix: "Skipped for now."})) {
+function skipReviewItem(sourceKey = state.selected, targetKey = "") {
+  if (!advanceReviewList(String(sourceKey || ""), {targetKey: String(targetKey || ""), statusPrefix: "Skipped for now."})) {
     status("No visible review item to skip; refresh list.", true);
   }
 }
@@ -1185,7 +1202,7 @@ async function loadMergeDetail(source, target, options = {}) {
       backTarget: state.detailBackTarget,
     }));
     $("load-first-creator-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeFirstCreator: true}));
-    $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source));
+    $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source, target));
     $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
     $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
   } catch (error) {
