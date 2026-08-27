@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import cli, project_record, project_repository_materialization, project_repository_shadow
+from project_registry_core import (
+    cli,
+    project_record,
+    project_repository_materialization,
+    project_repository_review_materialization,
+    project_repository_shadow,
+)
 
 
 class ProjectRepositoryShadowUnitTest(unittest.TestCase):
@@ -77,6 +83,19 @@ class ProjectRepositoryShadowUnitTest(unittest.TestCase):
         self.assertEqual(args.page_limit, 25)
         self.assertEqual(args.concurrency, 4)
         self.assertEqual(args.retries, 1)
+
+    def test_cli_exposes_reviewed_repository_materialization(self) -> None:
+        args = cli.build_parser().parse_args([
+            "materialize-project-repository-review",
+            "--db-path", "input.db",
+            "--materialized-db", "shadow.db",
+            "--review-manifest", "review.json",
+            "--output", "report.json",
+        ])
+        self.assertEqual(args.db_path, "input.db")
+        self.assertEqual(args.materialized_db, "shadow.db")
+        self.assertEqual(args.review_manifest, "review.json")
+        self.assertEqual(args.output, "report.json")
 
 
 class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
@@ -264,6 +283,103 @@ class ProjectRepositoryShadowDatabaseTest(TempRegistryDbTestCase):
             self.assertEqual(loaded["relation_evidence"], [])
         finally:
             conn.close()
+
+    def test_reviewed_repository_materialization_confirms_relation_and_identifier_in_copy(self) -> None:
+        before = self.db_path.read_bytes()
+        manifest_path = Path(self.tempdir.name) / "review.json"
+        manifest_path.write_text(json.dumps({
+            "schema_version": 1,
+            "reviewed_at": "2026-08-27",
+            "source_report_hash": "example-report-hash",
+            "actions": [{
+                "project_key": "proj:test",
+                "expected_component_url": "https://example.org",
+                "repository_url": "https://github.com/example/new-project",
+                "locator": "https://github.com/example/new-project/tree/main/app",
+                "expected_repository_classification": "absent",
+            }],
+        }), encoding="utf-8")
+        target = Path(self.tempdir.name) / "reviewed.db"
+
+        result = project_repository_review_materialization.materialize_reviewed_copy(
+            self.db_path,
+            target,
+            manifest_path,
+        )
+
+        self.assertEqual(before, self.db_path.read_bytes())
+        self.assertTrue(result["review_gate"]["ready"])
+        self.assertEqual(result["action_counts"], {
+            "confirmed_identifier": 1,
+            "confirmed_relation": 1,
+        })
+        conn = sqlite3.connect(target)
+        conn.row_factory = sqlite3.Row
+        try:
+            identifier = conn.execute(
+                "SELECT classification FROM project_identifiers WHERE project_key='proj:test' "
+                "AND kind='repo_url' AND value='https://github.com/example/new-project' "
+                "AND role='project_repository'"
+            ).fetchone()
+            self.assertEqual(identifier["classification"], "confirmed")
+            relation = conn.execute(
+                "SELECT subject_type, subject_value, classification, source, locator, method "
+                "FROM project_relations WHERE project_key='proj:test' "
+                "AND predicate='project_repository' AND object_value='https://github.com/example/new-project'"
+            ).fetchone()
+            self.assertEqual(tuple(relation), (
+                "service",
+                "https://example.org",
+                "confirmed",
+                project_repository_review_materialization.REVIEW_SOURCE,
+                "https://github.com/example/new-project/tree/main/app",
+                project_repository_review_materialization.RELATION_METHOD,
+            ))
+            decision = conn.execute(
+                "SELECT target_role, metadata_json FROM project_decisions WHERE project_key='proj:test' "
+                "AND kind='confirm_identifier' AND target_value='https://github.com/example/new-project'"
+            ).fetchone()
+            self.assertEqual(decision["target_role"], "project_repository")
+            self.assertFalse(json.loads(decision["metadata_json"])["registration_origin"])
+            adoption = conn.execute(
+                "SELECT adoption_kind, source, registration_origin FROM project_identifier_adoptions "
+                "WHERE project_key='proj:test' AND value='https://github.com/example/new-project' "
+                "AND role='project_repository' AND cleared_at=''"
+            ).fetchone()
+            self.assertEqual(tuple(adoption), (
+                "operator",
+                project_repository_review_materialization.REVIEW_SOURCE,
+                0,
+            ))
+        finally:
+            conn.close()
+
+    def test_reviewed_repository_materialization_refuses_a_stale_component(self) -> None:
+        before = self.db_path.read_bytes()
+        manifest_path = Path(self.tempdir.name) / "stale-review.json"
+        manifest_path.write_text(json.dumps({
+            "schema_version": 1,
+            "reviewed_at": "2026-08-27",
+            "source_report_hash": "example-report-hash",
+            "actions": [{
+                "project_key": "proj:test",
+                "expected_component_url": "https://changed.example.org",
+                "repository_url": "https://github.com/example/new-project",
+                "locator": "https://github.com/example/new-project",
+                "expected_repository_classification": "absent",
+            }],
+        }), encoding="utf-8")
+        target = Path(self.tempdir.name) / "stale.db"
+
+        with self.assertRaisesRegex(ValueError, "exact component changed"):
+            project_repository_review_materialization.materialize_reviewed_copy(
+                self.db_path,
+                target,
+                manifest_path,
+            )
+
+        self.assertEqual(before, self.db_path.read_bytes())
+        self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":

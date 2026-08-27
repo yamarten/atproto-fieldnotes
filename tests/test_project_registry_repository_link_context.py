@@ -103,6 +103,24 @@ class RepositoryLinkContextTest(unittest.TestCase):
         )
         self.assertEqual(rows[0]["disposition"], "DO_NOT_PROMOTE")
 
+    def test_external_implementation_listing_overrides_self_hosting_presentation(self) -> None:
+        rows = self.evaluate(
+            """
+            <section><h2>Projects implementing the protocol</h2>
+              <div><a href="https://github.com/other/app">
+                Example app — Open Source. Self-hosted deployment.
+              </a></div>
+              <p>Building with the protocol? Reach out and we will feature your project here.</p>
+            </section>
+            """
+        )
+        self.assertEqual(rows[0]["purpose"], "self_hosting_implementation")
+        self.assertEqual(rows[0]["disposition"], "DO_NOT_PROMOTE")
+        self.assertEqual(
+            rows[0]["reason"],
+            "surrounding_context_identifies_external_reference",
+        )
+
     def test_issue_release_schema_and_docs_source_links_are_project_repositories(self) -> None:
         cases = {
             "Report a bug": "issue_or_community",

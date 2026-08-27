@@ -82,7 +82,9 @@ SERVICE_SURFACE_MARKERS = {
 }
 EXTERNAL_REFERENCE_CONTEXT_PATTERN = re.compile(
     r"(?:awesome(?:\s+list)?|related (?:projects?|tools?|resources?)|"
-    r"community projects?|dependencies|dependency|built with|powered by|"
+    r"community projects?|projects? (?:implementing|using)\b|"
+    r"(?:feature|submit|add|list) (?:your|a) projects?\b|"
+    r"dependencies|dependency|built with|powered by|"
     r"acknowledg(?:e)?ments?|credits?|third[ -]party|ecosystem projects?)"
 )
 DIRECT_PROJECT_REPOSITORY_CONTEXT_PATTERN = re.compile(

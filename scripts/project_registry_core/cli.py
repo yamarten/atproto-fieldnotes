@@ -482,6 +482,26 @@ def build_parser() -> argparse.ArgumentParser:
         func=maintenance_commands.cmd_compare_project_repository_recollection
     )
 
+    materialize_project_repository_review_parser = subparsers.add_parser(
+        "materialize-project-repository-review",
+        help="Apply fixed operator-reviewed repository relations to a new shadow database.",
+    )
+    materialize_project_repository_review_parser.add_argument(
+        "--db-path", required=True, help="Existing registry database opened read-only."
+    )
+    materialize_project_repository_review_parser.add_argument(
+        "--materialized-db", required=True, help="New shadow database receiving reviewed decisions."
+    )
+    materialize_project_repository_review_parser.add_argument(
+        "--review-manifest", required=True, help="Fixed operator review manifest JSON path."
+    )
+    materialize_project_repository_review_parser.add_argument(
+        "--output", required=True, help="Structured shadow materialization report JSON path."
+    )
+    materialize_project_repository_review_parser.set_defaults(
+        func=maintenance_commands.cmd_materialize_project_repository_review
+    )
+
     compare_project_repository_migration_parser = subparsers.add_parser(
         "compare-project-repository-migration",
         help="Compare migration from the legacy source repository role to project_repository without changing the database.",

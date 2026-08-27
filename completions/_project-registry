@@ -40,6 +40,7 @@ subcommands=(
   'compare-collector-relation-policy:Compare current and direction-aware collector relation policies'
   'compare-project-repository-context:Recollect bounded project repository link context'
   'compare-project-repository-recollection:Recollect pre-migration page repository claims read-only'
+  'materialize-project-repository-review:Apply reviewed repository relations to a new shadow database'
   'compare-project-repository-migration:Compare source repository role and relation migration'
   'compare-project-site-migration:Compare Website and repository homepage inputs for project site migration'
   'compare-merge-policy:Compare current merge candidates and role-aware review policy'
@@ -444,6 +445,13 @@ case "$cmd" in
       '--timeout[Per-page fetch timeout in seconds]:seconds:' \
       '--concurrency[Maximum concurrent page fetches]:count:' \
       '--retries[Retries after an empty fetch failure]:count:'
+    ;;
+  materialize-project-repository-review)
+    _arguments -S \
+      '--db-path[Existing registry database opened read-only]:database file:_files' \
+      '--materialized-db[New shadow database receiving reviewed decisions]:database file:_files' \
+      '--review-manifest[Fixed operator review manifest]:JSON file:_files' \
+      '--output[Structured shadow materialization report JSON path]:report file:_files'
     ;;
   compare-project-repository-migration)
     _arguments -S \

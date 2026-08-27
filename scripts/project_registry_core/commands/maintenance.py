@@ -14,7 +14,7 @@ from .. import domain_policy
 from .. import identifier_storage_shadow
 from .. import identifier_storage_materialization
 from .. import merge_policy_shadow
-from .. import project_repository_materialization, project_repository_shadow
+from .. import project_repository_materialization, project_repository_review_materialization, project_repository_shadow
 from .. import project_site_materialization, project_site_shadow
 from .. import trust_policy_shadow
 from ..application import maintenance as services
@@ -440,6 +440,36 @@ def cmd_compare_project_site_migration(args: argparse.Namespace) -> int:
         "empty_website_lead_disposition_counts": report["empty_website_repository_homepage_leads"]["disposition_counts"],
         "review_gate": report["review_gate"],
         "materialization": report.get("materialization"),
+    }, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_materialize_project_repository_review(args: argparse.Namespace) -> int:
+    db_path = Path(args.db_path).expanduser()
+    materialized_db = Path(args.materialized_db).expanduser()
+    output = Path(args.output).expanduser()
+    review_manifest = Path(args.review_manifest).expanduser()
+    resolved = {db_path.resolve(), materialized_db.resolve(), output.resolve(), review_manifest.resolve()}
+    if len(resolved) != 4:
+        raise ValueError("database, materialized database, report, and manifest paths must differ")
+    report = project_repository_review_materialization.materialize_reviewed_copy(
+        db_path,
+        materialized_db,
+        review_manifest,
+    )
+    canonical = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    report["content_hash"] = hashlib.sha256(canonical.encode()).hexdigest()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({
+        "output": str(output),
+        "content_hash": report["content_hash"],
+        "reviewed_action_count": report["reviewed_action_count"],
+        "validation": report["validation"],
+        "review_gate": report["review_gate"],
     }, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
