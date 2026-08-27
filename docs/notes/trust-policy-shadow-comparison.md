@@ -93,7 +93,7 @@ SUPPORTEDな往路・復路は長さ1が127本、長さ2が364本、長さ3が15
 
 merge aliasは520件あり、merge前snapshotから取り出したidentifierの987件は存続projectにもあり、127件はありませんでした。これはcoverage比較であり、過去mergeを正解データにも、欠落を自動regressionにも数えません。
 
-redirect観測1,160件はURL形状と既存claimだけで分類し、移転とは決めませんでした。人が見る候補は22組です。Basker / InfoEnonやDateSky / Nomareのような改名・後継、fork、mirror、同内容surfaceは、通常の帰属・merge判定から分けた時間・派生関係として引き続き保留します。忘却を避けるため、時間関係の導入条件は[登録プロジェクトの帰属と信頼グラフ設計](project-attribution-and-trust-design.md)と[登録プロジェクトのマージ規則設計](project-merge-policy-design.md)に残します。
+redirect観測1,160件はURL形状と既存claimだけで分類し、移転とは決めませんでした。人が見る候補は22組です。Basker / InfoEnonやDateSky / Nomareのような改名・後継、fork、mirror、同内容surfaceは、通常の帰属・merge判定から分けた時間・派生関係として引き続き保留します。忘却を避けるため、時間関係の導入条件は[登録プロジェクトへの帰属と信頼](../developer/project-attribution-and-trust.md)と[登録プロジェクトのマージ規則設計](project-merge-policy-design.md)に残します。
 
 ## 次の設計ゲート
 

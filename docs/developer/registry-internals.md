@@ -1,6 +1,6 @@
 # Registry Internals
 
-registry schema version 3の内部仕様と運用メモです。利用手順は[利用ガイド](../user/guide.md)、保存モデルの正本は[project-record.md](project-record.md)を参照してください。
+registry schema version 3の内部仕様と運用メモです。利用手順は[利用ガイド](../user/guide.md)、帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)、保存モデルの正本は[project-record.md](project-record.md)を参照してください。
 
 ## 運用前提
 
@@ -101,7 +101,9 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 ### Trust graph
 
-実装済みの `trust-graph-v1` は、confirmed identifier への自動昇格に使う信頼関係を `state_json.trust_graph` に保存します。DB schema は増やしていません。
+この節は現行`trust-graph-v1`の実装、保存、処理経路を説明します。登録プロジェクトへの帰属、信頼グラフの責務、接続マトリクス、relation別の静的用途は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を正本とします。
+
+実装済みの`trust-graph-v1`は、confirmed identifierへの自動昇格に使う信頼関係を`state_json.trust_graph`に保存します。DB schemaは増やしていません。
 
 - node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません

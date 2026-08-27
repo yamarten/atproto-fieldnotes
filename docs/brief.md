@@ -40,6 +40,8 @@ ATmosphereに関する情報を再利用できるローカルDBへ蓄積しま�
 
 ## 対象の境界
 
+登録プロジェクトは、所有されたLexicon、主要実装、公式repository、提供service、代表project site、native appなどを、一つの説明・追跡対象としてまとめる編集上の単位です。構成要素の完全なinventoryは求めず、同じdeveloper、repository、domainのいずれか一つを共有するだけでは同じ登録プロジェクトとみなしません。詳細な帰属と信頼の判断は[登録プロジェクトへの帰属と信頼](developer/project-attribution-and-trust.md)を正本とします。
+
 紹介候補になり得るもの:
 
 - 独立したatprotoプロジェクトやサービス。

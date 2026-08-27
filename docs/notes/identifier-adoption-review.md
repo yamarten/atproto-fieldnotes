@@ -392,4 +392,4 @@ shadow comparisonで補完不能だった残り1 claimは、冒頭で別途`form
 
 ## 保存契約への反映
 
-`lexicon.community`のようにprojectを代表する公式WebsiteでありながらserviceではないURLを扱うため、Website、service、補助pageの責務を[Identifierの採用理由と保存契約の設計メモ](identifier-adoption-storage-design.md#websiteservice補助pageの境界)で分離しました。通常の保存・表示・信頼判定は分離済みです。この文書で確定した再分類は複製DBで検証済みですが、正本DBには未適用です。
+`lexicon.community`のようにprojectを代表する公式WebsiteでありながらserviceではないURLを扱うため、Website、project site、service、補助pageの責務を分離しました。現行の保存契約は[Project Record Schema](../developer/project-record.md)、判断上の境界は[登録プロジェクトへの帰属と信頼](../developer/project-attribution-and-trust.md)を正本とします。この文書で確定した再分類は正本DBへ適用済みです。

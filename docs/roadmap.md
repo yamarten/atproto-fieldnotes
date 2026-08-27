@@ -102,26 +102,27 @@ normalized-only candidate DIDを除外します。全project scanではありま
 
 ### 信頼・帰属の次期設計
 
-identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3を正本DBへ適用し、関連する正本文書を更新した後に着手を判断します。この節は新しい信頼policyが現行動作へ接続済みであることを意味しません。現在の設計チェックポイントは[登録プロジェクトへの帰属と信頼グラフの設計メモ](notes/project-attribution-and-trust-design.md)、実データ比較は[信頼ポリシーshadow比較](notes/trust-policy-shadow-comparison.md)、採用状態の契約は[Identifierの採用理由と保存契約](notes/identifier-adoption-storage-design.md)を参照します。
+判断原則、責務境界、接続マトリクス、relation別の静的用途は[登録プロジェクトへの帰属と信頼](developer/project-attribution-and-trust.md)を正本とします。identifierの採用理由、former、non-production、確定transition、noiseを分離するschema version 3は正本DBへ適用済みです。現行の`trust-graph-v1`は稼働していますが、正本文書のrole付き静的policy全体がproductionへ接続済みという意味ではありません。
 
-実施する場合は、次の順序を維持します。
+実データ比較は[信頼ポリシーshadow比較](notes/trust-policy-shadow-comparison.md)、collector relationの比較は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照します。残る作業は次のとおりです。
 
-1. collectorが作る直接関係の意味を整える
-   - `service_links_repo` / `repo_links_service`を、project scopedなSource・Repository・公式serviceの明示参照に限定する
-   - 一般link、support、sponsor、documentation、任意README URL、mentionを、Admissionや強いTrustへ使うpredicateから分離する
+1. 直接関係の正本と信頼経路の導出を揃える
+   - `project_relations`を由来付きの直接事実の正本とし、旧trust graph edge、検索用inverse、再生成可能な判定経路の保存分担を確定する
+   - collectorが観測したlink、collector固有解析、構成要素間関係判定、semantic relationを混同せず、一般link、support、sponsor、任意README URL、mentionを強いrelationへ昇格しない
+   - `site_url`を含む仮称predicate、account関係、Lexicon authority委譲とschema publicationの分解は、固定caseと正本DB sampleで効果を確認してから保存名とproduction接続を決める
+   - accepted repositoryからReadTheDocsなどの代表project siteへ明示的にlinkしている場合、任意README URLとは分けて`project_repository`やproject site帰属へ利用できる条件を決める
+2. role付き信頼判定規則をproductionへ接続する範囲を決める
+   - candidate生成、信頼判定結果、identifier採用、block/defer、手動判断を別責務として維持する
+   - `eligible_for_auto_confirm`を個々のcollector判断として増やさず、predicate、方向、role、source/methodを中央の静的policyへ照合する
+   - candidate、former、non-production、graph-only node、導出identifier、採用理由を追跡できない旧identifierを、それだけでtrusted anchorにしない
+   - `did` / `handle` / `domain`の信頼評価結果を通常enrich導線で新しいconfirmed accountへ保存する場合は、project、developer、organization、publisherのroleを推測しない入力契約を先に定める
+   - 自動採用を切り替える場合は、既知case、既存confirm、追加review、経路長、rollback境界を再確認し、candidate admissionと同時に無条件で広げない
+3. collectorとsyncの境界を継続して監査する
+   - 同じidentifierの観測更新、新規projectの登録起点、既存projectへの新identifier追加、弱いsuggestionを分ける
+   - collectionは一意な直属namespace割当なら既存projectへの追加も登録起点にできるが、同じnamespace内の複数collectionを独立した複数根拠にしない
    - account role、publisher、provider owner、authority domainなど、構成要素ではないactor・中継点をroleなしでtrusted anchorへ昇格しない
-   - collection Trustをschema実在、OAuth利用、authority一致のどこまで要求するかは、誤collectionより別projectや無関係domainを混ぜる危険を優先して決める
-   - sync時は、同じidentifierの観測更新、新規projectの登録起点、既存projectへの新identifier追加、弱いsuggestionを分ける。collectionは一意な直属namespace割当なら既存projectへの追加も登録起点にできるが、同じnamespace内の複数collectionを独立した複数根拠にしない
-2. schema version 3の正本DBでshadow比較を再実行する
-   - role付き登録起点とformer/non-production除外を実データから読み、保存移行前の暗黙fallbackを使わない
-   - 既知case、candidate admission sample、既存confirmとの一致、追加review件数、未収集relationを確認する
-   - collectorの完全分類は前提にせず、人力reviewで見つかった誤りを個別例外ではなく一般則へ戻せることを確認する
-3. 比較結果をreviewしてからproduction接続を設計する
-   - role付きclaimに対する信頼判定結果と、candidate生成、採用理由、block/defer、手動判断を別責務として接続する
-   - `project_relations`を直接事実の正本とし、旧trust graph edge、検索用inverse、再生成可能な判定経路の保存分担を決める
-   - 最初はread-only auditまたは明示実行を優先し、自動confirmとcandidate admissionを同時に広げない
 
-次は信頼・帰属と同じ設計作業の中で扱いますが、信頼判定結果を流用せず、判断層とproduction変更を分けます。
+次の領域は信頼・帰属の判断モデルを参照しますが、信頼判定結果をそのまま流用せず、独立したpolicyとproduction変更として扱います。
 
 - merge policy
   - repo共有、developer/publisher一致、root domain共有、first creator、信頼グラフのpathをそのまま自動merge根拠にしない
@@ -231,8 +232,7 @@ process間lockまたはpreflightは、次の破壊的maintenanceを追加する�
 
 - 複数projectを跨ぐ永続circuit breaker
 
-設計途中の詳細は次の作業用文書へ分離しています。trust graphの現行仕様は
-[registry-internals.md](developer/registry-internals.md)を正本とします。
+帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](developer/project-attribution-and-trust.md)、trust graphの現行実装は[registry-internals.md](developer/registry-internals.md)を正本とします。設計途中の詳細は次の作業用文書へ分離しています。
 
 - ownership / identity: [identity-ownership-evidence.md](notes/identity-ownership-evidence.md)
 - service verification: [service-verification.md](notes/service-verification.md)
@@ -390,7 +390,3 @@ Web UIのnormalized検索は接続済みです。検索拡張候補は次です�
   - confirmed service URLに補助ページやdefer/block配下URLが残っていないか確認する
   - repoとNSIDの両方がacceptedではない `defines_schema` relationと、それに連動したowned NSIDを棚卸しする
   - dry-runで影響projectとidentifier/relation差分を出し、backup後にrepairまたは個別cleanupを実行する
-- trust graph残件
-  - `trust-graph-v1` の本体方針、URL相互trust、collection ownership、identity trust評価、audit/repair/explainは接続済み。現行仕様は[registry-internals.md](developer/registry-internals.md)を正本にする
-  - `did` / `handle` / `domain` のtrust評価結果を、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続
-  - accepted GitHub repoからReadTheDocsなどのdocs siteへ明示的にlinkしている場合、README内の任意URLとは分けて`repo_links_service`へ昇格できる条件を検討する

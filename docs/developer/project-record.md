@@ -1,6 +1,6 @@
 # Project Record Schema
 
-この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。調査pipelineの責務は[investigation-model.md](investigation-model.md)、具体的な判定規則は[registry-internals.md](registry-internals.md)を参照してください。
+この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)、調査pipelineの責務は[investigation-model.md](investigation-model.md)、現行コードの処理経路は[registry-internals.md](registry-internals.md)を参照してください。
 
 ## 設計意図
 
@@ -198,7 +198,7 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 - `context_json`: operation、score、bounded extractなどの補助情報
 - `observed_at`
 
-relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。
+relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。帰属、信頼、採用の責務境界は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を参照してください。
 
 主要predicate:
 
@@ -242,6 +242,8 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
+
+operatorがcandidateをconfirmすると、同じ`kind + value`を対象とするexactなblock/deferを解除して`confirm_identifier`を追加します。operatorがblock/deferすると、同じ対象のactiveなconfirmと採用理由を終了させます。現行mutationは同じ値を持つ全roleへ作用し、`target_role`は判断対象のroleを記録しますがrole単位のguardにはまだ使いません。古い矛盾したdecisionを併存させて優先順位を毎回推測せず、最新の明示的判断をactiveな状態として保存します。
 
 ## 非現行identifier、採用理由、移転、noise
 

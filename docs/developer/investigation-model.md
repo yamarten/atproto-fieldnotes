@@ -159,6 +159,8 @@ repository analysisでは、revisionへ固定したbounded materialを`repositor
 
 ## Relation と ownership
 
+この節は調査結果からrelationを作る現行境界を説明します。relationを帰属候補、信頼経路、採用、mergeへ利用できる条件は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を正本とします。
+
 - `defines_schema` は accepted repo と accepted NSID の間だけに保存する schema definition relation
 - repositoryにlexicon JSONらしいファイルが存在するだけの場合は、`defines_schema` ではなく弱い `mentions_collection` として扱う
 - `uses_collection` と OAuth の `repo:` permission は利用関係であり ownership を確定しない
