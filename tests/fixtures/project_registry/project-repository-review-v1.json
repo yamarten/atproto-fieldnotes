@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-27",
+  "source_report_hash": "8f41485c26606c60eb7b855ef59734afc899038643eb064072eca527191139ba",
+  "actions": [
+    {"project_key": "proj:06806578da1f", "expected_component_url": "https://matadisco.org", "repository_url": "https://github.com/ipfs-fdn/matadisco", "locator": "https://github.com/ipfs-fdn/matadisco", "expected_repository_classification": "absent"},
+    {"project_key": "proj:0a32ff3f302d", "expected_component_url": "https://atcr.io", "repository_url": "https://tangled.org/evan.jarrett.net/at-container-registry", "locator": "https://tangled.org/evan.jarrett.net/at-container-registry", "expected_repository_classification": "absent"},
+    {"project_key": "proj:153d9d475f46", "expected_component_url": "https://malachite.croft.click", "repository_url": "https://github.com/ewanc26/pkgs", "locator": "https://github.com/ewanc26/pkgs/tree/main/packages/malachite", "expected_repository_classification": "absent"},
+    {"project_key": "proj:3dae36ac4ecf", "expected_component_url": "https://lexicon.community", "repository_url": "https://tangled.org/lexicon.community/lexicons", "locator": "https://tangled.org/lexicon.community/lexicons", "expected_repository_classification": "absent"},
+    {"project_key": "proj:4c01ab773374", "expected_component_url": "https://atmo.rsvp", "repository_url": "https://github.com/flo-bit/atmo-events", "locator": "https://github.com/flo-bit/atmo-events", "expected_repository_classification": "absent"},
+    {"project_key": "proj:606286e30093", "expected_component_url": "https://docs.atpi.at", "repository_url": "https://github.com/sriganesh/atpi-at", "locator": "https://github.com/sriganesh/atpi-at", "expected_repository_classification": "absent"},
+    {"project_key": "proj:606286e30093", "expected_component_url": "https://docs.atpi.at", "repository_url": "https://github.com/sriganesh/atpi-chrome-extension", "locator": "https://github.com/sriganesh/atpi-chrome-extension", "expected_repository_classification": "absent"},
+    {"project_key": "proj:606286e30093", "expected_component_url": "https://docs.atpi.at", "repository_url": "https://github.com/sriganesh/atpi-npm", "locator": "https://github.com/sriganesh/atpi-npm", "expected_repository_classification": "absent"},
+    {"project_key": "proj:606286e30093", "expected_component_url": "https://docs.atpi.at", "repository_url": "https://github.com/sriganesh/atpi-vscode", "locator": "https://github.com/sriganesh/atpi-vscode", "expected_repository_classification": "absent"},
+    {"project_key": "proj:7d3c68c01621", "expected_component_url": "https://comail.at", "repository_url": "https://tangled.org/scottlanoue.com/atmosphere-mail", "locator": "https://tangled.org/scottlanoue.com/atmosphere-mail", "expected_repository_classification": "absent"},
+    {"project_key": "proj:8078c6a9775f", "expected_component_url": "https://soapstone.social", "repository_url": "https://tangled.org/joelh.social/soapstone", "locator": "https://tangled.org/@joelh.social/soapstone", "expected_repository_classification": "absent"},
+    {"project_key": "proj:8329c02207f4", "expected_component_url": "https://aturi.to", "repository_url": "https://tangled.org/atpota.to/aturi", "locator": "https://tangled.org/atpota.to/aturi", "expected_repository_classification": "absent"},
+    {"project_key": "proj:87d67308aa42", "expected_component_url": "https://v-it.org", "repository_url": "https://github.com/solpbc/vit", "locator": "https://github.com/solpbc/vit", "expected_repository_classification": "absent"},
+    {"project_key": "proj:a3c9b59b5378", "expected_component_url": "http://central.comind.network", "repository_url": "https://github.com/cpfiffer/central", "locator": "https://github.com/cpfiffer/central", "expected_repository_classification": "absent"}
+  ]
+}
