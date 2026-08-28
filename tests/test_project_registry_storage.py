@@ -1884,6 +1884,107 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertEqual(registry.compute_showcase_signals(project), [])
 
+    def test_dns_verified_lexicon_publisher_is_high_priority_promotion_candidate(self) -> None:
+        project = self.make_project("proj:lexiconpublisher", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "pds_url": "https://pds.example",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-08-28T00:00:00+00:00",
+            }],
+        })
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["lexicon_publisher_confirmed"])
+        self.assertEqual(signals[0]["priority"], 8)
+        self.assertEqual(signals[0]["details"]["publication_count"], 1)
+        self.assertEqual(
+            registry.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
+            160,
+        )
+
+    def test_lexicon_schema_without_dns_resolution_is_not_promotion_signal(self) -> None:
+        project = self.make_project("proj:reposchema", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_dns_resolved_candidate_nsid_is_not_confirmed_publisher_signal(self) -> None:
+        project = self.make_project("proj:candidatelexicon", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": [],
+            "input_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+            }],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_lexicon_publication_requires_matching_authority_and_record_uri(self) -> None:
+        base = self.make_project("proj:mismatchedlexicon", "nsid", "app.example.post")
+        base.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+        })
+        entry = {
+            "input_nsid": "app.example.post",
+            "resolved_nsid": "app.example.post",
+            "repo_did": "did:plc:publisher",
+            "authority_domain": "example.app",
+            "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+        }
+
+        for field, invalid_value in (
+            ("authority_domain", "unrelated.example"),
+            ("record_uri", "at://did:plc:other/com.atproto.lexicon.schema/app.example.post"),
+        ):
+            with self.subTest(field=field):
+                project = dict(base)
+                project["lexicon_resolution_entries"] = [{**entry, field: invalid_value}]
+                self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_personal_tool_lexicon_publisher_requires_include_flag(self) -> None:
+        project = self.make_project("proj:personallexicon", "nsid", "app.example.post")
+        project.update({
+            "category": "personal_tool",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+            }],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(
+            [signal["kind"] for signal in registry.compute_showcase_signals(project, include_personal_tools=True)],
+            ["lexicon_publisher_confirmed"],
+        )
+
     def test_low_confidence_http_only_service_is_validation_candidate(self) -> None:
         project = self.make_project("proj:http200only", "service_url", "https://example.com")
         project.update({

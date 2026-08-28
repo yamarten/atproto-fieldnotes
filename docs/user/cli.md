@@ -106,10 +106,10 @@ project-registry enrich --all --resume-run weekly-20260714
 | --- | --- |
 | `service_surface_confirmed` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`、confidenceがmedium以上で、login、app shell、browser到達などのservice surfaceを確認済み。紹介確定を意味しない。 |
 | `service_candidate_needs_validation` | service URLと稼働statusの候補はあるが、confidenceが低いか稼働面が未確認。上記より低い優先度で残す。 |
-| `lexicon_ready_for_introduction` | lexiconにNSID hintと公開先があり、紹介metadataの大きな欠落がない。 |
+| `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
 | `technical_insight_candidate` | 実用性とは別に、設計・相互運用・参照実装として特に見る価値がある。 |
 
-`category=personal_tool`は既定ではサービスの紹介候補から除外し、`--include-personal-tools`で含めます。紹介保留は期限後に自動で一覧へ戻り、履歴は残ります。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。
+`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後に自動で一覧へ戻り、履歴は残ります。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。
 
 ## インポートと外部情報の取り込み
 

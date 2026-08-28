@@ -82,7 +82,7 @@ review_kinds=(
 promotion_kinds=(
   service_surface_confirmed
   service_candidate_needs_validation
-  lexicon_ready_for_introduction
+  lexicon_publisher_confirmed
   technical_insight_candidate
 )
 

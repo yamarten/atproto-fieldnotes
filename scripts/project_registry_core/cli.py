@@ -116,11 +116,11 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_surface_confirmed",
         "service_candidate_needs_validation",
-        "lexicon_ready_for_introduction",
+        "lexicon_publisher_confirmed",
         "technical_insight_candidate",
     ], help="Restrict to specific promotion signal kinds.")
     promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
-    promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service introduction candidates.")
+    promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service and Lexicon publication candidates.")
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=review_commands.cmd_promotion_queue)
 

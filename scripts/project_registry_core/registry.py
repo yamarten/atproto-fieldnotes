@@ -8473,38 +8473,52 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
     if signal_kinds & {
         "service_surface_confirmed",
         "service_candidate_needs_validation",
-        "lexicon_ready_for_introduction",
+        "lexicon_publisher_confirmed",
     }:
         commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
     return project_record.unique_list(commands)
 
 
-def lexicon_introduction_ready(project: dict[str, Any], blockers: set[str]) -> bool:
-    if str(project.get("category") or "") != "lexicon":
-        return False
-    if project.get("introduced_url"):
-        return False
-    if project.get("tracking_state") in {"out_of_scope", "ignore"}:
-        return False
-    nsid_hints = project_record.unique_list(
-        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
-        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
-        + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
-    )
-    if not nsid_hints:
-        return False
-    if not (
-        project.get("website_url")
-        or project.get("project_repository_urls")
-        or project_repo_hint_urls(project)
-        or project_record.resource_url_values(project)
-    ):
-        return False
-    disallowed_blockers = blockers - {
-        "service_status is still unknown",
-        "fewer than 3 features",
+def confirmed_dns_lexicon_publications(project: dict[str, Any]) -> list[dict[str, str]]:
+    confirmed_nsids = {
+        identifier_core.normalize_nsid(str(item or ""))
+        for item in project.get("resolved_nsids", [])
+        if identifier_core.normalize_nsid(str(item or ""))
     }
-    return not disallowed_blockers
+    sampled_nsids = {
+        identifier_core.normalize_nsid(str(item.get("nsid") or ""))
+        for item in project.get("lexicon_schema_samples", [])
+        if isinstance(item, dict) and identifier_core.normalize_nsid(str(item.get("nsid") or ""))
+    }
+    publications: list[dict[str, str]] = []
+    for entry in project_record.normalize_lexicon_resolution_entries(
+        project.get("lexicon_resolution_entries", [])
+    ):
+        nsid = identifier_core.normalize_nsid(str(entry.get("resolved_nsid") or ""))
+        authority_domain = str(entry.get("authority_domain") or "").strip().lower().rstrip(".")
+        repo_did = str(entry.get("repo_did") or "").strip()
+        record_uri = str(entry.get("record_uri") or "").strip()
+        expected_record_uri = f"at://{repo_did}/com.atproto.lexicon.schema/{nsid}"
+        if (
+            not nsid
+            or nsid not in confirmed_nsids
+            or nsid not in sampled_nsids
+            or authority_domain != identifier_core.derive_authority_domain(nsid)
+            or identifier_core.normalize_nsid(str(entry.get("input_nsid") or "")) != nsid
+            or not repo_did
+            or record_uri != expected_record_uri
+        ):
+            continue
+        publications.append(
+            {
+                "nsid": nsid,
+                "authority_domain": authority_domain,
+                "repo_did": repo_did,
+                "record_uri": record_uri,
+                "resolved_at": str(entry.get("resolved_at") or "").strip(),
+            }
+        )
+    return publications
 
 
 def service_is_derivative_bluesky_tool(project: dict[str, Any]) -> bool:
@@ -8821,7 +8835,7 @@ def promotion_queue_score_breakdown(
     current_time = now or dt.datetime.now(dt.timezone.utc)
     components = {
         "service_evidence": 0,
-        "lexicon_readiness": 0,
+        "lexicon_publication": 0,
         "technical_interest": 0,
         "service_status": 0,
         "service_confidence": 0,
@@ -8840,8 +8854,8 @@ def promotion_queue_score_breakdown(
         components["service_evidence"] = 200
     elif "service_candidate_needs_validation" in signal_kinds:
         components["service_evidence"] = 100
-    if "lexicon_ready_for_introduction" in signal_kinds:
-        components["lexicon_readiness"] = 100
+    if "lexicon_publisher_confirmed" in signal_kinds:
+        components["lexicon_publication"] = 160
     if "technical_insight_candidate" in signal_kinds:
         components["technical_interest"] = int(project.get("technical_interest_score", 0) or 0)
 
@@ -9010,17 +9024,18 @@ def compute_showcase_signals(
                 }
             )
 
-    if lexicon_introduction_ready(shaped, blockers):
+    allowed_lexicon_categories = set(project_record.PROJECT_CATEGORY_VALUES) - {"reject", "name_only", "personal_tool"}
+    if include_personal_tools:
+        allowed_lexicon_categories.add("personal_tool")
+    dns_publications = confirmed_dns_lexicon_publications(shaped)
+    if category in allowed_lexicon_categories and dns_publications:
         signals.append(
             {
-                "kind": "lexicon_ready_for_introduction",
+                "kind": "lexicon_publisher_confirmed",
                 "priority": 8,
                 "details": {
-                    "nsid_hint_count": len(project_record.unique_list(
-                        [str(item or "") for item in shaped.get("resolved_nsids", []) if str(item or "").strip()]
-                        + [str(item or "") for item in shaped.get("input_nsids", []) if str(item or "").strip()]
-                        + [str(item or "") for item in shaped.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
-                    )),
+                    "publication_count": len(dns_publications),
+                    "publications": dns_publications[:5],
                     "website_url": str(shaped.get("website_url") or ""),
                     "repo_url": project_repo_hint_urls(shaped)[:1],
                     "blockers": sorted(blockers),

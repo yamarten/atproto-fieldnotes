@@ -501,7 +501,7 @@ const promotionVisibilityLabels = {
 
 const promotionScoreLabels = {
   service_evidence: "Usable service screen",
-  lexicon_readiness: "Lexicon ready for introduction",
+  lexicon_publication: "Verified Lexicon publication",
   technical_interest: "Technical interest",
   service_status: "Service status",
   service_confidence: "Service-status confidence",
@@ -524,7 +524,7 @@ const promotionValidationLabels = {
 const promotionSignalLabels = {
   service_surface_confirmed: "Usable service screen confirmed",
   service_candidate_needs_validation: "Service screen needs validation",
-  lexicon_ready_for_introduction: "Lexicon ready for introduction",
+  lexicon_publisher_confirmed: "Verified Lexicon publisher",
   technical_insight_candidate: "Technical insight candidate",
 };
 

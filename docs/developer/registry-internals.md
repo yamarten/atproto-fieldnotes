@@ -1180,6 +1180,8 @@ Merge reviewは一覧全体の再計算を挟まず次のpairへ進みます。�
 
 `promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`priority_group`、`top_priority`、`sort_score`、`project_key` の順でグローバルソートしてから `--limit` を適用します。`priority_group=lowered`は通常候補の後ろへ送り、各group内では従来のsignalとscore順を維持します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
 
+`lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは8、scoreの`lexicon_publication`は160で、confirmed live serviceの次の優先帯に置きます。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
+
 promotion policyは次を混ぜずに投影します。
 
 - `candidate_visibility`: `eligible / deferred / excluded`。紹介済み、`out_of_scope / ignore`、activeな`defer_promotion`のようなproject全体の表示可否を表す
