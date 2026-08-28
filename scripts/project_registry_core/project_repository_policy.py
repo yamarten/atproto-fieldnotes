@@ -7,7 +7,7 @@ from typing import Any
 from . import identifiers, repository_link_context
 
 
-POLICY_VERSION = "project-repository-link-v1"
+POLICY_VERSION = "project-repository-link-v2"
 EXPLICIT_SOURCE_LABELS = {
     "code", "code repository", "github repository", "repo", "repository", "source",
     "source code", "source repo", "source repository", "tangled repository",
@@ -35,6 +35,10 @@ LICENSE_LABEL_PATTERN = re.compile(r"(?:^|\s)(?:agpl|apache|gpl|license|mit)(?:$
 RELEASE_LABEL_PATTERN = re.compile(r"(?:download|release|release notes|releases page|^v\d+(?:\s|$))")
 DOCUMENTATION_SOURCE_LABEL_PATTERN = re.compile(r"(?:edit (?:this page|on tangled)|site contents)")
 SCHEMA_REFERENCE_LABEL_PATTERN = re.compile(r"(?:data schemas?|lexicon definitions|lexicons|openapi specification)")
+EXTERNAL_SCHEMA_REFERENCE_CONTEXT_PATTERN = re.compile(
+    r"(?:uses? (?:the )?(?:official )?(?:lexicons?|schemas?)|"
+    r"bundl(?:e|ed|es|ing) (?:the )?(?:official )?(?:lexicons?|schemas?))"
+)
 SELF_HOSTING_LABEL_PATTERN = re.compile(r"(?:host (?:a |an )?.+ server|run your own|self[ -]?host)")
 EXTERNAL_REFERENCE_CONTEXT_PATTERN = re.compile(
     r"(?:awesome(?:\s+list)?|related (?:projects?|tools?|resources?)|"
@@ -120,6 +124,8 @@ def evaluate_project_repository_context(context: dict[str, Any]) -> dict[str, An
     ))
     if EXTERNAL_REFERENCE_CONTEXT_PATTERN.search(surrounding):
         return {"disposition": "DO_NOT_PROMOTE", "reason": "surrounding_context_identifies_external_reference", "purpose": purpose}
+    if purpose == "schema_or_specification" and EXTERNAL_SCHEMA_REFERENCE_CONTEXT_PATTERN.search(surrounding):
+        return {"disposition": "DO_NOT_PROMOTE", "reason": "surrounding_context_identifies_external_schema_reference", "purpose": purpose}
     if purpose == "funding_or_support":
         return {"disposition": "DO_NOT_PROMOTE", "reason": "link_identifies_funding_or_support", "purpose": purpose}
     if DIRECT_PROJECT_REPOSITORY_CONTEXT_PATTERN.search(surrounding):

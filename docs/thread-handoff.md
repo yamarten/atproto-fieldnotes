@@ -21,7 +21,7 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- bounded page→repository policyのsample reviewで見つかった、relation投影後のcleanupでrepository candidateが消える不整合はcode側を修正済みです。正本DBの既存1件は実行中enrichへ介入せず、code切替後の再取得または別途合意した補正で扱います。LLM relation assessorの自動昇格は接続しません。
+- bounded page→repository policyの最終監査で見つかったcleanup不整合と外部Lexicon参照の誤判定はcode側を修正済みです。正本DBでは`sky-follower-bridge`と`scribe-atp-sdk`のcandidate投影、lexrpc→atproto relationの再分類が未反映なので、code切替後に対象3 projectを通常経路で再取得します。LLM relation assessorの自動昇格は接続しません。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。

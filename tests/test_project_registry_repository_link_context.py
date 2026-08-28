@@ -171,6 +171,24 @@ class RepositoryLinkContextTest(unittest.TestCase):
         )
         self.assertEqual(rows[0]["disposition"], "DO_NOT_PROMOTE")
 
+    def test_bundled_official_lexicons_are_an_external_schema_reference(self) -> None:
+        for wording in (
+            "This client uses the official lexicons.",
+            "Bundle the official lexicons for app.bsky and com.atproto.",
+        ):
+            with self.subTest(wording=wording):
+                rows = self.evaluate(
+                    f'<main><p>{wording} '
+                    '<a href="https://github.com/protocol/upstream/tree/main/lexicons">'
+                    "official lexicons</a></p></main>"
+                )
+                self.assertEqual(rows[0]["purpose"], "schema_or_specification")
+                self.assertEqual(rows[0]["disposition"], "DO_NOT_PROMOTE")
+                self.assertEqual(
+                    rows[0]["reason"],
+                    "surrounding_context_identifies_external_schema_reference",
+                )
+
     def test_generic_body_icon_is_positive_when_it_is_the_only_repository(self) -> None:
         rows = self.evaluate(
             '<main><p><a href="https://github.com/example/project" aria-label="GitHub"></a></p></main>'
