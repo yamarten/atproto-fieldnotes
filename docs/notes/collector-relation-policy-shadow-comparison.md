@@ -563,3 +563,18 @@ reviewでは、`Open source`を`Fair source`等のlicense表現と区別して�
 旧`collect_first_party_links`によるanchor text、owner、project名一致からのrepository candidate化・confirmは停止しました。confirmed relationは既存の`service_links_repo` edgeへ投影しますが、identifierのauto-confirmにはrepository側からの許可された逆向きpathが引き続き必要です。したがって、`View source on Tangled`等はcandidate admissionには使えても、一方向だけでrepository identifierをconfirmedにしません。LLM relation assessorのproduction自動昇格も接続していません。
 
 この変更はproduction codeとtestへの接続までで、正本DBの一括再収集・書換えは行っていません。既存rowを推測で補完せず、今後の通常page再取得でcurrent relationを置き換えます。
+
+### 通常enrichでの初回観測
+
+2026-08-28、通常enrichが2,272 / 2,897 projectまで進んだ時点で正本DBをread-only監査しました。失敗とmissingは0件です。新しい`bounded_first_party_link`によるpage→repository relationは691件、146 projectに保存されていました。
+
+| pageと表示の扱い | relation | project | classification |
+| --- | ---: | ---: | --- |
+| exact current component上で静的に支持 | 28 | 25 | confirmed |
+| exact current component上だが表示が曖昧 | 15 | 9 | candidate |
+| component外page上で静的表示は強い | 145 | 93 | candidate |
+| component外page上で表示も曖昧 | 503 | 65 | candidate |
+
+confirmed 28件の一覧と代表例を確認した範囲では、明示source、単独のglobal repository link、issue・release経路を含め、対象projectの公式repositoryとして概ね妥当でした。exact component上で保留した15件にはdependency、複数repository、mirrorとsource-of-truthの境界が含まれ、静的確定しないことに意味があります。component外の648件もidentifier candidateを生成しておらず、page帰属とlink表示の判断を分けるguardが実際に働いています。この分布は初回の意味上の評価に十分であり、enrich完了を次の設計判断の前提にはしません。
+
+監査では、`scribe-atp.app`から`scribe-atp-sdk`へのconfirmed relationが保存され、候補追加のinvestigation logもある一方、repository identifier candidateとsource recordが最終状態から消えている1件を検出しました。直接relationによるcandidate admissionは旧来の名前・owner照合を迂回しますが、後段のURL cleanupがその採用理由を再認識せず候補を除去したためです。confirmed exact-component relationをcleanupでも候補採用根拠として認識するよう修正し、同型の再現testでcandidateとsource recordが最終整形後も残ることを確認しました。これは一般のrepository linkを新たに許可する変更ではなく、すでに許可されたrelation投影を保存工程の末尾まで維持する修正です。正本DBの既存1件は実行中enrichへ介入して書き換えず、code切替後の再取得または別途合意した補正で扱います。

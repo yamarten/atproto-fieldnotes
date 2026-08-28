@@ -3352,10 +3352,34 @@ def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
     return owners
 
 
+def repo_candidate_has_confirmed_component_relation(project: dict[str, Any], url: str) -> bool:
+    target_identity = repo_url_core.repo_identity_key(url)
+    if not target_identity:
+        return False
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = dict(item.get("relation") or {})
+        subject = dict(relation.get("subject") or {})
+        target = dict(relation.get("object") or {})
+        context = dict(item.get("context") or {})
+        if (
+            str(item.get("classification") or "") == "confirmed"
+            and str(relation.get("predicate") or "") == "project_repository"
+            and str(relation.get("method") or "") == "bounded_first_party_link"
+            and str(subject.get("type") or "") in {"service", "website"}
+            and str(target.get("type") or "") == "repo"
+            and bool(context.get("subject_is_exact_component"))
+            and repo_url_core.repo_identity_key(str(target.get("value") or "")) == target_identity
+        ):
+            return True
+    return False
+
+
 def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> bool:
     normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
+    if repo_candidate_has_confirmed_component_relation(project, normalized):
+        return True
     owner = repo_url_core.repo_owner_identity(normalized)
     developer_handles = {
         str(item.get("handle") or "").strip().lower().removeprefix("@")

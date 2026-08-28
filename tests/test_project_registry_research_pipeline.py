@@ -1474,6 +1474,49 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         )
         self.assertEqual(project["project_repository_urls"], [])
 
+    def test_exact_component_repository_candidate_survives_final_cleanup(self) -> None:
+        project = self.make_project(
+            "proj:bounded-repository-cleanup", "service_url", "https://scribe-atp.app"
+        )
+        project["service_urls"] = ["https://scribe-atp.app"]
+        project["project_repository_urls"] = ["https://github.com/ACregan/scribe-atp.app"]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"],
+            "https://scribe-atp.app",
+            {
+                "status_code": 200,
+                "title": "Scribe ATP",
+                "description": "Example project",
+                "service_status": "live",
+                "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200"],
+                "html": '<a href="https://github.com/ACregan/scribe-atp-sdk">Source code</a>',
+                "links": [],
+                "urls": [],
+            },
+            observed_at="2026-08-28T00:00:00+00:00",
+            supports_project=True,
+            subject_component_role="service",
+        )
+
+        registry.apply_service_evidence(project, bundle)
+        self.assertIn(
+            "https://github.com/ACregan/scribe-atp-sdk",
+            project["candidate_project_repository_urls"],
+        )
+
+        shaped = registry.finalize_project_shape(project)
+
+        self.assertIn(
+            "https://github.com/ACregan/scribe-atp-sdk",
+            shaped["candidate_project_repository_urls"],
+        )
+        self.assertTrue(any(
+            item.get("url") == "https://github.com/ACregan/scribe-atp-sdk"
+            and item.get("confidence") == "candidate"
+            for item in shaped["source_repo_records"]
+        ))
+
     def test_noncomponent_or_external_repository_link_does_not_admit_identifier(self) -> None:
         project = self.make_project(
             "proj:bounded-review", "service_url", "https://example.com"
