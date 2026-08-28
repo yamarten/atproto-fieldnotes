@@ -21,7 +21,6 @@
 この節には未完了で、次スレッドが実際に判断・実行する作業だけを置きます。
 
 - Qwen repository解析で除外された観測とmaterial外collectionを一般化して減らせるか、promptまたはmaterial契約を見直す。特定repository名や値に限定した規則は追加しない。
-- bounded page→repository policyの最終監査で見つかったcleanup不整合と外部Lexicon参照の誤判定はcode側を修正済みです。正本DBでは`sky-follower-bridge`と`scribe-atp-sdk`のcandidate投影、lexrpc→atproto relationの再分類が未反映なので、code切替後に対象3 projectを通常経路で再取得します。LLM relation assessorの自動昇格は接続しません。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 - マージ推奨110件を理由別に表示し、承認・保留・`separate_project`を残すreview動線の実装量と運用上の利益を比較する。自動マージは前提にしない。
@@ -40,6 +39,8 @@ GitHub homepage relation移行直前のbackupは`data/survey.before-repository-h
 `project_repository`移行直前のbackupは`data/backups/project-repository-20260825T022442+0900/survey.db`です。SHA-256は`ad56c6013128f4ba974798882285da507abaa2e0f1bb7c71acc1f4f213f6a2e0`です。
 
 review済みrepository 14件の適用直前backupは`data/backups/project-repository-review-20260827T204144+0900/survey.db`です。SHA-256は`fa446d9e7e898005f13b9001bf144343a4e420ae2128f2b04695beb497173dc1`です。
+
+bounded page→repository policyの最終補正直前backupは`data/backups/project-repository-final-20260828T200038+0900/survey.db`です。SHA-256は`6b5f85027789885d91ab4e239936ae6c5dfca0ac744951a10d635236d341c9ec`です。
 
 ## 未検証・未接続
 
