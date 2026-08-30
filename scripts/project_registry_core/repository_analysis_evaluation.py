@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import urllib.parse
@@ -18,6 +19,7 @@ from . import storage
 CORPUS_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 REQUIRED_OUTPUT_FIELDS = {"summary", "summary_evidence", "observations", "capabilities", "collections"}
+EVIDENCE_ID_IN_TEXT_RE = re.compile(r"(?<![A-Za-z0-9_])E\d{2}(?![A-Za-z0-9_])")
 
 
 def corpus_content_hash(corpus: dict[str, Any]) -> str:
@@ -159,6 +161,11 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
         errors.append(f"missing_fields:{','.join(missing)}")
     if "summary" in payload and not isinstance(payload.get("summary"), str):
         errors.append("invalid_type:summary:string")
+    summary_text = str(payload.get("summary") or "")
+    if summary_text and EVIDENCE_ID_IN_TEXT_RE.search(summary_text):
+        errors.append("evidence_id_in_text:summary")
+    if summary_text and not re.search(r"[ぁ-んァ-ン一-龯]", summary_text):
+        errors.append("missing_japanese_text:summary")
     if "summary_evidence" in payload and not isinstance(payload.get("summary_evidence"), list):
         errors.append("invalid_type:summary_evidence:list")
     for field in ("observations", "capabilities", "collections"):
@@ -166,31 +173,47 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"invalid_type:{field}:list")
 
     evidence_ids = repository_analysis.supported_evidence_ids(material)
+    observation_candidates = repository_analysis.observation_candidate_catalog(material)
+    collection_candidates = repository_analysis.collection_candidate_catalog(material)
     summary_evidence = payload.get("summary_evidence") if isinstance(payload.get("summary_evidence"), list) else []
     if not summary_evidence:
         errors.append("missing_evidence:summary")
     for evidence_id in summary_evidence:
         if not isinstance(evidence_id, str) or evidence_id not in evidence_ids:
             unsupported_locators.append({"field": "summary_evidence", "index": 0, "evidence_id": evidence_id})
-    for field in ("observations", "capabilities", "collections"):
-        values = payload.get(field) if isinstance(payload.get(field), list) else []
-        for index, item in enumerate(values):
-            if not isinstance(item, dict):
-                errors.append(f"invalid_type:{field}[{index}]:object")
-                continue
-            evidence = item.get("evidence")
-            if not isinstance(evidence, list) or not evidence:
-                errors.append(f"missing_evidence:{field}[{index}]")
-                continue
-            for evidence_id in evidence:
-                if not isinstance(evidence_id, str) or evidence_id not in evidence_ids:
-                    unsupported_locators.append({"field": field, "index": index, "evidence_id": evidence_id})
+    for index, item in enumerate(payload.get("capabilities", []) if isinstance(payload.get("capabilities"), list) else []):
+        if not isinstance(item, dict):
+            errors.append(f"invalid_type:capabilities[{index}]:object")
+            continue
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            errors.append(f"invalid_type:capabilities[{index}].text:string")
+        elif EVIDENCE_ID_IN_TEXT_RE.search(text):
+            errors.append(f"evidence_id_in_text:capabilities[{index}]")
+        elif not re.search(r"[ぁ-んァ-ン一-龯]", text):
+            errors.append(f"missing_japanese_text:capabilities[{index}]")
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            errors.append(f"missing_evidence:capabilities[{index}]")
+            continue
+        for evidence_id in evidence:
+            if not isinstance(evidence_id, str) or evidence_id not in evidence_ids:
+                unsupported_locators.append({"field": "capabilities", "index": index, "evidence_id": evidence_id})
+    for index, item in enumerate(payload.get("observations", []) if isinstance(payload.get("observations"), list) else []):
+        if not isinstance(item, dict):
+            errors.append(f"invalid_type:observations[{index}]:object")
+            continue
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id not in observation_candidates:
+            errors.append(f"unsupported_observation_candidate:observations[{index}]:{candidate_id}")
     for item in payload.get("collections", []) if isinstance(payload.get("collections"), list) else []:
         if not isinstance(item, dict):
             continue
-        nsid = str(item.get("nsid") or "")
-        if nsid and not repository_analysis.material_supports_collection_nsid(material, nsid):
-            unsupported_collections.append(nsid)
+        candidate_id = str(item.get("candidate_id") or "")
+        candidate = collection_candidates.get(candidate_id)
+        if not candidate:
+            raw_nsid = str(item.get("nsid") or "")
+            unsupported_collections.append(raw_nsid or f"candidate:{candidate_id}")
     if unsupported_locators:
         errors.append(f"unsupported_locators:{len(unsupported_locators)}")
     if unsupported_collections:
@@ -205,28 +228,42 @@ def validate_output(payload: Any, material: dict[str, Any]) -> dict[str, Any]:
             {"model": "evaluation", "transport": "evaluation", "prompt_version": repository_analysis.POLICY_VERSION},
             "1970-01-01T00:00:00+00:00",
         )
-        model_only_material = copy.deepcopy(material)
-        model_only_material["observations"] = []
-        model_only_material["collection_usages"] = []
-        model_only = repository_analysis.normalize_result(
-            model_only_material,
-            payload,
-            {"model": "evaluation", "transport": "evaluation", "prompt_version": repository_analysis.POLICY_VERSION},
-            "1970-01-01T00:00:00+00:00",
-        )
-        for raw_field, normalized_field in (
-            ("observations", "observations"),
-            ("capabilities", "capabilities"),
-            ("collections", "collections"),
-        ):
-            raw_count = sum(
-                isinstance(item, dict)
-                for item in payload.get(raw_field, []) if isinstance(payload.get(raw_field), list)
-            )
-            filtered_count = max(0, raw_count - len(model_only.get(normalized_field, [])))
-            filtered_claims[raw_field] = filtered_count
+        raw_observations = [
+            item for item in payload.get("observations", [])
+            if isinstance(payload.get("observations"), list) and isinstance(item, dict)
+        ]
+        accepted_observations = {
+            str(item.get("candidate_id") or "")
+            for item in raw_observations
+            if str(item.get("candidate_id") or "") in observation_candidates
+        }
+        raw_collections = [
+            item for item in payload.get("collections", [])
+            if isinstance(payload.get("collections"), list) and isinstance(item, dict)
+        ]
+        accepted_collections = {
+            str(item.get("candidate_id") or "")
+            for item in raw_collections
+            if str(item.get("candidate_id") or "") in collection_candidates
+        }
+        raw_capabilities = [
+            item for item in payload.get("capabilities", [])
+            if isinstance(payload.get("capabilities"), list) and isinstance(item, dict)
+        ]
+        accepted_capabilities = [
+            item for item in raw_capabilities
+            if str(item.get("text") or "").strip()
+            and isinstance(item.get("evidence"), list)
+            and any(evidence_id in evidence_ids for evidence_id in item.get("evidence", []))
+        ]
+        filtered_claims = {
+            "observations": max(0, len(raw_observations) - len(accepted_observations)),
+            "capabilities": max(0, len(raw_capabilities) - len(accepted_capabilities)),
+            "collections": max(0, len(raw_collections) - len(accepted_collections)),
+        }
+        for field_name, filtered_count in filtered_claims.items():
             if filtered_count:
-                errors.append(f"filtered_{raw_field}:{filtered_count}")
+                errors.append(f"filtered_{field_name}:{filtered_count}")
     except Exception as exc:
         errors.append(f"normalization_failed:{type(exc).__name__}:{exc}")
     return {

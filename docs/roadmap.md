@@ -34,23 +34,10 @@ identifier保存、Website / service / project site、repository帰属、promoti
 
 直近は次の順序で進めます。
 
-1. Qwen repository解析の根拠不足とmaterial外collectionを一般化して減らす
-2. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
-3. その結果を見て、広いtrust policy、検索、編集、exportへ進む
+1. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
+2. その結果を見て、広いtrust policy、検索、編集、exportへ進む
 
 ## 直近の作業
-
-### Qwen repository解析
-
-model比較と既定modelの選定は完了しており、Qwenを維持します。残件はrepository解析の内容です。
-
-- 根拠不足として除外される観測を、promptまたはbounded material契約の修正で減らせるか確認する
-- materialに存在しないcollectionを出力する原因を一般化して抑える
-- 特定repository名、NSID、既知の値だけに作用する規則は通常ロジックへ追加しない
-- 固定corpusで反復確認した後、未調整repositoryのsampleで意味上の差分をreviewする
-
-model、runtime、promptが変わり、Gemmaがrepository解析入力を安定して処理できるようになった場合だけ
-再比較します。現状の比較を正本DB試用へ広げません。
 
 ### マージ推奨のreview
 

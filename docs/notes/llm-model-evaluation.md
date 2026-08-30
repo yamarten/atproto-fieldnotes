@@ -186,6 +186,19 @@ Qwen 3.5 9Bのpackageは約6 GBですがfootprintは未測定です。低優先�
 
 ## repository analysisの確認
 
+### 2026-08-31 closed candidate契約
+
+Qwenの固定`goat` 10回で全結果がclaim棄却され、5件にmaterial外collectionがあった旧契約に対し、LLM入力を
+本文付きevidence blockへ限定し、観測とcollection利用を事前生成したcandidate IDの選択へ変更しました。READMEは
+元の行番号を保つ最大6 block・合計6,000文字とし、tree pathはLLMの根拠から外しました。collection candidateは
+NSIDとoperationを一体で固定し、候補が空の時は出力schema自体を空配列にします。
+
+固定`goat`のv11 10回はrequest成功9/10、保存規則通過9/10、候補外collection 0、claim棄却0でした。失敗1件は
+応答内部の不正JSONです。調整用5件と未調整5件を各1回確認したv11は8/10有効で、未調整5件は5/5有効でした。
+不合格2件はいずれもcollection candidateが空なのにQwenが連番IDを補ったもので、v12で空配列を明示した再確認は
+2/2有効でした。途中評価で見つけた本文中の`E01`表記は検査正規表現とpromptを修正し、operationの自由選択は
+operation込みcandidateへ置換しました。特定repository名や既知NSIDへの分岐は追加していません。正本DBは変更していません。
+
 master取り込み後、保存済みrunから5 repositoryのrevision固定materialをread-onlyで取り出し、QwenとGemmaへ
 各1回渡しました。この5件はmaster側の実装・調整に使われた可能性があり、今回の失敗を受けたprompt修正にも
 使ったため、今後は互換性とprompt調整の確認用です。未知projectでの性能には数えません。

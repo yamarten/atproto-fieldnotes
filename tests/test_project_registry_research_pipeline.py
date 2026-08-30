@@ -1078,18 +1078,29 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
         ))
         empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+        analysis_material = repository_analysis.build_material(
+            "https://github.com/example/app", repo_bundle
+        )
+        docs_candidate_id = next(
+            candidate_id
+            for candidate_id, candidate in repository_analysis.observation_candidate_catalog(
+                analysis_material
+            ).items()
+            if candidate.get("predicate") == "declares_documentation_site_url"
+            and candidate.get("value") == "https://docs.example.com"
+        )
+        docs_evidence_id = repository_analysis.observation_candidate_catalog(
+            analysis_material
+        )[docs_candidate_id]["evidence_ids"][0]
 
         def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
             if "Analyze a confirmed project repository" in prompt:
                 return ({
                     "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
-                    "summary_evidence": ["E02"],
-                    "observations": [{
-                        "predicate": "declares_documentation_site_url",
-                        "basis": "declared",
-                        "value": "https://docs.example.com",
-                        "evidence": ["E02"],
-                    }],
+                    "summary_evidence": [docs_evidence_id],
+                    "observations": [{"candidate_id": docs_candidate_id}],
+                    "capabilities": [],
+                    "collections": [],
                 }, {"model": "fixture", "transport": "fixture"})
             return ({}, {"model": "fixture", "transport": "fixture"})
 
@@ -1122,7 +1133,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             enriched["repository_analysis_results"][0]["prompt_version"],
             repository_analysis.POLICY_VERSION,
         )
-        self.assertGreaterEqual(run_llm.call_count, 2)
+        self.assertGreaterEqual(run_llm.call_count, 1)
         self.assertTrue(all(
             call.kwargs["llm_max_output_tokens"] == 2048
             for call in run_llm.call_args_list

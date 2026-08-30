@@ -118,8 +118,10 @@ memoryを見ます。通常処理候補と低優先度処理候補は、同じ�
 
 重大なidentifier追加や、人が確定した判断の逆転は、平均値で相殺しません。
 
-repository analysisでは、request成功とschemaに加えて、summaryと各claimが入力時に割り当てた根拠番号だけを
-参照すること、保存時に対応する根拠位置へ戻ること、NSIDの大文字・小文字を変えないこと、根拠のない観測やdocumentation URLが保存されないことを確認します。同じmaterialを
+repository analysisでは、request成功とschemaに加えて、summaryとcapabilityが入力時に割り当てた根拠番号だけを
+参照すること、保存時に対応する根拠位置へ戻ること、利用者向け本文へ根拠番号を混ぜないことを確認します。観測は
+predicate・basis・根拠を固定したcandidate ID、collection利用はcase-sensitive NSID・operation・根拠を固定したcandidate IDで
+検査し、候補外ID、根拠のない観測、documentation URLを保存しません。候補が空のcaseも固定corpusへ含めます。同じmaterialを
 baselineとcandidateへ渡し、解析結果を含むtriageも比較します。
 
 ### 7. 同じ入力を複数回実行する

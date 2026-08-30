@@ -646,9 +646,10 @@ def collect_repository_evidence(
     repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
     default_branch = str(data.get("default_branch") or "")
     inspection_ref = str(data.get("revision") or default_branch)
-    cleaned_readme_excerpt = readme_excerpt(readme_text, limit=6000)
+    cleaned_readme_excerpt = readme_excerpt(readme_text, limit=1200)
+    readme_sections, readme_section_metrics = bounded_readme_sections(readme_text)
     repo_description = str(repo.get("description") or "").strip()
-    source_evidence_needed = len(cleaned_readme_excerpt) < 800 and len(repo_description) < 80
+    source_evidence_needed = int(readme_section_metrics["original_char_count"]) < 800 and len(repo_description) < 80
     repo_lexicons = [] if trust_only else dependencies.repo_lexicon_hints(
         repo_url,
         ref=inspection_ref,
@@ -708,16 +709,26 @@ def collect_repository_evidence(
                     if item.get("excerpt")
                 ],
                 "manifest_hints": [dict(item) for item in manifest_hints[:4] if isinstance(item, dict)],
+                "manifest_hint_count": len(manifest_hints),
                 "configuration_hints": [
                     dict(item) for item in configuration_hints[:6] if isinstance(item, dict)
                 ],
+                "configuration_hint_count": len(configuration_hints),
+                "lexicon_hint_count": len(repo_lexicons),
                 "tree_paths": [
                     str(item.get("path") or "")
                     for item in repo_tree[:200]
                     if str(item.get("path") or "")
                 ],
+                "tree_path_count": len(repo_tree),
                 "revision": str(data.get("revision") or ""),
                 "readme_excerpt": cleaned_readme_excerpt,
+                "readme_sections": readme_sections,
+                "readme_char_count": int(readme_section_metrics["original_char_count"]),
+                "readme_selected_char_count": int(readme_section_metrics["selected_char_count"]),
+                "readme_section_count": int(readme_section_metrics["original_section_count"]),
+                "readme_selected_section_count": len(readme_sections),
+                "readme_truncated": bool(readme_section_metrics["truncated"]),
                 "readme_urls": bounded_github_readme_urls(readme_urls),
                 "readme_url_count": len(readme_urls),
             },
@@ -788,15 +799,107 @@ def collect_repository_evidence(
 
 
 def readme_excerpt(text: str, *, limit: int = 1200) -> str:
-    cleaned = re.sub(r"<!--.*?-->", "", str(text or ""), flags=re.S)
+    cleaned = clean_readme_text(text)
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rsplit("\n", 1)[0].strip()
+
+
+def clean_readme_text(text: str, *, preserve_lines: bool = False) -> str:
+    cleaned = re.sub(
+        r"<!--.*?-->",
+        lambda match: "\n" * match.group(0).count("\n") if preserve_lines else "",
+        str(text or ""),
+        flags=re.S,
+    )
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
     cleaned = unescape(cleaned)
     cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", cleaned)
     cleaned = "\n".join(line.strip() for line in cleaned.splitlines())
+    if preserve_lines:
+        return cleaned.rstrip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[:limit].rsplit("\n", 1)[0].strip()
+    return cleaned
+
+
+def bounded_readme_sections(
+    text: str,
+    *,
+    total_char_limit: int = 6000,
+    section_char_limit: int = 1000,
+    section_limit: int = 6,
+) -> tuple[list[dict[str, Any]], dict[str, int | bool]]:
+    """Select bounded head/tail README sections while preserving source line locators."""
+    cleaned = clean_readme_text(text, preserve_lines=True)
+    if not cleaned:
+        return [], {
+            "original_char_count": 0,
+            "selected_char_count": 0,
+            "original_section_count": 0,
+            "truncated": False,
+        }
+    lines = cleaned.splitlines()
+    first_content = next((index for index, line in enumerate(lines) if line.strip()), 0)
+    starts = [first_content]
+    starts.extend(
+        index
+        for index, line in enumerate(lines)
+        if index > first_content and re.match(r"^#{1,4}\s+\S", line)
+    )
+    starts = sorted(set(starts))
+    sections: list[dict[str, Any]] = []
+    for position, start in enumerate(starts):
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        section_text = "\n".join(lines[start:end]).strip()
+        if not section_text:
+            continue
+        if len(section_text) <= section_char_limit:
+            excerpts = [(start + 1, section_text)]
+        else:
+            excerpts = []
+            offset = 0
+            section_lines = section_text.splitlines()
+            while offset < len(section_lines):
+                used: list[str] = []
+                used_chars = 0
+                chunk_start = offset
+                while offset < len(section_lines):
+                    line = section_lines[offset]
+                    added = len(line) + (1 if used else 0)
+                    if used and used_chars + added > section_char_limit:
+                        break
+                    used.append(line[:section_char_limit] if not used else line)
+                    used_chars += added
+                    offset += 1
+                    if used_chars >= section_char_limit:
+                        break
+                excerpts.append((start + chunk_start + 1, "\n".join(used)[:section_char_limit].strip()))
+        for line_number, excerpt in excerpts:
+            if excerpt:
+                sections.append({"path": "README", "line": line_number, "excerpt": excerpt})
+    if len(sections) > section_limit:
+        head_count = (section_limit + 1) // 2
+        selected = sections[:head_count] + sections[-(section_limit - head_count):]
+    else:
+        selected = sections
+    output: list[dict[str, Any]] = []
+    selected_chars = 0
+    for section in selected:
+        excerpt = str(section["excerpt"])
+        remaining = total_char_limit - selected_chars
+        if remaining <= 0:
+            break
+        excerpt = excerpt[:remaining].strip()
+        if not excerpt:
+            continue
+        output.append({**section, "excerpt": excerpt})
+        selected_chars += len(excerpt)
+    return output, {
+        "original_char_count": len(cleaned),
+        "selected_char_count": selected_chars,
+        "original_section_count": len(sections),
+        "truncated": selected_chars < len(cleaned),
+    }
 
 
 def collect_tangled_repo_evidence(
@@ -814,6 +917,7 @@ def collect_tangled_repo_evidence(
     readme_text = str(data.get("readme_text") or "")
     repo_tree = [dict(item) for item in data.get("tree", []) if isinstance(item, dict)]
     default_branch = str(data.get("default_branch") or "")
+    readme_sections, readme_section_metrics = bounded_readme_sections(readme_text)
     observed_at = dependencies.now()
     bundle = EvidenceBundle(
         project_key=str(project.get("project_key") or ""),
@@ -830,8 +934,15 @@ def collect_tangled_repo_evidence(
                 "repo": repo,
                 "default_branch": default_branch,
                 "tree_paths": [str(item.get("path") or "") for item in repo_tree if item.get("path")][:200],
+                "tree_path_count": len(repo_tree),
                 "readme_urls": dependencies.extract_urls(readme_text),
-                "readme_excerpt": readme_excerpt(readme_text, limit=6000),
+                "readme_excerpt": readme_excerpt(readme_text, limit=1200),
+                "readme_sections": readme_sections,
+                "readme_char_count": int(readme_section_metrics["original_char_count"]),
+                "readme_selected_char_count": int(readme_section_metrics["selected_char_count"]),
+                "readme_section_count": int(readme_section_metrics["original_section_count"]),
+                "readme_selected_section_count": len(readme_sections),
+                "readme_truncated": bool(readme_section_metrics["truncated"]),
                 "revision": str(data.get("revision") or ""),
             },
         ))

@@ -530,7 +530,7 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
             "material_hash": "sha256:" + "a" * 64,
             "coverage": {"readme": "complete"},
             "metadata": {"name": "tool"},
-            "readme_excerpt": "Reads app.example.record records from a PDS.",
+            "readme_excerpt": "Reads collection app.example.record records from a PDS.",
             "manifest_hints": [],
             "configuration_hints": [],
             "lexicon_hints": [],
@@ -541,6 +541,13 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
         }
 
     def payload(self) -> dict:
+        collection_candidate_id = next(
+            candidate_id
+            for candidate_id, candidate in repository_analysis.collection_candidate_catalog(
+                self.material()
+            ).items()
+            if candidate["operation"] == "read"
+        )
         return {
             "summary": "PDSのレコードを読むツール。",
             "summary_evidence": ["E01"],
@@ -550,9 +557,7 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
                 "evidence": ["E01"],
             }],
             "collections": [{
-                "nsid": "app.example.record",
-                "operation": "read",
-                "evidence": ["E01"],
+                "candidate_id": collection_candidate_id,
             }],
         }
 
@@ -564,11 +569,26 @@ class RepositoryAnalysisEvaluationTest(unittest.TestCase):
             "observations": 0, "capabilities": 0, "collections": 0,
         })
         self.assertEqual(result["normalized_result"]["collections"][0]["nsid"], "app.example.record")
+        self.assertEqual(result["normalized_result"]["collections"][0]["operation"], "read")
+
+    def test_validation_rejects_evidence_ids_adjacent_to_japanese_text(self) -> None:
+        payload = self.payload()
+        payload["summary"] = "E01によると、PDSのレコードを読むツール。"
+        payload["capabilities"][0]["text"] = "根拠はE01です。"
+
+        result = repository_analysis_evaluation.validate_output(payload, self.material())
+
+        self.assertFalse(result["valid"])
+        self.assertIn("evidence_id_in_text:summary", result["errors"])
+        self.assertIn("evidence_id_in_text:capabilities[0]", result["errors"])
 
     def test_validation_rejects_unknown_locator_and_collection(self) -> None:
         payload = self.payload()
         payload["capabilities"][0]["evidence"][0] = "E99"
-        payload["collections"][0]["nsid"] = "app.example.hallucinated"
+        payload["collections"][0] = {
+            "candidate_id": "C99",
+            "nsid": "app.example.hallucinated",
+        }
 
         result = repository_analysis_evaluation.validate_output(payload, self.material())
 

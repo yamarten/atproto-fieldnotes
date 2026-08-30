@@ -6,6 +6,7 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import identifiers
+from project_registry_core import investigation
 from project_registry_core import project_record
 from project_registry_core import repository_analysis
 from project_registry_core import repository_material
@@ -16,15 +17,20 @@ class RepositoryAnalysisTest(unittest.TestCase):
     def evidence_id(
         self, material: dict, path: str, *, line: int = 0, json_pointer: str = ""
     ) -> str:
-        expected = {"path": path}
-        if line:
-            expected["line"] = line
-        if json_pointer:
-            expected["json_pointer"] = json_pointer
         return next(
             evidence_id
             for evidence_id, locator in repository_analysis.evidence_locator_catalog(material).items()
-            if locator == expected
+            if locator.get("path") == path
+            and (not line or locator.get("line") == line)
+            and (not json_pointer or locator.get("json_pointer") == json_pointer)
+        )
+
+    def observation_candidate_id(self, material: dict, predicate: str, *, value: str = "") -> str:
+        return next(
+            candidate_id
+            for candidate_id, candidate in repository_analysis.observation_candidate_catalog(material).items()
+            if candidate.get("predicate") == predicate
+            and (not value or candidate.get("value") == value)
         )
 
     def github_bundle(self, *, manifest_hints: list[dict] | None = None) -> EvidenceBundle:
@@ -82,11 +88,85 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertLessEqual(len(material["source_evidence"]), 8)
         prompt = repository_analysis.build_prompt({}, material)
         self.assertIn("untrusted", prompt)
-        self.assertIn('"evidence_locators"', prompt)
+        self.assertIn('"evidence_blocks"', prompt)
+        self.assertNotIn('"tree_paths"', prompt)
         self.assertNotIn(
             {"path": "docs/index.md"},
             repository_analysis.evidence_locator_catalog(material).values(),
         )
+
+    def test_readme_sections_keep_head_and_tail_with_bounded_line_locators(self) -> None:
+        text = "\n\n".join(
+            f"## Section {index}\n" + (f"content-{index} " * 120)
+            for index in range(8)
+        )
+
+        sections, metrics = investigation.bounded_readme_sections(text)
+
+        self.assertEqual(len(sections), 6)
+        self.assertIn("Section 0", sections[0]["excerpt"])
+        self.assertIn("content-7", sections[-1]["excerpt"])
+        self.assertTrue(all(item["line"] > 0 for item in sections))
+        self.assertLessEqual(metrics["selected_char_count"], 6000)
+        self.assertTrue(metrics["truncated"])
+
+    def test_readme_section_lines_survive_multiline_html_comments(self) -> None:
+        text = "\n<!-- hidden\ncomment -->\n# Visible\ncontent"
+
+        sections, _metrics = investigation.bounded_readme_sections(text)
+
+        self.assertEqual(sections[0]["line"], 4)
+        self.assertTrue(sections[0]["excerpt"].startswith("# Visible"))
+
+    def test_prompt_uses_closed_candidates_and_excludes_uncitable_tree_context(self) -> None:
+        bundle = self.github_bundle(manifest_hints=[])
+        snapshot = bundle.records[0].value
+        snapshot["readme_excerpt"] = (
+            "A command-line tool that reads collection app.example.Record records. "
+            "The illustrative collection is example.nsid.record."
+        )
+        snapshot["tree_paths"] = ["lexicon-templates/example.json", "main.go"]
+        material = repository_analysis.build_material("https://github.com/example/app", bundle)
+
+        prompt = repository_analysis.build_prompt({}, material)
+        observations = repository_analysis.observation_candidate_catalog(material)
+        collections = repository_analysis.collection_candidate_catalog(material)
+
+        self.assertNotIn("lexicon-templates/example.json", prompt)
+        self.assertNotIn("main.go", prompt)
+        self.assertIn("candidate_id", prompt)
+        self.assertIn("declares_cli_entrypoint", {
+            item["predicate"] for item in observations.values()
+        })
+        self.assertIn("app.example.Record", {
+            item["nsid"] for item in collections.values()
+        })
+        self.assertTrue(all(item.get("operation") in {"mention", "read", "write", "call"} for item in collections.values()))
+        self.assertTrue(all("allowed_operations" not in item for item in collections.values()))
+        self.assertIn('"collections":[{"candidate_id":"C01"}]', prompt)
+        self.assertNotIn("example.nsid.record", {
+            item["nsid"] for item in collections.values()
+        })
+        self.assertLessEqual(
+            sum(len(item["text"].encode("utf-8")) for item in repository_analysis.evidence_block_catalog(material)),
+            repository_analysis.MAX_EVIDENCE_TEXT_BYTES,
+        )
+
+    def test_prompt_requires_empty_arrays_when_candidate_catalogs_are_empty(self) -> None:
+        bundle = self.github_bundle(manifest_hints=[])
+        bundle.records[0].value["readme_excerpt"] = "A small AT Protocol project."
+        bundle.records[0].value["source_evidence"] = []
+        bundle.records[0].value["lexicon_hints"] = []
+        material = repository_analysis.build_material(
+            "https://github.com/example/app",
+            bundle,
+        )
+
+        prompt = repository_analysis.build_prompt({}, material)
+
+        self.assertEqual(repository_analysis.collection_candidate_catalog(material), {})
+        self.assertIn("collection_candidates is empty, so collections MUST be [] exactly", prompt)
+        self.assertIn('"collections":[]', prompt)
 
     def test_deterministic_observations_are_non_exclusive(self) -> None:
         material = repository_analysis.build_material(
@@ -123,32 +203,12 @@ class RepositoryAnalysisTest(unittest.TestCase):
         result = repository_analysis.normalize_result(material, {
             "summary": "AT Protocolレコードを読むCLI。",
             "summary_evidence": [self.evidence_id(material, "README")],
-            "observations": [{
-                "predicate": "declares_cli_entrypoint",
-                "basis": "declared",
-                "evidence": [self.evidence_id(material, "package.json", json_pointer="/bin")],
-            }, {
-                "predicate": "declares_browser_extension",
-                "basis": "inferred",
-                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
-            }, {
-                "predicate": "contains_service_entrypoint",
-                "basis": "declared",
-                "evidence": ["E99"],
-            }],
+            "observations": [{"candidate_id": "O99"}],
             "capabilities": [{
                 "text": "レコードを読む",
                 "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
             }],
-            "collections": [{
-                "nsid": "com.atproto.repo.getRecord",
-                "operation": "read",
-                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
-            }, {
-                "nsid": "com.example.hallucinated",
-                "operation": "read",
-                "evidence": [self.evidence_id(material, "src/client.ts", line=12)],
-            }],
+            "collections": [{"candidate_id": "C99"}],
         }, {"model": "test", "transport": "test"}, "2026-07-25T01:00:00+00:00")
         predicates = {item["predicate"] for item in result["observations"]}
         self.assertNotIn("contains_service_entrypoint", predicates)
@@ -170,17 +230,11 @@ class RepositoryAnalysisTest(unittest.TestCase):
         result = repository_analysis.normalize_result(material, {
             "summary": "ドキュメントを持つAT Protocolプロジェクト。",
             "summary_evidence": [self.evidence_id(material, "mkdocs.yml")],
-            "observations": [{
-                "predicate": "declares_documentation_site_url",
-                "basis": "declared",
-                "value": "https://docs.example.com",
-                "evidence": [self.evidence_id(material, "mkdocs.yml")],
-            }, {
-                "predicate": "declares_documentation_site_url",
-                "basis": "declared",
-                "value": "https://invented.example",
-                "evidence": [self.evidence_id(material, "mkdocs.yml")],
-            }],
+            "observations": [{"candidate_id": self.observation_candidate_id(
+                material, "declares_documentation_site_url", value="https://docs.example.com"
+            )}, {"candidate_id": "O99"}],
+            "capabilities": [],
+            "collections": [],
         }, {}, "2026-07-25T01:00:00+00:00")
         self.assertEqual(repository_analysis.documentation_urls(result), ["https://docs.example.com"])
         self.assertEqual(
@@ -313,11 +367,9 @@ class RepositoryAnalysisTest(unittest.TestCase):
         result = repository_analysis.normalize_result(material, {
             "summary": "Rustアプリケーション。",
             "summary_evidence": [self.evidence_id(material, "README")],
-            "observations": [{
-                "predicate": "declares_importable_package",
-                "basis": "observed",
-                "evidence": ["E99"],
-            }],
+            "observations": [{"candidate_id": "O99"}],
+            "capabilities": [],
+            "collections": [],
         }, {}, "2026-07-25T00:00:00+00:00")
 
         self.assertNotIn("declares_importable_package", {
@@ -350,12 +402,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
         result = repository_analysis.normalize_result(material, {
             "summary": "AT Protocolアプリケーション。",
             "summary_evidence": [self.evidence_id(material, "README")],
-            "observations": [{
-                "predicate": "contains_host_integration_code",
-                "basis": "observed",
-                "value": "Axum web framework",
-                "evidence": [self.evidence_id(material, "README")],
-            }],
+            "observations": [{"candidate_id": "O99"}],
             "capabilities": [],
             "collections": [],
         }, {}, "2026-07-25T00:00:00+00:00")
