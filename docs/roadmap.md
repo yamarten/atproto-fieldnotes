@@ -196,6 +196,26 @@ promotion queueの並びで不足が確認された場合、service利用可否�
 
 raw JSON任意path検索は通常のproject探索に必要な具体例が出た場合だけ追加します。
 
+### 保存済み判断を使うLLM適応
+
+operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、
+`project_decisions`の多くはidentifier採否、reviewの保留・dismiss、別project判断などの運用上の正本であり、
+project-level triageやrepository解析のgold labelとはそのまま扱いません。
+
+同種の誤りが蓄積し、promptやbounded material契約だけでは十分に減らせず、独立した人手確認済みcaseを
+訓練用と評価用に分けられる量が揃った場合に、次を検討します。
+
+- category、identifier・relation判定、repository解析、紹介文生成など、入力・出力契約が異なる処理を分けて
+  学習対象と成功条件を定義する
+- 判断時点のevidence、実際のoperator action、対象role、判断理由を対応付け、現在stateから結果だけを逆算した
+  dataや、LLM出力を根拠にした派生fieldを教師へ混ぜない
+- projectと時期を跨いだholdoutを確保し、prompt調整や学習に使ったcaseと未使用caseを分ける
+- retrieval / few-shot example選択、model別prompt、後段の決定規則を先に比較し、その上でfine-tuning、LoRA、
+  adapter等が固定評価、memory、latency、運用コストで実利を持つか確認する
+- 学習済みmodelの出力も現行のschema・evidence検査とoperator reviewを通し、正本DBへの自動確定は別判断にする
+
+手法を先にLoRAへ固定せず、採用判断と再現可能な評価corpusを作れることを着手条件とします。
+
 ### editorial qualityと編集
 
 - project単位の自然言語による訂正指示と、現在のprofile / evidenceをLLMへ渡す更新案生成
