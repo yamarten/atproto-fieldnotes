@@ -1844,7 +1844,6 @@ def fetch_tangled_jetstream_snapshot(
 
 def project_for_tangled_entry(
     conn: sqlite3.Connection,
-    website: str,
     repo_url: str,
 ) -> dict[str, Any] | None:
     def unique_project(project_keys: set[str]) -> dict[str, Any] | None:
@@ -1852,12 +1851,11 @@ def project_for_tangled_entry(
             return None
         return fetch_project(conn, next(iter(project_keys)))
 
-    normalized_website = identifier_core.normalize_url(website)
     normalized_repo = repo_url_core.normalize_tangled_repo_url(repo_url)
     if normalized_repo:
         rows = conn.execute(
             """
-            SELECT DISTINCT project_key
+            SELECT DISTINCT project_key, classification
             FROM project_identifiers
             WHERE kind = 'repo_url' AND value = ?
               AND role = 'project_repository'
@@ -1867,22 +1865,26 @@ def project_for_tangled_entry(
             """,
             (normalized_repo,),
         ).fetchall()
-        if exact := unique_project({str(row["project_key"]) for row in rows}):
-            return exact
-    if normalized_website:
-        website_keys = {
-            project_key
-            for identifier_type in ("service_url", "service_url_candidate")
-            for _priority, project_key in indexed_identifier_matches(conn, identifier_type, normalized_website)
-        }
-        website_keys.update(
+        confirmed_keys = {
             str(row["project_key"])
-            for row in conn.execute(
-                "SELECT project_key FROM projects WHERE website_url = ? ORDER BY project_key LIMIT 2",
-                (normalized_website,),
-            ).fetchall()
+            for row in rows
+            if str(row["classification"]) == "confirmed"
+        }
+        confirmed_keys.update(
+            project_key
+            for priority, project_key in indexed_identifier_matches(conn, "repo_url", normalized_repo)
+            if priority == 0
         )
-        if exact := unique_project(website_keys):
+        if exact := unique_project(confirmed_keys):
+            return exact
+        if confirmed_keys:
+            return None
+        candidate_keys = {
+            str(row["project_key"])
+            for row in rows
+            if str(row["classification"]) == "candidate"
+        }
+        if exact := unique_project(candidate_keys):
             return exact
     return None
 
@@ -1923,6 +1925,18 @@ def sync_tangled_repos(
         else:
             latest_by_uri[uri] = entry
     selected = sorted(latest_by_uri.values(), key=lambda item: int(item.get("seq") or 0))
+    owner_handles: dict[str, str] = {}
+    for entry in selected:
+        if not entry.get("atproto_relevant"):
+            continue
+        owner_did = str(entry.get("owner_did") or "")
+        if not owner_did or owner_did in owner_handles:
+            continue
+        profile = fetch_bsky_profile(owner_did)
+        handle = str(profile.get("handle") or "").strip().lower()
+        if not handle or handle.startswith("did:"):
+            raise RuntimeError(f"Tangled owner handle could not be resolved: {owner_did}")
+        owner_handles[owner_did] = handle
     sealed_tip_seq = int(snapshot.get("sealed_tip_seq") or watermark_before)
     last_event_seq = int(snapshot.get("last_event_seq") or watermark_before)
     bounded_truncated = bool(snapshot.get("truncated"))
@@ -1941,13 +1955,9 @@ def sync_tangled_repos(
             skipped_irrelevant += 1
             continue
         owner_did = str(entry.get("owner_did") or "")
-        try:
-            profile = fetch_bsky_profile(owner_did) if owner_did else {}
-        except Exception:
-            profile = {}
-        handle = str(profile.get("handle") or owner_did)
+        handle = owner_handles[owner_did]
         repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
-        project = project_for_tangled_entry(conn, str(record.get("website") or ""), repo_url)
+        project = project_for_tangled_entry(conn, repo_url)
         outcome = "unmatched"
         if project is not None:
             matched += 1
