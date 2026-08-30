@@ -46,6 +46,12 @@ normalized identifier indexによるexact lookupへ置換した。修正後の�
 relevance filterで除外、28件を既存projectへ一致、79件を新規作成予定とした。全履歴は一括適用せず、通常上限を
 1,000 eventとしてsequence watermarkから複数runで進める。
 
+初回executeでは47件作成、60件一致となり、dry-runとの差から同一run内で追加したowner DIDが後続の別repositoryを
+同一projectへ照合していることを確認した。これはactorが複数projectを所有できるという既存のtrust境界に反するため、
+owner DID単独のproject照合を撤去し、repository URLまたはrecord固有websiteの一意一致だけに限定する。追加runは停止し、
+初回executeの影響を監査してから正本DBを補正する。修正後に同じ先頭1,000 eventを再dry-runすると、現在の正本DBに
+対して69件一致、38件作成予定となった。
+
 ### anonymous browser verification
 
 固定した5 sampleでは、JuntosとWhiteWindのservice statusが肯定的なbrowser surfaceにより変わり、

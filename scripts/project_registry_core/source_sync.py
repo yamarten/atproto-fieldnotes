@@ -1844,7 +1844,6 @@ def fetch_tangled_jetstream_snapshot(
 
 def project_for_tangled_entry(
     conn: sqlite3.Connection,
-    owner_did: str,
     website: str,
     repo_url: str,
 ) -> dict[str, Any] | None:
@@ -1869,10 +1868,6 @@ def project_for_tangled_entry(
             (normalized_repo,),
         ).fetchall()
         if exact := unique_project({str(row["project_key"]) for row in rows}):
-            return exact
-    if owner_did:
-        did_keys = {project_key for _priority, project_key in indexed_identifier_matches(conn, "did", owner_did)}
-        if exact := unique_project(did_keys):
             return exact
     if normalized_website:
         website_keys = {
@@ -1952,7 +1947,7 @@ def sync_tangled_repos(
             profile = {}
         handle = str(profile.get("handle") or owner_did)
         repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
-        project = project_for_tangled_entry(conn, owner_did, str(record.get("website") or ""), repo_url)
+        project = project_for_tangled_entry(conn, str(record.get("website") or ""), repo_url)
         outcome = "unmatched"
         if project is not None:
             matched += 1

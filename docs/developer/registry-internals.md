@@ -873,14 +873,14 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 - event上限で途中終了したexecuteは最後に処理したsequenceを保存し、次回に残りを再開します
 - 通常上限は1,000 eventです。初回archiveも一括完走させず、複数runで進めます
 - atproto relevanceを通過した現存recordだけを対象にします
-- owner DID、website、正規化したTangled repo URLで既存projectへexact照合します
+- record固有website、正規化したTangled repo URLで既存projectへexact照合します。owner DIDだけでは照合しません
 - unmatched project作成は既定onです
 - API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、
   `com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
 - accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを
   `raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
-- owner DID一致はrepo所有の強い根拠ですが、対象projectとの関連性はname、website、内容で別にscoreします
+- owner DID一致はrepo所有の強い根拠ですが、actorは複数projectを所有できるためproject同一性の照合には使いません
 - Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。
   GitHubのrecursive tree API相当の完全なcontents取得ではありません
 

@@ -2382,7 +2382,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(summary["unmatched"], 0)
         self.assertEqual(summary["results"][0]["project_key"], "proj:aaaaaaaaaaaa")
 
-    def test_tangled_match_uses_normalized_indexes_without_hydrating_all_projects(self) -> None:
+    def test_tangled_match_uses_normalized_urls_without_hydrating_all_projects(self) -> None:
         conn = registry.open_db()
         project = project_record.default_project_record("proj:aaaaaaaaaaaa", "service_url", "https://app.example")
         registry.confirm_service_url(project, "https://app.example", operator_override=True)
@@ -2391,30 +2391,55 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         conn.commit()
         try:
             with mock.patch.object(source_sync, "all_projects", side_effect=AssertionError("full scan")):
-                by_did = source_sync.project_for_tangled_entry(
-                    conn,
-                    "did:plc:developer",
-                    "",
-                    "https://tangled.org/other.example/repo",
-                )
                 by_service = source_sync.project_for_tangled_entry(
                     conn,
-                    "did:plc:other",
                     "https://app.example",
                     "https://tangled.org/other.example/repo",
                 )
                 unmatched = source_sync.project_for_tangled_entry(
                     conn,
-                    "did:plc:other",
                     "https://missing.example",
                     "https://tangled.org/other.example/repo",
                 )
         finally:
             conn.close()
 
-        self.assertEqual(by_did["project_key"], "proj:aaaaaaaaaaaa")
         self.assertEqual(by_service["project_key"], "proj:aaaaaaaaaaaa")
         self.assertIsNone(unmatched)
+
+    def test_tangled_sync_does_not_merge_distinct_repositories_from_same_owner(self) -> None:
+        conn = registry.open_db()
+        try:
+            with (
+                mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+                    "events": [
+                        {
+                            "owner_did": "did:plc:example", "rkey": "repo-one", "seq": 200,
+                            "time": "2026-08-30T00:00:00Z", "operation": "create",
+                            "record": {"name": "repo-one", "description": "atproto repo"},
+                            "atproto_relevant": True,
+                        },
+                        {
+                            "owner_did": "did:plc:example", "rkey": "repo-two", "seq": 201,
+                            "time": "2026-08-30T00:00:01Z", "operation": "create",
+                            "record": {"name": "repo-two", "description": "atproto repo"},
+                            "atproto_relevant": True,
+                        },
+                    ],
+                    "event_count": 2, "sealed_tip_seq": 201, "last_event_seq": 201,
+                    "truncated": False, "cancelled": False,
+                }),
+                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+            ):
+                summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
+            projects = registry.all_projects(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["created"], 2)
+        self.assertEqual(summary["matched"], 0)
+        self.assertEqual(len(projects), 2)
+        self.assertNotEqual(summary["results"][0]["project_key"], summary["results"][1]["project_key"])
 
     def test_tangled_snapshot_folds_deleted_record_out_of_candidates(self) -> None:
         conn = registry.open_db()
