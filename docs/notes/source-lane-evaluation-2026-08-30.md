@@ -48,14 +48,18 @@ relevance filterで除外、28件を既存projectへ一致、79件を新規作�
 
 初回executeでは47件作成、60件一致となり、dry-runとの差から同一run内で追加したowner DIDが後続の別repositoryを
 同一projectへ照合していることを確認した。これはactorが複数projectを所有できるという既存のtrust境界に反するため、
-owner DIDとrecord websiteによるproject照合を撤去し、repository URLの一意一致だけに限定する。追加runは停止し、
-初回executeの影響を監査してから正本DBを補正する。修正後に同じ先頭1,000 eventを再dry-runすると、現在の正本DBに
+owner DIDとrecord websiteによるproject照合を撤去し、repository URLの一意一致だけに限定した。修正後に
+同じ先頭1,000 eventを再dry-runすると、補正前の正本DBに
 対して69件一致、38件作成予定となった。
 
 初回run後のbackupを複製したtemp DBで、初回作成46 projectと既存21 projectへの同run由来evidenceを巻き戻し、
 同じsnapshotを修正版で再適用した。結果は15件一致、92件作成、project純増92、foreign key violation 0、
 integrity check `ok`だった。保存された105 unique repo edgeについて、一projectへ異なるrepo URLが集約された例と
 owner DIDをpercent-encodeした誤URLはいずれも0件だった。
+
+`data/backups/tangled-jetstream-first-run-correction-20260830/`へ補正前backupを作成した後、同じ巻き戻しと再適用を
+正本DBへ実施した。正本も15件一致、92件作成、project 4,772、watermark `6055342`、foreign key violation 0、
+integrity check `ok`となり、異なるrepo URLの集約と誤URLはいずれも0件だった。
 
 ### anonymous browser verification
 
