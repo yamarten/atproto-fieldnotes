@@ -40,6 +40,12 @@ API keyを使った`sh.tangled.repo`のsnapshot planはHTTP 200で、評価時�
 `25324347113`、planner表示は7,637 entriesだった。これはcreate/update/deleteを含むarchive entry数であり、
 現存repository数ではない。公式SDKを使った限定sequence・最大1 eventのsmoke testでplan、download、decodeを確認した。
 
+実装後の初回full dry-runは最大10,000 eventで5分25秒待っても完了しなかったため中断した。正本DBのmtime、size、
+project数、investigation run数、sync state数は前後一致した。照合処理がeventごとに全projectをhydrateする問題も確認し、
+normalized identifier indexによるexact lookupへ置換した。修正後の先頭1,000 event dry-runは53秒で完了し、893件を
+relevance filterで除外、28件を既存projectへ一致、79件を新規作成予定とした。全履歴は一括適用せず、通常上限を
+1,000 eventとしてsequence watermarkから複数runで進める。
+
 ### anonymous browser verification
 
 固定した5 sampleでは、JuntosとWhiteWindのservice statusが肯定的なbrowser surfaceにより変わり、
@@ -54,8 +60,8 @@ Echoskyはstatusを変えずconfidenceが強化された。Moatとgmstnは肯定
 Sembleは固有project作成と既存一致の両方があり、実行時間とfailureも許容範囲なので維持する。
 
 Tangledの少ない観測数はsource母集団ではなくUFOs rolling windowの取りこぼしを表していた。Jetstream v2は
-archiveをsequence watermarkで再開でき、週次jobの36時間超の停止にも対応できるため置換する。初回のfull snapshotは
-API利用量と時間が未確定である。通常runはevent上限を持ち、途中終了時は最後に処理したsequenceから再開する。
+archiveをsequence watermarkで再開でき、週次jobの36時間超の停止にも対応できるため置換する。初回full snapshotは
+一括完走させず、通常runと同じ1,000 event上限で分割する。途中終了時は最後に処理したsequenceから再開する。
 既存の旧UFOs watermarkは新しいscopeでは参照しない。
 
 browser verificationは値があるが、認証入力、form送信、登録、投稿を行わない匿名確認に限定する。

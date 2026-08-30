@@ -41,6 +41,6 @@
     "enabled": true,
     "service_url": "https://jetstream.us-west.bsky.network",
     "collection": "sh.tangled.repo",
-    "max_events": 10000
+    "max_events": 1000
   }
 }

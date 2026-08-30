@@ -214,11 +214,12 @@
 
 2026-08-30時点で確認済み:
 
-- 全unit test 725件
+- 全unit test 726件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - Semble / Tangled / anonymous browser laneを保存済みsampleで評価し、Sembleを維持、TangledをJetstream v2
   snapshotへ置換、anonymous browser verificationをWeb project detailへ接続した。Jetstreamは公式SDKで限定sequenceの
-  plan/download/decode、Webは一時schema version 3 DBで保存済みURL選択と確認モーダルを確認した。詳細は
+  plan/download/decodeを確認した。初回1,000 event dry-runは53秒、既存一致28、新規作成予定79、relevance除外893で、
+  正本DBは不変だった。Webは一時schema version 3 DBで保存済みURL選択と確認モーダルを確認した。詳細は
   [外部sourceとanonymous browser laneの評価](notes/source-lane-evaluation-2026-08-30.md)を参照
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの

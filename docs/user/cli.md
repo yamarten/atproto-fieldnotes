@@ -132,7 +132,8 @@ project-registry enrich --all --resume-run weekly-20260714
 Tangled syncにはNode.js 22.15以上、`npm install`で導入する公式`@bsky/jetstream` SDK、
 `ATPROTO_SURVEY_JETSTREAM_API_KEY`が必要です。API keyは環境変数からだけ読み、設定、結果、watermarkへ保存しません。
 `--all-history`はJetstream archiveの先頭から開始し、通常実行は保存済みsequenceから再開します。項目上限で途中終了した
-executeは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。
+executeは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。設定上の通常上限は1,000 eventで、
+初回archiveも複数runに分けて進めます。
 
 外部情報源の有効・無効、既定URL・検索条件、対象範囲、リクエスト上限は`config/sources.json`から読み、CLIオプションはその実行だけ上書きします。無効な情報源はネットワークリクエスト前に拒否されます。照合・分類方針は設定ファイルでは変更できません。
 

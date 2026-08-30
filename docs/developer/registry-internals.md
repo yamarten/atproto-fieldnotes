@@ -871,6 +871,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 - 公式`@bsky/jetstream` SDKでJetstream v2 snapshotを取得し、plan時点のsealed tipを固定します
 - `sh.tangled.repo`のcreate/update/deleteをsequence順に畳み込み、保存済みsequence watermarkから増分再開します
 - event上限で途中終了したexecuteは最後に処理したsequenceを保存し、次回に残りを再開します
+- 通常上限は1,000 eventです。初回archiveも一括完走させず、複数runで進めます
 - atproto relevanceを通過した現存recordだけを対象にします
 - owner DID、website、正規化したTangled repo URLで既存projectへexact照合します
 - unmatched project作成は既定onです

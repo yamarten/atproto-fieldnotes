@@ -131,7 +131,8 @@ PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾�
 設定済みのintroduced、GitHub、collection一覧、Semble、Tangledから外部情報を取り込みます。任意の検索条件やURLはCLIで指定します。dry-runでは取り込み候補を確認でき、外部ネットワークへ接続しますがSQLiteは更新しません。停止要求は現在の情報源のページ・項目境界で反映され、チェックポイントからの再開はありません。
 
 TangledはJetstream v2 snapshotを使います。Web server環境に`ATPROTO_SURVEY_JETSTREAM_API_KEY`とNode.js 22.15以上、
-workspaceに`npm install`済みの公式SDKが必要です。API keyはUI、job設定、結果へ保存しません。
+workspaceに`npm install`済みの公式SDKが必要です。API keyはUI、job設定、結果へ保存しません。通常は1回1,000 eventを
+上限として、途中終了時のsequenceから次回runを再開します。
 
 ### Review Ops
 

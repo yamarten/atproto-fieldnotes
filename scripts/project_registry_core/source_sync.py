@@ -1796,23 +1796,33 @@ def fetch_tangled_jetstream_snapshot(
     events: list[dict[str, Any]] = []
     summary: dict[str, Any] = {}
     cancelled = False
-    for line in process.stdout:
-        if cancel_requested and cancel_requested():
-            cancelled = True
+    try:
+        for line in process.stdout:
+            if cancel_requested and cancel_requested() and not cancelled:
+                cancelled = True
+                process.terminate()
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                process.terminate()
+                raise RuntimeError("Jetstream snapshot bridge returned invalid JSON") from exc
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "event":
+                normalized = tangled_core.normalize_jetstream_event(item)
+                if normalized is not None:
+                    events.append(normalized)
+            elif item.get("type") == "summary":
+                summary = dict(item)
+    except BaseException:
+        if process.poll() is None:
             process.terminate()
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError as exc:
-            process.terminate()
-            raise RuntimeError("Jetstream snapshot bridge returned invalid JSON") from exc
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") == "event":
-            normalized = tangled_core.normalize_jetstream_event(item)
-            if normalized is not None:
-                events.append(normalized)
-        elif item.get("type") == "summary":
-            summary = dict(item)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
     returncode = process.wait()
     stderr = process.stderr.read().strip() if process.stderr is not None else ""
     if returncode != 0 and not cancelled:
@@ -1838,6 +1848,11 @@ def project_for_tangled_entry(
     website: str,
     repo_url: str,
 ) -> dict[str, Any] | None:
+    def unique_project(project_keys: set[str]) -> dict[str, Any] | None:
+        if len(project_keys) != 1:
+            return None
+        return fetch_project(conn, next(iter(project_keys)))
+
     normalized_website = identifier_core.normalize_url(website)
     normalized_repo = repo_url_core.normalize_tangled_repo_url(repo_url)
     if normalized_repo:
@@ -1853,22 +1868,27 @@ def project_for_tangled_entry(
             """,
             (normalized_repo,),
         ).fetchall()
-        if len(rows) == 1:
-            exact = fetch_project(conn, str(rows[0]["project_key"]))
-            if exact is not None:
-                return exact
-    for project in all_projects(conn):
-        if owner_did and owner_did in confirmed_developer_dids(project):
-            return project
-        repositories = {
-            repo_url_core.normalize_tangled_repo_url(str(item))
-            for item in project_repository_url_values(project)
+        if exact := unique_project({str(row["project_key"]) for row in rows}):
+            return exact
+    if owner_did:
+        did_keys = {project_key for _priority, project_key in indexed_identifier_matches(conn, "did", owner_did)}
+        if exact := unique_project(did_keys):
+            return exact
+    if normalized_website:
+        website_keys = {
+            project_key
+            for identifier_type in ("service_url", "service_url_candidate")
+            for _priority, project_key in indexed_identifier_matches(conn, identifier_type, normalized_website)
         }
-        if normalized_repo and normalized_repo in repositories:
-            return project
-        urls = unique_list(([project.get("website_url")] if project.get("website_url") else []) + list(project.get("service_urls", [])))
-        if normalized_website and normalized_website in {identifier_core.normalize_url(str(item)) for item in urls}:
-            return project
+        website_keys.update(
+            str(row["project_key"])
+            for row in conn.execute(
+                "SELECT project_key FROM projects WHERE website_url = ? ORDER BY project_key LIMIT 2",
+                (normalized_website,),
+            ).fetchall()
+        )
+        if exact := unique_project(website_keys):
+            return exact
     return None
 
 

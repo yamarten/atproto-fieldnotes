@@ -2382,6 +2382,40 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(summary["unmatched"], 0)
         self.assertEqual(summary["results"][0]["project_key"], "proj:aaaaaaaaaaaa")
 
+    def test_tangled_match_uses_normalized_indexes_without_hydrating_all_projects(self) -> None:
+        conn = registry.open_db()
+        project = project_record.default_project_record("proj:aaaaaaaaaaaa", "service_url", "https://app.example")
+        registry.confirm_service_url(project, "https://app.example", operator_override=True)
+        project_record.add_developer_account(project, "dev.example", "fixture", did="did:plc:developer")
+        project_record.save_project(conn, project)
+        conn.commit()
+        try:
+            with mock.patch.object(source_sync, "all_projects", side_effect=AssertionError("full scan")):
+                by_did = source_sync.project_for_tangled_entry(
+                    conn,
+                    "did:plc:developer",
+                    "",
+                    "https://tangled.org/other.example/repo",
+                )
+                by_service = source_sync.project_for_tangled_entry(
+                    conn,
+                    "did:plc:other",
+                    "https://app.example",
+                    "https://tangled.org/other.example/repo",
+                )
+                unmatched = source_sync.project_for_tangled_entry(
+                    conn,
+                    "did:plc:other",
+                    "https://missing.example",
+                    "https://tangled.org/other.example/repo",
+                )
+        finally:
+            conn.close()
+
+        self.assertEqual(by_did["project_key"], "proj:aaaaaaaaaaaa")
+        self.assertEqual(by_service["project_key"], "proj:aaaaaaaaaaaa")
+        self.assertIsNone(unmatched)
+
     def test_tangled_snapshot_folds_deleted_record_out_of_candidates(self) -> None:
         conn = registry.open_db()
         try:
