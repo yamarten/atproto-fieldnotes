@@ -169,6 +169,28 @@ promotion queueの並びで不足が確認された場合、service利用可否�
 
 raw JSON任意path検索は通常のproject探索に必要な具体例が出た場合だけ追加します。
 
+### JetstreamでのLexicon publication観測
+
+Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public recordの活動を集計する
+`sync-collections`では見つからないLexiconの存在検知に使える可能性があります。既存collectionの網羅性改善より、
+recordをまだ持たないschema、query / procedure / subscription等の非record Lexicon、Permissioned Data提案の
+space typeとその`collections`宣言の発見を主な価値候補とします。
+
+緊急性は低く、恒久laneへ接続する前にboundedなread-only比較を行います。
+
+- sealed tipまでのcreate / update / deleteをDIDとrkey単位で畳み、現行schema候補を作る
+- recordのrkey、`id`、`lexicon`、主要definition typeを検査し、既存DBとの重複、未知authority group、
+  `sync-collections`で未観測の宣言collectionを数える
+- Jetstream eventだけをownership根拠にせず、exact `_lexicon` DNSが同じDIDを指し、current recordを再取得できる
+  場合だけ正規publisher候補とする
+- space typeはPermissioned Data proposal段階として観測し、`collections`は期待されるcollection集合の宣言として
+  扱う。record活動、現行ownership、projectへの帰属を自動確定しない
+- 未知schemaをすべて新規projectにせず、既存projectへの一意な帰属、独立project候補、schema catalogだけの観測を
+  分けてsample reviewする
+
+space typeの仕様が確定するか、read-only比較で固有候補が確認できた場合に、保存形、watermark、更新・削除追跡、
+promotion signalへの接続を判断します。DNS委譲の変更はJetstream eventに含まれないため、別途再検証します。
+
 ### 保存済み判断を使うLLM適応
 
 operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、
