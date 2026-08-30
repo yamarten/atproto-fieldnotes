@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import urllib.parse
-import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -124,52 +123,25 @@ def collect_account_repos(project: dict[str, Any], handle: str, dependencies: Ta
     return bundle
 
 
-def normalize_ufos_entries(payload: Any) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for item in payload if isinstance(payload, list) else []:
-        if not isinstance(item, dict) or str(item.get("collection") or "") != TANGLED_COLLECTION:
-            continue
-        record = dict(item.get("record") or {})
-        entries.append({
-            "owner_did": str(item.get("did") or ""),
-            "rkey": str(item.get("rkey") or ""),
-            "time_us": int(item.get("time_us") or 0),
-            "record": record,
-            "atproto_relevant": atproto_relevant(record),
-        })
-    return sorted(entries, key=lambda item: item["time_us"], reverse=True)
-
-
-def normalize_optional_adapter_candidates(payload: Any, *, adapter: str) -> list[dict[str, Any]]:
-    """Normalize disabled-by-default timeline/search/bot adapter output as weak candidates."""
-    candidates: list[dict[str, Any]] = []
-    if isinstance(payload, str):
-        values: list[Any] = re.findall(r"https://tangled\.org/[A-Za-z0-9._:-]+/[A-Za-z0-9._-]+", payload)
-    elif isinstance(payload, dict):
-        values = list(payload.get("results") or payload.get("records") or payload.get("items") or [])
-    elif isinstance(payload, list):
-        values = payload
-    else:
-        values = []
-    for item in values:
-        if isinstance(item, str):
-            url = item
-            context: dict[str, Any] = {}
-        elif isinstance(item, dict):
-            url = str(item.get("url") or item.get("repo_url") or "")
-            context = {key: item.get(key) for key in ("did", "handle", "time_us", "post_uri") if item.get(key) is not None}
-        else:
-            continue
-        parsed = urllib.parse.urlparse(url)
-        if parsed.netloc.lower() != "tangled.org" or len([part for part in parsed.path.split("/") if part]) != 2:
-            continue
-        candidates.append({
-            "repo_url": f"https://tangled.org{parsed.path.rstrip('/')}",
-            "classification": "heuristic" if adapter == "bot" else "candidate",
-            "adapter": adapter,
-            "context": context,
-        })
-    unique: dict[str, dict[str, Any]] = {}
-    for candidate in candidates:
-        unique.setdefault(str(candidate["repo_url"]), candidate)
-    return list(unique.values())
+def normalize_jetstream_event(value: Any) -> dict[str, Any] | None:
+    item = dict(value) if isinstance(value, dict) else {}
+    if item.get("type") != "event" or str(item.get("collection") or "") != TANGLED_COLLECTION:
+        return None
+    operation = str(item.get("operation") or "")
+    if operation not in {"create", "update", "delete"}:
+        return None
+    owner_did = str(item.get("did") or "").strip()
+    rkey = str(item.get("rkey") or "").strip()
+    seq = int(item.get("seq") or 0)
+    if not owner_did or not rkey or seq <= 0:
+        return None
+    record = dict(item.get("record") or {}) if operation != "delete" else {}
+    return {
+        "owner_did": owner_did,
+        "rkey": rkey,
+        "seq": seq,
+        "time": str(item.get("time") or ""),
+        "operation": operation,
+        "record": record,
+        "atproto_relevant": operation != "delete" and atproto_relevant(record),
+    }

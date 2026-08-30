@@ -13,7 +13,7 @@ from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import source_sync, worker
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.application import review as review_services
-from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _bounded_sync_summary, _schedule_due
+from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
 
 
 FAKE_WORKER = r'''
@@ -157,7 +157,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
 
         self.assertIsNone(record.snapshot()["eta_seconds"])
 
-    def test_generic_sync_and_review_jobs_use_same_process_boundary(self) -> None:
+    def test_generic_sync_review_and_browser_jobs_use_same_process_boundary(self) -> None:
         sync_job = self.manager.start_sync({"source": "github"}, execute=False)
         sync_completed = self.wait_for(sync_job["job_id"], {"completed"})
         self.assertEqual(sync_completed["operation"], "sync")
@@ -169,6 +169,15 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(review_completed["operation"], "review")
         self.assertTrue(review_completed["request"]["execute"])
         self.assertFalse(review_completed["can_resume"])
+
+        verify_job = self.manager.start_verify_service({
+            "project_key": "proj:example",
+            "service_url": "https://example.test",
+        })
+        verify_completed = self.wait_for(verify_job["job_id"], {"completed"})
+        self.assertEqual(verify_completed["operation"], "verify_service")
+        self.assertTrue(verify_completed["request"]["execute"])
+        self.assertFalse(verify_completed["can_resume"])
 
     def test_stalled_worker_uses_no_limit_when_parameter_is_omitted(self) -> None:
         with mock.patch.object(worker.review, "stalled", return_value={}) as stalled:
@@ -183,6 +192,29 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
 
         self.assertIsNone(stalled.call_args_list[0].kwargs["limit"])
         self.assertEqual(stalled.call_args_list[1].kwargs["limit"], 23)
+
+    def test_browser_verification_worker_fixes_lane_and_requires_execute(self) -> None:
+        request = OperationRequest.create(
+            "verify_service",
+            parameters={"project_key": "proj:example", "service_url": "https://example.test"},
+            execute=True,
+        )
+        with mock.patch.object(worker.investigation, "verify_service", return_value={"mode": "execute"}) as verify:
+            summary = worker._run_verify_service(object(), request)
+
+        self.assertEqual(summary["mode"], "execute")
+        verify.assert_called_once_with(
+            mock.ANY,
+            project_key="proj:example",
+            lane="browser",
+            service_url="https://example.test",
+            execute=True,
+        )
+        with self.assertRaisesRegex(ValueError, "must save"):
+            worker._run_verify_service(
+                object(),
+                OperationRequest.create("verify_service", parameters={"project_key": "proj:example"}),
+            )
 
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
@@ -210,63 +242,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(state["queue"], [])
         schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
         self.assertEqual(schedule["last_status"], "completed")
-        self.assertEqual(
-            [item["source"] for item in state["source_observations"]],
-            ["github", "collections", "semble", "tangled"],
-        )
-        self.assertTrue(all(item["preset_id"] == "sync_sources_then_enrich" for item in state["source_observations"]))
-
-    def test_execute_sync_observations_persist_last_four_per_source(self) -> None:
-        operation_ids: list[str] = []
-        for _index in range(5):
-            job = self.manager.start_sync({"source": "semble"}, execute=True)
-            completed = self.wait_for(job["job_id"], {"completed"})
-            operation_ids.append(completed["operation_id"])
-
-        dry_run = self.manager.start_sync({"source": "semble"}, execute=False)
-        self.wait_for(dry_run["job_id"], {"completed"})
-        observations = self.manager.list_schedules()["source_observations"]
-        self.assertEqual(len(observations), 4)
-        self.assertEqual([item["operation_id"] for item in observations], operation_ids[-4:])
-        self.assertEqual(observations[-1]["summary"]["created"], 1)
-        self.assertEqual(
-            observations[-1]["summary"]["imported_project_keys"][0],
-            "proj:semble",
-        )
-
-        restarted = JobManager(
-            self.db_path,
-            worker_command=[sys.executable, str(self.worker_path)],
-            enable_scheduler=False,
-        )
-        try:
-            self.assertEqual(
-                [item["operation_id"] for item in restarted.list_schedules()["source_observations"]],
-                operation_ids[-4:],
-            )
-        finally:
-            restarted.close(timeout=1.0)
-
-    def test_sync_observation_candidate_references_are_bounded(self) -> None:
-        summary = _bounded_sync_summary({
-            "unmatched_entries": [
-                {"repo_url": f"https://example.test/repo-{index}", "outcome": "unmatched"}
-                for index in range(120)
-            ],
-        })
-
-        self.assertEqual(len(summary["unmatched_entries"]), 100)
-        self.assertEqual(summary["_truncated_lists"], ["unmatched_entries"])
-
-    def test_failed_execute_sync_observation_keeps_bounded_error(self) -> None:
-        job = self.manager.start_sync({"source": "tangled", "fail": True}, execute=True)
-        self.wait_for(job["job_id"], {"failed"})
-
-        observation = self.manager.list_schedules()["source_observations"][0]
-        self.assertEqual(observation["source"], "tangled")
-        self.assertEqual(observation["status"], "failed")
-        self.assertEqual(observation["error"]["type"], "SyntheticError")
-        self.assertEqual(observation["error"]["message"], "synthetic sync failure")
+        self.assertNotIn("source_observations", state)
 
     def test_all_state_maintenance_runs_enrich_then_stalled_review(self) -> None:
         queued = self.manager.run_scheduled_preset("enrich_all_states")
@@ -551,17 +527,22 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
                     conn.close()
 
     def test_sync_reports_item_progress_and_honors_boundary_cancellation(self) -> None:
-        entries = [{
-            "rkey": "repo-1",
-            "time_us": 10,
-            "record": {},
-            "atproto_relevant": False,
-            "owner_did": "",
-        }]
+        snapshot = {
+            "events": [{
+                "rkey": "repo-1", "seq": 10, "record": {},
+                "atproto_relevant": False, "owner_did": "did:plc:example",
+                "operation": "create", "time": "2026-08-30T00:00:00Z",
+            }],
+            "event_count": 1,
+            "sealed_tip_seq": 10,
+            "last_event_seq": 10,
+            "truncated": False,
+            "cancelled": False,
+        }
         seen: list[tuple[int, int, dict]] = []
         conn = registry.open_db()
         try:
-            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=entries):
+            with mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value=snapshot):
                 result = source_sync.sync_tangled_repos(
                     conn,
                     progress=lambda current, total, item: seen.append((current, total, item)),
@@ -609,29 +590,40 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(state["watermark"], {})
         self.assertEqual(state["last_success_at"], "")
 
-    def test_tangled_sync_bounds_processing_without_advancing_state(self) -> None:
-        entries = [
-            {"rkey": "repo-2", "time_us": 20, "record": {}, "atproto_relevant": False, "owner_did": ""},
-            {"rkey": "repo-1", "time_us": 10, "record": {}, "atproto_relevant": False, "owner_did": ""},
-        ]
+    def test_tangled_truncated_sync_advances_to_last_processed_sequence(self) -> None:
+        snapshot = {
+            "events": [{
+                "rkey": "repo-1", "seq": 10, "record": {},
+                "atproto_relevant": False, "owner_did": "did:plc:example",
+                "operation": "create", "time": "2026-08-30T00:00:00Z",
+            }],
+            "event_count": 1,
+            "sealed_tip_seq": 20,
+            "last_event_seq": 10,
+            "truncated": True,
+            "cancelled": False,
+        }
         conn = registry.open_db()
         try:
-            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=entries):
+            with mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value=snapshot):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, max_items=1)
             state = registry.read_sync_state(
                 conn,
                 "tangled-repos",
-                {"source": "ufos", "collection": registry.tangled_core.TANGLED_COLLECTION},
+                {
+                    "source": "jetstream_v2",
+                    "service": "https://jetstream.us-west.bsky.network",
+                    "collection": registry.tangled_core.TANGLED_COLLECTION,
+                },
             )
         finally:
             conn.close()
 
-        self.assertEqual(summary["observed"], 2)
+        self.assertEqual(summary["observed"], 1)
         self.assertEqual(summary["fetched"], 1)
         self.assertTrue(summary["truncated"])
-        self.assertFalse(summary["state_updated"])
-        self.assertEqual(state["watermark"], {})
-        self.assertEqual(state["last_success_at"], "")
+        self.assertTrue(summary["state_updated"])
+        self.assertEqual(state["watermark"]["seq"], 10)
 
 
 if __name__ == "__main__":

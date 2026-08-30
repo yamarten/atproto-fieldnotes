@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from project_registry_core import database
 from project_registry_core import domain_policy
+from project_registry_core import identifiers as identifier_core
 from project_registry_core import registry as core
 from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
@@ -268,6 +269,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     "enrich": True,
                     "sync": True,
                     "review_ops": True,
+                    "browser_service_verification": True,
                     "subprocess_worker": True,
                 },
             })
@@ -437,6 +439,11 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if path == "/api/jobs/review":
             parameters = self.review_job_parameters(payload)
             result = self.server.jobs.start_review(parameters, execute=_boolean(payload.get("execute")))
+            self.send_json(result, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/jobs/verify-service":
+            parameters = self.verify_service_job_parameters(payload)
+            result = self.server.jobs.start_verify_service(parameters)
             self.send_json(result, status=HTTPStatus.ACCEPTED)
             return
         if path == "/api/job-schedules":
@@ -617,6 +624,22 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             "selected_candidate_ids": tuple(str(item) for item in selected_values if str(item)),
             "plan_fingerprint": str(payload.get("plan_fingerprint") or ""),
         }
+
+    def verify_service_job_parameters(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_key = str(payload.get("project_key") or "").strip()
+        requested_url = identifier_core.normalize_url(str(payload.get("service_url") or ""))
+        if not project_key or not requested_url:
+            raise ValueError("project_key and service_url are required")
+        with contextlib.closing(self.server.open_db()) as conn:
+            project = core.resolve_single_project(conn, project_key=project_key)
+        allowed_urls = {
+            identifier_core.normalize_url(str(value))
+            for value in list(project.get("service_urls") or []) + project_record.service_url_candidate_values(project)
+            if identifier_core.normalize_url(str(value))
+        }
+        if requested_url not in allowed_urls:
+            raise ValueError("service_url is not saved on the selected project")
+        return {"project_key": str(project.get("project_key") or project_key), "service_url": requested_url}
 
     def run_project_action(
         self,

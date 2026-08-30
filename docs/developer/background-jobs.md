@@ -18,7 +18,7 @@
 
 Web server起動時のjob eventはprocess内だけに保持します。一方、bulk enrich checkpointはDBと同じdirectoryの`enrich-runs/`から再発見し、未完了runをserver再起動後にresumeできます。APIはrun IDだけを受け取り、任意checkpoint pathは受け付けません。
 
-停止境界はoperationごとに異なります。enrichはproject境界、reviewはcandidate境界です。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはitem、collection inventoryはfetch/import境界でcancelを確認します。
+停止境界はoperationごとに異なります。enrichとanonymous browser verificationはproject境界、reviewはcandidate境界です。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはevent、collection inventoryはfetch/import境界でcancelを確認します。
 
 review executeは先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplan fingerprintとcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
 
@@ -150,16 +150,13 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - 完了jobは直近100件、eventはjobごとに直近200件、stderrは直近50行を保持する
 - Web server終了・reload時はactive workerへ協調停止を要求し、timeout後にprocessを終了する
 - custom DBのcheckpointはそのDBと同じdirectoryの`enrich-runs/`へ保存する
-- scheduled preset設定、pending queue、sourceごと直近4回のexecute sync observationはDBと同じdirectoryの`job-schedules.json`へ保存する。予定時刻から24時間以内だけdueとし、それより古い未実行分は後追い発火しない。server再起動時に実行中だったscheduled stepは同じstepから再試行する
+- scheduled preset設定とpending queueはDBと同じdirectoryの`job-schedules.json`へ保存する。予定時刻から24時間以内だけdueとし、それより古い未実行分は後追い発火しない。server再起動時に実行中だったscheduled stepは同じstepから再試行する
 - Web APIはLLM API keyを受け取らず、workerはserver processの環境変数を継承する
 - syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
+- anonymous browser verificationはproject keyと、そのprojectに保存済みのconfirmed/candidate service URLだけを受け付ける
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
 job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しません。
-`GET /api/job-schedules`の`source_observations`にはWebからexecuteしたsyncの直近4回 / sourceだけを残します。
-dry-run、full result / event、本文payloadは保存しません。
-このobservationは恒久的なjob履歴ではなく、roadmapの外部source評価が終わるまでの一時的な観測導線です。
-評価結果を確定する作業で、保存field、記録処理、API、test、関連文書をまとめて削除します。
 未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。

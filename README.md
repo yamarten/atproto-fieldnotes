@@ -12,6 +12,7 @@ Python 3.10以上の隔離環境を用意します。
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+npm install
 export PATH="$PWD/bin:$PATH"
 project-registry init-db
 ```
@@ -20,6 +21,7 @@ Web UIを起動します。
 
 ```bash
 export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
+export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 

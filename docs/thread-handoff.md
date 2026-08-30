@@ -12,19 +12,18 @@
   Lexicon publisherも独立signalとして優先します。
 - Qwen / Gemma比較は完了し、既定modelと定期jobはQwenを維持します。残る品質課題は、repository解析で
   根拠不足として除外される観測とmaterial外collectionです。
-- Semble / Tangledは各4回のsource observationを取得済みです。Sembleは合計33 projectを作成し9件を既存projectへ
-  一致させました。Tangledは10件をunmatchedとして観測しましたが、作成・既存一致は0件でした。operator sample reviewと
-  anonymous browser verificationの固有成果確認は未完了です。
+- 外部sourceとbrowser laneを評価し、Sembleは維持、TangledはUFOsからJetstream v2 snapshotへ置換、
+  anonymous browser verificationはWeb project detailへ接続しました。一時的な`source_observations`と未接続の
+  Tangled timeline / community / bot adapterは撤去しました。根拠は
+  [評価記録](notes/source-lane-evaluation-2026-08-30.md)を参照してください。
 
 ## 次に必要な作業
 
-1. Semble / Tangledのcompleted resultとanonymous browser sampleをreviewし、laneの維持または削除を決める。
-   同じ作業で`source_observations`の一時計測実装を撤去する。
-2. Qwen repository解析の根拠不足とmaterial外collectionを、特定repositoryに依存しないpromptまたはmaterial契約で
+1. Qwen repository解析の根拠不足とmaterial外collectionを、特定repositoryに依存しないpromptまたはmaterial契約で
    減らせるか評価する。
-3. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
+2. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
    追加するか判断する。自動mergeは前提にしない。
-4. `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を修正する。
+3. `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を修正する。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

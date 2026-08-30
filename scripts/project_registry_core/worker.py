@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import database
-from .application import enrichment, review, sync
+from .application import enrichment, investigation, review, sync
 from .jobs import CancellationToken, OperationEvent, OperationRequest, OperationResult, utc_now
 
 
@@ -116,6 +116,22 @@ def _run_review(conn: Any, request: OperationRequest, *, progress: Any = None, c
     raise ValueError(f"unsupported review kind: {kind}")
 
 
+def _run_verify_service(conn: Any, request: OperationRequest) -> dict[str, Any]:
+    parameters = request.parameters
+    if not request.execute:
+        raise ValueError("browser service verification must save its investigation result")
+    project_key = str(parameters.get("project_key") or "").strip()
+    if not project_key:
+        raise ValueError("project_key is required")
+    return investigation.verify_service(
+        conn,
+        project_key=project_key,
+        lane="browser",
+        service_url=str(parameters.get("service_url") or "").strip(),
+        execute=True,
+    )
+
+
 def _run_simple(
     conn: Any,
     request: OperationRequest,
@@ -155,17 +171,22 @@ def _run_simple(
             data={"reason": cancellation.reason},
         )
     try:
-        payload = _run_sync(
-            conn,
-            request,
-            progress=progress,
-            cancel_requested=lambda: cancellation.cancel_requested,
-        ) if request.operation == "sync" else _run_review(
-            conn,
-            request,
-            progress=progress,
-            cancel_requested=lambda: cancellation.cancel_requested,
-        )
+        if request.operation == "sync":
+            payload = _run_sync(
+                conn,
+                request,
+                progress=progress,
+                cancel_requested=lambda: cancellation.cancel_requested,
+            )
+        elif request.operation == "review":
+            payload = _run_review(
+                conn,
+                request,
+                progress=progress,
+                cancel_requested=lambda: cancellation.cancel_requested,
+            )
+        else:
+            payload = _run_verify_service(conn, request)
     except Exception as exc:
         completed_at = utc_now()
         error = {"type": type(exc).__name__, "message": str(exc)}
@@ -215,7 +236,7 @@ def run_payload(payload: dict[str, Any]) -> int:
     def emit(event: OperationEvent) -> None:
         _write({"type": "event", "payload": event.to_dict()})
 
-    if request.operation not in {"enrich", "sync", "review"}:
+    if request.operation not in {"enrich", "sync", "review", "verify_service"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
     conn = database.open_database(db_path, create=False)
     try:

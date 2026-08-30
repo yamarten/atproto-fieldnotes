@@ -56,6 +56,11 @@ class FakeJobManager:
         self.execute = execute
         return {**self.job, "operation": "review", "request": {"parameters": parameters}}
 
+    def start_verify_service(self, parameters: dict) -> dict:
+        self.parameters = parameters
+        self.execute = True
+        return {**self.job, "operation": "verify_service", "request": {"parameters": parameters}}
+
     def list_jobs(self, *, limit: int = 50) -> dict:
         return {"count": 1, "items": [dict(self.job)]}
 
@@ -608,6 +613,34 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             "/api/jobs/enrich",
             method="POST",
             payload={"all_projects": True, "tracking_states": ["invalid"]},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(error["error"]["code"], "validation_error")
+
+    def test_browser_service_verification_job_requires_saved_project_url(self) -> None:
+        status, job, _ = self.request(
+            "/api/jobs/verify-service",
+            method="POST",
+            payload={
+                "project_key": "proj:111111111111",
+                "service_url": "https://app.example.com",
+            },
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(job["operation"], "verify_service")
+        self.assertEqual(self.server.jobs.parameters, {
+            "project_key": "proj:111111111111",
+            "service_url": "https://app.example.com",
+        })
+        self.assertTrue(self.server.jobs.execute)
+
+        status, error, _ = self.request(
+            "/api/jobs/verify-service",
+            method="POST",
+            payload={
+                "project_key": "proj:111111111111",
+                "service_url": "https://arbitrary.example",
+            },
         )
         self.assertEqual(status, 400)
         self.assertEqual(error["error"]["code"], "validation_error")

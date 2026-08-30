@@ -5,7 +5,10 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
+import shutil
 import sqlite3
+import subprocess
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -28,7 +31,6 @@ from project_registry_core.registry import (
     REQUEST_TIMEOUT_LEXICON_HTTP,
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
-    UFOS_API,
     activity_is_recent,
     add_candidate_text,
     add_candidate_project_repository_url,
@@ -1759,19 +1761,110 @@ def sync_semble_collections(
     }
 
 
-def fetch_tangled_ufos_window() -> list[dict[str, Any]]:
-    config = dict(load_config().get("tangled_repo_discovery") or {})
-    api_url = str(config.get("ufos_api_url") or f"{UFOS_API}/records")
-    collection = str(config.get("collection") or tangled_core.TANGLED_COLLECTION)
-    separator = "&" if "?" in api_url else "?"
-    payload = http_transport.request_json(f"{api_url}{separator}{urllib.parse.urlencode({'collection': collection})}", timeout=REQUEST_TIMEOUT_LEXICON_HTTP)
-    return tangled_core.normalize_ufos_entries(payload)
+def fetch_tangled_jetstream_snapshot(
+    *,
+    service: str,
+    collection: str,
+    after_seq: int,
+    max_events: int,
+    cancel_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    if not os.environ.get("ATPROTO_SURVEY_JETSTREAM_API_KEY", "").strip():
+        raise RuntimeError("ATPROTO_SURVEY_JETSTREAM_API_KEY is not configured")
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("Node.js 22.15 or newer is required for Tangled Jetstream sync")
+    bridge = Path(__file__).resolve().with_name("jetstream_snapshot.mjs")
+    process = subprocess.Popen(
+        [node, str(bridge)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(Path(__file__).resolve().parents[2]),
+        env=os.environ.copy(),
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    process.stdin.write(json.dumps({
+        "service": service,
+        "collection": collection,
+        "after_seq": max(0, int(after_seq)),
+        "max_events": max(1, int(max_events)),
+    }) + "\n")
+    process.stdin.close()
+    events: list[dict[str, Any]] = []
+    summary: dict[str, Any] = {}
+    cancelled = False
+    for line in process.stdout:
+        if cancel_requested and cancel_requested():
+            cancelled = True
+            process.terminate()
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            process.terminate()
+            raise RuntimeError("Jetstream snapshot bridge returned invalid JSON") from exc
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "event":
+            normalized = tangled_core.normalize_jetstream_event(item)
+            if normalized is not None:
+                events.append(normalized)
+        elif item.get("type") == "summary":
+            summary = dict(item)
+    returncode = process.wait()
+    stderr = process.stderr.read().strip() if process.stderr is not None else ""
+    if returncode != 0 and not cancelled:
+        detail = stderr.splitlines()[-1][:500] if stderr else f"exit status {returncode}"
+        raise RuntimeError(f"Jetstream snapshot bridge failed: {detail}")
+    if not summary:
+        summary = {
+            "after_seq": max(0, int(after_seq)),
+            "sealed_tip_seq": max(0, int(after_seq)),
+            "last_event_seq": max((int(item["seq"]) for item in events), default=max(0, int(after_seq))),
+            "event_count": len(events),
+            "truncated": True,
+            "cancelled": cancelled,
+        }
+    summary["events"] = events
+    summary["cancelled"] = bool(summary.get("cancelled") or cancelled)
+    return summary
 
 
-def project_for_tangled_entry(conn: sqlite3.Connection, owner_did: str, website: str) -> dict[str, Any] | None:
+def project_for_tangled_entry(
+    conn: sqlite3.Connection,
+    owner_did: str,
+    website: str,
+    repo_url: str,
+) -> dict[str, Any] | None:
     normalized_website = identifier_core.normalize_url(website)
+    normalized_repo = repo_url_core.normalize_tangled_repo_url(repo_url)
+    if normalized_repo:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT project_key
+            FROM project_identifiers
+            WHERE kind = 'repo_url' AND value = ?
+              AND role = 'project_repository'
+              AND classification IN ('confirmed', 'candidate')
+            ORDER BY project_key
+            LIMIT 2
+            """,
+            (normalized_repo,),
+        ).fetchall()
+        if len(rows) == 1:
+            exact = fetch_project(conn, str(rows[0]["project_key"]))
+            if exact is not None:
+                return exact
     for project in all_projects(conn):
         if owner_did and owner_did in confirmed_developer_dids(project):
+            return project
+        repositories = {
+            repo_url_core.normalize_tangled_repo_url(str(item))
+            for item in project_repository_url_values(project)
+        }
+        if normalized_repo and normalized_repo in repositories:
             return project
         urls = unique_list(([project.get("website_url")] if project.get("website_url") else []) + list(project.get("service_urls", [])))
         if normalized_website and normalized_website in {identifier_core.normalize_url(str(item)) for item in urls}:
@@ -1783,34 +1876,44 @@ def sync_tangled_repos(
     conn: sqlite3.Connection,
     *,
     execute: bool = False,
-    create_unmatched: bool = False,
+    create_unmatched: bool = True,
     incremental: bool = True,
     all_history: bool = False,
     max_items: int | None = None,
     progress: Callable[[int, int, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
-    state = read_sync_state(conn, "tangled-repos", scope)
-    watermark_before = int(state.get("watermark", {}).get("time_us") or 0) if incremental and not all_history else 0
-    observed_entries = fetch_tangled_ufos_window()
     config = dict(load_config().get("tangled_repo_discovery") or {})
-    configured_limit = max(1, int(config.get("limit") or 100))
+    service = str(config.get("service_url") or "https://jetstream.us-west.bsky.network").strip().rstrip("/")
+    collection = str(config.get("collection") or tangled_core.TANGLED_COLLECTION)
+    configured_limit = max(1, int(config.get("max_events") or 10000))
     requested_limit = max(1, int(max_items)) if max_items is not None else configured_limit
     processing_limit = min(configured_limit, requested_limit)
-    entries = observed_entries[:processing_limit]
-    bounded_truncated = (
-        max_items is not None
-        and processing_limit < configured_limit
-        and len(entries) < len(observed_entries)
+    scope = {"source": "jetstream_v2", "service": service, "collection": collection}
+    state = read_sync_state(conn, "tangled-repos", scope)
+    watermark_before = int(state.get("watermark", {}).get("seq") or 0) if incremental and not all_history else 0
+    snapshot = fetch_tangled_jetstream_snapshot(
+        service=service,
+        collection=collection,
+        after_seq=watermark_before,
+        max_events=processing_limit,
+        cancel_requested=cancel_requested,
     )
-    newest = max((int(item.get("time_us") or 0) for item in entries), default=0)
-    oldest = min((int(item.get("time_us") or 0) for item in entries), default=0)
-    boundary_reached = not watermark_before or any(int(item.get("time_us") or 0) <= watermark_before for item in entries)
-    selected = [item for item in entries if not watermark_before or int(item.get("time_us") or 0) > watermark_before]
+    observed_entries = list(snapshot.get("events") or [])
+    latest_by_uri: dict[str, dict[str, Any]] = {}
+    for entry in observed_entries:
+        uri = f"at://{entry.get('owner_did')}/{collection}/{entry.get('rkey')}"
+        if str(entry.get("operation") or "") == "delete":
+            latest_by_uri.pop(uri, None)
+        else:
+            latest_by_uri[uri] = entry
+    selected = sorted(latest_by_uri.values(), key=lambda item: int(item.get("seq") or 0))
+    sealed_tip_seq = int(snapshot.get("sealed_tip_seq") or watermark_before)
+    last_event_seq = int(snapshot.get("last_event_seq") or watermark_before)
+    bounded_truncated = bool(snapshot.get("truncated"))
     matched = created = unmatched = skipped_irrelevant = 0
     results: list[dict[str, Any]] = []
-    cancelled = False
+    cancelled = bool(snapshot.get("cancelled"))
     for entry_index, entry in enumerate(selected, 1):
         if cancel_requested and cancel_requested():
             cancelled = True
@@ -1829,13 +1932,13 @@ def sync_tangled_repos(
             profile = {}
         handle = str(profile.get("handle") or owner_did)
         repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
-        project = project_for_tangled_entry(conn, owner_did, str(record.get("website") or ""))
+        project = project_for_tangled_entry(conn, owner_did, str(record.get("website") or ""), repo_url)
         outcome = "unmatched"
         if project is not None:
             matched += 1
             outcome = "matched"
         elif create_unmatched:
-            project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_ufos") if execute else default_project_record("dry-run", "repo_url", repo_url)
+            project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_jetstream") if execute else default_project_record("dry-run", "repo_url", repo_url)
             created += 1
             outcome = "created"
         else:
@@ -1845,40 +1948,41 @@ def sync_tangled_repos(
             score = tangled_core.repo_relevance(project, record, handle)
             bundle = EvidenceBundle(project_key=str(project.get("project_key") or "dry-run"), collected_at=iso_now())
             bundle.add_record(investigation_core.evidence_record(
-                kind="tangled_repo_snapshot", source="tangled_ufos", classification="candidate",
+                kind="tangled_repo_snapshot", source="tangled_jetstream", classification="candidate",
                 observed_at=iso_now(),
                 value={"owner_handle": handle, "owner_did": owner_did, "repo_url": repo_url,
                        "repo_did": str(record.get("repoDid") or ""), "record": record, "score": score},
             ))
             if execute:
                 apply_tangled_evidence(project, bundle)
-                project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_ufos")
+                project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_jetstream")
                 save_project(conn, finalize_project_shape(project), enriched=False)
         results.append({
             "project_key": str(project.get("project_key") or "") if project is not None else "",
             "repo_url": repo_url,
             "owner_did": owner_did,
             "outcome": outcome,
-            "time_us": entry["time_us"],
+            "seq": entry["seq"],
+            "observed_at": str(entry.get("time") or ""),
         })
     state_updated = bool(
         execute
         and not cancelled
         and incremental
-        and newest
-        and boundary_reached
-        and not bounded_truncated
         and (create_unmatched or unmatched == 0)
     )
     if state_updated:
-        write_sync_state(conn, "tangled-repos", scope, {"time_us": newest, "rolling_window_oldest_time_us": oldest})
+        next_seq = last_event_seq if bounded_truncated else sealed_tip_seq
+        write_sync_state(conn, "tangled-repos", scope, {"seq": next_seq})
     if execute:
         conn.commit()
     return {
         "mode": "execute" if execute else "dry_run",
-        "source": "ufos_rolling_window",
-        "observed": len(observed_entries),
-        "fetched": len(entries),
+        "source": "jetstream_v2_snapshot",
+        "service": service,
+        "collection": collection,
+        "observed": int(snapshot.get("event_count") or len(observed_entries)),
+        "fetched": len(observed_entries),
         "processing_limit": processing_limit,
         "truncated": bounded_truncated,
         "selected": len(selected),
@@ -1888,10 +1992,10 @@ def sync_tangled_repos(
         "skipped_irrelevant": skipped_irrelevant,
         "cancelled": cancelled,
         "watermark_before": watermark_before,
-        "watermark_after": newest if state_updated else watermark_before,
-        "boundary_reached": boundary_reached,
-        "gap_possible": bool(watermark_before and not boundary_reached),
-        "complete_history": False,
+        "watermark_after": (last_event_seq if bounded_truncated else sealed_tip_seq) if state_updated else watermark_before,
+        "sealed_tip_seq": sealed_tip_seq,
+        "complete_history": bool(not watermark_before and not bounded_truncated and not cancelled),
+        "snapshot_error": dict(snapshot.get("error") or {}) if isinstance(snapshot.get("error"), dict) else {},
         "state_updated": state_updated,
         "results": results[:100],
     }

@@ -100,6 +100,10 @@ LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリ�
 
 変更は確認後にSQLiteへ保存します。profile編集はプレビュー後に登録プロジェクトが別プロセスで変わっていた場合、保存を拒否して再読込を促します。`system_notes`は機械生成履歴で、profile編集の対象ではありません。Overviewでは件数だけを表示し、履歴は必要な時に展開できます。
 
+`Overview`のService / Ownershipでは、保存済みのconfirmed/candidate service URLを選び、匿名browser確認を
+background jobとして開始できます。任意URL、認証情報、form入力は受け付けません。実行結果は確認後にSQLiteへ保存され、
+service statusと根拠へ再投影されます。Playwright browser依存が必要です。
+
 識別子の再付着防止・保留・分割は、同じ値のrole単位ではなく、画面に示す識別子全体へ作用します。保留解除は自動採用ではありません。
 
 ## Review
@@ -125,6 +129,9 @@ PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾�
 ### Sync（外部情報の取り込み）
 
 設定済みのintroduced、GitHub、collection一覧、Semble、Tangledから外部情報を取り込みます。任意の検索条件やURLはCLIで指定します。dry-runでは取り込み候補を確認でき、外部ネットワークへ接続しますがSQLiteは更新しません。停止要求は現在の情報源のページ・項目境界で反映され、チェックポイントからの再開はありません。
+
+TangledはJetstream v2 snapshotを使います。Web server環境に`ATPROTO_SURVEY_JETSTREAM_API_KEY`とNode.js 22.15以上、
+workspaceに`npm install`済みの公式SDKが必要です。API keyはUI、job設定、結果へ保存しません。
 
 ### Review Ops
 

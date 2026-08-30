@@ -14,8 +14,17 @@ Python 3.10以上の隔離環境を使います。公開wrapperは`.venv/bin/pyt
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+npm install
 export PATH="$PWD/bin:$PATH"
 ```
+
+Tangledの外部情報取り込みを使う場合は、Jetstream v2 API keyをprocess環境だけに設定します。
+
+```bash
+export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
+```
+
+`.envrc`を使う場合もこの名前でexportします。keyはrepository、設定ファイル、job result、SQLiteへ保存しません。
 
 公開入口は`project-registry`と`project-registry-web`です。`PATH`を変更しない場合は`bin/project-registry`、`bin/project-registry-web`を実行してください。
 

@@ -290,11 +290,10 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 - Bluesky/GitHubのpartial failureとtimeout/rate-limit分類
 - fixture evidence から ownership / atproto寄与度だけをnetworkなしで再評価できること
 - temp SQLiteでの `enrich_project -> save_project -> fetch_project`
-- 保存 run の replay、6 case benchmark、fake browser、Tangled pagination
+- 保存 run の replay、6 case benchmark、fake browser、Tangled snapshot replay
 
 未接続:
 
-- Tangled timeline/community search/bot adapter の通常実行
 - OAuth `include:` permission set の再帰解決
 - Web UI の run/evidence inspection
 
@@ -869,11 +868,13 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 
 ### `sync-tangled-repos`
 
-- UFOs の `sh.tangled.repo` rolling window を `time_us` watermark で増分走査します
-- 完全履歴とは扱わず、前回watermarkへ届かなければ `gap_possible=true` を返します
-- atproto relevanceを通過したrecordだけを対象にします
-- owner DIDまたはwebsiteで既存projectへ照合します
-- unmatched project作成は既定offで、`--create-unmatched`が必要です
+- 公式`@bsky/jetstream` SDKでJetstream v2 snapshotを取得し、plan時点のsealed tipを固定します
+- `sh.tangled.repo`のcreate/update/deleteをsequence順に畳み込み、保存済みsequence watermarkから増分再開します
+- event上限で途中終了したexecuteは最後に処理したsequenceを保存し、次回に残りを再開します
+- atproto relevanceを通過した現存recordだけを対象にします
+- owner DID、website、正規化したTangled repo URLで既存projectへexact照合します
+- unmatched project作成は既定onです
+- API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、
   `com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
 - accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを
@@ -881,7 +882,6 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 - owner DID一致はrepo所有の強い根拠ですが、対象projectとの関連性はname、website、内容で別にscoreします
 - Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。
   GitHubのrecursive tree API相当の完全なcontents取得ではありません
-- timeline、community search、bot adapterは正規化parserのみ実装済みで、config既定無効かつ通常導線未接続です
 
 ## マージ時の editorial 優先
 

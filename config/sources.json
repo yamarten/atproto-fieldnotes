@@ -39,13 +39,8 @@
   },
   "tangled_repo_discovery": {
     "enabled": true,
-    "ufos_api_url": "https://ufos-api.microcosm.blue/records",
+    "service_url": "https://jetstream.us-west.bsky.network",
     "collection": "sh.tangled.repo",
-    "limit": 100,
-    "optional_adapters": {
-      "timeline": {"enabled": false, "url": "https://tangled.org/timeline"},
-      "community_search": {"enabled": false, "url": "https://tangled-search.bigmoves.deno.net/"},
-      "bluesky_bot": {"enabled": false, "handle": "stitch.selfhosted.social"}
-    }
+    "max_events": 10000
   }
 }

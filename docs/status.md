@@ -41,7 +41,7 @@
   - Git checkoutではSettingsにcommit hashとdirty状態を表示
   - `Add seed`は明示されたNSID、path付きservice URL、repository URLを対応するconfirmed factual roleへ投影し、採用decisionを記録する。同じseedの再適用でlegacy rowの不足を補修可能
 - background operation
-  - enrich、sync、reviewを別processで実行
+  - enrich、sync、review、保存済みservice URLのanonymous browser verificationを別processで実行
   - operation別のprogressと協調停止
   - enrich checkpointの再発見と再開
   - bulk enrichはproject失敗をcheckpointへ残して後続を続行し、run全体をfailedとして失敗分をresume可能
@@ -51,6 +51,7 @@
     - presetごとに毎週または第N週の曜日、時刻、time zoneを設定可能
 - external source設定
   - introduced/collection/GitHub/Semble/Tangledのenabled、URL、query、scope、request budgetは`config/sources.json`が正本
+  - TangledはAPI keyを環境変数からだけ読み、Jetstream v2 snapshotをsealed sequence watermarkから増分処理する
   - application serviceでCLI/Web/worker共通に解決し、matching/classification policyはcode/testに固定
 - Web serverの手動reload
   - Settingsから同じ起動引数を保ち、package entrypointでprocessを再起動
@@ -62,7 +63,6 @@
   - HTTP request logはquery/bodyを除いたmethod、path、status、所要時間だけをstderrへ記録
   - unexpected HTTP exceptionはserver側へtracebackを残し、job stderrとは分離
   - scheduled workerの起動失敗はqueueを終端し、presetの最終status/messageへ保存
-  - Web execute syncの件数、bounded候補参照、成否、所要時間はsourceごと直近4回を`job-schedules.json`へ保存
   - POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化
   - API tokenはconstant-timeで比較
   - UIのHTML templateは外部文字列を共通escape/link/JSON helperへ通す
@@ -189,7 +189,6 @@
   - `registry_meta`はschema versionしか持たない
   - 正本DBが単一のため、直近の実装優先から外した
   - 将来必要になった場合は、audit合格後のadditive updateとして後付けする
-- Tangled timeline/community search/bot adapterの通常実行
 - Tangled repoの完全なtree取得。現状は公開HTMLとREADME raw取得に限定
 - OAuth `include:` permission setの再帰解決
 
@@ -213,10 +212,14 @@
 
 ## 動作確認状況
 
-2026-07-28時点で確認済み:
+2026-08-30時点で確認済み:
 
-- 全unit test 560件
+- 全unit test 725件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
+- Semble / Tangled / anonymous browser laneを保存済みsampleで評価し、Sembleを維持、TangledをJetstream v2
+  snapshotへ置換、anonymous browser verificationをWeb project detailへ接続した。Jetstreamは公式SDKで限定sequenceの
+  plan/download/decode、Webは一時schema version 3 DBで保存済みURL選択と確認モーダルを確認した。詳細は
+  [外部sourceとanonymous browser laneの評価](notes/source-lane-evaluation-2026-08-30.md)を参照
 - investigation replay benchmark 9 case、semantic regression 0件
 - GitHub、Semble、Bluesky introduced、collection inventory、Tangledの
   [bounded real-source smoke](notes/registry-maintenance-real-source-smoke-2026-07-11.md)

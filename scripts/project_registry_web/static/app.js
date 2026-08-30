@@ -746,6 +746,12 @@ function renderDetail(data) {
   const investigation = data.investigation;
   const overview = data.overview || {};
   const serviceOwnership = data.service_ownership_review || {};
+  const browserServiceUrls = uniqueValues([
+    ...list(overview.confirmed_services),
+    ...identifiers
+      .filter((item) => item.family === "service" && ["confirmed", "candidate"].includes(item.classification))
+      .map((item) => item.value),
+  ]);
   const explanations = data.explanations?.topics || {};
   state.detailRevision = data.revision || "";
   state.mergeTargetRevision = data.merge_target_revision || "";
@@ -770,7 +776,7 @@ function renderDetail(data) {
     ${section("Links / Resources", renderProjectLinks(overview))}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>${promotionPriorityActions}`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
-    ${section("Service / Ownership", renderServiceOwnership(serviceOwnership))}
+    ${section("Service / Ownership", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("Merge Candidate", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
     ${section("Explain", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
   `;
@@ -797,6 +803,10 @@ function renderDetail(data) {
   bindBackToListButtons();
   $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
+  $("verify-service-browser")?.addEventListener("click", () => startBrowserServiceVerification(
+    project.project_key,
+    $("browser-service-url")?.value || "",
+  ));
   $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
   $("skip-review-item")?.addEventListener("click", () => skipReviewItem(project.project_key));
@@ -944,12 +954,16 @@ function renderRunMetrics(metrics) {
   return `<dl class="kv"><dt>Total</dt><dd>${esc(formatMilliseconds(metrics.total_ms))}</dd>${phases.map(([key, label]) => `<dt>${esc(label)}</dt><dd>${esc(formatMilliseconds(metrics.phases[key]))}</dd>`).join("")}</dl>${requests.length ? `<details><summary>LLM requests (${requests.length})</summary>${requests.map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.purpose)}</strong> · ${esc(formatMilliseconds(item.duration_ms))}</div><div class="muted">${esc(item.prompt_bytes || 0)} prompt bytes · ${esc(item.response_bytes || 0)} response bytes · timeout ${esc(item.timeout_seconds)}s${item.error_category ? ` · ${esc(item.error_category)}` : ""}${item.model ? ` · ${esc(item.model)}` : ""}</div></div>`).join("")}</details>` : `<p class="muted">No LLM request was observed.</p>`}`;
 }
 
-function renderServiceOwnership(data) {
+function renderServiceOwnership(data, serviceUrls = []) {
   const service = list(data.service_verifications);
   const ownership = list(data.nsid_ownership);
   const permissions = list(data.oauth_permissions);
   const aliases = list(data.url_aliases);
-  return `<dl class="kv"><dt>Current service</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>
+  const targets = uniqueValues(serviceUrls);
+  const browserControls = targets.length
+    ? `<div class="controls"><label>Anonymous browser target<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">Verify in anonymous browser</button></div>`
+    : `<p class="muted">Add a confirmed or candidate service URL before browser verification.</p>`;
+  return `<dl class="kv"><dt>Current service</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
     ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
     ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
@@ -1331,6 +1345,15 @@ function startProjectEnrich(projectKey) {
   startEnrich({project_key: projectKey, all_projects: false}, projectKey);
 }
 
+function startBrowserServiceVerification(projectKey, serviceUrl) {
+  if (!serviceUrl) { status("A saved service URL is required.", true); return; }
+  confirmOperation("Verify service in anonymous browser", `Open ${serviceUrl} without signing in and save the rendered service evidence to SQLite?`, async () => {
+    status("Starting anonymous browser verification...");
+    await api("/api/jobs/verify-service", {method:"POST", body:JSON.stringify({project_key:projectKey, service_url:serviceUrl})});
+    status("Browser verification started. Progress is available in Operations.");
+  });
+}
+
 function startEnrich(payload, target) {
   confirmOperation("Start enrich job", `Start enrich for ${target}? This writes investigation results to SQLite.`, async () => {
     status("Starting enrich job...");
@@ -1347,6 +1370,7 @@ function updateSyncControls() {
   if (source === "introduced") $("sync-lookback").value = "7";
   else if (source === "semble") $("sync-lookback").value = "14";
   else $("sync-lookback").value = "10";
+  if (source === "tangled") $("sync-create").checked = true;
 }
 
 function startSyncJob() {

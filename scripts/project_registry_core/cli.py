@@ -214,12 +214,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync_semble_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown seeds discovered from Semble collection cards. Default: enabled; use --no-create-unmatched to list only.")
     sync_semble_parser.set_defaults(func=sync_commands.cmd_sync_semble_collections)
 
-    sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync the recent UFOs Tangled repository rolling window.")
+    sync_tangled_parser = subparsers.add_parser("sync-tangled-repos", help="Sync Tangled repository events from a Jetstream v2 snapshot.")
     sync_tangled_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=False, help="Create projects for unmatched atproto-relevant repos. Default: disabled.")
-    sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume from the newest observed UFOs time_us watermark. Default: enabled.")
-    sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the stored watermark; UFOs still exposes only a rolling window.")
-    sync_tangled_parser.add_argument("--max-items", type=int, help="Bound the number of rolling-window entries processed; a truncated run does not advance sync state.")
+    sync_tangled_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create projects for unmatched atproto-relevant repos. Default: enabled.")
+    sync_tangled_parser.add_argument("--incremental", action=argparse.BooleanOptionalAction, default=True, help="Resume after the saved Jetstream v2 sequence. Default: enabled.")
+    sync_tangled_parser.add_argument("--all-history", action="store_true", help="Ignore the saved sequence and replay the full filtered archive.")
+    sync_tangled_parser.add_argument("--max-items", type=int, help="Bound archive events per run. A truncated execute run resumes after the last processed sequence.")
     sync_tangled_parser.set_defaults(func=sync_commands.cmd_sync_tangled_repos)
 
     replay_parser = subparsers.add_parser("replay-investigation", help="Replay a saved investigation without collectors or network access.")

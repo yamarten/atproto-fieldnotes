@@ -231,16 +231,15 @@ projectionはnetwork、browser、trust graph更新を行いません。`repair-d
 - GitHub lexicon JSON と source usage の意味分類
 - lexicon resolution、recent record sample、service static/deep、resource page の evidence 化
 - OAuth client metadata の permission relation
-- anonymous browser service verification。表示中の匿名menu展開、auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceとして保持する
+- anonymous browser service verification。CLIとWeb project detailから、保存済みconfirmed/candidate service URLだけを対象に実行する。表示中の匿名menu展開、auth link追従、password form、handle/email form、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別evidenceとして保持する
 - confirmed developer account からの Tangled PDS record 探索
 - Tangled repo URL のHTML/README inspection
-- UFOs rolling window の `sync-tangled-repos`
+- Jetstream v2 snapshot の `sync-tangled-repos`
 - root と `www` の観測済み redirect/canonical alias
 - retry、Retry-After、TTL cache、source-local circuit breaker、request budget
 
 未接続:
 
-- Tangled timeline、community search、bot adapter の通常実行。parser はあるが config 既定無効
 - OAuth `include:` permission set の再帰解決
 - browser 認証後操作。登録、認証入力、投稿は設計上の非目標
 - raw HTMLやREADME全文を含む無制限のevidence inspection
@@ -256,7 +255,7 @@ Web UIのrun summary、bounded evidence、input/output/evaluation、要求時の
 
 - 実 Playwright を用いた localhost smoke test
 - 実 API での retry/cache/budget の長時間運用値
-- UFOs rolling window 外を含む Tangled 完全履歴
+- Tangled Jetstream v2 full snapshotの初回実運用時間とAPI利用量
 
 関連 notes:
 

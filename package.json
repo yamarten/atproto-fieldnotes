@@ -1,0 +1,7 @@
+{
+  "name": "atproto-survey",
+  "private": true,
+  "dependencies": {
+    "@bsky/jetstream": "1.0.0"
+  }
+}

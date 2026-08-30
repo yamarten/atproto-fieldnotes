@@ -34,37 +34,11 @@ identifier保存、Website / service / project site、repository帰属、promoti
 
 直近は次の順序で進めます。
 
-1. 外部sourceとanonymous browser laneの観測を評価し、一時的な計測実装を片付ける
-2. Qwen repository解析の根拠不足とmaterial外collectionを一般化して減らす
-3. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
-4. その結果を見て、広いtrust policy、検索、編集、exportへ進む
+1. Qwen repository解析の根拠不足とmaterial外collectionを一般化して減らす
+2. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
+3. その結果を見て、広いtrust policy、検索、編集、exportへ進む
 
 ## 直近の作業
-
-### 外部sourceとbrowser laneの評価
-
-Semble / Tangled source laneとanonymous browser verificationは、固有成果と運用費を確認して
-維持または削除を決めます。実行回数だけでは維持根拠にせず、次を確認します。
-
-- 他sourceでは得られなかった新規project候補
-- operatorが深掘り対象にしたproject
-- browser verificationによってservice statusやURL採否が変わった事例
-- 実行時間、failure、manual correction
-
-Semble / Tangledは必要な4回のsource observationを取得済みです。次はcompleted resultのsample reviewと、
-anonymous browser verificationの保存済みsampleを確認します。固有成果があり、人力での代替費が無視できない
-laneだけを維持します。
-
-評価を確定する作業と同じトピックで、`job-schedules.json`の`source_observations`を使う一時的な計測実装を
-撤去します。laneを維持する場合も恒久的なjob履歴契約にはしません。
-
-- `project_registry_web.jobs`の観測用constant、helper、job完了hookを削除する
-- APIの`source_observations` fieldと観測専用testを削除する
-- 実運用の`job-schedules.json`から`source_observations`だけを除去し、scheduleとpending queueの再読込を確認する
-- laneを削除する場合は、source固有config、parser、test、文書、watermark、historyの扱いも同時に決める
-
-Tangled timeline / community / bot adapterは、具体的な有効化予定がない限り通常接続しません。既存laneを
-削除する判断になった場合は、未接続adapterも一緒に削除します。
 
 ### Qwen repository解析
 
@@ -156,7 +130,6 @@ promotion queueの並びで不足が確認された場合、service利用可否�
 実際の欠落や運用費が確認された項目だけを追加します。
 
 - OAuth `include:` permission setの再帰解決と循環・取得失敗の記録
-- UFOs rolling windowのgapを別sourceで補完する運用
 - repo contents、PDS、Bluesky sessionを含むcollectorのbudget / cache policy統一
 - investigation viewerのbounded evidenceで不足する具体例の収集
 - 複数projectを跨ぐ永続circuit breaker

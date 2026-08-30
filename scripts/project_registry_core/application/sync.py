@@ -182,7 +182,7 @@ def tangled(
     conn: sqlite3.Connection,
     *,
     execute: bool = False,
-    create_unmatched: bool = False,
+    create_unmatched: bool = True,
     incremental: bool = True,
     all_history: bool = False,
     max_items: int | None = None,

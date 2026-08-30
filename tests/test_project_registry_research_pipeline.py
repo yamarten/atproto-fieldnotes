@@ -2276,63 +2276,67 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIn("README says this is the official app.", [item["value"] for item in project["summary_candidates"]])
         self.assertIn("https://app.example.com", project_record.service_url_candidate_values(project))
 
-    def test_tangled_optional_adapters_remain_weak_candidates(self) -> None:
-        timeline = tangled_core.normalize_optional_adapter_candidates(
-            '<a href="https://tangled.org/dev.example/app">repo</a>', adapter="timeline",
-        )
-        bot = tangled_core.normalize_optional_adapter_candidates(
-            [{"url": "https://tangled.org/dev.example/app", "post_uri": "at://did/post/1"}], adapter="bot",
-        )
-        self.assertEqual(timeline[0]["classification"], "candidate")
-        self.assertEqual(bot[0]["classification"], "heuristic")
-
-    def test_tangled_ufos_entries_accept_null_topics(self) -> None:
-        entries = tangled_core.normalize_ufos_entries([{
+    def test_tangled_jetstream_event_accepts_null_topics(self) -> None:
+        entry = tangled_core.normalize_jetstream_event({
+            "type": "event",
             "collection": tangled_core.TANGLED_COLLECTION,
             "did": "did:plc:example",
             "rkey": "repo",
-            "time_us": 1,
+            "seq": 1,
+            "time": "2026-08-30T00:00:00Z",
+            "operation": "create",
             "record": {
                 "name": "Example",
                 "description": "An atproto repository",
                 "topics": None,
             },
-        }])
+        })
 
-        self.assertEqual(len(entries), 1)
-        self.assertTrue(entries[0]["atproto_relevant"])
+        self.assertIsNotNone(entry)
+        self.assertTrue(entry["atproto_relevant"])
 
-    def test_tangled_gap_does_not_advance_watermark(self) -> None:
+    def test_tangled_unmatched_does_not_advance_watermark_when_creation_is_disabled(self) -> None:
         conn = registry.open_db()
-        scope = {"source": "ufos", "collection": tangled_core.TANGLED_COLLECTION}
-        registry.write_sync_state(conn, "tangled-repos", scope, {"time_us": 100})
+        scope = {
+            "source": "jetstream_v2",
+            "service": "https://jetstream.us-west.bsky.network",
+            "collection": tangled_core.TANGLED_COLLECTION,
+        }
+        registry.write_sync_state(conn, "tangled-repos", scope, {"seq": 100})
         conn.commit()
         try:
-            with mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=[{
-                "owner_did": "", "rkey": "one", "time_us": 200,
-                "record": {"name": "Example", "description": "atproto repo"},
-                "atproto_relevant": True,
-            }]):
+            with mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+                "events": [{
+                    "owner_did": "did:plc:example", "rkey": "one", "seq": 200,
+                    "time": "2026-08-30T00:00:00Z", "operation": "create",
+                    "record": {"name": "Example", "description": "atproto repo"},
+                    "atproto_relevant": True,
+                }],
+                "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
+                "truncated": False, "cancelled": False,
+            }):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=False)
             state = registry.read_sync_state(conn, "tangled-repos", scope)
         finally:
             conn.close()
-        self.assertTrue(summary["gap_possible"])
         self.assertFalse(summary["state_updated"])
-        self.assertEqual(state["watermark"]["time_us"], 100)
+        self.assertEqual(state["watermark"]["seq"], 100)
 
     def test_tangled_create_unmatched_can_update_new_project_in_same_run(self) -> None:
         conn = registry.open_db()
         try:
             with (
-                mock.patch.object(source_sync, "fetch_tangled_ufos_window", return_value=[{
-                    "owner_did": "did:plc:example",
-                    "rkey": "example-repo",
-                    "time_us": 200,
-                    "record": {"name": "example-repo", "description": "atproto repo"},
-                    "atproto_relevant": True,
-                }]),
-                mock.patch.object(registry, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+                mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+                    "events": [{
+                        "owner_did": "did:plc:example", "rkey": "example-repo", "seq": 200,
+                        "time": "2026-08-30T00:00:00Z", "operation": "create",
+                        "record": {"name": "example-repo", "description": "atproto repo"},
+                        "atproto_relevant": True,
+                    }],
+                    "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
+                    "truncated": False, "cancelled": False,
+                }),
+                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
             ):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
             projects = registry.all_projects(conn)
@@ -2344,6 +2348,66 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(summary["results"][0]["project_key"], projects[0]["project_key"])
         self.assertEqual(len(projects), 1)
         self.assertTrue(registry.runtime_view.is_complete(projects[0]))
+
+    def test_tangled_sync_matches_existing_project_by_exact_repository_url(self) -> None:
+        conn = registry.open_db()
+        project = project_record.default_project_record("proj:aaaaaaaaaaaa", "repo_url", "https://tangled.org/dev.example/example-repo")
+        registry.confirm_project_repository_url(
+            project,
+            "https://tangled.org/dev.example/example-repo",
+            source="fixture",
+            operator_override=True,
+        )
+        project_record.save_project(conn, project)
+        conn.commit()
+        try:
+            with (
+                mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+                    "events": [{
+                        "owner_did": "did:plc:other", "rkey": "repo-rkey", "seq": 200,
+                        "time": "2026-08-30T00:00:00Z", "operation": "create",
+                        "record": {"name": "example-repo", "description": "atproto repo"},
+                        "atproto_relevant": True,
+                    }],
+                    "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
+                    "truncated": False, "cancelled": False,
+                }),
+                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+            ):
+                summary = source_sync.sync_tangled_repos(conn, create_unmatched=False)
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["matched"], 1)
+        self.assertEqual(summary["unmatched"], 0)
+        self.assertEqual(summary["results"][0]["project_key"], "proj:aaaaaaaaaaaa")
+
+    def test_tangled_snapshot_folds_deleted_record_out_of_candidates(self) -> None:
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+                "events": [
+                    {
+                        "owner_did": "did:plc:example", "rkey": "repo", "seq": 100,
+                        "time": "2026-08-30T00:00:00Z", "operation": "create",
+                        "record": {"name": "repo", "description": "atproto repo"},
+                        "atproto_relevant": True,
+                    },
+                    {
+                        "owner_did": "did:plc:example", "rkey": "repo", "seq": 101,
+                        "time": "2026-08-30T00:01:00Z", "operation": "delete",
+                        "record": {}, "atproto_relevant": False,
+                    },
+                ],
+                "event_count": 2, "sealed_tip_seq": 101, "last_event_seq": 101,
+                "truncated": False, "cancelled": False,
+            }):
+                summary = source_sync.sync_tangled_repos(conn)
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["selected"], 0)
+        self.assertEqual(summary["created"], 0)
 
     def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
         fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
