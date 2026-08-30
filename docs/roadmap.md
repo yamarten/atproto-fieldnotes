@@ -244,6 +244,21 @@ service workerで済む場合だけ再評価します。オフラインDB操作�
 DB-level policy markerを追加する場合は、open時に無条件付与せず、markerなしDBのread-only audit合格後に
 additive updateします。現状の単一正本DBとoffline maintenanceのためだけには追加しません。
 
+### GitHub公開の準備
+
+将来的にrepository自体をGitHubで公開する可能性はありますが、優先度は低く、公開時期を決めるまでは
+準備作業を開始しません。公開を判断する前に、少なくとも次を確認します。
+
+- 全commit、branch、tagを対象に、個人情報、credential、ローカル環境固有情報、公開対象外データが
+  過去履歴へ含まれていないか監査する。現時点では混入の有無は未確認
+- 履歴からの除去が必要な場合は、影響範囲、履歴書換え、既存cloneやbackupの扱いを決めてから実施する
+- README、導入、初回起動、基本的な調査・review・maintenanceの導線を、人間がCodexの支援なしでも
+  理解して試せるか確認し、Codex向けの暗黙知や内部運用メモに依存する箇所を整理する
+- sample data、設定例、ライセンス、依存物の帰属、securityとsupportの境界を公開repository向けに確認する
+
+ここでいうGitHub公開はsource repositoryの公開候補です。現在のWeb UIをインターネットへ公開することや、
+複数利用者向けサービスにすることは含みません。
+
 ### データmodelの拡張
 
 developer node、provider account、native appのbundle / package / store identifier、record以外を含む汎用NSIDは、
