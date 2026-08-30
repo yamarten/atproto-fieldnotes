@@ -160,6 +160,7 @@
 - promotion queueの独立signal
   - `project` / `infra_tool`のservice surface確認済みと要validationを別signalにし、後者を約100点下に表示。`unverified`でも確認済みwebsite/serviceを持つprojectは一覧から除外せず、必ず要validationに留める。`library`はdocs URL等をserviceと誤認しないよう対象外
   - atproto寄与度とtechnical insightはservice利用可否とは別に保持・表示する
+  - confirmed owned NSID、同じNSIDのschema sample、authority domainと一致するDNS Lexicon resolution、publisher DID上のexact schema recordが揃うprojectを`lexicon_publisher_confirmed`として優先する。repository内schemaやcandidate NSIDだけではこのsignalを出さない
   - candidate visibility、service evidence、manual priority、score breakdownを分けて返す。`defer_promotion`は期限付き非表示、`lower_promotion_priority`は任意理由付きで通常候補より後ろへ送る
   - Webから根拠確認、優先度変更、解除ができ、manual gold evaluatorは通常queue生成処理のpolicyと相対順位をnetworkなしで検証する
   - read-onlyのpromotion outcome分析は、紹介済みprojectから紹介済み除外だけを外して現行signalを再計算し、category別捕捉率とsignalなしの理由をJSONで報告する。未紹介projectを負例として扱わない
