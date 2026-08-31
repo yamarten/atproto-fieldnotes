@@ -24,7 +24,7 @@ from project_registry_core import database
 from project_registry_core import domain_policy
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import registry as core
-from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
+from project_registry_core.application import decisions, maintenance, merge, merge_review, presentation as services, projects
 from .jobs import JobConflictError, JobManager
 from project_registry_core import project_record
 
@@ -224,6 +224,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json("validation_error", message, HTTPStatus.BAD_REQUEST)
         except JobConflictError as exc:
             self.send_error_json("job_conflict", str(exc), HTTPStatus.CONFLICT)
+        except merge_review.RecommendationChangedError as exc:
+            self.send_error_json("stale_project", str(exc), HTTPStatus.CONFLICT)
         except services.StaleProjectError as exc:
             self.send_error_json("stale_project", str(exc), HTTPStatus.CONFLICT)
         except sqlite3.OperationalError as exc:
@@ -356,6 +358,31 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     mode=str(query.get("mode", ["moderate"])[0]),
                     limit=_int(query.get("limit", [50])[0], 50),
                 ))
+            return
+        if path == "/api/merge-policy-review":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(merge_review.queue(
+                    conn,
+                    limit=_int(query.get("limit", [200])[0], 200),
+                ))
+            return
+        if path == "/api/merge-policy-review-pair":
+            source = str(query.get("source_project_key", [""])[0]).strip()
+            target = str(query.get("target_project_key", [""])[0]).strip()
+            if not source or not target:
+                raise ValueError("source_project_key and target_project_key are required")
+            with contextlib.closing(self.server.open_db()) as conn:
+                payload = services.merge_pair(
+                    conn,
+                    source_project_key=source,
+                    target_project_key=target,
+                )
+                payload["merge_policy_review"] = merge_review.pair_recommendation(
+                    conn,
+                    source_project_key=source,
+                    target_project_key=target,
+                )
+                self.send_json(payload)
             return
         if path == "/api/merge-pair":
             source = str(query.get("source_project_key", [""])[0]).strip()
@@ -515,6 +542,49 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError("action must be merge or separate")
             self.send_json(result)
+            return
+        if path == "/api/merge-policy-review/action":
+            action = str(payload.get("action") or "").strip()
+            source = str(payload.get("source_project_key") or "").strip()
+            target = str(payload.get("target_project_key") or "").strip()
+            with contextlib.closing(self.server.open_db()) as conn:
+                services.require_project_revision(conn, source, str(payload.get("expected_source_revision") or ""))
+                services.require_project_revision(conn, target, str(payload.get("expected_target_revision") or ""))
+                if action == "merge":
+                    merge_review.pair_recommendation(
+                        conn,
+                        source_project_key=source,
+                        target_project_key=target,
+                    )
+                    result = merge.merge_projects(
+                        conn,
+                        project_key=source,
+                        target_project_key=target,
+                        execute=True,
+                    )
+                elif action == "defer":
+                    result = merge_review.defer_pair(
+                        conn,
+                        source_project_key=source,
+                        target_project_key=target,
+                        note=str(payload.get("note") or "").strip(),
+                        days=_int(payload.get("days"), merge_review.DEFAULT_DEFER_DAYS, maximum=365),
+                    )
+                elif action == "separate":
+                    merge_review.pair_recommendation(
+                        conn,
+                        source_project_key=source,
+                        target_project_key=target,
+                    )
+                    result = decisions.set_separate(conn, project_key=source, other_project_key=target)
+                else:
+                    raise ValueError("action must be merge, defer, or separate")
+            self.send_json({
+                **result,
+                "review_action": action,
+                "source_project_key": source,
+                "target_project_key": target,
+            })
             return
         if path == "/api/domain-overrides/multi-tenant-suffixes":
             suffix = domain_policy.normalize_multi_tenant_suffix(str(payload.get("suffix") or ""))

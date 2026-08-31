@@ -2,6 +2,8 @@
 
 > 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-17にschema version 3の正本DBをread-only transactionで再評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-v4-schema3-20260817.json`に生成し、コミットしません。
 
+> 2026-08-31追記: 現行正本DBのread-only再監査は3,846 pair中`RECOMMEND_MERGE_REVIEW` 117件、`KEEP_SEPARATE` 20件、`REVIEW` 3,709件、固定19/19件成功でした。117件は43 targetです。旧110件のreport本体は残っていないためpair keyの完全差分は復元できませんが、文書に残るtarget集計との比較では旧候補から9件減少、16件増加しています。増加中6件は旧比較後に作成されたPDSjs 2件、Firehose Games 1件、GainForest 2件、PopFeed 1件で、残りは既存recordの構成変化による再評価です。旧人手reviewは文書上の判断であり、newdin Read / Untangledの`separate_project`やteal.fmの保留を正本DBへ適用した記録は確認できませんでした。現行候補を処理する一時的なWeb review導線を接続し、自動mergeは引き続き無効です。
+
 ## 結論
 
 role、直接relation、手動の別project指定を分ける境界を維持したまま、collectionだけを持つrecordを包括的なproject recordへ吸収する候補を非対称に評価すると、schema version 3の現在3,492 pair中110件を「マージを勧めるが人の確認が必要」と分類できました。20件のactiveな`separate_project`は別扱いを守り、残る3,362件は優先度を付けても要確認のままです。固定19事例はすべて期待どおりです。

@@ -34,22 +34,20 @@ identifier保存、Website / service / project site、repository帰属、promoti
 
 直近は次の順序で進めます。
 
-1. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
-2. その結果を見て、広いtrust policy、検索、編集、exportへ進む
+1. 一時的なマージ推奨review導線で現在候補を処理する
+2. 候補処理後に専用導線を撤去し、その結果を見て広いtrust policy、検索、編集、exportへ進む
 
 ## 直近の作業
 
-### マージ推奨のreview
+### 一時的なマージ推奨reviewの完了と撤去
 
-schema version 3で得たマージ推奨110件は、自動マージせず人間が判断します。次を満たすreview導線の
-実装量と運用上の利益を比較します。
+現行117件・43 target向けの専用review導線は接続済みです。自動マージせず、比較後のmerge、30日保留、
+`separate_project`だけを扱います。残る作業は実候補を処理し、次を確認してから専用導線を撤去することです。
 
-- 理由別またはtarget project別にまとめて表示する
-- 比較対象を確認してから承認できる
-- 保留と`separate_project`を保存できる
-- candidate、同一developer、同一domainだけをmerge根拠にしない
-
-既存queueを実際に処理するだけで十分なら、専用UIは追加しません。
+- 未処理・期限切れ保留・変化したfingerprintの候補が残っていない
+- `separate_project`とmerge lineageが通常導線から引き続き確認できる
+- 暫定`defer_review_target` rowを履歴として残すかcleanupするか決める
+- `application/merge_review.py`、専用endpoint/UI/testを削除しても通常のMerge reviewが変わらない
 
 ## 条件付き短期候補
 

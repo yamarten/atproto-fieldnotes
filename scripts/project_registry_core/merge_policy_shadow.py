@@ -1106,6 +1106,29 @@ def _shadow_candidate_pairs(projects: list[dict[str, Any]]) -> dict[tuple[str, s
     return output
 
 
+def recommended_review_pairs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return current shadow-policy recommendations without the comparison report.
+
+    This is the intentionally narrow production connection for the temporary
+    human-review queue.  It does not evaluate the legacy candidate policy,
+    historical merges, or fixed-case report, and never writes to SQLite.
+    """
+    projects = load_projects(conn)
+    lookup = {str(project["project_key"]): project for project in projects}
+    output: list[dict[str, Any]] = []
+    for pair, discovery in sorted(_shadow_candidate_pairs(projects).items()):
+        result = evaluate_pair(lookup[pair[0]], lookup[pair[1]])
+        if result["verdict"] != "RECOMMEND_MERGE_REVIEW":
+            continue
+        output.append({
+            "left": lookup[pair[0]],
+            "right": lookup[pair[1]],
+            "discovery": sorted(discovery),
+            "shadow": result,
+        })
+    return output
+
+
 def _current_status(payload: dict[str, Any] | None) -> str:
     if payload is None:
         return "not_candidate"

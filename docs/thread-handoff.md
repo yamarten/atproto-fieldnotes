@@ -22,8 +22,8 @@
 
 ## 次に必要な作業
 
-1. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
-   追加するか判断する。自動mergeは前提にしない。
+1. `Review > Merge Recommendations`で現行117件・43 targetを人手処理する。比較後だけmerge、30日保留、
+   `separate_project`を選び、自動mergeは行わない。処理完了後はroadmapの撤去条件に従って専用導線を削除する。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

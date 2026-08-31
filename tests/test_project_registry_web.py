@@ -248,7 +248,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
                 conn = registry.open_db()
                 payload.setdefault("expected_revision", presentation.project_revision(conn, project_key))
                 conn.close()
-            elif path == "/api/merge-batch/action":
+            elif path in {"/api/merge-batch/action", "/api/merge-policy-review/action"}:
                 conn = registry.open_db()
                 payload.setdefault("expected_source_revision", presentation.project_revision(conn, payload["source_project_key"]))
                 payload.setdefault("expected_target_revision", presentation.project_revision(conn, payload["target_project_key"]))
@@ -320,6 +320,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Start sync job", script)
         self.assertIn("Build review plan", script)
         self.assertIn("Compare merge candidate", script)
+        self.assertIn("Merge Recommendations", script)
+        self.assertIn("/api/merge-policy-review/action", script)
+        self.assertIn("Hold for 30 days", script)
         self.assertNotIn("Apply merge recommendation", script)
         self.assertIn("<dt>Confirmed services</dt>", script)
         self.assertIn('new URL("https://pds.ls/")', script)
@@ -879,6 +882,59 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(reverse_payload["source"]["project_key"], "proj:222222222222")
         self.assertEqual(reverse_payload["target"]["project_key"], "proj:111111111111")
         self.assertEqual(reverse_payload["merged_preview"]["target_project_key"], "proj:111111111111")
+
+    def test_merge_policy_review_queue_pair_and_defer_action(self) -> None:
+        conn = registry.open_db()
+        fragment = project_record.default_project_record("proj:policyfrag01", "nsid", "com.policy.flow")
+        fragment["name"] = "Policy Flow"
+        registry.add_manual_seed(fragment, "nsid", "com.policy.flow", source="test")
+        target = project_record.default_project_record("proj:policytarget", "service_url", "https://policy.example")
+        target["name"] = "Policy"
+        registry.add_manual_seed(target, "service_url", "https://policy.example", source="test")
+        registry.add_manual_seed(target, "nsid", "com.policy.flow", source="test")
+        registry.add_manual_seed(target, "nsid", "com.policy.other", source="test")
+        project_record.save_project(conn, fragment)
+        project_record.save_project(conn, target)
+        conn.commit()
+        conn.close()
+
+        status, queue, _ = self.request("/api/merge-policy-review?limit=200")
+        self.assertEqual(status, 200)
+        item = next(entry for entry in queue["items"] if entry["source_project_key"] == fragment["project_key"])
+        self.assertEqual(item["target_project_key"], target["project_key"])
+        self.assertEqual(item["fragment_collections"], ["com.policy.flow"])
+
+        status, pair, _ = self.request(
+            f"/api/merge-policy-review-pair?source_project_key={fragment['project_key']}&target_project_key={target['project_key']}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(pair["merge_policy_review"]["rule"], "exact_owned_collection_subset")
+        self.assertFalse(pair["merge_policy_review"]["review_target"]["metadata"].get("automatic_execution_allowed", False))
+
+        status, deferred, _ = self.request(
+            "/api/merge-policy-review/action",
+            method="POST",
+            payload={
+                "action": "defer",
+                "source_project_key": fragment["project_key"],
+                "target_project_key": target["project_key"],
+                "days": 30,
+                "note": "check later",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(deferred["review_action"], "defer")
+        conn = registry.open_db()
+        row = conn.execute(
+            "SELECT kind, target_type, note FROM project_decisions WHERE project_key=? AND kind='defer_review_target'",
+            (fragment["project_key"],),
+        ).fetchone()
+        conn.close()
+        self.assertEqual(tuple(row), ("defer_review_target", "merge_policy_pair", "check later"))
+
+        status, refreshed, _ = self.request("/api/merge-policy-review?limit=200")
+        self.assertEqual(status, 200)
+        self.assertFalse(any(entry["source_project_key"] == fragment["project_key"] for entry in refreshed["items"]))
 
     def test_merge_pair_includes_multi_tenant_suffix_suggestion(self) -> None:
         conn = registry.open_db()
