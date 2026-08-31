@@ -207,6 +207,13 @@ README由来候補へ「authorityが小文字でpublic suffixから始まる」�
 hostname、handle、file名、property pathでした。reverse-domain条件を入れたv13で問題2件を再実行すると誤collectionが消え、正常なcollection候補は残りました。
 package配布repositoryとfixture Lexiconは複雑な追加規則を避けるため未対応です。
 
+v14の区切りとして、過去の評価23件を除外し、material hash順からGitHub 4件・Tangled 2件、short / medium /
+upper-mediumを含む6件を選び、Qwenで各1回確認しました。request成功・機械検査は6/6、候補外collection、
+不正locator、claim棄却は0件でした。意味確認では今回の変更による欠落や新しい誤りは見つかりませんでした。
+一方、拡張子付きfile名をREADME由来NSID候補にする例、曖昧なdescriptionの過解釈、`exports: false`を含む
+package配布判定、同梱fixture Lexiconのdefine扱いは残りました。新しい固定sampleや追加規則にはせず、頻度と実害が
+明らかになるまで観測対象に留めます。正本DBは変更していません。
+
 master取り込み後、保存済みrunから5 repositoryのrevision固定materialをread-onlyで取り出し、QwenとGemmaへ
 各1回渡しました。この5件はmaster側の実装・調整に使われた可能性があり、今回の失敗を受けたprompt修正にも
 使ったため、今後は互換性とprompt調整の確認用です。未知projectでの性能には数えません。

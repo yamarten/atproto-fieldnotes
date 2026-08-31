@@ -261,6 +261,7 @@
 - 現行repository analysis policyの固定`goat` material 10回は、GemmaがJSON成功5・失敗5、Qwenが10件すべて成功。Gemmaの失敗は末尾切断ではなく応答内部のJSON構文違反。一方、保存規則をすべて通る結果は両model 0件で、Qwenは全件に根拠不足の観測、6/10件にmaterial外collectionがあった。利用不能な本文は保存せず、byte数、hash、JSON error位置等をrun metricsと固定評価reportへ残す。Gemmaは現構成の通常処理候補から外し、既定modelはQwenを維持するが、repository解析内容は別途改善対象。正本DBは未変更。全541 testを通過
 - repository analysis policy v12で、LLM入力を本文付きevidence blockとclosed candidateへ変更した。固定`goat`のv11反復は9/10有効、候補外collection 0、claim棄却0で、残る1件は不正JSON。調整用5件はv11で3/5、空候補を明示したv12再確認で残り2/2が有効。変更判断に使っていない5件はv11で5/5有効だった。本文の根拠番号混入、操作の自由生成、空候補時のcandidate補完を個別に検出して契約へ反映した。正本DBは未変更。全734 testを通過
 - 固定fixtureへ追加しないhash抽出12 projectのv12確認は機械検査12/12有効だったが、意味確認で言語修飾名とhostnameのcollection候補、nameだけからの要約、package配布repoの役割、既存fixture Lexiconを確認した。policy v14ではclaim可能なmetadataをdescriptionだけにし、README候補へ単一のreverse-domain authority条件を追加した。最新1,146 projectの保存materialでは旧候補208種のうち30種を除外し、確認した除外値は言語修飾名、hostname、handle、file名、property pathだった。reverse-domain条件を入れたv13で問題2 projectを再実行すると誤collectionは消え、正常な`app.bsky.feed.post`候補は残った。package配布repoとfixture Lexiconは未解決。全736 testを通過
+- さらに過去の評価23件を除外したhash抽出6 projectをQwenでv14各1回確認し、request成功・機械検査とも6/6、候補外collection・不正locator・claim棄却は0件だった。意味確認では今回の変更による悪化を認めず、拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、package配布判定、fixture Lexiconを既存系統の残件として観測した。固定fixture、正本DB、codeは変更していない
 
 未検証:
 

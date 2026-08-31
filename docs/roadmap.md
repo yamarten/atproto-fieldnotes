@@ -34,17 +34,10 @@ identifier保存、Website / service / project site、repository帰属、promoti
 
 直近は次の順序で進めます。
 
-1. repository analysis policy v14を通常のランダムsampleで観測し、追加規則を増やさず維持できるか確認する
-2. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
-3. その結果を見て、広いtrust policy、検索、編集、exportへ進む
+1. マージ推奨reviewとjob進捗表示の運用上の不便を解消する
+2. その結果を見て、広いtrust policy、検索、編集、exportへ進む
 
 ## 直近の作業
-
-### Repository analysisの観測
-
-closed candidate化とpolicy v14の小さい一般規則は実装済みです。新しい固定sample corpusは増やさず、通常の
-ランダムsample reviewで、package配布repositoryの役割とfixture Lexiconの残件が実害になる頻度を観測します。
-個別repository、既知NSID、評価sampleに依存する条件は追加しません。
 
 ### マージ推奨のreview
 
@@ -64,6 +57,12 @@ schema version 3で得たマージ推奨110件は、自動マージせず人間�
 watermark更新は正常なので、job進捗全体の再設計には広げません。
 
 ## 条件付き短期候補
+
+### Repository analysisの残件
+
+policy v14の通常sample確認は完了しています。拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、
+package配布repositoryの役割、fixture Lexiconのdefine扱いは、通常運用で頻度または実害を確認した場合だけ再開します。
+再開時も固定sampleの追加を既定にせず、個別repositoryや既知NSIDに依存しない一般規則を優先します。
 
 ### 信頼・帰属policyの追加接続
 
