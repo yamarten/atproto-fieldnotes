@@ -1421,7 +1421,14 @@ function renderJobs(items) {
   if (!items.length) return `<p class="muted">No jobs have run in this server process.</p>`;
   return items.map((job) => {
     const progress = job.progress || {};
-    const count = progress.total ? `${progress.current || 0} / ${progress.total}` : "";
+    const current = Number(progress.current || 0);
+    const total = Number(progress.total || 0);
+    const unit = String(progress.unit || "").trim();
+    const count = total > 0
+      ? `${current} / ${total}`
+      : current > 0 && unit
+        ? `${current} ${unit}${current === 1 ? "" : "s"}`
+        : "";
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>

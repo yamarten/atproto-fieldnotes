@@ -38,6 +38,7 @@
   - source/targetの主要属性とidentifierを並べるmerge review
   - identifierのrole/classification対応を行単位で表示
   - background jobの経過時間、progress比から算出したETA、手動details更新
+    - `sync-introduced`は未知の総page数を`null`とし、pagination安全上限ではなく取得済みpage数だけを表示
   - Git checkoutではSettingsにcommit hashとdirty状態を表示
   - `Add seed`は明示されたNSID、path付きservice URL、repository URLを対応するconfirmed factual roleへ投影し、採用decisionを記録する。同じseedの再適用でlegacy rowの不足を補修可能
 - background operation
@@ -212,9 +213,9 @@
 
 ## 動作確認状況
 
-2026-08-30時点で確認済み:
+2026-08-31時点で確認済み:
 
-- 全unit test 729件
+- 全unit test 739件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - Semble / Tangled / anonymous browser laneを保存済みsampleで評価し、Sembleを維持、TangledをJetstream v2
   snapshotへ置換、anonymous browser verificationをWeb project detailへ接続した。Jetstreamは公式SDKで限定sequenceの
@@ -240,7 +241,7 @@
 - 2026-07-28に正本DBへidentifier role移行を適用。4,440 projectのlegacy role 20,575件を整理し、NSID case 445値を現行collection inventory表記へ補正した。再dry-run変更0件、旧role 0件、foreign key違反0、integrity `ok`を確認し、一時case補正実装は適用後に削除した
 - Website、service URL、補助pageのruntime責務を分離した。通常の正規化・候補採用・service redirectはWebsiteを補完せず、Websiteだけではidentifier、Trust起点、service稼働、service collisionにならない。明示的な`add-seed`だけはWebsiteが空なら同じservice URLを初期値にする
 - identifier採用理由、旧identifier、non-production、確定transition、noiseを分離するschema version 3と通常mutationを実装した。review済み108 claimを適用した4,418 projectの正本DBへ2026-08-14に切り替え、High Five / ATProtoFansとMalfestio / Writerの相互分離判断、無変更save差分0、採用理由欠落0、current/non-current重複0、foreign key違反0、integrity `ok`、全629 test成功を確認した。結果は[Identifier保存方式のshadow比較](notes/identifier-storage-shadow-comparison.md)を参照
-- schema version 3切替後にoperatorが一通りの典型操作を確認し、定期sources syncとenrichも完了した。2026-08-16の`sync-introduced`は1ページから3 post・24 entryを処理し、10 project更新・9 project追加、watermark更新まで完了している。表示上の`1 / 100`は処理件数ではなく取得page数と安全上限を並べたもので、完了jobの進捗表示としては誤解を招くが処理停止ではない
+- schema version 3切替後にoperatorが一通りの典型操作を確認し、定期sources syncとenrichも完了した。2026-08-16の`sync-introduced`は1ページから3 post・24 entryを処理し、10 project更新・9 project追加、watermark更新まで完了している。現在のjob進捗は安全上限を総page数として扱わず、`1 page`のように取得済みpage数だけを表示する
 - schema version 3の正本DBで信頼・マージshadow比較を再実行した。信頼比較はrole付き登録起点10,210件を曖昧性0件で読み、固定12事例と二探索方式の同値性を確認した。マージ比較は3,492 pair中110件を人向け推奨、20件を別扱い維持とし、固定19事例を確認した。どちらもproductionの自動採用・自動マージは未接続で、全632 testに成功した。結果は[信頼ポリシーshadow比較](notes/trust-policy-shadow-comparison.md)と[マージ規則shadow比較](notes/project-merge-policy-shadow-comparison.md)を参照
 - service/repository collectorの方向付き観測、repoのproject帰属、repo→URL直接参照、target roleを分けるread-only shadow comparatorを追加した。review後、GitHub homepageをconfirmed `repository_homepage`として保存し、service候補への静的投影と信頼edgeを分離するproduction codeを実装した。homepage単独では信頼edgeを作らず、confirmed service→repo relationとexact URLが一致する時だけ`repository_homepage_pair`を再構成する。GitHub Searchの`homepage_exact`も、collectorの観測・候補照合と共通信頼policyを分離し、一意なconfirmed serviceと逆向きのconfirmed `source_repository`が揃う場合だけ`trust_policy` adoptionとして既存projectへ取り込む。一方向、candidate / non-current、複数一致はsuggestionに留め、任意のprojectを選ばない。2026-08-21に正本DBの旧424 rowを420 claimへ移行し、旧edge 785本を除去して相互参照edge 80本を77 projectで再構成した。foreign key違反0、integrity `ok`。通常経路の一時移行処理は削除し、過去runのreplayだけに旧EvidenceBundle互換を隔離した。Website自動更新とrelation assessor全体は未実施。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
 - 既存project-level triageに混在する`repository_link_assessments`をread-only監査した。現在proposal 194組は、静的policyまたは直接相互relationで処理できる63、service構成要素roleがなく対象外の85、bounded repo probeが必要な30、現在materialで専用評価可能な16に分かれた。現行`same_project` 177組のうち73組はcurrent service roleがなく、45組は保存入力にbounded target materialがない。project contextを入力せず、一つの方向付きrelationと限定根拠だけを評価するshadow assessor、3 verdictの保存前検査、12件の設計fixtureを追加した。Qwenによる固定corpusではdirect assertion方式が安定したが、実16組では3支持・11根拠不足・2不支持となり、LICENSE linkの誤支持も再現した。reviewでrelationの意味をsourceに限定しない公式`project_repository`へ広げ、docs、仕様、Lexicon、issue、release、licenseを含めること、service以外のproject構成要素からも採用することを合意した。serviceと一般URLを混ぜず、代表documentation、specification、promotion、landing pageを構成要素として扱う`site_url` / `project_site`も独立追加した。shadowのbounded HTML extractorは表示、子icon label、最寄り見出し・block、landmark、repository密度を保持する。正本DB監査では旧`source_repository` relation 9,219行のうちpage→repoは634行だけで、README mention 8,220行とTangled DID→repo 365行が混在していた。productionでは旧relationを一括改名せず除去し、page relationはbounded再収集から再生成する。初期段階ではLLM自動昇格を接続しない。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照

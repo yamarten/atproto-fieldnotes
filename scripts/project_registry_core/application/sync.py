@@ -46,7 +46,7 @@ def introduced(
     lookback_days: int | None = None,
     incremental: bool = True,
     all_history: bool = False,
-    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    progress: Callable[[int, int | None, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     config = _source_config("introduced_search")

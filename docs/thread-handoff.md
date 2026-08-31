@@ -24,7 +24,6 @@
 
 1. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
    追加するか判断する。自動mergeは前提にしない。
-2. `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を修正する。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

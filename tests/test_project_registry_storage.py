@@ -1118,6 +1118,31 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertFalse(summary["state_updated"])
         self.assertEqual(state["watermark"], {})
 
+    def test_introduced_progress_reports_pages_without_treating_safety_limit_as_total(self) -> None:
+        conn = registry.open_db()
+        seen: list[tuple[int, int | None, dict]] = []
+        post = {"indexedAt": "2026-06-10T00:00:00Z", "record": {"createdAt": "2026-06-10T00:00:00Z"}}
+        try:
+            with mock.patch.object(
+                source_sync,
+                "search_bsky_posts_payload",
+                return_value={"posts": [post]},
+            ), mock.patch.object(source_sync, "collect_applog_entries", return_value={}):
+                summary = source_sync.sync_introduced_entries(
+                    conn,
+                    query="progress-contract",
+                    execute=False,
+                    max_pages=100,
+                    progress=lambda current, total, item: seen.append((current, total, item)),
+                )
+        finally:
+            conn.close()
+
+        self.assertEqual(summary["pages"], 1)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][:2], (1, None))
+        self.assertEqual(seen[0][2]["unit"], "page")
+
     def test_github_no_create_keeps_watermark_when_unmatched_remains(self) -> None:
         conn = registry.open_db()
         query = "atproto"

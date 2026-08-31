@@ -51,11 +51,6 @@ schema version 3で得たマージ推奨110件は、自動マージせず人間�
 
 既存queueを実際に処理するだけで十分なら、専用UIは追加しません。
 
-### job進捗表示
-
-`sync-introduced`のpage安全上限を総作業量のように`1 / 100`と表示する契約を修正します。処理本体と
-watermark更新は正常なので、job進捗全体の再設計には広げません。
-
 ## 条件付き短期候補
 
 ### Repository analysisの残件

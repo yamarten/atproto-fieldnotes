@@ -53,6 +53,10 @@ review executeは先にdry-run planを作り、candidate IDを選択してから
 
 bulk enrichの`progress.current`はcheckpoint全体での処理対象ordinalで、処理開始時に通知します。ETAにはこの通算値を使わず、現在のworker processで時間を観測済みの件数`eta_observed_count`と、そのattemptで未処理の件数`eta_remaining_count`を使います。resume前に完了した件数とresume後の経過時間を混ぜません。
 
+`progress.total`は処理開始時点で総数が分かる場合だけ整数を入れ、未知の場合は`null`にします。
+`sync-introduced`は取得済みpage数を`current`、`unit=page`として通知しますが、`max_pages`はpaginationの
+安全上限であって総page数ではないため`total`へ入れません。Web UIはこの場合、比率やETAではなく取得済みpage数だけを表示します。
+
 ### `OperationResult`
 
 処理全体の終了状態です。

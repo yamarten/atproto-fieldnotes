@@ -152,9 +152,13 @@ def _run_simple(
             data=data,
         ))
 
-    def progress(current: int, total: int, item: dict[str, Any]) -> None:
+    def progress(current: int, total: int | None, item: dict[str, Any]) -> None:
+        progress_data: dict[str, Any] = {"current": current, "total": total}
+        unit = str(item.get("unit") or "").strip()
+        if unit:
+            progress_data["unit"] = unit
         send("progress", {
-            "progress": {"current": current, "total": total},
+            "progress": progress_data,
             "project_key": str(item.get("project_key") or ""),
             "kind": str(item.get("kind") or item.get("suggested_tracking_state") or ""),
         })

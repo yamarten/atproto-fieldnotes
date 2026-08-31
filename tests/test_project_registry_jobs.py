@@ -11,7 +11,7 @@ from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import source_sync, worker
-from project_registry_core.jobs import OperationRequest
+from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
 
@@ -156,6 +156,40 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         )
 
         self.assertIsNone(record.snapshot()["eta_seconds"])
+
+    def test_unknown_total_progress_is_preserved_without_eta(self) -> None:
+        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        record = JobRecord(
+            job_id="job:unknown-total",
+            request=OperationRequest.create("sync", parameters={"source": "introduced"}),
+            status="running",
+            started_at=started,
+            events=[{"kind": "progress", "data": {"progress": {
+                "current": 1,
+                "total": None,
+                "unit": "page",
+            }}}],
+        )
+
+        snapshot = record.snapshot()
+
+        self.assertEqual(snapshot["progress"], {"current": 1, "total": None, "unit": "page"})
+        self.assertIsNone(snapshot["eta_seconds"])
+
+    def test_introduced_worker_emits_unknown_page_total(self) -> None:
+        emitted = []
+
+        def introduced(_conn, *, progress, **_kwargs):
+            progress(1, None, {"kind": "source_page", "source": "introduced", "unit": "page"})
+            return {"pages": 1}
+
+        request = OperationRequest.create("sync", parameters={"source": "introduced"})
+        with mock.patch.object(worker.sync, "introduced", side_effect=introduced):
+            result = worker._run_simple(object(), request, CancellationToken(), emitted.append)
+
+        progress_event = next(event for event in emitted if event.kind == "progress")
+        self.assertEqual(progress_event.data["progress"], {"current": 1, "total": None, "unit": "page"})
+        self.assertEqual(result.status, "completed")
 
     def test_generic_sync_review_and_browser_jobs_use_same_process_boundary(self) -> None:
         sync_job = self.manager.start_sync({"source": "github"}, execute=False)

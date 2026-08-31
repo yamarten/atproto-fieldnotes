@@ -492,7 +492,7 @@ def sync_introduced_entries(
     lookback_days: int = 7,
     incremental: bool = True,
     all_history: bool = False,
-    progress: Callable[[int, int, dict[str, Any]], None] | None = None,
+    progress: Callable[[int, int | None, dict[str, Any]], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     scope = {"query": str(query).strip()}
@@ -529,7 +529,11 @@ def sync_introduced_entries(
         fetched_posts += len(page_posts)
         pages += 1
         if progress:
-            progress(pages, max(1, max_pages), {"kind": "source_page", "source": "introduced", "item_count": len(page_posts)})
+            progress(
+                pages,
+                None,
+                {"kind": "source_page", "source": "introduced", "unit": "page", "item_count": len(page_posts)},
+            )
         for post in page_posts:
             record = post.get("record", {}) if isinstance(post.get("record"), dict) else {}
             timestamp = parse_iso_datetime(str(post.get("indexedAt") or record.get("createdAt") or ""))
