@@ -140,7 +140,7 @@
   - reportのpeak memory、swap、prefill/decode内訳はfieldのみ定義済みで、自動計測は未接続
 - repository analysis
   - confirmed repositoryはrevisionまたはmaterial hashと解析policy単位のrepository analysisをcurrent stateへ保存し、triageで再利用する。GitHub / Codebergはmetadata、README、tree、主要manifest、configuration、Lexicon、必要時だけ最大4 fileのsource抜粋を対象とし、Tangledはmetadata / README / 限定treeを対象とする。candidate repositoryはconfirm前に通常解析しない
-  - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、根拠付きsummary、capability、case-preserving collection利用を保存する。READMEは元の行番号を保つ最大6 block・合計6,000文字に分け、選択数と切り詰め状態をcoverageへ保存する。LLMへ渡すのは本文を持つevidence blockだけで、内容のないtree pathは根拠にしない。観測はpredicate・basis・根拠を固定したcandidate ID、collection利用はNSID・operation・根拠を固定したcandidate IDだけを選ばせ、保存前にlocatorへ戻す。未対応providerとcoverage不足も状態として残す
+  - repository analysisは単一artifact分類をせず、非排他的な観測述語、basis、根拠付きsummary、capability、case-preserving collection利用を保存する。READMEは元の行番号を保つ最大6 block・合計6,000文字に分け、選択数と切り詰め状態をcoverageへ保存する。LLMへ渡すのは本文を持つevidence blockとrepository descriptionだけで、name、homepage、is_template、内容のないtree pathはclaimの根拠にしない。観測はpredicate・basis・根拠を固定したcandidate ID、collection利用はreverse-domain authorityを確認したNSID・operation・根拠を固定したcandidate IDだけを選ばせ、保存前にlocatorへ戻す。未対応providerとcoverage不足も状態として残す
   - 解析失敗時は前回成功結果と最新試行を分離し、根拠付きの前回結果だけをstaleとしてtriageへ渡す。旧形式の根拠なしsummaryは渡さない。timeout、rate limit、HTTP系など一時的な外部失敗だけ同じmaterial / policyの再試行を24時間抑制し、LLM設定・互換性・response・local commandの修正後は即時再実行できる
   - repository observationからcategoryやidentifierを直接補正しない。categoryはproject-level triageで決め、NSID seedやLexicon JSONの存在だけでは`lexicon`にしない
   - repository analysis由来の明示的なdocumentation site URLは`docs` roleのcandidate resourceとして保存し、confirmedへ直接昇格しない
@@ -260,6 +260,7 @@
 - 最新DB複製の`atproto.dart`で一般の`/docs/`文書がdeployment設定になる誤抽出を確認して修正。`goat`では重複excerptでrepository結果が20,732文字となり後段24 KiB上限を超えたため、保存とtriage投影を縮約した。既存の実結果5件はtriage投影1,930〜3,536文字に収まった
 - 現行repository analysis policyの固定`goat` material 10回は、GemmaがJSON成功5・失敗5、Qwenが10件すべて成功。Gemmaの失敗は末尾切断ではなく応答内部のJSON構文違反。一方、保存規則をすべて通る結果は両model 0件で、Qwenは全件に根拠不足の観測、6/10件にmaterial外collectionがあった。利用不能な本文は保存せず、byte数、hash、JSON error位置等をrun metricsと固定評価reportへ残す。Gemmaは現構成の通常処理候補から外し、既定modelはQwenを維持するが、repository解析内容は別途改善対象。正本DBは未変更。全541 testを通過
 - repository analysis policy v12で、LLM入力を本文付きevidence blockとclosed candidateへ変更した。固定`goat`のv11反復は9/10有効、候補外collection 0、claim棄却0で、残る1件は不正JSON。調整用5件はv11で3/5、空候補を明示したv12再確認で残り2/2が有効。変更判断に使っていない5件はv11で5/5有効だった。本文の根拠番号混入、操作の自由生成、空候補時のcandidate補完を個別に検出して契約へ反映した。正本DBは未変更。全734 testを通過
+- 固定fixtureへ追加しないhash抽出12 projectのv12確認は機械検査12/12有効だったが、意味確認で言語修飾名とhostnameのcollection候補、nameだけからの要約、package配布repoの役割、既存fixture Lexiconを確認した。policy v14ではclaim可能なmetadataをdescriptionだけにし、README候補へ単一のreverse-domain authority条件を追加した。最新1,146 projectの保存materialでは旧候補208種のうち30種を除外し、確認した除外値は言語修飾名、hostname、handle、file名、property pathだった。reverse-domain条件を入れたv13で問題2 projectを再実行すると誤collectionは消え、正常な`app.bsky.feed.post`候補は残った。package配布repoとfixture Lexiconは未解決。全736 testを通過
 
 未検証:
 

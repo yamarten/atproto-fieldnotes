@@ -7,13 +7,14 @@ import re
 import urllib.parse
 from typing import Any
 
+from . import domain_policy
 from . import identifiers as identifier_core
 from . import repo_urls as repo_url_core
 from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 6
-POLICY_VERSION = "repository-analysis-v12"
+POLICY_VERSION = "repository-analysis-v14"
 MAX_TRIAGE_RESULTS = 6
 MAX_EVIDENCE_BLOCKS = 32
 MAX_EVIDENCE_TEXT_BYTES = 18 * 1024
@@ -505,7 +506,7 @@ def _locator_catalog(material: dict[str, Any]) -> dict[tuple[str, int, str], dic
             catalog[key] = evidence
             used_text_bytes = projected
 
-    for field_name in ("name", "description", "homepage", "is_template"):
+    for field_name in ("description",):
         if field_name in dict(material.get("metadata") or {}):
             add({
                 "path": "repository metadata",
@@ -687,6 +688,13 @@ def _collection_allowed_operations(text: str, nsid: str) -> list[str]:
 
 def _looks_like_collection_occurrence(text: str, nsid: str) -> bool:
     if nsid.startswith("example."):
+        return False
+    authority = nsid.split(".")[:-1]
+    if (
+        not authority
+        or any(segment != segment.lower() for segment in authority)
+        or authority[0] not in domain_policy.load_known_icann_tlds()
+    ):
         return False
     positions = [match.start() for match in re.finditer(re.escape(nsid), text)]
     positions = [

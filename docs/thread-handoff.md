@@ -11,7 +11,8 @@
 - promotion queueはservice確認度、technical interest、manual priorityを分け、DNSとschema recordで確認できる
   Lexicon publisherも独立signalとして優先します。
 - Qwen / Gemma比較後も既定modelと定期jobはQwenを維持します。repository解析は本文付きevidence blockと
-  closed candidateへ変更し、固定`goat`と10 repository sample（問題2件はv12で再確認）で候補外collectionとclaim棄却を解消しました。
+  closed candidateへ変更し、policy v14でclaim可能なmetadataをdescriptionだけに限定し、README由来NSIDへ
+  reverse-domain authority条件を追加しました。package配布repositoryの役割とfixture Lexiconは残件です。
   正本DBへの再解析・書き込みは行っていません。
 - 外部sourceとbrowser laneを評価し、Sembleは維持、TangledはUFOsからJetstream v2 snapshotへ置換、
   anonymous browser verificationはWeb project detailへ接続しました。一時的な`source_observations`と未接続の
@@ -20,9 +21,11 @@
 
 ## 次に必要な作業
 
-1. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
+1. repository analysis v14を新しい固定corpusへ追加せず通常のランダムsampleで観測し、package配布repoとfixture Lexiconの
+   残件へ追加規則が本当に必要か判断する。
+2. マージ推奨110件を既存queueで処理するか、理由別表示と承認・保留・`separate_project`を持つ専用review導線を
    追加するか判断する。自動mergeは前提にしない。
-2. `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を修正する。
+3. `sync-introduced`のpage安全上限を総作業量のように`1 / 100`表示する進捗契約を修正する。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

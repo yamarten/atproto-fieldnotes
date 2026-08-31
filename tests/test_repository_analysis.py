@@ -168,6 +168,48 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertIn("collection_candidates is empty, so collections MUST be [] exactly", prompt)
         self.assertIn('"collections":[]', prompt)
 
+    def test_repository_name_is_context_but_not_claimable_evidence(self) -> None:
+        bundle = self.github_bundle(manifest_hints=[])
+        snapshot = bundle.records[0].value
+        snapshot["repo"] = {"name": "official-looking-name"}
+        snapshot["readme_excerpt"] = ""
+        snapshot["source_evidence"] = []
+        snapshot["lexicon_hints"] = []
+        material = repository_analysis.build_material("https://github.com/example/app", bundle)
+
+        prompt = repository_analysis.build_prompt({"name": "official-looking-name"}, material)
+
+        self.assertIn('"name": "official-looking-name"', prompt)
+        self.assertNotIn(
+            {"path": "repository metadata", "json_pointer": "/name"},
+            repository_analysis.evidence_locator_catalog(material).values(),
+        )
+        self.assertNotIn(
+            {"path": "repository metadata", "json_pointer": "/is_template"},
+            repository_analysis.evidence_locator_catalog(material).values(),
+        )
+
+    def test_readme_collection_candidates_require_reverse_domain_authority(self) -> None:
+        bundle = self.github_bundle(manifest_hints=[])
+        snapshot = bundle.records[0].value
+        snapshot["readme_excerpt"] = (
+            "Collection dev.example.record is read with getRecord.\n"
+            "Collection Records.Client.Record is read with getRecord.\n"
+            "Collection records-api.example.dev is read with getRecord."
+        )
+        snapshot["source_evidence"] = []
+        snapshot["lexicon_hints"] = []
+        material = repository_analysis.build_material("https://github.com/example/app", bundle)
+
+        nsids = {
+            item["nsid"]
+            for item in repository_analysis.collection_candidate_catalog(material).values()
+        }
+
+        self.assertIn("dev.example.record", nsids)
+        self.assertNotIn("Records.Client.Record", nsids)
+        self.assertNotIn("records-api.example.dev", nsids)
+
     def test_deterministic_observations_are_non_exclusive(self) -> None:
         material = repository_analysis.build_material(
             "https://github.com/example/app", self.github_bundle()
