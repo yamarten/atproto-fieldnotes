@@ -81,6 +81,12 @@
   - source keyのinvestigation runをtarget detailへ束ね、保存snapshotは維持
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
+- app record export readiness
+  - `validate-app-record-export`は`community.lexicon.app.entry`だけをtargetにし、指定したschema v3 DBをread-onlyで監査してJSON reportを作る
+  - candidate recordは紹介用profile、canonical scalar、confirmed current identifier/resourceから作り、それ以外の候補は診断用の除外入力としてreportに残す
+  - field不足、根拠不足、変換不能、仕様未確定、publication context、公開scopeを分け、source field/normalized rowまで追跡できる
+  - 公開scopeはfield completenessより優先し、`category=reject` / `tracking_state=ignore`を`not_applicable`、`name_only` / category未設定 / `out_of_scope`を`scope_uncertain`に分類する
+  - `createdAt`は将来のJSON生成が供給するpublication contextとして扱う。現行機能はreport生成まで接続済み
 - bounded service verification保存
   - current stateはsurfaceごとの最新結果を最大32件保持
   - project直下のservice status/confidence/evidenceは、最新のURL別・lane別resultからpure projectionし、過去scalarのmax/unionを引き継がない

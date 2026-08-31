@@ -8,6 +8,7 @@ subcommands=(
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
+  'validate-app-record-export:Write a read-only app entry readiness report'
   'explain:Explain saved registry conclusions'
   'review-queue:List projects that deserve human review'
   'promotion-queue:List unintroduced projects worth showcasing'
@@ -180,6 +181,11 @@ case "$cmd" in
       "--type[Required when --seed is ambiguous]:seed type:_project_registry_seed_types" \
       '--tracking-states+[Restrict output to these tracking states]:tracking states:_project_registry_tracking_states' \
       '--format[Output format]:format:(text json)'
+    ;;
+  validate-app-record-export)
+    _arguments -S \
+      '--db-path[Source schema v3 SQLite database opened read-only]:database file:_files' \
+      '--output[JSON readiness report path]:report file:_files'
     ;;
   explain)
     _arguments -S \

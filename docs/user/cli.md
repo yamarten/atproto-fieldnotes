@@ -12,7 +12,7 @@
 - 多くのコマンドはstdoutへJSONを出す。`show`と`explain`はtext/JSON、`enrich`はJSON Lines。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
-通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
+通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助`validate-app-record-export`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -44,12 +44,19 @@
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
+| `validate-app-record-export` | schema v3 DBと`--output` | `community.lexicon.app.entry`向けreadiness report | DBはread-only。指定JSONだけを書き込み |
 
 `show --seed`は登録済みのシード値から登録プロジェクトを解決します。シードをプロジェクトキーとして解釈しません。曖昧なURLは`--type`を指定してください。
 
 `add-seed`へ渡したサービスURLはパスを保持します。同じシードを同じ登録プロジェクトへ再適用してもよく、旧データに不足するconfirmed service/repository roleを補えます。operatorが明示したservice URLには、`/about`、`/docs`、`/login`などのpath名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除しますが、親URLに対するguardは他候補向けに残します。
 
 `explain`のtopicは`all`、`service_status`、`ownership`、`contribution`、`merge_candidate`、`trust`です。保存済み状態と共通評価処理だけを使い、ネットワークやLLMを呼びません。
+
+`validate-app-record-export`は紹介用profile、canonical scalar、confirmedなcurrent identifier/resourceから
+公開候補を作り、その他の候補を診断用の除外入力として残します。projectごとにrequired/optionalの不足、
+根拠不足、変換不能、仕様未確定、公開scopeを分け、`createdAt`を将来のpublication contextとして報告します。
+通常は`.tmp/`へ出力してください。詳細は
+[App Record Export](../developer/app-record-export.md)を参照してください。
 
 ### 一括`enrich`とチェックポイント
 

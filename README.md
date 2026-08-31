@@ -81,6 +81,7 @@ testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite D
 - [Project Record Schema](docs/developer/project-record.md): schema v3の保存契約
 - [Investigation Model](docs/developer/investigation-model.md): collector、evidence、integration、evaluationの責務
 - [Background Job Model](docs/developer/background-jobs.md): event、result、cancellation、checkpoint契約
+- [App Record Export](docs/developer/app-record-export.md): `community.lexicon.app.entry`向けexport契約
 - [変更の受入条件と確認手順](docs/developer/change-acceptance.md): 変更種別ごとの確認、標準環境、DB複製、実運用への反映境界
 - [設計・調査メモ](docs/notes/): 比較、検討、履歴資料
 

@@ -207,19 +207,15 @@ project-level triageやrepository解析のgold labelとはそのまま扱いま�
 同種の個別訂正を通常triage promptの恒久ruleへ増やしません。identifier、relation、decisionの正本を
 直接JSON編集させず、既存review actionまたは専用mutationを使います。
 
-### app record exportとmetadata
+### app record export
 
-app recordは公開手段の第一候補ですが、紹介用profileとconfirmed identifierからread-only validation reportを
-先に作ります。不足fieldと根拠不足を報告し、不確かな`profile_json.app`をexportのために埋めません。
-
-実例と公開先の要件が揃った場合、次を検討します。
-
-- `images[]`、`langs[]`
-- Lexiconのproduce / consumeとtest / prototype qualifier
-- `account_indicators[]`
-- 公開・保守状態を表す`app.status`
+`community.lexicon.app.entry`向けread-only validation reportは接続済みです。次段階では、公開対象のcategory /
+tracking state、`scope_uncertain`の扱い、publication contextとしての`createdAt`、複数recordの出力形式を決め、
+固定したschema revisionに適合するentry JSONを生成します。required fieldを満たすJSONを完了条件とし、PDSへの
+送信は別ツールへ渡します。
 
 現行のapp link roleは[project-record.md](developer/project-record.md)を正本とします。
+export契約は[app-record-export.md](developer/app-record-export.md)を正本とします。
 
 ### Web UI
 

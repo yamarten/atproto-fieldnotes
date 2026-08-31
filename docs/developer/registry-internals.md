@@ -1337,6 +1337,16 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
   - `introduced_url` の有無
 - つまり、より first-party surface が強く、より編集済みで、より confirmed identifier が多い側を target に残しやすいです
 
+## app record export
+
+`application/app_record_validation.py`は`community.lexicon.app.entry`だけをtargetにするread-only serviceです。
+CLI adapterは指定DBを`mode=ro`かつ`query_only`で開き、report JSONを出力します。profile、canonical scalar、
+confirmed current identifier/resourceをfield候補へ投影し、candidate/non-currentは診断用の除外入力として残します。公開scope、
+required/optional不足、根拠不足、変換不能、仕様未確定、publication contextを別々に返します。
+
+target revision、field mapping、readiness、evidence trace、再現性と将来のJSON生成境界は
+[App Record Export](app-record-export.md)を正本とします。
+
 ## app.status の将来分離
 
 現行の canonical は DB column `service_status` です。

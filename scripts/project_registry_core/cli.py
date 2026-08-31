@@ -6,6 +6,7 @@ import urllib.error
 from pathlib import Path
 
 from . import registry
+from .commands import app_record_validation as app_record_validation_commands
 from .commands import decisions as decision_commands
 from .commands import enrichment as enrichment_commands
 from .commands import explain as explain_commands
@@ -85,6 +86,20 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="When used with --all, restrict output to these tracking states.")
     show_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     show_parser.set_defaults(func=project_commands.cmd_show)
+
+    validate_app_record_parser = subparsers.add_parser(
+        "validate-app-record-export",
+        help="Write a read-only community.lexicon.app.entry readiness report.",
+    )
+    validate_app_record_parser.add_argument(
+        "--db-path", required=True, help="Source schema v3 SQLite database opened read-only."
+    )
+    validate_app_record_parser.add_argument(
+        "--output", required=True, help="JSON report path. Use a path under .tmp for audits."
+    )
+    validate_app_record_parser.set_defaults(
+        func=app_record_validation_commands.cmd_validate_app_record_export
+    )
 
     explain_parser = subparsers.add_parser("explain", help="Explain saved registry conclusions without network or LLM access.")
     explain_parser.add_argument("-p", "--project-key", required=True, help="Target one project key.")
