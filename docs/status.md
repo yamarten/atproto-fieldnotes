@@ -87,6 +87,13 @@
   - categoryやtracking stateからの暗黙一括選択はせず、`scope_uncertain`は別allowlistで明示した場合だけscopeをoverrideする。required不足、変換不能、`not_applicable`はoverrideしない
   - 複数record成果物はproject key順の裸のrecord配列とし、DB fingerprint、manifest、content hashを成果物全体に記録する。単一collection固定のためtarget metadataやtarget指定optionは持たず、source projectとの対応はmanifestとrecordの同じordinalで追跡する
   - exportは全件成功方式で、1件でも不適格なら成果物を書かない。DBはread-onlyで、PDS送信とrkey生成は行わない
+- Jetstream Lexicon publication discovery sidecar
+  - developer/operator scriptが明示sidecar SQLiteへDID+rkey単位のcurrent/tombstone、schema shape、bounded record materialを保存する
+  - 未完了segmentは固定sealed tipのstagingへ保持し、全segmentを一transactionで反映できた時だけwatermarkを進める
+  - exact `_lexicon` DNSと同じDIDのcurrent record再取得を別々に期限付き検証し、両方成功したpublisherだけをverified候補にする
+  - contract version 1の評価JSONはnew/update/delete/verification差分、既存project一意候補、未登録authority group、space宣言と活動、mirror/catalog-onlyを分離する
+  - `survey.db`は`mode=ro`かつ`query_only`で照合し、自動project作成、identifier採用、ownership/promotion変更を行わない。詳細は[sidecar catalog仕様](developer/lexicon-publication-catalog.md)を参照
+  - 2026-09-05の実smokeは10,236 event、10,104 DID+rkey、current 9,858、tombstone 246を固定tipまで適用し、限定5件のpublisher検証で3件成功・mirror 2件のDNS不一致を確認した。正本DBは不変。詳細は[smoke記録](notes/jetstream-lexicon-publication-catalog-smoke-2026-09-05.md)を参照
 - bounded service verification保存
   - current stateはsurfaceごとの最新結果を最大32件保持
   - project直下のservice status/confidence/evidenceは、最新のURL別・lane別resultからpure projectionし、過去scalarのmax/unionを引き継がない

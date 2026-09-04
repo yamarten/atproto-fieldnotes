@@ -170,9 +170,11 @@ promotion signalへの接続を判断します。DNS委譲の変更はJetstream 
 2026-09-04のbounded比較では、sealed snapshot 10,201 eventをDID+rkeyで畳み、9,852 current publication、
 5,091 valid unique schema IDを確認しました。query / procedure / subscriptionを含むpublicationは4,099、spaceは
 74 valid unique ID、そのcollections宣言201件中148件は同時点のcollection inventoryで活動未観測でした。
-固有価値が確認できたため、次はprojectやpromotionへ直結しないpublication catalog、sealed sequence watermark、
-update/delete追跡を最小laneとして検討します。publisher ownership、project帰属、promotion signalはDNSとcurrent
-recordの別検証および既存trust policyを経るまで接続しません。詳細は
+固有価値が確認できたため、projectやpromotionへ直結しないschema version 1のsidecar publication catalog、
+sealed sequence watermark、update/delete追跡、期限付きDNS/current record検証、Codex向け評価JSONを実装しました。
+恒久運用DBの配置と実行頻度、実候補sample review、publisher ownership・project帰属・promotion signalへ接続するかは
+未決です。接続する場合もverified候補を既存trust policyと明示操作へ渡し、sidecarから自動反映しません。詳細は
+[sidecar catalog仕様](developer/lexicon-publication-catalog.md)と
 [比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)を参照してください。
 
 ### 保存済み判断を使うLLM適応

@@ -15,6 +15,7 @@ const collection = String(input.collection || "");
 const afterSeq = Math.max(0, Number(input.after_seq || 0));
 const maxEvents = Math.max(1, Number(input.max_events || 10000));
 const maxSeconds = Math.max(0, Number(input.max_seconds || 0));
+const requestedSealedTip = input.sealed_tip_seq == null ? null : Number(input.sealed_tip_seq);
 const apiKey = String(process.env.ATPROTO_SURVEY_JETSTREAM_API_KEY || "").trim();
 if (!service || !collection) throw new Error("Jetstream service and collection are required");
 if (!apiKey) throw new Error("ATPROTO_SURVEY_JETSTREAM_API_KEY is not configured");
@@ -51,7 +52,10 @@ async function sealedTipSeq() {
   return tip;
 }
 
-const beforeSeq = await sealedTipSeq();
+const beforeSeq = requestedSealedTip == null ? await sealedTipSeq() : requestedSealedTip;
+if (!Number.isSafeInteger(beforeSeq) || beforeSeq < afterSeq) {
+  throw new Error("requested sealed tip sequence is invalid");
+}
 if (beforeSeq <= afterSeq) {
   write({
     type: "summary",

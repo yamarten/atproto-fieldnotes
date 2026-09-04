@@ -316,7 +316,10 @@ def compare(events: Iterable[Any], database_index: dict[str, Any], observed_coll
     }
 
 
-def fetch_snapshot(*, service: str, after_seq: int, max_events: int, max_seconds: int) -> dict[str, Any]:
+def fetch_snapshot(
+    *, service: str, after_seq: int, max_events: int, max_seconds: int,
+    sealed_tip_seq: int | None = None,
+) -> dict[str, Any]:
     if not os.environ.get("ATPROTO_SURVEY_JETSTREAM_API_KEY", "").strip():
         raise RuntimeError("ATPROTO_SURVEY_JETSTREAM_API_KEY is not configured")
     node = shutil.which("node")
@@ -325,7 +328,11 @@ def fetch_snapshot(*, service: str, after_seq: int, max_events: int, max_seconds
     bridge = Path(__file__).resolve().with_name("jetstream_snapshot.mjs")
     completed = subprocess.run(
         [node, str(bridge)],
-        input=json.dumps({"service": service, "collection": LEXICON_COLLECTION, "after_seq": after_seq, "max_events": max_events, "max_seconds": max_seconds}) + "\n",
+        input=json.dumps({
+            "service": service, "collection": LEXICON_COLLECTION, "after_seq": after_seq,
+            "max_events": max_events, "max_seconds": max_seconds,
+            "sealed_tip_seq": sealed_tip_seq,
+        }) + "\n",
         text=True,
         capture_output=True,
         check=False,
@@ -334,7 +341,8 @@ def fetch_snapshot(*, service: str, after_seq: int, max_events: int, max_seconds
         timeout=max_seconds + 15,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.strip().splitlines()[-1][:500] if completed.stderr.strip() else f"exit status {completed.returncode}"
+        lines = [line.strip() for line in completed.stderr.splitlines() if line.strip()]
+        detail = " | ".join(lines[-6:])[:1000] if lines else f"exit status {completed.returncode}"
         raise RuntimeError(f"Jetstream snapshot bridge failed: {detail}")
     events: list[dict[str, Any]] = []
     summary: dict[str, Any] = {}

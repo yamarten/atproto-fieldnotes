@@ -19,7 +19,7 @@ from project_registry_core.lexicon_publication_comparison import (
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Bounded read-only Jetstream Lexicon publication comparison")
     value.add_argument("--db-path", required=True, type=Path)
-    value.add_argument("--service", default="https://jetstream2.us-east.bsky.network")
+    value.add_argument("--service", default="https://jetstream.us-west.bsky.network")
     value.add_argument("--after-seq", type=int, default=0)
     value.add_argument("--max-events", type=int, default=10000)
     value.add_argument("--max-seconds", type=int, default=300)
