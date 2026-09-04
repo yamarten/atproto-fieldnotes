@@ -167,6 +167,14 @@ space typeとその`collections`宣言の発見を主な価値候補とします
 space typeの仕様が確定するか、read-only比較で固有候補が確認できた場合に、保存形、watermark、更新・削除追跡、
 promotion signalへの接続を判断します。DNS委譲の変更はJetstream eventに含まれないため、別途再検証します。
 
+2026-09-04のbounded比較では、sealed snapshot 10,201 eventをDID+rkeyで畳み、9,852 current publication、
+5,091 valid unique schema IDを確認しました。query / procedure / subscriptionを含むpublicationは4,099、spaceは
+74 valid unique ID、そのcollections宣言201件中148件は同時点のcollection inventoryで活動未観測でした。
+固有価値が確認できたため、次はprojectやpromotionへ直結しないpublication catalog、sealed sequence watermark、
+update/delete追跡を最小laneとして検討します。publisher ownership、project帰属、promotion signalはDNSとcurrent
+recordの別検証および既存trust policyを経るまで接続しません。詳細は
+[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)を参照してください。
+
 ### 保存済み判断を使うLLM適応
 
 operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、

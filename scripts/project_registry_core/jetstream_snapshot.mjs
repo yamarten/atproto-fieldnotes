@@ -14,11 +14,18 @@ const service = String(input.service || "").replace(/\/$/, "");
 const collection = String(input.collection || "");
 const afterSeq = Math.max(0, Number(input.after_seq || 0));
 const maxEvents = Math.max(1, Number(input.max_events || 10000));
+const maxSeconds = Math.max(0, Number(input.max_seconds || 0));
 const apiKey = String(process.env.ATPROTO_SURVEY_JETSTREAM_API_KEY || "").trim();
 if (!service || !collection) throw new Error("Jetstream service and collection are required");
 if (!apiKey) throw new Error("ATPROTO_SURVEY_JETSTREAM_API_KEY is not configured");
 
 const controller = new AbortController();
+let timedOut = false;
+const timeout = maxSeconds > 0 ? setTimeout(() => {
+  timedOut = true;
+  controller.abort();
+}, maxSeconds * 1000) : null;
+timeout?.unref();
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => controller.abort());
 }
@@ -84,6 +91,7 @@ if (beforeSeq <= afterSeq) {
         time: event.time,
         did: event.did,
         operation: event.commit.operation,
+        rev: event.commit.rev,
         collection: event.commit.collection,
         rkey: event.commit.rkey,
         record: event.commit.operation === "delete" ? null : event.commit.record,
@@ -93,6 +101,7 @@ if (beforeSeq <= afterSeq) {
         break;
       }
     }
+    truncated = truncated || controller.signal.aborted;
     write({
       type: "summary",
       after_seq: afterSeq,
@@ -101,6 +110,7 @@ if (beforeSeq <= afterSeq) {
       event_count: eventCount,
       truncated,
       cancelled: controller.signal.aborted,
+      timed_out: timedOut,
     });
   } catch (error) {
     if (!controller.signal.aborted && eventCount === 0) throw error;
@@ -115,6 +125,7 @@ if (beforeSeq <= afterSeq) {
       event_count: eventCount,
       truncated: true,
       cancelled: controller.signal.aborted,
+      timed_out: timedOut,
       error: controller.signal.aborted ? null : {
         type: String(error?.name || "Error").slice(0, 100),
         message,
@@ -123,3 +134,4 @@ if (beforeSeq <= afterSeq) {
     });
   }
 }
+if (timeout) clearTimeout(timeout);
