@@ -101,6 +101,23 @@ def build_parser() -> argparse.ArgumentParser:
         func=app_record_validation_commands.cmd_validate_app_record_export
     )
 
+    export_app_record_parser = subparsers.add_parser(
+        "export-app-records",
+        help="Export explicitly selected community.lexicon.app.entry records.",
+    )
+    export_app_record_parser.add_argument(
+        "--db-path", required=True, help="Source schema v3 SQLite database opened read-only."
+    )
+    export_app_record_parser.add_argument(
+        "--manifest", required=True, help="Publication manifest JSON path."
+    )
+    export_app_record_parser.add_argument(
+        "--output", required=True, help="Validated multi-record JSON output path."
+    )
+    export_app_record_parser.set_defaults(
+        func=app_record_validation_commands.cmd_export_app_records
+    )
+
     explain_parser = subparsers.add_parser("explain", help="Explain saved registry conclusions without network or LLM access.")
     explain_parser.add_argument("-p", "--project-key", required=True, help="Target one project key.")
     explain_parser.add_argument("--topic", choices=["all", *explain_commands.TOPICS], default="all", help="Explanation topic. Default: all.")

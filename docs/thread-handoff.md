@@ -24,10 +24,15 @@
   いなかったため、その完了までは主張しません。撤去時のread-only監査結果は
   [マージ規則shadow比較](notes/project-merge-policy-shadow-comparison.md)へ閉じ、正本DBは変更していません。
   通常のMerge review、`separate_project`判断、merge lineage、shadow comparator / policyは維持しています。
+- app record exportは、明示manifestで選んだprojectへUTC `createdAt`を付け、PDS処理へ渡せる裸の
+  `community.lexicon.app.entry` record配列を生成するところまで接続しました。scope未確定keyは別allowlistが
+  必要で、全件成功時だけ成果物を書きます。正本DBとPDSへは書きません。
 
 ## 次に必要な作業
 
-1. roadmapの条件付き短期候補から、実運用上の効果と検証可能性を示せる次の着手対象を選ぶ。
+1. JetstreamでのLexicon publication観測についてboundedなread-only比較を行う。
+2. 比較後、信頼・帰属policyの追加接続を検討する。
+3. その後、開発文書の用語整理を行う。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

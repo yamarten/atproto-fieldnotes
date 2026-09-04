@@ -34,8 +34,8 @@ identifier保存、Website / service / project site、repository帰属、promoti
 
 一時的なマージ推奨reviewはproject境界の候補処理と専用導線の撤去まで完了しました。identifier処遇は
 同じ画面で完了しておらず、名称markerだけで一括補正もしません。再開する場合は、実在・利用時期・公式な
-移行根拠を得たidentifierだけを通常の編集経路で扱います。次はその運用結果を踏まえ、広いtrust policy、
-検索、編集、exportの条件付き候補から着手対象を選びます。
+移行根拠を得たidentifierだけを通常の編集経路で扱います。次はJetstreamでのLexicon publication観測の
+bounded比較、信頼・帰属policyの追加接続、開発文書の用語整理の順で進めます。
 
 ## 直近の作業
 
@@ -196,16 +196,6 @@ project-level triageやrepository解析のgold labelとはそのまま扱いま�
 
 同種の個別訂正を通常triage promptの恒久ruleへ増やしません。identifier、relation、decisionの正本を
 直接JSON編集させず、既存review actionまたは専用mutationを使います。
-
-### app record export
-
-`community.lexicon.app.entry`向けread-only validation reportは接続済みです。次段階では、公開対象のcategory /
-tracking state、`scope_uncertain`の扱い、publication contextとしての`createdAt`、複数recordの出力形式を決め、
-固定したschema revisionに適合するentry JSONを生成します。required fieldを満たすJSONを完了条件とし、PDSへの
-送信は別ツールへ渡します。
-
-現行のapp link roleは[project-record.md](developer/project-record.md)を正本とします。
-export契約は[app-record-export.md](developer/app-record-export.md)を正本とします。
 
 ### Web UI
 

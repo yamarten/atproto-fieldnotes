@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import collections
+import datetime as dt
 import hashlib
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
@@ -12,6 +14,8 @@ from .. import database, identifiers, project_record
 
 REPORT_SCHEMA_VERSION = 1
 VALIDATION_CONTRACT_VERSION = "community-app-entry-readiness-v1"
+EXPORT_SCHEMA_VERSION = 1
+EXPORT_CONTRACT_VERSION = "community-app-entry-export-v1"
 TARGET_NSID = "community.lexicon.app.entry"
 TARGET_SCHEMA_REPOSITORY = "https://tangled.org/lexicon.community/lexicons"
 TARGET_SCHEMA_REVISION = "c8552ebbf7f2d1cc13e14870f6908cdc29796008"
@@ -49,6 +53,11 @@ SPECIFICATION_UNSETTLED_FIELDS = (
     "langs",
     "lexicons",
     "accountIndicators",
+)
+
+_UTC_DATETIME_RE = re.compile(
+    r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z$"
 )
 
 
@@ -346,6 +355,13 @@ def validate_project(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[
     platforms = [str(item).strip() for item in project.get("platforms", []) if str(item).strip()]
     if not platforms:
         fields.append(_field("platforms", "missing_optional", reason="profile_app_platforms_are_empty"))
+    elif len(platforms) > 12:
+        fields.append(_field(
+            "platforms",
+            "unconvertible",
+            value=platforms,
+            reason="platform_count_exceeds_12",
+        ))
     else:
         mapped: list[str] = []
         unknown: list[str] = []
@@ -371,7 +387,7 @@ def validate_project(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[
     fields.append(_field(
         "createdAt",
         "publication_context_required",
-        reason="entry_creation_time_must_be_supplied_by_future_export",
+        reason="entry_creation_time_must_be_supplied_by_export",
     ))
     fields.append(_field(
         "updatedAt",
@@ -604,5 +620,155 @@ def build_report_from_path(path: Path) -> dict[str, Any]:
     conn = open_registry_readonly(path)
     try:
         return build_report(conn)
+    finally:
+        conn.close()
+
+
+def normalize_publication_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("publication manifest must be a JSON object")
+    allowed_keys = {
+        "manifest_schema_version",
+        "project_keys",
+        "allow_scope_uncertain_project_keys",
+        "publication_context",
+    }
+    unknown_keys = sorted(set(value) - allowed_keys)
+    if unknown_keys:
+        raise ValueError(
+            "publication manifest has unknown fields: " + ", ".join(unknown_keys)
+        )
+    if value.get("manifest_schema_version") != 1:
+        raise ValueError("publication manifest requires manifest_schema_version=1")
+
+    project_keys = value.get("project_keys")
+    if not isinstance(project_keys, list) or not project_keys:
+        raise ValueError("publication manifest project_keys must be a non-empty array")
+    if not all(isinstance(item, str) and item for item in project_keys):
+        raise ValueError("publication manifest project_keys must contain non-empty strings")
+    if len(project_keys) != len(set(project_keys)):
+        raise ValueError("publication manifest project_keys must not contain duplicates")
+
+    uncertain_keys = value.get("allow_scope_uncertain_project_keys", [])
+    if not isinstance(uncertain_keys, list) or not all(
+        isinstance(item, str) and item for item in uncertain_keys
+    ):
+        raise ValueError(
+            "publication manifest allow_scope_uncertain_project_keys must be an array of non-empty strings"
+        )
+    if len(uncertain_keys) != len(set(uncertain_keys)):
+        raise ValueError(
+            "publication manifest allow_scope_uncertain_project_keys must not contain duplicates"
+        )
+    unselected_uncertain = sorted(set(uncertain_keys) - set(project_keys))
+    if unselected_uncertain:
+        raise ValueError(
+            "scope-uncertain allowlist contains unselected project keys: "
+            + ", ".join(unselected_uncertain)
+        )
+
+    publication_context = value.get("publication_context")
+    if not isinstance(publication_context, dict):
+        raise ValueError("publication manifest publication_context must be an object")
+    unknown_context = sorted(set(publication_context) - {"createdAt"})
+    if unknown_context:
+        raise ValueError(
+            "publication_context has unsupported fields: " + ", ".join(unknown_context)
+        )
+    created_at = publication_context.get("createdAt")
+    if not isinstance(created_at, str) or not _UTC_DATETIME_RE.fullmatch(created_at):
+        raise ValueError(
+            "publication_context.createdAt must be an RFC 3339 UTC datetime ending in Z"
+        )
+    if len(created_at) > 64:
+        raise ValueError("publication_context.createdAt must not exceed 64 characters")
+    try:
+        parsed = dt.datetime.fromisoformat(created_at[:-1] + "+00:00")
+    except ValueError as error:
+        raise ValueError(
+            "publication_context.createdAt must be a valid calendar datetime"
+        ) from error
+    if parsed.year > 9999:
+        raise ValueError("publication_context.createdAt year must not exceed 9999")
+
+    return {
+        "manifest_schema_version": 1,
+        "project_keys": sorted(project_keys),
+        "allow_scope_uncertain_project_keys": sorted(uncertain_keys),
+        "publication_context": {"createdAt": created_at},
+    }
+
+
+def build_export(
+    conn: sqlite3.Connection, publication_manifest: dict[str, Any]
+) -> dict[str, Any]:
+    manifest = normalize_publication_manifest(publication_manifest)
+    report = build_report(conn)
+    projects_by_key = {item["project_key"]: item for item in report["projects"]}
+    missing_keys = [
+        key for key in manifest["project_keys"] if key not in projects_by_key
+    ]
+    if missing_keys:
+        raise ValueError("publication manifest has unknown project keys: " + ", ".join(missing_keys))
+
+    allow_uncertain = set(manifest["allow_scope_uncertain_project_keys"])
+    rejected: list[str] = []
+    records: list[dict[str, Any]] = []
+    for project_key in manifest["project_keys"]:
+        item = projects_by_key[project_key]
+        readiness = str(item["readiness"])
+        required_statuses = {
+            field["field"]: field["status"]
+            for field in item["fields"]
+            if field["field"] in {"name", "links"}
+        }
+        required_content_ready = all(
+            required_statuses.get(field_name) == "supported"
+            for field_name in ("name", "links")
+        )
+        if readiness == "needs_publication_context":
+            pass
+        elif (
+            readiness == "scope_uncertain"
+            and project_key in allow_uncertain
+            and required_content_ready
+            and not item["issues"]["unconvertible"]
+        ):
+            pass
+        else:
+            rejected.append(f"{project_key} ({readiness})")
+            continue
+
+        record = {
+            "$type": TARGET_NSID,
+            **item["candidate_record"],
+            "createdAt": manifest["publication_context"]["createdAt"],
+        }
+        records.append(record)
+    if rejected:
+        raise ValueError(
+            "selected projects are not exportable under this manifest: " + ", ".join(rejected)
+        )
+
+    export: dict[str, Any] = {
+        "export_schema_version": EXPORT_SCHEMA_VERSION,
+        "export_contract_version": EXPORT_CONTRACT_VERSION,
+        "source_snapshot": {
+            "schema_version": report["snapshot"]["schema_version"],
+            "input_fingerprint": report["snapshot"]["input_fingerprint"],
+        },
+        "publication_manifest": manifest,
+        "records": records,
+    }
+    export["content_hash"] = _content_hash(export)
+    return export
+
+
+def build_export_from_path(
+    path: Path, publication_manifest: dict[str, Any]
+) -> dict[str, Any]:
+    conn = open_registry_readonly(path)
+    try:
+        return build_export(conn, publication_manifest)
     finally:
         conn.close()

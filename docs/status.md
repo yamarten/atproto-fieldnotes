@@ -78,12 +78,15 @@
   - merge前に開始したenrich等が後からalias元keyを保存しようとした場合はstale failureとしてtransactionをrollbackし、alias元projectを再作成せずcanonical targetも更新しない
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
-- app record export readiness
+- app record export
   - `validate-app-record-export`は`community.lexicon.app.entry`だけをtargetにし、指定したschema v3 DBをread-onlyで監査してJSON reportを作る
   - candidate recordは紹介用profile、canonical scalar、confirmed current identifier/resourceから作り、それ以外の候補は診断用の除外入力としてreportに残す
   - field不足、根拠不足、変換不能、仕様未確定、publication context、公開scopeを分け、source field/normalized rowまで追跡できる
   - 公開scopeはfield completenessより優先し、`category=reject` / `tracking_state=ignore`を`not_applicable`、`name_only` / category未設定 / `out_of_scope`を`scope_uncertain`に分類する
-  - `createdAt`は将来のJSON生成が供給するpublication contextとして扱う。現行機能はreport生成まで接続済み
+  - `export-app-records`は明示publication manifestのproject keyだけを対象にし、同じmanifestのUTC `createdAt`を付けたentry JSONを生成する
+  - categoryやtracking stateからの暗黙一括選択はせず、`scope_uncertain`は別allowlistで明示した場合だけscopeをoverrideする。required不足、変換不能、`not_applicable`はoverrideしない
+  - 複数record成果物はproject key順の裸のrecord配列とし、DB fingerprint、manifest、content hashを成果物全体に記録する。単一collection固定のためtarget metadataやtarget指定optionは持たず、source projectとの対応はmanifestとrecordの同じordinalで追跡する
+  - exportは全件成功方式で、1件でも不適格なら成果物を書かない。DBはread-onlyで、PDS送信とrkey生成は行わない
 - bounded service verification保存
   - current stateはsurfaceごとの最新結果を最大32件保持
   - project直下のservice status/confidence/evidenceは、最新のURL別・lane別resultからpure projectionし、過去scalarのmax/unionを引き継がない

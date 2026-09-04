@@ -1334,11 +1334,12 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 ## app record export
 
 `application/app_record_validation.py`は`community.lexicon.app.entry`だけをtargetにするread-only serviceです。
-CLI adapterは指定DBを`mode=ro`かつ`query_only`で開き、report JSONを出力します。profile、canonical scalar、
-confirmed current identifier/resourceをfield候補へ投影し、candidate/non-currentは診断用の除外入力として残します。公開scope、
-required/optional不足、根拠不足、変換不能、仕様未確定、publication contextを別々に返します。
+CLI adapterは指定DBを`mode=ro`かつ`query_only`で開き、readiness reportまたはentry exportを出力します。profile、
+canonical scalar、confirmed current identifier/resourceをfield候補へ投影し、candidate/non-currentは診断用の除外入力として
+残します。export対象と`createdAt`はversion付きpublication manifestから受け、project key順の裸のrecord配列を返します。
+scope未確定keyは別allowlistが必要で、1件でも不適格なら成果物を書きません。
 
-target revision、field mapping、readiness、evidence trace、再現性と将来のJSON生成境界は
+target revision、field mapping、readiness、evidence trace、再現性とJSON生成境界は
 [App Record Export](app-record-export.md)を正本とします。
 
 ## app.status の将来分離

@@ -9,6 +9,7 @@ subcommands=(
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
   'validate-app-record-export:Write a read-only app entry readiness report'
+  'export-app-records:Export explicitly selected app entry records'
   'explain:Explain saved registry conclusions'
   'review-queue:List projects that deserve human review'
   'promotion-queue:List unintroduced projects worth showcasing'
@@ -186,6 +187,12 @@ case "$cmd" in
     _arguments -S \
       '--db-path[Source schema v3 SQLite database opened read-only]:database file:_files' \
       '--output[JSON readiness report path]:report file:_files'
+    ;;
+  export-app-records)
+    _arguments -S \
+      '--db-path[Source schema v3 SQLite database opened read-only]:database file:_files' \
+      '--manifest[Publication manifest JSON path]:manifest file:_files' \
+      '--output[Validated multi-record JSON path]:output file:_files'
     ;;
   explain)
     _arguments -S \

@@ -1,8 +1,8 @@
 # App Record Export
 
 この文書は、保存済みprojectを第三者listingの`community.lexicon.app.entry` JSONへ投影するexport機能の
-契約を定めます。現行実装はread-only validation reportまでを提供し、将来のJSON生成も同じfield mappingと
-evidence境界を使います。生成したJSONのPDSへの送信は、用途に応じた別ツールが担当します。
+契約を定めます。現行実装はread-only validation reportと、明示したpublication manifestからのentry JSON生成を
+提供します。生成したJSONのPDSへの送信は、用途に応じた別ツールが担当します。
 
 この契約は、export候補の根拠とreadinessの意味を実装・review間で揃えるための正本です。将来計画は
 `docs/roadmap.md`、現在接続済みの範囲は`docs/status.md`で管理します。
@@ -19,8 +19,8 @@ targetは`community.lexicon.app.entry`だけです。Lexicon Communityの
 必要に応じて管理する情報です。
 
 targetのrequired fieldは`name`、`links`、`createdAt`です。`createdAt`はentry作成時刻であり、projectの
-`first_seen_at`や外部projectの作成時刻ではありません。将来のexportが公開時に供給する値として
-`publication_context_required`へ分けます。
+`first_seen_at`や外部projectの作成時刻ではありません。validation reportでは
+`publication_context_required`へ分け、export時にmanifestから供給します。
 
 ## 入力境界
 
@@ -77,8 +77,9 @@ code point数がgrapheme上限以下ならgrapheme上限も満たします。非
 | `scope_uncertain` | `name_only`、category未設定、または`out_of_scope`で公開対象判断が必要 |
 | `not_applicable` | `category=reject`または`tracking_state=ignore` |
 
-`record_ready`はJSON生成が接続されるまでfalseです。`content_ready`は`needs_publication_context`だけで
-trueになります。公開scopeをfield completenessより優先し、`reject` / `ignore`は`not_applicable`になります。
+publication contextを持たないreadiness reportでは`record_ready`はfalseです。`content_ready`は
+`needs_publication_context`だけでtrueになります。公開scopeをfield completenessより優先し、`reject` / `ignore`は
+`not_applicable`になります。最終的な生成可否はpublication manifestを加えたexport時に判定します。
 
 ## Validation reportと再現性
 
@@ -103,11 +104,48 @@ reportはproject key順で、次を含みます。
 report内容をDB snapshotとcontractだけで決めることで、同じ入力から同じreportとhashを生成します。件数は
 snapshotの観測値です。reportは`.tmp/`へ置く一時的な監査結果です。
 
+## Publication manifest
+
+export対象をcategoryやtracking stateから暗黙に一括選択しません。operatorがmanifest version 1でproject keyを
+列挙します。同じmanifestにpublication contextを置くため、同じDB snapshotとmanifestから同じ成果物を再生成
+できます。
+
+```json
+{
+  "manifest_schema_version": 1,
+  "project_keys": ["proj:000bc4aef27f"],
+  "publication_context": {
+    "createdAt": "2026-09-04T12:00:00Z"
+  }
+}
+```
+
+`project_keys`は空でない一意な完全project keyの配列です。`createdAt`は64文字以内の有効なRFC 3339 datetimeで、
+UTCの`Z`表記だけを受理します。時刻は全recordへ同じ値を付けます。offsetの自動変換や`first_seen_at`へのfallbackは
+行いません。
+
+readinessが`needs_publication_context`のprojectだけを通常出力できます。`scope_uncertain`を公開する場合は、
+`project_keys`に加えて`allow_scope_uncertain_project_keys`にも同じkeyを明示します。このoverrideは公開scopeだけを
+解決し、required field不足や変換不能を許可しません。`not_applicable`はoverrideできません。
+
+manifestに未知field、重複key、未選択keyのscope override、存在しないproject、または1件でも不適格なprojectが
+あればexport全体を失敗させ、成果物を書きません。
+
 ## Entry JSON生成
 
-次段階では、公開対象として選んだprojectの`candidate_record`へpublication contextの`createdAt`を加え、固定した
-schema revisionで検証済みのentry JSONを生成します。そのために必要なTODOは、公開対象のcategory / tracking
-state、`scope_uncertain`の扱い、`createdAt`の付与規則、複数recordの出力形式を決めることです。
+```bash
+project-registry export-app-records \
+  --db-path data/survey.db \
+  --manifest .tmp/app-record-export/manifest.json \
+  --output .tmp/app-record-export/records.json
+```
 
-required fieldを満たすJSON生成までをこのexport機能の責務とします。上記のsource contract未設定fieldは省略し、
-PDSへの送信は別ツールが担当します。
+成果物はproject key順の裸の`records`配列を持ちます。各要素はそのままPDS書込み処理へ渡せるrecordで、
+`$type`、`name`、`links`、`createdAt`を必ず持ち、検証済みのmapped optional fieldだけを含みます。要素ごとの
+`project_key`や`collection` wrapperは付けません。target collectionも成果物には記録しません。このコマンドは
+`community.lexicon.app.entry`だけを対象とし、target指定optionは持ちません。source projectとの対応が必要な場合は、
+正規化済み`publication_manifest.project_keys`と`records`の同じordinalを使います。source contract未設定fieldは
+省略します。成果物にはDB入力fingerprint、manifest、`content_hash`を含みます。
+
+DBはread-onlyで、出力先とDBが同一pathなら拒否します。PDS用rkeyはtarget schemaの`tid`ですが、この機能は
+PDS送信もrkey生成も行いません。後段の送信ツールは固定collectionへ裸の`records`を送信します。

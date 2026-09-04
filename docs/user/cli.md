@@ -12,7 +12,7 @@
 - 多くのコマンドはstdoutへJSONを出す。`show`と`explain`はtext/JSON、`enrich`はJSON Lines。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
-通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助`validate-app-record-export`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
+通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -45,6 +45,7 @@
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
 | `validate-app-record-export` | schema v3 DBと`--output` | `community.lexicon.app.entry`向けreadiness report | DBはread-only。指定JSONだけを書き込み |
+| `export-app-records` | schema v3 DB、publication manifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
 
 `show --seed`は登録済みのシード値から登録プロジェクトを解決します。シードをプロジェクトキーとして解釈しません。曖昧なURLは`--type`を指定してください。
 
@@ -54,9 +55,22 @@
 
 `validate-app-record-export`は紹介用profile、canonical scalar、confirmedなcurrent identifier/resourceから
 公開候補を作り、その他の候補を診断用の除外入力として残します。projectごとにrequired/optionalの不足、
-根拠不足、変換不能、仕様未確定、公開scopeを分け、`createdAt`を将来のpublication contextとして報告します。
+根拠不足、変換不能、仕様未確定、公開scopeを分け、`createdAt`をpublication contextとして報告します。
 通常は`.tmp/`へ出力してください。詳細は
 [App Record Export](../developer/app-record-export.md)を参照してください。
+
+`export-app-records`は公開対象のproject keyとUTCの`createdAt`をmanifestで明示します。categoryや追跡状態から
+自動選択しません。`scope_uncertain`はmanifestの別allowlistへ同じkeyを重ねて指定した場合だけ許可し、required
+field不足、変換不能、`not_applicable`は許可しません。1件でも不適格なら出力しません。
+`records`は要素ごとのproject keyやcollection wrapperを持たない裸のrecord配列です。targetは
+`community.lexicon.app.entry`固定のため、成果物のtarget metadataやtarget指定optionもありません。
+
+```bash
+project-registry export-app-records \
+  --db-path data/survey.db \
+  --manifest .tmp/app-record-export/manifest.json \
+  --output .tmp/app-record-export/records.json
+```
 
 ### 一括`enrich`とチェックポイント
 
