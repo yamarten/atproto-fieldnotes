@@ -10,6 +10,7 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
+from .. import database as registry_database
 from .. import enrichment_pipeline, registry as core
 from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
 from project_registry_core import project_record
@@ -19,6 +20,8 @@ DEFAULT_TRIAGE_RULES_BY_MODEL = {
     "qwen/qwen3.6-35b-a3b": core.ROOT / "prompts/model-rules/qwen-3.6-35b-a3b.txt",
     "qwen3.6-35b-a3b": core.ROOT / "prompts/model-rules/qwen-3.6-35b-a3b.txt",
 }
+
+_CHECKPOINT_SOURCE_KEYS = "_enrich_checkpoint_source_keys"
 
 
 def configured_triage_prompt_suffix_file(options: EnrichmentOptions) -> str:
@@ -223,20 +226,27 @@ def _select_projects(conn: sqlite3.Connection, options: EnrichmentOptions) -> li
 
 
 def _load_checkpoint_projects(conn: sqlite3.Connection, checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
-    projects: list[dict[str, Any]] = []
+    projects_by_key: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
+    completed = {str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}
     for value in checkpoint.get("selected_project_keys", []):
         project_key = str(value or "").strip()
-        if not project_key:
+        if not project_key or project_key in completed:
             continue
         project = project_record.fetch_project(conn, project_key)
         if project is None:
+            alias_target = registry_database.project_key_alias_target(conn, project_key)
+            project = project_record.fetch_project(conn, alias_target) if alias_target else None
+        if project is None:
             missing.append(project_key)
-        else:
-            projects.append(project)
+            continue
+        canonical_key = str(project.get("project_key") or "")
+        selected = projects_by_key.setdefault(canonical_key, project)
+        source_keys = selected.setdefault(_CHECKPOINT_SOURCE_KEYS, [])
+        if project_key not in source_keys:
+            source_keys.append(project_key)
     checkpoint["missing_project_keys"] = missing
-    completed = {str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}
-    return [project for project in projects if str(project.get("project_key") or "") not in completed]
+    return list(projects_by_key.values())
 
 
 def _mark_started(checkpoint: dict[str, Any], project_key: str) -> None:
@@ -378,6 +388,11 @@ def run(
         if cancellation.cancel_requested:
             break
         project_key = str(project.get("project_key") or "")
+        checkpoint_source_keys = [
+            str(item)
+            for item in project.pop(_CHECKPOINT_SOURCE_KEYS, [project_key])
+            if str(item)
+        ]
         index = completed_before + offset
         now = dt.datetime.now(dt.timezone.utc)
         elapsed_seconds = max(0.0, (now - run_started).total_seconds())
@@ -421,7 +436,8 @@ def run(
             }
             failed_projects.append(failure)
             if checkpoint:
-                _mark_failed(checkpoint, project_key, exc)
+                for checkpoint_project_key in checkpoint_source_keys:
+                    _mark_failed(checkpoint, checkpoint_project_key, exc)
                 written_path = write_checkpoint(checkpoint, options.checkpoint_path)
             error = {"type": type(exc).__name__, "message": str(exc), "project_key": project_key}
             publish("failed", {"error": error, "continuing": bool(options.all_projects and options.continue_on_error)})
@@ -454,7 +470,8 @@ def run(
                 error,
             )
         if checkpoint:
-            _mark_completed(checkpoint, project_key)
+            for checkpoint_project_key in checkpoint_source_keys:
+                _mark_completed(checkpoint, checkpoint_project_key)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
         if enriched.get("promoted_now"):
             promoted_now.append({

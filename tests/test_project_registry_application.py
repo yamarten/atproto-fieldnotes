@@ -1237,6 +1237,36 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertEqual(target_after["manual_seeds"], target_before["manual_seeds"])
         self.assertEqual(alias_count, 0)
 
+    def test_normal_merge_cleans_up_a_revived_alias_source(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            registry.register_project_merge_alias(
+                conn,
+                source_project_key=source["project_key"],
+                target_project_key=target["project_key"],
+            )
+            conn.commit()
+
+            merge.merge_projects(
+                conn,
+                project_key=source["project_key"],
+                target_project_key=target["project_key"],
+                execute=True,
+                force=True,
+            )
+            source_after = project_record.fetch_project(conn, source["project_key"])
+            alias_target = conn.execute(
+                "SELECT canonical_project_key FROM project_key_aliases WHERE alias_project_key = ?",
+                (source["project_key"],),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        self.assertIsNone(source_after)
+        self.assertEqual(str(alias_target[0]), target["project_key"])
+
     def test_split_and_separate_roll_back_when_second_project_save_fails(self) -> None:
         conn = registry.open_db()
         try:

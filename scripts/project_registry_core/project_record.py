@@ -36,6 +36,10 @@ PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
 LOOSE_NSID_PATTERN = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:\.[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)+"
 
 
+class StaleProjectWriteError(RuntimeError):
+    """Raised when a stale writer targets a project key that was merged away."""
+
+
 def iso_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
@@ -1532,6 +1536,12 @@ def save_project(
         )
     } if preserve_normalized_rows else {}
     project = ensure_project_shape(project)
+    alias_target = registry_database.project_key_alias_target(conn, str(project.get("project_key") or ""))
+    if alias_target:
+        raise StaleProjectWriteError(
+            f"project was merged while this write was in progress: "
+            f"{project['project_key']} -> {alias_target}; retry against current project state"
+        )
     project["input_nsids"] = unique_list([identifier_core.normalize_nsid(item) for item in project.get("input_nsids", []) if item])
     project["resolved_nsids"] = unique_list([identifier_core.normalize_nsid(item) for item in project.get("resolved_nsids", []) if item])
     project["lexicon_resolution_entries"] = normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))

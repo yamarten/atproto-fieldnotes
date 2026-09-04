@@ -86,6 +86,12 @@ project key、例外種別/message、時刻を保存して後続projectを既定
 resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。
 障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
 
+project処理中に対象keyがmergeされてaliasになった場合もproject失敗として扱います。保存境界の
+`StaleProjectWriteError`は古いsource snapshotをalias keyまたはcanonical targetへ保存せず、同じtransactionで
+作成した未commitのinvestigation runとともにrollbackします。bulk checkpointには元のsource keyと例外を残し、
+resume時にalias解決後のcanonical projectを現在stateから再実行します。これはmerge済みkeyの復活防止であり、
+CLI等を含むwriter全体のprocess間排他を提供するものではありません。
+
 ## Enrich Checkpoint
 
 `enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。

@@ -6,10 +6,11 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli
-from project_registry_core.application import enrichment
+from project_registry_core.application import enrichment, merge, projects
 from project_registry_core.commands import enrichment as enrichment_commands
+from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import CancellationToken, OperationRequest
-from project_registry_core import project_record
+from project_registry_core import project_record, storage
 
 
 class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
@@ -242,6 +243,172 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(len(calls), 1)
         self.assertIn("--resume-run", result.data["resume_command"])
+
+    def test_enrich_started_before_merge_cannot_recreate_alias_source(self) -> None:
+        setup = registry.open_db()
+        try:
+            source = projects.add_seed(setup, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(setup, seed="https://target.example", seed_type="service_url")
+            source_snapshot = project_record.fetch_project(setup, source["project_key"])
+            assert source_snapshot is not None
+            prior_run_id = storage.save_investigation_run(
+                setup,
+                project_key=source["project_key"],
+                started_at="2026-08-01T00:00:00+00:00",
+                completed_at="2026-08-01T00:01:00+00:00",
+                input_project=source_snapshot,
+                output_project=source_snapshot,
+                bundle=EvidenceBundle(
+                    project_key=source["project_key"],
+                    collected_at="2026-08-01T00:01:00+00:00",
+                ),
+            )
+            setup.commit()
+        finally:
+            setup.close()
+
+        stale_run_id = "inv:stale-after-merge"
+
+        def finish_after_merge(conn, project, **kwargs):  # type: ignore[no-untyped-def]
+            merger = registry.open_db()
+            try:
+                merge.merge_projects(
+                    merger,
+                    project_key=source["project_key"],
+                    target_project_key=target["project_key"],
+                    execute=True,
+                    force=True,
+                )
+                current_target = project_record.fetch_project(merger, target["project_key"])
+                assert current_target is not None
+                current_target["summary"] = "target changed after merge"
+                project_record.save_project(merger, current_target, preserve_timestamps=True)
+                merger.commit()
+            finally:
+                merger.close()
+
+            stale = dict(project)
+            stale["summary"] = "stale source snapshot"
+            storage.save_investigation_run(
+                conn,
+                run_id=stale_run_id,
+                project_key=source["project_key"],
+                started_at="2026-08-02T00:00:00+00:00",
+                completed_at="2026-08-02T00:01:00+00:00",
+                input_project=project,
+                output_project=stale,
+                bundle=EvidenceBundle(
+                    project_key=source["project_key"],
+                    collected_at="2026-08-02T00:01:00+00:00",
+                ),
+            )
+            return stale
+
+        request = OperationRequest.create(
+            "enrich",
+            operation_id="stale-enrich",
+            execute=True,
+            parameters={"project_key": source["project_key"]},
+        )
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(
+                enrichment.enrichment_pipeline,
+                "enrich_project",
+                side_effect=finish_after_merge,
+            ):
+                result = enrichment.run(conn, request)
+        finally:
+            conn.close()
+
+        check = registry.open_db()
+        try:
+            alias_target = check.execute(
+                "SELECT canonical_project_key FROM project_key_aliases WHERE alias_project_key = ?",
+                (source["project_key"],),
+            ).fetchone()
+            revived_source = project_record.fetch_project(check, source["project_key"])
+            current_target = project_record.fetch_project(check, target["project_key"])
+            stale_run = storage.load_investigation_run(check, stale_run_id)
+            run_ids = [
+                item["run_id"]
+                for item in storage.list_investigation_run_summaries(check, project_key=target["project_key"])
+            ]
+        finally:
+            check.close()
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error["type"], "StaleProjectWriteError")
+        self.assertEqual(str(alias_target[0]), target["project_key"])
+        self.assertIsNone(revived_source)
+        assert current_target is not None
+        self.assertEqual(current_target["summary"], "target changed after merge")
+        self.assertIsNone(stale_run)
+        self.assertEqual(run_ids, [prior_run_id])
+
+    def test_resume_retries_merged_source_against_canonical_project_once(self) -> None:
+        checkpoint_path = Path(self.tempdir.name) / "merged-source.json"
+        setup = registry.open_db()
+        try:
+            source = projects.add_seed(setup, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(setup, seed="https://target.example", seed_type="service_url")
+            selected = [
+                project_record.fetch_project(setup, source["project_key"]),
+                project_record.fetch_project(setup, target["project_key"]),
+            ]
+            assert all(selected)
+            request = self.request(checkpoint_path)
+            checkpoint = enrichment.new_checkpoint(
+                selected,
+                request,
+                enrichment.EnrichmentOptions.from_request(request),
+            )
+            checkpoint["status"] = "failed"
+            checkpoint["failed_projects"] = [{
+                "project_key": source["project_key"],
+                "error": "StaleProjectWriteError: merged during enrich",
+                "at": "2026-08-02T00:01:00+00:00",
+            }]
+            enrichment.write_checkpoint(checkpoint, str(checkpoint_path))
+            merge.merge_projects(
+                setup,
+                project_key=source["project_key"],
+                target_project_key=target["project_key"],
+                execute=True,
+                force=True,
+            )
+        finally:
+            setup.close()
+
+        calls: list[str] = []
+
+        def enrich_current(conn, project, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(project["project_key"])
+            return dict(project, summary="retried canonical project")
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(
+                enrichment.enrichment_pipeline,
+                "enrich_project",
+                side_effect=enrich_current,
+            ):
+                result = enrichment.run(
+                    conn,
+                    self.request(checkpoint_path, resume_run="test-run"),
+                )
+        finally:
+            conn.close()
+
+        saved_checkpoint = json.loads(checkpoint_path.read_text())
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(calls, [target["project_key"]])
+        self.assertEqual(
+            set(saved_checkpoint["completed_project_keys"]),
+            {source["project_key"], target["project_key"]},
+        )
+        self.assertEqual(saved_checkpoint["failed_projects"], [])
+        self.assertEqual(saved_checkpoint["missing_project_keys"], [])
 
     def test_cli_fail_fast_option_sets_bulk_policy(self) -> None:
         args = cli.build_parser().parse_args(["enrich", "--all", "--fail-fast"])

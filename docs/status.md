@@ -79,6 +79,7 @@
   - merge、split、separateの複数project書込みを単一transactionで実行
   - merge済みsource keyをcanonical projectへ解決
   - source keyのinvestigation runをtarget detailへ束ね、保存snapshotは維持
+  - merge前に開始したenrich等が後からalias元keyを保存しようとした場合はstale failureとしてtransactionをrollbackし、alias元projectを再作成せずcanonical targetも更新しない
 - 手動cleanup
   - investigation履歴は既定90日かつprojectごとに最新3 runを保持
 - app record export readiness
@@ -193,7 +194,7 @@
 - sync/reviewのcheckpoint再開
 - server再起動後のprocess job eventとjob一覧の復元
   - enrichの未完了checkpoint再発見は接続済み
-- CLIなど別processを含むwriter排他
+- CLIなど別processを含むwriter排他。merge済みalias keyの再作成は保存境界で拒否するが、異なるcanonical projectへの一般的な同時writeはSQLiteのlockとbusy timeoutに委ねる
 - 任意の将来schemaへ順次上げる汎用incremental migration runner
   - version 2から3はreview済みmanifestを使う新規複製DBの明示materializationに限定
 - DB-level trust/data policy marker
@@ -223,9 +224,9 @@
 
 ## 動作確認状況
 
-2026-08-31時点で確認済み:
+2026-09-04時点で確認済み:
 
-- 全unit test 739件
+- 全unit test 751件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - Semble / Tangled / anonymous browser laneを保存済みsampleで評価し、Sembleを維持、TangledをJetstream v2
   snapshotへ置換、anonymous browser verificationをWeb project detailへ接続した。Jetstreamは公式SDKで限定sequenceの

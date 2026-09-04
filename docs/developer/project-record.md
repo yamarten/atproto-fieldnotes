@@ -50,6 +50,12 @@ mergeで削除したsource project keyを、存続するcanonical project keyへ
 alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ解決し、canonical projectのInvestigation一覧にはalias元keyで保存されたrunも含めます。
 `investigation_runs.project_key`とrun内snapshot/bundleは、調査当時のidentityを残すため書き換えません。
 
+`project_key_aliases`に存在するkeyは、`projects`へ再保存できません。merge前に読み込まれたenrich、sync、review等の
+snapshotがmerge後に保存へ到達した場合、保存境界は`StaleProjectWriteError`で拒否します。alias先へsnapshotを
+付け替える処理は行いません。付け替えると、merge後に更新されたcanonical projectを古いsource stateで
+巻き戻し得るためです。同じtransactionで先に作られたinvestigation runもrollbackし、merge前にcommit済みの
+source runだけをalias familyの履歴として維持します。
+
 このtableはschema version 2で追加され、version 3でも継続利用します。
 
 ### `profile_json`
@@ -350,6 +356,10 @@ applicationで読む時はsemantic evaluationから`metrics`へ分離するた�
 mergeはtarget保存、source alias作成、第三projectの`separate_project`参照更新、source削除を
 1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの
 investigation runはalias familyとしてtargetのrun一覧へ表示します。
+
+merge後に完了したstale enrichはcurrent projectにもinvestigation historyにも保存しません。enrich applicationが
+project単位transactionをrollbackし、単体runは`failed`、bulk runはcheckpointの`failed_projects`へ例外とsource keyを
+残して再試行対象にします。再試行では旧keyがcanonical keyへ解決され、現在stateから新しい調査を開始します。
 
 split前のrunは、どのidentifierに属する証拠かを自動分配できないため元projectに残します。
 split後の新しいrunだけを新project keyへ保存します。run snapshotを後から書き換えて

@@ -33,6 +33,8 @@
   定期`enrich_all`が別runとして開始し、19 project処理後に中断されています。重複が中断原因かは未確認ですが、
   CLI等の別processを含むwriter排他は未接続です。
 - DBへ直接影響する操作の前は別のWeb / enrich / CLI writerが動いていないことを確認してください。
+- merge前に開始した処理がalias元projectを再作成する経路は保存境界で拒否します。異なるcanonical projectへの
+  一般的なprocess間writer排他は未接続のため、上記の運用上の注意は継続します。
 - bounded page-to-repository policyの最終補正直前backupは
   `data/backups/project-repository-final-20260828T200038+0900/survey.db`です。
 - 移行・補正前backupが上記を含め5世代、各約2.4 GiB残っています。通常運用の確認後、保持する世代を決めて
