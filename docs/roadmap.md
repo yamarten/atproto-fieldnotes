@@ -32,22 +32,12 @@ identifier保存、Website / service / project site、repository帰属、promoti
 責務分離は一段落しました。次は判断モデルを広げるより、実運用の結果から精度、review効率、維持費を
 確認する段階です。
 
-直近は次の順序で進めます。
-
-1. 一時的なマージ推奨review導線で現在候補を処理する
-2. 候補処理後に専用導線を撤去し、その結果を見て広いtrust policy、検索、編集、exportへ進む
+一時的なマージ推奨reviewはproject境界の候補処理と専用導線の撤去まで完了しました。identifier処遇は
+同じ画面で完了しておらず、名称markerだけで一括補正もしません。再開する場合は、実在・利用時期・公式な
+移行根拠を得たidentifierだけを通常の編集経路で扱います。次はその運用結果を踏まえ、広いtrust policy、
+検索、編集、exportの条件付き候補から着手対象を選びます。
 
 ## 直近の作業
-
-### 一時的なマージ推奨reviewの完了と撤去
-
-現行117件・43 target向けの専用review導線は接続済みです。自動マージせず、比較後のmerge、30日保留、
-`separate_project`だけを扱います。残る作業は実候補を処理し、次を確認してから専用導線を撤去することです。
-
-- 未処理・期限切れ保留・変化したfingerprintの候補が残っていない
-- `separate_project`とmerge lineageが通常導線から引き続き確認できる
-- 暫定`defer_review_target` rowを履歴として残すかcleanupするか決める
-- `application/merge_review.py`、専用endpoint/UI/testを削除しても通常のMerge reviewが変わらない
 
 ## 条件付き短期候補
 

@@ -19,11 +19,15 @@
   anonymous browser verificationはWeb project detailへ接続しました。一時的な`source_observations`と未接続の
   Tangled timeline / community / bot adapterは撤去しました。根拠は
   [評価記録](notes/source-lane-evaluation-2026-08-30.md)を参照してください。
+- 一時的な`Review > Merge Recommendations`はproject境界の候補処理を完了し、正本DBの現行推奨と未解除の
+  専用保留が0件であることを確認して撤去しました。元設計にあったidentifierごとの処遇選択は実装されて
+  いなかったため、その完了までは主張しません。撤去時のread-only監査結果は
+  [マージ規則shadow比較](notes/project-merge-policy-shadow-comparison.md)へ閉じ、正本DBは変更していません。
+  通常のMerge review、`separate_project`判断、merge lineage、shadow comparator / policyは維持しています。
 
 ## 次に必要な作業
 
-1. `Review > Merge Recommendations`で現行117件・43 targetを人手処理する。比較後だけmerge、30日保留、
-   `separate_project`を選び、自動mergeは行わない。処理完了後はroadmapの撤去条件に従って専用導線を削除する。
+1. roadmapの条件付き短期候補から、実運用上の効果と検証可能性を示せる次の着手対象を選ぶ。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

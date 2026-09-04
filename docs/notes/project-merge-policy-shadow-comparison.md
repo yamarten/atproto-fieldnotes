@@ -1,8 +1,10 @@
 # 登録プロジェクトのマージ規則shadow比較
 
-> 作業用・比較結果文書です。現行仕様の正本ではありません。2026-08-17にschema version 3の正本DBをread-only transactionで再評価した結果と、次の設計判断に必要な材料を残します。完全なJSON reportは`.tmp/merge-policy-v4-schema3-20260817.json`に生成し、コミットしません。
+> 完了した比較の履歴文書です。現行仕様の正本ではありません。schema version 3の正本DBをread-only transactionで再評価した結果、判断理由、一時的なreview導線の適用範囲と終了判断を残します。件数は各実行時点のsnapshotであり、現行値として読み替えません。
 
 > 2026-08-31追記: 現行正本DBのread-only再監査は3,846 pair中`RECOMMEND_MERGE_REVIEW` 117件、`KEEP_SEPARATE` 20件、`REVIEW` 3,709件、固定19/19件成功でした。117件は43 targetです。旧110件のreport本体は残っていないためpair keyの完全差分は復元できませんが、文書に残るtarget集計との比較では旧候補から9件減少、16件増加しています。増加中6件は旧比較後に作成されたPDSjs 2件、Firehose Games 1件、GainForest 2件、PopFeed 1件で、残りは既存recordの構成変化による再評価です。旧人手reviewは文書上の判断であり、newdin Read / Untangledの`separate_project`やteal.fmの保留を正本DBへ適用した記録は確認できませんでした。現行候補を処理する一時的なWeb review導線を接続し、自動mergeは引き続き無効です。
+
+> 2026-09-04追記: 一時的なWeb review導線によるproject境界の候補処理後、正本DBのread-only再計算で現行推奨0件、未解除の`defer_review_target` / `merge_policy_pair` row 0件を確認しました。専用導線は撤去し、shadow comparator / policyは比較・検証用として維持します。この導線はidentifierごとのcurrent / former / non-production / noise選択を実装しておらず、当初設計の全体を完了したものではありません。
 
 ## 結論
 
@@ -14,7 +16,7 @@ role、直接relation、手動の別project指定を分ける境界を維持し�
 
 schema version 3のadoption provenance 10,709件も入力できるようになりました。ただし現在候補で「同じ具体的claimを同じ収集eventから二重採用した」pairは0件でした。これはsignalが無効という意味ではなく、移行時点のcurrent project間に該当する重複生成が残っていないというnegative resultです。採用sourceが同じというだけではマージ根拠にせず、今後実際の重複作成が起きた時の優先review情報として維持します。
 
-比較器はread-onlyの開発補助であり、自動マージ、候補保存、Web UI、schema、正本DBを変更しません。110件をtarget単位でreviewした結果、107件は同じ編集単位へ収める判断を支持でき、newdin ReadとUntangledの2件は独立した提供物として分離を維持する方が妥当と分かりました。teal.fmの1件は、collectionの実在だけではprojectへの帰属も過去の正式採用も確認できないため保留します。次の設計ゲートは、この理由区分をWebのreview動線へ接続する価値と、追加すべき表示・判断・guard記録の範囲を確認することです。
+比較器はread-onlyの開発補助であり、自動マージ、候補保存、Web UI、schema、正本DBを変更しません。110件をtarget単位でreviewした結果、107件は同じ編集単位へ収める判断を支持でき、newdin ReadとUntangledの2件は独立した提供物として分離を維持する方が妥当と分かりました。teal.fmの1件は、collectionの実在だけではprojectへの帰属も過去の正式採用も確認できないため保留しました。その後の一時導線はproject境界の判断だけを接続して候補を処理し、identifier処遇を接続しないまま終了しました。
 
 ## schema version 3での再比較
 
@@ -237,7 +239,17 @@ fork、mirror、successor、predecessor、ownership transferのtypedなproject�
 
 まだ支持されないのは、この110件を自動実行することと、fragment側を常にsourceとして消すことです。独立project、共有authority、未分類Lexicon、包括recordの取り違えが残ります。初期接続では人が確認し、承認または`separate_project`判断を残すreview支援に限定します。
 
-110件のtarget単位reviewでは、107件が同じ編集単位への統合を支持し、newdin ReadとUntangledの2件は別projectの維持を支持しました。teal.fmの1件は帰属とidentifierの時間上の立場をともに保留します。過去マージと現在候補の再分類からは、collection fragment以外にもconfirmed service衝突と同一claimの重複採用を優先reviewへ加える価値が確認できました。candidate、authority、alias、domainは既知の別projectにも現れるため、候補を隠さない範囲の並び順と説明に限定します。次は、この理由区分とproject境界・identifier処遇を分けたreview UIのメリットが、表示・判断・guard記録の実装量に見合うかを決めます。
+110件のtarget単位reviewでは、107件が同じ編集単位への統合を支持し、newdin ReadとUntangledの2件は別projectの維持を支持しました。teal.fmの1件は帰属とidentifierの時間上の立場をともに保留しました。過去マージと現在候補の再分類からは、collection fragment以外にもconfirmed service衝突と同一claimの重複採用を優先reviewへ加える価値が確認できました。candidate、authority、alias、domainは既知の別projectにも現れるため、候補を隠さない範囲の並び順と説明に限定します。一時導線の終了によりUI接続の検討は閉じ、これらの原則は通常のMerge reviewと将来の比較評価へ残します。
+
+## 一時導線終了時の監査
+
+2026-09-04に正本DBをread-onlyで再監査しました。2026-08-31以降に作成されたmerge aliasは119件・43 targetで、118 sourceはマージ前の最新investigation snapshotを復元できました。118件はいずれもconfirmed構成要素が`owned_nsid`だけであり、一時導線が意図したcollection断片のproject境界reviewとして処理されたことを支持します。残る1件はsnapshotがなく、この形状を再構成できませんでした。
+
+復元できたsourceが持っていた190 NSIDを現在のtarget側と照合すると、184件はcurrent confirmed、5件はcurrent candidate、1件は未登録でした。candidateはBackyardの`blue.backyard.actor.profile`、`blue.backyard.graph.block`、`blue.backyard.graph.follow`、GainForestの`app.gainforest.evaluator.evaluation`、Postgameの`at.postgame.list`で、未登録はSimocracyの`org.simocracy.floor.config`です。source snapshotはmerge transaction直前の状態そのものではないため、この差だけからidentifierの消失や誤分類とは断定しません。
+
+当初のmarker抽出に相当する5 target・14 NSIDはすべてcurrent confirmedのままでした。内訳はMatadiscoの`cx.vmx.dev.tmp003.matadisco`、Offprintの`app.offprint.experimental.media`、Roomy Spaceの`space.roomy.stream.dev.local`、Skyrdleの`farm.smol.games.skyrdle.beta1.score`、`beta.guesses`、`beta.score`、`beta3.score`から`beta8.score`までの9件、StratosFundの`at.stratosfund.estimate.dev`と`at.stratosfund.stage.dev`です。保存済み調査には実recordの観測を含むものがあり、`.dev`、`beta`、`experimental`、`local`、`tmp`というsegmentだけでは現在利用中か、旧版か、non-productionかを一律に決められません。したがって正本DBは変更していません。
+
+この監査から言える完了範囲は、collection断片を別projectとして残すか包括projectへ収めるかというproject境界の確認までです。identifier処遇は専用導線でレビューしておらず、候補0件はその完了を意味しません。再分類が必要になった場合は、通常の編集経路でidentifierごとの実在、観測時期、公式な移行・廃止根拠を確認して扱います。一時導線を復活させる理由にはしません。
 
 ## 検証
 

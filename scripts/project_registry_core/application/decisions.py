@@ -282,29 +282,6 @@ def set_review_target(
     target = available.get(str(target_value))
     if target is None or target["target_type"] != target_type:
         raise ValueError("review target is stale or does not belong to this project")
-    return save_verified_review_target(
-        conn,
-        project=project,
-        target=target,
-        action=action,
-        note=note,
-        days=days,
-        clear=clear,
-    )
-
-
-def save_verified_review_target(
-    conn: sqlite3.Connection,
-    *,
-    project: dict[str, Any],
-    target: dict[str, Any],
-    action: str,
-    note: str = "",
-    days: int = 30,
-    clear: bool = False,
-) -> dict[str, Any]:
-    target_type = str(target.get("target_type") or "")
-    target_value = str(target.get("target_value") or "")
     kind = "dismiss_review_target" if action == "dismiss" else "defer_review_target" if action == "defer" else ""
     if not kind:
         raise ValueError("review target action must be dismiss or defer")
@@ -325,7 +302,7 @@ def save_verified_review_target(
             "created_at": now,
             "expires_at": expires_at,
             "cleared_at": "",
-            "metadata": dict(target.get("metadata") or {}),
+            "metadata": dict(target["metadata"]),
         })
     project["review_target_decisions"] = entries
     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)

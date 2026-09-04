@@ -1176,12 +1176,6 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 加えた同一snapshot上で再計算します。Web APIはその保存済み結果の先頭候補を`next_merge_review`として返し、
 Merge reviewは一覧全体の再計算を挟まず次のpairへ進みます。この導線は候補scoreやbatch mergeの判定基準を変更しません。
 
-collection fragment向けshadow policyは、通常のduplicate candidateやbatch mergeとは別の一時的な人手review導線として`application/merge_review.py`からWebへ接続しています。専用queueはshadow discoveryとpair評価だけを実行し、過去merge・固定case・現行policyとの比較reportは生成しません。target project単位で並べた後、pair比較画面を開いた場合だけmerge、30日保留、`separate_project`を選べます。自動mergeは接続しません。
-
-保留はschemaや専用decision kindを増やさず、既存の`defer_review_target`へ`target_type=merge_policy_pair`として保存します。target fingerprintはpolicy version、source/targetの向き、fragment collection、target構成要素など現在の推薦材料から作ります。推薦材料が変わるとfingerprintが変わるため、古い保留で新しい推奨を隠しません。mutation時はsource/target revisionを照合した後にshadow pairを再評価し、推薦が消えた・向きが変わった場合はstaleとして拒否します。
-
-この接続は現在候補を処理するための暫定層です。撤去時は`application/merge_review.py`、shadow moduleのqueue用reader、専用Web endpoint/UI/testを外します。保存済み`defer_review_target`は汎用decision rowとして残っても他のqueueへ作用せず、schema migrationや互換layerは不要です。`separate_project`と実行済みmergeはoperator判断・lineageとして維持します。
-
 `review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。
 
 また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。

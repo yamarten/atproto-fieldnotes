@@ -18,7 +18,7 @@ function bindBackToListButtons() {
     button.onclick = () => {
       const target = state.detailBackTarget;
       if (!target) return;
-      if (target.type === "merge") loadMergeDetail(target.source, target.target, {backTarget: target.previous || null, policyReview: Boolean(target.policyReview)});
+      if (target.type === "merge") loadMergeDetail(target.source, target.target, {backTarget: target.previous || null});
       if (target.type === "project") loadDetail(target.key);
     };
   });
@@ -189,7 +189,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const screen = query.get("screen");
   if (["review", "projects", "operations", "settings"].includes(screen)) state.screen = screen;
   const view = query.get("view");
-  if (["queue", "promotion", "merge-policy", "merge"].includes(view)) state.reviewView = view;
+  if (["queue", "promotion", "merge"].includes(view)) state.reviewView = view;
   state.reviewSignalKind = query.get("review_kind") || "";
   state.selected = query.get("project") || "";
   const tab = query.get("tab");
@@ -282,7 +282,6 @@ function listControls() {
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
-      <button data-review-view="merge-policy" class="${state.reviewView === "merge-policy" ? "active" : ""}">Merge Recommendations</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
       <button id="refresh-review-list" class="secondary">Refresh</button>
     </div>${reviewFilter}${explicitMerge}</div>`;
@@ -326,7 +325,6 @@ async function loadList() {
     let data;
     if (state.screen === "projects") data = await api(projectSearchPath());
     else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?limit=${state.settings.reviewLimit}&include_personal_tools=${state.settings.includePersonalTools}`);
-    else if (state.reviewView === "merge-policy") data = await api(`/api/merge-policy-review?limit=200`);
     else if (state.reviewView === "merge") data = await api(`/api/merge-batch?mode=${encodeURIComponent(state.settings.mergeMode)}&limit=${state.settings.mergeLimit}`);
     else {
       const query = new URLSearchParams({limit: state.settings.reviewLimit});
@@ -554,10 +552,6 @@ function promotionCardDetails(item) {
 function renderList(data) {
   const items = list(data.items);
   const count = data.count ?? items.length;
-  if (state.screen === "review" && state.reviewView === "merge-policy") {
-    renderMergePolicyList(data, items, count);
-    return;
-  }
   $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> results</div>` + (items.length ? items.map((item, index) => {
     const project = normalizeQueueItem(item);
     const key = project.project_key || item.project_key || item.source_project_key || "";
@@ -584,31 +578,11 @@ function renderList(data) {
   });
 }
 
-function renderMergePolicyList(data, items, count) {
-  let lastTarget = "";
-  const cards = items.map((item) => {
-    const targetKey = String(item.target_project_key || "");
-    const group = targetKey !== lastTarget
-      ? `<div class="merge-policy-group" data-policy-target-group="${esc(targetKey)}"><strong>${esc(item.target_name || targetKey)}</strong><span class="muted">${esc(targetKey)}</span></div>`
-      : "";
-    lastTarget = targetKey;
-    return `${group}<button class="card ${state.selected === item.source_project_key ? "selected" : ""}" data-project-key="${esc(item.source_project_key)}" data-merge-target="${esc(targetKey)}" data-policy-review="true">
-      <span class="card-title"><strong>${esc(item.source_name || item.source_project_key)}</strong>${pill(item.recommendation_kind || "review", "candidate")}</span>
-      <span class="muted">${esc(list(item.fragment_collections).join(", ") || "No collection listed")}</span>
-      <span class="meta-row">${pill(item.rule || item.reason || "shadow policy", "candidate")}${item.target_independent_components?.length ? pill("target has independent component", "confirmed") : ""}</span>
-    </button>`;
-  }).join("");
-  $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> recommendations · <span id="policy-review-target-count">${esc(data.target_count || 0)}</span> targets · <span id="policy-review-deferred-count">${esc(data.deferred_count || 0)}</span> deferred</div>${cards || `<div class="empty-state"><p>No current merge recommendations.</p></div>`}`;
-  document.querySelectorAll("[data-policy-review]").forEach((card) => {
-    card.onclick = () => loadMergeDetail(card.dataset.projectKey, card.dataset.mergeTarget, {policyReview: true});
-  });
-}
-
 function openListCard(card) {
   if (!card) return false;
   const source = card.dataset.projectKey;
   const target = card.dataset.mergeTarget;
-  target ? loadMergeDetail(source, target, {policyReview: card.dataset.policyReview === "true"}) : loadDetail(source);
+  target ? loadMergeDetail(source, target) : loadDetail(source);
   return true;
 }
 
@@ -658,27 +632,6 @@ function insertMergeReviewContinuation(sourceKey, targetKey, anchorIndex) {
 }
 
 function advanceReviewListAfterMutation(response, path) {
-  if (path === "/api/merge-policy-review/action") {
-    const advanced = advanceReviewList(
-      String(response.source_project_key || state.selected || ""),
-      {targetKey: String(response.target_project_key || ""), statusPrefix: response.review_action === "defer" ? "Deferred for 30 days." : "Saved."},
-    );
-    if (advanced) {
-      document.querySelectorAll("[data-policy-target-group]").forEach((group) => {
-        const targetKey = group.dataset.policyTargetGroup;
-        const stillVisible = Array.from(document.querySelectorAll("#list [data-policy-review]"))
-          .some((card) => card.dataset.mergeTarget === targetKey);
-        if (!stillVisible) group.remove();
-      });
-      const targetCount = $("policy-review-target-count");
-      if (targetCount) targetCount.textContent = String(document.querySelectorAll("[data-policy-target-group]").length);
-      if (response.review_action === "defer") {
-        const deferredCount = $("policy-review-deferred-count");
-        if (deferredCount) deferredCount.textContent = String(Number(deferredCount.textContent || 0) + 1);
-      }
-    }
-    return advanced;
-  }
   if (path === "/api/merge-batch/action" && response.mode === "execute") {
     return advanceMergeReviewAfterMerge(response);
   }
@@ -1222,15 +1175,8 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "", 
         await loadList();
       } catch (error) {
         if (error.code === "stale_project" && state.selected) {
-          if (path === "/api/merge-policy-review/action") {
-            document.body.classList.remove("detail-open");
-            state.selected = "";
-            await loadList();
-            status("The project or recommendation changed. The recommendation queue was reloaded; compare the pair again before retrying.", true);
-          } else {
-            await loadDetail(state.selected, {updateUrl: false});
-            status("Project changed in another operation. Detail was reloaded; review the change before retrying.", true);
-          }
+          await loadDetail(state.selected, {updateUrl: false});
+          status("Project changed in another operation. Detail was reloaded; review the change before retrying.", true);
         } else {
           status(error.message, true);
         }
@@ -1243,15 +1189,13 @@ async function loadMergeDetail(source, target, options = {}) {
   const request = ++state.detailRequest;
   state.selected = source; document.body.classList.add("detail-open");
   const includeFirstCreator = Boolean(options.includeFirstCreator);
-  const policyReview = Boolean(options.policyReview);
   state.detailBackTarget = Object.prototype.hasOwnProperty.call(options, "backTarget")
     ? options.backTarget
     : includeFirstCreator ? state.detailBackTarget : null;
   syncUrl();
   if (!includeFirstCreator) resetDetailScroll();
   try {
-    const endpoint = policyReview ? "/api/merge-policy-review-pair" : "/api/merge-pair";
-    const data = await api(`${endpoint}?source_project_key=${encodeURIComponent(source)}&target_project_key=${encodeURIComponent(target)}${includeFirstCreator && !policyReview ? "&include_first_creator_details=1" : ""}`);
+    const data = await api(`/api/merge-pair?source_project_key=${encodeURIComponent(source)}&target_project_key=${encodeURIComponent(target)}${includeFirstCreator ? "&include_first_creator_details=1" : ""}`);
     if (request !== state.detailRequest || state.selected !== source) return;
     state.mergeSourceRevision = data.source_revision || "";
     state.mergeTargetRevision = data.target_revision || "";
@@ -1262,16 +1206,10 @@ async function loadMergeDetail(source, target, options = {}) {
     const firstCreatorBody = data.first_creator_details_included
       ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>Source lookup details</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>Target lookup details</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view. Lookup details show not_found/error when listReposByCollection does not return a first creator for a collection.</p>`
       : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">Load first-creator details</button></div>`;
-    const policy = data.merge_policy_review || {};
-    const policyBody = policyReview ? section("Shadow policy recommendation", `<p class="notice">This queue recommends human review only. It never authorizes automatic merge.</p><dl class="kv"><dt>Policy</dt><dd>${esc(policy.review_target?.metadata?.policy_version || "")}</dd><dt>Reason</dt><dd>${esc(policy.reason || "")}</dd><dt>Rule</dt><dd>${esc(policy.rule || "")}</dd><dt>Fragment collections</dt><dd>${list(policy.fragment_collections).map((value) => `<code>${esc(value)}</code>`).join("<br>") || "None"}</dd><dt>Target collections</dt><dd>${esc(policy.target_collection_count || 0)}</dd><dt>Independent target components</dt><dd>${json(policy.target_independent_components || [])}</dd><dt>Shared authority</dt><dd>${esc(list(policy.shared_authority_namespaces).join(", ") || "None")}</dd><dt>Composition relations</dt><dd>${json(policy.composition_relations || [])}</dd></dl><p class="muted">Merge preserves the current identifier classifications. Review unusual dev, test, beta, experimental, local, or temporary collection names before applying.</p>`) : "";
-    const mergeActions = policyReview
-      ? `<div class="actions"><button id="defer-policy-review" class="secondary">Hold for 30 days</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge fragment into target</button></div>`
-      : `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
-    const reverseAction = policyReview ? "" : `<div class="actions"><button id="reverse-merge-direction" class="secondary">Reverse source and target</button></div>`;
-    const firstCreatorSection = policyReview ? "" : section("First-creator heuristic", firstCreatorBody);
-    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">${policyReview ? "Recommended fragment merge review" : "Merge review"}</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2>${reverseAction}<div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${policyBody}${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${firstCreatorSection}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
+    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
+    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">Reverse source and target</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
-    document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, policyReview, previous: state.detailBackTarget}}));
+    document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
     $("reverse-merge-direction")?.addEventListener("click", () => loadMergeDetail(target, source, {
       includeFirstCreator,
@@ -1279,9 +1217,8 @@ async function loadMergeDetail(source, target, options = {}) {
     }));
     $("load-first-creator-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeFirstCreator: true}));
     $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source, target));
-    $("defer-policy-review")?.addEventListener("click", () => confirmMergePolicyAction("Hold merge review", "defer", source, target));
-    $("mark-separate")?.addEventListener("click", () => policyReview ? confirmMergePolicyAction("Keep projects separate", "separate", source, target) : confirmMerge("Keep projects separate", "separate", source, target));
-    $("execute-merge")?.addEventListener("click", () => policyReview ? confirmMergePolicyAction("Merge fragment into target", "merge", source, target) : confirmMerge("Merge projects", "merge", source, target));
+    $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
+    $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
   } catch (error) {
     if (request === state.detailRequest && state.selected === source) status(error.message, true);
   }
@@ -1305,17 +1242,6 @@ function confirmMerge(title, action, source, target) {
     expected_source_revision: state.mergeSourceRevision,
     expected_target_revision: state.mergeTargetRevision,
   }, false);
-}
-
-function confirmMergePolicyAction(title, action, source, target) {
-  confirmMutation(title, `${title}: ${source} → ${target}?`, "/api/merge-policy-review/action", {
-    action,
-    source_project_key: source,
-    target_project_key: target,
-    expected_source_revision: state.mergeSourceRevision,
-    expected_target_revision: state.mergeTargetRevision,
-    days: 30,
-  }, action === "defer", "", "Reason or note (optional)");
 }
 
 function renderNewSeed() {

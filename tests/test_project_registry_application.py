@@ -9,73 +9,11 @@ from project_registry_core import cli
 from project_registry_core import service, storage
 from project_registry_core.commands import projects as project_commands
 from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
-from project_registry_core.application import decisions, explain, maintenance, merge, merge_review, presentation, projects, review
+from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
 from project_registry_core import project_record
 
 
 class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
-    def test_merge_policy_review_queue_defers_by_evidence_fingerprint(self) -> None:
-        conn = registry.open_db()
-        try:
-            fragment = project_record.default_project_record(
-                "proj:fragment0001", "nsid", "com.review.flow"
-            )
-            fragment["name"] = "Review Flow"
-            registry.add_manual_seed(fragment, "nsid", "com.review.flow", source="test")
-            target = project_record.default_project_record(
-                "proj:target000001", "service_url", "https://review.example"
-            )
-            target["name"] = "Review"
-            registry.add_manual_seed(target, "service_url", "https://review.example", source="test")
-            registry.add_manual_seed(target, "nsid", "com.review.flow", source="test")
-            registry.add_manual_seed(target, "nsid", "com.review.other", source="test")
-            project_record.save_project(conn, fragment)
-            project_record.save_project(conn, target)
-            conn.commit()
-
-            initial = merge_review.queue(conn)
-            self.assertEqual(initial["count"], 1)
-            self.assertEqual(initial["target_count"], 1)
-            item = initial["items"][0]
-            self.assertEqual(item["source_project_key"], fragment["project_key"])
-            self.assertEqual(item["target_project_key"], target["project_key"])
-            original_fingerprint = item["review_target"]["target_value"]
-
-            deferred = merge_review.defer_pair(
-                conn,
-                source_project_key=fragment["project_key"],
-                target_project_key=target["project_key"],
-                note="need more context",
-            )
-            self.assertEqual(deferred["kind"], "defer_review_target")
-            self.assertEqual(merge_review.queue(conn)["count"], 0)
-
-            changed_target = project_record.fetch_project(conn, target["project_key"])
-            assert changed_target is not None
-            registry.add_manual_seed(changed_target, "nsid", "com.review.third", source="test")
-            project_record.save_project(conn, changed_target, preserve_timestamps=True)
-            conn.commit()
-            refreshed = merge_review.queue(conn)
-            self.assertEqual(refreshed["count"], 1)
-            self.assertNotEqual(
-                refreshed["items"][0]["review_target"]["target_value"],
-                original_fingerprint,
-            )
-
-            decisions.set_separate(
-                conn,
-                project_key=fragment["project_key"],
-                other_project_key=target["project_key"],
-            )
-            with self.assertRaisesRegex(merge_review.RecommendationChangedError, "recommendation changed"):
-                merge_review.pair_recommendation(
-                    conn,
-                    source_project_key=fragment["project_key"],
-                    target_project_key=target["project_key"],
-                )
-        finally:
-            conn.close()
-
     def test_promotion_priority_decision_roundtrips_and_is_independent_from_defer(self) -> None:
         conn = registry.open_db()
         try:

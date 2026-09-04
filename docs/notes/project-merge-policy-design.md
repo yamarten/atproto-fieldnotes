@@ -1,6 +1,6 @@
 # 登録プロジェクトのマージ規則設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。2026-08-14時点の原理整理、現行実装と正本DBのread-only監査、shadow比較から得た設計結論を保持します。この文書だけを根拠にマージ判定、DB schema、Web UIを変更しません。
+> 完了した設計検討の履歴文書です。現行仕様の正本ではありません。2026-08-14時点の原理整理、現行実装と正本DBのread-only監査、shadow比較から得た設計結論と、一時導線で実際に接続した範囲を保持します。この文書だけを根拠にマージ判定、DB schema、Web UIを変更しません。
 
 ## 結論
 
@@ -201,14 +201,14 @@ read-only comparator、過去510マージ、現在3,233 pair、固定19事例、
 
 candidate、authority、alias、domainは過去マージを広く拾う一方、既知の別projectにも現れました。したがって優先度に利用しても、下位候補を隠すfilter、排他的なqueue、正のマージ判断には使いません。共有repositoryもArabica/Oolong型の反例があるため補助表示に留めます。
 
-collection fragment 110件の人手reviewは107件の統合、2件の別project、1件の保留となりました。この結果は非対称なfragment reviewを実装する価値を支持しますが、一括自動マージやidentifier処遇の一律決定は支持しません。
+collection fragment 110件の人手reviewは107件の統合、2件の別project、1件の保留となりました。この結果を受けて非対称なfragment候補を扱う一時導線を接続しましたが、実装したのはproject境界の判断だけでした。一括自動マージやidentifier処遇の一律決定は支持せず、専用導線は候補処理後に撤去しました。
 
-## 実装へ接続する際の残件
+## 一時導線で接続した範囲と未接続事項
 
-- 現行の一つのscoreと`auto_merge_ready`表示を、理由別priorityと人間向け説明へどう置き換えるかをWeb review導線として設計する
-- project境界の判断と、統合するidentifierをcurrent、former、non-production、noiseのどれで残すかを別操作として扱う
+- 一時導線はcollection fragmentの理由とfragment / targetを表示し、project境界をmerge、別扱い、期限付き保留から選ぶ範囲だけを接続した
+- project境界とidentifier処遇を分ける原則は維持したが、identifierをcurrent、former、non-production、noiseから選ぶ操作は接続しなかった
 - schema v3移行後のadoption provenanceで、同じ具体的claimを同じ収集eventから二重作成したpairを再比較する
 - 時間・派生関係reviewを差し込んでからDateSky/Nomare、Basker/InfoEnonなどを通常mergeへ戻すか判断する
 - 自動実行を検討する場合は、優先reviewの実績と既知の別projectを含むnegative sampleを別途蓄積する
 
-ここまでの比較では自動マージを許可する類型はありません。初期接続はreview支援に限定し、保存契約やproduction behaviorはUIとschema移行の設計合意後に変更します。
+ここまでの比較では自動マージを許可する類型はありません。一時導線によるproject境界reviewは終了し、通常のMerge review、`separate_project`、merge lineage、比較器とpolicyだけを維持します。未接続事項はこの導線の未完了実装として再開せず、実運用上の必要と個別根拠が確認できた時にそれぞれ独立して再評価します。
