@@ -282,7 +282,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         preset = next(item for item in state["items"] if item["preset_id"] == "lexicon_publication_weekly")
         self.assertFalse(preset["schedule"]["enabled"])
         self.assertEqual(preset["schedule"], {
-            "enabled": False, "week_of_month": 0, "weekday": 5,
+            "enabled": False, "week_of_month": 0, "weekday": 6,
             "time": "05:00", "timezone": "Asia/Tokyo",
         })
         queued = self.manager.run_scheduled_preset("lexicon_publication_weekly")

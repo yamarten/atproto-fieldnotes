@@ -20,11 +20,15 @@ from .registry import (
 )
 
 
-CATALOG_SCHEMA_VERSION = 2
-REPORT_CONTRACT_VERSION = 1
+CATALOG_SCHEMA_VERSION = 3
+REPORT_CONTRACT_VERSION = 2
 MAX_RECORD_MATERIAL_BYTES = 65536
 OBSERVATION_HISTORY_LIMIT = 16
 OBSERVATION_SIGNAL_LIMIT = 50
+EARLY_REVIEW_REASONS = {
+    "reviewed_publisher_delete_or_identity_change",
+    "non_record_lexicon_usage_request",
+}
 
 
 def iso_now() -> str:
@@ -82,7 +86,7 @@ def initialize_catalog(path: Path) -> sqlite3.Connection:
     if metadata_exists is not None:
         row = conn.execute("SELECT schema_version FROM catalog_metadata WHERE singleton=1").fetchone()
         existing_version = int(row[0]) if row is not None else 0
-        if existing_version not in {1, CATALOG_SCHEMA_VERSION}:
+        if existing_version not in {1, 2, CATALOG_SCHEMA_VERSION}:
             conn.close()
             version = "missing" if row is None else row[0]
             raise RuntimeError(f"unsupported publication catalog schema version: {version}")
@@ -188,12 +192,38 @@ def initialize_catalog(path: Path) -> sqlite3.Connection:
           observed_at TEXT NOT NULL
         );
     """)
+    run_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(publication_observation_runs)")}
+    for name, declaration in {
+        "evaluation_period": "TEXT NOT NULL DEFAULT ''",
+        "comparison_status": "TEXT NOT NULL DEFAULT 'unavailable'",
+        "comparison_reason": "TEXT NOT NULL DEFAULT ''",
+        "sync_completed_at": "TEXT NOT NULL DEFAULT ''",
+        "sync_period": "TEXT NOT NULL DEFAULT ''",
+        "sync_age_seconds": "INTEGER",
+        "valid_period_counted": "INTEGER NOT NULL DEFAULT 0",
+        "categories_json": "TEXT NOT NULL DEFAULT '{}'",
+        "category_deltas_json": "TEXT NOT NULL DEFAULT '{}'",
+    }.items():
+        if name not in run_columns:
+            conn.execute(f"ALTER TABLE publication_observation_runs ADD COLUMN {name} {declaration}")
+    state_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(publication_observation_state)")}
+    for name, declaration in {
+        "evaluation_baseline_revision": "INTEGER NOT NULL DEFAULT 0",
+        "evaluation_baseline_at": "TEXT NOT NULL DEFAULT ''",
+        "valid_period_count": "INTEGER NOT NULL DEFAULT 0",
+        "valid_periods_json": "TEXT NOT NULL DEFAULT '[]'",
+        "last_valid_categories_json": "TEXT NOT NULL DEFAULT '{}'",
+        "legacy_successful_run_count": "INTEGER NOT NULL DEFAULT 0",
+        "rebaseline_reason": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in state_columns:
+            conn.execute(f"ALTER TABLE publication_observation_state ADD COLUMN {name} {declaration}")
     if metadata_exists is None:
         conn.execute(
             "INSERT INTO catalog_metadata(singleton, schema_version, updated_at) VALUES(1, ?, ?)",
             (CATALOG_SCHEMA_VERSION, iso_now()),
         )
-    elif existing_version == 1:
+    elif existing_version in {1, 2}:
         conn.execute(
             "UPDATE catalog_metadata SET schema_version=?, updated_at=? WHERE singleton=1",
             (CATALOG_SCHEMA_VERSION, iso_now()),
@@ -202,8 +232,85 @@ def initialize_catalog(path: Path) -> sqlite3.Connection:
         "INSERT OR IGNORE INTO publication_observation_state(singleton,updated_at) VALUES(1,?)",
         (iso_now(),),
     )
+    if existing_version in {1, 2}:
+        now = iso_now()
+        state = conn.execute(
+            "SELECT successful_run_count,review_reasons_json FROM publication_observation_state WHERE singleton=1"
+        ).fetchone()
+        legacy_count = int(state[0]) if state is not None else 0
+        retained_reasons = sorted(
+            set(json.loads(str(state[1] or "[]"))).intersection(EARLY_REVIEW_REASONS)
+        ) if state is not None else []
+        revision = int(conn.execute(
+            "SELECT catalog_revision FROM catalog_metadata WHERE singleton=1"
+        ).fetchone()[0])
+        conn.execute(
+            """
+            UPDATE publication_observation_state SET successful_run_count=0,review_due=?,
+              review_reasons_json=?,evaluation_baseline_revision=?,evaluation_baseline_at=?,
+              valid_period_count=0,valid_periods_json='[]',last_valid_categories_json='{}',
+              legacy_successful_run_count=?,rebaseline_reason=?,updated_at=?
+            WHERE singleton=1
+            """,
+            (
+                int(bool(retained_reasons)), canonical_json(retained_reasons), revision, now,
+                legacy_count, "schema_v3_evaluation_rebaseline", now,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE publication_observation_runs SET comparison_status='unavailable',
+              comparison_reason='pre_evaluation_baseline',valid_period_counted=0
+            """
+        )
+    elif existing_version == 0:
+        now = iso_now()
+        conn.execute(
+            """
+            UPDATE publication_observation_state SET evaluation_baseline_revision=0,
+              evaluation_baseline_at=?,rebaseline_reason='initial_catalog',updated_at=? WHERE singleton=1
+            """,
+            (now, now),
+        )
     conn.commit()
     return conn
+
+
+def rebaseline_evaluation(
+    conn: sqlite3.Connection,
+    *,
+    reason: str,
+    baseline_at: str | None = None,
+) -> dict[str, Any]:
+    value = str(reason or "").strip()
+    if not value or len(value) > 240:
+        raise ValueError("rebaseline reason must contain 1 to 240 characters")
+    now = baseline_at or iso_now()
+    revision = int(catalog_state(conn)["catalog_revision"])
+    state = conn.execute(
+        "SELECT successful_run_count,legacy_successful_run_count,review_reasons_json "
+        "FROM publication_observation_state WHERE singleton=1"
+    ).fetchone()
+    prior = int(state[0]) if state else 0
+    legacy = int(state[1]) if state else 0
+    retained_reasons = sorted(
+        set(json.loads(str(state[2] or "[]"))).intersection(EARLY_REVIEW_REASONS)
+    ) if state else []
+    with conn:
+        conn.execute(
+            """
+            UPDATE publication_observation_state SET successful_run_count=0,review_due=?,
+              review_reasons_json=?,evaluation_baseline_revision=?,evaluation_baseline_at=?,
+              valid_period_count=0,valid_periods_json='[]',last_valid_categories_json='{}',
+              legacy_successful_run_count=?,rebaseline_reason=?,updated_at=?
+            WHERE singleton=1
+            """,
+            (
+                int(bool(retained_reasons)), canonical_json(retained_reasons), revision, now,
+                legacy + prior, value, now,
+            ),
+        )
+    return observation_run_history(conn)
 
 
 def _bounded_signal_values(values: Iterable[Any]) -> list[str]:
@@ -301,6 +408,8 @@ def finish_observation_run(
     inventory: dict[str, Any] | None = None,
     verification: dict[str, Any] | None = None,
     signals: dict[str, Iterable[Any]] | None = None,
+    comparison: dict[str, Any] | None = None,
+    categories: dict[str, int] | None = None,
     error: str = "",
     completed_at: str | None = None,
 ) -> dict[str, Any]:
@@ -328,15 +437,28 @@ def finish_observation_run(
         "reviewed_publisher_deletes_or_identity_changes": _bounded_signal_values((signals or {}).get("reviewed_publisher_deletes_or_identity_changes", [])),
         "non_record_usage_requests": _bounded_signal_values((signals or {}).get("non_record_usage_requests", [])),
     }
+    comparison = dict(comparison or {})
+    evaluation_period = str(comparison.get("evaluation_period") or "")
+    comparison_status = str(comparison.get("status") or "unavailable")
+    comparable = status == "completed" and comparison_status == "available" and bool(evaluation_period)
+    observation_state = conn.execute(
+        "SELECT valid_periods_json,last_valid_categories_json FROM publication_observation_state WHERE singleton=1"
+    ).fetchone()
+    valid_periods = set(json.loads(str(observation_state[0] or "[]"))) if observation_state else set()
+    previous_categories = json.loads(str(observation_state[1] or "{}")) if observation_state else {}
+    already_counted = evaluation_period in valid_periods if comparable else False
+    counted = comparable and not already_counted
+    if counted:
+        valid_periods.add(evaluation_period)
+    current_categories = {str(key): int(value) for key, value in sorted((categories or {}).items())}
+    category_deltas = {
+        key: current_categories.get(key, 0) - int(previous_categories.get(key, 0))
+        for key in sorted(set(current_categories) | set(previous_categories))
+    } if counted else {}
+    successful_run_count = len(valid_periods)
     reasons: list[str] = []
-    previous_successes = _successful_observation_count(conn)
-    successful_run_count = previous_successes + int(status == "completed")
-    if status == "completed" and successful_run_count >= 4:
+    if counted and successful_run_count >= 4:
         reasons.append("four_successful_weekly_observations")
-    if bounded_signals["new_verified_unregistered_authorities"]:
-        reasons.append("new_verified_unregistered_authority")
-    if bounded_signals["new_verified_spaces"]:
-        reasons.append("new_verified_space")
     if bounded_signals["reviewed_publisher_deletes_or_identity_changes"]:
         reasons.append("reviewed_publisher_delete_or_identity_change")
     if bounded_signals["non_record_usage_requests"]:
@@ -350,7 +472,8 @@ def finish_observation_run(
               new_count=?,updated_count=?,deleted_count=?,inventory_status=?,inventory_observed_at=?,
               inventory_collection_count=?,inventory_error=?,verification_target_count=?,
               verification_success_count=?,verification_failure_count=?,verification_json=?,signals_json=?,review_due=?,
-              review_reasons_json=?,error=?
+              review_reasons_json=?,error=?,evaluation_period=?,comparison_status=?,comparison_reason=?,
+              sync_completed_at=?,sync_period=?,sync_age_seconds=?,valid_period_counted=?,categories_json=?,category_deltas_json=?
             WHERE run_id=? AND status='running'
             """,
             (
@@ -361,7 +484,10 @@ def finish_observation_run(
                 str(inventory.get("error") or "")[:500], int(verification.get("eligible_checked") or 0),
                 int(verification.get("verified") or 0), int(verification.get("failed") or 0),
                 canonical_json(verification_targets), canonical_json(bounded_signals), int(bool(reasons)),
-                canonical_json(reasons), str(error or "")[:500], run_id,
+                canonical_json(reasons), str(error or "")[:500], evaluation_period, comparison_status,
+                str(comparison.get("reason") or "")[:240], str(comparison.get("sync_completed_at") or ""),
+                str(comparison.get("sync_period") or ""), comparison.get("sync_age_seconds"), int(counted),
+                canonical_json(current_categories), canonical_json(category_deltas), run_id,
             ),
         )
         if conn.execute("SELECT changes()").fetchone()[0] != 1:
@@ -382,10 +508,14 @@ def finish_observation_run(
         persisted_reasons.update(reasons)
         conn.execute(
             """
-            UPDATE publication_observation_state SET successful_run_count=?,review_due=?,
-              review_reasons_json=?,updated_at=? WHERE singleton=1
+            UPDATE publication_observation_state SET successful_run_count=?,valid_period_count=?,valid_periods_json=?,
+              last_valid_categories_json=?,review_due=?,review_reasons_json=?,updated_at=? WHERE singleton=1
             """,
-            (successful_run_count, int(bool(persisted_reasons)), canonical_json(sorted(persisted_reasons)), finished),
+            (
+                successful_run_count, successful_run_count, canonical_json(sorted(valid_periods)),
+                canonical_json(current_categories if counted else previous_categories),
+                int(bool(persisted_reasons)), canonical_json(sorted(persisted_reasons)), finished,
+            ),
         )
     return observation_run_history(conn)
 
@@ -401,6 +531,9 @@ def observation_run_history(conn: sqlite3.Connection, *, limit: int = OBSERVATIO
         item["review_due"] = bool(item["review_due"])
         item["verification_targets"] = json.loads(str(item.pop("verification_json") or "[]"))
         item["signals"] = json.loads(str(item.pop("signals_json") or "{}"))
+        item["categories"] = json.loads(str(item.pop("categories_json") or "{}"))
+        item["category_deltas"] = json.loads(str(item.pop("category_deltas_json") or "{}"))
+        item["valid_period_counted"] = bool(item["valid_period_counted"])
         item["review_reasons"] = json.loads(str(item.pop("review_reasons_json") or "[]"))
         items.append(item)
     state = conn.execute("SELECT * FROM publication_observation_state WHERE singleton=1").fetchone()
@@ -408,6 +541,12 @@ def observation_run_history(conn: sqlite3.Connection, *, limit: int = OBSERVATIO
     return {
         "history_limit": OBSERVATION_HISTORY_LIMIT,
         "successful_run_count": _successful_observation_count(conn),
+        "valid_period_count": int(state["valid_period_count"]) if state else 0,
+        "valid_periods": json.loads(str(state["valid_periods_json"] or "[]")) if state else [],
+        "evaluation_baseline_revision": int(state["evaluation_baseline_revision"]) if state else 0,
+        "evaluation_baseline_at": str(state["evaluation_baseline_at"] or "") if state else "",
+        "legacy_successful_run_count": int(state["legacy_successful_run_count"]) if state else 0,
+        "rebaseline_reason": str(state["rebaseline_reason"] or "") if state else "",
         "review_due": bool(state["review_due"]) if state else False,
         "review_reasons": state_reasons,
         "non_record_usage_requests": pending_non_record_usage_requests(conn),
@@ -835,6 +974,8 @@ def _row_payload(row: sqlite3.Row) -> dict[str, Any]:
         "definition_types": json.loads(str(row["definition_types_json"])),
         "spaces": json.loads(str(row["spaces_json"])), "problems": json.loads(str(row["problems_json"])),
         "record_hash": str(row["record_hash"]), "record_material_truncated": bool(row["record_material_truncated"]),
+        "first_seen_revision": int(row["first_seen_revision"]),
+        "content_changed_revision": int(row["content_changed_revision"]),
     }
     if "dns_same_did" in row.keys():
         payload["verification"] = {
@@ -871,19 +1012,13 @@ def build_evaluation_report(
     schema_publishers: dict[str, list[sqlite3.Row]] = defaultdict(list)
     for row in current:
         schema_publishers[str(row["schema_id"])].append(row)
+    authority_projects = registry_index.get("authority_projects", {})
+    known_schemas = registry_index.get("known_schemas", {})
+    known_nsids = registry_index.get("known_nsids", {})
 
     def verified_payload(row: sqlite3.Row) -> dict[str, Any]:
         payload = _row_payload(row)
         payload["publisher_count_for_schema"] = len(schema_publishers[str(row["schema_id"])])
-        return payload
-
-    authority_projects = registry_index.get("authority_projects", {})
-    known_schemas = registry_index.get("known_schemas", {})
-    known_nsids = registry_index.get("known_nsids", {})
-    existing = []
-    unregistered: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in verified_rows:
-        payload = verified_payload(row)
         schema_id = str(row["schema_id"])
         exact_projects = sorted(set(known_schemas.get(schema_id, [])) | set(known_nsids.get(schema_id, [])))
         authority_matches = list(authority_projects.get(str(row["authority_group"]), []))
@@ -892,6 +1027,13 @@ def build_evaluation_report(
         payload["authority_project_keys"] = authority_matches
         payload["related_project_keys"] = projects
         payload["project_match_basis"] = "exact_schema_or_nsid" if exact_projects else ("authority_group" if authority_matches else "none")
+        return payload
+
+    existing = []
+    unregistered: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in verified_rows:
+        payload = verified_payload(row)
+        projects = list(payload["related_project_keys"])
         if len(projects) == 1:
             existing.append(payload)
         elif not projects and row["authority_group"]:

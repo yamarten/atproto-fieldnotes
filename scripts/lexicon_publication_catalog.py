@@ -15,6 +15,7 @@ from project_registry_core.lexicon_publication_catalog import (
     ingest_segment,
     initialize_catalog,
     load_registry_index,
+    rebaseline_evaluation,
     record_non_record_usage_request,
     verify_due_publications,
 )
@@ -69,6 +70,9 @@ def parser() -> argparse.ArgumentParser:
     signal = subparsers.add_parser("signal-non-record-usage", help="Record a concrete non-record Lexicon usage request for review")
     signal.add_argument("--sidecar-db", required=True, type=Path)
     signal.add_argument("--request-key", required=True)
+    rebaseline = subparsers.add_parser("rebaseline-evaluation", help="Reset the four-period evaluation baseline without deleting history")
+    rebaseline.add_argument("--sidecar-db", required=True, type=Path)
+    rebaseline.add_argument("--reason", required=True)
     return value
 
 
@@ -120,7 +124,7 @@ def add_collection_inventory(index: dict[str, Any], path: Path | None) -> dict[s
 
 def main() -> int:
     args = parser().parse_args()
-    if args.command not in {"init", "signal-non-record-usage"}:
+    if args.command not in {"init", "signal-non-record-usage", "rebaseline-evaluation"}:
         assert_distinct_database_paths(args.sidecar_db, args.registry_db)
     conn = initialize_catalog(args.sidecar_db)
     try:
@@ -133,6 +137,16 @@ def main() -> int:
                 "review_due": history["review_due"],
                 "review_reasons": history["review_reasons"],
                 "non_record_usage_requests": history["non_record_usage_requests"],
+            }, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.command == "rebaseline-evaluation":
+            history = rebaseline_evaluation(conn, reason=args.reason)
+            print(json.dumps({
+                "evaluation_baseline_revision": history["evaluation_baseline_revision"],
+                "evaluation_baseline_at": history["evaluation_baseline_at"],
+                "valid_period_count": history["valid_period_count"],
+                "review_due": history["review_due"],
+                "rebaseline_reason": history["rebaseline_reason"],
             }, ensure_ascii=False, sort_keys=True))
             return 0
         index = add_collection_inventory(

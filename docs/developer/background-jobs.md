@@ -124,7 +124,8 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
   - 固定sidecarを更新するdisabled既定の週次`lexicon_publication_weekly`
     - registry DBと同じdirectoryからsidecarを導出し、任意path / URL / commandは受け付けない
     - 1 runで固定sealed tipの1 bounded segmentだけを処理し、未完了時は同じtipを次回再開する
-    - registryは`mode=ro` + `query_only`、sidecarの観測履歴は直近16回、成功回数と再評価gateは別stateで保持する
+    - 日曜05:00 Asia/Tokyoを既定とし、固定schedule stateで土曜23:00の`sync_sources_then_enrich`成功後48時間以内かを判定する
+    - registryは`mode=ro` + `query_only`、sidecarの観測履歴は直近16回、評価baseline、異なる比較可能週、category集計と再評価gateを別stateで保持する
 - 同じWeb serverから同時に実行するbackground jobを1件へ制限
 - `project_registry_core.application.review`の非対話classification service
 
@@ -171,6 +172,9 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
 - Lexicon publication観測はJetstream 20,000 event / 300秒、inventory 60秒、publisher 12件を固定上限とする。
   SIGINTは進行中requestを強制終了せず、snapshot、inventory、publisherの境界で反映する
+  通常sync state欠落/failed/未来時刻/48時間超、inventory failure、未完了segmentはvalid週へ加算しない。同一Asia/Tokyo週の
+  manual runや再試行は一度だけ加算する
+  publisher 12件boundの外側と期限切れ成功はverification pendingであり、実際に試行した最新failureとは別categoryにする
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 

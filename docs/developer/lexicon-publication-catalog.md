@@ -41,6 +41,10 @@ bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publica
 bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py \
   signal-non-record-usage --sidecar-db data/lexicon-publication-catalog.db \
   --request-key query-consumer:concrete-workflow
+
+bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py \
+  rebaseline-evaluation --sidecar-db data/lexicon-publication-catalog.db \
+  --reason 'begin post-sync four-period evaluation'
 ```
 
 途中終了したrunは同じcommandを再実行します。sidecarのpending sealed tipと`afterSeq`から再開し、新しいtipを
@@ -56,7 +60,8 @@ current publicationだけを検証します。両方を指定した場合はsche
 
 ## 週次観測preset
 
-- preset IDは`lexicon_publication_weekly`、既定は毎週土曜05:00 Asia/Tokyo、disabledです。固定Jetstream hostから
+- preset IDは`lexicon_publication_weekly`、既定は毎週日曜05:00 Asia/Tokyo、disabledです。土曜23:00の
+  `sync_sources_then_enrich`完了後に実行し、固定Jetstream hostから
   20,000 event / 300秒の1 segmentを取り込み、固定collection inventory URLを60秒で取得します。
 - segmentがsealed tipへ届かなければrunは`partial`で失敗表示され、sidecarのpending tip / after sequenceから次回同じtipを
   再開します。server reloadで実行中だったstepはschedulerが再試行し、新run開始時に残った`running`履歴をfailedへ閉じます。
@@ -75,7 +80,7 @@ current publicationだけを検証します。両方を指定した場合はsche
   online backupを`data/backups/`へ1世代作り、検証後に旧世代を削除します。`cleanup-workspace-temp`は`.tmp`だけが対象で、
   恒久sidecarを削除しません。
 
-## SQLite schema version 2
+## SQLite schema version 3
 
 sidecarはproject tableへの外部キーやproject schemaへの暗黙依存を持ちません。
 
@@ -86,11 +91,16 @@ sidecarはproject tableへの外部キーやproject schemaへの暗黙依存を�
 - `publication_verifications`: exact DNSとcurrent record再取得を別fieldで保持する。理由、観測時刻、次回期限、
   retry可否、検証対象content hashも保持する
 - `publication_observation_runs`: runの時刻、watermark / sealed tip、new/update/delete、inventory、最大12件のverification対象・成否・理由、
-  再評価signalとreasonを直近16回だけ保持する。raw event、inventory、評価JSONは保存しない
-- `publication_observation_state`: 成功回数とstickyな`review_due / review_reasons`を履歴retentionから独立して保持する
+  Asia/Tokyoの週次period、通常syncの完了時刻/period/経過秒、比較可否、category件数、再評価signalとreasonを直近16回だけ
+  保持する。raw event、inventory、評価JSONは保存しない
+- `publication_observation_state`: 評価baseline revision/time、異なる比較可能period数、stickyな`review_due / review_reasons`、
+  旧評価countを履歴retentionから独立して保持する
 - `publication_observation_requests`: 具体的な非record Lexicon利用要求の短いkeyを最大50件保持する
 
-schema version 1の既存sidecarは、初回openで追加tableだけを作るversion 2へ移行します。
+schema version 1/2の既存sidecarは初回openでcolumnを加えるversion 3へ移行します。v2までのrun rowは削除せず
+`pre_evaluation_baseline`として比較不能にし、従来の成功回数とnew authority/space由来のsticky reasonは新しい4期間評価へ
+読み替えません。旧成功回数は`legacy_successful_run_count`へ退避し、現catalog revisionをbaselineとしてvalid period countを0へ
+戻します。再度区切り直す場合は`rebaseline-evaluation`を理由付きで実行します。この操作もrun履歴を削除しません。
 
 `publication_catalog`はdelete後もtombstoneを残すため、削除差分とstale event拒否に必要な最後のsequenceを失いません。
 schema ID単位のmirror groupingはreport時のprojectionで、publisher DIDをcatalogから削除またはcanonical化しません。
@@ -120,7 +130,7 @@ watermarkをsealed tipへ進め、stagingを消します。DID+rkeyの保存済�
 DID document/PDS/record取得失敗、record/URI/hash不一致は理由とretry状態を保持します。既定の再検証期限は成功7日、
 失敗1日です。DNS成功後にHTTPが失敗した場合も`dns_same_did=true`を失いません。
 
-## 評価JSON contract version 1
+## 評価JSON contract version 2
 
 JSON keyと配列順序は安定させ、配列はschema ID、DID、rkey等の決定的な順序で出します。主な区分は次の通りです。
 
@@ -140,20 +150,32 @@ JSON keyと配列順序は安定させ、配列はschema ID、DID、rkey等の�
 project identifier、relation、decisionを作りません。採用する場合はCodexまたはoperatorが既存の明示操作とtrust policyを
 別途使います。
 
-## 観測フェイズと再評価gate
+## post-sync週次評価と再評価gate
 
-`completed`の週次runが4回に達すると`four_successful_weekly_observations`で`review_due=true`になります。4回未満でも、
-次のいずれかを観測すると前倒しします。
+run開始時に固定`job-schedules.json`の`sync_sources_then_enrich`状態を読みます。preset全体が成功しており、その完了後
+48時間以内に開始したrunだけを`comparison_status=available`とします。state欠落/不正、failed、観測後の完了時刻、48時間超は
+理由付きで比較不能です。segment適用とfresh inventoryも完了した比較可能runだけを、Asia/TokyoのISO週で一意に数えます。
+同じ週の手動run、設定保存、再試行は履歴とcategory値を残しますがperiod countを増やしません。
 
-- 新しくpublisher検証に成功した未登録authority: `new_verified_unregistered_authority`
-- 新しくpublisher検証に成功したspace: `new_verified_space`
+4つの異なるvalid periodに達すると`four_successful_weekly_observations`で`review_due=true`になります。4期間未満で
+前倒しするのは次だけです。
+
 - 検証済みpublisherのdelete、または旧DIDがcurrentでなく別DIDへ置換されたidentity変化:
   `reviewed_publisher_delete_or_identity_change`
 - developer/operatorが具体的な利用要求keyを明示記録した非record Lexicon需要:
   `non_record_lexicon_usage_request`
 
+新規verified authority/spaceは週次categoryとbounded signalへ残しますが、単独ではgateにしません。またbaseline以前に
+初めて観測されたpublicationは、baseline後に初回verificationが成功しても新規発見へ数えません。
+
+週次categoryは、recordをfresh inventoryで活動あり/未観測へ分け、non-record、spaceと宣言collection活動を数えます。
+12件のverification boundで未選択だったものと、期限切れの過去成功は`verification_pending`へ置き、実際に今回以前の
+verificationを試みて最新結果が失敗しているものだけを`mirror_or_verification_failure`へ置きます。これにより未検証backlogを
+否定的な結果へ読み替えません。verified publicationのregistry対応はexact unique/ambiguous、authority-only
+unique/ambiguous、未登録を分けます。Operationsは各periodの件数と前valid periodとの差分を表示します。
+
 gateと直近履歴はOperationsのScheduled Presets内およびjob resultから確認できます。gateは判断までstickyです。現時点の
-観測フェイズ終了条件は、4回の成功後または前倒しsignal時に、固有候補数、再検証変化、非record表現需要を人が再評価し、
+観測フェイズ終了条件は、4 valid period後または前倒しsignal時に、固有候補数、再検証変化、非record表現需要を人が再評価し、
 registry表現へ進むか、sidecar観測を継続するか、presetを停止するかを決めることです。周期job自身はregistryを変更しません。
 
 初期運用では次の接続境界を使います。

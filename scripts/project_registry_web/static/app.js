@@ -1478,11 +1478,16 @@ function renderSchedules(data) {
   const observation = data.lexicon_publication_observation || {};
   const observationRuns = list(observation.items);
   const observationHtml = `<article class="operation-card">
-    <div class="card-title"><strong>Lexicon observation gate</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
-    <p class="muted">${esc(observation.successful_run_count || 0)} successful weekly runs · retains ${esc(observation.history_limit || 16)} runs</p>
+    <div class="card-title"><strong>Lexicon post-sync evaluation</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
+    <p class="muted">${esc(observation.valid_period_count || 0)} / 4 comparable weekly periods · baseline ${esc(formatTimestamp(observation.evaluation_baseline_at))} · retains ${esc(observation.history_limit || 16)} runs</p>
     ${list(observation.review_reasons).length ? `<p class="notice">${esc(list(observation.review_reasons).join(", "))}</p>` : ""}
     ${observation.error ? `<p class="job-error">${esc(observation.error)}</p>` : ""}
-    ${observationRuns.length ? `<details><summary>Recent observation history</summary>${observationRuns.map((run) => `<p class="muted"><strong>${esc(run.status)}</strong> ${esc(formatTimestamp(run.completed_at))} · watermark ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · changes +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · inventory ${esc(run.inventory_status)} (${esc(run.inventory_collection_count)}) · verification ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${run.review_due ? ` · review: ${esc(list(run.review_reasons).join(", "))}` : ""}</p>`).join("")}</details>` : `<p class="muted">No durable observation runs yet.</p>`}
+    ${observationRuns.length ? `<details><summary>Recent observation history</summary>${observationRuns.map((run) => {
+      const categories = Object.entries(run.categories || {}).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${key} ${value}`).join(", ");
+      const deltas = Object.entries(run.category_deltas || {}).filter(([, value]) => Number(value) !== 0).map(([key, value]) => `${key} ${Number(value) > 0 ? "+" : ""}${value}`).join(", ");
+      const comparison = run.comparison_status === "available" ? `comparable${run.valid_period_counted ? " · period counted" : " · duplicate period"}` : `not comparable: ${run.comparison_reason || "unknown"}`;
+      return `<p class="muted"><strong>${esc(run.status)}</strong> ${esc(formatTimestamp(run.completed_at))} · ${esc(run.evaluation_period || "no period")} · ${esc(comparison)} · sync ${esc(formatTimestamp(run.sync_completed_at))}${run.sync_age_seconds === null || run.sync_age_seconds === undefined ? "" : ` (${esc(formatDuration(run.sync_age_seconds))} before)`} · watermark ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · changes +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · inventory ${esc(run.inventory_status)} (${esc(run.inventory_collection_count)}) · verification ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${categories ? ` · categories ${esc(categories)}` : ""}${deltas ? ` · Δ ${esc(deltas)}` : ""}${run.review_due ? ` · review: ${esc(list(run.review_reasons).join(", "))}` : ""}</p>`;
+    }).join("")}</details>` : `<p class="muted">No durable observation runs yet.</p>`}
   </article>`;
   return `${queueHtml}${observationHtml}<div class="operation-grid">${items.map((item) => {
     const schedule = item.schedule || {};

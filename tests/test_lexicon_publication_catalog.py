@@ -48,7 +48,7 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
 
     def test_schema_initialization_has_explicit_version(self) -> None:
         state = catalog.catalog_state(self.conn)
-        self.assertEqual(state["schema_version"], 2)
+        self.assertEqual(state["schema_version"], 3)
         self.assertEqual(state["watermark_seq"], 0)
 
     def test_init_refuses_an_existing_non_catalog_database(self) -> None:
@@ -94,10 +94,36 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
 
         migrated = catalog.initialize_catalog(legacy_path)
         try:
-            self.assertEqual(catalog.catalog_state(migrated)["schema_version"], 2)
+            self.assertEqual(catalog.catalog_state(migrated)["schema_version"], 3)
             self.assertFalse(catalog.observation_run_history(migrated)["review_due"])
             tables = {row[0] for row in migrated.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertIn("publication_observation_runs", tables)
+        finally:
+            migrated.close()
+
+    def test_schema_two_migration_preserves_history_but_rebaselines_invalid_counts(self) -> None:
+        legacy_path = self.root / "legacy-v2.db"
+        legacy = catalog.initialize_catalog(legacy_path)
+        catalog.start_observation_run(legacy, "legacy:one")
+        legacy.execute(
+            "UPDATE publication_observation_runs SET status='completed',completed_at='2026-09-05T00:00:00Z' WHERE run_id='legacy:one'"
+        )
+        legacy.execute(
+            "UPDATE publication_observation_state SET successful_run_count=3,review_due=1,"
+            "review_reasons_json='[\"new_verified_space\"]' WHERE singleton=1"
+        )
+        legacy.execute("UPDATE catalog_metadata SET schema_version=2,catalog_revision=7 WHERE singleton=1")
+        legacy.commit()
+        legacy.close()
+
+        migrated = catalog.initialize_catalog(legacy_path)
+        try:
+            history = catalog.observation_run_history(migrated)
+            self.assertEqual(history["valid_period_count"], 0)
+            self.assertEqual(history["legacy_successful_run_count"], 3)
+            self.assertEqual(history["evaluation_baseline_revision"], 7)
+            self.assertFalse(history["review_due"])
+            self.assertEqual(history["items"][0]["comparison_reason"], "pre_evaluation_baseline")
         finally:
             migrated.close()
 
@@ -324,10 +350,14 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
             "observed_collections": {"com.example.active"}, "project_count": 1, "query_only": True,
         }
         report = catalog.build_evaluation_report(self.conn, index, since_revision=0, now="2026-09-05T02:00:00Z")
-        self.assertEqual(report["contract_version"], 1)
+        self.assertEqual(report["contract_version"], 2)
         self.assertEqual(report["counts"]["verified_publisher_candidates"], 3)
         self.assertEqual(len(report["changes"]["new_schemas"]), 4)
         self.assertEqual(len(report["verified_publisher_candidates"]), 3)
+        self.assertEqual(
+            next(item for item in report["verified_publisher_candidates"] if item["schema_id"] == "com.example.space")["exact_project_keys"],
+            ["proj:example"],
+        )
         self.assertEqual(len(report["existing_project_unique_candidates"]), 1)
         self.assertEqual(report["existing_project_unique_candidates"][0]["project_match_basis"], "exact_schema_or_nsid")
         self.assertEqual(report["unregistered_authority_groups"][0]["authority_group"], "net.new")
@@ -405,10 +435,16 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
                 status="completed",
                 ingestion={"status": "applied", "sealed_tip_seq": index, "new": 1},
                 inventory={"status": "completed", "observed_at": "2026-09-05T00:00:00Z", "collection_count": 10},
+                comparison={
+                    "status": "available", "reason": "post_sync",
+                    "evaluation_period": f"2026-W{index + 1:02d}",
+                    "sync_completed_at": "2026-09-04T14:00:00Z", "sync_period": f"sync:{index}",
+                    "sync_age_seconds": 21600,
+                },
                 completed_at=f"2026-09-{index + 1:02d}T00:01:00Z",
             )
         self.assertEqual(len(history["items"]), 16)
-        self.assertEqual(history["successful_run_count"], 18)
+        self.assertEqual(history["valid_period_count"], 18)
         self.assertTrue(history["review_due"])
         self.assertIn("four_successful_weekly_observations", history["review_reasons"])
         self.assertEqual(history["items"][-1]["run_id"], "run:02")
@@ -428,11 +464,53 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
         )
         self.assertTrue(history["review_due"])
         self.assertEqual(history["items"][0]["review_reasons"], [
-            "new_verified_unregistered_authority",
-            "new_verified_space",
             "reviewed_publisher_delete_or_identity_change",
             "non_record_lexicon_usage_request",
         ])
+        self.assertEqual(history["items"][0]["signals"]["new_verified_spaces"], ["net.new.space"])
+
+    def test_new_authority_and_space_are_metrics_not_early_gates(self) -> None:
+        catalog.start_observation_run(self.conn, "run:metrics")
+        history = catalog.finish_observation_run(
+            self.conn, "run:metrics", status="completed",
+            signals={
+                "new_verified_unregistered_authorities": ["net.new"],
+                "new_verified_spaces": ["net.new.space"],
+            },
+            comparison={
+                "status": "available", "reason": "post_sync", "evaluation_period": "2026-W36",
+                "sync_completed_at": "2026-09-05T14:00:00Z", "sync_period": "2026-W36-5",
+                "sync_age_seconds": 21600,
+            },
+        )
+        self.assertFalse(history["review_due"])
+        self.assertEqual(history["valid_period_count"], 1)
+
+    def test_duplicate_weekly_period_counts_once_and_four_distinct_periods_gate(self) -> None:
+        for index, period in enumerate(["2026-W36", "2026-W36", "2026-W37", "2026-W38", "2026-W39"]):
+            run_id = f"run:period:{index}"
+            catalog.start_observation_run(self.conn, run_id)
+            history = catalog.finish_observation_run(
+                self.conn, run_id, status="completed",
+                comparison={
+                    "status": "available", "reason": "post_sync", "evaluation_period": period,
+                    "sync_completed_at": "2026-09-05T14:00:00Z", "sync_period": period,
+                    "sync_age_seconds": 21600,
+                },
+            )
+        self.assertEqual(history["valid_period_count"], 4)
+        self.assertTrue(history["review_due"])
+        counted = [item for item in history["items"] if item["valid_period_counted"]]
+        self.assertEqual(len(counted), 4)
+
+    def test_start_after_worker_restart_closes_prior_running_history(self) -> None:
+        catalog.start_observation_run(self.conn, "run:interrupted", started_at="2026-09-05T00:00:00Z")
+        catalog.start_observation_run(self.conn, "run:replacement", started_at="2026-09-05T01:00:00Z")
+        prior = self.conn.execute(
+            "SELECT status,error FROM publication_observation_runs WHERE run_id='run:interrupted'"
+        ).fetchone()
+        self.assertEqual(prior["status"], "failed")
+        self.assertIn("worker interrupted", prior["error"])
 
     def test_non_record_usage_request_triggers_gate_without_waiting_for_weekly_run(self) -> None:
         history = catalog.record_non_record_usage_request(

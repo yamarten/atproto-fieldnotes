@@ -48,7 +48,7 @@ SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
     "lexicon_publication_weekly": {
         "label": "Lexicon publication observation",
         "description": "Update the fixed sidecar and evaluate bounded weekly review signals without changing the registry.",
-        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 5, "time": "05:00", "timezone": "Asia/Tokyo"},
+        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 6, "time": "05:00", "timezone": "Asia/Tokyo"},
     },
 }
 
@@ -534,7 +534,11 @@ class JobManager:
                 "last_status": str(schedule.get("last_status") or ""),
                 "last_message": str(schedule.get("last_message") or ""),
             })
-        observation = {"available": False, "history_limit": 16, "successful_run_count": 0, "review_due": False, "review_reasons": [], "items": []}
+        observation = {
+            "available": False, "history_limit": 16, "successful_run_count": 0,
+            "valid_period_count": 0, "evaluation_baseline_at": "", "review_due": False,
+            "review_reasons": [], "items": [],
+        }
         sidecar_path = self.db_path.parent / "lexicon-publication-catalog.db"
         if sidecar_path.is_file():
             try:
