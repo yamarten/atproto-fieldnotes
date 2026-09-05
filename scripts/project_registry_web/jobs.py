@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -17,6 +18,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from project_registry_core.jobs import OperationRequest, generate_operation_id, utc_now
+from project_registry_core.lexicon_publication_catalog import observation_run_history
 
 
 ACTIVE_STATUSES = {"queued", "running", "cancelling"}
@@ -42,6 +44,11 @@ SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
         "label": "All-state maintenance",
         "description": "Run enrich --all across every tracking state, then apply stalled review updates.",
         "default_schedule": {"enabled": False, "week_of_month": 1, "weekday": 6, "time": "04:00", "timezone": "Asia/Tokyo"},
+    },
+    "lexicon_publication_weekly": {
+        "label": "Lexicon publication observation",
+        "description": "Update the fixed sidecar and evaluate bounded weekly review signals without changing the registry.",
+        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 5, "time": "05:00", "timezone": "Asia/Tokyo"},
     },
 }
 
@@ -111,6 +118,13 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
             }),
             _step("enrich", "enrich --all --new-only", {"all_projects": True, "new_only": True}),
         ]
+    if preset_id == "lexicon_publication_weekly":
+        return [_step(
+            "lexicon_publication_observation",
+            "observe Lexicon publications",
+            {},
+            execute=True,
+        )]
     raise ValueError(f"unknown schedule preset: {preset_id}")
 
 
@@ -426,6 +440,8 @@ class JobManager:
             return OperationRequest.create("sync", parameters=parameters, execute=bool(step.get("execute", True)))
         if operation == "review":
             return OperationRequest.create("review", parameters=parameters, execute=bool(step.get("execute", True)))
+        if operation == "lexicon_publication_observation":
+            return OperationRequest.create(operation, parameters=parameters, execute=True)
         raise ValueError(f"unsupported scheduled operation: {operation}")
 
     def _start_locked(self, request: OperationRequest) -> JobRecord:
@@ -518,11 +534,26 @@ class JobManager:
                 "last_status": str(schedule.get("last_status") or ""),
                 "last_message": str(schedule.get("last_message") or ""),
             })
+        observation = {"available": False, "history_limit": 16, "successful_run_count": 0, "review_due": False, "review_reasons": [], "items": []}
+        sidecar_path = self.db_path.parent / "lexicon-publication-catalog.db"
+        if sidecar_path.is_file():
+            try:
+                uri = f"file:{sidecar_path.resolve().as_posix()}?mode=ro"
+                conn = sqlite3.connect(uri, uri=True)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA query_only = ON")
+                try:
+                    observation = {"available": True, **observation_run_history(conn)}
+                finally:
+                    conn.close()
+            except (OSError, sqlite3.Error, ValueError):
+                observation = {**observation, "error": "observation history is unavailable"}
         return {
             "version": 1,
             "updated_at": str(self._schedule_state.get("updated_at") or ""),
             "items": items,
             "queue": list(self._schedule_state.get("queue") or []),
+            "lexicon_publication_observation": observation,
         }
 
     def _enqueue_schedule_locked(self, preset_id: str, *, period: str, reason: str) -> None:

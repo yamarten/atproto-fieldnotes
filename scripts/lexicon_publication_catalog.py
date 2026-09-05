@@ -15,6 +15,7 @@ from project_registry_core.lexicon_publication_catalog import (
     ingest_segment,
     initialize_catalog,
     load_registry_index,
+    record_non_record_usage_request,
     verify_due_publications,
 )
 from project_registry_core.lexicon_publication_comparison import (
@@ -65,6 +66,9 @@ def parser() -> argparse.ArgumentParser:
     report.add_argument("--since-revision", type=int)
     report.add_argument("--advance", action="store_true")
     report.add_argument("--output", type=Path)
+    signal = subparsers.add_parser("signal-non-record-usage", help="Record a concrete non-record Lexicon usage request for review")
+    signal.add_argument("--sidecar-db", required=True, type=Path)
+    signal.add_argument("--request-key", required=True)
     return value
 
 
@@ -116,12 +120,20 @@ def add_collection_inventory(index: dict[str, Any], path: Path | None) -> dict[s
 
 def main() -> int:
     args = parser().parse_args()
-    if args.command != "init":
+    if args.command not in {"init", "signal-non-record-usage"}:
         assert_distinct_database_paths(args.sidecar_db, args.registry_db)
     conn = initialize_catalog(args.sidecar_db)
     try:
         if args.command == "init":
             print(json.dumps({"schema_version": catalog_state(conn)["schema_version"], "sidecar_db": str(args.sidecar_db)}, sort_keys=True))
+            return 0
+        if args.command == "signal-non-record-usage":
+            history = record_non_record_usage_request(conn, args.request_key)
+            print(json.dumps({
+                "review_due": history["review_due"],
+                "review_reasons": history["review_reasons"],
+                "non_record_usage_requests": history["non_record_usage_requests"],
+            }, ensure_ascii=False, sort_keys=True))
             return 0
         index = add_collection_inventory(
             registry_index(args.sidecar_db, args.registry_db), args.collection_inventory_json,

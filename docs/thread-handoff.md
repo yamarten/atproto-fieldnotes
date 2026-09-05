@@ -30,7 +30,10 @@
 
 ## 次に必要な作業
 
-1. 開発文書の用語整理を行う。
+1. `lexicon_publication_weekly`を含む変更commitをmasterへ統合し、全testとOperations導線を再確認する。
+2. 統合後の実運用`data/lexicon-publication-catalog.db`をschema version 2へ移行し、Operationsで
+   `lexicon_publication_weekly`（毎週土曜05:00 Asia/Tokyo）を有効化する。最初の実runは正本registryの前後不変も確認する。
+3. 開発文書の用語整理を行う。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

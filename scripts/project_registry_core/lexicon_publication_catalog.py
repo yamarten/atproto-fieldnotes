@@ -20,9 +20,11 @@ from .registry import (
 )
 
 
-CATALOG_SCHEMA_VERSION = 1
+CATALOG_SCHEMA_VERSION = 2
 REPORT_CONTRACT_VERSION = 1
 MAX_RECORD_MATERIAL_BYTES = 65536
+OBSERVATION_HISTORY_LIMIT = 16
+OBSERVATION_SIGNAL_LIMIT = 50
 
 
 def iso_now() -> str:
@@ -76,9 +78,11 @@ def initialize_catalog(path: Path) -> sqlite3.Connection:
     metadata_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='catalog_metadata'"
     ).fetchone()
+    existing_version = 0
     if metadata_exists is not None:
         row = conn.execute("SELECT schema_version FROM catalog_metadata WHERE singleton=1").fetchone()
-        if row is None or int(row[0]) != CATALOG_SCHEMA_VERSION:
+        existing_version = int(row[0]) if row is not None else 0
+        if existing_version not in {1, CATALOG_SCHEMA_VERSION}:
             conn.close()
             version = "missing" if row is None else row[0]
             raise RuntimeError(f"unsupported publication catalog schema version: {version}")
@@ -144,14 +148,271 @@ def initialize_catalog(path: Path) -> sqlite3.Connection:
           PRIMARY KEY(did, rkey),
           FOREIGN KEY(did, rkey) REFERENCES publication_catalog(did, rkey) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS publication_observation_runs(
+          run_id TEXT PRIMARY KEY,
+          started_at TEXT NOT NULL,
+          completed_at TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('running','completed','partial','failed','cancelled')),
+          starting_watermark_seq INTEGER NOT NULL,
+          sealed_tip_seq INTEGER,
+          ending_watermark_seq INTEGER NOT NULL,
+          pending_after_seq INTEGER,
+          catalog_revision INTEGER NOT NULL,
+          new_count INTEGER NOT NULL DEFAULT 0,
+          updated_count INTEGER NOT NULL DEFAULT 0,
+          deleted_count INTEGER NOT NULL DEFAULT 0,
+          inventory_status TEXT NOT NULL DEFAULT 'not_started',
+          inventory_observed_at TEXT NOT NULL DEFAULT '',
+          inventory_collection_count INTEGER NOT NULL DEFAULT 0,
+          inventory_error TEXT NOT NULL DEFAULT '',
+          verification_target_count INTEGER NOT NULL DEFAULT 0,
+          verification_success_count INTEGER NOT NULL DEFAULT 0,
+          verification_failure_count INTEGER NOT NULL DEFAULT 0,
+          verification_json TEXT NOT NULL DEFAULT '[]',
+          signals_json TEXT NOT NULL DEFAULT '{}',
+          review_due INTEGER NOT NULL DEFAULT 0,
+          review_reasons_json TEXT NOT NULL DEFAULT '[]',
+          error TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS publication_observation_runs_completed
+          ON publication_observation_runs(completed_at DESC, run_id DESC);
+        CREATE TABLE IF NOT EXISTS publication_observation_state(
+          singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+          successful_run_count INTEGER NOT NULL DEFAULT 0,
+          review_due INTEGER NOT NULL DEFAULT 0,
+          review_reasons_json TEXT NOT NULL DEFAULT '[]',
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS publication_observation_requests(
+          request_key TEXT PRIMARY KEY,
+          observed_at TEXT NOT NULL
+        );
     """)
     if metadata_exists is None:
         conn.execute(
             "INSERT INTO catalog_metadata(singleton, schema_version, updated_at) VALUES(1, ?, ?)",
             (CATALOG_SCHEMA_VERSION, iso_now()),
         )
+    elif existing_version == 1:
+        conn.execute(
+            "UPDATE catalog_metadata SET schema_version=?, updated_at=? WHERE singleton=1",
+            (CATALOG_SCHEMA_VERSION, iso_now()),
+        )
+    conn.execute(
+        "INSERT OR IGNORE INTO publication_observation_state(singleton,updated_at) VALUES(1,?)",
+        (iso_now(),),
+    )
     conn.commit()
     return conn
+
+
+def _bounded_signal_values(values: Iterable[Any]) -> list[str]:
+    return sorted({str(value).strip() for value in values if str(value).strip()})[:OBSERVATION_SIGNAL_LIMIT]
+
+
+def start_observation_run(conn: sqlite3.Connection, run_id: str, *, started_at: str | None = None) -> dict[str, Any]:
+    value = str(run_id or "").strip()
+    if not value:
+        raise ValueError("observation run_id is required")
+    state = catalog_state(conn)
+    started = started_at or iso_now()
+    with conn:
+        conn.execute(
+            """
+            UPDATE publication_observation_runs SET status='failed',completed_at=?,
+              error='worker interrupted before observation completed'
+            WHERE status='running'
+            """,
+            (started,),
+        )
+        conn.execute(
+            """
+            INSERT INTO publication_observation_runs(
+              run_id,started_at,completed_at,status,starting_watermark_seq,ending_watermark_seq,
+              pending_after_seq,catalog_revision
+            ) VALUES(?,?,?,'running',?,?,?,?)
+            """,
+            (
+                value, started, "", int(state["watermark_seq"]), int(state["watermark_seq"]),
+                state["pending_after_seq"], int(state["catalog_revision"]),
+            ),
+        )
+    return {"run_id": value, "started_at": started, "starting_watermark_seq": int(state["watermark_seq"])}
+
+
+def _successful_observation_count(conn: sqlite3.Connection) -> int:
+    return int(conn.execute(
+        "SELECT successful_run_count FROM publication_observation_state WHERE singleton=1"
+    ).fetchone()[0])
+
+
+def record_non_record_usage_request(
+    conn: sqlite3.Connection,
+    request_key: str,
+    *,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    value = str(request_key or "").strip()
+    if not value or len(value) > 160:
+        raise ValueError("non-record usage request key must contain 1 to 160 characters")
+    now = observed_at or iso_now()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO publication_observation_requests(request_key,observed_at) VALUES(?,?)",
+            (value, now),
+        )
+        conn.execute(
+            """
+            DELETE FROM publication_observation_requests WHERE request_key IN (
+              SELECT request_key FROM publication_observation_requests
+              ORDER BY observed_at DESC,request_key DESC LIMIT -1 OFFSET ?
+            )
+            """,
+            (OBSERVATION_SIGNAL_LIMIT,),
+        )
+        row = conn.execute(
+            "SELECT review_reasons_json FROM publication_observation_state WHERE singleton=1"
+        ).fetchone()
+        reasons = set(json.loads(str(row[0] or "[]"))) if row else set()
+        reasons.add("non_record_lexicon_usage_request")
+        conn.execute(
+            "UPDATE publication_observation_state SET review_due=1,review_reasons_json=?,updated_at=? WHERE singleton=1",
+            (canonical_json(sorted(reasons)), now),
+        )
+    return observation_run_history(conn)
+
+
+def pending_non_record_usage_requests(conn: sqlite3.Connection) -> list[str]:
+    return [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT request_key FROM publication_observation_requests ORDER BY observed_at,request_key LIMIT ?",
+            (OBSERVATION_SIGNAL_LIMIT,),
+        )
+    ]
+
+
+def finish_observation_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+    *,
+    status: str,
+    ingestion: dict[str, Any] | None = None,
+    inventory: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
+    signals: dict[str, Iterable[Any]] | None = None,
+    error: str = "",
+    completed_at: str | None = None,
+) -> dict[str, Any]:
+    if status not in {"completed", "partial", "failed", "cancelled"}:
+        raise ValueError(f"invalid observation status: {status}")
+    state = catalog_state(conn)
+    ingestion = dict(ingestion or {})
+    inventory = dict(inventory or {})
+    verification = dict(verification or {})
+    verification_targets = [
+        {
+            "did": str(item.get("did") or ""),
+            "rkey": str(item.get("rkey") or ""),
+            "schema_id": str(item.get("schema_id") or ""),
+            "selection_reason": str(item.get("selection_reason") or ""),
+            "verified": bool(item.get("verified")),
+            "reason": str(item.get("reason") or "")[:240],
+        }
+        for item in list(verification.get("targets") or [])[:12]
+        if isinstance(item, dict)
+    ]
+    bounded_signals = {
+        "new_verified_unregistered_authorities": _bounded_signal_values((signals or {}).get("new_verified_unregistered_authorities", [])),
+        "new_verified_spaces": _bounded_signal_values((signals or {}).get("new_verified_spaces", [])),
+        "reviewed_publisher_deletes_or_identity_changes": _bounded_signal_values((signals or {}).get("reviewed_publisher_deletes_or_identity_changes", [])),
+        "non_record_usage_requests": _bounded_signal_values((signals or {}).get("non_record_usage_requests", [])),
+    }
+    reasons: list[str] = []
+    previous_successes = _successful_observation_count(conn)
+    successful_run_count = previous_successes + int(status == "completed")
+    if status == "completed" and successful_run_count >= 4:
+        reasons.append("four_successful_weekly_observations")
+    if bounded_signals["new_verified_unregistered_authorities"]:
+        reasons.append("new_verified_unregistered_authority")
+    if bounded_signals["new_verified_spaces"]:
+        reasons.append("new_verified_space")
+    if bounded_signals["reviewed_publisher_deletes_or_identity_changes"]:
+        reasons.append("reviewed_publisher_delete_or_identity_change")
+    if bounded_signals["non_record_usage_requests"]:
+        reasons.append("non_record_lexicon_usage_request")
+    finished = completed_at or iso_now()
+    with conn:
+        conn.execute(
+            """
+            UPDATE publication_observation_runs SET
+              completed_at=?,status=?,sealed_tip_seq=?,ending_watermark_seq=?,pending_after_seq=?,catalog_revision=?,
+              new_count=?,updated_count=?,deleted_count=?,inventory_status=?,inventory_observed_at=?,
+              inventory_collection_count=?,inventory_error=?,verification_target_count=?,
+              verification_success_count=?,verification_failure_count=?,verification_json=?,signals_json=?,review_due=?,
+              review_reasons_json=?,error=?
+            WHERE run_id=? AND status='running'
+            """,
+            (
+                finished, status, ingestion.get("sealed_tip_seq"), int(state["watermark_seq"]), state["pending_after_seq"],
+                int(state["catalog_revision"]), int(ingestion.get("new") or 0), int(ingestion.get("updated") or 0),
+                int(ingestion.get("deleted") or 0), str(inventory.get("status") or "not_started"),
+                str(inventory.get("observed_at") or ""), int(inventory.get("collection_count") or 0),
+                str(inventory.get("error") or "")[:500], int(verification.get("eligible_checked") or 0),
+                int(verification.get("verified") or 0), int(verification.get("failed") or 0),
+                canonical_json(verification_targets), canonical_json(bounded_signals), int(bool(reasons)),
+                canonical_json(reasons), str(error or "")[:500], run_id,
+            ),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ValueError(f"observation run is missing or already finished: {run_id}")
+        conn.execute(
+            """
+            DELETE FROM publication_observation_runs WHERE run_id IN (
+              SELECT run_id FROM publication_observation_runs
+              ORDER BY completed_at DESC, run_id DESC LIMIT -1 OFFSET ?
+            )
+            """,
+            (OBSERVATION_HISTORY_LIMIT,),
+        )
+        state_row = conn.execute(
+            "SELECT review_due,review_reasons_json FROM publication_observation_state WHERE singleton=1"
+        ).fetchone()
+        persisted_reasons = set(json.loads(str(state_row["review_reasons_json"] or "[]"))) if state_row else set()
+        persisted_reasons.update(reasons)
+        conn.execute(
+            """
+            UPDATE publication_observation_state SET successful_run_count=?,review_due=?,
+              review_reasons_json=?,updated_at=? WHERE singleton=1
+            """,
+            (successful_run_count, int(bool(persisted_reasons)), canonical_json(sorted(persisted_reasons)), finished),
+        )
+    return observation_run_history(conn)
+
+
+def observation_run_history(conn: sqlite3.Connection, *, limit: int = OBSERVATION_HISTORY_LIMIT) -> dict[str, Any]:
+    rows = conn.execute(
+        "SELECT * FROM publication_observation_runs ORDER BY completed_at DESC, run_id DESC LIMIT ?",
+        (max(1, min(OBSERVATION_HISTORY_LIMIT, int(limit))),),
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["review_due"] = bool(item["review_due"])
+        item["verification_targets"] = json.loads(str(item.pop("verification_json") or "[]"))
+        item["signals"] = json.loads(str(item.pop("signals_json") or "{}"))
+        item["review_reasons"] = json.loads(str(item.pop("review_reasons_json") or "[]"))
+        items.append(item)
+    state = conn.execute("SELECT * FROM publication_observation_state WHERE singleton=1").fetchone()
+    state_reasons = json.loads(str(state["review_reasons_json"] or "[]")) if state else []
+    return {
+        "history_limit": OBSERVATION_HISTORY_LIMIT,
+        "successful_run_count": _successful_observation_count(conn),
+        "review_due": bool(state["review_due"]) if state else False,
+        "review_reasons": state_reasons,
+        "non_record_usage_requests": pending_non_record_usage_requests(conn),
+        "items": items,
+    }
 
 
 def catalog_state(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -396,6 +657,7 @@ def verify_due_publications(
     limit: int,
     schema_ids: Iterable[str] | None = None,
     dids: Iterable[str] | None = None,
+    publication_keys: Iterable[tuple[str, str]] | None = None,
     now: str | None = None,
     ttl_hours: int = 168,
     retry_hours: int = 24,
@@ -419,6 +681,11 @@ def verify_due_publications(
     if normalized_dids:
         target_predicates.append(f"p.did IN ({','.join('?' for _ in normalized_dids)})")
         parameters.extend(normalized_dids)
+    normalized_keys = sorted({(str(did).strip(), str(rkey).strip()) for did, rkey in (publication_keys or [])})
+    if normalized_keys:
+        target_predicates.append(f"(p.did,p.rkey) IN ({','.join('(?,?)' for _ in normalized_keys)})")
+        for did, rkey in normalized_keys:
+            parameters.extend((did, rkey))
     target_where = f" AND {' AND '.join(target_predicates)}" if target_predicates else ""
     parameters.append(max(0, limit))
     rows = conn.execute(f"""
@@ -433,9 +700,10 @@ def verify_due_publications(
       LIMIT ?
     """, parameters).fetchall()
     if not rows:
-        return {"eligible_checked": 0, "verified": 0, "failed": 0}
+        return {"eligible_checked": 0, "verified": 0, "failed": 0, "targets": []}
     revision = int(catalog_state(conn)["catalog_revision"]) + 1
     verified = 0
+    targets: list[dict[str, Any]] = []
     with conn:
         for row in rows:
             try:
@@ -453,6 +721,10 @@ def verify_due_publications(
                 result["retryable"] = True
             is_verified = bool(result.get("dns_same_did") is True and result.get("current_record_refetched") is True)
             verified += int(is_verified)
+            targets.append({
+                "did": str(row["did"]), "rkey": str(row["rkey"]), "schema_id": str(row["schema_id"]),
+                "verified": is_verified, "reason": str(result.get("reason") or ""),
+            })
             hours = ttl_hours if is_verified else retry_hours
             next_at = (_parse_time(checked_at) + timedelta(hours=hours)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             conn.execute("""
@@ -474,7 +746,84 @@ def verify_due_publications(
                 str(result.get("record_hash") or ""), row["record_hash"], revision,
             ))
         conn.execute("UPDATE catalog_metadata SET catalog_revision=?, updated_at=? WHERE singleton=1", (revision, checked_at))
-    return {"eligible_checked": len(rows), "verified": verified, "failed": len(rows) - verified, "catalog_revision": revision}
+    return {
+        "eligible_checked": len(rows), "verified": verified, "failed": len(rows) - verified,
+        "catalog_revision": revision, "targets": targets,
+    }
+
+
+def select_observation_verification_targets(
+    conn: sqlite3.Connection,
+    registry_index: dict[str, Any],
+    *,
+    limit: int,
+    now: str | None = None,
+) -> list[dict[str, Any]]:
+    """Choose a bounded, actionable and fair subset without rechecking a schema's mirrors."""
+    checked_now = now or iso_now()
+    rows = conn.execute(
+        """
+        SELECT p.*,v.checked_at,v.next_verification_at,v.verified_content_hash,
+          v.dns_same_did,v.current_record_refetched
+        FROM publication_catalog p LEFT JOIN publication_verifications v USING(did,rkey)
+        WHERE p.is_deleted=0 AND p.schema_id<>'' AND p.problems_json='[]'
+          AND (v.did IS NULL OR v.verified_content_hash<>p.record_hash OR v.next_verification_at<=?)
+        ORDER BY COALESCE(v.next_verification_at,''),COALESCE(v.checked_at,''),
+          p.content_changed_revision,p.schema_id,p.did,p.rkey
+        LIMIT 500
+        """,
+        (checked_now,),
+    ).fetchall()
+    authority_projects = registry_index.get("authority_projects", {})
+    ranked: list[tuple[tuple[Any, ...], sqlite3.Row, str]] = []
+    for row in rows:
+        definitions = set(json.loads(str(row["definition_types_json"])))
+        unregistered = bool(row["authority_group"] and not authority_projects.get(str(row["authority_group"])))
+        is_space = "space" in definitions
+        is_non_record = bool(definitions & {"query", "procedure", "subscription", "permission-set"})
+        if row["checked_at"] is None:
+            change_kind = "new"
+            freshness = 0
+        elif str(row["verified_content_hash"] or "") != str(row["record_hash"]):
+            change_kind = "content_updated"
+            freshness = 0
+        else:
+            change_kind = "verification_due"
+            freshness = 1
+        actionable = 0 if (unregistered or is_space) else (1 if is_non_record else 2)
+        ranked.append(((freshness, actionable, str(row["checked_at"] or ""), int(row["content_changed_revision"]), str(row["schema_id"]), str(row["did"])), row, change_kind))
+    selected: list[dict[str, Any]] = []
+    selected_schemas: set[str] = set()
+    for _rank, row, change_kind in sorted(ranked, key=lambda item: item[0]):
+        schema_id = str(row["schema_id"])
+        if schema_id in selected_schemas:
+            continue
+        selected_schemas.add(schema_id)
+        selected.append({
+            "did": str(row["did"]), "rkey": str(row["rkey"]), "schema_id": schema_id,
+            "selection_reason": change_kind,
+        })
+        if len(selected) >= max(0, int(limit)):
+            break
+    return selected
+
+
+def reviewed_publisher_snapshot(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT p.did,p.rkey,p.schema_id,p.is_deleted
+        FROM publication_catalog p JOIN publication_verifications v USING(did,rkey)
+        WHERE v.dns_same_did=1 AND v.current_record_refetched=1
+        ORDER BY p.schema_id,p.did,p.rkey
+        """
+    ).fetchall()
+    return {
+        "keys": {(str(row["did"]), str(row["rkey"])) for row in rows if not bool(row["is_deleted"])},
+        "schema_dids": {
+            schema_id: sorted({str(row["did"]) for row in rows if str(row["schema_id"]) == schema_id and not bool(row["is_deleted"])})
+            for schema_id in sorted({str(row["schema_id"]) for row in rows})
+        },
+    }
 
 
 def _row_payload(row: sqlite3.Row) -> dict[str, Any]:

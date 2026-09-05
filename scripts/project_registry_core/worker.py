@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import database
-from .application import enrichment, investigation, review, sync
+from .application import enrichment, investigation, lexicon_observation, review, sync
 from .jobs import CancellationToken, OperationEvent, OperationRequest, OperationResult, utc_now
 
 
@@ -132,6 +132,25 @@ def _run_verify_service(conn: Any, request: OperationRequest) -> dict[str, Any]:
     )
 
 
+def _run_lexicon_observation(
+    db_path: Path,
+    request: OperationRequest,
+    *,
+    cancel_requested: Any = None,
+) -> dict[str, Any]:
+    if not request.execute:
+        raise ValueError("Lexicon publication observation must update its fixed sidecar")
+    allowed = {"_scheduled_preset_id", "_scheduled_step"}
+    unexpected = sorted(set(request.parameters) - allowed)
+    if unexpected:
+        raise ValueError(f"Lexicon publication observation does not accept parameters: {unexpected[0]}")
+    return lexicon_observation.run(
+        db_path,
+        run_id=request.operation_id,
+        cancel_requested=cancel_requested,
+    )
+
+
 def _run_simple(
     conn: Any,
     request: OperationRequest,
@@ -189,8 +208,12 @@ def _run_simple(
                 progress=progress,
                 cancel_requested=lambda: cancellation.cancel_requested,
             )
-        else:
+        elif request.operation == "verify_service":
             payload = _run_verify_service(conn, request)
+        else:
+            payload = _run_lexicon_observation(
+                Path(conn), request, cancel_requested=lambda: cancellation.cancel_requested,
+            )
     except Exception as exc:
         completed_at = utc_now()
         error = {"type": type(exc).__name__, "message": str(exc)}
@@ -208,7 +231,10 @@ def _run_simple(
         "summary": payload,
         "cancel_requested": cancellation.cancel_requested,
     }
-    status = "cancelled" if cancellation.cancel_requested else "completed"
+    operation_status = str(payload.get("operation_status") or "completed") if isinstance(payload, dict) else "completed"
+    status = "cancelled" if cancellation.cancel_requested or operation_status == "cancelled" else (
+        "failed" if operation_status in {"partial", "failed"} else "completed"
+    )
     send(status, data)
     return OperationResult(
         operation_id=request.operation_id,
@@ -217,6 +243,7 @@ def _run_simple(
         started_at=started_at,
         completed_at=completed_at,
         data=data,
+        error=payload.get("error") if status == "failed" and isinstance(payload, dict) else None,
     )
 
 
@@ -240,17 +267,21 @@ def run_payload(payload: dict[str, Any]) -> int:
     def emit(event: OperationEvent) -> None:
         _write({"type": "event", "payload": event.to_dict()})
 
-    if request.operation not in {"enrich", "sync", "review", "verify_service"}:
+    if request.operation not in {"enrich", "sync", "review", "verify_service", "lexicon_publication_observation"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
-    conn = database.open_database(db_path, create=False)
-    try:
+    if request.operation == "lexicon_publication_observation":
         with contextlib.redirect_stdout(sys.stderr):
-            if request.operation == "enrich":
-                result = enrichment.run(conn, request, emit=emit, cancellation=cancellation)
-            else:
-                result = _run_simple(conn, request, cancellation, emit)
-    finally:
-        conn.close()
+            result = _run_simple(str(db_path), request, cancellation, emit)
+    else:
+        conn = database.open_database(db_path, create=False)
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                if request.operation == "enrich":
+                    result = enrichment.run(conn, request, emit=emit, cancellation=cancellation)
+                else:
+                    result = _run_simple(conn, request, cancellation, emit)
+        finally:
+            conn.close()
     _write({"type": "result", "payload": result.to_dict()})
     return 0
 

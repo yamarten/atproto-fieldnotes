@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import source_sync, worker
+from project_registry_core import lexicon_publication_catalog, source_sync, worker
 from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
@@ -249,6 +249,64 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
                 object(),
                 OperationRequest.create("verify_service", parameters={"project_key": "proj:example"}),
             )
+
+    def test_lexicon_observation_worker_rejects_paths_urls_and_other_parameters(self) -> None:
+        request = OperationRequest.create(
+            "lexicon_publication_observation",
+            parameters={"sidecar_path": "/tmp/arbitrary.db"},
+            execute=True,
+        )
+        with self.assertRaisesRegex(ValueError, "does not accept parameters"):
+            worker._run_lexicon_observation(self.db_path, request)
+        with self.assertRaisesRegex(ValueError, "must update"):
+            worker._run_lexicon_observation(
+                self.db_path,
+                OperationRequest.create("lexicon_publication_observation", parameters={}),
+            )
+
+    def test_partial_lexicon_observation_is_a_failed_worker_result_with_summary(self) -> None:
+        request = OperationRequest.create("lexicon_publication_observation", execute=True)
+        emitted = []
+        with mock.patch.object(
+            worker,
+            "_run_lexicon_observation",
+            return_value={"operation_status": "partial", "inventory": {"status": "failed"}},
+        ):
+            result = worker._run_simple(str(self.db_path), request, CancellationToken(), emitted.append)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["summary"]["operation_status"], "partial")
+        self.assertEqual(emitted[-1].kind, "failed")
+
+    def test_lexicon_weekly_preset_is_fixed_and_disabled_by_default(self) -> None:
+        state = self.manager.list_schedules()
+        preset = next(item for item in state["items"] if item["preset_id"] == "lexicon_publication_weekly")
+        self.assertFalse(preset["schedule"]["enabled"])
+        self.assertEqual(preset["schedule"], {
+            "enabled": False, "week_of_month": 0, "weekday": 5,
+            "time": "05:00", "timezone": "Asia/Tokyo",
+        })
+        queued = self.manager.run_scheduled_preset("lexicon_publication_weekly")
+        job_id = queued["queue"][0]["current_job_id"]
+        completed = self.wait_for(job_id, {"completed"})
+        self.assertEqual(completed["operation"], "lexicon_publication_observation")
+        self.assertEqual(set(completed["request"]["parameters"]), {"_scheduled_preset_id", "_scheduled_step"})
+        self.assertTrue(completed["request"]["execute"])
+
+    def test_schedule_api_snapshot_reads_durable_lexicon_review_gate(self) -> None:
+        sidecar = lexicon_publication_catalog.initialize_catalog(
+            self.db_path.parent / "lexicon-publication-catalog.db"
+        )
+        try:
+            lexicon_publication_catalog.record_non_record_usage_request(
+                sidecar, "procedure-consumer:operator-workflow",
+            )
+        finally:
+            sidecar.close()
+        observation = self.manager.list_schedules()["lexicon_publication_observation"]
+        self.assertTrue(observation["available"])
+        self.assertTrue(observation["review_due"])
+        self.assertEqual(observation["review_reasons"], ["non_record_lexicon_usage_request"])
+        self.assertEqual(observation["non_record_usage_requests"], ["procedure-consumer:operator-workflow"])
 
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")

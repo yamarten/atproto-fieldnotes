@@ -94,9 +94,13 @@
   - contract version 1の評価JSONはnew/update/delete/verification差分、既存project一意候補、未登録authority group、space宣言と活動、mirror/catalog-onlyを分離する
   - `survey.db`は`mode=ro`かつ`query_only`で照合し、自動project作成、identifier採用、ownership/promotion変更を行わない。詳細は[sidecar catalog仕様](developer/lexicon-publication-catalog.md)を参照
   - 2026-09-05の実smokeは10,236 event、10,104 DID+rkey、current 9,858、tombstone 246を固定tipまで適用し、限定5件のpublisher検証で3件成功・mirror 2件のDNS不一致を確認した。正本DBは不変。詳細は[smoke記録](notes/jetstream-lexicon-publication-catalog-smoke-2026-09-05.md)を参照
-  - 初期運用pathは`data/lexicon-publication-catalog.db`、更新はCodex評価時の週次目安、通常updateは検証0件とし、
-    schema ID / publisher DIDを明示した対象限定`verify`を別に行う。恒久sidecarは継続保持し、raw event、inventory、
-    評価JSONは`.tmp`だけに置く。scheduler、Web、background jobへは接続していない
+  - 初期運用pathは`data/lexicon-publication-catalog.db`。固定path / source / boundの`lexicon_publication_weekly`を
+    Operations schedulerへ接続し、毎週土曜05:00 Asia/Tokyo、disabledを既定にする
+  - 1 runは20,000 event / 300秒の1 segment、fresh inventory 60秒、actionable候補のpublisher検証12件を上限とする。
+    pending sealed tipは次回同じtipから再開し、inventory失敗や未完了segmentはpartial/failed表示にする
+  - schema version 2 sidecarは直近16 runのbounded集計、累積成功回数、stickyな`review_due / reason`を保持する。
+    4成功、verifiedな新規未登録authority/space、既レビューpublisherのdelete/identity変化、明示された非record利用要求で
+    再評価を要求する。raw event、inventory、評価JSON、secretは保存しない
   - 2026-09-05の初期運用評価は10,232 eventをcurrent 9,864 / tombstone 246へ適用し、140 publicationの実検証で
     verified 67、DNS DID不一致73、current record再取得失敗0だった。verifiedの既存project一意候補40、未登録authority
     13 group、space publisher 12件を確認した。fresh inventory 9,642 NSIDとの比較ではspace宣言435件中124件に活動があり、

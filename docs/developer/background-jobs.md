@@ -12,7 +12,7 @@
 非目標:
 
 - collector request中の強制停止
-- job履歴をSQLiteへ永続化すること
+- 一般のjob event履歴をSQLiteへ永続化すること。Lexicon publication観測のboundedな業務集計はsidecarを正本にする
 - 複数の書き込みjobを同時実行すること
 - 任意commandや任意外部URLをWebから実行すること
 
@@ -121,6 +121,10 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
   - 通常`enrich --all`、全tracking state対象`enrich --all`後の件数上限なしstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`
   - presetごとに毎週または第N週の曜日、時刻、time zoneを設定する
   - Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間のbounded observationを直近4回分保存する
+  - 固定sidecarを更新するdisabled既定の週次`lexicon_publication_weekly`
+    - registry DBと同じdirectoryからsidecarを導出し、任意path / URL / commandは受け付けない
+    - 1 runで固定sealed tipの1 bounded segmentだけを処理し、未完了時は同じtipを次回再開する
+    - registryは`mode=ro` + `query_only`、sidecarの観測履歴は直近16回、成功回数と再評価gateは別stateで保持する
 - 同じWeb serverから同時に実行するbackground jobを1件へ制限
 - `project_registry_core.application.review`の非対話classification service
 
@@ -165,6 +169,8 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
 - anonymous browser verificationはproject keyと、そのprojectに保存済みのconfirmed/candidate service URLだけを受け付ける
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
+- Lexicon publication観測はJetstream 20,000 event / 300秒、inventory 60秒、publisher 12件を固定上限とする。
+  SIGINTは進行中requestを強制終了せず、snapshot、inventory、publisherの境界で反映する
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 

@@ -1475,7 +1475,16 @@ function renderSchedules(data) {
   if (!items.length) return `<p class="muted">No schedule presets are available.</p>`;
   const queue = list(data.queue);
   const queueHtml = queue.length ? `<p class="notice">Queued scheduled work: ${esc(queue.map((item) => `${item.preset_id}:${item.current_job_id || "waiting"}`).join(", "))}</p>` : "";
-  return `${queueHtml}<div class="operation-grid">${items.map((item) => {
+  const observation = data.lexicon_publication_observation || {};
+  const observationRuns = list(observation.items);
+  const observationHtml = `<article class="operation-card">
+    <div class="card-title"><strong>Lexicon observation gate</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
+    <p class="muted">${esc(observation.successful_run_count || 0)} successful weekly runs · retains ${esc(observation.history_limit || 16)} runs</p>
+    ${list(observation.review_reasons).length ? `<p class="notice">${esc(list(observation.review_reasons).join(", "))}</p>` : ""}
+    ${observation.error ? `<p class="job-error">${esc(observation.error)}</p>` : ""}
+    ${observationRuns.length ? `<details><summary>Recent observation history</summary>${observationRuns.map((run) => `<p class="muted"><strong>${esc(run.status)}</strong> ${esc(formatTimestamp(run.completed_at))} · watermark ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · changes +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · inventory ${esc(run.inventory_status)} (${esc(run.inventory_collection_count)}) · verification ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${run.review_due ? ` · review: ${esc(list(run.review_reasons).join(", "))}` : ""}</p>`).join("")}</details>` : `<p class="muted">No durable observation runs yet.</p>`}
+  </article>`;
+  return `${queueHtml}${observationHtml}<div class="operation-grid">${items.map((item) => {
     const schedule = item.schedule || {};
     const steps = list(item.steps).map((step) => esc(step.label || step.operation)).join(" → ");
     const statusLine = [item.last_status, item.last_message, item.last_started_at ? `started ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `completed ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");

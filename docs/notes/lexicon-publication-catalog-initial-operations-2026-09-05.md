@@ -1,6 +1,7 @@
 # Lexicon publication catalog初期運用評価（2026-09-05）
 
-この文書は、恒久運用の配置・頻度・trust接続を決めるためのbounded実データ評価記録です。現行契約は
+この文書は、当時の恒久運用の配置・頻度・trust接続を決めたbounded実データ評価記録です。ここでの
+「scheduler不要」は後続の観測フェイズ設計で置き換えられています。現行契約は
 [developer仕様](../developer/lexicon-publication-catalog.md)を参照してください。
 
 ## 結論

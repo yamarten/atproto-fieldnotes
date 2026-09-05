@@ -48,7 +48,7 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
 
     def test_schema_initialization_has_explicit_version(self) -> None:
         state = catalog.catalog_state(self.conn)
-        self.assertEqual(state["schema_version"], 1)
+        self.assertEqual(state["schema_version"], 2)
         self.assertEqual(state["watermark_seq"], 0)
 
     def test_init_refuses_an_existing_non_catalog_database(self) -> None:
@@ -81,6 +81,25 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
             self.assertEqual(tables, {"catalog_metadata"})
         finally:
             check.close()
+
+    def test_schema_one_catalog_is_additively_migrated_for_observation_history(self) -> None:
+        legacy_path = self.root / "legacy.db"
+        legacy = catalog.initialize_catalog(legacy_path)
+        legacy.execute("UPDATE catalog_metadata SET schema_version=1 WHERE singleton=1")
+        legacy.execute("DROP TABLE publication_observation_requests")
+        legacy.execute("DROP TABLE publication_observation_state")
+        legacy.execute("DROP TABLE publication_observation_runs")
+        legacy.commit()
+        legacy.close()
+
+        migrated = catalog.initialize_catalog(legacy_path)
+        try:
+            self.assertEqual(catalog.catalog_state(migrated)["schema_version"], 2)
+            self.assertFalse(catalog.observation_run_history(migrated)["review_due"])
+            tables = {row[0] for row in migrated.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertIn("publication_observation_runs", tables)
+        finally:
+            migrated.close()
 
     def test_incomplete_segments_stage_until_same_tip_completes(self) -> None:
         first = catalog.ingest_segment(
@@ -213,7 +232,11 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
             }
 
         result = catalog.verify_due_publications(self.conn, limit=1, now="2026-09-05T01:00:00Z", resolver=fail)
-        self.assertEqual(result, {"eligible_checked": 1, "verified": 0, "failed": 1, "catalog_revision": 2})
+        self.assertEqual(result["eligible_checked"], 1)
+        self.assertEqual(result["verified"], 0)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(result["catalog_revision"], 2)
+        self.assertEqual(result["targets"][0]["reason"], "dns_did_mismatch")
         row = self.conn.execute("SELECT * FROM publication_verifications").fetchone()
         self.assertEqual(row["dns_same_did"], 0)
         self.assertEqual(row["reason"], "dns_did_mismatch")
@@ -371,6 +394,69 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
             {"observed_collections": {"com.example.active"}}, inventory,
         )
         self.assertEqual(index["observed_collections"], {"com.example.active", "net.new.active"})
+
+    def test_observation_history_is_bounded_and_four_successes_raise_review_gate(self) -> None:
+        for index in range(18):
+            run_id = f"run:{index:02d}"
+            catalog.start_observation_run(self.conn, run_id, started_at=f"2026-09-{index + 1:02d}T00:00:00Z")
+            history = catalog.finish_observation_run(
+                self.conn,
+                run_id,
+                status="completed",
+                ingestion={"status": "applied", "sealed_tip_seq": index, "new": 1},
+                inventory={"status": "completed", "observed_at": "2026-09-05T00:00:00Z", "collection_count": 10},
+                completed_at=f"2026-09-{index + 1:02d}T00:01:00Z",
+            )
+        self.assertEqual(len(history["items"]), 16)
+        self.assertEqual(history["successful_run_count"], 18)
+        self.assertTrue(history["review_due"])
+        self.assertIn("four_successful_weekly_observations", history["review_reasons"])
+        self.assertEqual(history["items"][-1]["run_id"], "run:02")
+
+    def test_early_observation_signals_are_machine_readable(self) -> None:
+        catalog.start_observation_run(self.conn, "run:signal")
+        history = catalog.finish_observation_run(
+            self.conn,
+            "run:signal",
+            status="partial",
+            signals={
+                "new_verified_unregistered_authorities": ["net.new"],
+                "new_verified_spaces": ["net.new.space"],
+                "reviewed_publisher_deletes_or_identity_changes": ["deleted:net.old.one:did:plc:old"],
+                "non_record_usage_requests": ["request:query-support"],
+            },
+        )
+        self.assertTrue(history["review_due"])
+        self.assertEqual(history["items"][0]["review_reasons"], [
+            "new_verified_unregistered_authority",
+            "new_verified_space",
+            "reviewed_publisher_delete_or_identity_change",
+            "non_record_lexicon_usage_request",
+        ])
+
+    def test_non_record_usage_request_triggers_gate_without_waiting_for_weekly_run(self) -> None:
+        history = catalog.record_non_record_usage_request(
+            self.conn, "query-consumer:search-ui", observed_at="2026-09-05T01:00:00Z",
+        )
+        self.assertTrue(history["review_due"])
+        self.assertEqual(history["review_reasons"], ["non_record_lexicon_usage_request"])
+        self.assertEqual(history["non_record_usage_requests"], ["query-consumer:search-ui"])
+
+    def test_observation_selection_deduplicates_mirrors_and_prioritizes_actionable_changes(self) -> None:
+        catalog.ingest_segment(self.conn, [
+            event(1, "did:plc:mirror", "com.example.same"),
+            event(2, "did:plc:publisher", "com.example.same"),
+            event(3, "did:plc:space", "net.new.space", main_type="space", collections=["net.new.record"]),
+            event(4, "did:plc:query", "org.new.query", main_type="query"),
+        ], summary(0, 4, 4, truncated=False))
+        selected = catalog.select_observation_verification_targets(
+            self.conn,
+            {"authority_projects": {"com.example": ["proj:example"]}},
+            limit=3,
+            now="2026-09-05T01:00:00Z",
+        )
+        self.assertEqual([item["schema_id"] for item in selected], ["net.new.space", "org.new.query", "com.example.same"])
+        self.assertEqual(len([item for item in selected if item["schema_id"] == "com.example.same"]), 1)
 
 
 if __name__ == "__main__":

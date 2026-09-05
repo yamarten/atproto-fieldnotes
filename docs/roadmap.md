@@ -182,6 +182,12 @@ current record再取得失敗0で、mirror排除と固有候補抽出の価値�
 [初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)、
 [比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)を参照してください。
 
+現在は観測フェイズです。固定sidecarを使うdisabled既定の週次Operations presetで、4回の成功runまで増分・inventory・
+対象限定publisher検証のbounded集計を保持します。4回成功前でも、verifiedな新規未登録authority / space、検証済みpublisherの
+delete / identity置換、具体的な非record利用要求があれば前倒しで再評価します。終了時は、registryへ新しいrole/relation表現を
+設計する、sidecar観測を継続する、presetを停止する、のいずれかを人が決めます。全publisherの周期verify、自動project作成、
+identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
+
 ### 保存済み判断を使うLLM適応
 
 operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、
