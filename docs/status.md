@@ -94,6 +94,13 @@
   - contract version 1の評価JSONはnew/update/delete/verification差分、既存project一意候補、未登録authority group、space宣言と活動、mirror/catalog-onlyを分離する
   - `survey.db`は`mode=ro`かつ`query_only`で照合し、自動project作成、identifier採用、ownership/promotion変更を行わない。詳細は[sidecar catalog仕様](developer/lexicon-publication-catalog.md)を参照
   - 2026-09-05の実smokeは10,236 event、10,104 DID+rkey、current 9,858、tombstone 246を固定tipまで適用し、限定5件のpublisher検証で3件成功・mirror 2件のDNS不一致を確認した。正本DBは不変。詳細は[smoke記録](notes/jetstream-lexicon-publication-catalog-smoke-2026-09-05.md)を参照
+  - 初期運用pathは`data/lexicon-publication-catalog.db`、更新はCodex評価時の週次目安、通常updateは検証0件とし、
+    schema ID / publisher DIDを明示した対象限定`verify`を別に行う。恒久sidecarは継続保持し、raw event、inventory、
+    評価JSONは`.tmp`だけに置く。scheduler、Web、background jobへは接続していない
+  - 2026-09-05の初期運用評価は10,232 eventをcurrent 9,864 / tombstone 246へ適用し、140 publicationの実検証で
+    verified 67、DNS DID不一致73、current record再取得失敗0だった。verifiedの既存project一意候補40、未登録authority
+    13 group、space publisher 12件を確認した。fresh inventory 9,642 NSIDとの比較ではspace宣言435件中124件に活動があり、
+    311件は未観測だった。詳細は[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)を参照
 - bounded service verification保存
   - current stateはsurfaceごとの最新結果を最大32件保持
   - project直下のservice status/confidence/evidenceは、最新のURL別・lane別resultからpure projectionし、過去scalarのmax/unionを引き継がない
@@ -230,9 +237,9 @@
 
 ## 動作確認状況
 
-2026-09-04時点で確認済み:
+2026-09-05時点で確認済み:
 
-- 全unit test 751件
+- 全unit test 777件
 - JavaScript syntax check、Web API test、主要なlist/detail/job導線の実browser確認
 - Semble / Tangled / anonymous browser laneを保存済みsampleで評価し、Sembleを維持、TangledをJetstream v2
   snapshotへ置換、anonymous browser verificationをWeb project detailへ接続した。Jetstreamは公式SDKで限定sequenceの

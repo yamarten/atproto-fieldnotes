@@ -172,9 +172,14 @@ promotion signalへの接続を判断します。DNS委譲の変更はJetstream 
 74 valid unique ID、そのcollections宣言201件中148件は同時点のcollection inventoryで活動未観測でした。
 固有価値が確認できたため、projectやpromotionへ直結しないschema version 1のsidecar publication catalog、
 sealed sequence watermark、update/delete追跡、期限付きDNS/current record検証、Codex向け評価JSONを実装しました。
-恒久運用DBの配置と実行頻度、実候補sample review、publisher ownership・project帰属・promotion signalへ接続するかは
-未決です。接続する場合もverified候補を既存trust policyと明示操作へ渡し、sidecarから自動反映しません。詳細は
-[sidecar catalog仕様](developer/lexicon-publication-catalog.md)と
+2026-09-05の初期運用評価後、恒久pathを`data/lexicon-publication-catalog.db`、更新をCodex評価時の週次目安とし、
+対象schema/DIDを明示する検証入口を追加しました。140 publicationの実検証ではverified 67、DNS DID不一致73、
+current record再取得失敗0で、mirror排除と固有候補抽出の価値を確認しました。一方、verifiedでもproject帰属は確定せず、
+非record Lexiconを現行`owned_nsid`へ表現できないため、sidecarからの自動project作成・identifier採用・promotion変更は
+行いません。record NSIDだけを人が確認後に既存`add-seed`へ渡し、通常enrichでpromotion evidenceを再観測します。
+非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。詳細は
+[sidecar catalog仕様](developer/lexicon-publication-catalog.md)、
+[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)、
 [比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)を参照してください。
 
 ### 保存済み判断を使うLLM適応

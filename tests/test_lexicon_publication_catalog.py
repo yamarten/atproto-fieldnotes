@@ -219,6 +219,45 @@ class LexiconPublicationCatalogTest(unittest.TestCase):
         self.assertEqual(row["reason"], "dns_did_mismatch")
         self.assertEqual(row["next_verification_at"], "2026-09-06T01:00:00Z")
 
+    def test_verification_can_be_limited_to_explicit_schema_and_did_targets(self) -> None:
+        catalog.ingest_segment(self.conn, [
+            event(1, "did:plc:a", "com.example.a"),
+            event(2, "did:plc:b", "com.example.b"),
+            event(3, "did:plc:c", "com.example.b"),
+        ], summary(0, 3, 3, truncated=False))
+        calls = []
+
+        def success(nsid: str, did: str, **_kwargs: object) -> dict:
+            calls.append((nsid, did))
+            row = self.conn.execute(
+                "SELECT record_hash FROM publication_catalog WHERE did=? AND schema_id=?", (did, nsid),
+            ).fetchone()
+            return {
+                "dns_same_did": True, "current_record_refetched": True, "reason": "verified",
+                "retryable": False, "authority_did": did, "record_uri": "at://record",
+                "record_hash": row["record_hash"],
+            }
+
+        result = catalog.verify_due_publications(
+            self.conn, limit=5, schema_ids=["com.example.b"], dids=["did:plc:c"],
+            now="2026-09-05T01:00:00Z", resolver=success,
+        )
+        self.assertEqual(result["eligible_checked"], 1)
+        self.assertEqual(calls, [("com.example.b", "did:plc:c")])
+        remaining = self.conn.execute(
+            "SELECT did,schema_id FROM publication_catalog WHERE (did,rkey) NOT IN "
+            "(SELECT did,rkey FROM publication_verifications) ORDER BY did"
+        ).fetchall()
+        self.assertEqual([(row["did"], row["schema_id"]) for row in remaining], [
+            ("did:plc:a", "com.example.a"), ("did:plc:b", "com.example.b"),
+        ])
+
+        with self.assertRaisesRegex(ValueError, "invalid target schema ID"):
+            catalog.verify_due_publications(
+                self.conn, limit=1, schema_ids=["not an nsid"], now="2026-09-05T01:00:00Z",
+                resolver=success,
+            )
+
     def test_live_verifier_preserves_dns_success_when_record_fetch_fails(self) -> None:
         with (
             mock.patch.object(catalog, "resolve_lexicon_authority_did", return_value="did:plc:a"),

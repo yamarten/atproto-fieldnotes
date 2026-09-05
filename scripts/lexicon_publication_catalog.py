@@ -45,6 +45,19 @@ def parser() -> argparse.ArgumentParser:
     update.add_argument("--http-timeout", type=float, default=20.0)
     update.add_argument("--output", type=Path)
 
+    verify = subparsers.add_parser("verify", help="Verify due publications for explicit schema or publisher targets")
+    verify.add_argument("--sidecar-db", required=True, type=Path)
+    verify.add_argument("--registry-db", required=True, type=Path)
+    verify.add_argument("--collection-inventory-json", type=Path)
+    verify.add_argument("--schema-id", action="append", default=[])
+    verify.add_argument("--did", action="append", default=[])
+    verify.add_argument("--verify-limit", type=int, default=20)
+    verify.add_argument("--verification-ttl-hours", type=int, default=168)
+    verify.add_argument("--verification-retry-hours", type=int, default=24)
+    verify.add_argument("--dns-timeout", type=float, default=10.0)
+    verify.add_argument("--http-timeout", type=float, default=20.0)
+    verify.add_argument("--output", type=Path)
+
     report = subparsers.add_parser("report", help="Emit the stable Codex evaluation JSON without network access")
     report.add_argument("--sidecar-db", required=True, type=Path)
     report.add_argument("--registry-db", required=True, type=Path)
@@ -118,6 +131,22 @@ def main() -> int:
             write_report(report, args.output)
             if args.advance:
                 advance_report_revision(conn, int(report["catalog"]["catalog_revision"]))
+            return 0
+        if args.command == "verify":
+            if not args.schema_id and not args.did:
+                raise ValueError("verify requires at least one --schema-id or --did target")
+            if args.verify_limit < 1:
+                raise ValueError("verify-limit must be positive")
+            before = catalog_state(conn)
+            verification = verify_due_publications(
+                conn, limit=args.verify_limit, schema_ids=args.schema_id, dids=args.did,
+                ttl_hours=args.verification_ttl_hours, retry_hours=args.verification_retry_hours,
+                dns_timeout=args.dns_timeout, http_timeout=args.http_timeout,
+            )
+            report = build_evaluation_report(conn, index, since_revision=int(before["report_revision"]))
+            report["run"] = {"verification": verification}
+            write_report(report, args.output)
+            advance_report_revision(conn, int(report["catalog"]["catalog_revision"]))
             return 0
         if args.max_events < 1 or args.max_seconds < 1 or args.verify_limit < 0:
             raise ValueError("snapshot bounds must be positive and verify-limit must be non-negative")

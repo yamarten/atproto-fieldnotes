@@ -394,6 +394,8 @@ def verify_due_publications(
     conn: sqlite3.Connection,
     *,
     limit: int,
+    schema_ids: Iterable[str] | None = None,
+    dids: Iterable[str] | None = None,
     now: str | None = None,
     ttl_hours: int = 168,
     retry_hours: int = 24,
@@ -402,16 +404,34 @@ def verify_due_publications(
     resolver: Callable[..., dict[str, Any]] = verify_publisher,
 ) -> dict[str, Any]:
     checked_at = now or iso_now()
-    rows = conn.execute("""
+    normalized_schema_ids = sorted({identifier_core.normalize_nsid(value) for value in (schema_ids or [])})
+    invalid_schema_ids = [value for value in normalized_schema_ids if not identifier_core.is_valid_nsid(value)]
+    if invalid_schema_ids:
+        raise ValueError(f"invalid target schema ID: {invalid_schema_ids[0]}")
+    normalized_dids = sorted({str(value).strip() for value in (dids or [])})
+    if any(not value for value in normalized_dids):
+        raise ValueError("target DID must not be empty")
+    target_predicates = []
+    parameters: list[Any] = [checked_at]
+    if normalized_schema_ids:
+        target_predicates.append(f"p.schema_id IN ({','.join('?' for _ in normalized_schema_ids)})")
+        parameters.extend(normalized_schema_ids)
+    if normalized_dids:
+        target_predicates.append(f"p.did IN ({','.join('?' for _ in normalized_dids)})")
+        parameters.extend(normalized_dids)
+    target_where = f" AND {' AND '.join(target_predicates)}" if target_predicates else ""
+    parameters.append(max(0, limit))
+    rows = conn.execute(f"""
       SELECT p.*, v.checked_at, v.next_verification_at, v.verified_content_hash
       FROM publication_catalog p
       LEFT JOIN publication_verifications v USING(did,rkey)
       WHERE p.is_deleted=0 AND p.schema_id<>'' AND p.problems_json='[]'
         AND (v.did IS NULL OR v.verified_content_hash<>p.record_hash OR v.next_verification_at<=?)
+        {target_where}
       ORDER BY CASE WHEN v.did IS NULL THEN 0 WHEN v.verified_content_hash<>p.record_hash THEN 1 ELSE 2 END,
         p.schema_id, p.did, p.rkey
       LIMIT ?
-    """, (checked_at, max(0, limit))).fetchall()
+    """, parameters).fetchall()
     if not rows:
         return {"eligible_checked": 0, "verified": 0, "failed": 0}
     revision = int(catalog_state(conn)["catalog_revision"]) + 1

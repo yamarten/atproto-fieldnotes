@@ -30,9 +30,7 @@
 
 ## 次に必要な作業
 
-1. Jetstream Lexicon publication sidecarの恒久運用DB配置と実行頻度を決め、verified候補をsample reviewする。
-2. sample review後、信頼・帰属policyへ追加接続するかを検討する。
-3. その後、開発文書の用語整理を行う。
+1. 開発文書の用語整理を行う。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

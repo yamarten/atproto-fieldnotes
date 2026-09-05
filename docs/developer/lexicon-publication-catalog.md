@@ -13,6 +13,11 @@ SQLite URIの`mode=ro`と`PRAGMA query_only=ON`を併用します。
 既定sourceは現行Jetstream v2 archive host `https://jetstream.us-west.bsky.network`で、別hostは
 `--service`で明示します。
 
+初期運用の恒久sidecarは`data/lexicon-publication-catalog.db`へ置きます。これはCodexが評価時に使う内部DBで、
+`survey.db`のbackup、Webの実運用DB、`.tmp`の検証用DBとは別物です。pathを設定やpublic commandの既定値にせず、
+developer scriptの実行ごとに明示します。将来`survey.db`へ統合する場合はschemaとreaderを置換し、このpathを維持する
+互換layerは作りません。
+
 実行例:
 
 ```bash
@@ -20,10 +25,16 @@ bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publica
   --sidecar-db .tmp/lexicon-publications/catalog.db
 
 bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py update \
-  --sidecar-db .tmp/lexicon-publications/catalog.db \
+  --sidecar-db data/lexicon-publication-catalog.db \
   --registry-db data/survey.db \
-  --max-events 1000 --max-seconds 120 --verify-limit 10 \
+  --max-events 20000 --max-seconds 300 --verify-limit 0 \
   --output .tmp/lexicon-publications/evaluation.json
+
+bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py verify \
+  --sidecar-db data/lexicon-publication-catalog.db \
+  --registry-db data/survey.db \
+  --schema-id example.app.record --verify-limit 10 \
+  --output .tmp/lexicon-publications/verification.json
 ```
 
 途中終了したrunは同じcommandを再実行します。sidecarのpending sealed tipと`afterSeq`から再開し、新しいtipを
@@ -31,6 +42,25 @@ bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publica
 `report`はnetworkへ接続せず現在stateを評価し、`--advance`指定時だけ差分基準revisionを進めます。
 space宣言の活動比較はregistry内の保存済み`collection_observations`をread-onlyで使い、より新しいinventoryを
 照合する場合は`--collection-inventory-json`を追加して集合を併合します。inventoryはsidecarやregistryへ保存しません。
+
+`verify`は評価対象をrepeatableな`--schema-id`または`--did`で明示し、期限切れ、content変更後、または未検証の
+current publicationだけを検証します。両方を指定した場合はschemaとDIDの積集合です。全catalogを辞書順に少しずつ
+検証することは初期coverageにも再検証期限にも適さないため、通常の`update`は`--verify-limit 0`とし、Codexが候補を
+評価する時に対象限定`verify`を使います。
+
+## 初期運用
+
+- catalog更新は週1回を目安に、Codexがこのlaneを評価する時だけ手動実行します。前回の成功から7日未満で、評価対象の
+  publication変更も疑われない場合は再取得しません。scheduler、Web、background jobには接続しません。
+- 成功検証の7日TTLは同じ候補を評価する際の再取得抑制に使います。失敗の1日TTLは翌日以降に対象限定で再試行できる
+  境界であり、失敗全件を日次で再走査する指示ではありません。
+- 2026-09-05のbootstrapは約1か月分10,232 eventを2 segment、約8分で処理しました。週次増分はこの初回量より十分
+  小さいと見込めますが、必ず20,000 event / 300秒のboundを維持し、完了しなければ同じsealed tipを再開します。
+- sidecar本体はwatermark、tombstone、verification期限を含む運用stateなので継続保持します。raw event logと評価JSON、
+  collection inventoryは`.tmp/`だけに置き、評価の記録へ必要な集計を転記後に削除できます。
+- sidecarはJetstreamから再構築可能なため定期backupは作りません。schema変更や破壊的maintenanceを行う時だけSQLiteの
+  online backupを`data/backups/`へ1世代作り、検証後に旧世代を削除します。`cleanup-workspace-temp`は`.tmp`だけが対象で、
+  恒久sidecarを削除しません。
 
 ## SQLite schema version 1
 
@@ -90,3 +120,19 @@ JSON keyと配列順序は安定させ、配列はschema ID、DID、rkey等の�
 この分類は候補提示用です。space宣言から`owned_nsid`や`collection_observations`を書かず、projectとの関連候補から
 project identifier、relation、decisionを作りません。採用する場合はCodexまたはoperatorが既存の明示操作とtrust policyを
 別途使います。
+
+初期運用では次の接続境界を使います。
+
+- `verified_publisher_candidates`は調査入力です。DNSとcurrent recordはpublisherを確認しますが、publisher DIDの
+  project roleやproject境界までは確認しません。
+- `existing_project_unique_candidates`はproject detailと既存identifierを人が照合します。`definition_types`に`record`を
+  含み、そのprojectへのownershipも確認できたNSIDだけ、既存の`add-seed --type nsid --project-key ...`へ渡せます。
+  exact一致は既登録なら無変更でよく、authority groupだけの一致は自動採用しません。
+- `unregistered_authority_groups`は新規調査候補です。`independent_candidate=true`も自動project作成条件ではありません。
+  独立projectと確認できたrecord NSIDだけ、operatorが既存`add-seed`を明示実行します。
+- query、procedure、subscription、permission-set、spaceは現行`owned_nsid`のrecord collection表現へ押し込みません。
+  `space_declared_collections`はinventoryとの比較と調査候補抽出だけに使い、宣言を活動・ownershipへ変換しません。
+- `mirror_or_catalog_only`と`deleted_or_verification_failed_or_expired`は採用操作へ渡しません。再評価が必要なら期限後に
+  対象限定`verify`を行います。
+- sidecar結果からpromotionを直接変更しません。record NSIDを明示採用したprojectは通常`enrich`で既存の
+  DNS/schema evidenceを再観測し、その後に既存`lexicon_publisher_confirmed` signalを評価します。
