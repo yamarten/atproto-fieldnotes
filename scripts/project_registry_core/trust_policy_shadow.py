@@ -10,7 +10,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import domain_policy, storage
+from . import domain_policy, storage, repository_trust
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -698,6 +698,15 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             and claim["role"] == "service"
             and claim["classification"] == "confirmed"
         }
+        project.setdefault("relation_evidence", []).append({
+            "relation": {"subject": {"type": row["subject_type"], "value": row["subject_value"]},
+                         "predicate": row["predicate"], "object": {"type": row["object_type"], "value": row["object_value"]},
+                         "locator": row["locator"], "method": row["method"]},
+            "source": row["source"], "classification": row["classification"],
+            "observed_at": row["observed_at"], "context": _json(row["context_json"], {}),
+        })
+        if row["predicate"] in {"project_repository", "repository_homepage"} and {row["subject_type"], row["object_type"]} in ({"repo", "website"}, {"repo", "service"}):
+            continue
         edge = _normalize_relation_edge(row, confirmed_services=confirmed_services)
         if edge:
             project["edges"].append(edge)
@@ -712,7 +721,8 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             and claim["role"] == "service"
             and claim["classification"] == "confirmed"
         }
-        for raw in project.pop("legacy_edges", []):
+        for raw in [*(edge for edge in project.pop("legacy_edges", []) if not repository_trust.is_repository_edge(edge)),
+                    *repository_trust.project_edges(project)]:
             edge = _normalize_legacy_edge(raw, confirmed_services=confirmed_services) if isinstance(raw, dict) else None
             if edge:
                 project["edges"].append(edge)
@@ -731,11 +741,23 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "SELECT * FROM project_identifier_adoptions ORDER BY project_key, created_at, adoption_id"
         ):
             projects[str(row["project_key"])]["adoptions"].append({key: row[key] for key in row.keys()})
+    # URL comparison uses today's production inputs; saved verdicts remain historical.
+    from . import project_record, registry
+    for project in projects.values():
+        url_claims = [claim for claim in project["claims"] if claim["node"][0] in {"service_url", "repo_url"}]
+        if not url_claims:
+            continue
+        runtime = project_record.fetch_project(conn, project["project_key"])
+        project["current_url_evaluations"] = [
+            registry.trust_auto_confirm_identifier(runtime, claim["node"][0], claim["node"][1])
+            for claim in url_claims
+        ]
     return list(projects.values())
 
 
 def _v1_verdict(project: dict[str, Any], claim: dict[str, Any]) -> str:
-    for item in project.get("v1_evaluations", []):
+    evaluations = project.get("current_url_evaluations", []) if claim["node"][0] in {"service_url", "repo_url"} else project.get("v1_evaluations", [])
+    for item in evaluations:
         candidate = item.get("candidate") if isinstance(item, dict) else None
         if not isinstance(candidate, dict):
             continue

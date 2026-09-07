@@ -98,6 +98,12 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             output.append(normalized)
             continue
         existing = output[indexes[key]]
+        if relation.predicate in {"project_repository", "repository_homepage"} and {
+            relation.subject.type, relation.object.type
+        } in ({"repo", "website"}, {"repo", "service"}):
+            if normalized["observed_at"] >= existing["observed_at"]:
+                output[indexes[key]] = normalized
+            continue
         if CLASSIFICATION_RANK[classification] > CLASSIFICATION_RANK[existing["classification"]]:
             existing["classification"] = classification
         if normalized["observed_at"] > existing["observed_at"]:

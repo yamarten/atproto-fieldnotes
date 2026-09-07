@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from collections import deque
 import copy
+import hashlib
+import json
+
+from . import repository_trust
 from typing import Any, Iterable, Mapping
 
 
@@ -112,7 +116,7 @@ def normalize_edges(values: Any) -> list[dict[str, Any]]:
     return output
 
 
-def graph(project: Mapping[str, Any]) -> dict[str, Any]:
+def stored_graph(project: Mapping[str, Any]) -> dict[str, Any]:
     value = project.get(TRUST_GRAPH_FIELD)
     if not isinstance(value, Mapping):
         return {"version": TRUST_GRAPH_VERSION, "generated_at": "", "edges": [], "evaluations": []}
@@ -126,6 +130,23 @@ def graph(project: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(item, Mapping)
         ],
     }
+
+
+def graph(project: Mapping[str, Any]) -> dict[str, Any]:
+    current = stored_graph(project)
+    current["edges"] = normalize_edges([
+        *(edge for edge in current["edges"] if not repository_trust.is_repository_edge(edge)),
+        *repository_trust.project_edges(project),
+    ])
+    return current
+
+
+def evaluation_inputs_digest(project: Mapping[str, Any]) -> str:
+    inputs = {key: project.get(key, []) for key in (
+        "manual_seeds", "blocked_identifiers", "deferred_identifiers",
+    )}
+    inputs[TRUST_GRAPH_FIELD] = graph(project)["edges"]
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def set_graph(project: dict[str, Any], value: Mapping[str, Any]) -> None:
@@ -175,7 +196,10 @@ def upsert_edge(
     })
     if not candidate:
         return {}
-    current = graph(project)
+    if repository_trust.is_repository_edge(candidate):
+        repository_trust.record_observation(project, candidate)
+        return candidate
+    current = stored_graph(project)
     if generated_at and not current.get("generated_at"):
         current["generated_at"] = generated_at
     current["edges"] = normalize_edges([*current.get("edges", []), candidate])
@@ -191,7 +215,21 @@ def remove_edges(
     locator: str = "",
     methods: set[str] | None = None,
 ) -> int:
-    current = graph(project)
+    relation_removed = 0
+    retained_relations = []
+    for record in project.get("relation_evidence", []):
+        edges = repository_trust.project_edges({"relation_evidence": [record]})
+        matches = any((not predicate or edge["predicate"] == predicate)
+                      and (not source or edge["source"] == source)
+                      and (not locator or edge["locator"] == locator)
+                      and (methods is None or edge["method"] in methods) for edge in edges)
+        if matches:
+            relation_removed += 1
+        else:
+            retained_relations.append(record)
+    if relation_removed:
+        project["relation_evidence"] = retained_relations
+    current = stored_graph(project)
     retained: list[dict[str, Any]] = []
     removed = 0
     for edge in current.get("edges", []):
@@ -208,7 +246,7 @@ def remove_edges(
     if removed:
         current["edges"] = retained
         set_graph(project, current)
-    return removed
+    return removed + relation_removed
 
 
 def auto_confirm_edges(
@@ -360,14 +398,17 @@ def upsert_evaluation(project: dict[str, Any], evaluation: Mapping[str, Any], *,
     candidate_key = node_key(candidate)
     if not candidate_key[0]:
         return
-    current = graph(project)
+    current = stored_graph(project)
     if generated_at and not current.get("generated_at"):
         current["generated_at"] = generated_at
     evaluations = [
         item for item in current.get("evaluations", [])
         if node_key(item.get("candidate", {}) if isinstance(item.get("candidate"), Mapping) else {}) != candidate_key
     ]
-    evaluations.append(copy.deepcopy(dict(evaluation)))
+    saved = copy.deepcopy(dict(evaluation))
+    if candidate_key[0] in URL_NODE_KINDS:
+        saved["inputs_digest"] = evaluation_inputs_digest(project)
+    evaluations.append(saved)
     current["evaluations"] = evaluations
     set_graph(project, current)
 
@@ -377,5 +418,14 @@ def confirmed_by_trust_policy(project: Mapping[str, Any], kind: str, value: str)
     for item in graph(project).get("evaluations", []):
         candidate = item.get("candidate") if isinstance(item.get("candidate"), Mapping) else {}
         if node_key(candidate) == key and bool(item.get("auto_confirm")) and item.get("policy_version") == TRUST_POLICY_VERSION:
+            if kind in URL_NODE_KINDS and item.get("inputs_digest") != evaluation_inputs_digest(project):
+                return False
+            if kind in URL_NODE_KINDS:
+                from . import runtime_view
+                anchor = item.get("anchor") or {}
+                if not any(identifier.kind == anchor.get("kind") and identifier.value == anchor.get("value")
+                           and identifier.classification == "confirmed"
+                           for identifier in runtime_view.project_identifiers(project)):
+                    return False
             return True
     return False

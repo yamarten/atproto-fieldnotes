@@ -465,7 +465,7 @@ def enrich_project(
             ))
 
     for repo_url in relation_core.corroborate_source_repositories(project):
-        confirm_project_repository_url(
+        confirm_project_repository_url_with_trust(
             project, repo_url, "relation_corroboration", relation="mutual_first_party_link",
             reason="repository and first-party application independently link to each other",
             evidence_kind="relation_corroboration", evidence_url=repo_url,

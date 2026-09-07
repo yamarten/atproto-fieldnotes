@@ -5,6 +5,10 @@
 
 ## 現在地
 
+- page↔repositoryのrelation導出への変更は検証済み。正本DBは未変更。
+  実運用へ反映する前に[移行評価記録](notes/repository-trust-projection-2026-09-07.md)の未解決edgeをreviewし、
+  必要な復元・再調査を判断する。正本DBへの移行実行は別途承認が必要。
+
 - schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
   bounded page-to-repository policyは正本DBへ適用済みです。広いrole-aware trust自動採用、LLM relation assessor、
   自動mergeは意図的にproductionへ接続していません。

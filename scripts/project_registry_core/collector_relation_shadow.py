@@ -12,6 +12,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from . import repository_trust
 from . import collector_relation_policy
 from . import domain_policy
 from . import identifiers
@@ -1064,11 +1065,13 @@ def _relation_assessor_inventory(
             and not bool(item.get("stale"))
             and repo_urls.canonical_repo_url(str(item.get("repo_url") or ""))
         }
-        graph_edges = [
-            edge
-            for edge in ((state_evidence.get("trust_graph") or {}).get("edges", []))
-            if isinstance(edge, dict)
-        ]
+        graph_edges = repository_trust.project_edges({"relation_evidence": [
+            {"relation": {"subject": {"type": "repo" if item["subject_kind"] == "repo_url" else "website", "value": item["subject_value"]},
+                          "predicate": item["current_relation_predicate"], "object": {"type": "repo" if item["object_kind"] == "repo_url" else "website", "value": item["object_value"]},
+                          "method": item["method"], "locator": item["locator"]},
+             "source": item["source"], "classification": item["current_relation_classification"]}
+            for item in project["observations"]
+        ]})
         llm_edges = {
             (
                 identifiers.normalize_url(str((edge.get("subject") or {}).get("value") or "")),

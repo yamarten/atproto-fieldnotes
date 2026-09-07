@@ -9,6 +9,12 @@
 
 実装済み:
 
+- page↔repositoryの信頼edgeを現在のrelationから導出し、probe・trust・Explain・shadowへ共通接続。
+  同一観測の格下げ、独立sourceの保持、LLM未評価時の保持、失敗時の観測保持に対応。
+  URL支持は保存済みverdictではなく現在の起点とrelationで再評価し、relation corroborationも共通採用処理を通す。
+  旧edgeの明示的移行planを追加。正本DBへの書き込み・運用反映は未実施。
+  調査・検証・移行残件は[評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+
 - schema version 3のSQLite registry実装
   - `projects`のscalar、`profile_json`、`state_json`
   - normalized `project_identifiers`、`project_relations`、`project_decisions`

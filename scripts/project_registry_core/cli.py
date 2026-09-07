@@ -453,6 +453,14 @@ def build_parser() -> argparse.ArgumentParser:
     audit_trust_parser.add_argument("--example-limit", type=int, default=20, help="Maximum issue examples per kind. Default: 20.")
     audit_trust_parser.set_defaults(func=maintenance_commands.cmd_audit_trust_graph)
 
+    migrate_repository_trust_parser = subparsers.add_parser(
+        "migrate-repository-trust", help="Review or apply a page/repository relation migration plan."
+    )
+    migrate_repository_trust_parser.add_argument("--db-path", required=True)
+    migrate_repository_trust_parser.add_argument("--output", required=True, help="Dry-run plan or execution result JSON.")
+    migrate_repository_trust_parser.add_argument("--execute-plan", help="Apply this previously reviewed dry-run JSON; unresolved edges remain stored.")
+    migrate_repository_trust_parser.set_defaults(func=maintenance_commands.cmd_migrate_repository_trust)
+
     compare_trust_policy_parser = subparsers.add_parser(
         "compare-trust-policy",
         help="Compare current and role-aware trust policies without changing the database.",

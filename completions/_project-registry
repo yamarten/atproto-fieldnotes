@@ -39,6 +39,7 @@ subcommands=(
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
+  'migrate-repository-trust:Review or apply repository relation migration'
   'compare-trust-policy:Compare current and role-aware trust policies'
   'compare-collector-relation-policy:Compare current and direction-aware collector relation policies'
   'compare-project-repository-context:Recollect bounded project repository link context'
@@ -435,6 +436,12 @@ case "$cmd" in
   audit-trust-graph)
     _arguments -S \
       '--example-limit[Maximum issue examples]:count:'
+    ;;
+  migrate-repository-trust)
+    _arguments \
+      '--db-path[Existing database]:database:_files' \
+      '--output[Plan or execution result JSON]:output:_files' \
+      '--execute-plan[Reviewed migration plan]:plan:_files'
     ;;
   compare-trust-policy)
     _arguments -S \

@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+import copy
+import json
+import unittest
+
+from helpers import registry, project_record, TempRegistryDbTestCase
+from project_registry_core import repository_trust, repository_trust_migration, trust_graph
+
+
+SERVICE = "https://app.example.com"
+REPO = "https://github.com/example/app"
+
+
+def edge(*, classification="confirmed", source="service_page", method="bounded_first_party_link", reverse=False):
+    subject = {"kind": "service_url", "value": SERVICE}
+    obj = {"kind": "repo_url", "value": REPO}
+    return {"subject": obj if reverse else subject, "object": subject if reverse else obj,
+            "predicate": "repo_links_service" if reverse else "service_links_repo",
+            "classification": classification, "eligible_for_auto_confirm": classification == "confirmed",
+            "source": source, "method": method, "locator": SERVICE,
+            "observed_at": "2026-09-03T09:46:39+00:00", "context": {"reason": "fixture"}}
+
+
+class RepositoryTrustTest(unittest.TestCase):
+    def test_known_lexrpc_candidate_cannot_admit_repository_probe(self):
+        service = "https://lexrpc.readthedocs.io"
+        repo = "https://github.com/bluesky-social/atproto"
+        stale = {**edge(), "subject": {"kind": "service_url", "value": service},
+                 "object": {"kind": "repo_url", "value": repo},
+                 "source": f"service_page:{service}", "locator": service}
+        project = project_record.default_project_record("proj:229e919decf3", "service_url", service)
+        registry.add_manual_seed(project, "service_url", service, source="test")
+        project["candidate_project_repository_urls"] = [repo]
+        project["trust_graph"] = {"edges": [stale]}
+        repository_trust.record_observation(project, {**stale, "classification": "candidate",
+            "context": {"disposition": "REVIEW_PROJECT_REPOSITORY", "reason": "external schema references"}})
+        self.assertEqual(registry.candidate_repo_trust_probe_urls(project), [])
+
+    def test_current_candidate_overrides_stale_confirmed_mirror(self):
+        # lexrpc failure shape: same source/method/time, current candidate, old confirmed mirror.
+        project = {"trust_graph": {"edges": [edge()]}}
+        repository_trust.record_observation(project, edge(classification="candidate"))
+        current = trust_graph.graph(project)["edges"]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["classification"], "candidate")
+        self.assertEqual(trust_graph.auto_confirm_edges(current), [])
+        self.assertEqual(len(trust_graph.stored_graph(project)["edges"]), 1)
+
+    def test_new_observation_replaces_same_source_but_preserves_independent_source(self):
+        project = {}
+        repository_trust.record_observation(project, edge())
+        repository_trust.record_observation(project, edge(source="independent"))
+        later = {**edge(classification="candidate"), "observed_at": "2026-09-04T00:00:00+00:00"}
+        repository_trust.record_observation(project, later)
+        repository_trust.record_observation(project, edge())  # late arrival of older data
+        self.assertEqual([item["classification"] for item in trust_graph.graph(project)["edges"]], ["candidate", "confirmed"])
+
+    def test_observation_writer_does_not_store_mirror_and_retains_context(self):
+        project = {}
+        trust_graph.upsert_edge(project, **edge())
+        self.assertEqual(trust_graph.stored_graph(project)["edges"], [])
+        self.assertEqual(trust_graph.graph(project)["edges"][0]["context"]["reason"], "fixture")
+
+    def test_homepage_pair_tracks_current_forward_relation(self):
+        project = {}
+        repository_trust.record_observation(project, edge(reverse=True, method="github_homepage"))
+        project["relation_evidence"][0]["relation"]["predicate"] = "repository_homepage"
+        self.assertEqual(trust_graph.graph(project)["edges"], [])
+        repository_trust.record_observation(project, edge())
+        self.assertEqual(len(trust_graph.auto_confirm_edges(trust_graph.graph(project)["edges"])), 2)
+        repository_trust.record_observation(project, edge(classification="candidate"))
+        self.assertEqual(len(trust_graph.graph(project)["edges"]), 1)
+
+    def test_llm_omission_preserves_judgment_and_explicit_related_replaces_it(self):
+        project = {}
+        pair = {"service_url": SERVICE, "repo_url": REPO}
+        evidence = {"repository_link_candidates": [pair]}
+        registry.apply_repository_link_assessments(project, {"repository_link_assessments": [{**pair, "relationship": "same_project"}]}, evidence)
+        registry.apply_repository_link_assessments(project, {"repository_link_assessments": []}, evidence)
+        self.assertEqual(trust_graph.graph(project)["edges"][0]["classification"], "confirmed")
+        registry.apply_repository_link_assessments(project, {"repository_link_assessments": [{**pair, "relationship": "related"}]}, evidence)
+        self.assertEqual(trust_graph.graph(project)["edges"][0]["classification"], "candidate")
+
+    def test_failed_page_fetch_keeps_previous_observation(self):
+        project = {}
+        repository_trust.record_observation(project, edge(source=f"service_probe:{SERVICE}", method="html_link"))
+        before = copy.deepcopy(project)
+        registry.service_probe_supports_project(project, SERVICE, {"fetch_error": "timeout", "status_code": 0})
+        self.assertEqual(project, before)
+
+    def test_saved_verdict_cannot_support_removed_relation(self):
+        project = project_record.default_project_record("proj:current", "service_url", SERVICE)
+        registry.add_manual_seed(project, "service_url", SERVICE, source="test")
+        repository_trust.record_observation(project, edge())
+        repository_trust.record_observation(project, edge(reverse=True))
+        self.assertTrue(registry.trust_auto_confirm_identifier(project, "repo_url", REPO)["auto_confirm"])
+        project["relation_evidence"] = []
+        self.assertFalse(registry.url_has_current_trust(project, "repo_url", REPO))
+        self.assertFalse(trust_graph.confirmed_by_trust_policy(project, "repo_url", REPO))
+
+    def test_legacy_unbacked_edge_never_enters_current_graph(self):
+        project = {"trust_graph": {"edges": [edge(method="first_party_link")]}}
+        self.assertEqual(trust_graph.graph(project)["edges"], [])
+
+
+class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
+    def test_history_restores_omitted_pair_without_rerunning_llm(self):
+        from project_registry_core import storage
+        project = self.make_project("proj:history", "service_url", SERVICE)
+        llm = edge(source="llm", method="llm_same_project")
+        homepage = edge(source="github", reverse=True, method="github_homepage")
+        repository_trust.record_observation(project, homepage)
+        project["relation_evidence"][0]["relation"]["predicate"] = "repository_homepage"
+        project["trust_graph"] = {"edges": [llm, {**homepage, "method": "repository_homepage_pair"}]}
+        pair = {"service_url": SERVICE, "repo_url": REPO}
+        snapshot = {
+            "llm_source": {"generated_at": llm["observed_at"], "evidence": {"repository_link_candidates": [pair]}},
+            "llm_output": {"repository_link_assessments": [{**pair, "relationship": "same_project"}]},
+        }
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.execute("INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                "run:historical", project["project_key"], "2026-09-03T09:00:00+00:00", "2026-09-03T10:00:00+00:00",
+                1, "test", "{}", storage.encode_history_json_text(json.dumps(snapshot)), "{}", "{}",
+            ))
+            plan = repository_trust_migration.build_plan(conn)
+            self.assertEqual(plan["counts"], {"reconstructable_judgment": 2})
+            self.assertEqual(plan["entries"][0]["relation"]["context"]["migration_run_id"], "run:historical")
+            snapshot["llm_source"]["evidence"]["repository_link_candidates"] = []
+            conn.execute("UPDATE investigation_runs SET output_project_json=?", (json.dumps(snapshot),))
+            self.assertEqual(repository_trust_migration.build_plan(conn)["counts"], {"needs_review": 2})
+        finally:
+            conn.close()
+
+    def test_dry_run_classifies_and_apply_preserves_unresolved_and_identifiers(self):
+        project = self.make_project("proj:migration", "service_url", SERVICE)
+        repository_trust.record_observation(project, edge(classification="candidate"))
+        llm = edge(source=f"llm_repository_relationship:{SERVICE}", method="llm_same_project")
+        unknown = edge(source="legacy_unknown", method="first_party_link")
+        project["trust_graph"] = {"edges": [edge(), llm, unknown]}
+        pair = {"service_url": SERVICE, "repo_url": REPO}
+        project["llm_source"] = {"generated_at": llm["observed_at"], "evidence": {"repository_link_candidates": [pair]}}
+        project["llm_output"] = {"repository_link_assessments": [{**pair, "relationship": "same_project", "reason": "saved judgment"}]}
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            identifiers = list(conn.execute("SELECT * FROM project_identifiers"))
+            before = conn.total_changes
+            plan = repository_trust_migration.build_plan(conn)
+            self.assertEqual(conn.total_changes, before)
+            self.assertEqual(plan["counts"], {"current_relation": 1, "reconstructable_judgment": 1, "needs_review": 1})
+            conn.execute("BEGIN IMMEDIATE")
+            result = repository_trust_migration.apply_plan(conn, plan)
+            conn.commit()
+            self.assertEqual(result, {"removed_legacy_edges": 2, "pending_review": 1})
+            self.assertEqual(list(conn.execute("SELECT * FROM project_identifiers")), identifiers)
+            state = json.loads(conn.execute("SELECT state_json FROM projects").fetchone()[0])
+            self.assertEqual(len(state["evidence"]["trust_graph"]["edges"]), 1)
+            remaining = repository_trust_migration.build_plan(conn)
+            self.assertEqual(remaining["counts"], {"needs_review": 1})
+            with self.assertRaises(ValueError):
+                repository_trust_migration.apply_plan(conn, plan)
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

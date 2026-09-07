@@ -288,7 +288,7 @@ def apply_service_evidence(
         elif record.kind == "service_verification" and isinstance(record.value, dict):
             value = service.normalize_redirect_same_site_policy(dict(record.value))
             requested_url = str(value.get("requested_url") or "").rstrip("/")
-            if requested_url and value.get("lane") in {"static", "deep", "follow_up"}:
+            if requested_url and value.get("lane") in {"static", "deep", "follow_up"} and 0 < int(value.get("status_code") or 0) < 400 and not value.get("fetch_error"):
                 page_source = f"service_page:{requested_url}"
                 project["relation_evidence"] = normalize_relation_records([
                     item
@@ -457,27 +457,6 @@ def apply_github_repo_evidence(
                 if service_candidate:
                     dependencies.add_candidate_url(project, "service_url", service_candidate)
                 continue
-            if (
-                relation.get("predicate") == "project_repository"
-                and subject.get("type") == "repo"
-                and obj.get("type") in {"website", "service"}
-            ):
-                method = str(relation.get("method") or "")
-                dependencies.record_trust_edge(
-                    project,
-                    "repo_url",
-                    str(subject.get("value") or ""),
-                    "repo_links_service",
-                    "service_url",
-                    str(obj.get("value") or ""),
-                    source=record.source,
-                    locator=str(relation.get("locator") or ""),
-                    method=method,
-                    classification=classification,
-                    eligible_for_auto_confirm=classification == "confirmed",
-                    observed_at=record.observed_at,
-                    context={"from_relation": True},
-                )
             if str(record.source).startswith("github_readme:") and subject.get("type") == "repo":
                 repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
                 object_value = str(obj.get("value") or "")

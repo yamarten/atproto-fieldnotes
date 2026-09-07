@@ -188,6 +188,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL field利用数と保存invariant違反 | anomalyと例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
+| `migrate-repository-trust` | 旧ページ・repository信頼根拠をrelationへ整理する計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json>`。未解決分は保持 |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
 | `cleanup-workspace-temp` | `.tmp`内の古いSQLite複製とWAL/SHM | 削除候補、容量、保持件数のJSON | `--execute` |

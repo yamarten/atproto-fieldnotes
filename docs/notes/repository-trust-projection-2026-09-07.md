@@ -1,0 +1,82 @@
+# Page↔repository edgeのrelation導出への変更
+
+2026-09-07の調査・実装・移行検証の記録です。恒久仕様は
+[Registry Internals](../developer/registry-internals.md)、設計原則は
+[登録プロジェクトへの帰属と信頼](../developer/project-attribution-and-trust.md)を参照してください。
+
+## 結論と診断
+
+page↔repositoryの保存edgeは現在のrelationと別に強いclassificationを保持でき、古い根拠が再利用される
+不整合がありました。relationを正本とし、判定用edgeを共通投影で導出する方式へ変更しました。
+独立したHTML/README/LLM観測もrelationに保存します。account/NSID policyの拡張は行っていません。
+正本DBへの移行・運用反映は未実施です。
+
+実例はlexrpc（`proj:229e919decf3`）の`https://lexrpc.readthedocs.io`から
+`https://github.com/bluesky-social/atproto`への関係です。current relationはcandidateなのに、
+同じsource/method/時刻の保存edgeがconfirmed/eligibleのままでした。旧syncはclassificationの最大値と
+eligibleのORを使うため弱い新判断で強い旧判断を置換できませんでした。再現した問題は候補repoの追加調査へ
+誤った根拠を渡せることです。この事例から最終的なidentifierの誤採用まで確認したわけではありません。
+
+当初の「source名を変えても支持された」という反例は、predicateに与えた意味を保ったままsourceだけを
+変えており、意味上の誤判定の証明ではありません。sourceの一律allowlist追加は採用せず、実際に確認できた
+relationとedgeの不整合を解消しました。
+
+## 実装境界
+
+- `repository_trust.project_edges()`でpage↔repoおよびhomepage pairを導出し、保存graphとの混合をやめた。
+- 同一観測は新しい時刻の判断へ置換。source/method/locatorが異なる根拠は独立して保持する。
+- LLMの許可されたpair、判断、理由、時刻をrelationへ保存する。未評価pairを否定と扱わず、明示的な
+  `related`/`uncertain`だけが同じpairの旧confirmedを置換する。
+- failed page fetchは旧観測を削除しない。現在のURL支持は現在の起点・relationで再評価する。
+- `relation_corroboration`も共通trust評価・guard・adoption記録を通す。
+- Explainと二つのshadow比較を共通投影へ接続。URLのproduction比較は保存済みverdictを現在評価と混同しない。
+
+## 既存データと移行
+
+複製検証に使った正本DB snapshot（4752 project、10665本の旧page↔repo edge）の分類は次のとおりです。
+
+|分類|本数|処理|
+|---|---:|---|
+|現在のrelationで説明できる|5106|relationを維持し旧mirrorを除去|
+|保存済み判断から復元できる|245|204件のLLM relationを復元し、そこから導出できるhomepage pair 41本も整理|
+|要review|5314|旧edgeを保持するが現在の信頼経路には使わない|
+
+最新LLM結果からpairが消えていた29本は、29本とも過去runの入力pair、same_project判断、generated_atと
+edge時刻の一致を確認できました。復元時の履歴検索は時刻に隣接する最大2 runに限定します。時刻一致や
+入力pairを確認できないLLM edge 9本は要reviewです。HTML/READMEの古い全観測を履歴から網羅的に復元する
+処理は実装していません。保存上限のある最新本文・リンク一覧だけで当時の判定を再現したとは扱いません。
+
+要reviewの内訳はREADME 3029、HTML 1720、旧first_party_link 369、bounded link 93、旧identity match 82、
+homepage pair 12、LLM 9です。これらを誤りと断定していません。移行前の旧edgeだけが持っていた支持は
+新しい判定へ引き継がれないため、既存DBに対して直ちに同等の判定結果になるとは主張しません。
+
+`migrate-repository-trust --db-path <db> --output <plan.json>`でdry-runを生成します。
+review後、同じDBに`--execute-plan <plan.json> --output <result.json>`で適用します。
+実行は書込みtransaction内でplanを再計算・照合し、計画差分があれば中止します。
+正本への実行には、別途承認、backup、他writerの停止が必要です。
+
+## 検証
+
+- `bin/project-registry-test`: 全808件成功。新規回帰テスト11件を含む。
+
+- 新規回帰テスト: stale confirmed/current candidate、同一観測の格下げと古い入力の再到着、独立source保持、
+  homepage pairの前向き依存、LLM未評価・明示的related、failed fetch、stale verdict、旧edge隔離、
+  lexrpcの候補probe経路、temp DB移行、圧縮run履歴からの復元と入力pair欠落時の保留。
+- 実データ複製: SQLite backup APIで`.tmp`に複製したDBだけに移行を実行。
+  5351本を整理、204 relationを追加、未解決5314本を保持。再dry-runで未解決分だけになることを確認。
+- `project_identifiers`、`project_identifier_adoptions`、`project_decisions`、`investigation_runs`、
+  `collector_runs`は移行前後で全行ハッシュ一致。foreign key違反0、integrity_check `ok`。
+- read-only shadow比較: 4752 project / 21346 claim、固定ケース12/12、評価方式間の不一致0。
+  現在relationの投影と対象外edgeのdedupe後は66079本、shadowで許可されたedgeは6131本。
+  これは新旧policyの同等性の証明ではなく、未復元edgeを使わない投影の結果。
+- 正本DB書込み0、外部network/LLM実行0。Web UIは変更していないためbrowser検証は対象外。
+
+最終dry-runでは正本DBが検証snapshotから更新されており、10646本中、current relation 5095本、
+復元可能243本、要review 5308本となりました。これは検証snapshotと別時点の計画です。
+最終plan digestは`8377e034f7b074a0dd8d457ef385896f1f2389c8849de781750600ccc8bec7bf`。
+移行実行前には新しい計画をreviewし、古い件数を適用対象と取り違えないでください。
+
+## 未完了の運用作業
+
+要review分の再取得・履歴復元・個別判断と、正本DBへの適用判断が残ります。新しい導出方式を運用へ反映する
+前に、この支持根拠の差分をreviewします。通常repairによる無条件の格下げや旧edge一括削除は行いません。

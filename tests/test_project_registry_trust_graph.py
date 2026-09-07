@@ -626,11 +626,11 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-        self.assertEqual(audit["issue_counts"]["missing_recomputed_edge"], 1)
+        self.assertNotIn("missing_recomputed_edge", audit["issue_counts"])
         self.assertEqual(audit["issue_counts"]["needs_reprobe"], 0)
         self.assertEqual(audit["issue_counts"]["should_downgrade"], 2)
 
-    def test_repair_trust_graph_persists_recomputed_edges_without_downgrade_by_default(self) -> None:
+    def test_repair_trust_graph_persists_evaluations_without_downgrade_by_default(self) -> None:
         conn = registry.open_db()
         try:
             project = self.make_project("proj:repairtrust", "repo_url", "https://github.com/example/app")

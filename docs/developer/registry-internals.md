@@ -103,7 +103,24 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 この節は現行`trust-graph-v1`の実装、保存、処理経路を説明します。登録プロジェクトへの帰属、信頼グラフの責務、接続マトリクス、relation別の静的用途は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を正本とします。
 
-実装済みの`trust-graph-v1`は、confirmed identifierへの自動昇格に使う信頼関係を`state_json.trust_graph`に保存します。DB schemaは増やしていません。
+`trust-graph-v1`のpage↔repository edgeは、`project_relations`の現在の観測から導出します。
+`repository_trust.project_edges()`が共通投影で、candidate probe、URL trust評価、Explain、shadow比較が同じ投影を使います。
+`trust_graph.graph()`は判定用、`stored_graph()`は保存用です。page↔repository以外のedgeと評価履歴は
+`state_json.evidence.trust_graph`に残します。DB schemaは増やしていません。
+
+- `project_repository`のwebsite/service→repo、repo→website/serviceを方向付きedgeへ投影し、confirmedだけを強い経路として扱います。
+- `repository_homepage`は単独ではedgeにせず、confirmedな逆向きのpage→repoとexact URLが一致する場合だけ`repository_homepage_pair`を導出します。
+- HTMLの解釈、READMEリンク、LLMの同一project判断もsource/method/locator、observed_at、context付きrelationに保存します。
+  LLMは許可された入力pairに対する`same_project`をconfirmed、`related`/`uncertain`をcandidateとして保存します。
+  出力にないpairは前回判断を維持し、明示的な新判断だけが同じpairを置換します。
+- 同一page↔repo観測のclassificationは時刻が新しい結果で置換します。source/method/locatorが異なる独立観測は保持します。
+  取得失敗では以前のpage観測を削除しません。
+- URLの現在の支持はrelationと現在の採用済み起点から再評価します。保存された評価やadoptionのsource_refは過去の判断の説明であり、現在の支持の代用にはしません。
+- `relation_corroboration`も通常のtrust評価・guard・採用decision記録を通します。
+- 旧page↔repo保存edgeは現在の判定には使いません。通常saveは未解決edgeを一括削除しません。
+  `migrate-repository-trust`のdry-runはcurrent relation、復元可能なLLM判断、要reviewに分類します。
+  review済みplanの実行時にDBの再照合を行い、説明できるedgeだけを除去し、復元可能な判断をrelationへ保存します。
+  要reviewのedgeは保存したまま残り、再調査または個別reviewが必要です。
 
 - node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
@@ -141,7 +158,6 @@ identity identifier は、manual/operator anchor との間に相互 path があ�
 
 `audit-trust-graph` は読み取り専用で、既存 confirmed identifier を次のように分類します。`repair-trust-graph --execute` は edge/evaluation の再計算を保存します。`--downgrade-unsupported` を付けた場合は、operator decision や相互 trust path で説明できない confirmed identifier を候補・派生相当へ降格します。
 
-- `missing_recomputed_edge`: 既存 relation から trust edge を再構成すれば説明できる
 - `needs_reprobe`: 片方向の強い edge だけがあり、service/repo の再検証が必要
 - `should_downgrade`: operator decision でも相互信頼でも説明できない
 - `guarded_confirmed_identifier`: block/defer 済みなのに confirmed 相当で残っている
@@ -422,7 +438,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - service page の GitHub / Tangled repo link は `service_links_repo`
   - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
   - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
-  - service probe由来edgeとその再生成元のrelationは同じpageを再観測した時に置換し、以前のlink textによる強い判定を残留させない
+  - service probeのrelationは同じpageを正常に再観測した時に置換し、以前のlink textによる強い判定を残留させない。edge自体は保存しない
   - GitHub repository metadataのhomepageは`repository_homepage`として観測を保存する。confirmed first-party serviceから同じrepositoryへの明示的`project_repository` relationがあり、service URLとhomepageがexact一致する場合だけ、信頼経路用の`repo_links_service`を再構成する
   - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
   - activeなservice URL採用decisionのhostそのものはanchorとしてsupportします

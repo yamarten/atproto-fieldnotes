@@ -668,18 +668,12 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             "observed_at": "2026-08-19T00:00:00+00:00",
         }
         project["relation_evidence"] = [legacy_relation]
-        registry.project_record.record_trust_edge(
-            project,
-            "repo_url",
-            repo_url,
-            "repo_links_service",
-            "service_url",
-            homepage,
-            source=legacy_relation["source"],
-            method="github_homepage",
-            classification="confirmed",
-            eligible_for_auto_confirm=True,
-        )
+        project["trust_graph"] = {"edges": [{
+            "subject": {"kind": "repo_url", "value": repo_url},
+            "object": {"kind": "service_url", "value": homepage},
+            "predicate": "repo_links_service", "method": "github_homepage",
+            "classification": "confirmed", "eligible_for_auto_confirm": True,
+        }]}
         bundle = EvidenceBundle(
             project_key=project["project_key"],
             collected_at="2026-08-20T00:00:00+00:00",
