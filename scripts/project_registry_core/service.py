@@ -169,10 +169,10 @@ def bounded_json_items(
     return output
 
 
-def bounded_service_links(base_url: str, values: Any) -> list[dict[str, str]]:
+def bounded_service_links(base_url: str, values: Any) -> list[dict[str, Any]]:
     raw_links = values if isinstance(values, list) else []
-    candidates: list[tuple[int, int, dict[str, str]]] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    seen: set[tuple[str, str, str, str, bool | None]] = set()
     for ordinal, item in enumerate(raw_links):
         if not isinstance(item, dict):
             continue
@@ -182,11 +182,13 @@ def bounded_service_links(base_url: str, values: Any) -> list[dict[str, str]]:
         text = bounded_utf8_text(str(item.get("text") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
         aria_label = bounded_utf8_text(str(item.get("aria_label") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
         title = bounded_utf8_text(str(item.get("title") or ""), SERVICE_LINK_TEXT_MAX_BYTES)
-        key = (url, text, aria_label, title)
+        key = (url, text, aria_label, title, item.get("visible") if isinstance(item.get("visible"), bool) else None)
         if not url or key in seen:
             continue
         seen.add(key)
-        bounded_link = {"url": url, "text": text}
+        bounded_link: dict[str, Any] = {"url": url, "text": text}
+        if isinstance(item.get("visible"), bool):
+            bounded_link["visible"] = item["visible"]
         if aria_label:
             bounded_link["aria_label"] = aria_label
         if title:
@@ -412,12 +414,16 @@ def normalized_browser_forms(value: Any) -> list[dict[str, Any]]:
             if not isinstance(raw_input, dict):
                 continue
             inputs.append({
+                "visible": raw_input.get("visible") if isinstance(raw_input.get("visible"), bool) else None,
                 "type": bounded_text(str(raw_input.get("type") or "text").lower(), 32),
                 "name": bounded_text(str(raw_input.get("name") or ""), 128),
                 "autocomplete": bounded_text(str(raw_input.get("autocomplete") or ""), 64),
                 "placeholder": bounded_text(str(raw_input.get("placeholder") or ""), 256),
             })
         forms.append({
+            "visible": item.get("visible") if isinstance(item.get("visible"), bool) else None,
+            "visible_submit_texts": [bounded_text(str(text), 256) for text in
+                                     (item.get("visible_submit_texts") if isinstance(item.get("visible_submit_texts"), list) else [])[:8]],
             "action": bounded_text(str(item.get("action") or ""), 2048),
             "method": bounded_text(str(item.get("method") or "get").lower(), 16),
             "inputs": inputs[:SERVICE_BROWSER_INPUT_MAX_COUNT],
@@ -432,12 +438,13 @@ def normalized_browser_forms(value: Any) -> list[dict[str, Any]]:
     return forms
 
 
-def normalized_browser_auth_actions(value: Any) -> list[dict[str, str]]:
-    actions: list[dict[str, str]] = []
+def normalized_browser_auth_actions(value: Any) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict):
             continue
         actions.append({
+            "visible": item.get("visible") if isinstance(item.get("visible"), bool) else None,
             "kind": bounded_text(str(item.get("kind") or ""), 32),
             "href": bounded_text(str(item.get("href") or ""), 2048),
             "text": bounded_text(str(item.get("text") or ""), 256),
@@ -447,7 +454,7 @@ def normalized_browser_auth_actions(value: Any) -> list[dict[str, str]]:
     return actions
 
 
-def normalized_browser_service_actions(value: Any) -> list[dict[str, str]]:
+def normalized_browser_service_actions(value: Any) -> list[dict[str, Any]]:
     return normalized_browser_auth_actions(value)
 
 
@@ -547,6 +554,28 @@ def same_site_url(base_url: str, candidate: str) -> bool:
     ))
 
 
+def browser_page_visible_surface_features(page: dict[str, Any]) -> dict[str, Any]:
+    """Page-local evidence, never an ownership or component-role decision."""
+    visible_page = dict(page)
+    visible_page["forms"] = [
+        {**form, "inputs": [item for item in form["inputs"] if item.get("visible") is True],
+         "submit_texts": form["visible_submit_texts"]}
+        for form in normalized_browser_forms(page.get("forms"))
+    ]
+    for field in ("auth_actions", "service_actions"):
+        visible_page[field] = [item for item in normalized_browser_auth_actions(page.get(field))
+                               if item.get("visible") is True]
+    visible_page["links"] = [item for item in page.get("links", [])
+                             if isinstance(item, dict) and item.get("visible") is True]
+    auth = browser_page_auth_features(visible_page)
+    public = browser_page_public_surface_features(visible_page, str(page.get("url") or ""))
+    return {
+        "visibility_observed": page.get("visibility_observed") is True,
+        **auth, **public,
+        "positive_surface": any(auth.values()) or public["public_app_surface_detected"],
+    }
+
+
 def browser_service_observation(value: dict[str, Any]) -> dict[str, Any]:
     pages = [item for item in value.get("pages", []) if isinstance(item, dict)]
     evidence: list[str] = []
@@ -583,6 +612,7 @@ def collect_browser_service_evidence(
     try:
         pages: list[dict[str, Any]] = []
         first = dict(dependencies.navigate(service_url))
+        first["requested_url"] = service_url
         pages.append(first)
         candidates: list[str] = []
         for link in first.get("links", []):
@@ -594,7 +624,7 @@ def collect_browser_service_evidence(
         for url in list(dict.fromkeys(candidates))[:2]:
             if url.rstrip("/") == first_url:
                 continue
-            pages.append(dict(dependencies.navigate(url)))
+            pages.append({**dict(dependencies.navigate(url)), "requested_url": url})
         page_features = [browser_page_auth_features(page) for page in pages]
         public_surface_features = [browser_page_public_surface_features(page, service_url) for page in pages]
         password_form_detected = any(item["password_form_detected"] for item in page_features)
@@ -622,6 +652,8 @@ def collect_browser_service_evidence(
             "pages": [
                 {
                     "url": str(page.get("url") or ""),
+                    "requested_url": str(page.get("requested_url") or ""),
+                    "visibility_observed": page.get("visibility_observed") is True,
                     "title": str(page.get("title") or ""),
                     "text_extract": bounded_text(str(page.get("text") or ""), 6000),
                     "network_errors": list(page.get("network_errors") or [])[:20],
@@ -651,6 +683,8 @@ def collect_browser_service_evidence(
             "browser_transport_fallbacks": browser_transport_fallbacks,
             "js_rendered": bool(first.get("js_rendered", True)),
         }
+        for page in value["pages"]:
+            page["visible_surface_features"] = browser_page_visible_surface_features(page)
         bundle.add_record(EvidenceRecord(
             kind="service_verification", source=f"service_browser:{service_url}",
             classification="confirmed", observed_at=observed_at, value=value,
@@ -698,28 +732,35 @@ def playwright_page_payload(
         if menu_expanded_count:
             page.wait_for_timeout(200)
         return {
+            "visibility_observed": True,
             "url": page.url,
             "title": page.title(),
             "text": page.locator("body").inner_text(timeout=timeout_ms),
             "links": page.locator("a[href]").evaluate_all(
-                "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim()}))"
+                "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim(), visible: a.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true})}))"
             ),
             "forms": page.locator("form").evaluate_all(
                 """els => els.slice(0, 12).map(form => ({
+                    visible: form.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
                     action: form.action || '',
                     method: (form.method || 'get').toLowerCase(),
                     inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
+                        visible: input.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
                         type: (input.type || 'text').toLowerCase(),
                         name: input.name || '',
                         autocomplete: input.autocomplete || '',
                         placeholder: input.placeholder || ''
                     })),
+                    visible_submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                        .filter(item => item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}))
+                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim()),
                     submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
                         .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
                 }))"""
             ),
             "auth_actions": page.locator("a[href], button").evaluate_all(
                 """els => els.map(item => ({
+                    visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
                     kind: item.tagName.toLowerCase(),
                     href: item.href || '',
                     text: (item.innerText || item.getAttribute('aria-label') || '').trim()
@@ -727,6 +768,7 @@ def playwright_page_payload(
             ),
             "service_actions": page.locator("a[href], button").evaluate_all(
                 """els => els.map(item => ({
+                    visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
                     kind: item.tagName.toLowerCase(),
                     href: item.href || '',
                     text: (item.innerText || item.getAttribute('aria-label') || '').trim()

@@ -119,7 +119,7 @@ redirectはwebsite間の観測として保存し、同一hostという理由でp
 
 このlaneは新しいrole classifierではありません。未判定ページのservice / project site採用、
 observed redirect先の既存componentとの照合による自動採用、browser対象への自動追加は未接続です。
-既存serviceのbrowser verificationと構造化観測の契約は変更しません。
+既存serviceのbrowser verificationによる稼働判定は維持します。ページ単位の観測契約は下記を参照してください。
 
 replayに使うrecord/failure本文は`bundle_json`へ一度だけ保存します。`collector_runs`はWebと集計用のprojectionで、
 同じrunの同じ`source + operation`を一行へまとめ、worst status、request/result/cache count、record/failure countを
@@ -215,6 +215,17 @@ bin/_project-registry-python promotion-outcome-analysis scripts/promotion_outcom
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
 
 browserの`public_app_surface_detected`は、作成・投稿を表すactionと、supporting pageではない二階層以上の同一site link 3件以上が同じpageにある場合だけ成立します。CTA単独やcontent link単独では成立しません。action語彙は現在英語のpost / entry / create / write / compose / publish / uploadに限定し、固有project名による例外は持ちません。
+
+browser pageにはnavigationごとの`requested_url`と到達先`url`を保存します。form、input、auth/service action、
+linkの`visible`、フォーム内の`visible_submit_texts`をChromiumの`checkVisibility`で取得します。
+CSS visibility、opacity、content-visibilityを含めた表示状態であり、操作成功や認証成功の証明ではありません。
+`display: contents`のformにはboxがなくても、表示されたinputとsubmitを根拠として利用できます。
+
+各pageの`visible_surface_features`は、保存budget適用後の表示済みcontrol/linkだけに既存auth/public surface規則を
+適用した結果です。別pageの肯定材料は合算しません。旧観測の表示状態は不明（`visibility_observed: false`）であり、
+表示済みと推定しません。`positive_surface: false`もserviceが存在しない、またはproject siteであるという判定ではありません。
+これらはURLごとのrole検討材料であり、projectへの帰属やidentifier採用を確定しません。
+run全体の従来の`login_surface_reached`等とcurrent service statusへのprojectionは維持し、新しいpage単位の材料とは区別します。
 
 bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2を無効にして1回再試行します。通常接続の失敗全般には適用せず、使用時は`transport_fallback`としてbrowser page evidenceに残します。
 

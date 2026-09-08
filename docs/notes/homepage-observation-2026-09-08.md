@@ -45,5 +45,19 @@ service actionsの観測を使う方向を維持する。今回browserのlive検
 未判定ページをservice / project siteへ採用する判定、observed redirect先と既存componentの照合による採用、
 未判定URLのbrowser対象への自動追加は未接続。CLIの既存`verify-service --url ... --lane browser`では
 URLを明示して確認できるが、自動採用方針の決定を代替するものではない。
-静的login検出のコード例誤検出と、landingに認証フォームもあるmixedページを、既存browser観測と照合することが
-次の検討材料になる。観測入口の接続だけで、手動判断削減という本来のゴールを完了としない。
+観測入口の接続だけで、手動判断削減という本来のゴールを完了としない。
+
+## Browser観測の追加検証と修正
+
+既存5件のbrowser calibrationは再現した。一方、最小再現例では紹介ページから別URLのloginへ進むと、
+開始URLに対する集約結果が`live`になる。採用済みserviceがなくてもbrowser観測からprojectの稼働状態は付くが、
+これだけでservice identifierが採用されるわけではない。既存statusをrole判定へ直接転用してはいけない。
+
+ページごとの要求／到達URL、表示状態、表示された材料だけによるsurface特徴をcollectorへ追加した。
+閉じたdialog、コード例、非表示input/submit/OAuth、表示されたform/OAuth、`display: contents` formの8ケースを
+実Chromiumへ検証用HTMLとして読み込ませ、期待どおりの表示状態と特徴を確認した。外部サイトへはアクセスしていない。
+全819 unit test成功。temp DBへの保存・replayでもページと材料の対応を保持する。
+
+稼働状態の既存集約規則は維持した。新しい特徴は未判定URLを自動採用する規則ではなく、次のrole検討で使える材料。
+表示状態が不明な過去の観測は表示済みと扱わず、surface未検出をproject siteの肯定材料にもしない。
+検証用HTMLと実行記録は一時生成物`.tmp/check_browser_visibility.py` / `.tmp/browser-visibility-smoke.json`に置いた。

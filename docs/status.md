@@ -9,6 +9,12 @@
 
 実装済み:
 
+- browser観測にページ単位の要求／到達URL、control/link表示状態、表示済み材料だけによるsurface特徴を追加。
+  リンク先のloginを開始ページ自体の肯定材料へ転用せず、従来のrun全体の稼働判定は維持する。
+  temp DB保存・replay、全819 unit test、実Chromiumでの検証用HTML 8ケースを確認。
+  閉じたdialog、非表示input/submit/OAuth、コード例と、表示されたform/OAuthを区別する。
+  外部サイトの再取得・正本DB更新・未判定URLのrole自動採用は未実施。
+
 - 通常enrichが採用済みrepoのhomepageを元のpathで観測。docsを含め、未判定ページはservice候補化せずに
   本文・リンク・redirectを保存する。既存serviceのexact URLは従来のstatic判定を維持する。
   新しいLLM role classifierは追加していない。未判定ページのrole採用とbrowser対象への自動追加は未接続。
