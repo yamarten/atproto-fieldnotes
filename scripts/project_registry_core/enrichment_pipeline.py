@@ -27,6 +27,7 @@ from project_registry_core.registry import (
     apply_candidate_repo_trust_evidence,
     apply_collector_snapshot_evidence,
     apply_github_repo_evidence,
+    apply_homepage_role_evidence,
     apply_investigation_evidence,
     apply_llm_output,
     add_resource_url,
@@ -39,6 +40,7 @@ from project_registry_core.registry import (
     candidate_repo_trust_probe_urls,
     clean_string_list,
     collect_github_repo_evidence,
+    collect_homepage_role_evidence,
     collect_codeberg_repo_evidence,
     collect_investigation_evidence,
     collect_oauth_metadata_evidence,
@@ -234,6 +236,8 @@ def enrich_project(
     authority_probe_urls = set(authority_probe_all_urls(authority_probe_chains))
     authority_probe_urls.update(derived_authority_probe_urls(project))
     homepage_probe_urls = set(repository_homepage_probe_urls(project))
+    homepage_browser_attempted = False
+    homepage_results: dict[str, dict[str, Any]] = {}
     initial_page_urls = (
         ([project.get("website_url")] if project.get("website_url") else [])
         + project.get("service_urls", [])
@@ -284,6 +288,7 @@ def enrich_project(
                         apply_authority_service_probe_result(project, service_url, probe_result)
                     run_evidence.extend(service_evidence)
                     if lane == "repository_homepage":
+                        homepage_results[service_url] = probe_result
                         continue
                     for metadata_url in relation_core.oauth_metadata_candidates(
                         service_url,
@@ -307,6 +312,20 @@ def enrich_project(
                     run_evidence.extend(failed_collector_bundle(
                         project, source=f"service_{lane}", operation="probe", target=service_url, exc=exc,
                     ))
+
+    previous_homepage_browser_order = {
+        str(value.get("requested_url") or ""): index
+        for index, value in enumerate(project.get("service_verification_results", []))
+        if value.get("lane") == "repository_homepage_browser"
+    }
+    for url in sorted(homepage_results, key=lambda value: (previous_homepage_browser_order.get(value, -1), value)):
+        role_evidence = collect_homepage_role_evidence(
+            conn, project, url, homepage_results[url], allow_browser=not homepage_browser_attempted,
+        )
+        homepage_browser_attempted = homepage_browser_attempted or bool(role_evidence.collector_results)
+        apply_service_evidence(project, role_evidence)
+        apply_homepage_role_evidence(project, role_evidence)
+        run_evidence.extend(role_evidence)
 
     for repo_url in candidate_repo_trust_probe_urls(project):
         trust_inspected_repo_urls.add(repo_url)

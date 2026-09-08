@@ -40,7 +40,7 @@ service actionsの観測を使う方向を維持する。今回browserのlive検
 
 試行入力・結果は`.tmp/web-role-evaluation/`、全testログは`.tmp/homepage-tests.log`に置いた一時生成物。
 
-## 残る検討
+## 観測入口の接続時点で残っていた検討
 
 未判定ページをservice / project siteへ採用する判定、observed redirect先と既存componentの照合による採用、
 未判定URLのbrowser対象への自動追加は未接続。CLIの既存`verify-service --url ... --lane browser`では
@@ -61,3 +61,108 @@ URLを明示して確認できるが、自動採用方針の決定を代替す�
 稼働状態の既存集約規則は維持した。新しい特徴は未判定URLを自動採用する規則ではなく、次のrole検討で使える材料。
 表示状態が不明な過去の観測は表示済みと扱わず、surface未検出をproject siteの肯定材料にもしない。
 検証用HTMLと実行記録は一時生成物`.tmp/check_browser_visibility.py` / `.tmp/browser-visibility-smoke.json`に置いた。
+
+## Role判断への接続（v1の試行記録）
+
+`repository-homepage-role-v1`を通常enrichへ接続した。既存roleのexact再利用、採用済みrepoのhomepage指定と
+既存bounded policyによる明示的逆参照、同じ到達URLの表示されたsurfaceを条件とするservice採用、
+project site候補化、衝突／guard／失敗の保留を分ける。採用は共通のconfirmationとadoption記録を使う。
+browserは未確認・古い確認を優先して1 enrichにつき1 homepageまで。失敗もattemptとして保持する。
+Websiteは変更しない。project site候補化はUI不存在の判断ではなく、repoからの代表homepage指定と逆参照に基づく。
+
+全827 unit test成功。通常enrichからの採用、temp DB保存・active adoption、replay、path保持、
+異なるbrowser到達URL、表示されないform、guard、他projectとの衝突、browser失敗を確認した。
+
+正本DBをread-onlyで走査し、380 projectのhomepage relationから現在の採用・対象URL条件を通過する347 URLを検討した。
+保存済みHTML抜粋を使うため、リンクが見つからないことは実ページでの不存在や帰属否定の証明ではない。
+
+|結果|URL数|
+|---|---:|
+|既存service再利用|137|
+|既存project site再利用|1|
+|取得観測なし|60|
+|帰属材料不足|108|
+|取得失敗等|32|
+|project site候補／browser確認対象|2|
+|他projectと衝突|5|
+|Web page対象外のresource|1|
+|guard／非現行|1|
+
+browser確認対象はarroba（`https://arroba.readthedocs.io` → `/en/stable`）とBarazo
+（`https://docs.barazo.forum`）。既存HTTP／Chromium経路で現在の2ページを取得し、双方で明示的な逆参照は確認できたが、
+表示されたsurfaceは検出されず、project site候補となった。この実例で新規service採用は0件。
+新規service採用の動作確認はfixtureであり、実運用での手動判断削減効果はまだ示せていない。
+
+残るpolicy判断は、採用済みrepoの代表homepage指定とページの明示的逆参照を、project siteの自動確定に十分な
+肯定材料とするか。この条件による自動確定はまだ実装しない。旧edgeの未解決分のreviewと正本DB適用も別途残る。
+走査・live smokeは正本DBに書き込まず、結果を`.tmp/web-role-evaluation/homepage-adoption-scan.json`と
+`homepage-adoption-live.json`へ保存した。
+
+## 帰属確定と複数repo衝突の補正（v2の試行記録）
+
+v1で「明示的な逆参照」と呼んだものは、実際にはbounded link policyの解釈結果だった。
+このpolicyはラベルのない単一repoリンクやglobal chromeのリンクも肯定し得る。
+`CONFIRM_PROJECT_REPOSITORY`というdispositionと、保存されたrelationの`classification: confirmed`は別物である。
+v1はここを混同し、ページの帰属確定を経ずにrole採用へ進めたため、`repository-homepage-role-v2`へ修正した。
+
+v2は、現在の到達URL→採用済みrepoのconfirmed `project_repository` relationを必須とし、今回のページでの
+逆参照観測は別に保持する。評価と適用の間でrelationが候補へ格下げされた場合も採用を止める。
+旧v1のassessmentから自動採用を再実行しない。過去の失敗形である「解釈上の肯定／現在のcandidate」を
+回帰テストに含めた。これは同一projectを厳しく推測する新規heuristicではなく、既存の帰属確定を利用する境界である。
+
+衝突検査は他projectのconfirmed URLだけでなく、採用済みrepoが指定する未採用homepageへ拡張した。
+保存済みの1段のHTTP redirectも含め、未採用repoとguard対象のhomepageは競合元にしない。
+同じprojectの複数repoはまとめる。異なるprojectの競合は、URL採用前の状態でも双方を保留する。
+将来取得する未観測のredirectを予測したり、共有siteを誤登録と断定したり、自動mergeしたりはしない。
+
+read-only再走査は380 project / 347 URL。既存role再利用137、取得観測なし60、帰属材料不足96、
+取得失敗等32、衝突20、対象外resource 1、guard 1。新規browser確認対象は0件だった。
+v1で候補だったarrobaとBarazoは、現在のconfirmed relationが足りず帰属確認の保留になった。
+別projectからの未採用homepage競合には、indigo／Ozone等の`atproto.com`、UFOs／Slingshotの`microcosm.blue`、
+複数Ruby関連projectの`ruby.sdk.blue`などがある。共有する意図がある可能性は残し、片方へ自動採用しない。
+
+全834 unit test成功。同一projectの複数repo、別projectの未採用homepageを両順序で評価するケース、
+redirect競合、採用されていないrepo、ラベル有無だけの推定、relation格下げ、旧policy replayを検証した。
+新たな外部取得は行わず、現在のDBをread-onlyで読み、一時結果を
+`.tmp/web-role-evaluation/homepage-adoption-v2-scan.json`へ保存した。正本DBは未変更。
+
+## Roleごとの帰属主張（現行v3）
+
+v2は通常のpage→repo collectorがページ採用済みroleを要求することを見落としていた。未知ページの採用に
+そのconfirmed relationを要求すると循環する。一方、「roleを無視して帰属を確定し、その後roleを選ぶ」
+のも不適切である。公式docsの置き場、運営するservice、代表project siteでは確認する主張が異なる。
+
+v3はproject site候補とserviceの主張を別々に評価し、`role_assessments`へ理由を保存する。
+homepage指定と逆参照はproject site候補を作れるが、代表性の確認までは意味しない。
+serviceはproject→exact URLのconfirmed `operates_service`と表示されたsurfaceを要求する。
+既存supportからprobeが生成した運営relationは独立した根拠にならないため除外する。
+広義のconfirmed `project_repository`、READMEへのリンク、login UIを運営証明に読み替えない。
+運営根拠がなければ追加browser確認を消費しない。既存serviceの検証は従来どおりである。
+
+現行collectorから独立した運営relationを自動確定する経路はない。このため今回のservice採用テストは
+operator reviewによる運営relationを明示したfixtureであり、通常の自動収集だけで新規serviceが採用される
+実例を示したものではない。これは条件を緩めて隠さず、次の観測・帰属規則の検討対象にする。
+
+実例の診断:
+
+- Barazo: 採用済みdocs repoの保存READMEに`docs.barazo.forum`で公開する宣言がある。
+  保存済みrepository analysis v14のobservationsには対応する`declares_documentation_site_url`がなく、
+  本文があることとtyped observationとして利用できることは別だった。今回README parserやLLM分類は変更していない。
+  現行の候補化はhomepage指定と観測したGitHub footerの逆参照によるもので、README宣言の自動利用を実装したとはしない。
+- arroba: 入口`https://arroba.readthedocs.io`は既存service anchorで、到達先`/en/stable`が別URLとして評価されていた。
+  「未分類homepageの帰属根拠不足」だけでは説明できない。今回入口の既存roleの補正やalias採用はしていない。
+- [Ruby SDK](https://ruby.sdk.blue/)は独立gemの共通サイトと明記し、[microcosm](https://www.microcosm.blue/)も複数serviceを紹介する。
+  共有homepageは誤登録の証明ではない。Navyfragen feedの保存READMEもNavyfragen内容を集めるfeedと説明しており、
+  homepage一致だけで同一projectへのmergeやserviceの帰属を決めない。共有20件の個別処遇は未確定。
+
+2026-09-08に正本DBをread-only transactionで固定し、380 projectからの347 URLへv2/v3を比較した。
+差分はarroba／Barazoの帰属保留→project site候補の2件のみ。既存service再利用136、project site再利用1、
+取得観測なし60、帰属保留95、取得失敗31、衝突20、対象外1、guard 1。取得観測のある287件で独立した運営根拠は0件。
+以前保存したv2走査との差にはhexaGenAppの取得失敗→帰属保留もあるが、同一snapshotでのpolicy差分ではない。
+候補増加は確認できたが、自動確定や手動判断削減の効果はまだ示せていない。
+
+全839 unit test成功。通常enrich、temp DB保存・replay、採用前のrole付き運営根拠、運営関係の格下げ、
+repo homepage指定の変更、第三者instanceでも成立するsource link＋login、probe由来の運営relation、
+Barazo footerを縮約したfixture、旧v1/v2 replay、共有homepage保留を確認した。
+collectorの外部取得契約とbrowser実装は変更しておらず、新しい外部smokeは行っていない。
+正本DBは未変更。一時比較結果は`.tmp/web-role-evaluation/homepage-role-comparison-v3.json`。

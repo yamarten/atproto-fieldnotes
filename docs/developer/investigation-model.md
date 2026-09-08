@@ -117,8 +117,38 @@ redirectはwebsite間の観測として保存し、同一hostという理由でp
 取得失敗で前回のpage→repo relationは消さず、成功時は同じpage sourceの観測を置換します。
 保存とreplayにも同じ境界を適用します。
 
-このlaneは新しいrole classifierではありません。未判定ページのservice / project site採用、
-observed redirect先の既存componentとの照合による自動採用、browser対象への自動追加は未接続です。
+このlane自体はroleを確定しません。通常enrichは取得結果を`repository-homepage-role-v3`へ渡します。
+現在採用済みrepoのhomepageを起点に、成功した取得の到達URLで既存service / project siteを照合します。
+exact一致する既存roleは再利用し、別URLのalias登録やWebsiteの置換はしません。
+
+未知のroleは`project_site`と`service`の帰属主張として別々に評価します。採用済みrepoのhomepage指定と
+今回のページのbounded policyによる逆参照はproject site候補を支持しますが、代表siteの確定根拠とはしません。
+候補化はpage→repoのconfirmed relationやページの採用済みroleを前提にしません。候補はtrust anchorになりません。
+serviceは別途、対象project→到達URLのconfirmed `operates_service` relationを要求します。
+既存supportから生成されるprobe由来（methodが`*_probe`またはsourceが`service_*`）のrelationは独立した根拠にしません。
+広義の`project_repository`、単なるリンク解釈、表示されたloginだけでは運営帰属を確定しません。
+この運営根拠と逆参照があり、ほかのguardに阻まれない場合にbrowserへ進めます。
+通常collectorでこの独立した運営根拠を新規に確定する経路は未接続です。
+追加browser確認は1 enrichにつき1 homepageまでで、未確認、次いで古い確認を優先します。
+失敗もattemptとして保存するため、一件の失敗がほかのhomepageの確認を恒久的に塞ぎません。
+browser結果は`repository_homepage_browser` laneへ保存し、未採用URLの観測でprojectの稼働状態を上げません。
+
+最初のnavigationの到達URLがstatic取得の到達URLとexact一致し、表示状態が観測済みで、表示されたauth/public
+surfaceの材料があり、当該pageにnetwork/console errorがなく、上記の運営根拠がある場合だけserviceを採用します。
+他projectのconfirmed URLに加え、採用済みrepoからの未採用homepage指定も衝突検査に含めます。
+保存済みの1段のHTTP redirectによる一致も含み、host familyだけでは一致としません。
+同じprojectの複数repoはまとめ、別projectの指定が競合すれば採用順にかかわらず保留します。
+未採用repoやguard対象のhomepageはこの競合元にしません。未取得の将来の参照先まで予測する検査ではありません。
+非現行URLやguardも保留し、採用は共通の確認・adoption記録を通します。
+採用理由にrepo、homepage、運営relation、role別の評価理由、今回の逆参照、衝突元、browser evidenceのsource・時刻・特徴、policy versionを残します。
+リンク先で見つかったlogin、host family一致、staticの`live`だけでは採用しません。
+
+project site候補化はUI不存在やproject site roleの確定ではありません。公式documentationであることと
+代表project siteであることも同一視しません。project siteの自動確定は未接続です。
+`homepage_role_assessment`に入力事実・`role_assessments`・適用actionを保存します。replayでも現在の起点、
+そのrepoのhomepage指定と逆参照の対応、guard、既存role、運営relationを再評価して適用します。
+旧v1／v2のassessmentからの自動採用は実行しません。
+他projectとの衝突判定は調査時のDB snapshotを記録したもので、replayは現在DBへの再照会ではありません。
 既存serviceのbrowser verificationによる稼働判定は維持します。ページ単位の観測契約は下記を参照してください。
 
 replayに使うrecord/failure本文は`bundle_json`へ一度だけ保存します。`collector_runs`はWebと集計用のprojectionで、

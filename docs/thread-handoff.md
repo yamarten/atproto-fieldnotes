@@ -5,9 +5,12 @@
 
 ## 現在地
 
-- repo homepageの元URLを通常enrichの観測経路へ接続済み。browserはページ単位の表示状態とsurface材料も保存する。
-  次は未判定ページのrole採用へ接続する条件を検討する。run全体の`live`をrole根拠へ直接流用せず、
-  ページ単位の表示された材料とproject帰属を使う。新LLM classifierの追加を前提にしない。
+- repo homepageのv3はrole別に評価する。次は運営帰属を示す独立した観測の取得・確定条件と、
+  公式documentationを代表project siteとする条件を実例で検討する。通常collectorが生成するprobe由来の
+  `operates_service`は独立した運営根拠ではなく、service新規採用の効果はまだ示せていない。
+  BarazoのREADME公開先宣言は保存済みだがrepository analysisのtyped observationには抽出されていない。
+  arrobaは既存入口serviceとdocs転送先のrole・URL対応が別途未整理。共有homepageは関係の正しさと
+  role採用を分け、共有siteを一projectへ自動割当・mergeしない。
   [比較記録と残件](notes/homepage-observation-2026-09-08.md)を参照。正本DBは未変更。
 
 - page↔repositoryのrelation導出への変更は検証済み。正本DBは未変更。

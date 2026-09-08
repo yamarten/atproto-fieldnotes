@@ -9,17 +9,27 @@
 
 実装済み:
 
+- 通常enrichにhomepageのrole別判断（v3）を接続。既存roleのexact／観測済みredirect先での再利用に対応。
+  project site候補化は採用済みrepoのhomepage指定と今回の逆参照を使い、ページの採用済みroleを要求しない。
+  serviceは独立したconfirmed運営relationと表示されたsurfaceを要求し、広義のrepo関係やprobe由来の運営推定を転用しない。
+  別projectの未採用homepage指定も衝突検査に含め、同じprojectの複数repoはまとめる。
+  browser追加確認は1 enrichにつき1 homepage。未採用URLのbrowser観測を稼働状態へ混ぜず、Websiteを自動変更しない。
+  project siteの自動確定は未実装。保存観測347 URLの同一DB snapshotでのv2/v3比較は、arrobaとBarazoの2件だけが
+  帰属保留からproject site候補へ進んだ。既存role再利用137件、衝突保留20件は維持。独立した運営根拠を持つ観測は0件。
+  通常collectorで独立した運営根拠を確定する経路は未接続で、service採用の検証は明示的な運営relationを与えたfixture。
+  新規service自動採用・手動判断削減の実データ上の効果は未立証。全839 unit test成功。正本DBは未変更。
+
 - browser観測にページ単位の要求／到達URL、control/link表示状態、表示済み材料だけによるsurface特徴を追加。
   リンク先のloginを開始ページ自体の肯定材料へ転用せず、従来のrun全体の稼働判定は維持する。
   temp DB保存・replay、全819 unit test、実Chromiumでの検証用HTML 8ケースを確認。
   閉じたdialog、非表示input/submit/OAuth、コード例と、表示されたform/OAuthを区別する。
-  外部サイトの再取得・正本DB更新・未判定URLのrole自動採用は未実施。
+  正本DBは未変更。role判断への接続状況は上記を参照。
 
 - 通常enrichが採用済みrepoのhomepageを元のpathで観測。docsを含め、未判定ページはservice候補化せずに
   本文・リンク・redirectを保存する。既存serviceのexact URLは従来のstatic判定を維持する。
-  新しいLLM role classifierは追加していない。未判定ページのrole採用とbrowser対象への自動追加は未接続。
+  新しいLLM role classifierは追加していない。role判断とbrowserへの接続状況は上記を参照。
   path保持、guard、状態の非昇格、保存・replay、通常enrichの取得重複防止をtemp DB / mocked collectorで確認。
-  正本DBの再調査・書き込みとlive外部source smokeは未実施（HTTP/browser契約は変更なし）。
+  正本DBへの保存を伴う再調査・書き込みは未実施。
 
 - page↔repositoryの信頼edgeを現在のrelationから導出し、probe・trust・Explain・shadowへ共通接続。
   同一観測の格下げ、独立sourceの保持、LLM未評価時の保持、失敗時の観測保持に対応。
