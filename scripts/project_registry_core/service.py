@@ -223,7 +223,7 @@ def bounded_service_urls(base_url: str, values: Any) -> list[str]:
 
 
 def service_probe_represents_service_identity(requested_url: str, lane: str) -> bool:
-    if str(lane or "") == "follow_up":
+    if str(lane or "") in {"follow_up", "repository_homepage"}:
         return False
     parsed = urllib.parse.urlparse(requested_url)
     first_path = parsed.path.strip("/").split("/", 1)[0].lower()
@@ -369,12 +369,13 @@ def collect_service_probe_evidence(
                 subject_type="website", subject_value=requested_url.rstrip("/"), predicate="official_account",
                 object_type="account", object_value=url, locator=requested_url, method="first_party_link",
             ))
+    page_type = "website" if lane == "repository_homepage" else "service"
     final_url = str(result.get("final_url") or "")
     if final_url and final_url.rstrip("/") != requested_url.rstrip("/"):
         bundle.add_record(relation_record(
             source=f"service_{lane}:{requested_url}", classification="confirmed", observed_at=observed_at,
-            subject_type="service", subject_value=requested_url.rstrip("/"), predicate="redirects_to",
-            object_type="service", object_value=final_url.rstrip("/"), locator=requested_url, method="http_redirect",
+            subject_type=page_type, subject_value=requested_url.rstrip("/"), predicate="redirects_to",
+            object_type=page_type, object_value=final_url.rstrip("/"), locator=requested_url, method="http_redirect",
         ))
     canonical_match = re.search(r'<link[^>]+rel=["\'][^"\']*canonical[^"\']*["\'][^>]+href=["\']([^"\']+)', html, re.IGNORECASE)
     if canonical_match:
@@ -382,8 +383,8 @@ def collect_service_probe_evidence(
         if canonical_url and canonical_url != requested_url.rstrip("/"):
             bundle.add_record(relation_record(
                 source=f"service_{lane}:{requested_url}", classification="confirmed", observed_at=observed_at,
-                subject_type="service", subject_value=requested_url.rstrip("/"), predicate="redirects_to",
-                object_type="service", object_value=canonical_url, locator=requested_url, method="html_canonical",
+                subject_type=page_type, subject_value=requested_url.rstrip("/"), predicate="redirects_to",
+                object_type=page_type, object_value=canonical_url, locator=requested_url, method="html_canonical",
             ))
     status = "failed" if result.get("fetch_error") and not result.get("status_code") else "success"
     bundle.add_collector_result(CollectorResult(

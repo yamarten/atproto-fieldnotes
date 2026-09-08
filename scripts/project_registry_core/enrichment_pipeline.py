@@ -51,6 +51,7 @@ from project_registry_core.registry import (
     confirm_project_repository_url_with_trust,
     derived_authority_probe_urls,
     enrich_from_resource_pages,
+    exact_project_page_component_role,
     failed_collector_bundle,
     fetch_lexicon_record,
     fetch_recent_record_samples,
@@ -61,6 +62,7 @@ from project_registry_core.registry import (
     probe_service_url,
     reconcile_trust_supported_url_candidates,
     record_promotion_transition,
+    repository_homepage_probe_urls,
     reset_investigation_state,
     select_authority_probe_urls,
     service_probe_timeout_for_project,
@@ -231,11 +233,17 @@ def enrich_project(
     authority_probe_chains = authority_probe_url_chains(project)
     authority_probe_urls = set(authority_probe_all_urls(authority_probe_chains))
     authority_probe_urls.update(derived_authority_probe_urls(project))
-    initial_service_urls = unique_list(
+    homepage_probe_urls = set(repository_homepage_probe_urls(project))
+    initial_page_urls = (
         ([project.get("website_url")] if project.get("website_url") else [])
         + project.get("service_urls", [])
         + service_url_candidate_values(project)
         + list(authority_probe_urls)
+        + sorted(homepage_probe_urls)
+    )
+    initial_service_urls = unique_list(
+        identifier_core.normalize_url(url) for url in initial_page_urls
+        if identifier_core.normalize_url(url)
     )
     if initial_service_urls:
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
@@ -256,20 +264,27 @@ def enrich_project(
                     probe_errors[service_url] = exc
             selected_authority_probe_urls = select_authority_probe_urls(authority_probe_chains, probe_results)
             for service_url in initial_service_urls:
+                normalized_service_url = identifier_core.normalize_url(service_url)
+                is_authority_probe = normalized_service_url in authority_probe_urls
+                lane = "authority" if is_authority_probe else "static"
+                if (
+                    not is_authority_probe and normalized_service_url in homepage_probe_urls
+                    and exact_project_page_component_role(project, normalized_service_url) != "service"
+                ):
+                    lane = "repository_homepage"
                 try:
                     if service_url in probe_errors:
                         raise probe_errors[service_url]
                     probe_result = probe_results[service_url]
-                    normalized_service_url = identifier_core.normalize_url(service_url)
-                    is_authority_probe = normalized_service_url in authority_probe_urls
                     if is_authority_probe and normalized_service_url not in selected_authority_probe_urls:
                         continue
-                    lane = "authority" if is_authority_probe else "static"
                     service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result, lane=lane)
                     apply_service_evidence(project, service_evidence)
                     if lane == "authority":
                         apply_authority_service_probe_result(project, service_url, probe_result)
                     run_evidence.extend(service_evidence)
+                    if lane == "repository_homepage":
+                        continue
                     for metadata_url in relation_core.oauth_metadata_candidates(
                         service_url,
                         probe_result.get("links", []),
@@ -286,11 +301,11 @@ def enrich_project(
                             ))
                 except Exception as exc:
                     normalized_service_url = identifier_core.normalize_url(service_url)
-                    if normalized_service_url and normalized_service_url not in authority_probe_urls:
+                    if normalized_service_url and lane not in {"authority", "repository_homepage"}:
                         project["failed_service_urls"] = add_unique(project.get("failed_service_urls", []), normalized_service_url)
                     note_failure(project, f"service probe failed for {service_url}: {exc}")
                     run_evidence.extend(failed_collector_bundle(
-                        project, source="service_static", operation="probe", target=service_url, exc=exc,
+                        project, source=f"service_{lane}", operation="probe", target=service_url, exc=exc,
                     ))
 
     for repo_url in candidate_repo_trust_probe_urls(project):

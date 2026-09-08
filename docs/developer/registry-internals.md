@@ -387,7 +387,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 - repo metadata から取るもの:
   - repo 名は `name_candidates` に入れ、`atproto-visualizers` のような slug はハイフン込みの全体を名前候補として扱います
   - `description` は `summary_candidates` / `tagline_candidates`
-  - `homepage` は公開URLとして妥当ならconfirmed `repository_homepage` relationとして保存する。account/profile、docs、package、funding、別repositoryを静的に除外したURLだけを`service_url_candidates`へ投影し、homepage単独ではtrust edgeを作らない
+  - `homepage` は公開URLとして妥当ならconfirmed `repository_homepage` relationとして保存する。homepage単独ではservice候補やtrust edgeを作らない。通常enrichは現在採用済みrepoのhomepageからWebページ（docsを含む）を元のpathで取得する。未判定ページは`repository_homepage` laneで観測だけを保存し、既にexact URLがserviceと確認済みなら従来のstatic laneを使う
   - `updated_at` は `source_repo_records[].updated_at`
 - tree / lexicon hint の扱い:
   - `lexicon/`, `lexicons/`, `schema/` 配下などの JSON を lexicon 候補として走査します

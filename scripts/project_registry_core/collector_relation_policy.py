@@ -97,8 +97,7 @@ def repository_homepage_service_candidate(value: str) -> str:
     normalized = normalize_repository_homepage(value)
     if not normalized or classify_url_role(normalized) in SERVICE_CANDIDATE_EXCLUDED_ROLES:
         return ""
-    parsed = urllib.parse.urlparse(normalized)
-    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+    return normalized
 
 
 def repository_homepage_is_website_candidate(value: str) -> bool:

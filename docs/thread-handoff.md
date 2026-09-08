@@ -5,6 +5,10 @@
 
 ## 現在地
 
+- repo homepageの元URLを通常enrichの観測経路へ接続済み。次は未判定ページのrole採用を、コード例のlogin
+  誤検出とmixedページの既存browser観測から検討する。新LLM classifierの追加を前提にしない。
+  [比較記録と残件](notes/homepage-observation-2026-09-08.md)を参照。正本DBは未変更。
+
 - page↔repositoryのrelation導出への変更は検証済み。正本DBは未変更。
   実運用へ反映する前に[移行評価記録](notes/repository-trust-projection-2026-09-07.md)の未解決edgeをreviewし、
   必要な復元・再調査を判断する。正本DBへの移行実行は別途承認が必要。

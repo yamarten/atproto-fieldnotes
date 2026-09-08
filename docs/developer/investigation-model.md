@@ -106,6 +106,21 @@ classification は project field の confidence と同義ではありません�
 
 ### Collector history projection
 
+通常enrichでは、現在の採用とguardを通過したrepositoryのconfirmed `repository_homepage`を、
+パスを保持した観測先として使います。docsも取得対象ですが、account、package、funding、repository自体は対象外です。
+既存の観測先と正規化URLが一致すれば同じrunで取得を重複させません。
+
+既にexact URLがserviceであればstatic laneを使います。それ以外は`service_verification`の
+`repository_homepage` laneへ本文、リンク、requested/final URLを既存budgetで保存します。
+page→repoには既存のbounded policyを使い、取得成功だけでserviceの採用・状態・Websiteを変更しません。
+redirectはwebsite間の観測として保存し、同一hostという理由でpathを同一視しません。
+取得失敗で前回のpage→repo relationは消さず、成功時は同じpage sourceの観測を置換します。
+保存とreplayにも同じ境界を適用します。
+
+このlaneは新しいrole classifierではありません。未判定ページのservice / project site採用、
+observed redirect先の既存componentとの照合による自動採用、browser対象への自動追加は未接続です。
+既存serviceのbrowser verificationと構造化観測の契約は変更しません。
+
 replayに使うrecord/failure本文は`bundle_json`へ一度だけ保存します。`collector_runs`はWebと集計用のprojectionで、
 同じrunの同じ`source + operation`を一行へまとめ、worst status、request/result/cache count、record/failure countを
 `result_json`へ保存します。source別payloadを`records_json` / `failures_json`へ反復複製しません。

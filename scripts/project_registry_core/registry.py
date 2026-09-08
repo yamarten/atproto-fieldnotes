@@ -7616,6 +7616,32 @@ def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
     apply_current_service_observation_state(project)
 
 
+def repository_homepage_probe_urls(project: dict[str, Any]) -> list[str]:
+    """Inspect exact homepage references from currently adopted repositories."""
+    repositories = {
+        repo_url_core.canonical_repo_url(node["value"])
+        for node in trusted_anchor_nodes(project) if node["kind"] == "repo_url"
+    }
+    urls: list[str] = []
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = item["relation"]
+        subject, obj = relation["subject"], relation["object"]
+        if (
+            item["classification"] != "confirmed"
+            or relation["predicate"] != "repository_homepage"
+            or subject["type"] != "repo" or obj["type"] != "website"
+            or repo_url_core.canonical_repo_url(subject["value"]) not in repositories
+        ):
+            continue
+        url = collector_relation_policy.normalize_repository_homepage(obj["value"])
+        if (
+            url and collector_relation_policy.classify_url_role(url) in {"unknown", "documentation"}
+            and not service_url_is_guarded(project, url) and url not in urls
+        ):
+            urls.append(url)
+    return urls
+
+
 def collect_service_evidence_with_followups(
     project: dict[str, Any],
     service_url: str,
@@ -7623,6 +7649,14 @@ def collect_service_evidence_with_followups(
     *,
     lane: str = "static",
 ) -> EvidenceBundle:
+    if lane == "repository_homepage":
+        # Observation precedes attribution and role selection. In particular, a
+        # reciprocal repository link does not establish that this page is a service.
+        return service_core.collect_service_probe_evidence(
+            str(project.get("project_key") or ""), service_url, result,
+            observed_at=project_record.iso_now(), lane=lane,
+            subject_component_role=exact_project_page_component_role(project, service_url),
+        )
     supports_project = service_probe_supports_project(project, service_url, result)
     normalized_service_url = identifier_core.normalize_url(service_url)
     component_role = exact_project_page_component_role(project, normalized_service_url)

@@ -561,7 +561,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         ]
         self.assertEqual(len(homepage_relations), 1)
         self.assertEqual(homepage_relations[0]["classification"], "confirmed")
-        self.assertIn("https://app.example.com", project["service_url_candidates"])
+        self.assertNotIn("https://app.example.com", project["service_url_candidates"])
         self.assertFalse(any(
             edge.get("predicate") == "repo_links_service"
             for edge in registry.trust_graph_core.graph(project)["edges"]

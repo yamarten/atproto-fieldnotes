@@ -9,6 +9,12 @@
 
 実装済み:
 
+- 通常enrichが採用済みrepoのhomepageを元のpathで観測。docsを含め、未判定ページはservice候補化せずに
+  本文・リンク・redirectを保存する。既存serviceのexact URLは従来のstatic判定を維持する。
+  新しいLLM role classifierは追加していない。未判定ページのrole採用とbrowser対象への自動追加は未接続。
+  path保持、guard、状態の非昇格、保存・replay、通常enrichの取得重複防止をtemp DB / mocked collectorで確認。
+  正本DBの再調査・書き込みとlive外部source smokeは未実施（HTTP/browser契約は変更なし）。
+
 - page↔repositoryの信頼edgeを現在のrelationから導出し、probe・trust・Explain・shadowへ共通接続。
   同一観測の格下げ、独立sourceの保持、LLM未評価時の保持、失敗時の観測保持に対応。
   URL支持は保存済みverdictではなく現在の起点とrelationで再評価し、relation corroborationも共通採用処理を通す。
