@@ -1058,12 +1058,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 "provider": "github",
                 "repo": {"name": "app", "description": "Example application"},
                 "revision": "abc123",
-                "readme_excerpt": "Example application.",
-                "configuration_hints": [{
-                    "path": "mkdocs.yml",
-                    "kind": "documentation_config",
-                    "content_excerpt": "site_url: https://docs.example.com",
-                }],
+                "readme_excerpt": "Documentation for this project is hosted at https://docs.example.com.",
+                "configuration_hints": [],
                 "tree_paths": ["mkdocs.yml", "docs/index.md", "docs/setup.md"],
             },
         ))
@@ -1092,7 +1088,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 return ({
                     "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
                     "summary_evidence": [docs_evidence_id],
-                    "observations": [{"candidate_id": docs_candidate_id}],
+                    "observations": [{"candidate_id": docs_candidate_id, "applicability": "current_project"}],
                     "capabilities": [],
                     "collections": [],
                 }, {"model": "fixture", "transport": "fixture"})
@@ -1123,6 +1119,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             {"resources": enriched["resource_url_records"], "analysis": enriched["repository_analysis_results"]},
         )
         self.assertEqual(docs_records[0]["confidence"], "candidate")
+        self.assertEqual(enriched["service_urls"], [])
+        self.assertEqual(enriched["project_site_urls"], [])
         self.assertEqual(
             enriched["repository_analysis_results"][0]["prompt_version"],
             repository_analysis.POLICY_VERSION,

@@ -166,3 +166,46 @@ repo homepage指定の変更、第三者instanceでも成立するsource link＋
 Barazo footerを縮約したfixture、旧v1/v2 replay、共有homepage保留を確認した。
 collectorの外部取得契約とbrowser実装は変更しておらず、新しい外部smokeは行っていない。
 正本DBは未変更。一時比較結果は`.tmp/web-role-evaluation/homepage-role-comparison-v3.json`。
+
+## 公開先宣言の抽出と文脈（2026-09-09、repository analysis v15）
+
+Barazoで公開先が抽出されなかった直接原因は、v14のclosed candidate生成がdocumentation設定ファイルのURLに
+限られ、READMEの公開先宣言を候補にしていなかったことだった。LLMが本文を読めても、その宣言を選べなかった。
+v15は既存の宣言文脈判定をREADMEへ適用し、本文中の正確なURLとevidence locatorを候補にする。
+
+単純に候補を増やす試行では、LLMの説明文が否定・仮定を正しく述べても、同時に肯定する候補IDを選ぶ誤りが出た。
+設定ファイルのコメント内の否定URLでも同じ誤りがあり、READMEだけの問題ではなかった。
+対策は否定語の個別除外ではなく、URL候補の`applicability`を明示する回答契約への変更とした。
+正規化は`current_project`だけを採り、否定・仮定・第三者・旧公開先・不明・区分欠落を棄却する。
+
+設定済みQwen `qwen/qwen3.6-35b-a3b`、reasoning none、各2回で比較:
+
+|入力|候補IDのみの試行で正しく扱えた回数|文脈区分追加後|
+|---|---:|---:|
+|Barazoの保存README・設定・manifestを含むmaterial|2/2|2/2|
+|第三者のdocumentation URL|2/2|2/2|
+|公開していないと明記したURL|1/2|2/2|
+|仮のデプロイ先|0/2|2/2|
+|パス付き公開先と構築ツールへのリンク|2/2|2/2|
+|設定のcurrent `site_url`|2/2|2/2|
+|設定コメントの否定URL|0/2|2/2|
+
+否定例は`Our documentation site is NOT hosted at ...`、仮定例は`This is an example only, not our published site`を含む。
+Barazo以外は境界確認用の合成入力であり、14/14は一般的な正解率ではない。調整に使った同じ例での再確認である。
+この結果を帰属のconfirmed relationやservice運営証明へ昇格しない。通常enrichでは従来のdocs resource候補へ渡す。
+project siteの代表性やserviceの運営帰属は別途判断する。v15で古い解析cacheを無効化し、正本の既存結果は書き換えていない。
+
+全841 unit test成功。README→候補ID→文脈区分の検証→docs候補の通常enrich経路、区分欠落・非currentの棄却、
+exact URLの保持、homepage metadata単独での宣言禁止、service／project siteへ自動確定しないことを確認した。
+比較出力は`.tmp/web-role-evaluation/{readme,config}-declarations-v15{,-applicability}.json`。正本DBは未変更。
+
+service側では、以前の347 URL走査のproject keyを使ってPDSlsとKlearskyの保存repo資料も調べた。
+PDSls（`proj:c4a5b7620ce0`）には本体`notjuliet/pdsls`とStratos対応fork `NorthskySocial/pdslss`が採用済み。
+両repoの採用理由は`legacy_manual_seed_migration`であり、今回のrole別帰属判断で確定したものではない。
+forkのREADMEは派生であることを明記する一方、homepageと`APP_DOMAIN`の既定値は本体の`pdsls.dev`を保持している。
+provider metadataの`fork: false`だけでも派生を否定できない。設定されたdomainや同じproject record内のrepoという
+事実だけを、現在のservice運営の根拠へ変換しない。既存projectの分割・identifierの変更は行っていない。
+
+現在の`pdsls.dev`を既存browser collectorで観測するとSourceリンクはTangledを指していた。
+GitHubの採用済みrepoとの対応は別途確認が必要。Klearskyのbrowser取得はnetworkidle待ちでtimeoutとなり、
+表面や帰属が存在しないとは判断していない。両例ともserviceの自動確定に使える独立した運営根拠は確立していない。

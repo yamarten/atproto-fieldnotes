@@ -9,6 +9,13 @@
 
 実装済み:
 
+- repository analysis v15で、README中のドキュメント公開先を本文付きの選択候補へ追加。
+  LLM回答の公開先の文脈区分を必須とし、否定・仮定・第三者・旧公開先・不明・区分欠落を採用しない。
+  通常enrichでdocs resource候補へ接続し、project site／serviceは自動確定しない。
+  Barazoの保存本文と比較例7ケース×2回では、候補IDだけを返す試行の意味上の誤り5/14に対し文脈区分追加後0/14。
+  小規模な調整ケースの再確認であり、一般的な正解率や自動確定の安全性は示していない。
+  全841 unit test成功。正本DBへの再解析・書き込みは未実施。
+
 - 通常enrichにhomepageのrole別判断（v3）を接続。既存roleのexact／観測済みredirect先での再利用に対応。
   project site候補化は採用済みrepoのhomepage指定と今回の逆参照を使い、ページの採用済みroleを要求しない。
   serviceは独立したconfirmed運営relationと表示されたsurfaceを要求し、広義のrepo関係やprobe由来の運営推定を転用しない。

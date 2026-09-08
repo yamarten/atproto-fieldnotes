@@ -186,6 +186,14 @@ decode failureはrun全体の破損として明示的に失敗させます。圧
 
 repository analysisでは、revisionへ固定したbounded materialを`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、source revision、material hashでそのmaterialを参照します。READMEは先頭・末尾を含む最大6 block、合計6,000文字として元の行番号を保ち、選択数と切り詰め状態をcoverageへ記録します。LLMへ渡すのは本文を持つevidence blockだけで、tree pathは候補抽出やcoverageに使ってもclaimの根拠にはしません。repository metadataはdescriptionだけをclaim可能な本文とし、name、homepage、is_templateはcontextまたは決定的抽出に限ります。観測とcollection利用は、materialから事前生成したclosed candidate IDだけをLLMに選ばせます。README由来のcollection candidateはreverse-domain authorityが小文字でpublic suffixから始まるものに限り、case-sensitiveな最終nameとoperationを一体で固定します。候補が空なら空配列を要求します。current project stateはrepoごとの最新成功結果と`last_attempt`を分けて持ち、provider取得またはLLM解析の失敗で前回成功resultを上書きしません。project-level triageへ渡すのはconfirmed repositoryの保存済み成功結果だけです。
 
+`repository-analysis-v15`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。
+URLは本文中の正確な値を保持し、homepage metadataだけでは宣言候補を作りません。設定ファイル・READMEの
+`declares_documentation_site_url`候補をLLMが返す場合、`applicability`で`current_project` / `negated` /
+`hypothetical` / `third_party` / `obsolete` / `uncertain`を区別します。`current_project`だけを観測へ反映し、
+区分が欠けた回答も棄却します。候補IDの選択だけでは、否定・仮定のURLを公開先と誤認する実例があったためです。
+この観測は従来どおり`role=docs, confidence=candidate`のresource候補へ接続し、project siteやserviceの自動確定、
+独立した運営relationの生成には使いません。v14以前の解析結果はv15のcache hitにはしません。
+
 既定retention policyは完了から90日以内の全runとprojectごとの最新3 runを保持します。`prune-investigation-history`はそれより古いrunをdry-runで列挙し、`--execute`時だけ対応するcollector runとまとめて削除します。fixtureへexportしたcaseはDB runとは独立して保持します。
 
 ## 調査状態

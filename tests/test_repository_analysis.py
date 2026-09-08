@@ -265,6 +265,39 @@ class RepositoryAnalysisTest(unittest.TestCase):
         self.assertNotIn("com.example.hallucinated", collection_nsids)
         self.assertNotIn("artifact_kind", result)
 
+    def test_readme_documentation_candidates_preserve_exact_url_and_require_selection(self) -> None:
+        bundle = self.github_bundle()
+        snapshot = bundle.records[0].value
+        snapshot["configuration_hints"] = []
+        snapshot["readme_sections"] = [{"path": "README", "line": 20, "excerpt":
+            "Developer and admin documentation for [Barazo](https://github.com/singi-labs), "
+            "hosted at [docs.barazo.forum](https://docs.barazo.forum/guide). "
+            "Built with [Fumadocs](https://fumadocs.vercel.app/)."}]
+        material = repository_analysis.build_material("https://github.com/example/app", bundle)
+        candidate = self.observation_candidate_id(material, "declares_documentation_site_url", value="https://docs.barazo.forum/guide")
+        payload = {"summary": "ドキュメントサイト。", "summary_evidence": [self.evidence_id(material, "README")],
+                   "observations": [], "capabilities": [], "collections": []}
+        unselected = repository_analysis.normalize_result(material, payload, {}, "2026-09-08T00:00:00Z")
+        self.assertEqual(repository_analysis.documentation_urls(unselected), [])
+        for applicability in (None, "negated", "hypothetical", "third_party", "obsolete", "uncertain"):
+            payload["observations"] = [{"candidate_id": candidate, "applicability": applicability}]
+            rejected = repository_analysis.normalize_result(material, payload, {}, "2026-09-08T00:00:00Z")
+            self.assertEqual(repository_analysis.documentation_urls(rejected), [])
+        payload["observations"] = [{"candidate_id": candidate, "applicability": "current_project"}]
+        selected = repository_analysis.normalize_result(material, payload, {}, "2026-09-08T00:00:00Z")
+        self.assertEqual(repository_analysis.documentation_urls(selected), ["https://docs.barazo.forum/guide"])
+        self.assertIn("site generators", repository_analysis.build_prompt({}, material))
+
+    def test_homepage_metadata_and_plain_readme_links_do_not_declare_documentation(self) -> None:
+        bundle = self.github_bundle()
+        snapshot = bundle.records[0].value
+        snapshot["configuration_hints"] = []
+        snapshot["repo"]["homepage"] = "https://docs.example.com"
+        snapshot["readme_sections"] = [{"path": "README", "line": 1, "excerpt": "See https://docs.example.com"}]
+        material = repository_analysis.build_material("https://github.com/example/app", bundle)
+        self.assertFalse(any(c["predicate"] == "declares_documentation_site_url"
+                             for c in repository_analysis.observation_candidate_catalog(material).values()))
+
     def test_documentation_url_requires_the_url_in_supplied_evidence(self) -> None:
         material = repository_analysis.build_material(
             "https://github.com/example/app", self.github_bundle()
@@ -274,7 +307,7 @@ class RepositoryAnalysisTest(unittest.TestCase):
             "summary_evidence": [self.evidence_id(material, "mkdocs.yml")],
             "observations": [{"candidate_id": self.observation_candidate_id(
                 material, "declares_documentation_site_url", value="https://docs.example.com"
-            )}, {"candidate_id": "O99"}],
+            ), "applicability": "current_project"}, {"candidate_id": "O99"}],
             "capabilities": [],
             "collections": [],
         }, {}, "2026-07-25T01:00:00+00:00")

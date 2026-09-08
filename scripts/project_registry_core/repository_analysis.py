@@ -14,7 +14,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 6
-POLICY_VERSION = "repository-analysis-v14"
+POLICY_VERSION = "repository-analysis-v15"
 MAX_TRIAGE_RESULTS = 6
 MAX_EVIDENCE_BLOCKS = 32
 MAX_EVIDENCE_TEXT_BYTES = 18 * 1024
@@ -633,12 +633,16 @@ def observation_candidate_catalog(material: dict[str, Any]) -> dict[str, dict[st
                 "evidence_ids": [evidence_id],
             })
         path = str(evidence.get("path") or "")
-        if any(
+        documentation_configuration = any(
             str(item.get("path") or "") == path
             and str(item.get("kind") or "") in {"documentation_config", "documentation_cname"}
             for item in material.get("configuration_hints", [])
             if isinstance(item, dict)
-        ):
+        )
+        documentation_readme = path.lower() == "readme" and _observation_evidence_supported(
+            "declares_documentation_site_url", [evidence], material,
+        )
+        if documentation_configuration or documentation_readme:
             for raw_url in re.findall(r"https?://[^\s'\"<>]+", str(evidence.get("excerpt") or "")):
                 value = identifier_core.normalize_url(raw_url.rstrip(",.;)"))
                 if not value:
@@ -856,7 +860,7 @@ def _observation_evidence_supported(
     if predicate == "declares_documentation_site_url":
         return bool(
             any(configurations.get(path) in {"documentation_config", "documentation_cname"} for path in paths)
-            or _evidence_declares(evidence, r"documentation\s+(?:site|website)|ドキュメントサイト")
+            or _evidence_declares(evidence, r"documentation\s+(?:site|website|for)\b|ドキュメントサイト")
         )
     if predicate == "deploys_documentation_site":
         return any(configurations.get(path) == "documentation_deployment" for path in paths)
@@ -909,7 +913,7 @@ def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
         if collection_candidates
         else "collection_candidates is empty, so collections MUST be [] exactly; any collection candidate_id is invalid. "
     )
-    observation_schema = '[{"candidate_id":"O01"}]' if observation_candidates else "[]"
+    observation_schema = '[{"candidate_id":"O01","applicability":"current_project"}]' if observation_candidates else "[]"
     collection_schema = '[{"candidate_id":"C01"}]' if collection_candidates else "[]"
     return (
         "Analyze a confirmed project repository for an AT Protocol project. "
@@ -920,6 +924,14 @@ def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
         "Do not use filenames, repository trees, prior knowledge, or facts absent from evidence_blocks.\n"
         + observation_rule
         + collection_rule
+        + "A declares_documentation_site_url candidate is only a possible reference, not an established fact. "
+        "Select it only when the cited text declares that exact URL as documentation for this repository's project. "
+        "Exclude documentation for dependencies, site generators, unrelated products, hypothetical deployments, "
+        "and negated or obsolete publication locations. A homepage field alone is not such a declaration. "
+        "For each returned documentation URL candidate, explicitly classify applicability as current_project, "
+        "negated, hypothetical, third_party, obsolete, or uncertain. You may return a mentioned URL with a "
+        "non-current applicability; do not mark it current_project just because the URL appears in the text. "
+        "Other observation types do not require applicability. "
         + "Omit illustrative or uncertain claims. Summary and capability text MUST be ordinary user-facing Japanese. "
         "Never discuss evidence or citations in those text fields and never write evidence IDs such as E01 there; "
         "cite IDs only in the separate evidence arrays. Bad text: 'E01によるとCLIです'. "
@@ -962,6 +974,8 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
             continue
         predicate = str(candidate["predicate"])
         basis = str(candidate["basis"])
+        if predicate == "declares_documentation_site_url" and item.get("applicability") != "current_project":
+            continue
         evidence = _resolve_evidence(candidate.get("evidence_ids"), catalog)
         if not evidence or not _observation_evidence_supported(predicate, evidence, material):
             continue

@@ -8,9 +8,12 @@
 - repo homepageのv3はrole別に評価する。次は運営帰属を示す独立した観測の取得・確定条件と、
   公式documentationを代表project siteとする条件を実例で検討する。通常collectorが生成するprobe由来の
   `operates_service`は独立した運営根拠ではなく、service新規採用の効果はまだ示せていない。
-  BarazoのREADME公開先宣言は保存済みだがrepository analysisのtyped observationには抽出されていない。
+  BarazoのREADME公開先宣言はv15でtyped observationへ抽出できることを確認したが、正本DBの再解析は未実施。
+  公開先の説明を代表project siteやservice運営へ昇格する条件は未確定。LLMの意味判定は小規模な調整例だけで確認した。
   arrobaは既存入口serviceとdocs転送先のrole・URL対応が別途未整理。共有homepageは関係の正しさと
   role採用を分け、共有siteを一projectへ自動割当・mergeしない。
+  PDSlsの同一record内に本体とStratos対応forkがlegacy bootstrapで入り、forkにも本体のhomepage／domain既定値が残る。
+  運営根拠の規則を作る際にこの継承例を使う。repoの採用済み状態や設定値だけでは運営確定にしない。
   [比較記録と残件](notes/homepage-observation-2026-09-08.md)を参照。正本DBは未変更。
 
 - page↔repositoryのrelation導出への変更は検証済み。正本DBは未変更。
