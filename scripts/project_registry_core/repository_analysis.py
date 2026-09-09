@@ -1260,7 +1260,10 @@ def select_for_triage(project: dict[str, Any], *, limit: int = MAX_TRIAGE_RESULT
     def score(item: dict[str, Any]) -> tuple[int, int, int, str]:
         repo_url = str(item.get("repo_url") or "")
         coverage = item.get("coverage") if isinstance(item.get("coverage"), dict) else {}
-        coverage_score = sum(value in {"complete", "limited"} for value in coverage.values())
+        coverage_score = sum(
+            coverage.get(field) in {"complete", "limited"}
+            for field in ("metadata", "readme", "tree", "manifests", "schemas", "source")
+        )
         return (
             0 if repo_url in manual_repos else 1,
             0 if representative and repo_url == representative else 1,

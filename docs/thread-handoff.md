@@ -7,8 +7,10 @@
 
 - homepage role検討の3実例は、Barazo＝docs resource、arroba＝代表project site＋docsへ補正する案をtemp DBの保存・最新履歴replayまで確認。
   過去の明示reviewがあり、種類を再質問する必要はない。正本への適用は未承認。
-  PDSlsは本体とStratos対応fork PDSlssを別recordにすることを推奨するが、境界判断は未合意。
-  fork repoだけを移し、`pdsls.dev`をforkのserviceへ移さない。最新surfaceのSourceはTangled `pds.ls/pdsls`。
+  PDSls本体とStratos対応fork PDSlssの分離は2026-09-09に合意済み。既存split APIでtemp DB分離、
+  最新履歴replay、分離した資料による実LLM再評価・保存まで確認した。正本への適用は未承認。
+  fork repoだけを移し、紹介文と混在したsummary候補をreview結果に沿って補正する。
+  `pdsls.dev`をforkのserviceへ移さない。最新surfaceのSourceはTangled `pds.ls/pdsls`。
   詳細と適用案は[3実例の補正記録](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)。
   過去website_only対象でcurrent serviceがconfirmed 20件、candidate 1件残る。各々の後続判断と再採用理由の監査が必要。
   一括格下げはしない。通常collectorによる独立した運営根拠の自動取得は引き続き未接続。

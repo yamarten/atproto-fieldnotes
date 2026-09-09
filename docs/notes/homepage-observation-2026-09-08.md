@@ -269,3 +269,38 @@ PDSlss分離を選ぶ場合の変更対象は`https://github.com/NorthskySocial/
 同一project根拠だけで戻ったものと、その後service役割が確定したものを分ける監査を残す。
 結果は`.tmp/web-role-evaluation/`の`service-role-fix-comparison.json`、`reviewed-role-correction.json`、
 `prior-website-review-audit.json`。恒久regression fixtureは`tests/fixtures/project_registry/service-role-regression-v1.json`。
+
+
+## PDSlss分離の合意と適用前検証（2026-09-09）
+
+ユーザーがPDSlssを別projectへ分ける方針を承認した。境界判断は確定し、正本DBへの適用承認だけが残る。
+既存`application.merge.split_identifier`へfork repoを渡し、正本から読み取ったPDSlsを最小temp DBで分離した。
+本体からfork repoを外し、本体へのrepo blockと双方のseparate_project判断を保存する。
+新recordにはfork repoだけを採用し、homepage・service・collectionを一括継承しない。
+最新の保存済みinvestigation bundleを本体へreplayしてもfork repoは戻らなかった。
+
+分離処理は過去の紹介文を自動で書き換えないため、今回のoperator reviewとして次を補正する。
+
+- 本体summaryを「atprotoネットワークの公開データを閲覧・探索するWebアプリケーション。」へ変更。
+  featuresは「公開データの閲覧・探索」「レコード検索」とし、Tangledのソース移転を機能連携とする説明も外す。
+- 本体summary候補から、今回照合したStratos由来の候補と旧混在LLM紹介文を外す。一般的な単語除外規則ではなく、
+  対象recordのレビュー補正である。履歴は保持する。
+- 新record名をPDSlssとし、「Stratos対応を加えたPDSlsの派生Webアプリケーション。」を初期紹介文とする。
+  repo解析結果は当該forkの保存済み結果だけを入力に使い、本体や関連repoの結果を混ぜない。
+
+再調査の入力構築で`select_for_triage`がcoverageの`counts` dictをset要素として扱いTypeErrorになった。
+coverageを取得対象6項目（metadata/readme/tree/manifests/schemas/source）だけで採点するよう修正した。
+実例と同じcounts付き結果の順位比較testを追加し、全847 unit testが成功した。
+
+設定済みQwenへ通常のtriage prompt／transport／結果適用を各1回実行した。新しい外部repoの再取得や
+repository analysisの再実行ではなく、保存済みrepo解析を分離した上でのproject再評価である。
+本体の解析入力は`notjuliet/pdsls`だけ、forkの解析入力は`NorthskySocial/pdslss`だけだった。
+本体summaryは補正内容を維持し、forkの説明にはStratos対応が残った。保存後も本体のserviceは空で
+`pdsls.dev`が候補、fork側はserviceもservice候補も空。名称はPDSls／PDSlssとなった。
+サンプル各1回の確認であり、将来のLLM出力を保証するものではない。
+
+temp DBはforeign key違反0、integrity okで削除済み。結果は
+`.tmp/web-role-evaluation/pdsls-split-validation.json`。本体の既存履歴・関連観測は消さず、
+fork由来の68 relationを新recordの確定情報へ一括コピーすることもしていない。
+正本適用案は、先行節のBarazo docs追加、arroba role補正と、上記PDSls分離・紹介文補正の3件。
+本体の同名別recordやTangled sourceの追加採用、他のwebsite_only対象の一括補正は含めない。

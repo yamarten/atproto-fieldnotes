@@ -551,6 +551,19 @@ class RepositoryAnalysisTest(unittest.TestCase):
 
         self.assertEqual(repository_analysis.select_for_triage(project), [])
 
+    def test_triage_ranks_coverage_dimensions_without_treating_counts_as_status(self) -> None:
+        repos = ["https://github.com/example/a", "https://github.com/example/b"]
+        project = project_record.default_project_record("proj:coverage", "nsid", "app.example.post")
+        project["project_repository_urls"] = repos
+        project["repository_analysis_results"] = [{
+            "repo_url": repo, "summary": "AT Protocol explorer",
+            "summary_evidence": [{"path": "README", "excerpt": "AT Protocol explorer"}],
+            "coverage": {"metadata": "complete", "readme": readme,
+                         "counts": {"readme_chars_observed": 675}, "reason": "complete"},
+        } for repo, readme in zip(repos, ("not_requested", "limited"))]
+        selected = repository_analysis.select_for_triage(project)
+        self.assertEqual([item["repo_url"] for item in selected], list(reversed(repos)))
+
     def test_package_manifest_extracts_distribution_fields(self) -> None:
         tree = [{"path": "package.json", "type": "blob", "size": 100}]
         with mock.patch.object(repository_material, "github_repo_file_text", return_value='''{
