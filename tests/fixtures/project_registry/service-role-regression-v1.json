@@ -1,0 +1,416 @@
+{
+  "observed_at": "2026-09-09",
+  "source": "read-only current project_relations; adoption tested from repo anchors only; unrelated relations and context omitted; historical arroba adoption source_ref retained",
+  "cases": [
+    {
+      "project_key": "proj:52743420e0c7",
+      "name": "Barazo",
+      "url": "https://docs.barazo.forum",
+      "anchors": [
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-web"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-api"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-deploy"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/barazo-forum/barazo-api"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-docs"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-website"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/singi-labs/barazo-lexicons"
+        }
+      ],
+      "relation_evidence": [
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/singi-labs/barazo-docs"
+            },
+            "predicate": "repository_homepage",
+            "object": {
+              "type": "website",
+              "value": "https://docs.barazo.forum"
+            },
+            "locator": "https://github.com/singi-labs/barazo-docs",
+            "method": "github_homepage"
+          },
+          "source": "github_repo_metadata:https://github.com/singi-labs/barazo-docs",
+          "classification": "confirmed",
+          "observed_at": "2026-09-07T19:19:33+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/singi-labs/barazo-docs"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "website",
+              "value": "https://docs.barazo.forum"
+            },
+            "locator": "README",
+            "method": "readme_link"
+          },
+          "source": "github_readme:https://github.com/singi-labs/barazo-docs",
+          "classification": "candidate",
+          "observed_at": "2026-09-07T19:19:33+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://docs.barazo.forum"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/singi-labs/barazo-docs"
+            },
+            "locator": "https://docs.barazo.forum",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://docs.barazo.forum",
+          "classification": "candidate",
+          "observed_at": "2026-09-07T19:19:41+00:00",
+          "context": {}
+        }
+      ]
+    },
+    {
+      "project_key": "proj:5c8ecd4e26e6",
+      "name": "arroba",
+      "url": "https://arroba.readthedocs.io",
+      "anchors": [
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/snarfed/arroba"
+        }
+      ],
+      "relation_evidence": [
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/snarfed/arroba"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "locator": "README",
+            "method": "readme_link"
+          },
+          "source": "github_readme:https://github.com/snarfed/arroba",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:07+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/snarfed/arroba"
+            },
+            "predicate": "repository_homepage",
+            "object": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "locator": "https://github.com/snarfed/arroba",
+            "method": "github_homepage"
+          },
+          "source": "github_repo_metadata:https://github.com/snarfed/arroba",
+          "classification": "confirmed",
+          "observed_at": "2026-09-08T21:54:07+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/bluesky-social/atproto"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/bluesky-social/proposals"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/did-method-plc/did-method-plc"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/readthedocs/sphinx_rtd_theme"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/saleor/requests-hardened"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/snarfed/arroba"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/snarfed/bridgy-fed"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "website",
+              "value": "https://arroba.readthedocs.io"
+            },
+            "predicate": "project_repository",
+            "object": {
+              "type": "repo",
+              "value": "https://github.com/snarfed/lexrpc"
+            },
+            "locator": "https://arroba.readthedocs.io",
+            "method": "bounded_first_party_link"
+          },
+          "source": "service_page:https://arroba.readthedocs.io",
+          "classification": "candidate",
+          "observed_at": "2026-09-08T21:54:08+00:00",
+          "context": {}
+        }
+      ]
+    },
+    {
+      "project_key": "proj:c4a5b7620ce0",
+      "name": "PDSls",
+      "url": "https://pdsls.dev",
+      "anchors": [
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/notjuliet/pdsls"
+        },
+        {
+          "kind": "repo_url",
+          "value": "https://github.com/NorthskySocial/pdslss"
+        }
+      ],
+      "relation_evidence": [
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/notjuliet/pdsls"
+            },
+            "predicate": "repository_homepage",
+            "object": {
+              "type": "website",
+              "value": "https://pdsls.dev"
+            },
+            "locator": "https://github.com/notjuliet/pdsls",
+            "method": "github_homepage"
+          },
+          "source": "github_repo_metadata:https://github.com/notjuliet/pdsls",
+          "classification": "confirmed",
+          "observed_at": "2026-09-08T21:55:30+00:00",
+          "context": {}
+        },
+        {
+          "relation": {
+            "subject": {
+              "type": "repo",
+              "value": "https://github.com/NorthskySocial/pdslss"
+            },
+            "predicate": "repository_homepage",
+            "object": {
+              "type": "website",
+              "value": "https://pdsls.dev"
+            },
+            "locator": "https://github.com/NorthskySocial/pdslss",
+            "method": "github_homepage"
+          },
+          "source": "github_repo_metadata:https://github.com/NorthskySocial/pdslss",
+          "classification": "confirmed",
+          "observed_at": "2026-09-08T21:55:32+00:00",
+          "context": {}
+        }
+      ]
+    }
+  ],
+  "historical_arroba_adoption": {
+    "anchor": {
+      "kind": "repo_url",
+      "value": "https://github.com/snarfed/arroba"
+    },
+    "auto_confirm": true,
+    "backward_path": [
+      {
+        "classification": "confirmed",
+        "context": {
+          "reason": "ドキュメントサイトとリポジトリが同一プロジェクトを示している。",
+          "relationship": "same_project"
+        },
+        "eligible_for_auto_confirm": true,
+        "locator": "https://arroba.readthedocs.io",
+        "method": "llm_same_project",
+        "object": {
+          "kind": "repo_url",
+          "value": "https://github.com/snarfed/arroba"
+        },
+        "observed_at": "2026-08-14T19:21:48+00:00",
+        "predicate": "service_links_repo",
+        "source": "llm_repository_relationship:https://arroba.readthedocs.io",
+        "subject": {
+          "kind": "service_url",
+          "value": "https://arroba.readthedocs.io"
+        }
+      }
+    ],
+    "candidate": {
+      "kind": "service_url",
+      "value": "https://arroba.readthedocs.io"
+    },
+    "forward_path": [
+      {
+        "classification": "confirmed",
+        "context": {
+          "from_relation": true
+        },
+        "eligible_for_auto_confirm": true,
+        "locator": "https://github.com/snarfed/arroba",
+        "method": "github_homepage",
+        "object": {
+          "kind": "service_url",
+          "value": "https://arroba.readthedocs.io"
+        },
+        "observed_at": "2026-08-14T19:21:09+00:00",
+        "predicate": "repo_links_service",
+        "source": "github_repo_metadata:https://github.com/snarfed/arroba",
+        "subject": {
+          "kind": "repo_url",
+          "value": "https://github.com/snarfed/arroba"
+        }
+      }
+    ],
+    "policy_version": "trust-graph-v1",
+    "reason": "mutual_trust_path"
+  }
+}

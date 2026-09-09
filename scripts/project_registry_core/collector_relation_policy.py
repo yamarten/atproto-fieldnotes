@@ -75,7 +75,7 @@ def classify_url_role(value: str) -> str:
     if host == "bsky.app" and path.startswith("/profile/"):
         return "account_profile"
     if (
-        host in DOCUMENTATION_HOSTS
+        any(host == domain or host.endswith("." + domain) for domain in DOCUMENTATION_HOSTS)
         or host.startswith("docs.")
         or path == "/docs"
         or path.startswith("/docs/")

@@ -2261,7 +2261,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         self.assertNotIn("candidateowner", tokens)
         self.assertNotIn("untrustedreponame", tokens)
 
-    def test_confirmed_repo_link_supports_service_probe(self) -> None:
+    def test_confirmed_repo_link_alone_does_not_establish_service_role(self) -> None:
         project = project_record.default_project_record("proj:confirmedreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
@@ -2287,7 +2287,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             "links": [{"url": "https://github.com/example/app", "text": "Source"}],
         }
 
-        self.assertTrue(registry.service_probe_supports_project(project, "https://app.example.com", result))
+        self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
 
     def test_confirmed_repo_link_without_repo_to_service_reference_does_not_support_service_probe(self) -> None:
         project = project_record.default_project_record("proj:repoonlyservice", "repo_url", "https://github.com/example/app")
@@ -2302,7 +2302,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
 
         self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", result))
 
-    def test_ambiguous_repo_link_waits_for_llm_relationship_assessment(self) -> None:
+    def test_llm_same_project_assessment_does_not_adopt_service(self) -> None:
         project = project_record.default_project_record("proj:ambiguousreposervice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
@@ -2340,7 +2340,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         }, {}, evidence)
 
         self.assertEqual(project["website_url"], "")
-        self.assertIn("https://app.example.com", project["service_urls"])
+        self.assertNotIn("https://app.example.com", project["service_urls"])
 
     def test_related_repo_link_does_not_complete_trust_path(self) -> None:
         project = project_record.default_project_record("proj:relatedreposervice", "repo_url", "https://github.com/example/plugin")
@@ -2402,7 +2402,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             "html": "Project homepage.",
         }
 
-        self.assertTrue(registry.service_probe_supports_project(project, "https://app.example.com", {
+        self.assertFalse(registry.service_probe_supports_project(project, "https://app.example.com", {
             **base_result,
             "links": [{"url": "https://github.com/example/app", "text": "Source"}],
         }))

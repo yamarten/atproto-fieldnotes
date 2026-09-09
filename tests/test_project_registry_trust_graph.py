@@ -62,7 +62,7 @@ class TrustGraphCoreTest(unittest.TestCase):
         self.assertFalse(evaluation["auto_confirm"])
         self.assertEqual(evaluation["reason"], "no_mutual_trust_path")
 
-    def test_mutual_edges_auto_confirm_url_candidate(self) -> None:
+    def test_mutual_references_support_repository_but_not_service_role(self) -> None:
         project: dict = {}
         trust_graph.upsert_edge(
             project,
@@ -87,8 +87,14 @@ class TrustGraphCoreTest(unittest.TestCase):
             anchors=[{"kind": "repo_url", "value": "https://github.com/example/app"}],
         )
 
-        self.assertTrue(evaluation["auto_confirm"])
-        self.assertEqual(evaluation["reason"], "mutual_trust_path")
+        self.assertFalse(evaluation["auto_confirm"])
+        reverse = trust_graph.evaluate_auto_confirm(
+            project,
+            candidate={"kind": "repo_url", "value": "https://github.com/example/app"},
+            anchors=[{"kind": "service_url", "value": "https://app.example.com"}],
+        )
+        self.assertTrue(reverse["auto_confirm"])
+        self.assertEqual(reverse["reason"], "mutual_trust_path")
 
     def test_non_url_identifier_is_not_in_v1_auto_confirm_scope(self) -> None:
         project: dict = {}
@@ -163,7 +169,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertFalse(evaluation["auto_confirm"])
         self.assertEqual(evaluation["reason"], "guarded_identifier")
 
-    def test_manual_repo_seed_and_mutual_edges_confirm_service(self) -> None:
+    def test_manual_repo_seed_and_mutual_edges_do_not_establish_service_role(self) -> None:
         project = project_record.default_project_record("proj:mutualservice", "repo_url", "https://github.com/example/app")
         registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
         registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
@@ -188,8 +194,8 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
             eligible_for_auto_confirm=True,
         )
 
-        self.assertTrue(registry.confirm_service_url_with_trust(project, "https://app.example.com"))
-        self.assertEqual(project["service_urls"], ["https://app.example.com"])
+        self.assertFalse(registry.confirm_service_url_with_trust(project, "https://app.example.com"))
+        self.assertEqual(project["service_urls"], [])
 
     def test_final_reconciliation_promotes_url_after_mutual_edges_arrive(self) -> None:
         project = project_record.default_project_record(
@@ -627,7 +633,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             conn.close()
 
         self.assertNotIn("missing_recomputed_edge", audit["issue_counts"])
-        self.assertEqual(audit["issue_counts"]["needs_reprobe"], 0)
+        self.assertEqual(audit["issue_counts"]["needs_reprobe"], 1)
         self.assertEqual(audit["issue_counts"]["should_downgrade"], 2)
 
     def test_repair_trust_graph_persists_evaluations_without_downgrade_by_default(self) -> None:

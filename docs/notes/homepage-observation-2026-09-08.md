@@ -209,3 +209,63 @@ provider metadataの`fork: false`だけでも派生を否定できない。設�
 現在の`pdsls.dev`を既存browser collectorで観測するとSourceリンクはTangledを指していた。
 GitHubの採用済みrepoとの対応は別途確認が必要。Klearskyのbrowser取得はnetworkidle待ちでtimeoutとなり、
 表面や帰属が存在しないとは判断していない。両例ともserviceの自動確定に使える独立した運営根拠は確立していない。
+
+## 3実例の処遇と迂回採用の修正（2026-09-09）
+
+arrobaでは、種類を判断せず同一projectの根拠からserviceを採用した実害を確認した。
+8月13日の[operator review](identifier-adoption-review.md#serviceではない公式websitedocumentation)は、
+arrobaとBarazo docsをserviceから外すことを決定済みだった。arrobaの旧bootstrap adoptionは同日clearされ、
+8月14日・19日・28日に`trust_policy`がserviceとして再採用している。保存`source_ref`の根拠は
+「ドキュメントサイトは同一プロジェクトのソースコードを参照している」等の`llm_same_project`とrepo homepageであり、
+運営serviceの根拠ではない。先行節の「代表性未確定」は一般規則の残件であって、この2件を再判断する必要はない。
+
+homepage専用role policyだけでは防げず、通常の最終reconciliation、service probe、既存LLMの
+`repository_link_assessments`から`confirm_service_url_with_trust`へ到達する経路が残っていた。
+`trust-graph-v2`はservice採用時にrepositoryを起点・中継のどちらにも使わない。
+relationやedgeを消さず、repository採用と方向付き経路の説明は維持する。
+既存service同士のcanonical pathと、独立運営relation＋visible surfaceによるhomepage採用も維持する。
+過去のactive adoptionは自動で取り消さないため、既存誤採用の補正は別操作となる。
+
+合わせて、既知documentation hostのproject subdomainを認識する一般則を修正した。
+正本の保存homepageではarroba、lexrpc、atlas-protocolのRead the Docs URLがunknown→documentationの3件。
+host境界で照合し、`notreadthedocs.io`や`readthedocs.io.example.com`は含めない。
+exact pathの観測とWebsite候補化は維持する。ドメイン分類だけで既存serviceを取り消す処理は追加しない。
+
+### 実例の処遇
+
+|対象|確認した根拠|処遇・適用境界|
+|---|---|---|
+|Barazo `proj:52743420e0c7`|過去review、README公開先宣言、現在docsページのmember/admin/developer向け案内|`docs.barazo.forum`をconfirmed docs resourceへ追加。既存Website/serviceのstaging URLは変更しない|
+|arroba `proj:5c8ecd4e26e6`|過去reviewはlibraryの代表Website/docsと明記。旧service再採用は同一projectの説明だけ|入口の誤serviceとそのactive adoption/decisionを解除し、同じURLをconfirmed project siteへ。`/en/stable`をdocsとして保持。Websiteは同じ入口のまま|
+|PDSls `proj:c4a5b7620ce0`|現在のSourceはTangled `pds.ls/pdsls`。同recordのPDSlss READMEはStratos対応forkと明記|PDSlssを別recordへ分けることを推奨するが、未合意。`pdsls.dev`をforkのserviceとして採用しない|
+
+Barazo docsは今回HTTP 200で確認した。`barazo.forum`はHTTP 410だったが、この単一観測を理由に
+既存staging serviceの廃止や代表URLの変更はしない。TangledのDID URLは
+`https://tangled.org/pds.ls/pdsls`へ転送され、READMEはPDSls Atmosphere Explorerと説明する。
+これは現在のsurface→source対応の確認であり、GitHubからの移転・mirrorの厳密な同一性までは確認していない。
+
+PDSlss分離を選ぶ場合の変更対象は`https://github.com/NorthskySocial/pdslss`の採用先と、
+そのrepoを根拠にした現行説明・観測の再整理。現PDSlsの紹介文にはStratos連携が混入している。
+当該repoをsubject等に含むrelationは68行あるが、コード片の誤ったcollection候補も含むため、
+そのままconfirmed情報として新recordへ複写しない。repoを起点として再調査し、本体にはforkへの関連を残す。
+本体のGitHub repo、`pdsls.dev`候補、Tangled Sourceの観測は本体側に残す。service新規確定とは分ける。
+同名の別record `proj:7c585b38d809`も存在するが、repo/serviceを持たず、名前だけで統合・分割先には使わない。
+
+### 検証と効果
+
+- 旧arrobaの実service adoptionの双方向根拠を再構成した比較は、修正前true→修正後false。
+  現在の3件のrelationとrepo起点だけでは前後ともfalse。過去の誤判断の再発防止と、現在データの改善量を混同しない。
+- 既知fixtureを用いた通常enrich（外部collectorはmock）→save→再読込→最終reconciliationでservice再採用なし。
+  同一projectを返すLLM経路、repo経由のservice間迂回、service canonicalの維持も検証。
+- 正本からread-onlyで取り出したBarazo/arrobaの2 recordを最小temp DBへ保存し、上記補正案を適用。
+  最新の保存済みinvestigation bundleを通常replay→再評価→再保存しても補正を維持した。
+  差分はBarazoのdocs追加、arrobaのservice除去・site追加・転送先docs追加。Websiteは両件不変。
+  `service_status`は両件とも既存のunverifiedを維持し、live/noneへの改善は主張しない。
+  foreign key違反0、integrity ok。temp DBは削除済み。補正用の参考materializerを使った検証であり、通常enrichによる自動補正ではない。
+- 全846 unit test成功。新しい外部取得契約・Web UIの変更はない。正本DBへの補正、全件再enrich、運用反映は未実施。
+
+過去の`website_only` review対象の再点検では、current service confirmed 20件、candidate 1件が残った。
+これだけで20件すべてが誤登録とは判断しない。後続operator判断とsource_refを照合し、
+同一project根拠だけで戻ったものと、その後service役割が確定したものを分ける監査を残す。
+結果は`.tmp/web-role-evaluation/`の`service-role-fix-comparison.json`、`reviewed-role-correction.json`、
+`prior-website-review-audit.json`。恒久regression fixtureは`tests/fixtures/project_registry/service-role-regression-v1.json`。

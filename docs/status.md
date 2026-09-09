@@ -9,6 +9,14 @@
 
 実装済み:
 
+- serviceのtrust採用を`trust-graph-v2`へ変更。repositoryを起点・中継とする経路ではserviceを確定せず、
+  最終reconciliation／既存LLM same_project判定からhomepage role policyを迂回する採用を防ぐ。
+  repository採用、方向付き経路表示、既存serviceのcanonical経路を維持する。既存adoptionの自動取り消しはしない。
+  arrobaの旧実採用根拠を再構成した比較は採用true→false。現在の3実例relationは前後とも新規service採用false。
+  Read the Docsのsubdomain判定漏れも修正し、保存homepageの3 URLでunknown→documentationを確認。
+  全846 unit test、通常enrich→save→再評価、2実recordのtemp DB補正→最新保存履歴replay→再保存を確認。
+  正本DBの補正・運用反映は未実施。[根拠と未完了範囲](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)を参照。
+
 - repository analysis v15で、README中のドキュメント公開先を本文付きの選択候補へ追加。
   LLM回答の公開先の文脈区分を必須とし、否定・仮定・第三者・旧公開先・不明・区分欠落を採用しない。
   通常enrichでdocs resource候補へ接続し、project site／serviceは自動確定しない。

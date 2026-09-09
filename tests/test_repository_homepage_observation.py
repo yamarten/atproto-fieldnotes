@@ -24,7 +24,8 @@ class RepositoryHomepageObservationTest(TempRegistryDbTestCase):
 
     def test_exact_paths_and_docs_are_observed_without_service_candidates(self):
         for url in ("https://jbgruber.github.io/atrrr", "https://idiolect.dev/fieldwork",
-                    "https://example.com/about", "https://docs.example.com/sdk"):
+                    "https://example.com/about", "https://docs.example.com/sdk",
+                    "https://arroba.readthedocs.io/en/stable"):
             with self.subTest(url=url):
                 project = self.homepage_project(url)
                 self.assertEqual(registry.repository_homepage_probe_urls(project), [url])

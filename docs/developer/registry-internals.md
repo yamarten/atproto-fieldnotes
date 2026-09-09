@@ -101,14 +101,15 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 ### Trust graph
 
-この節は現行`trust-graph-v1`の実装、保存、処理経路を説明します。登録プロジェクトへの帰属、信頼グラフの責務、接続マトリクス、relation別の静的用途は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を正本とします。
+この節は現行`trust-graph-v2`の実装、保存、処理経路を説明します。登録プロジェクトへの帰属、信頼グラフの責務、接続マトリクス、relation別の静的用途は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を正本とします。
 
-`trust-graph-v1`のpage↔repository edgeは、`project_relations`の現在の観測から導出します。
+`trust-graph-v2`のpage↔repository edgeは、`project_relations`の現在の観測から導出します。
 `repository_trust.project_edges()`が共通投影で、candidate probe、URL trust評価、Explain、shadow比較が同じ投影を使います。
 `trust_graph.graph()`は判定用、`stored_graph()`は保存用です。page↔repository以外のedgeと評価履歴は
 `state_json.evidence.trust_graph`に残します。DB schemaは増やしていません。
 
 - `project_repository`のwebsite/service→repo、repo→website/serviceを方向付きedgeへ投影し、confirmedだけを強い経路として扱います。
+- Read the Docsなどの既知documentation hostはproject用subdomainもdocumentationに分類します。exact pathの観測とWebsite候補化は維持し、service候補へ変換しません。
 - `repository_homepage`は単独ではedgeにせず、confirmedな逆向きのpage→repoとexact URLが一致する場合だけ`repository_homepage_pair`を導出します。
 - HTMLの解釈、READMEリンク、LLMの同一project判断もsource/method/locator、observed_at、context付きrelationに保存します。
   LLMは許可された入力pairに対する`same_project`をconfirmed、`related`/`uncertain`をcandidateとして保存します。
@@ -136,7 +137,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
-URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
+URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。ただしserviceの採用経路はrepository nodeを起点にも中継にも使いません。page↔repositoryの相互参照は同一projectの帰属根拠であり、service roleの根拠ではないためです。repository採用と方向付き経路の表示には引き続き使い、既存service同士のcanonical経路による確認も維持します。新規homepageのservice採用は独立した運営関係とsurfaceを検査するrole policyを通します。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 
 first-party page上のrepository linkは、完全HTMLやproject名の類似ではなく、linkのexact locator、canonical repository root、可視文字、accessibility label、子要素label、最寄り見出し・block、landmark、同一groupとpage内のrepository数からなるbounded contextで評価します。`Open source`、`View source`、単独`Source`、`Repository`等の直接表示はGitHub、Tangled、Codeberg、GitLabで共通に扱います。provider名だけ、`Fair source`、mirror、dependency、外部project一覧は明示的な公式repository表示とは扱いません。可視文字のないlinkはpage内にrepositoryが一つだけで、listや外部参照文脈にない場合だけ静的に支持できます。
 
@@ -148,7 +149,7 @@ candidate repositoryは通常のrepository enrich、project nameのidentity toke
 
 collection ownership は、operatorが採用したconfirmed `owned_nsid`、confirmed developer DIDとの相互trust path、またはoperator/trust-policy confirmedなroot serviceとの相互trust pathがある場合だけ成立します。operatorの採用はactiveな`confirm_identifier`で表します。developer DIDをanchorにする代表的なpathは`did_publishes_schema`と`collection_authority_domain -> domain_exact_handle -> handle_resolves_did`の組です。root serviceをanchorにするpathは、完全一致hostに限った`service_exact_domain` / `domain_exact_service`と、`_lexicon.<authority>`のDNS解決後に同じcollectionのschema recordを取得できた`domain_publishes_lexicon_record` / `collection_authority_domain`の組です。path付きservice URL、host suffix一致、未採用serviceはcollection ownership根拠にしません。
 
-identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v1` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
+identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v2` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
 
 確認用 command:
 
@@ -434,15 +435,15 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
 - current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。
   異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
-- `service_probe_supports_project()` は `trust-graph-v1` の URL 相互信頼で判定します
+- `service_probe_supports_project()` は `trust-graph-v2` の URL 相互信頼で判定します
   - service page の GitHub / Tangled repo link は `service_links_repo`
   - `Source` / `repository`等の明示表示はconfirmed edgeにし、曖昧な表示や無表示はcandidate edgeにする
-  - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`だけをauto-confirm対象へ昇格する
+  - candidate edgeは既知のconfirmed/candidate repoとの組だけをtriageの関係判定へ渡し、`same_project`はrelationをconfirmedへ更新する。serviceの役割を確定したことにはしない
   - service probeのrelationは同じpageを正常に再観測した時に置換し、以前のlink textによる強い判定を残留させない。edge自体は保存しない
   - GitHub repository metadataのhomepageは`repository_homepage`として観測を保存する。confirmed first-party serviceから同じrepositoryへの明示的`project_repository` relationがあり、service URLとhomepageがexact一致する場合だけ、信頼経路用の`repo_links_service`を再構成する
-  - candidate service URL は、manual/operator/trust-policy confirmed anchor との間に `repo -> service` と `service -> repo` の有向経路が両方ある場合だけ support/confirmed になります
+  - candidate service URLのtrust判定にはrepositoryを含む経路を使わない。採用済みserviceとのcanonical経路、またはexact serviceの既存採用を使う。homepageからの新規service採用は別のrole policyを通す
   - activeなservice URL採用decisionのhostそのものはanchorとしてsupportします
-- service page の repo link は、未知 repo を新たに confirmed へ昇格する根拠ではありません。`service -> repo` と `repo -> service` の相互信頼が成立する場合だけ URL confirmed に使います。
+- service pageのrepo link単独では未知repoをconfirmedへ昇格しません。`service -> repo`と`repo -> service`の相互信頼はrepository採用に使い、service採用には使いません。
 - `lexicon_resolution_entries` に resolved NSID / record URI / authority domain が揃っていても、それは `repo/NSID -> authority domain` の片方向根拠です。service host がそのauthority domainと一致して正常応答するだけでは、`domain/service -> project` の根拠として扱わず、confirmed service URLへ昇格しません。
 - service page が project の NSID を直接言及しているだけでは、互換実装や利用関係と区別できないため、`domain/service -> project` のconfirmed service support根拠にしません。
 - service page が authority domain、alias token、atproto marker を自称しているだけでは、`domain/service -> project` のconfirmed service support根拠にしません。
@@ -462,7 +463,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
   - probe が project を支持する
   - HTTP が `2xx/3xx`
   - URL がfollow-up/deep page由来の補助ページではない
-  - `trust-graph-v1` で candidate URL と trusted anchor の間に相互の強い有向経路がある
+  - `trust-graph-v2` で candidate URL と trusted anchor の間に相互の強い有向経路がある
 - 上の条件を満たさないが page は支持している時:
   - `service_url_candidates` に留めます
 - page が project を支持しない時:
@@ -622,8 +623,8 @@ static probe、deep page、browser 検証の役割分担と次段階の検討は
 
 1. confirmed `owned_nsid`そのもの
 2. source syncが同じprojectへ割り当てた同一collection namespaceのNSID
-3. `trust-graph-v1` で collection と confirmed developer DID の間に相互の強い有向経路がある
-4. `trust-graph-v1` で collection と confirmed root serviceの完全一致domainとの間に、`_lexicon` DNS解決とschema record取得で裏付けられた相互の強い有向経路がある
+3. `trust-graph-v2` で collection と confirmed developer DID の間に相互の強い有向経路がある
+4. `trust-graph-v2` で collection と confirmed root serviceの完全一致domainとの間に、`_lexicon` DNS解決とschema record取得で裏付けられた相互の強い有向経路がある
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。
 collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。

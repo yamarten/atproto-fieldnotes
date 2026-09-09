@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping
 
 
 TRUST_GRAPH_VERSION = 1
-TRUST_POLICY_VERSION = "trust-graph-v1"
+TRUST_POLICY_VERSION = "trust-graph-v2"
 TRUST_GRAPH_FIELD = "trust_graph"
 
 NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection"}
@@ -347,6 +347,11 @@ def evaluate_auto_confirm(
         return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": dict(candidate)}
     if candidate_node["kind"] not in node_kinds:
         return {"auto_confirm": False, "reason": "kind_not_in_v1_scope", "candidate": candidate_node}
+    # Repository references establish project attribution, not an operated service.
+    # Keep those edges for repository adoption and directional explanations, but
+    # never use a repository (including as an intermediate hop) to adopt a service.
+    if candidate_node["kind"] == "service_url":
+        node_kinds = node_kinds - {"repo_url"}
     normalized_edges = auto_confirm_edges(
         graph(project).get("edges", []),
         allowed_node_kinds=node_kinds,
