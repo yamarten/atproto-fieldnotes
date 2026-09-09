@@ -372,3 +372,21 @@ project siteが将来service surfaceにもなり得るため、site URLを一律
 監査・検証結果は`.tmp/web-role-evaluation/website-readoption-audit.json`と
 `website-readoption-correction-validation.json`。正本は未変更で、一括enrichも中断していない。
 新規のheuristic変更や外部取得は行っていない。18件の正本補正には別途適用承認が必要。
+
+
+## 18件の正本補正（2026-09-09）
+
+ユーザーの「現ロジックでは再発しないものなら補正可」の承認を受け、対象18件だけを再検証して適用した。
+最新の保存履歴replay・再保存でconfirmed serviceの再発0を確認。将来新しい独立運営根拠が取得された場合の
+正当なservice採用は妨げず、旧repo帰属経路による誤確定の再発を防ぐという範囲である。候補化は残る。
+
+一括enrichを3775件保存後に協調停止し、checkpoint interrupted・処理中keyなし・DB使用processなしを確認した。
+`data/backups/website-role-restoration-20260909T124023Z/`に正本DBとcheckpointを退避後、18件を単一transactionで補正。
+service decision・identifier・active adoptionを解除し、17件のproject siteを維持／追加した。
+BridgeBeatsのdocsトップURLは既存資料の件数・source順位制限により新規resourceとしては残らないが、
+同hostの既存confirmed docs資料を維持した。実serviceとWebsiteは変更していない。
+全18件で対象service確定・active adoptionなし、Website不変、別service集合不変、foreign key違反0、integrity okを確認。
+バックアップ内`applied-review.json`に全件の前後roleを保存した。desertthunder.devとLexicon Communityは対象外。
+
+同じrun `enrich-20260908T111813Z-a27f8067`を`job:aff0b905c5c5`として再開した。
+604件と新PDSlssの追加enrich保留は継続。通常ロジックの変更はない。

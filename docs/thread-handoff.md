@@ -8,7 +8,7 @@
 - homepage roleの修正コードと3件のoperator補正を2026-09-09に正本へ適用済み。
   Barazo docs追加、arrobaのservice→project site補正、PDSlsからPDSlss（`proj:efcd972d8d51`）を分離した。
   一括enrich `enrich-20260908T111813Z-a27f8067`を3595件保存後に正常中断し、同じcheckpointから再開。
-  現ジョブは`job:1a9ff1910d57`。新PDSlssは開始時固定の対象一覧に含まれない。ユーザー指示により追加enrichは当面保留。
+  18件補正のため3775件保存後に再度正常中断し、現ジョブ`job:aff0b905c5c5`で同じcheckpointから再開。新PDSlssは開始時固定の対象一覧に含まれない。ユーザー指示により追加enrichは当面保留。
   停止前の完了扱い3595件中604件に旧coverage TypeErrorが残る。現在runは完了キーを再実行しないため、
   対象は`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`。
   この604件の再enrichもユーザー指示で当面保留。現在runの継続とは分ける。
@@ -16,7 +16,8 @@
   詳細は[適用記録](notes/homepage-observation-2026-09-08.md)。
   過去website_only対象を監査し、後続operator reviewのdesertthunder.devは維持、旧trust policyだけで戻った
   confirmed 18件は補正対象と判定した。17件をproject siteへ整理（既存5、新規12）、BridgeBeats docsは資料へ戻す。
-  temp DBの最新履歴replay・再保存でservice確定の再発0、Website・別service維持を確認。正本補正は未承認。
+  temp DBの最新履歴replay・再保存でservice確定の再発0、Website・別service維持を確認し、ユーザー承認後に18件の正本補正を実施済み。
+  直前backupは`data/backups/website-role-restoration-20260909T124023Z/`。BridgeBeatsは既存docs資料を維持。
   候補URLは旧README抽出・probe経路で再生成される。確定防止と候補整理を混同しない。
   通常collectorによる独立運営根拠の取得は引き続き残件。
 

@@ -13,6 +13,9 @@
   正本でBarazo docs追加、arrobaのservice→project site補正、PDSlss（`proj:efcd972d8d51`）分離と紹介文補正を実施。
   backup作成、foreign key違反0、integrity okを確認。一括enrichは3595件保存後に協調停止し、
   同じcheckpointから再開して追加保存を確認した。旧coverage失敗604件と新PDSlssの追加enrichはユーザー指示で当面保留。
+  旧trust policyでserviceに再採用された18件も承認後に補正。17件はproject siteを維持／追加し、
+  BridgeBeatsのdocs service確定を解除。Websiteと別serviceを全件維持し、foreign key違反0、integrity ok。
+  18件のtemp DB最新履歴replayでもservice確定の再発0（候補化は残る）。3775件保存後の中断点から一括enrichを再開。
   [適用・再開記録](notes/homepage-observation-2026-09-08.md)を参照。
 
 - PDSls／PDSlssの分離方針を合意し、既存split application serviceで実recordのtemp DB分離を確認。
