@@ -12,7 +12,7 @@
 - 2026-09-09に修正コード（`8f131c7`まで）を実運用checkoutへ反映し、Webを通常reloadした。
   正本でBarazo docs追加、arrobaのservice→project site補正、PDSlss（`proj:efcd972d8d51`）分離と紹介文補正を実施。
   backup作成、foreign key違反0、integrity okを確認。一括enrichは3595件保存後に協調停止し、
-  同じcheckpointから再開して追加保存を確認した。旧coverage失敗604件と新PDSlssの追加調査は現run後の残件。
+  同じcheckpointから再開して追加保存を確認した。旧coverage失敗604件と新PDSlssの追加enrichはユーザー指示で当面保留。
   [適用・再開記録](notes/homepage-observation-2026-09-08.md)を参照。
 
 - PDSls／PDSlssの分離方針を合意し、既存split application serviceで実recordのtemp DB分離を確認。

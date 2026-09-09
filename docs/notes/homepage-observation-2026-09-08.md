@@ -329,3 +329,46 @@ Webを通常reload APIで再起動し、`/api/checkpoints`で同じrunの再開�
 対象は`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`に記録した。
 現在run終了後に対象の再評価と、新しく分離したPDSlssの単体enrichが必要。新recordは固定selected keys外である。
 現在runの全完了までは待っておらず、同時writerとなる追加enrichは起動していない。
+
+
+## website_only後の再採用監査（2026-09-09、正本はread-only）
+
+ユーザーは追加調査がenrichを指すことを確認し、604件と新PDSlssの追加enrichを当面保留とした。
+現在の一括enrichは継続する。以降の監査は保存データの読み取りとtemp DB検証だけで行った。
+
+arroba補正後の旧website_only対象にはconfirmed service 19件、candidate 1件が残っていた。
+active adoption 76行をsource_refまで照合した。desertthunder.devには2026-08-25の
+`operator_review:project_site_review_v1`によるservice採用があり、
+[後続review](collector-relation-policy-shadow-comparison.md)でもblog/TILを登録理由としてトップURLをserviceとすることが明示される。
+これは旧判断への機械的な巻き戻しをしてはいけない例で、現状を維持する。
+
+残るconfirmed 18件はactive adoptionがtrust_policyだけだった。いずれもrepo起点の相互参照、
+その結果を既存anchorとして使う再採用、canonical redirectの組合せであり、独立したservice役割の判断ではない。
+pdsxはfirst_party_link、他の17件にはLLM same_projectが採用根拠に含まれる。
+現在の独立operates_service relationは対象20件すべてで0だったが、その欠如だけを取り消し理由にはしていない。
+過去の明示reviewと後続採用の根拠を組み合わせて補正対象とした。
+
+|処遇|対象|
+|---|---|
+|serviceを除去し既存project siteを維持（5件）|Bluesky Comments、ToolShed、idiolect、mastrojs/atproto、Writer|
+|serviceを除去し代表Websiteをproject siteとして採用（12件）|lexrpc、atproto-wc、tsky、atShare、atproto.dart、poptart、OpenFederation、agora、mcp-server-bluesky-py、Skeeditor、pdsx、Trotsky|
+|誤serviceを除去しdocs resourceへ（1件）|BridgeBeatsのdocs.bridgebeats.link。実service bridgebeats.linkとWebsiteは維持|
+|変更しない|後続operator reviewのdesertthunder.dev、candidateのLexicon Community（既にproject site）|
+
+mastrojs/atprotoは8月13日には関連資料とされていたが、8月25日の後続reviewでproject siteとして採用されている。
+この場合も新しいoperator判断を維持する。OpenFederation/agoraの別service追加という過去の判断は
+今回の旧Website role補正と分け、失われた別URLの自動復元や新規service採用は行わない。
+
+20実recordを同じread-only snapshotから最小temp DBへ保存し、19件の試行補正（候補のLexicon Communityも含む）と
+最新の保存済みinvestigation bundleのreplay、最終reconciliation、save・再読込を行った。
+対象URLのservice確定再発0、Website変更0、既存の別service喪失0、foreign key違反0、integrity ok。
+project site追加は12件。Lexicon Communityはcandidateへ戻り実質変更がないため、最終補正案から外す。
+
+audit対象URLは19試行ともservice候補には戻った。Bluesky Commentsの呼出し経路を追うと、
+README relationのURL、repo snapshot内URL、過去service probeが候補生成元だった。
+候補化を防止したとは主張せず、今回の補正効果は誤ったconfirmed role・trusted anchorの除去とする。
+project siteが将来service surfaceにもなり得るため、site URLを一律blockする対応は採らない。
+
+監査・検証結果は`.tmp/web-role-evaluation/website-readoption-audit.json`と
+`website-readoption-correction-validation.json`。正本は未変更で、一括enrichも中断していない。
+新規のheuristic変更や外部取得は行っていない。18件の正本補正には別途適用承認が必要。
