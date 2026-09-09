@@ -30,6 +30,18 @@ def _pair_matches(item: dict[str, Any], edge: dict[str, Any]) -> bool:
             and repo_urls.canonical_repo_url(str(item.get("repo_url") or "")) == edge["object"]["value"])
 
 
+def _observation_source(edge: dict[str, Any]) -> str:
+    """The old README writer used both owner/repo and full repository URLs."""
+    source = edge["source"]
+    if edge["method"] != "readme_link" or not source.startswith("github_readme:"):
+        return source
+    value = source.removeprefix("github_readme:")
+    parts = value.split("/")
+    if len(parts) == 2 and all(repo_urls.STRICT_REPO_SEGMENT_RE.fullmatch(part) for part in parts):
+        return "github_readme:https://github.com/" + value
+    return source
+
+
 def _llm_evidence(project: dict[str, Any], edge: dict[str, Any]) -> dict[str, Any] | None:
     source = project.get("llm_source") or {}
     if not edge.get("observed_at") or source.get("generated_at") != edge["observed_at"]:
@@ -61,13 +73,19 @@ def build_plan(conn: sqlite3.Connection) -> dict[str, Any]:
                 continue
             # Locator normalization differed in the old writer (notably README).
             matches = [current for current in projected
-                       if all(current[key] == edge[key] for key in ("subject", "object", "predicate", "source", "method"))]
+                       if all(current[key] == edge[key] for key in ("subject", "object", "predicate", "method"))
+                       and _observation_source(current) == _observation_source(edge)]
+            exact_source = [current for current in matches if current["source"] == edge["source"]]
+            if exact_source:
+                matches = exact_source
             matched = next((current for current in matches if current["locator"] == edge["locator"]), None)
             if matched is None and len(matches) == 1:
                 matched = matches[0]
             entry = {"project_key": row["project_key"], "edge": edge, "category": "needs_review"}
             if matched is not None:
                 entry.update(category="current_relation", current_edge=matched)
+                if matched["source"] != edge["source"]:
+                    entry["basis"] = "readme_source_format_equivalence"
             elif edge["method"] == "llm_same_project":
                 material = _llm_evidence(evidence, edge)
                 run_id = ""

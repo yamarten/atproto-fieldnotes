@@ -105,6 +105,50 @@ class RepositoryTrustTest(unittest.TestCase):
 
 
 class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
+    def test_readme_exact_source_still_wins_when_alias_has_another_locator(self):
+        project = self.make_project('proj:readme-exact', 'service_url', SERVICE)
+        slug = REPO.removeprefix('https://github.com/')
+        old = edge(reverse=True, source=f'github_readme:{slug}', method='readme_link')
+        repository_trust.record_observation(project, {**old, 'locator': 'README'})
+        repository_trust.record_observation(project, {
+            **old, 'source': f'github_readme:{REPO}', 'locator': 'README.md', 'classification': 'candidate'})
+        project['trust_graph'] = {'edges': [old]}
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            plan = repository_trust_migration.build_plan(conn)
+            self.assertEqual(plan['counts'], {'current_relation': 1})
+            self.assertEqual(plan['entries'][0]['current_edge']['source'], old['source'])
+        finally:
+            conn.close()
+
+    def test_readme_source_formats_match_without_merging_other_sources(self):
+        project = self.make_project("proj:readme-migration", "service_url", SERVICE)
+        slug = REPO.removeprefix("https://github.com/")
+        old = edge(reverse=True, source=f"github_readme:{slug}", method="readme_link")
+        current = {**old, "source": f"github_readme:{REPO}", "locator": "README", "classification": "candidate"}
+        repository_trust.record_observation(project, current)
+        other = {**old, "source": "github_readme:another/repository"}
+        independent = {**old, "source": f"github_readme:{slug}", "method": "html_link"}
+        project["trust_graph"] = {"edges": [old, other, independent]}
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            plan = repository_trust_migration.build_plan(conn)
+            self.assertEqual(plan['counts'], {'current_relation': 1, 'needs_review': 2})
+            matched = next(e for e in plan['entries'] if e['category'] == 'current_relation')
+            self.assertEqual(matched['basis'], 'readme_source_format_equivalence')
+            self.assertEqual(matched['current_edge']['classification'], 'candidate')
+            before = list(conn.execute('SELECT * FROM project_relations'))
+            conn.execute('BEGIN IMMEDIATE')
+            result = repository_trust_migration.apply_plan(conn, plan)
+            conn.commit()
+            self.assertEqual(result, {'removed_legacy_edges': 1, 'pending_review': 2})
+            self.assertEqual(list(conn.execute('SELECT * FROM project_relations')), before)
+        finally:
+            conn.close()
+
     def test_history_restores_omitted_pair_without_rerunning_llm(self):
         from project_registry_core import storage
         project = self.make_project("proj:history", "service_url", SERVICE)

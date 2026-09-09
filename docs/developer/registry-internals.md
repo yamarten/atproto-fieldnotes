@@ -119,6 +119,8 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 - URLの現在の支持はrelationと現在の採用済み起点から再評価します。保存された評価やadoptionのsource_refは過去の判断の説明であり、現在の支持の代用にはしません。
 - `relation_corroboration`も通常のtrust評価・guard・採用decision記録を通します。
 - 旧page↔repo保存edgeは現在の判定には使いません。通常saveは未解決edgeを一括削除しません。
+  移行照合ではREADME出典の`owner/repo`形式と完全URL形式を同一視します。完全一致する出典を優先し、
+  別repositoryや別methodをまとめません。現在のrelationのclassificationを維持します。
   `migrate-repository-trust`のdry-runはcurrent relation、復元可能なLLM判断、要reviewに分類します。
   review済みplanの実行時にDBの再照合を行い、説明できるedgeだけを除去し、復元可能な判断をrelationへ保存します。
   要reviewのedgeは保存したまま残り、再調査または個別reviewが必要です。

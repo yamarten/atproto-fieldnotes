@@ -9,7 +9,8 @@
 page↔repositoryの保存edgeは現在のrelationと別に強いclassificationを保持でき、古い根拠が再利用される
 不整合がありました。relationを正本とし、判定用edgeを共通投影で導出する方式へ変更しました。
 独立したHTML/README/LLM観測もrelationに保存します。account/NSID policyの拡張は行っていません。
-正本DBへの移行・運用反映は未実施です。
+この記録の初回検証時は正本DBへの移行・運用反映は未実施でした。導出コードはその後実運用へ反映済みで、
+旧保存edgeの正本DB移行は未実施です。直近の再評価は末尾の2026-09-10追記を参照してください。
 
 実例はlexrpc（`proj:229e919decf3`）の`https://lexrpc.readthedocs.io`から
 `https://github.com/bluesky-social/atproto`への関係です。current relationはcandidateなのに、
@@ -78,5 +79,38 @@ review後、同じDBに`--execute-plan <plan.json> --output <result.json>`で適
 
 ## 未完了の運用作業
 
-要review分の再取得・履歴復元・個別判断と、正本DBへの適用判断が残ります。新しい導出方式を運用へ反映する
-前に、この支持根拠の差分をreviewします。通常repairによる無条件の格下げや旧edge一括削除は行いません。
+要review分の扱いと、正本DBへの適用判断が残ります。通常repairによる無条件の格下げや旧edge一括削除は行いません。
+
+## 2026-09-10: 旧保存edgeの整理再開
+
+最新正本DBのread-only dry-runは旧edge 11,516本、current relation 7,837本、復元可能200本、
+要review 3,479本だった。以前のsnapshotとの差を移行による削除件数と混同しない。
+
+要reviewを現在relationのpair・source・methodへ照合し、READMEの出典が`owner/repo`と完全URLに
+分かれたための照合漏れを確認した。実例はskywatchedの同じ時刻のREADME観測。
+移行処理だけでこの表記差を吸収し、既存の完全一致sourceを優先するよう修正した。
+現在relationを旧edgeの強いclassificationへ引き上げず、別sourceや別methodの観測も混同しない。
+新たに説明できた211本を含め、別snapshotの複製DBで以下を検証した。
+
+|分類|本数|複製DBでの処理|
+|---|---:|---|
+|現在relationで説明できる|8,048|保存edgeだけを除去|
+|保存済み判断から復元可能|200|184 relationを追加し、派生homepage pair 16本と合わせて保存edgeを除去|
+|要review|3,268|保存graphに保持|
+
+8,248本の除去後、再dry-runは要review 3,268本だけになった。
+`project_identifiers`、`project_identifier_adoptions`、`project_decisions`、`investigation_runs`、
+`collector_runs`は前後の全行hash一致。foreign key違反0、integrity `ok`。複製DBは終了時削除。
+全862 unit testとdiff check成功。正本DBへの書込み、外部取得、enrich停止、master統合は行っていない。
+
+残りの内訳: HTML 1,687、README 945、bounded link 310、旧first_party_link 299、
+旧identity match 11、LLM 9、homepage pair 7。
+古いHTMLの`GitHub`表示だけのconfirmedを再び有効なrelationとして復元することはしていない。
+最新本文の省略や別sourceの同じpairだけでは、古い独立観測の復元・失効を断定しない。
+
+未解決分を元データのまま履歴へ退避して保存graphから除くか、graphに保持して追加の復元調査を行うかは
+ユーザーへ確認中。退避・未解決edge削除の処理はまだ実装・実行していない。
+確認用の完全planは`.tmp/legacy-edge-reviewed-plan-20260910.json`、未解決分の全edge一覧は
+`.tmp/legacy-edge-unresolved-20260910.json`、検証結果は`.tmp/legacy-edge-verification-20260910.json`。
+これらは作業用であり、永続archiveとして扱わない。正本は検証中も別writerにより更新されているため、
+実適用時にはwriter停止・backup後に再計画して照合する。
