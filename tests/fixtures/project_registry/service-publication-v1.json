@@ -62,6 +62,20 @@
       "source": "constructed documentation/service boundary counterexample",
       "text": "Documentation for this library is hosted at https://docs.example.org. This is a documentation site, not a hosted app or API service.",
       "expected": []
+    },
+    {
+      "id": "japanese-publication",
+      "source": "constructed without the previous English trigger words",
+      "text": "このツールはこちらから利用できます: https://example.org/tool",
+      "expected": [
+        "https://example.org/tool"
+      ]
+    },
+    {
+      "id": "plain-dependency",
+      "source": "constructed without the previous English trigger words",
+      "text": "Dependencies: https://dependency.example.org. Maintained by another organization.",
+      "expected": []
     }
   ]
 }

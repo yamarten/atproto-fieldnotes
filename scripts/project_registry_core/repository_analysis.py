@@ -865,8 +865,10 @@ def _observation_evidence_supported(
     if predicate == "uses_documentation_generator":
         return any(configurations.get(path) == "documentation_config" for path in paths)
     if predicate == "declares_service_url":
+        # Candidate availability is lexical; publication meaning is assessed from
+        # the cited text by the model, not a small keyword list.
         return any(path.lower() == "readme" for path in paths) and _evidence_declares(
-            evidence, r"\b(?:try|demo|live|hosted|service|app|api|pds|instance)\b|公開|利用先|デモ")
+            evidence, r"https?://[^\s<>]+")
     if predicate == "declares_documentation_site_url":
         return bool(
             any(configurations.get(path) in {"documentation_config", "documentation_cname"} for path in paths)

@@ -46,3 +46,22 @@ class ServicePublicationTest(unittest.TestCase):
         catalog = analysis.observation_candidate_catalog(material)
         self.assertEqual({x['predicate'] for x in catalog.values() if x.get('value') == 'https://example.org/app'},
                          {'declares_service_url', 'declares_documentation_site_url'})
+
+    def test_markdown_autolink_survives_cleanup_and_becomes_publication_candidate(self):
+        from project_registry_core import investigation
+        text = '# AppView\n\n<!-- <https://hidden.example.org> -->\nUse via <https://api.example.org/v1>.\n<span>More information</span>'
+        sections, _ = investigation.bounded_readme_sections(text)
+        cleaned = '\n'.join(x['excerpt'] for x in sections)
+        self.assertIn('Use via https://api.example.org/v1.', cleaned)
+        self.assertNotIn('hidden.example.org', cleaned)
+        self.assertNotIn('<span>', cleaned)
+        material = self.material(cleaned)
+        urls = {x['value'] for x in analysis.observation_candidate_catalog(material).values()
+                if x['predicate'] == 'declares_service_url'}
+        self.assertIn('https://api.example.org/v1', urls)
+
+    def test_candidate_catalog_does_not_require_english_publication_keywords(self):
+        material = self.material('こちらから利用できます: https://example.org/tool')
+        urls = {x['value'] for x in analysis.observation_candidate_catalog(material).values()
+                if x['predicate'] == 'declares_service_url'}
+        self.assertIn('https://example.org/tool', urls)

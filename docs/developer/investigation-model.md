@@ -130,6 +130,8 @@ service確定には、現在の採用済みrepoによる公開先宣言、また
 広義の`project_repository`、単なるリンク解釈、表示されたloginだけでは運営帰属を確定しません。
 公開先宣言は`repository-analysis-v16`の`declares_service_url`観測です。READMEの本文付き候補URLをLLMが選び、
 `current_project`または`uncertain`ならservice候補へ追加します。候補化には取得成功・逆参照・操作画面を要求しません。
+LLMへ提示するURL候補は特定の公開・利用語句に依存せず、既存budget内のREADME本文から抽出します。
+Markdownの`<https://…>` autolinkはHTMLタグとして削除せず、本文中のURLとして保持します。
 否定・仮定・第三者・旧公開先・区分欠落はこの経路の候補にはしません。デモは一律除外せず、パスを保持します。
 自動確定は最新成功結果の`current_project`だけを使い、同じrepoへの今回の逆参照と追加確認を要求します。
 公開先の観測を`operates_service`へ読み替えません。新しい公開先は同じenrich内で解析後に取得・評価します。

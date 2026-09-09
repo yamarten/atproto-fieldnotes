@@ -14,6 +14,8 @@
   公開先からの対応repoへの逆参照、Web表示または対応protocol応答、guard・競合検査を要求する。
   既存project siteのservice再評価にも対応。API確認はAT Protocol describeServer対応サーバーに限定し、
   汎用API・AppView独自APIは候補に残る。実運用checkoutと正本DBへは未適用。
+  保存済み7projectと公開2 URLで追加評価し、OAuthデモ1件の実Web確認→確定→temp DB保存・replayを確認。
+  READMEのautolink消失と公開先抽出の語句制限を修正。全858 unit test成功。
   [検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - 2026-09-09に修正コード（`8f131c7`まで）を実運用checkoutへ反映し、Webを通常reloadした。

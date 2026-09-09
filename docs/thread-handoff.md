@@ -20,7 +20,8 @@
   直前backupは`data/backups/website-role-restoration-20260909T124023Z/`。BridgeBeatsは既存docs資料を維持。
   候補URLは旧README抽出・probe経路で再生成される。確定防止と候補整理を混同しない。
   公開先宣言による候補追加とrole別の自動confirmはworktreeで実装・検証済み（v16 / role-v4）。
-  実運用checkoutへは未反映。汎用API・AppView独自APIの実在確認は未対応。
+  実運用checkoutへは未反映。都度masterへ統合せずworktreeで変更をまとめる方針。
+  Webの実例確認は完了。汎用API・AppView独自APIの実在確認は未対応。
   適用境界と検証内容は[検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。

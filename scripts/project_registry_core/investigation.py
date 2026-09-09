@@ -812,6 +812,8 @@ def clean_readme_text(text: str, *, preserve_lines: bool = False) -> str:
         str(text or ""),
         flags=re.S,
     )
+    # Markdown autolinks are text evidence, not HTML tags.
+    cleaned = re.sub(r"<(https?://[^<>\s]+)>", r"\1", cleaned)
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
     cleaned = unescape(cleaned)
     cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", cleaned)

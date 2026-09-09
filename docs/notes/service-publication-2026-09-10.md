@@ -47,3 +47,45 @@ SkyGiveのREADMEは候補生成の根拠にだけ使い、公開pageの対応が
   HTTP 200や一般JSONを代替根拠にするfallbackは追加していない。
 - 未取得の将来の他project宣言は競合検査できない。LLMによるfork／第三者の読み違いは一般的には残り得るため、
   公開先側の逆参照・guardを独立に要求する。
+
+
+## 保存済み実データと限定Web確認による追加評価
+
+保存済み7project／8repoのbounded materialを、そのまま既定LLMで評価した。短い固定例だけの評価とは分ける。
+候補URLの提示前に特定語句を要求していたため、Colibriの`Visit us at ...`等が対象外になっていた。
+語句制限を撤去し、URLの提示と公開先であることの意味判定を分離した。変更前後で同じ7projectを比較した。
+また`clean_readme_text`がMarkdownの`<https://…>`をHTMLとして削除することを再現し、URLを保持するよう修正した。
+Colibriの保存本文には`See the docs at . Use via .`という欠落があるが、元の記法までは保存データから断定していない。
+失われたURLを既存homepage等から推測して本文へ補う処理は追加していない。
+
+|対象|変更後の公開先抽出と保存データでの判断|
+|---|---|
+|svelte-atproto-client-oauth|パス付きデモURLを抽出。既存root候補に対しexact path候補を追加。逆参照あり、表示観測待ち|
+|Impro|既存候補URLを公開先宣言として抽出。保存HTMLから逆参照を確認できず保留|
+|SkyGive|既存候補URLを公開先宣言として抽出。保存HTMLから逆参照を確認できず保留|
+|Colibri Social Documentation|colibri.socialの公開先宣言を抽出（変更前は0）。既存serviceを再利用。API URLは本文欠落のため宣言として抽出しない|
+|altq.net / r4atproto / PDSls|今回の保存本文から公開先宣言を抽出せず。既存の候補を宣言なしで確定しない|
+
+変更後の公開先宣言は4project、URL重複をまとめると4 URL。うちColibriは既存confirmed service、残り3 URLはcandidate。
+正本read-only snapshotからtemp DBへ移し、候補追加・prune・save/load・replayで3候補を維持した。
+新規confirm 0、Website・既存service集合は全件不変、foreign key違反0、integrity ok。temp DBは終了時削除した。
+ImproやSkyGiveの保存HTMLは切り詰められており、この段階の逆参照未確認を実ページでの不存在とは扱わない。
+
+追加した日本語の公開先と単なる依存先リンクを各2回評価し、4/4で期待値に一致した。
+fixtureの初期9例×2回とは別の追加確認であり、fixtureは現在11例。
+実データ比較中にJSON不正応答が1回発生した。評価スクリプトの出力上限を2000から4096へ広げ、未完了の対象から
+再試行して完了した。原因を出力上限と断定せず、通常処理のretryや既定設定は変更していない。
+
+### 公開2 URLでの実動作確認
+
+保存データだけでは表示状態を検証できなかったため、OAuthデモとImproに限定して通常の静的取得・role判定を実行した。
+必要条件が揃ったデモだけ通常browser laneへ進んだ。追加enrich runや正本DB保存は行っていない。
+
+- OAuthデモ: 公開先宣言、対応repoへの逆参照、初回pageの表示済みsurfaceが揃い、`CONFIRM_SERVICE`。
+  実browser failureなし。exact pathのままtemp DBへ保存し、実観測bundleのreplayでも確定を維持した。
+- Impro: 今回の取得本文全体から対応repoへの逆参照を確認できず、`REVIEW_ATTRIBUTION`。browserは未実行。
+  temp DBの保存とreplayでも非確定を維持。Webアプリの実在を否定する結果ではない。
+- 両recordでWebsite不変、foreign key違反0、integrity ok。temp DBは終了時削除。
+
+全858 unit testとdiff check成功。実運用checkoutと正本DBは未変更。
+この評価でWebの実際の確定経路を1例確認したが、汎用API・AppViewの対応範囲は拡張していない。
