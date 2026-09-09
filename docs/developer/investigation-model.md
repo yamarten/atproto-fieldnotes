@@ -117,25 +117,34 @@ redirectはwebsite間の観測として保存し、同一hostという理由でp
 取得失敗で前回のpage→repo relationは消さず、成功時は同じpage sourceの観測を置換します。
 保存とreplayにも同じ境界を適用します。
 
-このlane自体はroleを確定しません。通常enrichは取得結果を`repository-homepage-role-v3`へ渡します。
+このlane自体はroleを確定しません。通常enrichは取得結果を`repository-homepage-role-v4`へ渡します。
 現在採用済みrepoのhomepageを起点に、成功した取得の到達URLで既存service / project siteを照合します。
-exact一致する既存roleは再利用し、別URLのalias登録やWebsiteの置換はしません。
+既存serviceは再利用します。既存project siteでも新しい公開先根拠と実在確認があればserviceを評価します。
+別URLのalias登録やWebsiteの置換はしません。
 
 未知のroleは`project_site`と`service`の帰属主張として別々に評価します。採用済みrepoのhomepage指定と
 今回のページのbounded policyによる逆参照はproject site候補を支持しますが、代表siteの確定根拠とはしません。
 候補化はpage→repoのconfirmed relationやページの採用済みroleを前提にしません。候補はtrust anchorになりません。
-serviceは別途、対象project→到達URLのconfirmed `operates_service` relationを要求します。
+service確定には、現在の採用済みrepoによる公開先宣言、または対象project→到達URLのconfirmed `operates_service` relationを要求します。
 既存supportから生成されるprobe由来（methodが`*_probe`またはsourceが`service_*`）のrelationは独立した根拠にしません。
 広義の`project_repository`、単なるリンク解釈、表示されたloginだけでは運営帰属を確定しません。
-この運営根拠と逆参照があり、ほかのguardに阻まれない場合にbrowserへ進めます。
-通常collectorでこの独立した運営根拠を新規に確定する経路は未接続です。
-追加browser確認は1 enrichにつき1 homepageまでで、未確認、次いで古い確認を優先します。
+公開先宣言は`repository-analysis-v16`の`declares_service_url`観測です。READMEの本文付き候補URLをLLMが選び、
+`current_project`または`uncertain`ならservice候補へ追加します。候補化には取得成功・逆参照・操作画面を要求しません。
+否定・仮定・第三者・旧公開先・区分欠落はこの経路の候補にはしません。デモは一律除外せず、パスを保持します。
+自動確定は最新成功結果の`current_project`だけを使い、同じrepoへの今回の逆参照と追加確認を要求します。
+公開先の観測を`operates_service`へ読み替えません。新しい公開先は同じenrich内で解析後に取得・評価します。
+追加確認はbrowserまたはprotocolのいずれか1 URL／enrichで、未確認、次いで古い確認を優先します。
 失敗もattemptとして保存するため、一件の失敗がほかのhomepageの確認を恒久的に塞ぎません。
 browser結果は`repository_homepage_browser` laneへ保存し、未採用URLの観測でprojectの稼働状態を上げません。
 
 最初のnavigationの到達URLがstatic取得の到達URLとexact一致し、表示状態が観測済みで、表示されたauth/public
-surfaceの材料があり、当該pageにnetwork/console errorがなく、上記の運営根拠がある場合だけserviceを採用します。
-他projectのconfirmed URLに加え、採用済みrepoからの未採用homepage指定も衝突検査に含めます。
+surfaceの材料があり、当該pageにnetwork/console errorがなく、上記の帰属根拠がある場合だけWeb serviceを採用します。
+`service_kind=api|pds`ではbrowserを要求せず、exact base URL配下の`/xrpc/com.atproto.server.describeServer`を
+15秒timeoutで取得します。HTTP 200、同じendpointへの到達、DIDとavailableUserDomainsを持つ応答を要求します。
+plain text rootの独立行`Code: URL` / `Source code: URL`も、対象repoへの逆参照として使えます。
+応答は`repository_homepage_protocol` laneとassessmentに保存します。汎用API・AppView独自APIの確認は未対応で、
+HTTP 200・一般JSON・AppViewという自己紹介だけでは確定せずcandidateに残します。
+他projectのconfirmed URLに加え、採用済みrepoからの未採用homepage指定・公開先宣言も衝突検査に含めます。
 保存済みの1段のHTTP redirectによる一致も含み、host familyだけでは一致としません。
 同じprojectの複数repoはまとめ、別projectの指定が競合すれば採用順にかかわらず保留します。
 未採用repoやguard対象のhomepageはこの競合元にしません。未取得の将来の参照先まで予測する検査ではありません。
@@ -147,7 +156,7 @@ project site候補化はUI不存在やproject site roleの確定ではありま�
 代表project siteであることも同一視しません。project siteの自動確定は未接続です。
 `homepage_role_assessment`に入力事実・`role_assessments`・適用actionを保存します。replayでも現在の起点、
 そのrepoのhomepage指定と逆参照の対応、guard、既存role、運営relationを再評価して適用します。
-旧v1／v2のassessmentからの自動採用は実行しません。
+公開先宣言は記録時と現在のrepo・URL・revisionも照合します。旧v1〜v3のassessmentからの自動採用は実行しません。
 他projectとの衝突判定は調査時のDB snapshotを記録したもので、replayは現在DBへの再照会ではありません。
 既存serviceのbrowser verificationによる稼働判定は維持します。ページ単位の観測契約は下記を参照してください。
 
@@ -186,13 +195,13 @@ decode failureはrun全体の破損として明示的に失敗させます。圧
 
 repository analysisでは、revisionへ固定したbounded materialを`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、source revision、material hashでそのmaterialを参照します。READMEは先頭・末尾を含む最大6 block、合計6,000文字として元の行番号を保ち、選択数と切り詰め状態をcoverageへ記録します。LLMへ渡すのは本文を持つevidence blockだけで、tree pathは候補抽出やcoverageに使ってもclaimの根拠にはしません。repository metadataはdescriptionだけをclaim可能な本文とし、name、homepage、is_templateはcontextまたは決定的抽出に限ります。観測とcollection利用は、materialから事前生成したclosed candidate IDだけをLLMに選ばせます。README由来のcollection candidateはreverse-domain authorityが小文字でpublic suffixから始まるものに限り、case-sensitiveな最終nameとoperationを一体で固定します。候補が空なら空配列を要求します。current project stateはrepoごとの最新成功結果と`last_attempt`を分けて持ち、provider取得またはLLM解析の失敗で前回成功resultを上書きしません。project-level triageへ渡すのはconfirmed repositoryの保存済み成功結果だけです。
 
-`repository-analysis-v15`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。
+`repository-analysis-v16`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。
 URLは本文中の正確な値を保持し、homepage metadataだけでは宣言候補を作りません。設定ファイル・READMEの
 `declares_documentation_site_url`候補をLLMが返す場合、`applicability`で`current_project` / `negated` /
 `hypothetical` / `third_party` / `obsolete` / `uncertain`を区別します。`current_project`だけを観測へ反映し、
 区分が欠けた回答も棄却します。候補IDの選択だけでは、否定・仮定のURLを公開先と誤認する実例があったためです。
 この観測は従来どおり`role=docs, confidence=candidate`のresource候補へ接続し、project siteやserviceの自動確定、
-独立した運営relationの生成には使いません。v14以前の解析結果はv15のcache hitにはしません。
+独立した運営relationの生成には使いません。v15以前の解析結果はv16のcache hitにはしません。
 
 既定retention policyは完了から90日以内の全runとprojectごとの最新3 runを保持します。`prune-investigation-history`はそれより古いrunをdry-runで列挙し、`--execute`時だけ対応するcollector runとまとめて削除します。fixtureへexportしたcaseはDB runとは独立して保持します。
 

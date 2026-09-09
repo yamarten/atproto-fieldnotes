@@ -137,7 +137,7 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
 
 service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
 
-URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。ただしserviceの採用経路はrepository nodeを起点にも中継にも使いません。page↔repositoryの相互参照は同一projectの帰属根拠であり、service roleの根拠ではないためです。repository採用と方向付き経路の表示には引き続き使い、既存service同士のcanonical経路による確認も維持します。新規homepageのservice採用は独立した運営関係とsurfaceを検査するrole policyを通します。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
+URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。ただしserviceの採用経路はrepository nodeを起点にも中継にも使いません。page↔repositoryの相互参照は同一projectの帰属根拠であり、service roleの根拠ではないためです。repository採用と方向付き経路の表示には引き続き使い、既存service同士のcanonical経路による確認も維持します。新規homepage／README公開先のservice採用は公開先宣言または独立した運営関係と、Web／protocolの実在を検査するrole policyを通します。候補追加は取得成功や実在確認を要求しません。詳細は[investigation model](investigation-model.md)を参照してください。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
 
 first-party page上のrepository linkは、完全HTMLやproject名の類似ではなく、linkのexact locator、canonical repository root、可視文字、accessibility label、子要素label、最寄り見出し・block、landmark、同一groupとpage内のrepository数からなるbounded contextで評価します。`Open source`、`View source`、単独`Source`、`Repository`等の直接表示はGitHub、Tangled、Codeberg、GitLabで共通に扱います。provider名だけ、`Fair source`、mirror、dependency、外部project一覧は明示的な公式repository表示とは扱いません。可視文字のないlinkはpage内にrepositoryが一つだけで、listや外部参照文脈にない場合だけ静的に支持できます。
 

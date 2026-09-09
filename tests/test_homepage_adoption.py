@@ -370,3 +370,133 @@ class HomepageAdoptionTest(TempRegistryDbTestCase):
             self.assertEqual(bundle.records[-1].value["action"], "CONFIRM_SERVICE")
         finally:
             conn.close()
+
+    def publication(self, project, *, applicability="current_project", kind="web"):
+        analysis = registry.repository_analysis_core
+        project['repository_analysis_results'] = [{
+            'repo_url': self.repo, 'version': analysis.ANALYSIS_VERSION, 'policy_version': analysis.POLICY_VERSION,
+            'summary': '公開アプリ', 'last_attempt': {'status': 'success'}, 'source_revision': 'revision-a',
+            'observations': [{'predicate': 'declares_service_url', 'value': self.url,
+                              'applicability': applicability, 'service_kind': kind,
+                              'evidence': [{'path': 'README', 'line': 1}]}],
+        }]
+        return project
+
+    def test_uncertain_publication_candidate_needs_neither_fetch_nor_reverse_link(self):
+        project = self.publication(self.project(confirmed_operation=False), applicability='uncertain')
+        registry.apply_publication_candidates(project)
+        self.assertIn(self.url, project['service_url_candidates'])
+        bundle, count = self.collect(project, result={'status_code': 404, 'html': ''})
+        registry.apply_homepage_role_evidence(project, bundle)
+        self.assertEqual(count, 0)
+        self.assertNotIn(self.url, project['service_urls'])
+        bundle, count = self.collect(project)
+        self.assertEqual(count, 0)
+        self.assertNotEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+
+    def test_publication_can_confirm_existing_site_but_never_from_fork_return_link(self):
+        project = self.publication(self.project(confirmed_operation=False))
+        registry.add_manual_seed(project, 'site_url', self.url, source='test')
+        original = copy.deepcopy(project)
+        bundle, count = self.collect(project)
+        self.assertEqual(count, 1)
+        registry.apply_homepage_role_evidence(project, bundle)
+        self.assertIn(self.url, project['service_urls'])
+        original['repository_analysis_results'][0]['observations'][0]['applicability'] = 'uncertain'
+        registry.apply_homepage_role_evidence(original, bundle)
+        self.assertNotIn(self.url, original['service_urls'])
+        fork = self.publication(self.project(confirmed_operation=False))
+        bundle, count = self.collect(fork, result={'status_code': 200, 'html':
+            '<a href="https://github.com/upstream/app">Source code</a>'})
+        self.assertEqual(count, 0)
+        self.assertNotEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+
+    def test_publication_without_homepage_metadata_and_competing_publication(self):
+        project = self.publication(self.project(confirmed_operation=False))
+        project['relation_evidence'] = []
+        self.assertIn(self.url, registry.repository_homepage_probe_urls(project))
+        bundle, _ = self.collect(project)
+        self.assertEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+        other = self.publication(self.project(key='proj:publication-other', confirmed_operation=False))
+        other['relation_evidence'] = []
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, other)
+            conn.commit()
+            bundle, count = self.collect(project)
+            self.assertEqual(count, 0)
+            self.assertEqual(bundle.records[-1].value['action'], 'REVIEW_COLLISION')
+        finally:
+            conn.close()
+
+    def test_protocol_response_confirms_without_browser_but_generic_json_does_not(self):
+        project = self.publication(self.project(confirmed_operation=False), kind='pds')
+        response = {'status_code': 200, 'html': '{"did":"did:web:example.com","availableUserDomains":[".example.com"]}'}
+        with mock.patch.object(registry, 'probe_service_url', return_value=response):
+            bundle, count = self.collect(project, result={'status_code': 200, 'html': 'Code: ' + self.repo})
+        self.assertEqual(count, 0)
+        self.assertEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+        for value in ('{}', '{"status":"ok"}', '{"did":"fake","availableUserDomains":[]}'):
+            with mock.patch.object(registry, 'probe_service_url', return_value={'status_code': 200, 'html': value}):
+                bundle, _ = self.collect(project)
+            self.assertNotEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+
+    def test_publication_path_survives_save_and_replay_without_confirm(self):
+        project = self.publication(self.project(confirmed_operation=False), applicability='uncertain')
+        registry.apply_publication_candidates(project)
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            saved = project_record.fetch_project(conn, project['project_key'])
+            self.assertIn(self.url, saved['service_url_candidates'])
+            registry.prune_project_urls(saved)
+            self.assertIn(self.url, saved['service_url_candidates'])
+            bundle = EvidenceBundle(project_key=project['project_key'], collected_at='2026-09-10T00:00:00Z')
+            result = project['repository_analysis_results'][0]
+            bundle.add_record(registry.repository_analysis_core.evidence_record(
+                {'repo_url': self.repo}, result, bundle.collected_at, cache_hit=False))
+            target = self.project(confirmed_operation=False)
+            registry.apply_replay_evidence(target, bundle)
+            self.assertIn(self.url, target['service_url_candidates'])
+            self.assertNotIn(self.url, target['service_urls'])
+        finally:
+            conn.close()
+
+    def test_new_publication_is_probed_in_same_enrich(self):
+        project = self.project(confirmed_operation=False)
+        project['relation_evidence'] = []
+        project['website_url'] = ''
+        empty = EvidenceBundle(project_key=project['project_key'], collected_at='2026-09-10T00:00:00Z')
+        repo_bundle = EvidenceBundle(project_key=project['project_key'], collected_at=empty.collected_at)
+        repo_bundle.add_record(registry.EvidenceRecord(
+            kind='github_repo_snapshot', source='github_repo:' + self.repo, classification='confirmed',
+            observed_at=empty.collected_at, value={'repo_url': self.repo, 'repo': {},
+            'readme_sections': [{'path': 'README', 'line': 1, 'excerpt': 'Try this app at ' + self.url}]}))
+        def response(prompt, **kwargs):
+            if kwargs.get('purpose') != 'repository_analysis':
+                raise RuntimeError('offline triage')
+            material = registry.repository_analysis_core.build_material(self.repo, repo_bundle)
+            candidate = next(x for x in registry.repository_analysis_core.observation_candidate_catalog(material).values()
+                             if x['predicate'] == 'declares_service_url')
+            return {'summary': 'アプリ', 'summary_evidence': candidate['evidence_ids'],
+                    'observations': [{'candidate_id': candidate['candidate_id'], 'applicability': 'current_project',
+                                      'service_kind': 'web'}], 'collections': [], 'capabilities': []}, {}
+        conn = registry.open_db()
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, 'collect_github_repo_evidence', return_value=repo_bundle),
+                mock.patch.object(enrichment_pipeline, 'should_refresh_lexicon_surface', return_value=False),
+                mock.patch.object(enrichment_pipeline, 'should_refresh_recent_record_samples', return_value=False),
+                mock.patch.object(enrichment_pipeline, 'plan_investigation_queries', return_value={}),
+                mock.patch.object(enrichment_pipeline, 'collect_investigation_evidence', return_value=empty),
+                mock.patch.object(enrichment_pipeline, 'enrich_from_resource_pages'),
+                mock.patch.object(enrichment_pipeline.llm_transport, 'run_llm_with_metrics', side_effect=response),
+                mock.patch.object(enrichment_pipeline, 'probe_service_url', return_value=self.result()) as probe,
+                mock.patch.object(registry.service_core, 'playwright_navigate', return_value=self.browser_page()),
+            ):
+                result = enrichment_pipeline.enrich_project(conn, project)
+            self.assertIn(self.url, [x.args[0] for x in probe.call_args_list])
+            self.assertIn(self.url, result['service_urls'])
+        finally:
+            conn.close()

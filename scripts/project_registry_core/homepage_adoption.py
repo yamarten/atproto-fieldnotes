@@ -1,7 +1,7 @@
 """Evaluate homepage attribution separately for each proposed project role."""
 from typing import Any
 
-POLICY_VERSION = "repository-homepage-role-v3"
+POLICY_VERSION = "repository-homepage-role-v4"
 
 
 def role_assessments(facts: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -12,7 +12,7 @@ def role_assessments(facts: dict[str, Any]) -> dict[str, dict[str, str]]:
     if not facts.get("successful_page") or not facts.get("page_role_allowed"):
         return {role: {"status": "NOT_EVALUATED", "reason": "page_not_available_or_out_of_scope"}
                 for role in ("project_site", "service")}
-    if facts.get("existing_role"):
+    if facts.get("existing_role") == "service":
         return {role: {"status": "NOT_EVALUATED", "reason": "existing_component_reused"}
                 for role in ("project_site", "service")}
     reference = facts.get("adopted_repository") and facts.get("observed_return_reference")
@@ -20,9 +20,9 @@ def role_assessments(facts: dict[str, Any]) -> dict[str, dict[str, str]]:
     service = {"status": "INSUFFICIENT", "reason": "missing_operation_attribution"}
     if reference:
         site = {"status": "INSUFFICIENT", "reason": "homepage_reference_supports_candidate_not_primary_site"}
-    if reference and facts.get("operation_relations"):
-        service = ({"status": "SUPPORTED", "reason": "confirmed_operation_and_visible_surface"}
-                   if facts.get("visible_surface") else
+    if reference and (facts.get("operation_relations") or facts.get("publication_claims")):
+        service = ({"status": "SUPPORTED", "reason": "confirmed_publication_or_operation_and_service_surface"}
+                   if facts.get("visible_surface") or facts.get("protocol_surface") else
                    {"status": "INSUFFICIENT", "reason": "operation_confirmed_surface_unverified"})
     return {"project_site": site, "service": service}
 
@@ -40,7 +40,7 @@ def evaluate(facts: dict[str, Any]) -> str:
         return "REVIEW_RESOURCE"
     if facts.get("existing_role") == "service":
         return "REUSE_SERVICE"
-    if facts.get("existing_role") == "project_site":
+    if facts.get("existing_role") == "project_site" and role_assessments(facts)["service"]["status"] != "SUPPORTED":
         return "REUSE_PROJECT_SITE"
     if not facts.get("observed_return_reference"):
         return "REVIEW_ATTRIBUTION"

@@ -19,7 +19,9 @@
   temp DBの最新履歴replay・再保存でservice確定の再発0、Website・別service維持を確認し、ユーザー承認後に18件の正本補正を実施済み。
   直前backupは`data/backups/website-role-restoration-20260909T124023Z/`。BridgeBeatsは既存docs資料を維持。
   候補URLは旧README抽出・probe経路で再生成される。確定防止と候補整理を混同しない。
-  通常collectorによる独立運営根拠の取得は引き続き残件。
+  公開先宣言による候補追加とrole別の自動confirmはworktreeで実装・検証済み（v16 / role-v4）。
+  実運用checkoutへは未反映。汎用API・AppView独自APIの実在確認は未対応。
+  適用境界と検証内容は[検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。
   明示移行の前に[移行評価記録](notes/repository-trust-projection-2026-09-07.md)の未解決edgeをreviewし、

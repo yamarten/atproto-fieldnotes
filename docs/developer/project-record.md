@@ -178,7 +178,7 @@ projectの現行構成要素と、構成要素候補であるNSID、service URL�
 
 現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 
-NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。`project_site_urls`と`project_site_url_candidates`は`site_url` / `project_site`のruntime viewです。人間向けの代表公開URLは引き続き`projects.website_url`を正本とし、Website値だけからidentifier、classification、採用理由を導出しません。同じURLのconfirmed `service`がWebsiteを兼ねる場合は`project_site`を二重登録せず、独立した代表siteが構成要素として必要な場合だけ`project_site`を保存します。
+NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。`project_site_urls`と`project_site_url_candidates`は`site_url` / `project_site`のruntime viewです。人間向けの代表公開URLは引き続き`projects.website_url`を正本とし、Website値だけからidentifier、classification、採用理由を導出しません。同じURLのconfirmed `service`がWebsiteを兼ねる場合は`project_site`を二重登録せず、独立した代表siteが構成要素として必要な場合だけ`project_site`を保存します。既存のproject siteを後からserviceとしても確定する場合は、以前のsite採用を自動撤回しません。
 
 load時は専用runtime codecがnormalized child tableを読み、collector/evaluationが使うcanonical project dictへhydrateします。このdictは保存正本ではなく、既存の調査ロジックへ渡す完全なruntime viewです。
 

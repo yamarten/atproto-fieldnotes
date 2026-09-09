@@ -3247,9 +3247,11 @@ def project_alias_tokens(project: dict[str, Any]) -> set[str]:
 
 
 def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confirmed: bool) -> bool:
-    normalized = project_record.normalize_confirmed_service_url(url) if confirmed else project_record.normalize_service_candidate_url(url)
+    normalized = project_record.normalize_confirmed_service_url(url) if confirmed else project_record.normalize_project_service_candidate_url(project, url)
     if not normalized:
         return False
+    if not confirmed and any(claim["url"] == normalized for claim in repository_analysis_core.service_publications(project)):
+        return not service_url_is_guarded(project, normalized)
     if confirmed and url_has_current_trust(project, "service_url", normalized):
         return True
     parsed = urllib.parse.urlparse(normalized)
@@ -3625,7 +3627,7 @@ def add_candidate_text(project: dict[str, Any], field_name: str, value: str, sou
 def add_candidate_url(project: dict[str, Any], field_name: str, url: str) -> None:
     key = f"{field_name}_candidates"
     if field_name in {"service_url", "website_url"}:
-        normalized = project_record.normalize_service_candidate_url(url)
+        normalized = project_record.normalize_project_service_candidate_url(project, url)
         canonical_alias = url_alias_core.canonical_alias_url(project, normalized)
         confirmed = {
             identifier_core.normalize_url(str(item)) for item in project.get("service_urls", [])
@@ -3988,7 +3990,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
             if not is_confirmed and normalized_candidate in blocked_guesses:
                 continue
             if service_url_allowed_for_project(project, url, confirmed=is_confirmed):
-                normalized = project_record.normalize_confirmed_service_url(url) if is_confirmed else project_record.normalize_service_candidate_url(url)
+                normalized = project_record.normalize_confirmed_service_url(url) if is_confirmed else project_record.normalize_project_service_candidate_url(project, url)
                 if normalized:
                     cleaned_urls.append(normalized)
         project[field_name] = project_record.unique_list(cleaned_urls)
@@ -4003,7 +4005,7 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         if normalized_candidate in prunable_authority_guesses:
             continue
         if service_url_allowed_for_project(project, url, confirmed=False):
-            normalized = project_record.normalize_service_candidate_url(url)
+            normalized = project_record.normalize_project_service_candidate_url(project, url)
             if normalized:
                 cleaned_candidates.append(normalized)
     project_record.set_service_url_candidate_values(project, cleaned_candidates)
@@ -7640,7 +7642,18 @@ def repository_homepage_probe_urls(project: dict[str, Any]) -> list[str]:
             and not service_url_is_guarded(project, url) and url not in urls
         ):
             urls.append(url)
+    for claim in repository_analysis_core.service_publications(project):
+        url = claim["url"]
+        if claim["repo_url"] in repositories and not service_url_is_guarded(project, url) and url not in urls:
+            urls.append(url)
     return urls
+
+
+def apply_publication_candidates(project: dict[str, Any]) -> None:
+    repositories = {node["value"] for node in trusted_anchor_nodes(project) if node["kind"] == "repo_url"}
+    for claim in repository_analysis_core.service_publications(project):
+        if claim["repo_url"] in repositories and not service_url_is_guarded(project, claim["url"]):
+            add_candidate_url(project, "service_url", claim["url"])
 
 
 def confirmed_homepage_operation_relations(project: dict[str, Any], url: str) -> list[dict[str, Any]]:
@@ -7664,7 +7677,8 @@ def adopted_homepage_repositories(project: dict[str, Any], url: str) -> list[str
         and item["relation"]["subject"]["type"] == "repo"
         and identifier_core.normalize_url(item["relation"]["object"]["value"]) == url
         and repo_url_core.canonical_repo_url(item["relation"]["subject"]["value"]) in adopted
-    })
+    }.union(claim["repo_url"] for claim in repository_analysis_core.service_publications(project)
+             if claim["url"] == url and claim["repo_url"] in adopted))
 
 
 def competing_repository_homepages(conn: sqlite3.Connection, project_key: str, urls: list[str]) -> list[dict[str, str]]:
@@ -7696,6 +7710,19 @@ def competing_repository_homepages(conn: sqlite3.Connection, project_key: str, u
         repo = repo_url_core.canonical_repo_url(str(row[1]))
         if homepage in allowed[other_key][0] and repo in allowed[other_key][1]:
             claims.append({"project_key": other_key, "repository": repo, "homepage": homepage})
+    for row in conn.execute(
+        "SELECT project_key FROM projects WHERE project_key != ? AND state_json LIKE ?",
+        (project_key, '%declares_service_url%'),
+    ):
+        other = project_record.fetch_project(conn, str(row[0]))
+        if not other:
+            continue
+        other_repositories = {node["value"] for node in trusted_anchor_nodes(other) if node["kind"] == "repo_url"}
+        for claim in repository_analysis_core.service_publications(other):
+            if claim["repo_url"] in other_repositories and claim["url"] in urls and not service_url_is_guarded(other, claim["url"]):
+                candidate = {"project_key": str(row[0]), "repository": claim["repo_url"], "homepage": claim["url"]}
+                if candidate not in claims:
+                    claims.append(candidate)
     return claims
 
 
@@ -7710,6 +7737,18 @@ def collect_homepage_role_evidence(
     returns = service_core.project_repository_relation_records(
         url, str(result.get("html") or ""), observed_at=observed_at,
     )
+    # API root responses can advertise source code as labelled plain text.
+    body = str(result.get("html") or "")
+    if "<" not in body:
+        for match in re.finditer(r"(?im)^\s*(?:code|source code):\s*(https?://\S+)\s*$", body):
+            repo = repo_url_core.canonical_repo_url(match.group(1))
+            if repo in repositories:
+                returns.append(relation_core.relation_record(
+                    source=f"service_page:{url}", classification="candidate", observed_at=observed_at,
+                    subject_type="website", subject_value=url, predicate="project_repository",
+                    object_type="repo", object_value=repo, locator=url, method="plain_text_code_reference",
+                    context={"policy_disposition": "CONFIRM_PROJECT_REPOSITORY", "excerpt": match.group(0).strip()},
+                ))
     supporting = [record for record in returns
                   if record.context.get("policy_disposition") == "CONFIRM_PROJECT_REPOSITORY"
                   and repo_url_core.canonical_repo_url(record.value["object"]["value"]) in repositories]
@@ -7736,11 +7775,35 @@ def collect_homepage_role_evidence(
         "existing_role": exact_project_page_component_role(project, url),
         "observed_return_reference": bool(supporting),
         "operation_relations": confirmed_homepage_operation_relations(project, url),
+        "publication_claims": [claim for claim in repository_analysis_core.service_publications(project, confirmed_only=True)
+                               if claim["url"] == requested_url and claim["repo_url"] in repositories],
+        "protocol_surface": False,
         "return_references": [record.to_dict() for record in supporting],
         "visible_surface": False,
         "browser_status": "not_requested",
     }
-    if allow_browser and facts["operation_relations"] and homepage_adoption.evaluate(facts) == "CANDIDATE_PROJECT_SITE":
+    can_verify = bool(
+        (facts["operation_relations"] or facts["publication_claims"])
+        and facts["adopted_repository"] and facts["observed_return_reference"]
+        and facts["successful_page"] and facts["page_role_allowed"]
+        and not facts["guarded"] and not facts["collision_projects"]
+        and facts["existing_role"] != "service"
+    )
+    service_kinds = {claim.get("service_kind", "unknown") for claim in facts["publication_claims"]}
+    if allow_browser and can_verify and service_kinds.intersection({"api", "pds"}):
+        protocol = service_core.collect_protocol_service_evidence(url, probe=probe_service_url)
+        facts["protocol_evidence"] = protocol
+        facts["protocol_surface"] = protocol["verified"]
+        bundle.add_record(EvidenceRecord(
+            kind="service_verification", source=f"service_repository_homepage_protocol:{requested_url}",
+            classification="confirmed" if protocol["verified"] else "candidate", observed_at=observed_at,
+            value={"requested_url": requested_url, "lane": "repository_homepage_protocol", "protocol_evidence": protocol},
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="service_protocol", operation="verify", status="success" if protocol["verified"] else "partial",
+            observed_at=observed_at, request_count=1, result_count=int(protocol["verified"]),
+        ))
+    if allow_browser and can_verify and not service_kinds.intersection({"api", "pds"}):
         browser = service_core.collect_browser_service_evidence(
             project, requested_url,
             service_core.BrowserDependencies(navigate=service_core.playwright_navigate, now=project_record.iso_now),
@@ -7803,6 +7866,11 @@ def apply_homepage_role_evidence(project: dict[str, Any], bundle: EvidenceBundle
         facts["guarded"] = facts.get("guarded") or any(service_url_is_guarded(project, value) for value in {url, facts["requested_url"]})
         facts["existing_role"] = exact_project_page_component_role(project, url)
         facts["operation_relations"] = confirmed_homepage_operation_relations(project, url)
+        recorded_publications = {(claim["repo_url"], claim["url"], claim.get("source_revision", ""))
+                                 for claim in facts.get("publication_claims", [])}
+        facts["publication_claims"] = [claim for claim in repository_analysis_core.service_publications(project, confirmed_only=True)
+                                      if claim["url"] == facts["requested_url"] and claim["repo_url"] in facts["repositories"]
+                                      and (claim["repo_url"], claim["url"], claim.get("source_revision", "")) in recorded_publications]
         facts["role_assessments"] = homepage_adoption.role_assessments(facts)
         action = homepage_adoption.evaluate(facts)
         if action == "CONFIRM_SERVICE":
@@ -7810,7 +7878,7 @@ def apply_homepage_role_evidence(project: dict[str, Any], bundle: EvidenceBundle
             if url in project.get("service_urls", []):
                 add_confirmed_identifier_decision(
                     project, "service_url", url, source="trust_policy:repository_homepage",
-                    role="service", note="confirmed operation attribution with homepage return reference and visible service surface",
+                    role="service", note="publication or operation attribution with return reference and verified service surface",
                     source_ref=project_record.dump_json(facts), policy_version=homepage_adoption.POLICY_VERSION,
                 )
             else:
@@ -10747,6 +10815,14 @@ def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> No
     apply_saved_service_evidence(project, bundle)
     apply_tangled_evidence(project, bundle)
     apply_collector_snapshot_evidence(project, bundle)
+    for record in bundle.records:
+        if record.kind == "repository_analysis" and isinstance(record.value, dict):
+            result = record.value.get("result", {})
+            if result.get("policy_version") == repository_analysis_core.POLICY_VERSION:
+                project["repository_analysis_results"] = repository_analysis_core.normalize_results(
+                    list(project.get("repository_analysis_results", [])) + [result]
+                )
+    apply_publication_candidates(project)
     apply_homepage_role_evidence(project, bundle)
     if legacy_homepage_compatibility_applied:
         trust_graph_core.remove_edges(

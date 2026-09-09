@@ -506,13 +506,20 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
     return output
 
 
+def normalize_project_service_candidate_url(project: dict[str, Any], url: str) -> str | None:
+    exact = identifier_core.normalize_url(url)
+    if any(claim["url"] == exact for claim in repository_analysis_core.service_publications(project)):
+        return normalize_confirmed_service_url(url)
+    return normalize_service_candidate_url(url)
+
+
 def service_url_candidate_values(project: dict[str, Any]) -> list[str]:
     candidates = list(project.get("service_url_candidates", []))
     return unique_list(
         [
             normalized
             for item in candidates
-            if (normalized := normalize_service_candidate_url(str(item or "")))
+            if (normalized := normalize_project_service_candidate_url(project, str(item or "")))
         ]
     )
 
@@ -522,7 +529,7 @@ def set_service_url_candidate_values(project: dict[str, Any], values: list[str])
         [
             normalized
             for item in values
-            if (normalized := normalize_service_candidate_url(str(item or "")))
+            if (normalized := normalize_project_service_candidate_url(project, str(item or "")))
         ]
     )
     project["service_url_candidates"] = candidates

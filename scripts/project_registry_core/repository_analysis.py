@@ -14,7 +14,7 @@ from .evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 6
-POLICY_VERSION = "repository-analysis-v15"
+POLICY_VERSION = "repository-analysis-v16"
 MAX_TRIAGE_RESULTS = 6
 MAX_EVIDENCE_BLOCKS = 32
 MAX_EVIDENCE_TEXT_BYTES = 18 * 1024
@@ -30,6 +30,7 @@ ALLOWED_PREDICATES = {
     "contains_documentation_source",
     "uses_documentation_generator",
     "declares_documentation_site_url",
+    "declares_service_url",
     "deploys_documentation_site",
 }
 ALLOWED_BASES = {"declared", "observed", "inferred"}
@@ -39,6 +40,7 @@ DECLARED_ONLY_PREDICATES = {
     "declares_cli_entrypoint",
     "declares_example_or_template",
     "declares_documentation_site_url",
+    "declares_service_url",
 }
 DEFERRED_RETRY_ERROR_CATEGORIES = {"timeout", "rate_limited", "http_error", "request_error"}
 
@@ -639,24 +641,29 @@ def observation_candidate_catalog(material: dict[str, Any]) -> dict[str, dict[st
             for item in material.get("configuration_hints", [])
             if isinstance(item, dict)
         )
+        service_readme = path.lower() == "readme" and _observation_evidence_supported(
+            "declares_service_url", [evidence], material,
+        )
         documentation_readme = path.lower() == "readme" and _observation_evidence_supported(
             "declares_documentation_site_url", [evidence], material,
         )
-        if documentation_configuration or documentation_readme:
+        if documentation_configuration or documentation_readme or service_readme:
             for raw_url in re.findall(r"https?://[^\s'\"<>]+", str(evidence.get("excerpt") or "")):
                 value = identifier_core.normalize_url(raw_url.rstrip(",.;)"))
                 if not value:
                     continue
-                item = {
-                    "predicate": "declares_documentation_site_url",
-                    "basis": "declared",
-                    "value": value,
-                    "evidence_ids": [evidence_id],
-                }
-                key = json.dumps(item, ensure_ascii=False, sort_keys=True)
-                if key not in seen:
-                    seen.add(key)
-                    candidates.append(item)
+                predicates = []
+                if documentation_configuration or documentation_readme:
+                    predicates.append("declares_documentation_site_url")
+                if service_readme:
+                    predicates.append("declares_service_url")
+                for predicate in predicates:
+                    item = {"predicate": predicate, "basis": "declared", "value": value,
+                            "evidence_ids": [evidence_id]}
+                    key = json.dumps(item, ensure_ascii=False, sort_keys=True)
+                    if key not in seen:
+                        seen.add(key)
+                        candidates.append(item)
     candidates.sort(key=lambda item: (item["predicate"], item["evidence_ids"]))
     return {
         _candidate_id("O", index): {"candidate_id": _candidate_id("O", index), **item}
@@ -766,7 +773,7 @@ def _validated_observation_value(predicate: str, value: Any, evidence: list[dict
     raw = str(value or "").strip()
     if not raw:
         return ""
-    if predicate != "declares_documentation_site_url":
+    if predicate not in {"declares_documentation_site_url", "declares_service_url"}:
         return ""
     normalized = identifier_core.normalize_url(raw)
     if not normalized:
@@ -857,6 +864,9 @@ def _observation_evidence_supported(
         )
     if predicate == "uses_documentation_generator":
         return any(configurations.get(path) == "documentation_config" for path in paths)
+    if predicate == "declares_service_url":
+        return any(path.lower() == "readme" for path in paths) and _evidence_declares(
+            evidence, r"\b(?:try|demo|live|hosted|service|app|api|pds|instance)\b|公開|利用先|デモ")
     if predicate == "declares_documentation_site_url":
         return bool(
             any(configurations.get(path) in {"documentation_config", "documentation_cname"} for path in paths)
@@ -913,7 +923,7 @@ def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
         if collection_candidates
         else "collection_candidates is empty, so collections MUST be [] exactly; any collection candidate_id is invalid. "
     )
-    observation_schema = '[{"candidate_id":"O01","applicability":"current_project"}]' if observation_candidates else "[]"
+    observation_schema = '[{"candidate_id":"O01","applicability":"current_project","service_kind":"unknown"}]' if observation_candidates else "[]"
     collection_schema = '[{"candidate_id":"C01"}]' if collection_candidates else "[]"
     return (
         "Analyze a confirmed project repository for an AT Protocol project. "
@@ -931,8 +941,14 @@ def build_prompt(project: dict[str, Any], material: dict[str, Any]) -> str:
         "For each returned documentation URL candidate, explicitly classify applicability as current_project, "
         "negated, hypothetical, third_party, obsolete, or uncertain. You may return a mentioned URL with a "
         "non-current applicability; do not mark it current_project just because the URL appears in the text. "
+        "For declares_service_url, classify applicability too: current_project only when the text presents "
+        "the exact URL as this project's current usable service, API, PDS, or demo. A demo may qualify. "
+        "Use uncertain when publication is plausible but attribution is unresolved. Exclude third-party "
+        "instances, upstream URLs inherited by a fork, dependency services, configuration defaults, "
+        "documentation, hypothetical deployments, and obsolete or negated declarations. "
+        "Return service_kind as web, api, pds, or unknown; do not infer it from the hostname. "
         "Other observation types do not require applicability. "
-        + "Omit illustrative or uncertain claims. Summary and capability text MUST be ordinary user-facing Japanese. "
+        + "Omit illustrative or uncertain claims except explicitly uncertain service publication candidates. Summary and capability text MUST be ordinary user-facing Japanese. "
         "Never discuss evidence or citations in those text fields and never write evidence IDs such as E01 there; "
         "cite IDs only in the separate evidence arrays. Bad text: 'E01によるとCLIです'. "
         "Good text: 'AT Protocol向けの汎用CLIツールです'. "
@@ -976,6 +992,8 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
         basis = str(candidate["basis"])
         if predicate == "declares_documentation_site_url" and item.get("applicability") != "current_project":
             continue
+        if predicate == "declares_service_url" and item.get("applicability") not in {"current_project", "uncertain"}:
+            continue
         evidence = _resolve_evidence(candidate.get("evidence_ids"), catalog)
         if not evidence or not _observation_evidence_supported(predicate, evidence, material):
             continue
@@ -987,6 +1005,9 @@ def normalize_result(material: dict[str, Any], payload: dict[str, Any], meta: di
         }
         if candidate.get("value"):
             observation["value"] = str(candidate["value"])
+        if predicate == "declares_service_url":
+            observation["applicability"] = item["applicability"]
+            observation["service_kind"] = item.get("service_kind") if item.get("service_kind") in {"web", "api", "pds"} else "unknown"
         observations.append(observation)
     capabilities: list[dict[str, Any]] = []
     for item in list(payload.get("capabilities") or [])[:12] if isinstance(payload.get("capabilities"), list) else []:
@@ -1306,3 +1327,25 @@ def evidence_record(material: dict[str, Any], result: dict[str, Any], observed_a
         },
         context={"cache_hit": cache_hit},
     )
+
+
+def service_publications(project: dict[str, Any], *, confirmed_only: bool = False) -> list[dict[str, Any]]:
+    """Declared publication targets, scoped to current adopted repositories."""
+    adopted = {repo_url_core.canonical_repo_url(url) for url in project.get("project_repository_urls", [])}
+    output = []
+    for result in normalize_results(project.get("repository_analysis_results", [])):
+        if result.get("repo_url") not in adopted or result.get("policy_version") != POLICY_VERSION:
+            continue
+        if confirmed_only and (result_is_stale(result) or result.get("last_attempt", {}).get("status") != "success"):
+            continue
+        for item in result.get("observations", []):
+            if item.get("predicate") != "declares_service_url" or item.get("applicability") not in {"current_project", "uncertain"}:
+                continue
+            if confirmed_only and item["applicability"] != "current_project":
+                continue
+            url = identifier_core.normalize_url(str(item.get("value") or ""))
+            if url and item.get("evidence"):
+                output.append({**item, "url": url, "repo_url": result["repo_url"],
+                               "source_revision": result.get("source_revision", ""),
+                               "observed_at": result.get("observed_at", "")})
+    return output

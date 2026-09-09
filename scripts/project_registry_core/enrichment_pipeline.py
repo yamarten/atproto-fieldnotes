@@ -41,6 +41,7 @@ from project_registry_core.registry import (
     clean_string_list,
     collect_github_repo_evidence,
     collect_homepage_role_evidence,
+    apply_publication_candidates,
     collect_codeberg_repo_evidence,
     collect_investigation_evidence,
     collect_oauth_metadata_evidence,
@@ -313,20 +314,6 @@ def enrich_project(
                         project, source=f"service_{lane}", operation="probe", target=service_url, exc=exc,
                     ))
 
-    previous_homepage_browser_order = {
-        str(value.get("requested_url") or ""): index
-        for index, value in enumerate(project.get("service_verification_results", []))
-        if value.get("lane") == "repository_homepage_browser"
-    }
-    for url in sorted(homepage_results, key=lambda value: (previous_homepage_browser_order.get(value, -1), value)):
-        role_evidence = collect_homepage_role_evidence(
-            conn, project, url, homepage_results[url], allow_browser=not homepage_browser_attempted,
-        )
-        homepage_browser_attempted = homepage_browser_attempted or bool(role_evidence.collector_results)
-        apply_service_evidence(project, role_evidence)
-        apply_homepage_role_evidence(project, role_evidence)
-        run_evidence.extend(role_evidence)
-
     for repo_url in candidate_repo_trust_probe_urls(project):
         trust_inspected_repo_urls.add(repo_url)
         provider = repo_url_core.infer_repo_provider(repo_url)
@@ -463,6 +450,42 @@ def enrich_project(
                 source="repository_analysis", operation="analyze", status="failed",
                 observed_at=observed_at, request_count=1, result_count=0,
             ))
+
+    apply_publication_candidates(project)
+    # New declarations can appear after repository analysis in this same run.
+    for url in repository_homepage_probe_urls(project):
+        if url in homepage_results or url in project.get("service_urls", []):
+            continue
+        if url in initial_service_urls:
+            if url not in probe_results:
+                continue
+            result = probe_results[url]
+        else:
+            try:
+                result = probe_service_url(url, timeout=service_probe_timeout_for_project(project, url))
+            except Exception as exc:
+                run_evidence.extend(failed_collector_bundle(
+                    project, source="service_repository_homepage", operation="probe", target=url, exc=exc,
+                ))
+                continue
+        evidence = collect_service_evidence_with_followups(project, url, result, lane="repository_homepage")
+        apply_service_evidence(project, evidence)
+        run_evidence.extend(evidence)
+        homepage_results[url] = result
+
+    previous_homepage_browser_order = {
+        str(value.get("requested_url") or ""): index
+        for index, value in enumerate(project.get("service_verification_results", []))
+        if value.get("lane") in {"repository_homepage_browser", "repository_homepage_protocol"}
+    }
+    for url in sorted(homepage_results, key=lambda value: (previous_homepage_browser_order.get(value, -1), value)):
+        role_evidence = collect_homepage_role_evidence(
+            conn, project, url, homepage_results[url], allow_browser=not homepage_browser_attempted,
+        )
+        homepage_browser_attempted = homepage_browser_attempted or bool(role_evidence.collector_results)
+        apply_service_evidence(project, role_evidence)
+        apply_homepage_role_evidence(project, role_evidence)
+        run_evidence.extend(role_evidence)
 
     collected_repo_urls = set(collected_repo_evidence)
     for repo_url in initial_repo_urls:

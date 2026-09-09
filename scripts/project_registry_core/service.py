@@ -802,3 +802,26 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
                 browser_args=["--disable-http2"],
                 transport_fallback="disable_http2_after_socket_not_connected",
             )
+
+
+def collect_protocol_service_evidence(url: str, *, probe: Callable[..., dict[str, Any]]) -> dict[str, Any]:
+    """Verify an AT Protocol server response; arbitrary JSON/HTTP 200 is insufficient."""
+    endpoint = url.rstrip('/') + '/xrpc/com.atproto.server.describeServer'
+    result = probe(endpoint, timeout=15.0)
+    try:
+        payload = json.loads(str(result.get('html') or ''))
+    except (ValueError, TypeError):
+        payload = None
+    valid = bool(
+        result.get('status_code') == 200 and not result.get('fetch_error')
+        and identifiers.normalize_url(str(result.get('final_url') or endpoint)) == endpoint
+        and isinstance(payload, dict)
+        and isinstance(payload.get('did'), str) and re.fullmatch(r'did:[a-z0-9]+:[^\s]+', payload['did'])
+        and isinstance(payload.get('availableUserDomains'), list)
+        and all(isinstance(value, str) and value for value in payload['availableUserDomains'])
+    )
+    return {'endpoint': endpoint, 'protocol': 'com.atproto.server.describeServer',
+            'verified': valid, 'status_code': result.get('status_code', 0),
+            'fetch_error': result.get('fetch_error', ''),
+            'did': payload['did'] if valid else '',
+            'available_user_domains': payload['availableUserDomains'] if valid else []}

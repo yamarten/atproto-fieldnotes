@@ -1,0 +1,67 @@
+{
+  "description": "Saved public README excerpts and constructed counterexamples; publication extraction expectations, not confirmed service gold.",
+  "cases": [
+    {
+      "id": "oauth-demo",
+      "source": "saved README of flo-bit/svelte-atproto-client-oauth",
+      "text": "# svelte atproto client oauth demo\ntry it here: http://flo-bit.dev/svelte-atproto-client-oauth/\nthis is a scaffold for how to get client side oauth working with sveltekit and atproto using the atcute libraries.",
+      "expected": [
+        "http://flo-bit.dev/svelte-atproto-client-oauth"
+      ]
+    },
+    {
+      "id": "impro",
+      "source": "saved README of improsocial/impro",
+      "text": "# Impro\nImpro is a Bluesky web client written in HTML, CSS, and JavaScript.\nYou can try it out here: https://impro.social",
+      "expected": [
+        "https://impro.social"
+      ]
+    },
+    {
+      "id": "fork-upstream",
+      "source": "constructed from the PDSls/PDSlss inherited-publication failure",
+      "text": "# Fork application\nThis is a fork of the upstream app. Try the upstream demo at https://upstream.example.org/app. Our fork has no deployed service yet.",
+      "expected": []
+    },
+    {
+      "id": "third-party",
+      "source": "constructed",
+      "text": "This app uses the third-party API at https://api.example.org. It is operated by an unrelated company, not this project.",
+      "expected": []
+    },
+    {
+      "id": "negated",
+      "source": "constructed",
+      "text": "Our service is NOT live at https://wrong.example.org/app. We have not published an instance yet.",
+      "expected": []
+    },
+    {
+      "id": "hypothetical",
+      "source": "constructed",
+      "text": "To self-host the app, set APP_URL=https://your-company.example.org/app. This is only an example deployment URL, not our hosted service.",
+      "expected": []
+    },
+    {
+      "id": "mixed-docs-api",
+      "source": "constructed",
+      "text": "Our API service is available at https://api.example.org/v1. Documentation for this project is hosted at https://docs.example.org.",
+      "expected": [
+        "https://api.example.org/v1"
+      ]
+    },
+    {
+      "id": "skygive",
+      "source": "saved README of indicaindependent/skygive; page agreement remains unverified",
+      "text": "# SkyGive\nBitcoin donation campaigns for Bluesky. Drop your Bitcoin address. Pick a theme. Share your campaign.\n[Live demo](https://skygive.app)",
+      "expected": [
+        "https://skygive.app"
+      ]
+    },
+    {
+      "id": "documentation-only",
+      "source": "constructed documentation/service boundary counterexample",
+      "text": "Documentation for this library is hosted at https://docs.example.org. This is a documentation site, not a hosted app or API service.",
+      "expected": []
+    }
+  ]
+}

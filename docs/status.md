@@ -9,6 +9,13 @@
 
 実装済み:
 
+- README公開先の候補追加と自動confirmを分離（`repository-analysis-v16` / `repository-homepage-role-v4`）。
+  未確定の帰属もcandidateとして保持し、公開先のパスを保存する。確定は現在の公開先宣言または独立運営根拠、
+  公開先からの対応repoへの逆参照、Web表示または対応protocol応答、guard・競合検査を要求する。
+  既存project siteのservice再評価にも対応。API確認はAT Protocol describeServer対応サーバーに限定し、
+  汎用API・AppView独自APIは候補に残る。実運用checkoutと正本DBへは未適用。
+  [検証記録](notes/service-publication-2026-09-10.md)を参照。
+
 - 2026-09-09に修正コード（`8f131c7`まで）を実運用checkoutへ反映し、Webを通常reloadした。
   正本でBarazo docs追加、arrobaのservice→project site補正、PDSlss（`proj:efcd972d8d51`）分離と紹介文補正を実施。
   backup作成、foreign key違反0、integrity okを確認。一括enrichは3595件保存後に協調停止し、
