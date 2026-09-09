@@ -9,10 +9,16 @@
 
 実装済み:
 
+- 2026-09-09に修正コード（`8f131c7`まで）を実運用checkoutへ反映し、Webを通常reloadした。
+  正本でBarazo docs追加、arrobaのservice→project site補正、PDSlss（`proj:efcd972d8d51`）分離と紹介文補正を実施。
+  backup作成、foreign key違反0、integrity okを確認。一括enrichは3595件保存後に協調停止し、
+  同じcheckpointから再開して追加保存を確認した。旧coverage失敗604件と新PDSlssの追加調査は現run後の残件。
+  [適用・再開記録](notes/homepage-observation-2026-09-08.md)を参照。
+
 - PDSls／PDSlssの分離方針を合意し、既存split application serviceで実recordのtemp DB分離を確認。
   最新履歴replayでforkが本体へ再採用されず、紹介文補正後の実Qwen再評価は各repoだけを入力として維持した。
   repository analysisのtriage順位計算がcoverage内のcounts dictで停止する不具合を修正。
-  取得対象6項目のstatusだけを採点する。全847 unit test成功。正本の分離・補正は未適用。
+  取得対象6項目のstatusだけを採点する。全847 unit test成功。正本の分離・補正は上記適用記録を参照。
 
 - serviceのtrust採用を`trust-graph-v2`へ変更。repositoryを起点・中継とする経路ではserviceを確定せず、
   最終reconciliation／既存LLM same_project判定からhomepage role policyを迂回する採用を防ぐ。
@@ -20,7 +26,7 @@
   arrobaの旧実採用根拠を再構成した比較は採用true→false。現在の3実例relationは前後とも新規service採用false。
   Read the Docsのsubdomain判定漏れも修正し、保存homepageの3 URLでunknown→documentationを確認。
   全846 unit test、通常enrich→save→再評価、2実recordのtemp DB補正→最新保存履歴replay→再保存を確認。
-  正本DBの補正・運用反映は未実施。[根拠と未完了範囲](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)を参照。
+  正本DBの補正・運用反映は上記適用記録を参照。[根拠と未完了範囲](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)を参照。
 
 - repository analysis v15で、README中のドキュメント公開先を本文付きの選択候補へ追加。
   LLM回答の公開先の文脈区分を必須とし、否定・仮定・第三者・旧公開先・不明・区分欠落を採用しない。

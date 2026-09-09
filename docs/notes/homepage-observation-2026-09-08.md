@@ -304,3 +304,28 @@ temp DBはforeign key違反0、integrity okで削除済み。結果は
 fork由来の68 relationを新recordの確定情報へ一括コピーすることもしていない。
 正本適用案は、先行節のBarazo docs追加、arroba role補正と、上記PDSls分離・紹介文補正の3件。
 本体の同名別recordやTangled sourceの追加採用、他のwebsite_only対象の一括補正は含めない。
+
+
+## 正本適用と一括enrichの再開（2026-09-09）
+
+ユーザーは「安全に中断・再開できるなら適用」を承認した。Webの実行中ジョブはcheckpoint付きbulk enrichで、
+通常cancel APIにより3595件保存後にinterruptedとなり、DBを開くworkerがなくなったことを確認した。
+実運用checkoutを`dde92c7`から`8f131c7`へfast-forwardし、同じ補正スクリプトを最小temp DBで検証後、
+正本SQLiteと中断checkpointを`data/backups/homepage-role-review-20260909T110921Z/`へbackupした。
+
+正本へ適用した差分はBarazoのconfirmed docs resource追加、arrobaのserviceとactive adoption/decision解除・
+project site採用・転送先docs追加、PDSlsからPDSlssの分離と紹介文補正。新project keyは`proj:efcd972d8d51`。
+本体のrepositoryは`notjuliet/pdsls`、fork側は`NorthskySocial/pdslss`のみ。`pdsls.dev`候補は本体側に残り、
+forkはservice/site/Websiteを持たない。既存Web service roleの一括再判定や、旧保存trust edgeの一括削除はしていない。
+foreign key違反0、integrity ok。実行結果はbackup内`applied-review.json`。
+
+Webを通常reload APIで再起動し、`/api/checkpoints`で同じrunの再開可能状態と3595完了を確認。
+`enrich-20260908T111813Z-a27f8067`をresumeし、新job `job:1a9ff1910d57`で実行中となった。
+最初に以前失敗したalias元projectを再試行し、続けて未処理projectの保存が進んだことを確認した。
+再開直後には別のrepository request_errorも観測されており、全処理が無エラーとは主張しない。
+
+停止前のcompleted keysと現在のlast_run_errorsをread-onlyで照合した結果、604 projectに旧coverageの
+`unhashable type: 'dict'`が残っていた。これらはrunの完了扱いであるため通常resumeでは再評価されない。
+対象は`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`に記録した。
+現在run終了後に対象の再評価と、新しく分離したPDSlssの単体enrichが必要。新recordは固定selected keys外である。
+現在runの全完了までは待っておらず、同時writerとなる追加enrichは起動していない。

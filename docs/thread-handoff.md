@@ -5,18 +5,18 @@
 
 ## 現在地
 
-- homepage role検討の3実例は、Barazo＝docs resource、arroba＝代表project site＋docsへ補正する案をtemp DBの保存・最新履歴replayまで確認。
-  過去の明示reviewがあり、種類を再質問する必要はない。正本への適用は未承認。
-  PDSls本体とStratos対応fork PDSlssの分離は2026-09-09に合意済み。既存split APIでtemp DB分離、
-  最新履歴replay、分離した資料による実LLM再評価・保存まで確認した。正本への適用は未承認。
-  fork repoだけを移し、紹介文と混在したsummary候補をreview結果に沿って補正する。
-  `pdsls.dev`をforkのserviceへ移さない。最新surfaceのSourceはTangled `pds.ls/pdsls`。
-  詳細と適用案は[3実例の補正記録](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)。
-  過去website_only対象でcurrent serviceがconfirmed 20件、candidate 1件残る。各々の後続判断と再採用理由の監査が必要。
-  一括格下げはしない。通常collectorによる独立した運営根拠の自動取得は引き続き未接続。
+- homepage roleの修正コードと3件のoperator補正を2026-09-09に正本へ適用済み。
+  Barazo docs追加、arrobaのservice→project site補正、PDSlsからPDSlss（`proj:efcd972d8d51`）を分離した。
+  一括enrich `enrich-20260908T111813Z-a27f8067`を3595件保存後に正常中断し、同じcheckpointから再開。
+  現ジョブは`job:1a9ff1910d57`。新PDSlssは開始時固定の対象一覧に含まれないため、現在run後の単体enrichが必要。
+  停止前の完了扱い3595件中604件に旧coverage TypeErrorが残る。現在runは完了キーを再実行しないため、
+  run終了後に`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`の対象を再評価する。
+  正本・checkpointのbackupは`data/backups/homepage-role-review-20260909T110921Z/`。
+  詳細は[適用記録](notes/homepage-observation-2026-09-08.md)。
+  過去website_only対象のcurrent service再採用理由の監査と、通常collectorによる独立運営根拠の取得は残件。
 
-- page↔repositoryのrelation導出への変更は検証済み。正本DBは未変更。
-  実運用へ反映する前に[移行評価記録](notes/repository-trust-projection-2026-09-07.md)の未解決edgeをreviewし、
+- page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。
+  明示移行の前に[移行評価記録](notes/repository-trust-projection-2026-09-07.md)の未解決edgeをreviewし、
   必要な復元・再調査を判断する。正本DBへの移行実行は別途承認が必要。
 
 - schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
