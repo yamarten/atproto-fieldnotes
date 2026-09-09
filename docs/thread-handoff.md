@@ -22,6 +22,8 @@
   公開先宣言による候補追加とrole別の自動confirmはworktreeで実装・検証済み（v16 / role-v4）。
   実運用checkoutへは未反映。都度masterへ統合せずworktreeで変更をまとめる方針。
   Webの実例確認は完了。汎用API・AppView独自APIの実在確認は未対応。
+  Colibriの独自describeServerは実GETで応答を確認済みだが、通常checkerへの接続はしていない。
+  APIの汎用拡張はendpoint・引数・応答契約の取得方法から扱う。XRPC確認のパス誤連結はworktreeで修正済み。
   適用境界と検証内容は[検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。

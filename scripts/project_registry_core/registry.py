@@ -7801,7 +7801,7 @@ def collect_homepage_role_evidence(
         ))
         bundle.add_collector_result(CollectorResult(
             source="service_protocol", operation="verify", status="success" if protocol["verified"] else "partial",
-            observed_at=observed_at, request_count=1, result_count=int(protocol["verified"]),
+            observed_at=observed_at, request_count=protocol["request_count"], result_count=int(protocol["verified"]),
         ))
     if allow_browser and can_verify and not service_kinds.intersection({"api", "pds"}):
         browser = service_core.collect_browser_service_evidence(
@@ -7856,6 +7856,13 @@ def apply_homepage_role_evidence(project: dict[str, Any], bundle: EvidenceBundle
             continue
         facts = dict(record.value["facts"])
         url = identifier_core.normalize_url(str(facts["url"]))
+        # Saved protocol observations must still refer to this service's supported endpoint.
+        endpoint = service_core.protocol_service_endpoint(url)
+        protocol = facts.get("protocol_evidence", {})
+        facts["protocol_surface"] = bool(
+            facts.get("protocol_surface") and endpoint and protocol.get("verified")
+            and protocol.get("endpoint") == endpoint
+        )
         current_repositories = set(adopted_homepage_repositories(project, facts["requested_url"]))
         facts["repositories"] = sorted(current_repositories.intersection(facts.get("repositories", [])))
         facts["adopted_repository"] = bool(facts["repositories"])

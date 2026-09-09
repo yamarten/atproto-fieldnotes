@@ -18,7 +18,7 @@ candidateは公開先候補の記述だけで追加し、取得成功・逆参�
   temp DBのsave・load・prune・replayでもpathを維持する。
 - 通常enrichはrepo解析後に新しい宣言URLを取得し、既に同runで取得済みなら再利用する。
   role-v4は既存project siteでもservice条件を再評価し、既存のsite採用は撤回しない。
-- Webは初回到達pageの表示済みauth/public surfaceを確認する。API/PDSはbase配下の
+- Webは初回到達pageの表示済みauth/public surfaceを確認する。API/PDSはorigin rootの
   `com.atproto.server.describeServer`への1 requestで応答形式とexact endpointを確認する。
   API rootのplain text `Code:` / `Source code:`行も対応repoへの逆参照として扱う。
   追加確認はWeb/protocol合計1 URL／enrich。失敗attemptも保存して他URLとの順序に反映する。
@@ -89,3 +89,31 @@ fixtureの初期9例×2回とは別の追加確認であり、fixtureは現在11
 
 全858 unit testとdiff check成功。実運用checkoutと正本DBは未変更。
 この評価でWebの実際の確定経路を1例確認したが、汎用API・AppViewの対応範囲は拡張していない。
+
+### APIの確認範囲とURL境界
+
+パス付き公開先へ`/xrpc/...`を継ぎ足す実装は誤りだった。
+[XRPC仕様](https://atproto.com/specs/xrpc)ではendpointはorigin直下に置く。
+確認対象をorigin root URLに限定し、パス・query・fragment・userinfo付きURLではrequestしない。
+候補URLは削除もoriginへの置換もしない。保存済み観測の適用時も対象URLとendpointの対応を再確認し、
+旧形式のパス付き成功観測からの確定を防ぐ。temp DB保存後の候補維持も確認した。
+
+Colibriの[現在のREADME](https://github.com/colibri-social/appview/blob/main/README.md)を再取得し、
+API公開先`https://api.colibri.social`がMarkdown autolinkで明記されていることを確認した。
+前回の保存本文にはこのURLがなかった。現在のREADMEを使うLLM再解析は今回未実施。
+[公開仕様](https://colibri.social/docs/specification/appview)を読み、2 endpointを各1回GETした結果:
+
+- `com.atproto.server.describeServer`: HTTP 404。現行checkerは非確定。
+- `social.colibri.server.describeServer`: HTTP 200、同じURLへ到達。
+  `software=colibri-appview`、`flavor=vanilla`、`version=0.2.10`で、仕様記載と対応。
+
+これは確認方式の未対応を示す実例であり、APIの不存在を示さない。
+Colibri固有のNSID・software名の分岐は通常heuristicへ追加していない。
+汎用化する場合は、採用repoと対応する公開仕様からquery endpoint、引数、期待応答の契約を扱い、
+既存の公開先宣言・逆参照・衝突検査と組み合わせる必要がある。XRPCは匿名可否の統一的な列挙手段がなく、
+一般JSON・認証エラー・APIという自己紹介だけを成功へ昇格させる案は採らない。
+この契約の取得・検証は別の機能拡張として残す。API候補追加そのものは現在のまま有効。
+
+取得記録は`.tmp/appview-api-sources.json`と`.tmp/appview-api-smoke.json`。
+公開仕様・README各1 URLとAPIの2 GETだけで、正本DB・実行中enrichは変更していない。
+全860 unit testと`git diff --check`成功。全test時の一時領域容量警告なし。

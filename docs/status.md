@@ -15,7 +15,9 @@
   既存project siteのservice再評価にも対応。API確認はAT Protocol describeServer対応サーバーに限定し、
   汎用API・AppView独自APIは候補に残る。実運用checkoutと正本DBへは未適用。
   保存済み7projectと公開2 URLで追加評価し、OAuthデモ1件の実Web確認→確定→temp DB保存・replayを確認。
-  READMEのautolink消失と公開先抽出の語句制限を修正。全858 unit test成功。
+  READMEのautolink消失と公開先抽出の語句制限を修正。全860 unit test成功。
+  XRPC確認をorigin root URLに限定し、パス付き候補を保持したまま不正な確認・旧観測の再適用を防止。
+  Colibri独自APIの実応答は調査で確認したが、汎用APIの自動確定は未実装。
   [検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - 2026-09-09に修正コード（`8f131c7`まで）を実運用checkoutへ反映し、Webを通常reloadした。

@@ -804,9 +804,24 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
             )
 
 
+def protocol_service_endpoint(url: str) -> str:
+    """XRPC is rooted at the origin; it cannot verify a service under a path."""
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme not in {'http', 'https'} or not parsed.netloc
+            or parsed.path not in {'', '/'} or parsed.query or parsed.fragment
+            or parsed.username is not None or parsed.password is not None):
+        return ''
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, '/xrpc/com.atproto.server.describeServer', '', ''))
+
+
 def collect_protocol_service_evidence(url: str, *, probe: Callable[..., dict[str, Any]]) -> dict[str, Any]:
     """Verify an AT Protocol server response; arbitrary JSON/HTTP 200 is insufficient."""
-    endpoint = url.rstrip('/') + '/xrpc/com.atproto.server.describeServer'
+    endpoint = protocol_service_endpoint(url)
+    if not endpoint:
+        return {'endpoint': '', 'protocol': 'com.atproto.server.describeServer',
+                'verified': False, 'status_code': 0, 'fetch_error': '',
+                'reason': 'unsupported_service_url', 'request_count': 0,
+                'did': '', 'available_user_domains': []}
     result = probe(endpoint, timeout=15.0)
     try:
         payload = json.loads(str(result.get('html') or ''))
@@ -821,7 +836,7 @@ def collect_protocol_service_evidence(url: str, *, probe: Callable[..., dict[str
         and all(isinstance(value, str) and value for value in payload['availableUserDomains'])
     )
     return {'endpoint': endpoint, 'protocol': 'com.atproto.server.describeServer',
-            'verified': valid, 'status_code': result.get('status_code', 0),
+            'verified': valid, 'request_count': 1, 'status_code': result.get('status_code', 0),
             'fetch_error': result.get('fetch_error', ''),
             'did': payload['did'] if valid else '',
             'available_user_domains': payload['availableUserDomains'] if valid else []}

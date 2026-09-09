@@ -430,16 +430,60 @@ class HomepageAdoptionTest(TempRegistryDbTestCase):
             conn.close()
 
     def test_protocol_response_confirms_without_browser_but_generic_json_does_not(self):
+        self.url = 'https://example.com'
         project = self.publication(self.project(confirmed_operation=False), kind='pds')
         response = {'status_code': 200, 'html': '{"did":"did:web:example.com","availableUserDomains":[".example.com"]}'}
         with mock.patch.object(registry, 'probe_service_url', return_value=response):
             bundle, count = self.collect(project, result={'status_code': 200, 'html': 'Code: ' + self.repo})
         self.assertEqual(count, 0)
         self.assertEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+        adopted = copy.deepcopy(project)
+        registry.apply_homepage_role_evidence(adopted, bundle)
+        self.assertIn(self.url, adopted['service_urls'])
         for value in ('{}', '{"status":"ok"}', '{"did":"fake","availableUserDomains":[]}'):
             with mock.patch.object(registry, 'probe_service_url', return_value={'status_code': 200, 'html': value}):
                 bundle, _ = self.collect(project)
             self.assertNotEqual(bundle.records[-1].value['action'], 'CONFIRM_SERVICE')
+
+    def test_protocol_path_candidate_survives_without_probe_or_saved_confirmation(self):
+        project = self.publication(self.project(confirmed_operation=False), kind='api')
+        registry.apply_publication_candidates(project)
+        with mock.patch.object(registry, 'probe_service_url') as probe:
+            bundle, count = self.collect(project)
+        probe.assert_not_called()
+        self.assertEqual(count, 0)
+        facts = bundle.records[-1].value['facts']
+        self.assertEqual(facts['protocol_evidence']['reason'], 'unsupported_service_url')
+        self.assertEqual(bundle.collector_results[-1].request_count, 0)
+        # Reproduce the old saved observation claiming a nested XRPC endpoint worked.
+        facts['protocol_surface'] = True
+        facts['protocol_evidence'] = {'verified': True, 'endpoint': self.url + '/xrpc/com.atproto.server.describeServer'}
+        registry.apply_homepage_role_evidence(project, bundle)
+        self.assertIn(self.url, project['service_url_candidates'])
+        self.assertNotIn(self.url, project['service_urls'])
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            saved = project_record.fetch_project(conn, project['project_key'])
+            self.assertIn(self.url, saved['service_url_candidates'])
+            self.assertNotIn(self.url, saved['service_urls'])
+        finally:
+            conn.close()
+
+    def test_protocol_checker_does_not_strip_url_scope_or_accept_redirect(self):
+        for url in ('https://example.com/api', 'https://example.com/?tenant=one',
+                    'https://example.com/#api', 'https://user@example.com'):
+            with self.subTest(url=url), mock.patch.object(registry, 'probe_service_url') as probe:
+                result = registry.service_core.collect_protocol_service_evidence(url, probe=probe)
+                self.assertFalse(result['verified'])
+                probe.assert_not_called()
+        response = {'status_code': 200, 'final_url': 'https://other.example/xrpc/com.atproto.server.describeServer',
+                    'html': '{"did":"did:web:other.example","availableUserDomains":[]}'}
+        probe = mock.Mock(return_value=response)
+        result = registry.service_core.collect_protocol_service_evidence('https://example.com/', probe=probe)
+        self.assertFalse(result['verified'])
+        probe.assert_called_once_with('https://example.com/xrpc/com.atproto.server.describeServer', timeout=15.0)
 
     def test_publication_path_survives_save_and_replay_without_confirm(self):
         project = self.publication(self.project(confirmed_operation=False), applicability='uncertain')

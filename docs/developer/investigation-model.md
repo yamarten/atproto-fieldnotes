@@ -141,8 +141,10 @@ browser結果は`repository_homepage_browser` laneへ保存し、未採用URLの
 
 最初のnavigationの到達URLがstatic取得の到達URLとexact一致し、表示状態が観測済みで、表示されたauth/public
 surfaceの材料があり、当該pageにnetwork/console errorがなく、上記の帰属根拠がある場合だけWeb serviceを採用します。
-`service_kind=api|pds`ではbrowserを要求せず、exact base URL配下の`/xrpc/com.atproto.server.describeServer`を
+`service_kind=api|pds`ではbrowserを要求せず、origin root URLだけを対象に`/xrpc/com.atproto.server.describeServer`を
 15秒timeoutで取得します。HTTP 200、同じendpointへの到達、DIDとavailableUserDomainsを持つ応答を要求します。
+パス・query・fragment付きの公開先は、このXRPC確認では未対応としてrequestせず候補に残します。
+originへ丸めて別の公開先を確定しません。保存済み結果の適用時も対象URLと確認endpointの対応を再確認します。
 plain text rootの独立行`Code: URL` / `Source code: URL`も、対象repoへの逆参照として使えます。
 応答は`repository_homepage_protocol` laneとassessmentに保存します。汎用API・AppView独自APIの確認は未対応で、
 HTTP 200・一般JSON・AppViewという自己紹介だけでは確定せずcandidateに残します。
