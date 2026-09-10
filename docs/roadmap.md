@@ -5,7 +5,8 @@
 [investigation-model.md](developer/investigation-model.md)、
 [project-attribution-and-trust.md](developer/project-attribution-and-trust.md)を正本とします。
 
-この文書には、未完了の作業、着手条件、実施順だけを置きます。完了した比較結果や移行記録は
+この文書には、未完了の作業、着手条件、合意済みの優先関係だけを置きます。検討事項の列挙順は実施順とは扱いません。
+完了した比較結果や移行記録は
 `status.md`または`docs/notes/`へ置き、現行仕様をroadmapへ重複させません。
 
 ## 目的の優先順位
@@ -28,34 +29,94 @@
 
 ## 現在の段階
 
-identifier保存、Website / service / project site、repository帰属、promotion signal、信頼判定とmergeの
-責務分離は一段落しました。次は判断モデルを広げるより、実運用の結果から精度、review効率、維持費を
-確認する段階です。
+帰属・根拠・手動判断の責務分離を維持し、蓄積した情報が候補選定と予備調査の負担軽減にどう結びつくかを
+検討します。詳細な実装・適用状況は[status](status.md)を参照します。
 
-一時的なマージ推奨reviewはproject境界の候補処理と専用導線の撤去まで完了しました。identifier処遇は
-同じ画面で完了しておらず、名称markerだけで一括補正もしません。再開する場合は、実在・利用時期・公式な
-移行根拠を得たidentifierだけを通常の編集経路で扱います。次はJetstreamでのLexicon publication観測の
-bounded比較、信頼・帰属policyの追加接続、開発文書の用語整理の順で進めます。
+## レビューで挙がった検討事項
 
-## 直近の作業
+### 並行する処理から蓄積した情報と判断を守る
+
+定期調査と手動操作を併用しても、後から保存された古い調査結果によって、人の訂正や別の調査成果を失わないことが
+目的です。単一利用者でも別processの同時実行はあり、重複runの実績があります。ただし、更新消失や中断原因は
+未確認であり、重複実行そのものと分けて扱います。
+
+検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。
+必要な場合も、人のreviewや通常調査を妨げずに守る範囲を決め、排他方式や全write pathの変更を先に固定しません。
+根拠は[handoffの運用上の注意](thread-handoff.md#運用上の注意)、現行契約は
+[background-jobs.md](developer/background-jobs.md)を参照します。
+
+### 現行仕様を判断の前提として読めるようにする
+
+文書から現在できることと残件を把握でき、過去の制約を前提に実装や調査をやり直さずに済む状態を目指します。
+schema versionの相反する記述や、status内の適用済み・適用待ち・過去の検証記録の混在は、この判断を難しくします。
+
+現行契約と実運用への適用範囲を照合し、現在snapshot、未適用の実装、設計案、履歴の境界を明確にすることが論点です。
+文書全体の整形や用語の統一とは分け、現状の誤認につながる箇所を対象にします。
+
+### 既存評価を深掘り候補の選定と省力化の判断につなげる
+
+目的は、有用な候補を得るまでのどこに取りこぼしや手戻りがあり、どの改善が日常の予備調査を楽にするかを判断することです。
+評価の実施自体や計測項目を増やすことを目的にしません。
+
+[source評価](notes/source-lane-evaluation-2026-08-30.md)は固有候補、取得範囲、処理時間等から情報源の価値を、
+[manual gold・紹介実績分析](developer/investigation-model.md#replay-と-benchmark)は判断規則と紹介候補の捕捉を、
+[Lexicon sidecar評価](developer/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)は追加観測の固有価値と
+継続・拡張の必要性を既に扱っています。これらを重複して評価するのではなく、結果が次の問いまで答えているかを確認します。
+
+- 発見・調査した情報が、利用者の深掘り判断に必要な時点で、選べる候補と判断材料として届いたか。
+- 候補を判断するまでに、人がどの確認・訂正・再調査を行う必要があり、何が負担として残ったか。
+- 選べなかった有用候補の原因が、情報源、取込条件、帰属判断、説明不足、推薦順位のどこにあるか。
+
+既存記録で答えられる範囲と不足する範囲を分け、改善判断に必要な情報が欠ける場合だけ追加観測を検討します。
+紹介済みprojectの現在値から当時の発見・推薦を推定せず、未紹介projectも負例にしません。新しい評価期間や
+記録方法はここでは固定せず、追加の記録負担に見合う判断が得られるかも含めて検討します。
+
+### 説明に残す内容と時間経過の扱い
+
+蓄積した情報を後から再利用するには、現在使えるかだけでなく、そのprojectが何を提供し、どのような技術的特徴を
+持っていたかが分かる必要があります。撤退したserviceの説明を「アクセス不可」だけに置き換えると、調査で得た
+理解を失います。一方、提供終了や機能変更を反映しなければ、過去の説明を現在の事実として読ませてしまいます。
+
+更新頻度や編集UIを決める前に、次の内容を検討・議論します。
+
+- summary・tagline等に何を書くか。用途・機能・技術的特徴の説明と、時点を伴う稼働・公開状態をどう分担させるか。
+- 提供終了、主要機能の変化、再活発化があったとき、過去の説明を何のために残し、現在の説明へ何を反映するか。
+  当時は正しかった説明と、もともと誤っていた記述の訂正を区別する。
+- 一時的な取得失敗、古い成功根拠、確認済みの提供終了をどう表すか。取得できないことだけで既知の用途や特徴を消さず、
+  過去の成功も現在の稼働保証にはしない。
+- 人の編集意図を保ちながら、事実の変化に伴う見直しをどう判断するか。また、`stable`や`out_of_scope`の
+  追跡方針を見直す条件を、説明文の更新やserviceの状態とどう区別するか。
+
+提供終了しても説明を残したいservice、機能が変わったproject、一時的に取得できない対象を例に、読み手に何が
+伝わるべきかを合意します。その内容に基づいて更新規則・保存形・訂正手段の不足を判断し、設計途中の議論は
+`docs/notes/`、確定した説明・時間情報の契約は`project-record.md` / `investigation-model.md`等へ反映します。
 
 ## 条件付き短期候補
 
+### 発見経路と未確定候補の入口
+
+目的は、人が調べたい対象を発見した時点で保持でき、帰属が未確定でも次の確認へ進めることです。情報を拾うことと
+正しいprojectへ確定採用することは必要な根拠が異なるため、誤採用を防ぐ条件が発見自体を失わせていないかが論点です。
+
+有用な対象が既存sourceで拾えない、取込条件で落ちる、または帰属判断の材料が足りず止まる実例がある場合に検討します。
+path付きURLや独立したfork等は確認候補であり、取りこぼしを断定しません。既存sourceによる補完も踏まえて、
+追加で拾える価値と増えるnoiseを比較します。
+
+手動の`Add seed`は確認済みroleの採用として意味を保ちます。未確定の発見を入れる必要があれば、操作の説明で
+足りるか、入口を分けるべきかを判断します。candidate repositoryの内容を確認する必要がある場合も、人の判断材料と
+確定profileへの採用を分け、どの不明点を解消したいかに応じて扱いを決めます。
+
 ### Repository analysisの残件
 
-policy v14の通常sample確認は完了しています。拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、
+拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、
 package配布repositoryの役割、fixture Lexiconのdefine扱いは、通常運用で頻度または実害を確認した場合だけ再開します。
 再開時も固定sampleの追加を既定にせず、個別repositoryや既知NSIDに依存しない一般規則を優先します。
 
 ### 信頼・帰属policyの追加接続
 
-判断原則と現行接続範囲は
-[project-attribution-and-trust.md](developer/project-attribution-and-trust.md)を正本とします。schema version 3、
-`project_repository`、`project_site`、bounded page-to-repository policyは接続済みです。
-2026-09-10に、採用済みrepositoryのREADME公開先宣言からcandidateを保存し、帰属・逆参照・service実在確認・
-guardと競合検査が揃うserviceを通常enrichで自動採用する範囲を実運用へ反映しました。
-旧edgeの履歴退避と反映後確認も完了しており、この範囲のタスクは終了です。
-候補追加と自動確定は別条件で、根拠不足の公開先やパス付きURLを候補から一律除外しません。
+判断原則は[project-attribution-and-trust.md](developer/project-attribution-and-trust.md)、現行接続範囲は
+[status](status.md)を参照します。接続済みのREADME公開先宣言によるservice採用について追加評価する場合は、
+既存の検証結果で判断できない実データ上の効果や残る手動確認を対象にします。全件の再解析・再採用は別判断です。
 
 以下は未完了の別課題です。
 
@@ -89,6 +150,9 @@ candidate生成、信頼判定結果、identifier採用、block / defer、operat
 transitionやmergeへ押し込みません。Basker / InfoEnon、DateSky / Nomareなどの実例をreviewし、表示・検索・
 紹介文で必要になった時だけ保存形を追加します。
 
+旧マージ推奨reviewで未完了のidentifier処遇を再開する場合も、名称markerだけで一括補正せず、実在・利用時期・
+公式な移行根拠を確認できたidentifierを通常の編集経路で扱います。
+
 ### service URLと補助pageの分類
 
 confirmed service URLへの過剰昇格が実測された場合、次を組み合わせて改善します。
@@ -101,16 +165,18 @@ confirmed service URLへの過剰昇格が実測された場合、次を組み�
 
 path名だけで恒久的に分類せず、認証後の利用可能性は匿名browser検証から分離します。
 
-### atproto寄与度
+### atproto寄与度と紹介候補の順位
 
-promotion queueの並びで不足が確認された場合、service利用可否とは別に次を改善します。
+紹介候補には、使えるserviceと、atprotoの設計や実装を知るうえで価値のある対象の両方を含めたいという目的があります。
+現在の寄与度はNSIDやschema等の根拠を重視するため、独自schemaを持つ付加機能と、独自NSIDを持たずprotocolを深く
+扱うlibrary / toolの価値を十分に表せない可能性があります。情報を確認しやすい対象だけが上位に並ばないかが論点です。
 
-- `incidental`を確定できるevidence
-- docs / READMEを材料にした主要機能と追加機能の区別
-- LLMによる曖昧caseの補助分類
-- owned surface、独自data model、technical interestの区別
+検討するのは、protocol evidenceの確認度、主要機能に占める利用深度、technical interest、service利用可否を
+それぞれ何の判断に使うか、また一つの推薦順位にまとめるとき何を優先するかです。未確認候補を見せる時点や
+`draft`等の紹介準備の充足との関係も、利用者がどのような候補を選びたいかに照らして整理します。
 
-紹介済みprojectと`sync-introduced`の結果をread-only分析し、未紹介projectを自動的な負例にはしません。
+既存の紹介実績分析やmanual goldから不足を確認し、実際の候補選定とずれる場合に評価規則・閾値の変更を検討します。
+有用候補の捕捉と不要なreviewの増減を併せて判断し、fieldの改名・追加を先に決めません。未紹介projectを負例にしません。
 
 ### 調査pipeline
 
@@ -140,8 +206,8 @@ promotion queueの並びで不足が確認された場合、service利用可否�
 
 ### 開発文書の用語整理
 
-機能削減と主要な保存形整理が一段落したため、`docs/developer/`の未定義語、対象が曖昧な`run` / `review`、
-古い説明を実例単位で整理します。全面翻訳や一括置換は行わず、コード、DB、enumと対応する用語は維持します。
+`docs/developer/`の未定義語、対象が曖昧な`run` / `review`を実例単位で整理します。現行仕様の不整合の確認とは
+区別し、全面翻訳や一括置換は行わず、コード、DB、enumと対応する用語は維持します。
 
 ## 条件付き長期候補
 
@@ -220,12 +286,14 @@ project-level triageやrepository解析のgold labelとはそのまま扱いま�
 
 手法を先にLoRAへ固定せず、採用判断と再現可能な評価corpusを作れることを着手条件とします。
 
-### editorial qualityと編集
+### 編集支援の拡張
+
+人が根拠と編集意図を確かめながら、蓄積した説明を少ない手戻りで訂正できるようにすることが目的です。
+「説明に残す内容と時間経過の扱い」の議論を踏まえ、既存の編集手段では負担が大きい場合に、次を検討します。
 
 - project単位の自然言語による訂正指示と、現在のprofile / evidenceをLLMへ渡す更新案生成
-- name、tagline、summary、featuresの差分preview
-- 採用した訂正指示と生成元の来歴保存
-- Webからのtagline、summary、website、app links編集をfield単位preview、revision check、根拠表示付きで追加
+- name、tagline、summary、features、website、app links等への編集範囲拡張とfield単位の差分preview
+- 採用した訂正指示と生成元の来歴保存、revision check、根拠表示
 
 同種の個別訂正を通常triage promptの恒久ruleへ増やしません。identifier、relation、decisionの正本を
 直接JSON編集させず、既存review actionまたは専用mutationを使います。
@@ -236,20 +304,22 @@ project-level triageやrepository解析のgold labelとはそのまま扱いま�
 - sync / reviewのcheckpoint再開
 - server再起動後のprocess job一覧・event復元
 - bounded evidenceで不足が確認された場合の表示上限調整
-- 実例で必要になった場合のrole単位identifier decision
+- 同じ識別子の一つのroleを否定する操作で、残したい別roleまで失わないためのrole単位identifier decision。
+  別々に採否判断したい実例がある場合に、操作の説明・表示で足りるか、保存契約を変える必要があるか検討する
 - 詳細の前後移動とtab jumpに限ったkeyboard shortcut
 - read-onlyのrelation / ownership graph
 
 PWA / local app化は、Firefox中心の運用でもstandalone表示や軽いreload耐性に実利があり、manifestと単純な
 service workerで済む場合だけ再評価します。オフラインDB操作、build step、複雑なcache invalidationは導入しません。
 
-### 保存量、migration、process排他
+### 保存量とmigration
 
 - DB allocated bytesが10 GiBを超えるかmaintenance競合が実測された場合のhistory DB分離
 - job履歴がcheckpointだけでは不足した場合のevent永続化とretention policy
 - 次のschema改版が具体化した時のincremental migration runner
 - 複数DBまたは同一schema内のdata policy世代差が必要になった場合のDB-level policy marker
-- 次の破壊的maintenance追加時、または重複writer事故が再現した場合のprocess間lock / preflight
+
+process間writer競合の論点は「並行する処理から蓄積した情報と判断を守る」に分けます。
 
 DB-level policy markerを追加する場合は、open時に無条件付与せず、markerなしDBのread-only audit合格後に
 additive updateします。現状の単一正本DBとoffline maintenanceのためだけには追加しません。
