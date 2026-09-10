@@ -16,7 +16,7 @@
 - GitHub/Bluesky search の request budget
 - failure source 以外を継続し、run 後も「証拠なし」と「未実行/失敗」を区別
 
-403 は retry せず forbidden として扱います。retryable flag は最終 failure の性質であり、必ず次 run を
+GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenです。retryable flag は最終 failure の性質であり、必ず次 run を
 自動 scheduling することを意味しません。
 
 ## 調査履歴
@@ -28,7 +28,7 @@
 
 ## Source 別の残件
 
-- GitHub: secondary rate limit と通常 403 の詳細分類、repo contents request の budget 統合
+- GitHub: headerに基づくrate limitと通常403の分類は接続済み。repo contents requestのbudget統合は残件
 - Bluesky: session create/refresh の retry と cursor 打ち切り状態
 - service: follow-up/deep 全体の per-host budget、cache freshness
 - Tangled/PDS: handle/DID/PDS 解決 cache と pagination 上限

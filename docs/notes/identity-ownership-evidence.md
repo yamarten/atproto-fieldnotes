@@ -4,7 +4,11 @@
 > [investigation-model.md](../developer/investigation-model.md)、具体値は
 > [registry-internals.md](../developer/registry-internals.md) を参照してください。
 
-## 現在の保証関係
+このnoteの以下の実装状況・将来目標は初期検討時点の記録です。現行repository roleは
+`project_repository`で、信頼graphによる評価も接続済みです。旧relationを一括改名したものではありません。現行の判断と接続範囲は
+[帰属と信頼](../developer/project-attribution-and-trust.md)と[Registry Internals](../developer/registry-internals.md)を参照してください。
+
+## 初期検討時の保証関係
 
 実装済み:
 

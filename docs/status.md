@@ -49,14 +49,14 @@
   全846 unit test、通常enrich→save→再評価、2実recordのtemp DB補正→最新保存履歴replay→再保存を確認。
   正本DBの補正・運用反映は上記適用記録を参照。[根拠と未完了範囲](notes/homepage-observation-2026-09-08.md#3実例の処遇と迂回採用の修正2026-09-09)を参照。
 
-- repository analysis v15で、README中のドキュメント公開先を本文付きの選択候補へ追加。
+- v16接続前の検証記録: repository analysis v15で、README中のドキュメント公開先を本文付きの選択候補へ追加。
   LLM回答の公開先の文脈区分を必須とし、否定・仮定・第三者・旧公開先・不明・区分欠落を採用しない。
   通常enrichでdocs resource候補へ接続し、project site／serviceは自動確定しない。
   Barazoの保存本文と比較例7ケース×2回では、候補IDだけを返す試行の意味上の誤り5/14に対し文脈区分追加後0/14。
   小規模な調整ケースの再確認であり、一般的な正解率や自動確定の安全性は示していない。
   全841 unit test成功。正本DBへの再解析・書き込みは未実施。
 
-- 通常enrichにhomepageのrole別判断（v3）を接続。既存roleのexact／観測済みredirect先での再利用に対応。
+- v4接続前の検証記録: 通常enrichにhomepageのrole別判断（v3）を接続。既存roleのexact／観測済みredirect先での再利用に対応。
   project site候補化は採用済みrepoのhomepage指定と今回の逆参照を使い、ページの採用済みroleを要求しない。
   serviceは独立したconfirmed運営relationと表示されたsurfaceを要求し、広義のrepo関係やprobe由来の運営推定を転用しない。
   別projectの未採用homepage指定も衝突検査に含め、同じprojectの複数repoはまとめる。
@@ -64,7 +64,8 @@
   project siteの自動確定は未実装。保存観測347 URLの同一DB snapshotでのv2/v3比較は、arrobaとBarazoの2件だけが
   帰属保留からproject site候補へ進んだ。既存role再利用137件、衝突保留20件は維持。独立した運営根拠を持つ観測は0件。
   通常collectorで独立した運営根拠を確定する経路は未接続で、service採用の検証は明示的な運営relationを与えたfixture。
-  新規service自動採用・手動判断削減の実データ上の効果は未立証。全839 unit test成功。正本DBは未変更。
+  当時は新規service自動採用・手動判断削減の実データ上の効果は未立証。全839 unit test成功、検証時の正本DBは未変更。
+  現行のv4接続・実公開先での確認・実運用反映範囲は冒頭を参照。
 
 - browser観測にページ単位の要求／到達URL、control/link表示状態、表示済み材料だけによるsurface特徴を追加。
   リンク先のloginを開始ページ自体の肯定材料へ転用せず、従来のrun全体の稼働判定は維持する。
@@ -76,13 +77,13 @@
   本文・リンク・redirectを保存する。既存serviceのexact URLは従来のstatic判定を維持する。
   新しいLLM role classifierは追加していない。role判断とbrowserへの接続状況は上記を参照。
   path保持、guard、状態の非昇格、保存・replay、通常enrichの取得重複防止をtemp DB / mocked collectorで確認。
-  正本DBへの保存を伴う再調査・書き込みは未実施。
+  この初期検証では正本DBへの保存を伴う再調査は未実施。コードは2026-09-09に実運用へ反映済み。
 
 - page↔repositoryの信頼edgeを現在のrelationから導出し、probe・trust・Explain・shadowへ共通接続。
   同一観測の格下げ、独立sourceの保持、LLM未評価時の保持、失敗時の観測保持に対応。
   URL支持は保存済みverdictではなく現在の起点とrelationで再評価し、relation corroborationも共通採用処理を通す。
-  旧edgeの明示的移行planを追加。正本DBへの書き込み・運用反映は未実施。
-  調査・検証・移行残件は[評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+  旧edgeの明示的移行planと全旧edgeのarchiveを実装し、2026-09-10に実運用反映・退避まで完了。
+  調査・検証・適用記録は[評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
 
 - schema version 3のSQLite registry実装
   - `projects`のscalar、`profile_json`、`state_json`
@@ -177,6 +178,11 @@
     比較可能period数、stickyな`review_due / reason`を保持する。4 valid post-sync period、既レビューpublisherの
     delete/identity変化、明示された非record利用要求で再評価を要求する。新規authority/spaceは指標だが即時gateではない。
     v1/v2 migrationは旧runを証拠として残し、旧countを退避してrebaselineする。raw event、inventory、評価JSON、secretは保存しない
+  - 2026-09-10の実運用DB・設定のread-only監査では、sidecar schema v3、baseline revision 7、旧成功数3件の
+    legacy退避、有効period数0、review_due=falseを確認。日曜05:00 Asia/Tokyoのpresetは有効。
+    2026-09-06 05:00 JSTのrunはcompletedだが、直前の通常sync presetがfailedのため
+    `comparison_status=unavailable / sync_not_completed`であり、比較可能な1期間とは数えていない。
+    この監査は保存済みstateの確認で、初回run前後のregistry不変や現在のWeb表示の再検証ではない。
   - publisher verificationの12件bound外と期限切れ成功は`verification_pending`、実際の最新verification失敗だけを
     `mirror_or_verification_failure`として集計し、未検証backlogを失敗へ数えない
   - 2026-09-05の初期運用評価は10,232 eventをcurrent 9,864 / tombstone 246へ適用し、140 publicationの実検証で
@@ -352,7 +358,7 @@
 - service/repository collectorの方向付き観測、repoのproject帰属、repo→URL直接参照、target roleを分けるread-only shadow comparatorを追加した。review後、GitHub homepageをconfirmed `repository_homepage`として保存し、service候補への静的投影と信頼edgeを分離するproduction codeを実装した。homepage単独では信頼edgeを作らず、confirmed service→repo relationとexact URLが一致する時だけ`repository_homepage_pair`を再構成する。GitHub Searchの`homepage_exact`も、collectorの観測・候補照合と共通信頼policyを分離し、一意なconfirmed serviceと逆向きのconfirmed `source_repository`が揃う場合だけ`trust_policy` adoptionとして既存projectへ取り込む。一方向、candidate / non-current、複数一致はsuggestionに留め、任意のprojectを選ばない。2026-08-21に正本DBの旧424 rowを420 claimへ移行し、旧edge 785本を除去して相互参照edge 80本を77 projectで再構成した。foreign key違反0、integrity `ok`。通常経路の一時移行処理は削除し、過去runのreplayだけに旧EvidenceBundle互換を隔離した。Website自動更新とrelation assessor全体は未実施。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
 - 既存project-level triageに混在する`repository_link_assessments`をread-only監査した。現在proposal 194組は、静的policyまたは直接相互relationで処理できる63、service構成要素roleがなく対象外の85、bounded repo probeが必要な30、現在materialで専用評価可能な16に分かれた。現行`same_project` 177組のうち73組はcurrent service roleがなく、45組は保存入力にbounded target materialがない。project contextを入力せず、一つの方向付きrelationと限定根拠だけを評価するshadow assessor、3 verdictの保存前検査、12件の設計fixtureを追加した。Qwenによる固定corpusではdirect assertion方式が安定したが、実16組では3支持・11根拠不足・2不支持となり、LICENSE linkの誤支持も再現した。reviewでrelationの意味をsourceに限定しない公式`project_repository`へ広げ、docs、仕様、Lexicon、issue、release、licenseを含めること、service以外のproject構成要素からも採用することを合意した。serviceと一般URLを混ぜず、代表documentation、specification、promotion、landing pageを構成要素として扱う`site_url` / `project_site`も独立追加した。shadowのbounded HTML extractorは表示、子icon label、最寄り見出し・block、landmark、repository密度を保持する。正本DB監査では旧`source_repository` relation 9,219行のうちpage→repoは634行だけで、README mention 8,220行とTangled DID→repo 365行が混在していた。productionでは旧relationを一括改名せず除去し、page relationはbounded再収集から再生成する。初期段階ではLLM自動昇格を接続しない。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
 - `project_site`導入用のread-only comparatorとreview済みshadow materializerを追加した。正本DBのWebsite 612件は、confirmed service再利用596、candidate service 1、non-current service 5、別project component衝突1、独立site候補9に分かれた。16件をoperator reviewし、project site 9、service confirm 1、別projectの誤ったservice除去1、non-currentを維持したWebsite解除5に確定した。production codeは`site_url` / `project_site`の保存、runtime view、merge、Web/API表示に対応し、2026-08-25に正本DBへ適用した。適用後はcurrent Website 607件がconfirmed service再利用598またはconfirmed project site 9となり、active site adoption 9、site/service exact重複0、foreign key違反0、integrity `ok`。切替前DBは`data/backups/project-site-20260825T011520+0900/`へ退避した。Website空欄へのrepository homepage 227 URL / 206 projectは初期移行へ含めない。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
-- repository identifier role、relation predicate、runtime view、Web/API表示を`project_repository` / repositoryへ揃え、2026-08-25に正本DBへ適用した。case違いの同一repository 9組10行を統合し、repository identifierはconfirmed 1,236件、candidate 225件の計1,461件になった。意味が混在していた旧`source_repository` relation 9,219行は一括改名せず除去し、現在値を表すdecision metadata 1,219件、profile app link 1,170件、contribution evidenceのrelation cache 1,054件も正規化した。履歴上のLLM入出力snapshotは書き換えていない。旧role・predicate・現在値cacheの残存0、foreign key違反0、integrity `ok`、全702 test成功を確認した。切替前DBは`data/backups/project-repository-20260825T022442+0900/survey.db`へ退避した。旧page→repoから抽出したcanonical 499 claimのbounded再収集は未実施で、初期段階ではLLM自動昇格を接続しない。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
+- repository identifier role、relation predicate、runtime view、Web/API表示を`project_repository` / repositoryへ揃え、2026-08-25に正本DBへ適用した。case違いの同一repository 9組10行を統合し、repository identifierはconfirmed 1,236件、candidate 225件の計1,461件になった。意味が混在していた旧`source_repository` relation 9,219行は一括改名せず除去し、現在値を表すdecision metadata 1,219件、profile app link 1,170件、contribution evidenceのrelation cache 1,054件も正規化した。履歴上のLLM入出力snapshotは書き換えていない。旧role・predicate・現在値cacheの残存0、foreign key違反0、integrity `ok`、全702 test成功を確認した。切替前DBは`data/backups/project-repository-20260825T022442+0900/survey.db`へ退避した。この移行時点では旧page→repoから抽出したcanonical 499 claimのbounded再収集は未実施だった。後続の再収集・14件の適用は次項を参照。初期段階ではLLM自動昇格を接続しない。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
 - 移行前backupの旧page→repo 499 claimを現在の273公開pageからbounded再収集するread-only comparatorを追加した。リンク表示だけでなく取得pageのproject帰属を分け、confirmed component URLそのものからの直接linkだけを自動確定対象にする。component外のTangled共通pageやcomponent配下の商品pageが別projectのrepoを指す実例を確認したため、component配下またはcomponent外のpageは強い表示でもreviewへ留める。2026-08-26のsnapshotはcanonical confirmed relation 46、review 333、除外9、現在未観測104、取得失敗7で、confirmed relationは既存confirmed repository 26、candidate 5、未登録15を支持した。15件のoperator reviewでは外部実装一覧にあるskytip-simpleを除外し、14件を採用した。外部project一覧の文脈をlink内の自己ホスト表示より優先する一般則と、review済み14件をrelation・identifier・operator adoptionへ投影するmaterializerを追加し、2026-08-27に正本DBへ適用した。relation、identifier、decision、operator adoption各14件、project数不変、foreign key違反0、integrity `ok`、Web API表示を確認した。その後、review 334件をpage帰属322件とexact component上のrelation assessment 12件へ分離するread-only corpus exporterを追加した。広義`project_repository`の固定caseはQwenで12/12一致し、実12件×3回では安定支持10、根拠不足1、判定揺れ1だった。`Open source`、`View source`、単独`Source`、GitHub・Tangled・Codeberg・GitLabの`Repository`表示をprovider-neutralなshadow静的規則へ追加し、provider名だけ、`Fair source`、mirrorは自動支持しない。LLM自動昇格は未接続。結果は[collector relation policyのshadow比較](notes/collector-relation-policy-shadow-comparison.md)を参照
 - page→repositoryのbounded静的policyをproduction collectorへ接続した。serviceとproject siteは同じpolicyを使い、exact current componentから静的に支持できるlinkだけをconfirmed `project_repository` relationにし、repository identifierはcandidateへ投影する。Tangledを含むprovider-neutralな明示表示、無標単独link、外部一覧・dependency・funding、component外pageを固定testで確認した。旧anchor text・owner・project名一致によるrepository candidate化とconfirmは停止し、auto-confirmはrepository側の逆向きtrust pathを引き続き要求する。LLM relation assessorは未接続、正本DBの一括再収集・書換えも未実施。通常enrichは2,897件、失敗・missing 0件で完了し、832 relation、207 projectを確認した。直接relationから投影したcandidateを最終cleanupが除去する不整合と、依存先の公式Lexicon参照を当該project repositoryとする誤判定を修正し、master rebase後の全720 test成功を確認した。対象3 projectを通常enrichで補正し、bounded relationはconfirmed 39、candidate 793、identifier投影漏れ0、foreign key違反0、integrity `ok`。Web serviceはmasterの新コードでHTTP 200を確認した
 - project state/save境界を`project_record.py`へ分離し、旧`registry.py` symbolは再輸出していない。全423 testと、正本DBのread-only hydrate 100 project / exact lookup 577件のSQL照合を確認

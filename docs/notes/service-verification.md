@@ -15,6 +15,7 @@ CLI option名は`--lane`ですが、意味は確認範囲と実行コストが�
 - browser: optional Playwright または fake driver で JS 描画後の anonymous surface を確認
 - `verify-service -p KEY --lane static|deep|browser [--execute]`
 - review queue からの明示 browser 実行
+- Web project detailからの保存済みservice URLの選択・匿名確認・結果表示も後続実装で接続済み（[現行Webガイド](../user/web-ui.md)）。
 
 browser方式は同一 site の login/signup link を最大2件追い、app shell、runtime/network error、
 login surface 到達を記録します。認証情報入力、登録、投稿は行いません。
@@ -32,7 +33,6 @@ login surface 到達を記録します。認証情報入力、登録、投稿は
 - 定期 browser verification と履歴比較
 - browser 結果からの自動 dead/private 降格
 - CAPTCHA、OAuth、invite code、地域制限を越えた確認
-- Web UI の専用実行・結果表示
 
 ## 未検証
 

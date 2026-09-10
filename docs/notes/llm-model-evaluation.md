@@ -1,6 +1,6 @@
 # Qwen / Gemma model比較
 
-> 2026-07-25から2026-07-26に行った比較の作業記録です。再利用する評価手順は
+> 2026-07-25〜26のmodel比較と、2026-08-31のrepository解析契約見直しの作業記録です。再利用する評価手順は
 > [LLM model評価](../developer/llm-model-evaluation.md)、categoryの意味は
 > [project-record.md](../developer/project-record.md#category)を正本とします。
 
@@ -26,6 +26,9 @@ Qwen維持はrepository解析内容が十分良いという判断ではなく、
 Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補として確認しました。品質は少数caseで保ちましたが、
 処理が遅く、自動切替ではTTL中のQwenを退避させました。明示loadに依存せずQwenと同居できるruntime構成が得られる
 までは試用へ進めません。
+
+旧契約の上記棄却数と、後続のclosed candidate契約での結果は区別します。
+後続評価は「2026-08-31 closed candidate契約」節、現行policyと残件は[status](../status.md)を参照してください。
 
 ## 比較した構成
 

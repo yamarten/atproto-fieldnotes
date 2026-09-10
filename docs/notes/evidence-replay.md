@@ -3,7 +3,10 @@
 > 作業用・検討用文書です。現行仕様の正本ではありません。契約は
 > [investigation-model.md](../developer/investigation-model.md) を参照してください。
 
-## 現在地
+以下は初期6 case corpus時点の記録です。現在はoperator correction 3 caseを加えた9 caseで、
+現行のcorpusとsanitize契約は[Investigation Model](../developer/investigation-model.md#replay-と-benchmark)を参照してください。
+
+## 初期検討時の現在地
 
 実装済み:
 

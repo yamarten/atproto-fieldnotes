@@ -149,11 +149,14 @@ projectの現行構成要素と、構成要素候補であるNSID、service URL�
 - `kind`: identifierの種類
 - `value`: 正規化済みの値
 - `role`: project内での役割
-- `classification`: `confirmed | candidate | derived | heuristic`
+- `classification`: 通常生成するidentifierは`confirmed | candidate`。relation/evidenceの`derived | heuristic`とは区別する
 - `is_primary`: 代表値か
 - `provider`: GitHub、Tangled、Blueskyなどのprovider hint
 - `metadata_json`: repo観測やaccount detailなど、そのidentifier固有の補助情報
 - `observed_at`: 観測時刻
+
+DB列にclassificationのenum制約はなく、runtime codecは既存rowの無変更roundtripを優先します。
+したがって通常生成の2値契約は、任意の既存rowを保存時に2値へ制限・補正する保証ではありません。
 
 主なroleと意味:
 

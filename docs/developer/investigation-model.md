@@ -23,7 +23,7 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
    - 観測と source の完了状態を JSON-compatible な bundle に正規化する
    - relation は subject、predicate、object、locator、抽出方法を持つ
 3. integration
-   - evidence から既存 project field を変更できる唯一の層
+   - evidenceから既存project fieldへの適用を担う責務。実装は`integration.py`だけでなく`registry.py`の適用関数と、project copyからpatchを返すcollector adapterにも分かれる
    - project 文脈、manual guard、複数 source の corroboration を適用する
 4. evaluation
    - ownership、atproto寄与度、service status などを rule-based に計算する
@@ -32,7 +32,7 @@ heuristic と request 上限は [registry-internals.md](registry-internals.md)�
    - `projects` を現在状態の materialized record として保存する
    - 同じ SQLite に input/output snapshot、評価、bundle、source 状態も保存する
 
-公開command入口は`bin/project-registry`と`bin/project-registry-web`です。調査CLIの`main()`は`project_registry_core.cli`、調査orchestrationの既存実装は`project_registry_core.registry`にあります。旧top-level Python APIと`scripts/`配下のCLI wrapperは削除済みです。
+公開command入口は`bin/project-registry`と`bin/project-registry-web`です。調査CLIの`main()`は`project_registry_core.cli`、1 projectの調査orchestrationは`project_registry_core.enrichment_pipeline`、保存・checkpointは`project_registry_core.application.enrichment`にあります。collector適用とfinalizeの補助処理は`project_registry_core.registry`にも残ります。旧top-level Python APIと`scripts/`配下のCLI wrapperは削除済みです。
 
 Web detailはproject単位のinvestigation run summaryをSQLite rowから一覧し、選択したrunだけbundleをdecodeします。run detailのevidence/failureは上限付きで、raw HTMLやREADME全文を保存・表示しません。Replayは保存runを現行ruleで要求時に再評価するread-only処理で、結果をDBへ永続化しません。
 

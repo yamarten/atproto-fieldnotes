@@ -23,7 +23,7 @@ registry schema version 3の内部仕様と運用メモです。利用手順は[
 
 ## データの持ち方
 
-現行DBは`registry_meta.schema_version=2`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
+現行DBは`registry_meta.schema_version=3`を必須とします。`projects`はscalar、`profile_json`、`state_json`を持ち、identifier、relation、operator decisionはそれぞれ`project_identifiers`、`project_relations`、`project_decisions`へ保存します。merge済みsource keyは`project_key_aliases`、調査履歴は`investigation_runs` / `collector_runs`です。
 
 人間向け`profile_json.core.notes`と機械生成履歴の`state_json.evidence.system_notes`はwrite pathで分離します。current DBは分離済みであり、project読込時にnote本文をpattern分類する処理は持ちません。`collector_runs`も`result_json`にcountを持つ現行projectionだけを読み、旧`records_json` / `failures_json`本文へのfallbackは行いません。
 
@@ -36,7 +36,7 @@ workerは既存のschema version 3 DBを必須とし、missing pathや未初期�
 
 旧schemaは通常起動で自動変換せず、現行CLIにも旧DBを開く・変換する入口はありません。
 
-`repair-db`はv2 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
+`repair-db`はschema v3 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 調査履歴は自動削除しません。`prune-investigation-history`の既定policyは完了から90日以内の全runとprojectごとの最新3 runを保持し、それ以外の`investigation_runs`と対応する`collector_runs`を手動削除対象にします。dry-runが既定です。通常のDELETE後にできたSQLite free pageは再利用されますがfile sizeは縮まないため、実容量を縮める場合だけ別processを停止して`--execute --vacuum`を実行します。operator decisionとcurrent project stateはこのprune対象に含めません。
 
@@ -190,7 +190,8 @@ runtime viewはnormalized rowの無変更roundtripを維持します。candidate
 exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
 NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
 collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、
-安全判定を通らない一致はsuggestionに留めます。`handle` / `did`を含むexact lookupはnormalized indexだけを使います。
+安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはnormalized indexだけを使います。`did`と`service_url_candidate`はindexで候補を絞った後、
+候補projectをhydrateしてcurrent payloadとの一致を確認します。
 flat runtime viewは一部のroleを表現できないため、そこからnormalized rowの不足を推定しません。保存時はruntime markerに保持した元rowとの差分だけを反映し、無変更roundtripを維持します。
 
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。`profile_json.app.links`はproject保存時にcanonical identifierとconfirmed resource recordから純粋に再構築します。既存payloadへの一度きり再構築は適用済みです。
@@ -275,10 +276,10 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - 長時間処理のrequest/event/resultと協調的cancellation契約
 - `project_registry_core/commands/`
   - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
-  - review queueとstalled/ignore/out-of-scopeのinteractive入出力も`commands/review.py`が担当する
+  - review/promotion queueのinteractive入出力は`commands/queue_interaction.py`、stalled/ignore/out-of-scopeは`commands/review.py`が担当する
 - `project_registry_web/`
   - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
-  - API handlerはapplication serviceだけを呼び、hydrated project dictを直接保存しない
+  - 主要mutation/queryはapplication serviceを呼び、hydrated project dictを直接保存しない。補助read pathの直接依存は下記を参照
   - `jobs.py`は別process worker、直近event、停止・再開を管理する
   - JSON responseはDB schema versionと独立した`api_version: 2`を持つ
   - presenterがidentifier family、relation summary、investigation summary、project revisionを生成する
@@ -288,7 +289,7 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
 - `project_registry_core/registry.py`
   - collector/evaluation orchestration、finalize、merge/queue policyと未分離の補助処理
-  - `collect -> apply -> finalize/evaluate -> save` の orchestration
+  - collector適用とfinalize/evaluationの補助処理。1 projectの実行順序は`enrichment_pipeline.py`、transaction・保存・checkpointは`application/enrichment.py`が担当する
   - `argparse.Namespace`を受け取る`cmd_*`は残っていない
 
 現行の依存方向は完全分離後の目標図ではありません。確認済みの境界は次の通りです。
@@ -301,8 +302,8 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
   `registry.py`または`project_record.py`への直接依存が残る
 - `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
   identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
-- 残るqueue、enrich orchestrationの分割はroadmapで追跡し、
-  現時点でapplication/databaseが巨大moduleから独立済みとは扱わない
+- queue policyとcollector適用の補助処理は`registry.py`に残る。1 projectのenrich本体の分離は完了しているが、
+  `enrichment_pipeline.py`やapplication serviceが`registry.py`から独立済みとは扱わない
 
 この現行責務mapは一時的な移動計画ではなく内部仕様のsnapshotなので、本書を正本とします。同内容を
 `docs/notes/`へ複製せず、将来の分割候補だけをroadmapで追跡します。
@@ -320,7 +321,7 @@ flat runtime viewは一部のroleを表現できないため、そこからnorma
 未接続:
 
 - OAuth `include:` permission set の再帰解決
-- Web UI の run/evidence inspection
+- 無制限のevidence全文表示。上限付きrun/evidence inspectionとread-only replayは接続済み
 
 現行の制約:
 
@@ -593,7 +594,7 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 未接続:
 
 - deep investigation の結果を既存 DB 全体へ反映する運用。既存 row の洗い替えには再 `enrich` が必要
-- browser 認証後の機能確認と Web UI 専用表示
+- browser認証後の機能確認。保存済みservice URLを選ぶWeb project detailの匿名確認と結果表示は接続済み
 
 static probe、deep page、browser 検証の役割分担と次段階の検討は
 [service-verification.md](../notes/service-verification.md) を参照してください。
@@ -763,8 +764,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 ### 7. 昇格判定
 
 - `apply_promotion_state()` の blocker は次です
-  - seed が無い
-  - confirmed website/repository/lexicon が無い
+  - confirmed service/repository/lexicon が無い
   - `service_status` が `unknown`
   - `summary` が無い
   - `tagline` が無い
@@ -1039,16 +1039,17 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 
 本線扱いにする条件:
 
-- seed が1件以上ある
 - 確認済み識別子が1件以上ある
-  - `website_url`
+  - `service_urls`
   - confirmed repository URL
   - resolved lexicon
 - `service_status != unknown`
 - `summary` と `tagline` がある
 - `features` が3件以上ある
 - `category` がある
+- `llm_source`がある
 
+Website単独やseedの有無はこのゲートの条件にしません。
 満たさなければ `draft` のまま残し、`promotion_blockers` に理由を残します。
 
 ## 保存レイヤの方針
@@ -1077,8 +1078,9 @@ collection inventory import は project 粒度で集約しますが、lexicon �
 
 ## 確認済みと候補の区別
 
-- confirmed
+- 表示用の代表公開URL（identifierのconfirmed判定とは独立）
   - `website_url`
+- confirmed
   - `service_urls`
   - `project_repository_urls`
   - `confirmed_nsids`

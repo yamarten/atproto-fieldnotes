@@ -148,9 +148,10 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 - server再起動後のprocess job一覧復元。enrich checkpoint発見は接続済み
 - job event履歴の永続化
 
-未検証:
+実外部sourceの確認範囲:
 
-- Web workerから実際の外部sync sourceへ接続するend-to-end実行
+- 2026-07-11にworkerからGitHub、Semble、Bluesky introduced、collection inventory、当時のTangled/UFOsへbounded dry-runを実行した。[確認記録](../notes/registry-maintenance-real-source-smoke-2026-07-11.md)を参照
+- これは当時の外部契約の確認であり、後続のTangled/Jetstream置換や長時間運用まで検証済みとは扱わない
 
 将来の設計目標:
 

@@ -5,7 +5,7 @@
 
 ## 現在地
 
-- このタスクの「採用済みrepositoryから公開先候補を得て、根拠が揃うserviceを通常enrichで自動採用する」
+- 「採用済みrepositoryから公開先候補を得て、根拠が揃うserviceを通常enrichで自動採用する」
   範囲は2026-09-10に実運用反映・旧edge退避・反映後確認まで完了。詳細は[status](status.md)を参照。
   汎用API・AppView独自API、primary project_site自動採用、広いpolicy接続は[roadmap](roadmap.md)の別課題。
 - 火曜の全tracking state run `enrich-20260908T111813Z-a27f8067`は4,731件完了・1件失敗で終了。
@@ -20,38 +20,14 @@
   全旧edgeの永続archiveとplan・結果・検証reportは
   `data/migration-archives/repository-trust-20260910T0225Z/`。archiveを一時ファイルとして削除しない。
 
-- schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
-  bounded page-to-repository policyは正本DBへ適用済みです。広いrole-aware trust自動採用、LLM relation assessor、
-  自動mergeは意図的にproductionへ接続していません。
-- promotion queueはservice確認度、technical interest、manual priorityを分け、DNSとschema recordで確認できる
-  Lexicon publisherも独立signalとして優先します。
-- Qwen / Gemma比較後も既定modelと定期jobはQwenを維持します。repository解析は本文付きevidence blockと
-  closed candidateへ変更し、policy v14でclaim可能なmetadataをdescriptionだけに限定し、README由来NSIDへ
-  reverse-domain authority条件を追加しました。未調整のhash抽出6件は機械検査6/6有効で、新しい悪化は確認
-  しませんでした。package配布repositoryの役割、fixture Lexicon、拡張子付きfile名のNSID候補化は残件ですが、
-  追加規則を増やさず観測対象に留めます。正本DBへの再解析・書き込みは行っていません。
-- 外部sourceとbrowser laneを評価し、Sembleは維持、TangledはUFOsからJetstream v2 snapshotへ置換、
-  anonymous browser verificationはWeb project detailへ接続しました。一時的な`source_observations`と未接続の
-  Tangled timeline / community / bot adapterは撤去しました。根拠は
-  [評価記録](notes/source-lane-evaluation-2026-08-30.md)を参照してください。
-- 一時的な`Review > Merge Recommendations`はproject境界の候補処理を完了し、正本DBの現行推奨と未解除の
-  専用保留が0件であることを確認して撤去しました。元設計にあったidentifierごとの処遇選択は実装されて
-  いなかったため、その完了までは主張しません。撤去時のread-only監査結果は
-  [マージ規則shadow比較](notes/project-merge-policy-shadow-comparison.md)へ閉じ、正本DBは変更していません。
-  通常のMerge review、`separate_project`判断、merge lineage、shadow comparator / policyは維持しています。
-- app record exportは、明示manifestで選んだprojectへUTC `createdAt`を付け、PDS処理へ渡せる裸の
-  `community.lexicon.app.entry` record配列を生成するところまで接続しました。scope未確定keyは別allowlistが
-  必要で、全件成功時だけ成果物を書きます。正本DBとPDSへは書きません。
-
 ## 次に必要な作業
 
-1. post-sync週次評価変更commitをmasterへ統合し、全testとOperations導線を再確認する。
-2. 統合後の実運用`data/lexicon-publication-catalog.db`をschema version 3へ移行する。migrationは旧runを残し、誤って
-   蓄積した3成功とsticky理由をlegacy countへ退避して現catalog revisionでrebaselineする。必要なら理由付き
-   `rebaseline-evaluation`を明示実行する。
-3. Operationsで`lexicon_publication_weekly`（毎週日曜05:00 Asia/Tokyo）が有効であることと、土曜23:00の通常sync後に
-   比較可能判定されることを確認する。最初の実runは正本registryの前後不変も確認する。
-4. 開発文書の用語整理を行う。
+1. Lexicon週次観測で最初の比較可能なrunが成立した時、通常sync成功後48時間以内、segment完了、fresh inventory成功、
+   同じAsia/Tokyo週を重複加算しないことを確認する。統合・sidecar v3移行・日曜05:00の有効化は完了済み。
+   保存済み最初のrunは通常sync失敗による比較不能で、有効period数は0。確認snapshotは[status](status.md)を参照。
+   初回run前後の正本registry不変は保存済みstateだけでは確認できていないため、次の実runで前後確認する。
+
+文書整備と開発文書の用語整理は[roadmap](roadmap.md)の別論点として扱います。
 
 このlocal Web UIへのreview linkは`http://127.0.0.1:8888/?project=...`を使います。
 

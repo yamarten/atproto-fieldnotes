@@ -138,7 +138,7 @@ project帰属を支持する逆向きedgeにはしません。直接参照、解
 | 対象 | この文書で指すもの | node kindと実装状態 | 登録プロジェクトとの関係の例 |
 | --- | --- | --- | --- |
 | service surface | serviceを利用・操作するために到達するURL上の面。serviceという機能のまとまりやdeployment/instance全体とは区別する | `service_url`。値はsurfaceのURL | projectが提供する代表的surfaceは`service`。第三者client、tenant、mirror、補助pageは別relationまたは観測になり得る |
-| project site | projectを説明・提示する代表的なWeb presence。documentation、specification、promotion、landing pageを含み得るが、利用・操作するservice surfaceと個別の補助pageは含めない | `site_url`。project identifierには実装済み、現行trust graphには未接続 | projectを代表する場合は`project_site`。通常はcurrent primaryを一系統とし、明示的alternateと履歴を別扱いにする |
+| project site | projectを説明・提示する代表的なWeb presence。documentation、specification、promotion、landing pageを含み得るが、利用・操作するservice surfaceと個別の補助pageは含めない | identifier kindは`site_url`。現行graphは独立した`site_url` nodeを持たず、website型relationのpage endpointを`service_url` nodeへ投影する。専用node/roleの接続とは区別する | projectを代表する場合は`project_site`。通常はcurrent primaryを一系統とし、明示的alternateと履歴を別扱いにする |
 | repository | source code、schema、文書、issue、release、build定義などを版管理する外部resource | `repo_url`。値はrepositoryを参照するURL | projectが公式に利用する場合は`project_repository`。dependency、fork、mirror、単なる参照は別relation |
 | ATProto account | DIDを安定した識別子、handleを変更可能な現在名として持つ論理的なaccount | account全体のnodeは置かず、`did`と`handle`を別nodeとして保持する | project account、developer、organization、publisher、service operatorなど。roleはidentity解決だけから決めない |
 | domain | DNS名。service host、handle、NSID authority、`did:web` identityなど複数の文脈に現れる | `domain` | 文脈に応じてservice host、handle、authority、中継点などになる。domainというkindだけではproject roleは決まらない |
@@ -179,7 +179,7 @@ project roleは「外部対象がこのproject recordにとって何であるか
 - publisher DID
 - service operator
 
-専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleと保存契約は[Project Record Schema](project-record.md)、未実装のrole拡張は[roadmap](../roadmap.md#信頼帰属の次期設計)で管理します。
+専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleと保存契約は[Project Record Schema](project-record.md)、未実装のrole拡張は[roadmap](../roadmap.md#信頼帰属policyの追加接続)で管理します。
 
 ### 3. 関連情報
 
@@ -207,7 +207,7 @@ identifier kindだけでは分類を決めません。同じrepo URLでも、pro
 
 `confirmed` identifierは、そのrole付き主張が採用可能かつ信頼できると判断された状態です。confirmedの意味を構成要素への所属だけへ狭めません。confirmedな補助actorも存在できますが、それだけでproject構成要素または信頼判定の起点になるわけではなく、用途はroleごとの規則で決めます。
 
-roleは「何を主張しているか」、candidate/confirmedは「その主張を採用・信頼したか」です。`derived` / `heuristic`は導出方法やprovenanceであり、identifierの採用状態ではありません。schema version 3の現行`project_identifiers`は`confirmed | candidate`だけを保存し、導出値やheuristicをproject identifierへ混ぜない契約へ移行済みです。relation側のclassificationとprovenanceは別途整理します。
+roleは「何を主張しているか」、candidate/confirmedは「その主張を採用・信頼したか」です。`derived` / `heuristic`は導出方法やprovenanceであり、identifierの採用状態ではありません。schema version 3の通常生成は`confirmed | candidate`に限定し、導出値やheuristicをproject identifierへ混ぜない契約です。ただしDBのenum制約や既存rowの一律補正はなく、保存実装の保証範囲は[Project Record Schema](project-record.md)を参照してください。relation側のclassificationとprovenanceは別途整理します。
 
 candidate生成を厳密にする目的は、project境界とreview品質を保ち、後段で誤用される対象を減らすことです。信頼評価上の主要な安全条件は、candidate、graph-only node、導出識別子を信頼判定の起点にしないことと、candidate自身の自己申告だけで自動採用を成立させないことです。
 
@@ -541,4 +541,4 @@ Lexicon schema recordの公開は`did_publishes_schema`として分けます。m
 
 現行のnode kind、保存edge、auto-confirm、collection ownership、audit/repair処理は[Registry Internals](registry-internals.md#trust-graph)を正本とします。identifier、relation、decision、採用来歴、former、non-production、transition、noiseの保存契約は[Project Record Schema](project-record.md)を参照してください。
 
-この判断モデルに対して未実装または未接続のpredicate、信頼判定規則、collector変更、project merge、project間の時間・派生関係、native appやprovider accountなどのnode拡張は[roadmap](../roadmap.md#信頼帰属の次期設計)で管理します。比較結果と設計過程は必要なものだけ`docs/notes/`に残し、現行仕様として参照しません。
+この判断モデルに対して未実装または未接続のpredicate、信頼判定規則、collector変更、project merge、project間の時間・派生関係、native appやprovider accountなどのnode拡張は[roadmap](../roadmap.md)で管理します。比較結果と設計過程は必要なものだけ`docs/notes/`に残し、現行仕様として参照しません。
