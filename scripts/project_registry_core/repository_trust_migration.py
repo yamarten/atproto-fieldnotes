@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from . import identifiers, repository_trust, repo_urls, runtime_view, storage, trust_graph
+from . import identifiers, repository_trust, repo_urls, storage, trust_graph
 
 
 def _digest(value: Any) -> str:
@@ -130,12 +130,11 @@ def build_plan(conn: sqlite3.Connection) -> dict[str, Any]:
     return content
 
 
-def _archive_unresolved(conn: sqlite3.Connection, plan: dict[str, Any], path: Path) -> dict[str, Any]:
-    """Write the original observations before removing only inactive unresolved edges."""
+def _archive_legacy(conn: sqlite3.Connection, plan: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Archive all legacy observations and historical judgments, without reactivating them."""
     grouped: dict[str, set[tuple[str, ...]]] = {}
     for entry in plan['entries']:
-        if entry['category'] == 'needs_review':
-            grouped.setdefault(entry['project_key'], set()).add(trust_graph.edge_key(entry['edge']))
+        grouped.setdefault(entry['project_key'], set()).add(trust_graph.edge_key(entry['edge']))
     archived = []
     updates = []
     for key, keys in grouped.items():
@@ -143,12 +142,12 @@ def _archive_unresolved(conn: sqlite3.Connection, plan: dict[str, Any], path: Pa
         graph = state['evidence']['trust_graph']
         raw_edges = [edge for edge in graph.get('edges', []) if trust_graph.edge_key(edge) in keys]
         if {trust_graph.edge_key(edge) for edge in raw_edges} != keys:
-            raise ValueError('Unresolved observations do not match the stored graph; no edges archived.')
+            raise ValueError('Legacy observations do not match the stored graph; no edges archived.')
         archived.append({'project_key': key, 'edges': raw_edges})
         graph['edges'] = [edge for edge in graph.get('edges', []) if trust_graph.edge_key(edge) not in keys]
         updates.append((json.dumps(state, ensure_ascii=False), key))
-    archive = {'version': 1, 'kind': 'unresolved_repository_trust_observations',
-               'plan_digest': plan['plan_digest'], 'projects': archived}
+    archive = {'version': 1, 'kind': 'legacy_repository_trust_observations',
+               'plan_digest': plan['plan_digest'], 'reviewed_plan': plan, 'projects': archived}
     archive['archive_digest'] = _digest(archive)
     path = path.expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -167,41 +166,19 @@ def _archive_unresolved(conn: sqlite3.Connection, plan: dict[str, Any], path: Pa
 
 def apply_plan(conn: sqlite3.Connection, plan: dict[str, Any], *, archive_path: Path | None = None) -> dict[str, Any]:
     """Call within a write transaction. Reject a changed DB or an edited plan."""
+    if archive_path is None:
+        raise ValueError('Execution requires an archive path; historical judgments are never restored into live relations.')
     current = build_plan(conn)
     if current != plan:
         raise ValueError("Migration plan no longer matches the database; regenerate and review the dry-run.")
-    if archive_path is not None:
-        return _archive_unresolved(conn, plan, archive_path)
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for entry in plan["entries"]:
-        if entry["category"] != "needs_review":
-            grouped.setdefault(entry["project_key"], []).append(entry)
-    removed = 0
-    for key, entries in grouped.items():
-        state = json.loads(conn.execute("SELECT state_json FROM projects WHERE project_key=?", (key,)).fetchone()[0])
-        graph = state["evidence"]["trust_graph"]
-        keys = {trust_graph.edge_key(item["edge"]) for item in entries}
-        retained = [edge for edge in graph.get("edges", []) if trust_graph.edge_key(edge) not in keys]
-        removed += len(graph.get("edges", [])) - len(retained)
-        graph["edges"] = retained
-        for entry in entries:
-            if "relation" not in entry:
-                continue
-            relation_row = runtime_view.relation_rows({"relation_evidence": [entry["relation"]]})[0]
-            ordinal = conn.execute("SELECT COALESCE(MAX(ordinal), -1)+1 FROM project_relations WHERE project_key=?", (key,)).fetchone()[0]
-            item = relation_row
-            conn.execute("INSERT INTO project_relations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-                key, ordinal, item["subject_type"], item["subject_value"], item["predicate"], item["object_type"],
-                item["object_value"], item["classification"], item["source"], item["locator"], item["method"],
-                json.dumps(item["context"], ensure_ascii=False), item["observed_at"],
-            ))
-        conn.execute("UPDATE projects SET state_json=? WHERE project_key=?", (json.dumps(state, ensure_ascii=False), key))
-    return {"removed_legacy_edges": removed, "pending_review": plan["counts"].get("needs_review", 0)}
+    return _archive_legacy(conn, plan, archive_path)
 
 
 def run(path: Path, *, plan: dict[str, Any] | None = None, archive_path: Path | None = None) -> dict[str, Any]:
     if archive_path is not None and plan is None:
         raise ValueError('Archiving requires a reviewed execution plan.')
+    if plan is not None and archive_path is None:
+        raise ValueError('Execution requires an archive path.')
     conn = sqlite3.connect(path.resolve().as_uri() + ("?mode=rw" if plan is not None else "?mode=ro"), uri=True)
     conn.row_factory = sqlite3.Row
     try:

@@ -122,12 +122,12 @@ resource identityが変わるserviceに対して妥当かは未検証です。�
   移行照合ではREADME出典の`owner/repo`形式と完全URL形式を同一視します。完全一致する出典を優先し、
   別repositoryや別methodをまとめません。現在のrelationのclassificationを維持します。
   `migrate-repository-trust`のdry-runはcurrent relation、復元可能なLLM判断、要reviewに分類します。
-  review済みplanの実行時にDBの再照合を行い、説明できるedgeだけを除去し、復元可能な判断をrelationへ保存します。
-  要reviewのedgeは既定では保存したまま残ります。
-  `--execute-plan <plan.json> --archive-unresolved <archive.json>`を指定すると、要review分だけを原文のまま
-  archiveへ保存・fsync・再読込確認した後、保存graphから除去します。このmodeではrelationの復元や他edgeの
-  整理を行わず、現在の判定用graphは変わりません。archiveは新規fileを必須とし、上書きを拒否します。
-  project key、旧観測の全field・重複、plan digest、archive digestを保存します。archiveを通常判定へ読み込む
+  `--execute-plan <plan.json> --archive <archive.json>`でDBを再照合し、旧page↔repo edge全体を原文のまま
+  archiveへ保存・fsync・再読込確認した後、保存graphから除去します。relationの復元は行わず、現在の
+  relationと対象外edgeを維持するため判定用graphは変わりません。新規archiveを必須とし、上書きを拒否します。
+  project key、旧観測の全field・重複、分類付きplan、過去判断の理由・入力pair、plan digest、archive digestを
+  保存します。`reconstructable_judgment`は過去判断の記録が復元可能という分類で、現役relationへ戻す指示ではありません。
+  archiveを通常判定へ読み込む
   経路はありません。書込み失敗はDB変更前に停止し、DB側のrollback時には退避fileが残る場合があります。
   fileの存在だけで適用済みと判断せず、実行結果と再dry-runで確認します。
 

@@ -113,7 +113,9 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
         repository_trust.record_observation(project, known)
         llm = edge(source='llm', method='llm_same_project')
         unknown = edge(source='legacy', method='html_link')
-        project['trust_graph'] = {'edges': [known, llm, unknown]}
+        unrelated = {**edge(), 'object': {'kind': 'service_url', 'value': 'https://other.example.com'},
+                     'predicate': 'same_site_link'}
+        project['trust_graph'] = {'edges': [known, llm, unknown, unrelated]}
         pair = {'service_url': SERVICE, 'repo_url': REPO}
         project['llm_source'] = {'generated_at': llm['observed_at'], 'evidence': {'repository_link_candidates': [pair]}}
         project['llm_output'] = {'repository_link_assessments': [{**pair, 'relationship': 'same_project'}]}
@@ -123,9 +125,9 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
             # Unknown fields and duplicate observations must survive archival verbatim.
             state = json.loads(conn.execute('SELECT state_json FROM projects').fetchone()[0])
-            originals = [e for e in state['evidence']['trust_graph']['edges'] if e['source'] == 'legacy']
-            originals[0]['legacy_extra'] = {'original': True}
-            state['evidence']['trust_graph']['edges'].append(copy.deepcopy(originals[0]))
+            originals = [e for e in state['evidence']['trust_graph']['edges'] if repository_trust.is_repository_edge(e)]
+            originals[-1]['legacy_extra'] = {'original': True}
+            state['evidence']['trust_graph']['edges'].append(copy.deepcopy(originals[-1]))
             conn.execute('UPDATE projects SET state_json=?', (json.dumps(state),))
             conn.commit()
             before = project_record.fetch_project(conn, project['project_key'])
@@ -136,18 +138,21 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
             conn.execute('BEGIN IMMEDIATE')
             result = repository_trust_migration.apply_plan(conn, plan, archive_path=archive_path)
             conn.commit()
-            self.assertEqual(result['archived_legacy_edges'], 2)
+            self.assertEqual(result['archived_legacy_edges'], 4)
             self.assertEqual(result['restored_relations'], 0)
             archive = json.loads(archive_path.read_text())
-            self.assertEqual(archive['projects'], [{'project_key': project['project_key'], 'edges': originals * 2}])
+            self.assertEqual(archive['projects'], [{'project_key': project['project_key'], 'edges': originals + [originals[-1]]}])
+            self.assertEqual(archive['reviewed_plan'], plan)
+            restored = next(e['relation'] for e in archive['reviewed_plan']['entries'] if 'relation' in e)
+            self.assertEqual(restored['context']['input_pair'], pair)
             digest = archive.pop('archive_digest')
             self.assertEqual(digest, repository_trust_migration._digest(archive))
             after = project_record.fetch_project(conn, project['project_key'])
             self.assertEqual(trust_graph.graph(before), trust_graph.graph(after))
             self.assertEqual(list(conn.execute('SELECT * FROM project_relations')), relations_before)
             self.assertEqual(list(conn.execute('SELECT * FROM project_identifiers')), identifiers_before)
-            self.assertEqual(repository_trust_migration.build_plan(conn)['counts'],
-                             {'current_relation': 1, 'reconstructable_judgment': 1})
+            self.assertEqual(repository_trust_migration.build_plan(conn)['counts'], {})
+            self.assertEqual(trust_graph.stored_graph(after)['edges'], [unrelated])
         finally:
             conn.close()
 
@@ -235,9 +240,9 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
             self.assertEqual(matched['current_edge']['classification'], 'candidate')
             before = list(conn.execute('SELECT * FROM project_relations'))
             conn.execute('BEGIN IMMEDIATE')
-            result = repository_trust_migration.apply_plan(conn, plan)
+            result = repository_trust_migration.apply_plan(conn, plan, archive_path=Path(self.tempdir.name) / 'archive.json')
             conn.commit()
-            self.assertEqual(result, {'removed_legacy_edges': 1, 'pending_review': 2})
+            self.assertEqual(result['archived_legacy_edges'], 3)
             self.assertEqual(list(conn.execute('SELECT * FROM project_relations')), before)
         finally:
             conn.close()
@@ -271,7 +276,7 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_dry_run_classifies_and_apply_preserves_unresolved_and_identifiers(self):
+    def test_dry_run_classifies_and_apply_requires_archive_and_preserves_identifiers(self):
         project = self.make_project("proj:migration", "service_url", SERVICE)
         repository_trust.record_observation(project, edge(classification="candidate"))
         llm = edge(source=f"llm_repository_relationship:{SERVICE}", method="llm_same_project")
@@ -290,16 +295,21 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
             self.assertEqual(conn.total_changes, before)
             self.assertEqual(plan["counts"], {"current_relation": 1, "reconstructable_judgment": 1, "needs_review": 1})
             conn.execute("BEGIN IMMEDIATE")
-            result = repository_trust_migration.apply_plan(conn, plan)
-            conn.commit()
-            self.assertEqual(result, {"removed_legacy_edges": 2, "pending_review": 1})
-            self.assertEqual(list(conn.execute("SELECT * FROM project_identifiers")), identifiers)
-            state = json.loads(conn.execute("SELECT state_json FROM projects").fetchone()[0])
-            self.assertEqual(len(state["evidence"]["trust_graph"]["edges"]), 1)
-            remaining = repository_trust_migration.build_plan(conn)
-            self.assertEqual(remaining["counts"], {"needs_review": 1})
             with self.assertRaises(ValueError):
                 repository_trust_migration.apply_plan(conn, plan)
+            self.assertEqual(conn.total_changes, before)
+            path = Path(self.tempdir.name) / 'archive.json'
+            result = repository_trust_migration.apply_plan(conn, plan, archive_path=path)
+            conn.commit()
+            self.assertEqual(result['archived_legacy_edges'], 3)
+            self.assertEqual(result['restored_relations'], 0)
+            self.assertEqual(list(conn.execute("SELECT * FROM project_identifiers")), identifiers)
+            state = json.loads(conn.execute("SELECT state_json FROM projects").fetchone()[0])
+            self.assertEqual(len(state["evidence"]["trust_graph"]["edges"]), 0)
+            remaining = repository_trust_migration.build_plan(conn)
+            self.assertEqual(remaining["counts"], {})
+            with self.assertRaises(ValueError):
+                repository_trust_migration.apply_plan(conn, plan, archive_path=path)
         finally:
             conn.close()
 

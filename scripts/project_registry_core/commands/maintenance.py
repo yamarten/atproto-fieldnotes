@@ -64,10 +64,12 @@ def cmd_migrate_repository_trust(args: argparse.Namespace) -> int:
     from .. import repository_trust_migration
     plan = json.loads(Path(args.execute_plan).read_text(encoding="utf-8")) if args.execute_plan else None
     output = Path(args.output).expanduser()
-    archive = Path(args.archive_unresolved).expanduser() if args.archive_unresolved else None
+    archive = Path(args.archive).expanduser() if args.archive else None
+    if args.execute_plan and archive is None:
+        raise ValueError('--execute-plan requires --archive')
     if archive is not None:
         if not args.execute_plan:
-            raise ValueError('--archive-unresolved requires --execute-plan')
+            raise ValueError('--archive requires --execute-plan')
         if archive.resolve() in {output.resolve(), Path(args.execute_plan).expanduser().resolve(),
                                  Path(args.db_path).expanduser().resolve()}:
             raise ValueError('Archive must differ from the database, reviewed plan and execution output paths')

@@ -11,6 +11,8 @@ page↔repositoryの保存edgeは現在のrelationと別に強いclassification�
 独立したHTML/README/LLM観測もrelationに保存します。account/NSID policyの拡張は行っていません。
 この記録の初回検証時は正本DBへの移行・運用反映は未実施でした。導出コードはその後実運用へ反映済みで、
 旧保存edgeの正本DB移行は未実施です。直近の再評価は末尾の2026-09-10追記を参照してください。
+最終方針は、過去判断を現役relationへ復元せず、旧edge全体と判断記録を履歴へ退避するものです。
+以下の復元実験・退避単独modeは検討履歴であり、現行の実行方法は末尾「全旧edge退避への統一」を参照してください。
 
 実例はlexrpc（`proj:229e919decf3`）の`https://lexrpc.readthedocs.io`から
 `https://github.com/bluesky-social/atproto`への関係です。current relationはcandidateなのに、
@@ -170,3 +172,23 @@ related / uncertainとの明示的矛盾0だった。未評価49件を否定と�
 比較結果は`.tmp/relation-restoration-impact.json`、最新判断の照合は
 `.tmp/relation-restoration-latest-review.json`。DB操作は複製だけで、外部通信・LLM実行は0。
 この追記では通常コードを変更しておらず、全unit testは前回865件成功から再実行していない。
+
+### 全旧edge退避への統一
+
+ユーザーが復元可能分も含む履歴退避を承認したため、旧page↔repo edge全体の退避に統一した。
+`migrate-repository-trust --db-path <db> --output <plan.json>`で分類付き計画を生成し、
+`--execute-plan <plan.json> --archive <new archive.json> --output <result.json>`で実行する。
+実行には新規archiveが必須。未解決分だけのflagと、現役relationへ復元する実行経路は撤去した。
+過去判断のinput pair・理由・時刻・出典runを含む計画全体と、保存edgeの原文をarchiveへ残す。
+既に現在relationで説明できるedgeも退避に含めるため、削除した原文はすべて追跡できる。
+
+公開CLIを使い、正本の複製DBで全11,489本の退避を検証した。
+内訳は現在relation 8,083本、判断記録を復元できる190本、未解決3,216本。
+archive内の原文・計画は保存内容と完全一致、再dry-runの残件0、現役relationへの復元0。
+全4,722 projectの判定用graph、およびrelation・登録URL・採用判断・調査履歴の全行hashは前後一致した。
+foreign key違反0、integrity `ok`。複製DBは削除済み。全865 unit test、補完のzsh構文検査、diff check成功。
+
+検証結果は`.tmp/legacy-complete-verification.json`、確認用archiveは`.tmp/legacy-complete-archive-reviewed.json`。
+旧edge整理の実装・検証に残件はなく、正本への実行と実行後確認が未完了。
+実行時には稼働中writerを止め、backup後の新しい計画を照合し、永続archiveへ保存する。
+この検証ではmaster統合・正本DB書込み・enrich停止を行っていない。
