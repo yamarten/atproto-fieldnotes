@@ -188,7 +188,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL field利用数と保存invariant違反 | anomalyと例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
-| `migrate-repository-trust` | 旧ページ・repository信頼根拠をrelationへ整理する計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json>`。未解決分は保持 |
+| `migrate-repository-trust` | 旧ページ・repository信頼根拠の整理計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json>`。`--archive-unresolved <退避.json>`併用時は未解決分の退避だけ |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
 | `cleanup-workspace-temp` | `.tmp`内の古いSQLite複製とWAL/SHM | 削除候補、容量、保持件数のJSON | `--execute` |
@@ -197,6 +197,15 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-source-config` | 独自multi-tenant suffixと既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
 
 正本DBを変更する保守系コマンドはbackupを作り、Web UI、worker、`enrich`、別のCLIを止めてからdry-runとexecuteを分けて実行してください。`--vacuum`は書き込みtransaction後の別処理で、失敗しても先行する書き換えや削除はrollbackされません。
+
+`migrate-repository-trust`の通常実行は、現在の関係で説明できる旧根拠を整理し、復元できる保存済み判断を
+関係として登録します。未解決分は保持します。`--archive-unresolved`を併用すると、未解決分の退避だけを
+行い、判断の復元は行いません。退避対象は現在の判定に使われていないため、この退避で判定は変わりません。
+
+退避先は`data/migration-archives/`など永続保存する場所を選び、既存ファイルやDB・計画・結果の出力先とは
+別のパスを指定します。元データの保存を確認してからDB側を除去し、既存の退避ファイルは上書きしません。
+失敗時に退避ファイルだけが残る場合があるため、ファイルの存在だけで完了と判断しないでください。
+退避後に通常の整理も行う場合は、DBが変わっているため新しい計画を生成して確認します。
 
 `cleanup-workspace-temp`は正本DBを開かず、workspaceの`.tmp`だけを再帰的に調べます。既定では各SQLite本体とsidecar一式のうち最新更新から24時間以上経過したものをdry-run表示し、`--execute`で削除します。sidecarの一つでも新しければ同じDB一式を保持し、JSON、ログ、review文書、symlinkは対象にしません。作業終了直後の複製も削除する場合は、他processが使用していないことを確認して`--older-than-hours 0 --execute`を使います。全unit testのwrapperは`.tmp`が5GiBを超えるとこのコマンドを案内します。
 

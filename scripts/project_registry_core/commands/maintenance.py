@@ -64,12 +64,19 @@ def cmd_migrate_repository_trust(args: argparse.Namespace) -> int:
     from .. import repository_trust_migration
     plan = json.loads(Path(args.execute_plan).read_text(encoding="utf-8")) if args.execute_plan else None
     output = Path(args.output).expanduser()
+    archive = Path(args.archive_unresolved).expanduser() if args.archive_unresolved else None
+    if archive is not None:
+        if not args.execute_plan:
+            raise ValueError('--archive-unresolved requires --execute-plan')
+        if archive.resolve() in {output.resolve(), Path(args.execute_plan).expanduser().resolve(),
+                                 Path(args.db_path).expanduser().resolve()}:
+            raise ValueError('Archive must differ from the database, reviewed plan and execution output paths')
     if args.execute_plan and output.resolve() == Path(args.execute_plan).resolve():
         raise ValueError("Execution output must differ from the reviewed plan path")
     if output.resolve() == Path(args.db_path).expanduser().resolve():
         raise ValueError("Output must differ from the database path")
     output.parent.mkdir(parents=True, exist_ok=True)
-    report = repository_trust_migration.run(Path(args.db_path), plan=plan)
+    report = repository_trust_migration.run(Path(args.db_path), plan=plan, archive_path=archive)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"output": str(output), **(report.get("counts") or report)}, ensure_ascii=False) if plan else
           json.dumps({"output": str(output), "counts": report["counts"], "plan_digest": report["plan_digest"]}))

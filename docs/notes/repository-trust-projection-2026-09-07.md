@@ -108,9 +108,35 @@ review後、同じDBに`--execute-plan <plan.json> --output <result.json>`で適
 古いHTMLの`GitHub`表示だけのconfirmedを再び有効なrelationとして復元することはしていない。
 最新本文の省略や別sourceの同じpairだけでは、古い独立観測の復元・失効を断定しない。
 
-未解決分を元データのまま履歴へ退避して保存graphから除くか、graphに保持して追加の復元調査を行うかは
-ユーザーへ確認中。退避・未解決edge削除の処理はまだ実装・実行していない。
+この時点で未解決分の退避か保持をユーザーへ確認した。その後の合意と検証は次節を参照。
 確認用の完全planは`.tmp/legacy-edge-reviewed-plan-20260910.json`、未解決分の全edge一覧は
 `.tmp/legacy-edge-unresolved-20260910.json`、検証結果は`.tmp/legacy-edge-verification-20260910.json`。
 これらは作業用であり、永続archiveとして扱わない。正本は検証中も別writerにより更新されているため、
 実適用時にはwriter停止・backup後に再計画して照合する。
+
+### 未解決分の退避単独mode
+
+ユーザーは判定不変を条件に、未解決分を履歴へ退避して保存graphから除く方針を承認した。
+relation復元は判定入力を増やす処理なので、退避単独modeと分離した。
+`--execute-plan`に`--archive-unresolved <new archive.json>`を併用すると、未解決分だけを退避・除去し、
+説明できる旧edgeや復元可能な判断には触れない。書込みtransaction内でplanを再照合した後、
+原文の追加field・重複を含めて新規fileへ保存し、fsync・再読込検査の成功後だけDBを変更する。
+archiveは通常の判定に読み込まず、後から必要な観測を調べるための記録として扱う。
+
+正本の別時点snapshotは4,722 project、旧edge 11,489本（current relation 8,083、復元可能190、未解決3,216）。
+前節との差はDB更新を挟んだ別snapshotによるもので、このtaskの正本への書込みによる差ではない。
+公開CLIで複製DBのdry-run→退避を実行し、以下を確認した。
+
+- 原文3,216本を退避し、archiveの内容は対象の保存観測と完全一致。relation復元0。
+- 全4,722 projectの`trust_graph.graph()`が前後で完全一致。
+- `project_relations`、`project_identifiers`、`project_identifier_adoptions`、`project_decisions`、
+  `investigation_runs`、`collector_runs`の全行hash一致。
+- 再dry-runに未解決edgeなし。説明可能8,083本と復元可能190本は維持。
+- foreign key違反0、integrity `ok`。複製DBは終了時削除。
+- 原文保存、書込み失敗時のDB不変、上書き拒否、古い計画の拒否をunit testで確認。
+  CLI補完を更新後、全865 unit testとdiff check成功。
+
+結果は`.tmp/legacy-archive-verification.json`、確認用archiveは`.tmp/legacy-unresolved-archive-reviewed.json`。
+これらは検証用。正本DBの永続退避は未実施で、実行時は`data/migration-archives/`等へ新規保存する。
+worktreeの変更をまとめて反映する方針を維持し、master統合・enrich停止・正本DB書込みは行っていない。
+未解決分の退避そのものは判定不変だが、後続のrelation復元の影響まで不変とは主張しない。

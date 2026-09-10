@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from helpers import registry, project_record, TempRegistryDbTestCase
 from project_registry_core import repository_trust, repository_trust_migration, trust_graph
@@ -105,6 +107,97 @@ class RepositoryTrustTest(unittest.TestCase):
 
 
 class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
+    def test_archive_preserves_raw_observations_and_current_graph_without_restoring(self):
+        project = self.make_project('proj:archive', 'service_url', SERVICE)
+        known = edge(classification='candidate')
+        repository_trust.record_observation(project, known)
+        llm = edge(source='llm', method='llm_same_project')
+        unknown = edge(source='legacy', method='html_link')
+        project['trust_graph'] = {'edges': [known, llm, unknown]}
+        pair = {'service_url': SERVICE, 'repo_url': REPO}
+        project['llm_source'] = {'generated_at': llm['observed_at'], 'evidence': {'repository_link_candidates': [pair]}}
+        project['llm_output'] = {'repository_link_assessments': [{**pair, 'relationship': 'same_project'}]}
+        conn = registry.open_db()
+        archive_path = Path(self.tempdir.name) / 'archive.json'
+        try:
+            project_record.save_project(conn, project)
+            # Unknown fields and duplicate observations must survive archival verbatim.
+            state = json.loads(conn.execute('SELECT state_json FROM projects').fetchone()[0])
+            originals = [e for e in state['evidence']['trust_graph']['edges'] if e['source'] == 'legacy']
+            originals[0]['legacy_extra'] = {'original': True}
+            state['evidence']['trust_graph']['edges'].append(copy.deepcopy(originals[0]))
+            conn.execute('UPDATE projects SET state_json=?', (json.dumps(state),))
+            conn.commit()
+            before = project_record.fetch_project(conn, project['project_key'])
+            relations_before = list(conn.execute('SELECT * FROM project_relations'))
+            identifiers_before = list(conn.execute('SELECT * FROM project_identifiers'))
+            plan = repository_trust_migration.build_plan(conn)
+            self.assertEqual(plan['counts'], {'current_relation': 1, 'reconstructable_judgment': 1, 'needs_review': 1})
+            conn.execute('BEGIN IMMEDIATE')
+            result = repository_trust_migration.apply_plan(conn, plan, archive_path=archive_path)
+            conn.commit()
+            self.assertEqual(result['archived_legacy_edges'], 2)
+            self.assertEqual(result['restored_relations'], 0)
+            archive = json.loads(archive_path.read_text())
+            self.assertEqual(archive['projects'], [{'project_key': project['project_key'], 'edges': originals * 2}])
+            digest = archive.pop('archive_digest')
+            self.assertEqual(digest, repository_trust_migration._digest(archive))
+            after = project_record.fetch_project(conn, project['project_key'])
+            self.assertEqual(trust_graph.graph(before), trust_graph.graph(after))
+            self.assertEqual(list(conn.execute('SELECT * FROM project_relations')), relations_before)
+            self.assertEqual(list(conn.execute('SELECT * FROM project_identifiers')), identifiers_before)
+            self.assertEqual(repository_trust_migration.build_plan(conn)['counts'],
+                             {'current_relation': 1, 'reconstructable_judgment': 1})
+        finally:
+            conn.close()
+
+    def test_archive_write_failure_leaves_database_unchanged(self):
+        project = self.make_project('proj:archive-error', 'service_url', SERVICE)
+        project['trust_graph'] = {'edges': [edge(source='legacy')]}
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            plan = repository_trust_migration.build_plan(conn)
+            before = conn.execute('SELECT state_json FROM projects').fetchone()[0]
+            path = Path(self.tempdir.name) / 'archive.json'
+            conn.execute('BEGIN IMMEDIATE')
+            with mock.patch.object(repository_trust_migration.os, 'fsync', side_effect=OSError('disk error')):
+                with self.assertRaises(OSError):
+                    repository_trust_migration.apply_plan(conn, plan, archive_path=path)
+            conn.rollback()
+            self.assertEqual(conn.execute('SELECT state_json FROM projects').fetchone()[0], before)
+            saved = path.read_bytes()
+            conn.execute('BEGIN IMMEDIATE')
+            with self.assertRaises(FileExistsError):
+                repository_trust_migration.apply_plan(conn, plan, archive_path=path)
+            conn.rollback()
+            self.assertEqual(path.read_bytes(), saved)
+            self.assertEqual(conn.execute('SELECT state_json FROM projects').fetchone()[0], before)
+        finally:
+            conn.close()
+
+    def test_archive_rejects_stale_plan_before_writing_file(self):
+        project = self.make_project('proj:archive-stale', 'service_url', SERVICE)
+        project['trust_graph'] = {'edges': [edge(source='legacy')]}
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            plan = repository_trust_migration.build_plan(conn)
+            project = project_record.fetch_project(conn, project['project_key'])
+            project['trust_graph']['edges'] = []
+            project_record.save_project(conn, project)
+            conn.commit()
+            path = Path(self.tempdir.name) / 'archive.json'
+            conn.execute('BEGIN IMMEDIATE')
+            with self.assertRaises(ValueError):
+                repository_trust_migration.apply_plan(conn, plan, archive_path=path)
+            conn.rollback()
+            self.assertFalse(path.exists())
+        finally:
+            conn.close()
+
     def test_readme_exact_source_still_wins_when_alias_has_another_locator(self):
         project = self.make_project('proj:readme-exact', 'service_url', SERVICE)
         slug = REPO.removeprefix('https://github.com/')

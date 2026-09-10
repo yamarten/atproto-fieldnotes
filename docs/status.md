@@ -12,7 +12,9 @@
 - 旧page↔repository edge移行でREADME出典名の表記差を照合（worktreeのみ）。
   複製DBで8,248 edge除去・184 relation復元、未解決3,268 edge保持を確認。
   登録URL・採用判断・調査履歴の全行hash不変、DB整合性検査・全862 unit test成功。
-  正本DB移行と未解決分の退避は未実施。[記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+  未解決分だけの退避modeも実装し、別時点の複製DBで3,216本を退避。全4,722 projectの判定用graph、
+  relation・登録URL・採用判断・調査履歴のhash不変を確認。全865 unit test成功。
+  正本DB移行と永続退避は未実施。[記録](notes/repository-trust-projection-2026-09-07.md)を参照。
 
 - README公開先の候補追加と自動confirmを分離（`repository-analysis-v16` / `repository-homepage-role-v4`）。
   未確定の帰属もcandidateとして保持し、公開先のパスを保存する。確定は現在の公開先宣言または独立運営根拠、

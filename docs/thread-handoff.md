@@ -27,9 +27,10 @@
   適用境界と検証内容は[検証記録](notes/service-publication-2026-09-10.md)を参照。
 
 - page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。
-  未解決edgeを履歴へ退避するか、保存graphに保持して復元調査を続けるかユーザーへ確認中。
-  退避処理は未実装。回答後に適用範囲を固め、writer停止・backup後の再計画を行う。
-  正本DBへの移行実行は別途承認が必要。[移行評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+  ユーザーは判定不変を条件に未解決edgeの履歴退避を承認済み。退避単独modeをworktreeで実装・複製検証済み。
+  まとめて反映する際にwriter停止・backup後の再計画と、永続archiveへの退避を行う。
+  relation復元は判定根拠を増やすため退避と分け、判定差分の確認・適用判断が残る。
+  [移行評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
 
 - schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
   bounded page-to-repository policyは正本DBへ適用済みです。広いrole-aware trust自動採用、LLM relation assessor、

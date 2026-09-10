@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -129,11 +130,48 @@ def build_plan(conn: sqlite3.Connection) -> dict[str, Any]:
     return content
 
 
-def apply_plan(conn: sqlite3.Connection, plan: dict[str, Any]) -> dict[str, int]:
+def _archive_unresolved(conn: sqlite3.Connection, plan: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Write the original observations before removing only inactive unresolved edges."""
+    grouped: dict[str, set[tuple[str, ...]]] = {}
+    for entry in plan['entries']:
+        if entry['category'] == 'needs_review':
+            grouped.setdefault(entry['project_key'], set()).add(trust_graph.edge_key(entry['edge']))
+    archived = []
+    updates = []
+    for key, keys in grouped.items():
+        state = json.loads(conn.execute('SELECT state_json FROM projects WHERE project_key=?', (key,)).fetchone()[0])
+        graph = state['evidence']['trust_graph']
+        raw_edges = [edge for edge in graph.get('edges', []) if trust_graph.edge_key(edge) in keys]
+        if {trust_graph.edge_key(edge) for edge in raw_edges} != keys:
+            raise ValueError('Unresolved observations do not match the stored graph; no edges archived.')
+        archived.append({'project_key': key, 'edges': raw_edges})
+        graph['edges'] = [edge for edge in graph.get('edges', []) if trust_graph.edge_key(edge) not in keys]
+        updates.append((json.dumps(state, ensure_ascii=False), key))
+    archive = {'version': 1, 'kind': 'unresolved_repository_trust_observations',
+               'plan_digest': plan['plan_digest'], 'projects': archived}
+    archive['archive_digest'] = _digest(archive)
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Never overwrite an earlier archive. If writing fails, the DB is untouched.
+    with path.open('x', encoding='utf-8') as output:
+        output.write(json.dumps(archive, ensure_ascii=False, indent=2) + '\n')
+        output.flush()
+        os.fsync(output.fileno())
+    if json.loads(path.read_text(encoding='utf-8')) != archive:
+        raise ValueError('Archive verification failed; no edges removed.')
+    conn.executemany('UPDATE projects SET state_json=? WHERE project_key=?', updates)
+    return {'archived_legacy_edges': sum(len(item['edges']) for item in archived),
+            'archive_path': str(path), 'archive_digest': archive['archive_digest'],
+            'restored_relations': 0}
+
+
+def apply_plan(conn: sqlite3.Connection, plan: dict[str, Any], *, archive_path: Path | None = None) -> dict[str, Any]:
     """Call within a write transaction. Reject a changed DB or an edited plan."""
     current = build_plan(conn)
     if current != plan:
         raise ValueError("Migration plan no longer matches the database; regenerate and review the dry-run.")
+    if archive_path is not None:
+        return _archive_unresolved(conn, plan, archive_path)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for entry in plan["entries"]:
         if entry["category"] != "needs_review":
@@ -161,7 +199,9 @@ def apply_plan(conn: sqlite3.Connection, plan: dict[str, Any]) -> dict[str, int]
     return {"removed_legacy_edges": removed, "pending_review": plan["counts"].get("needs_review", 0)}
 
 
-def run(path: Path, *, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+def run(path: Path, *, plan: dict[str, Any] | None = None, archive_path: Path | None = None) -> dict[str, Any]:
+    if archive_path is not None and plan is None:
+        raise ValueError('Archiving requires a reviewed execution plan.')
     conn = sqlite3.connect(path.resolve().as_uri() + ("?mode=rw" if plan is not None else "?mode=ro"), uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -170,7 +210,7 @@ def run(path: Path, *, plan: dict[str, Any] | None = None) -> dict[str, Any]:
             conn.execute("BEGIN")
             return build_plan(conn)
         conn.execute("BEGIN IMMEDIATE")
-        result = apply_plan(conn, plan)
+        result = apply_plan(conn, plan, archive_path=archive_path)
         conn.commit()
         return result
     finally:

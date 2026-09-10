@@ -441,7 +441,8 @@ case "$cmd" in
     _arguments \
       '--db-path[Existing database]:database:_files' \
       '--output[Plan or execution result JSON]:output:_files' \
-      '--execute-plan[Reviewed migration plan]:plan:_files'
+      '--execute-plan[Reviewed migration plan]:plan:_files' \
+      '--archive-unresolved[Archive only unresolved edges without restoring judgments]:new archive:_files'
     ;;
   compare-trust-policy)
     _arguments -S \

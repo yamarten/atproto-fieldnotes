@@ -459,6 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_repository_trust_parser.add_argument("--db-path", required=True)
     migrate_repository_trust_parser.add_argument("--output", required=True, help="Dry-run plan or execution result JSON.")
     migrate_repository_trust_parser.add_argument("--execute-plan", help="Apply this previously reviewed dry-run JSON; unresolved edges remain stored.")
+    migrate_repository_trust_parser.add_argument(
+        "--archive-unresolved", metavar="ARCHIVE_JSON",
+        help="With --execute-plan, archive and remove ONLY unresolved edges; do not restore judgments. Archive must not exist.",
+    )
     migrate_repository_trust_parser.set_defaults(func=maintenance_commands.cmd_migrate_repository_trust)
 
     compare_trust_policy_parser = subparsers.add_parser(
