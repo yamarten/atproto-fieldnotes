@@ -52,6 +52,17 @@ package配布repositoryの役割、fixture Lexiconのdefine扱いは、通常運
 判断原則と現行接続範囲は
 [project-attribution-and-trust.md](developer/project-attribution-and-trust.md)を正本とします。schema version 3、
 `project_repository`、`project_site`、bounded page-to-repository policyは接続済みです。
+2026-09-10に、採用済みrepositoryのREADME公開先宣言からcandidateを保存し、帰属・逆参照・service実在確認・
+guardと競合検査が揃うserviceを通常enrichで自動採用する範囲を実運用へ反映しました。
+旧edgeの履歴退避と反映後確認も完了しており、この範囲のタスクは終了です。
+候補追加と自動確定は別条件で、根拠不足の公開先やパス付きURLを候補から一律除外しません。
+
+以下は未完了の別課題です。
+
+- 汎用API・AppView独自APIの実在確認。endpoint・引数・応答契約の取得方法を決めてから接続する。
+  現在のprotocol確認はorigin rootの標準AT Protocol describeServerに限定する。
+- 代表project_siteの自動採用。serviceとして使えるsurfaceと資料の区別、代表URLの選択条件を検討する。
+- 以下の広いrole-aware policyやLLM relation assessorの接続。今回の限定接続の完了条件へ追加しない。
 
 広いrole-aware trust policyは、次を説明できる範囲だけproductionへ接続します。
 
@@ -67,7 +78,7 @@ candidate生成、信頼判定結果、identifier採用、block / defer、operat
 
 個別に残る設計候補です。
 
-- accepted repositoryから代表documentationやproject siteへ明示的にlinkする場合の帰属条件
+- accepted repositoryからのdocumentation / project site候補について、代表URLとして自動採用するための帰属・役割条件
 - account role、publisher、provider owner、authority domainを構成要素やtrusted anchorと区別する契約
 - collector観測、relation interpretation、semantic relation、検索用inverseの保存分担
 - 同じidentifierの観測更新、新規project登録、既存projectへのidentifier追加、弱いsuggestionの境界監査

@@ -117,3 +117,24 @@ Colibri固有のNSID・software名の分岐は通常heuristicへ追加してい�
 取得記録は`.tmp/appview-api-sources.json`と`.tmp/appview-api-smoke.json`。
 公開仕様・README各1 URLとAPIの2 GETだけで、正本DB・実行中enrichは変更していない。
 全860 unit testと`git diff --check`成功。全test時の一時領域容量警告なし。
+
+
+## 2026-09-10 最終反映・完了
+
+`7c5a1c2`までを正本checkoutへfast-forwardし、全865 unit test成功。
+木曜enrich `enrich-20260909T224730Z-44374263`を承認に従ってキャンセルし、Web停止・writer不在確認後に実行した。
+直前backupは`data/backups/final-publication-rollout-20260910T0225Z/`。
+最新planはcurrent_relation 8,092、reconstructable_judgment 187、needs_review 3,206。
+全11,485本を`data/migration-archives/repository-trust-20260910T0225Z/archive.json`へ退避し、
+relation復元0、再計画残件0。raw edgeとreviewed planの完全一致、全4,722 projectの判定用graph、
+project_relations / project_identifiers / project_identifier_adoptions / project_decisions /
+investigation_runs / collector_runsのhash不変、foreign key違反0、integrity `ok`を確認した。
+同directoryにplan・result・verification JSONを保存している。以前の複製DBとの件数差はenrich進行後のsnapshot差。
+
+Webを反映済みコードで再起動し、health成功、project一覧・詳細と定期設定APIのHTTP 200、job一覧とqueueが空で
+あることを確認。定期設定を維持し、キャンセルrunは再開していない。公開先判定は以後の通常enrichで利用する。
+既存全件の新policy再解析や、新たな本番enrichでの自動採用確認は行っていない。意味上の動作確認は上記の
+実公開先評価とtemp DB保存・replay、通常pipelineのunit testに基づく。
+
+今回の目的は採用済みrepo→公開先候補→根拠の揃うserviceの自動採用までで完了。
+汎用API・AppView独自API、primary project_site自動採用、広いpolicy/LLM接続は未完了の別課題としてroadmapに残す。

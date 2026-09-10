@@ -5,33 +5,20 @@
 
 ## 現在地
 
-- homepage roleの修正コードと3件のoperator補正を2026-09-09に正本へ適用済み。
-  Barazo docs追加、arrobaのservice→project site補正、PDSlsからPDSlss（`proj:efcd972d8d51`）を分離した。
-  一括enrich `enrich-20260908T111813Z-a27f8067`を3595件保存後に正常中断し、同じcheckpointから再開。
-  18件補正のため3775件保存後に再度正常中断し、現ジョブ`job:aff0b905c5c5`で同じcheckpointから再開。新PDSlssは開始時固定の対象一覧に含まれない。ユーザー指示により追加enrichは当面保留。
-  停止前の完了扱い3595件中604件に旧coverage TypeErrorが残る。現在runは完了キーを再実行しないため、
-  対象は`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`。
-  この604件の再enrichもユーザー指示で当面保留。現在runの継続とは分ける。
-  正本・checkpointのbackupは`data/backups/homepage-role-review-20260909T110921Z/`。
-  詳細は[適用記録](notes/homepage-observation-2026-09-08.md)。
-  過去website_only対象を監査し、後続operator reviewのdesertthunder.devは維持、旧trust policyだけで戻った
-  confirmed 18件は補正対象と判定した。17件をproject siteへ整理（既存5、新規12）、BridgeBeats docsは資料へ戻す。
-  temp DBの最新履歴replay・再保存でservice確定の再発0、Website・別service維持を確認し、ユーザー承認後に18件の正本補正を実施済み。
-  直前backupは`data/backups/website-role-restoration-20260909T124023Z/`。BridgeBeatsは既存docs資料を維持。
-  候補URLは旧README抽出・probe経路で再生成される。確定防止と候補整理を混同しない。
-  公開先宣言による候補追加とrole別の自動confirmはworktreeで実装・検証済み（v16 / role-v4）。
-  実運用checkoutへは未反映。都度masterへ統合せずworktreeで変更をまとめる方針。
-  Webの実例確認は完了。汎用API・AppView独自APIの実在確認は未対応。
-  Colibriの独自describeServerは実GETで応答を確認済みだが、通常checkerへの接続はしていない。
-  APIの汎用拡張はendpoint・引数・応答契約の取得方法から扱う。XRPC確認のパス誤連結はworktreeで修正済み。
-  適用境界と検証内容は[検証記録](notes/service-publication-2026-09-10.md)を参照。
-
-- page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。
-  ユーザーは復元可能分も含め、判定を変えずに履歴へ退避する方針を承認済み。
-  全旧edgeを退避する処理へ統一済みで、relationを復元する実行経路は撤去した。
-  まとめて反映する際にwriter停止・backup後の再計画と、永続archiveへの退避を行う。
-  この旧edge整理について残るのは、まとめて反映する際の正本実行と実行後確認。
-  [移行評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+- このタスクの「採用済みrepositoryから公開先候補を得て、根拠が揃うserviceを通常enrichで自動採用する」
+  範囲は2026-09-10に実運用反映・旧edge退避・反映後確認まで完了。詳細は[status](status.md)を参照。
+  汎用API・AppView独自API、primary project_site自動採用、広いpolicy接続は[roadmap](roadmap.md)の別課題。
+- 火曜の全tracking state run `enrich-20260908T111813Z-a27f8067`は4,731件完了・1件失敗で終了。
+  後続の木曜run `enrich-20260909T224730Z-44374263`はユーザー承認で2026-09-10 11:24 JSTにキャンセルし、
+  再開していない。Webは再起動済み、定期設定は維持、queueは空。scheduled presetの`failed`表示は
+  キャンセルしたstepによるもので、同じrunを自動再開する指示ではない。
+  旧coverage失敗604件とPDSlss（`proj:efcd972d8d51`）の追加enrichは引き続き保留。
+  604件の一覧は`data/backups/homepage-role-review-20260909T110921Z/coverage-failures-before-resume.json`。
+  両runで確認されたmerge済み旧project keyの失敗は別の運用課題として残る。
+- 最終反映直前のDB・checkpoint・定期設定backupは
+  `data/backups/final-publication-rollout-20260910T0225Z/`。
+  全旧edgeの永続archiveとplan・結果・検証reportは
+  `data/migration-archives/repository-trust-20260910T0225Z/`。archiveを一時ファイルとして削除しない。
 
 - schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
   bounded page-to-repository policyは正本DBへ適用済みです。広いrole-aware trust自動採用、LLM relation assessor、

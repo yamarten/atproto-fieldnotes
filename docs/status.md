@@ -9,16 +9,18 @@
 
 実装済み:
 
-- 旧page↔repository edgeを、過去判断・理由・入力pairを含めて履歴へ退避する処理を実装（worktreeのみ）。
-  relationへ復元する実行経路は撤去。複製DBで11,489本の退避と残件0を確認し、全4,722 projectの判定用graph、
-  relation・登録URL・採用判断・調査履歴のhash不変、DB整合性検査・全865 unit test成功。
-  正本DBへの実行と永続退避は未実施。[記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+- 2026-09-10に公開先判定と旧page↔repository edge整理を実運用へ反映済み。
+  旧edge 11,485本を過去判断・理由・入力pairとともに永続archiveへ退避し、残件0。
+  relationの復元は行わず、全4,722 projectの判定用graphとrelation・登録URL・採用判断・調査履歴のhash不変、
+  foreign key違反0、integrity `ok`を確認。正本checkoutで全865 unit test成功、再起動後のWeb healthと
+  project一覧・詳細APIのHTTP 200を確認。[記録](notes/repository-trust-projection-2026-09-07.md)を参照。
 
 - README公開先の候補追加と自動confirmを分離（`repository-analysis-v16` / `repository-homepage-role-v4`）。
   未確定の帰属もcandidateとして保持し、公開先のパスを保存する。確定は現在の公開先宣言または独立運営根拠、
   公開先からの対応repoへの逆参照、Web表示または対応protocol応答、guard・競合検査を要求する。
   既存project siteのservice再評価にも対応。API確認はAT Protocol describeServer対応サーバーに限定し、
-  汎用API・AppView独自APIは候補に残る。実運用checkoutと正本DBへは未適用。
+  汎用API・AppView独自APIは候補に残る。2026-09-10に実運用へ反映済み。
+  通常enrichで利用するコードの切替であり、既存project全件の再解析・再採用は実施していない。
   保存済み7projectと公開2 URLで追加評価し、OAuthデモ1件の実Web確認→確定→temp DB保存・replayを確認。
   READMEのautolink消失と公開先抽出の語句制限を修正。全860 unit test成功。
   XRPC確認をorigin root URLに限定し、パス付き候補を保持したまま不正な確認・旧観測の再適用を防止。

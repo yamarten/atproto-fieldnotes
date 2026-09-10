@@ -192,3 +192,24 @@ foreign key違反0、integrity `ok`。複製DBは削除済み。全865 unit test
 旧edge整理の実装・検証に残件はなく、正本への実行と実行後確認が未完了。
 実行時には稼働中writerを止め、backup後の新しい計画を照合し、永続archiveへ保存する。
 この検証ではmaster統合・正本DB書込み・enrich停止を行っていない。
+
+
+## 2026-09-10 最終反映・完了
+
+`7c5a1c2`までを正本checkoutへfast-forwardし、全865 unit test成功。
+木曜enrich `enrich-20260909T224730Z-44374263`を承認に従ってキャンセルし、Web停止・writer不在確認後に実行した。
+直前backupは`data/backups/final-publication-rollout-20260910T0225Z/`。
+最新planはcurrent_relation 8,092、reconstructable_judgment 187、needs_review 3,206。
+全11,485本を`data/migration-archives/repository-trust-20260910T0225Z/archive.json`へ退避し、
+relation復元0、再計画残件0。raw edgeとreviewed planの完全一致、全4,722 projectの判定用graph、
+project_relations / project_identifiers / project_identifier_adoptions / project_decisions /
+investigation_runs / collector_runsのhash不変、foreign key違反0、integrity `ok`を確認した。
+同directoryにplan・result・verification JSONを保存している。以前の複製DBとの件数差はenrich進行後のsnapshot差。
+
+Webを反映済みコードで再起動し、health成功、project一覧・詳細と定期設定APIのHTTP 200、job一覧とqueueが空で
+あることを確認。定期設定を維持し、キャンセルrunは再開していない。公開先判定は以後の通常enrichで利用する。
+既存全件の新policy再解析や、新たな本番enrichでの自動採用確認は行っていない。意味上の動作確認は上記の
+実公開先評価とtemp DB保存・replay、通常pipelineのunit testに基づく。
+
+今回の目的は採用済みrepo→公開先候補→根拠の揃うserviceの自動採用までで完了。
+汎用API・AppView独自API、primary project_site自動採用、広いpolicy/LLM接続は未完了の別課題としてroadmapに残す。
