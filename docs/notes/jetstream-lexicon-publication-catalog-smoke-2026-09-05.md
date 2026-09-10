@@ -1,7 +1,7 @@
 # Jetstream Lexicon publication catalog smoke（2026-09-05）
 
 この文書は、sidecar catalog導入時のbounded実データ確認記録です。現行仕様は
-[developer仕様](../developer/lexicon-publication-catalog.md)を参照してください。
+[developer仕様](../developer/specs/lexicon-publication-catalog.md)を参照してください。
 
 ## 結論
 

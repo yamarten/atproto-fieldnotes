@@ -1,8 +1,19 @@
-# 登録プロジェクトへの帰属と信頼
+# 登録プロジェクトの境界
 
-この文書は、外部で観測したresourceを登録プロジェクトへ帰属させ、その帰属主張を信頼関係から評価する判断モデルの正本です。保存schemaは[Project Record Schema](project-record.md)、現行コードの処理経路は[Registry Internals](registry-internals.md)、未実装・未接続の作業は[roadmap](../roadmap.md)を参照してください。
+resourceの帰属・採用と、project同士のmerge・splitを扱います。両者は同じ説明・追跡単位の境界に関わりますが、
+対象と前提が異なる判断です。信頼経路をそのままmerge scoreへ転用しません。
+保存形・transaction・履歴は[project record](project-record.md)、取得は[investigation](investigation.md)を参照してください。
 
-本文の原則、責務境界、接続マトリクス、静的規則は合意済みの設計を表します。ただし、マトリクスで`仮称`と記したpredicateは概念上必要な直接関係であり、保存名やproduction接続を確定したものではありません。表中で明示的に`未決`とした用途もroadmapに残します。現行実装との差はこの文書へ混在させず、Registry Internalsとroadmapで管理します。
+- 判断の意味と設計原則: [読み分け](#判断モデルと実装の読み分け)、[判断対象](#区別する判断)、[接続マトリクス](#identifier-kind接続マトリクス)
+- 通常導線の判断: [採用規則](#現行の採用規則)、[Merge・Split](#mergesplit)
+- 比較用の別経路: [Shadow比較](#shadow比較の契約)
+
+## 判断モデルと実装の読み分け
+
+前半の判断モデル、接続マトリクス、静的規則は合意済みの設計です。`仮称`や`未決`を含み、
+全規則が通常導線へ接続済みという意味ではありません。現行の適用規則は後半の「現行の採用規則」と
+「Merge・Split」にまとめます。未実現の目標は[roadmap](../../roadmap.md#信頼帰属policyの追加接続)、
+実運用への反映範囲は[status](../../status.md)を参照してください。
 
 ## この設計が扱うこと
 
@@ -118,7 +129,7 @@ project帰属を支持する逆向きedgeにはしません。直接参照、解
 
 ## この文書で使う設計用語
 
-ユーザー向けの基本用語は[利用ガイド](../user/guide.md)を正本とし、編集方針は[利用者向け用語の方針](../notes/user-facing-terminology.md)に従います。この開発文書ではコードと照合できるよう、必要な箇所だけ内部名を併記します。
+ユーザー向けの基本用語は[利用ガイド](../../user/guide.md)を正本とし、編集方針は[利用者向け用語の方針](../../notes/user-facing-terminology.md)に従います。この開発文書ではコードと照合できるよう、必要な箇所だけ内部名を併記します。
 
 - 帰属主張（claim）: 「このidentifierは、このroleで、この登録プロジェクトに属する」という判断対象
 - role: identifierが登録プロジェクトにとって何であるかを表す。identifier自体の種類（kind）とは別
@@ -179,7 +190,7 @@ project roleは「外部対象がこのproject recordにとって何であるか
 - publisher DID
 - service operator
 
-専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleと保存契約は[Project Record Schema](project-record.md)、未実装のrole拡張は[roadmap](../roadmap.md#信頼帰属policyの追加接続)で管理します。
+専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleと保存契約は[Project Record Schema](project-record.md)、未実装のrole拡張は[roadmap](../../roadmap.md#信頼帰属policyの追加接続)で管理します。
 
 ### 3. 関連情報
 
@@ -226,7 +237,12 @@ candidate生成を厳密にする目的は、project境界とreview品質を保�
 
 `INSUFFICIENT`と`CONFLICTING`は「偽」の一種類へまとめません。観測不足、片方向の自己申告、矛盾、policy対象外では、必要な人間の対応が異なるためです。登録起点は信頼グラフによる自己評価で`SUPPORTED`にせず、operatorまたはbootstrapという採用理由を表示します。
 
-採用規則は信頼判定結果をproject recordの変更へ変換します。operatorがcandidateを明示的にconfirmした場合は、同じ対象のexactなblock/deferを解除してoperator採用理由を追加します。反対にoperatorがblock/deferした場合は、activeなconfirmと採用理由を終了させ、自動採用を止めます。判断モデル上の対象はrole付きclaimですが、現行mutationは`kind + value`が同じ全roleへ作用します。role単位の拒否が必要な実例が出た場合の拡張はroadmapで管理します。承認済みsourceのbootstrap契約はbootstrap採用理由を作り、`SUPPORTED`はguardがない場合にtrust-policy採用理由を作れます。
+採用規則は信頼判定結果をproject recordの変更へ変換し、手動判断を自動採用より優先します。
+operator操作時のconfirm/block/defer解除と採用理由の更新、現行mutationの全roleへの作用範囲は
+[project_decisions](project-record.md#project_decisions)を正本とします。
+判断モデルの対象はrole付きclaimです。承認済みsourceのbootstrap契約はbootstrap採用理由を作り、
+`SUPPORTED`はguardがない場合にtrust-policy採用理由を作れます。role単位の拒否の拡張条件は
+[roadmap](../../roadmap.md#web-ui)で管理します。
 
 既にconfirmedのclaimが後の再評価で`INSUFFICIENT`になっても、通常のenrichだけで即時降格しません。一時的な取得失敗による連鎖降格を避け、採用理由、欠けたrelation、時間変化、誤帰属のどれかをreviewします。`CONFLICTING`になったclaimは、矛盾を解消またはoperatorが再判断するまで後続自動採用の起点に使いません。
 
@@ -441,7 +457,7 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 
 `mirror_of`、replica、対等なGitHub/Tangled hostingも、それだけではprojectへの帰属やTrustを支持しません。双方を公式project repositoryとして扱う場合は、各repoについてprojectからの直接参照を別々に確認します。repo間の複製・同期関係は、系譜表示、同期診断、マージreviewへ使う別relationとして保持できます。
 
-派生project、template/example由来、source-only forkを含む詳しい扱いは[派生関係の設計メモ](../notes/derivation-relations.md)で保持します。現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。
+派生project、template/example由来、source-only forkを含む詳しい扱いは[派生関係の設計メモ](../../notes/derivation-relations.md)で保持します。現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。
 
 #### 説明・調査用の関係
 
@@ -537,8 +553,414 @@ account→repoについても、profile link、投稿、provider ownershipだけ
 
 Lexicon schema recordの公開は`did_publishes_schema`として分けます。matching schema id、publisher DID、authority delegationを確認できるため通常recordより強いrelationですが、publisher DIDのaccount roleは自動推定しません。
 
-## 実装仕様と未完了作業
+## 現行の採用規則
 
-現行のnode kind、保存edge、auto-confirm、collection ownership、audit/repair処理は[Registry Internals](registry-internals.md#trust-graph)を正本とします。identifier、relation、decision、採用来歴、former、non-production、transition、noiseの保存契約は[Project Record Schema](project-record.md)を参照してください。
+### Trust graph
 
-この判断モデルに対して未実装または未接続のpredicate、信頼判定規則、collector変更、project merge、project間の時間・派生関係、native appやprovider accountなどのnode拡張は[roadmap](../roadmap.md)で管理します。比較結果と設計過程は必要なものだけ`docs/notes/`に残し、現行仕様として参照しません。
+この節は通常導線で使われる`trust-graph-v2`の規則です。前半の合意済み判断モデル全体を実装済みとは扱いません。
+
+`trust-graph-v2`のpage↔repository edgeは、`project_relations`の現在の観測から導出します。
+`repository_trust.project_edges()`が共通投影で、candidate probe、URL trust評価、Explain、shadow比較が同じ投影を使います。
+`trust_graph.graph()`は判定用、`stored_graph()`は保存用です。page↔repository以外のedgeと評価履歴は
+`state_json.evidence.trust_graph`に残します。DB schemaは増やしていません。
+
+- `project_repository`のwebsite/service→repo、repo→website/serviceを方向付きedgeへ投影し、confirmedだけを強い経路として扱います。
+- Read the Docsなどの既知documentation hostはproject用subdomainもdocumentationに分類します。exact pathの観測とWebsite候補化は維持し、service候補へ変換しません。
+- `repository_homepage`は単独ではedgeにせず、confirmedな逆向きのpage→repoとexact URLが一致する場合だけ`repository_homepage_pair`を導出します。
+- HTMLの解釈、READMEリンク、LLMの同一project判断もsource/method/locator、observed_at、context付きrelationに保存します。
+  LLMは許可された入力pairに対する`same_project`をconfirmed、`related`/`uncertain`をcandidateとして保存します。
+  出力にないpairは前回判断を維持し、明示的な新判断だけが同じpairを置換します。
+- 同一page↔repo観測のclassificationは時刻が新しい結果で置換します。source/method/locatorが異なる独立観測は保持します。
+  取得失敗では以前のpage観測を削除しません。
+- URLの現在の支持はrelationと現在の採用済み起点から再評価します。保存された評価やadoptionのsource_refは過去の判断の説明であり、現在の支持の代用にはしません。
+- `relation_corroboration`も通常のtrust評価・guard・採用decision記録を通します。
+- 旧page↔repo保存edgeは現在の判定には使いません。通常saveは未解決edgeを一括削除しません。
+  移行照合ではREADME出典の`owner/repo`形式と完全URL形式を同一視します。完全一致する出典を優先し、
+  別repositoryや別methodをまとめません。現在のrelationのclassificationを維持します。
+  `migrate-repository-trust`のdry-runはcurrent relation、復元可能なLLM判断、要reviewに分類します。
+  `--execute-plan <plan.json> --archive <archive.json>`でDBを再照合し、旧page↔repo edge全体を原文のまま
+  archiveへ保存・fsync・再読込確認した後、保存graphから除去します。relationの復元は行わず、現在の
+  relationと対象外edgeを維持するため判定用graphは変わりません。新規archiveを必須とし、上書きを拒否します。
+  project key、旧観測の全field・重複、分類付きplan、過去判断の理由・入力pair、plan digest、archive digestを
+  保存します。`reconstructable_judgment`は過去判断の記録が復元可能という分類で、現役relationへ戻す指示ではありません。
+  archiveを通常判定へ読み込む
+  経路はありません。書込み失敗はDB変更前に停止し、DB側のrollback時には退避fileが残る場合があります。
+  fileの存在だけで適用済みと判断せず、実行結果と再dry-runで確認します。
+
+- node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
+- 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
+- edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
+- relationの`confirmed`はpredicateの直接事実が確定したことを表し、endpoint identifierのconfirmedやtrust edgeへの採用を意味しません。信頼経路ではpredicate、方向、roleを静的policyへ照合し、適格なedgeだけを使います
+- 実装済みの実動作適用は `service_url` / `repo_url` の自動confirm、`collection` ownership判定、`did` / `handle` / `domain` のtrust評価・監査です
+- `did` / `handle` / `domain` は単独identifierとして評価できますが、通常enrich導線で新しいconfirmed developer accountへ自動保存昇格する処理は未接続です
+- 未clearの`confirm_identifier`はgraph外anchorです。sourceでoperator入力と採用済みsource syncを区別します
+- `repo_url` decisionはactiveなconfirmed `project_repository`に対応する場合だけanchorにします。defer/blockされたidentifierはdecisionが残っていてもanchorにしません
+- 移行由来の根拠不明confirmed identifierは監査対象であり、新規URL昇格のtrusted anchorにはしません
+
+`seed` / `manual_seed` roleは正本DBから移行済みで、現行コードは生成・読込しません。現行の`add-seed`はfactual roleを直接confirmedへ投影し、その採用を`confirm_identifier`へ記録します。seed scalarは初期入力の由来・検索用で、anchor判定には使いません。
+
+service URLのrootに対するblock/deferは、その配下の自動候補にも適用します。ただし、子pathそのものにactiveな`confirm_identifier` decisionがある場合はそのexact URLをguardの例外にします。operatorが後から同じexact URLをblock/deferすると、先のconfirm decisionをclearしてguardを優先します。
+
+URL candidate は、trusted anchor との間に `eligible_for_auto_confirm=true` の強い有向経路が双方向にある場合だけ自動confirmできます。ただしserviceの採用経路はrepository nodeを起点にも中継にも使いません。page↔repositoryの相互参照は同一projectの帰属根拠であり、service roleの根拠ではないためです。repository採用と方向付き経路の表示には引き続き使い、既存service同士のcanonical経路による確認も維持します。新規homepage／README公開先のservice採用は公開先宣言または独立した運営関係と、Web／protocolの実在を検査するrole policyを通します。候補追加は取得成功や実在確認を要求しません。詳細は[Repository homepageと公開先の評価](#repository-homepageと公開先の評価)を参照してください。片方向の `repo -> service`、片方向の `service -> repo`、READMEの任意URL、profile link、lexicon JSONの存在、fork/upstream、host suffix match は単独では自動confirmに使いません。
+
+first-party page上のrepository linkは、完全HTMLやproject名の類似ではなく、linkのexact locator、canonical repository root、可視文字、accessibility label、子要素label、最寄り見出し・block、landmark、同一groupとpage内のrepository数からなるbounded contextで評価します。`Open source`、`View source`、単独`Source`、`Repository`等の直接表示はGitHub、Tangled、Codeberg、GitLabで共通に扱います。provider名だけ、`Fair source`、mirror、dependency、外部project一覧は明示的な公式repository表示とは扱いません。可視文字のないlinkはpage内にrepositoryが一つだけで、listや外部参照文脈にない場合だけ静的に支持できます。
+
+この静的判断がconfirmedになり、subject URLがcurrent confirmed `service`または`project_site`と完全一致する場合だけ、repository identifierをcandidateへ投影します。relationのconfirmedは方向付き関係の意味が確定したことを表し、identifierのconfirmedではありません。補助docs pageやcomponent外pageのrelationはcandidateに留め、identifier candidateを作りません。旧anchor text、owner、project名一致によるcandidate化・confirmはservice/resource page経路では併用しません。
+
+candidate repositoryは通常のrepository enrich、project nameのidentity token、紹介文生成用のLLM evidenceには使いません。confirmedなpage→repository relationから作ったcandidateに限り、repositoryのhomepage/READMEにある逆向きservice linkだけを先に収集します。repo側の現行逆リンクによって相互trust pathが成立した時点でrepositoryをconfirmし、その後に初めて通常repo contentを適用します。LLM relation assessorによる自動昇格は接続していません。LLM investigation planningには、追加調査先を決めるためURLだけを渡してよいものとします。
+
+`enrich`は全collector・LLM evidenceの適用と通常cleanupを終えた後、URL candidateのtrust評価を一度reconcileします。これによりrun後半で逆向きedgeが加わった場合も同じrunでaggregateな`service_url` / `repo_url`をconfirmします。個々の`source_repository_record`が持つ観測時のconfidenceは変更しません。成功した同一hostのHTTPからHTTPSへのredirectでHTTPS側がconfirmedなら、HTTP側は独立candidateとして昇格させず削除します。`repair-trust-graph`は従来どおりevaluationの再計算・保存だけを行い、identifierを昇格しません。
+
+collection ownershipの適用順序と必要な根拠は[NSID ownership](#nsid-ownershipの優先順位)にまとめます。
+
+identity identifier は、manual/operator anchor との間に相互 path がある場合だけ `trust-graph-v2` 評価でauto-confirm可能です。`handle -> did` の解決だけでは片方向なので不足で、`did_document_claims_handle` のようなDID document側の逆向きclaimが必要です。domainは exact handle と同一値の場合に限り `domain_exact_handle` / `handle_exact_domain` を使います。suffix一致やhosted handleはdomain ownership根拠にしません。
+
+確認用 command:
+
+- `project-registry explain --topic trust -p <project_key>`
+- `project-registry audit-trust-graph`
+- `project-registry repair-trust-graph`
+
+`audit-trust-graph` は読み取り専用で、既存 confirmed identifier を次のように分類します。`repair-trust-graph --execute` は edge/evaluation の再計算を保存します。`--downgrade-unsupported` を付けた場合は、operator decision や相互 trust path で説明できない confirmed identifier を候補・派生相当へ降格します。
+
+- `needs_reprobe`: 片方向の強い edge だけがあり、service/repo の再検証が必要
+- `should_downgrade`: operator decision でも相互信頼でも説明できない
+- `guarded_confirmed_identifier`: block/defer 済みなのに confirmed 相当で残っている
+
+`repair-trust-graph` はデフォルトでは trust edge/evaluation の再計算結果だけを保存します。confirmed identifier の降格は `--execute --downgrade-unsupported` を明示した場合だけ行い、`needs_reprobe` は降格せず再検証候補として残します。
+
+provider別repo viewとresource URL一覧は`provider_repo_url_values()` / `resource_url_values()`で導出します。rootと`www`は観測済みredirect/canonical/content relationがある場合だけaliasとして畳み、他subdomainは独立surfaceとして残します。
+
+same-siteの`/docs`、`/documentation`、`/about`、`/blog`、`/faq`、`/help`配下の情報ページと、`/login`、`/signin`、`/signup`、`/register`などの認証入口はservice identityではなく`resource_url_records`へ残します。これは補助ページをconfirmed service URLへ過剰昇格させないための暫定heuristicで、path名だけを長期的な信頼根拠とはみなしません。service follow-up probeやdeep page probeの結果はservice statusの補助evidenceには使いますが、補助ページURL自体をconfirmed service URLへ昇格しません。`/app`はapp surfaceとして使われることがあるため、この補助ページ判定だけでは落としません。`block_identifier` / `defer_identifier`はservice identifierとそのservice観測・relationへ作用します。同じ値のWebsiteや補助pageは別の責務なので自動削除しません。
+
+same-site familyは、PSLとknown/configured multi-tenant suffixを反映した`root_domain()`が一致するhostだけです。
+同じregistrable domainのsubdomain、または同じhosted suffix上の同一tenantはsame-siteですが、異なるregistrable
+domainで先頭labelだけが同じhostはsame-siteにしません。
+
+### Repository homepageと公開先の評価
+
+通常enrichでは、現在の採用とguardを通過したrepositoryのconfirmed `repository_homepage`を、
+パスを保持した観測先として使います。docsも取得対象ですが、account、package、funding、repository自体は対象外です。
+既存の観測先と正規化URLが一致すれば同じrunで取得を重複させません。
+
+既にexact URLがserviceであればstatic laneを使います。それ以外は`service_verification`の
+`repository_homepage` laneへ本文、リンク、requested/final URLを既存budgetで保存します。
+page→repoには既存のbounded policyを使い、取得成功だけでserviceの採用・状態・Websiteを変更しません。
+redirectはwebsite間の観測として保存し、同一hostという理由でpathを同一視しません。
+取得失敗で前回のpage→repo relationは消さず、成功時は同じpage sourceの観測を置換します。
+保存とreplayにも同じ境界を適用します。
+
+このlane自体はroleを確定しません。通常enrichは取得結果を`repository-homepage-role-v4`へ渡します。
+現在採用済みrepoのhomepageを起点に、成功した取得の到達URLで既存service / project siteを照合します。
+既存serviceは再利用します。既存project siteでも新しい公開先根拠と実在確認があればserviceを評価します。
+別URLのalias登録やWebsiteの置換はしません。
+
+未知のroleは`project_site`と`service`の帰属主張として別々に評価します。採用済みrepoのhomepage指定と
+今回のページのbounded policyによる逆参照はproject site候補を支持しますが、代表siteの確定根拠とはしません。
+候補化はpage→repoのconfirmed relationやページの採用済みroleを前提にしません。候補はtrust anchorになりません。
+service確定には、現在の採用済みrepoによる公開先宣言、または対象project→到達URLのconfirmed `operates_service` relationを要求します。
+既存supportから生成されるprobe由来（methodが`*_probe`またはsourceが`service_*`）のrelationは独立した根拠にしません。
+広義の`project_repository`、単なるリンク解釈、表示されたloginだけでは運営帰属を確定しません。
+公開先宣言は`repository-analysis-v16`の`declares_service_url`観測です。READMEの本文付き候補URLをLLMが選び、
+`current_project`または`uncertain`ならservice候補へ追加します。候補化には取得成功・逆参照・操作画面を要求しません。
+LLMへ提示するURL候補は特定の公開・利用語句に依存せず、既存budget内のREADME本文から抽出します。
+Markdownの`<https://…>` autolinkはHTMLタグとして削除せず、本文中のURLとして保持します。
+否定・仮定・第三者・旧公開先・区分欠落はこの経路の候補にはしません。デモは一律除外せず、パスを保持します。
+自動確定は最新成功結果の`current_project`だけを使い、同じrepoへの今回の逆参照と追加確認を要求します。
+公開先の観測を`operates_service`へ読み替えません。新しい公開先は同じenrich内で解析後に取得・評価します。
+追加確認はbrowserまたはprotocolのいずれか1 URL／enrichで、未確認、次いで古い確認を優先します。
+失敗もattemptとして保存するため、一件の失敗がほかのhomepageの確認を恒久的に塞ぎません。
+browser結果は`repository_homepage_browser` laneへ保存し、未採用URLの観測でprojectの稼働状態を上げません。
+
+最初のnavigationの到達URLがstatic取得の到達URLとexact一致し、表示状態が観測済みで、表示されたauth/public
+surfaceの材料があり、当該pageにnetwork/console errorがなく、上記の帰属根拠がある場合だけWeb serviceを採用します。
+`service_kind=api|pds`ではbrowserを要求せず、origin root URLだけを対象に`/xrpc/com.atproto.server.describeServer`を
+15秒timeoutで取得します。HTTP 200、同じendpointへの到達、DIDとavailableUserDomainsを持つ応答を要求します。
+パス・query・fragment付きの公開先は、このXRPC確認では未対応としてrequestせず候補に残します。
+originへ丸めて別の公開先を確定しません。保存済み結果の適用時も対象URLと確認endpointの対応を再確認します。
+plain text rootの独立行`Code: URL` / `Source code: URL`も、対象repoへの逆参照として使えます。
+応答は`repository_homepage_protocol` laneとassessmentに保存します。汎用API・AppView独自APIの確認は未対応で、
+HTTP 200・一般JSON・AppViewという自己紹介だけでは確定せずcandidateに残します。
+他projectのconfirmed URLに加え、採用済みrepoからの未採用homepage指定・公開先宣言も衝突検査に含めます。
+保存済みの1段のHTTP redirectによる一致も含み、host familyだけでは一致としません。
+同じprojectの複数repoはまとめ、別projectの指定が競合すれば採用順にかかわらず保留します。
+未採用repoやguard対象のhomepageはこの競合元にしません。未取得の将来の参照先まで予測する検査ではありません。
+非現行URLやguardも保留し、採用は共通の確認・adoption記録を通します。
+採用理由にrepo、homepage、運営relation、role別の評価理由、今回の逆参照、衝突元、browser evidenceのsource・時刻・特徴、policy versionを残します。
+リンク先で見つかったlogin、host family一致、staticの`live`だけでは採用しません。
+
+project site候補化はUI不存在やproject site roleの確定ではありません。公式documentationであることと
+代表project siteであることも同一視しません。project siteの自動確定は未接続です。
+`homepage_role_assessment`に入力事実・`role_assessments`・適用actionを保存します。replayでも現在の起点、
+そのrepoのhomepage指定と逆参照の対応、guard、既存role、運営relationを再評価して適用します。
+公開先宣言は記録時と現在のrepo・URL・revisionも照合します。旧v1〜v3のassessmentからの自動採用は実行しません。
+他projectとの衝突判定は調査時のDB snapshotを記録したもので、replayは現在DBへの再照会ではありません。
+既存serviceのbrowser verificationによる稼働判定は維持します。ページ単位の観測契約は[Investigation](investigation.md#browser観測)を参照してください。
+
+### Service観測の適用と補助ページ
+
+`service_probe_supports_project()`はHTTP取得の失敗・parked pageを支持とせず、現在の採用と適格な信頼経路を評価します。
+authority domainとのhost一致、ページのNSID/atproto言及、alias token、Bluesky profile linkだけではserviceの帰属を確定しません。
+projectを支持しないpageは、既知repositoryとの関係判定に必要なlinkを内部evidenceに残しますが、
+title/description、docs/blog等のresource、Bluesky profileを公開profileへ投影しません。
+以前の観測で投影されていた場合も、そのpageの再観測時に除去します。
+
+到達観測は`service_verification`に保存し、project supportのない結果から`operates_service`を作りません。
+4xx/fetch errorは`failed_service_urls`へ、支持されHTTP成功したURLは`supported_service_urls`へ残します。
+URL候補の自動採用は[Trust graph](#trust-graph)と[公開先評価](#repository-homepageと公開先の評価)の規則を使います。
+
+docs/blog、support/status/privacyPolicy/termsOfService等の同一site補助ページは`resource_url_records`へ残します。
+投稿・profile・listなど役割を判定できないcontent URLは、単に同一siteという理由では保存しません。
+これは代表補助ページの集合で、リンク発見の全履歴ではありません。URL+roleでmergeし、project全体、role単位、
+host+role単位のbudgetで、confirmed、直接source、短い入口URL、既知roleを優先して絞ります。
+budgetは追加・collector patch・guard・hydrate・merge・saveの各境界で再適用します。
+
+### Developer accountの採用
+
+- 現在の account まわりは二層です
+  - `developer_accounts`
+    - confirmed 扱い
+  - `candidate_developer_accounts`
+    - service page / follow-up / Bluesky search 由来の未確認候補
+- service/search 由来の handle は、まず `candidate_developer_accounts` に入れます
+- `bsky.app/profile/{subject}` は service URL として扱いません
+  - `{subject}` が handle 構文なら `handle`、DID 構文なら `did` として account evidence に分けます
+  - `profile`, `user` のような一般 path 語だけではなく、構造化された handle / DID を優先して account-scoped URL を判定します
+- confirmed に上がる主な条件:
+  - confirmed service host と handle ドメインが整合する
+  - 例: `https://example.com` と `alice.example.com`
+- `developer_accounts` だけを identity 補強に使います
+  - `candidate_developer_accounts` は ownership や service support の強い根拠に使わない方針
+
+### NSID ownershipの優先順位
+
+`project_owned_lexicon_nsid()` は現在、次の順で `owned` を判定します。
+
+1. confirmed `owned_nsid`そのもの
+2. source syncが同じprojectへ割り当てた同一collection namespaceのNSID
+3. `trust-graph-v2` で collection と confirmed developer DID の間に相互の強い有向経路がある
+4. `trust-graph-v2` で collection と confirmed root serviceの完全一致domainとの間に、`_lexicon` DNS解決とschema record取得で裏付けられた相互の強い有向経路がある
+
+意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。
+collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
+
+repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはproject repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。
+OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。
+domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は
+[identity-ownership-evidence.md](../../notes/identity-ownership-evidence.md) に分離しています。
+
+### Identifierの一時保留
+
+`defer_identifier`は既定30日で、期限内の自動confirmを抑止します。URLはcandidateとして観測可能なまま残し、
+NSIDは専用candidate配列を増やさず`deferred_identifiers`へ保持します。期限切れ後は通常の評価へ戻します。
+紹介候補の期限付き保留は別の[評価規則](project-evaluation.md#紹介候補の表示順位保留)です。
+
+### Repository候補の調査順序
+
+source repo は次の順で探します。
+
+1. first-party page のリンク
+2. README / homepage
+3. GitHub repository search
+4. Bluesky actor search / post search / author feed
+
+confirmed に入れるのは、seed 由来か first-party の強い根拠があるものだけです。
+GitHub repo を確認した場合は `source_repo_records[].updated_at` に upstream の `updated_at` も保持し、`review-stalled` で repo activity として使います。
+
+## Merge・Split
+
+`duplicate_candidates` と `merge_recommendation` は派生データです。必要なら再計算できます。
+
+Webのmerge候補planは保守的です。曖昧な一致は自動実行せず、pair reviewと個別actionで人が判断します。
+
+merge/split/separateはoperation単位のtransactionで実行します。aliasと調査履歴の扱いは
+[Merge / Splitの履歴](project-record.md#merge--splitの履歴)を参照してください。
+
+merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置換前targetを比較集合から除外し、統合後targetを
+加えた同一snapshot上で再計算します。Web APIはその保存済み結果の先頭候補を`next_merge_review`として返し、
+Merge reviewは一覧全体の再計算を挟まず次のpairへ進みます。この導線は候補scoreやbatch mergeの判定基準を変更しません。
+
+`review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。
+
+また、`review-queue` の通常表示は保存済み DB を信頼した軽量 shape を使います。保存時・repair 時の full normalization は維持しますが、一覧表示では URL / repo / lexicon の重い再正規化を避けます。
+
+`audit-source-config [domain]` はローカル設定 `config/domain-overrides.json` の `custom_multi_tenant_suffixes` 追加後基準で既存 project を読み取り監査します。discovery fetch 設定の `config/sources.json` とは保存責務を分離しています。service URL、NSID authority、authority domain を tenant 単位に分け、同一 project 内に複数 tenant が残る時だけ `split_suggestions` を返します。仮 tenant project を組み立てて `compute_duplicate_candidates()` を通すため、分割後に既存 project との merge candidate が成立するかも表示できます。
+
+このコマンドはデフォルト interactive です。suffix追加時はcurrent service probeのsame-site派生判定も同じapplication serviceで再評価します。tenant group の番号を選んだ場合だけ、service URL / NSID / authority domain を 1 つの新 project へ原子的に切り出し、元 project に block、新旧 project に相互 `separate_project_keys` を入れます。split 適用後は suggestion を再構築し、同じ元 project に複数 tenant が残る間はその project を優先して再表示します。Enter で送った suggestion key はその実行中だけ skip set に残します。共有 repo は自動配賦せず ambiguous として表示します。`--execute --no-interactive` はsuffix設定とcurrent same-site判定を揃えますが、splitは自動適用しません。
+
+`split-project --identifier-type domain --value <authority-domain>` は、指定 authority domain と同一 host の confirmed service URL、同じ authority domain から導出される NSID、authority domain identifier をまとめて新 project へ切り出します。repo URL は authority domain だけでは帰属を確定できないため自動移動しません。
+
+### duplicate candidate の作り方
+
+- まず各 project から duplicate profile を作ります
+  - `project_repository_urls`
+  - `github_repo_urls`
+  - `candidate_project_repository_urls`
+  - `service_urls`
+    - `website_url` もここに含めます
+  - `recorded_lexicon_namespaces`
+  - `record_creators`
+  - `authority_service_families`
+  - `domain_identity_tokens`
+  - `merge_aliases`
+- これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
+- `github_repo_urls`は保存fieldではなく、`project_repository_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
+- duplicate / merge 用の `authority_service_families` と `domain_identity_tokens` は、確認済みのservice/manual service、operator confirmed domain、manual/confirmed/trust-policy confirmed collectionから導いたauthorityだけを使います
+  - `input_nsids` / `lexicons` / `authority_domains` / `service_url_candidates` のような候補・観測fieldだけでは、merge用のdomain/family根拠にしません
+  - 同じlexiconを使っている、または同じlexicon authorityを観測しただけでは、medium以上のmerge candidateにしません
+- ただし次は最初から除外します
+  - 自分自身
+  - `separate_project_keys` で相互 block された pair
+- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な弱い派生関係の設計メモは [derivation-relations.md](../../notes/derivation-relations.md) に分離しています
+
+### candidate の根拠
+
+- `compute_duplicate_candidates()` は候補相手ごとに次の overlap を見ます
+  - `project_repository_urls`
+  - `github_repo_urls`
+  - `candidate_project_repository_urls`
+  - `service_urls`
+  - `recorded_lexicon_namespaces`
+  - `record_creators_and_namespace_lineage`
+    - creator DID が重なり、かつ namespace が同一または親子
+  - `authority_service_families`
+  - `domain_identity_tokens`
+  - `merge_aliases`
+  - `collection_first_record_creator_dids`
+    - 明示的に heuristic を有効化した時だけ
+- `record_creators` 単独では merge 理由にしません
+  - namespace lineage が同時に必要です
+- `candidate_project_repository_urls` は confirmed repo より弱い根拠ですが、duplicate 候補の入口には使います
+
+### score と confidence
+
+- score は理由ごとの重み付き合計です
+  - `project_repository_urls`: 8
+  - `github_repo_urls`: 8
+  - `service_urls`: 7
+  - `record_creators_and_namespace_lineage`: 7
+  - `recorded_lexicon_namespaces`: 6
+  - `authority_service_families`: 6
+  - `candidate_project_repository_urls`: 5
+  - `domain_identity_tokens`: 5
+  - `collection_first_record_creator_dids`: 6
+  - `merge_aliases`: 3
+- `merge_confidence` / `auto_merge_ready` は score だけではなく理由の組み合わせで決まります
+  - `service_urls` があれば `high` かつ `auto_merge_ready=true`
+  - confirmed repo overlap と alias/domain/family/namespace の複合なら `high`
+  - candidate repo overlap でも alias/domain/family が乗れば `high`
+  - creator DID + namespace lineage は `high`
+  - domain token + alias だけなら `medium`
+  - score だけ高くても、理由の質が弱ければ `medium` や `low` に留まります
+
+### merge recommendation の作り方
+
+- `merge_recommendation` は `duplicate_candidates` の先頭 1 件を採用したものです
+- 返すのは:
+  - `target_project_key`
+  - `score`
+  - `merge_confidence`
+  - `auto_merge_ready`
+  - `reasons`
+- top 候補が `auto_merge_ready=false` で、2 位が同点の時だけ `ambiguous_with` を付けます
+- つまり recommendation は「最有力候補」であって「必ず merge してよい」ではありません
+- pair指定の `inspect-merge-pair` / Web merge review は、指定された2 projectだけを比較します
+  - 一覧用の全project duplicate indexや、source/targetそれぞれの現在の `merge_recommendation` は計算しません
+  - 表示する `source_pair_candidate` / `target_pair_candidate` は、一覧用 `compute_duplicate_candidates()` と同じpair判定関数から作ります
+- Web merge review は、両projectのmerge identity hostが同じregistrable domain配下の別tenantに見える場合、未登録の `custom_multi_tenant_suffixes` 候補を表示します
+  - 例: `foo.example.com` と `bar.example.com` なら `example.com`
+  - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
+- collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
+  - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
+  - 照会collectionには保存済みのcase-preservingなNSID identifierを使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
+  - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
+  - CLIからheuristicを判定へ含める導線はありません
+
+### merge候補planの追加安全策
+
+- Webのmerge候補planは`duplicate_candidates`をそのままactionへ適用しません
+- 候補 pair ごとに mutual recommendation を要求します
+  - A の top が B
+  - B の top も A
+- さらに safe overlap を別ロジックで見直します
+  - `strict`
+    - strict GitHub/Tangled repo overlap
+    - operator-confirmed repo overlap
+    - operator-confirmed service host overlap
+  - `moderate`
+    - strict 条件に加えて
+    - confirmed service overlap
+    - candidate repo + alias overlap
+    - creator DID + namespace lineage
+    - domain token + alias overlap
+    - authority family + domain token
+    - service root domain + alias overlap
+    - website root domain + alias overlap
+- safe overlap が無い pair は recommendation があっても batch では落とします
+
+### merge 方向の決め方
+
+- `choose_batch_merge_direction()` は「どちらを target に残すか」を `project_batch_merge_preference()` で決めます
+- 優先順位は概ね次です
+  - confirmed factual identifierの強さ
+    - service surface > owned NSID > project repository
+  - editorial richness
+    - `website_url`
+    - `service_urls`
+    - `project_repository_urls`
+    - `resource_url_records`
+    - `service_status`
+    - `introduced_url`
+    - confirmed NSID 数
+  - confirmed identifier の数
+  - `introduced_url` の有無
+- つまり、より first-party surface が強く、より編集済みで、より confirmed identifier が多い側を target に残しやすいです
+
+### 統合する編集情報の優先
+
+`merge_project_records()` は単純な `current or incoming` ではなく、`project_editorial_preference()` を使って service 本体らしい project を優先します。
+
+主に見ているもの:
+
+- confirmed service surfaceがあるか
+- `website_url`
+- `service_urls`
+- `project_repository_urls`
+- `resource_url_records`
+- `service_status`
+- `introduced_url`
+- confirmed NSID 数
+
+この優先は主に次の field に効きます。
+
+- `name`
+- `tagline`
+- `summary`
+- `website_url`
+
+意図は、collection/lexicon project が後から service 本体の editorial 情報を上書きしないようにすることです。
+
+この統合規則は既存recordの説明文を遡及修正する処理ではありません。既存説明の訂正はprofile更新または手動修正として扱います。
+
+## Shadow比較の契約
+
+以下は現行コードに存在する比較経路です。通常の自動採用・mergeの判断規則へそのまま接続されているわけではありません。
+各比較commandはDBを`mode=ro`のread transactionで読み、reportを出力します。固定caseと実snapshotを分けて解釈します。
+
+| 比較 | 入力・判断単位 | 通常導線との境界 |
+| --- | --- | --- |
+| `compare-trust-policy` | schema v3のrole付き採用claimと`registration_origin=true`の採用来歴、許可された直接関係と経路 | operator、legacy、sourceを累積したprofileを比較する。根拠のない起点を旧confirmedやcollectionから補わない |
+| `compare-merge-policy` | project pairの構成要素、明示的な別project判断、共有と反証、統合方向 | collection断片は非対称に評価する。`uses_collection`や名称markerだけでは統合しない。identifierごとのcurrent/former/non-production/noise処遇を完了する経路ではない |
+| `compare-collector-relation-policy` | repository帰属、repo→URL直接観測、target roleを分けた現在のclaim | 観測と採用を一つの結論にせず、比較結果だけでWebsiteやidentifierを書き換えない |
+
+信頼比較は有限graph上の経路を探索し、最短の説明経路を返します。固定の最大3 hopで信頼範囲を定義しません。
+全起点探索とtrace再利用の同値性を比較しますが、保存済みpathを現在の支持の代用にはしません。
+merge比較ではconfirmed構成がowned NSIDだけのfragmentについて、exact subset、または同じauthorityと
+namespace/alias等の文脈を持つ包括projectを評価します。独立した構成要素や別project判断を同時に確認し、通常mergeのscoreとは区別します。
+
+専用relation assessorの比較は一つの方向付きproposalと限定した根拠を入力とし、`SUPPORTED`、`NOT_SUPPORTED`、
+`INSUFFICIENT`を返します。提示材料への参照の検査は意味解釈の正しさを保証せず、通常のidentifier自動昇格には未接続です。
+一般的なproject-level triageの`same_project`と同じ処理として扱いません。
+比較方法・観測結果は[信頼比較](../../notes/trust-policy-shadow-comparison.md)、
+[merge比較](../../notes/project-merge-policy-shadow-comparison.md)、
+[relation比較](../../notes/collector-relation-policy-shadow-comparison.md)を参照してください。

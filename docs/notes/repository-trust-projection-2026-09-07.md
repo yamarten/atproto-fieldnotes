@@ -1,8 +1,8 @@
 # Page↔repository edgeのrelation導出への変更
 
 2026-09-07の調査・実装・移行検証の記録です。恒久仕様は
-[Registry Internals](../developer/registry-internals.md)、設計原則は
-[登録プロジェクトへの帰属と信頼](../developer/project-attribution-and-trust.md)を参照してください。
+[現行規則](../developer/specs/project-boundaries.md#trust-graph)、設計原則は
+[登録プロジェクトへの帰属と信頼](../developer/specs/project-boundaries.md)を参照してください。
 
 ## 結論と診断
 

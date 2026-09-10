@@ -392,4 +392,4 @@ shadow comparisonで補完不能だった残り1 claimは、冒頭で別途`form
 
 ## 保存契約への反映
 
-`lexicon.community`のようにprojectを代表する公式WebsiteでありながらserviceではないURLを扱うため、Website、project site、service、補助pageの責務を分離しました。現行の保存契約は[Project Record Schema](../developer/project-record.md)、判断上の境界は[登録プロジェクトへの帰属と信頼](../developer/project-attribution-and-trust.md)を正本とします。この文書で確定した再分類は正本DBへ適用済みです。
+`lexicon.community`のようにprojectを代表する公式WebsiteでありながらserviceではないURLを扱うため、Website、project site、service、補助pageの責務を分離しました。現行の保存契約は[Project Record Schema](../developer/specs/project-record.md)、判断上の境界は[登録プロジェクトへの帰属と信頼](../developer/specs/project-boundaries.md)を正本とします。この文書で確定した再分類は正本DBへ適用済みです。

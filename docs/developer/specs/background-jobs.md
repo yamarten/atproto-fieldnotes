@@ -1,6 +1,6 @@
 # Background Job Model
 
-この文書は、長時間operator workflowをCLI、Web worker、テストから同じ業務処理として実行するための恒久的な契約です。個別collectorのevidence契約は[investigation-model.md](investigation-model.md)を参照してください。
+この文書は、長時間operator workflowをCLI、Web worker、テストから同じ業務処理として実行するための恒久的な契約です。個別collectorのevidence契約は[Investigation](investigation.md)を参照してください。
 
 ## 目的
 
@@ -16,9 +16,7 @@
 - 複数の書き込みjobを同時実行すること
 - 任意commandや任意外部URLをWebから実行すること
 
-Web server起動時のjob eventはprocess内だけに保持します。一方、bulk enrich checkpointはDBと同じdirectoryの`enrich-runs/`から再発見し、未完了runをserver再起動後にresumeできます。APIはrun IDだけを受け取り、任意checkpoint pathは受け付けません。
-
-停止境界はoperationごとに異なります。enrichとanonymous browser verificationはproject境界、reviewはcandidate境界です。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはevent、collection inventoryはfetch/import境界でcancelを確認します。
+Webの保持・復元境界は[Web Runner](#web-runner)、operation別の停止境界は[中断](#中断)で定めます。
 
 review executeは先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplan fingerprintとcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
 
@@ -57,6 +55,12 @@ bulk enrichの`progress.current`はcheckpoint全体での処理対象ordinalで�
 `sync-introduced`は取得済みpage数を`current`、`unit=page`として通知しますが、`max_pages`はpaginationの
 安全上限であって総page数ではないため`total`へ入れません。Web UIはこの場合、比率やETAではなく取得済みpage数だけを表示します。
 
+### ETA
+
+bulk enrichは現在のworker processで時間を観測した処理件数と残件数からETAを計算し、resume前の完了件数を混ぜません。
+その他のjobは直近の`current / total`を開始時からの平均速度へ線形外挿します。総数がないoperationでは表示しません。
+`sync-introduced`は未知の総page数を`null`とし、安全上限を進捗総数にしません。
+
 ### `OperationResult`
 
 処理全体の終了状態です。
@@ -76,7 +80,7 @@ bulk enrichの`progress.current`はcheckpoint全体での処理対象ordinalで�
 - collectorや外部requestを途中で破棄しない。停止までの上限は各sourceのtimeoutに依存する
 - 完了済みprojectは再開時に再実行しない
 
-syncは進行中のHTTP requestを中断せず次のquery/page/item境界で、reviewは次candidateの前で停止します。境界までに完了したDB更新は取り消しません。sync/review自体のcheckpoint再開は未接続です。
+anonymous browser verificationはproject境界で停止します。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはevent、collection inventoryはfetch/import境界でcancelを確認します。reviewは次candidateの前で停止します。境界までに完了したDB更新は取り消しません。sync/review自体のcheckpoint再開は未接続です。
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
 
@@ -104,59 +108,19 @@ CLI等を含むwriter全体のprocess間排他を提供するものではあり�
 
 checkpointは再開の正本です。event履歴やWeb表示状態の正本ではありません。
 
-## 現在の接続状況
+## Scheduled preset
 
-実装済み:
+Operationsのscheduled presetは、通常enrich、全tracking stateのenrich後のstalled review一括反映、
+introduced sync、introduced以外のsync後のnew-only enrichを実行します。
+presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。
+Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間のbounded observationを直近4回分保存します。
 
-- `project_registry_core.jobs`のrequest/event/result/cancellation契約
-- `project_registry_core.application.enrichment`のproject選択、実行、保存、checkpoint、再開
-- `project_registry_core.commands.enrichment`のCLI adapter
-- `project-registry enrich`の既存command・主要option
-- `project_registry_core.worker`のJSON Lines worker protocol
-- `project_registry_web.jobs`のprocess内job registry
-- Web APIのenrich開始、一覧、詳細、停止、再開
-- Web APIのsync/review開始、dry-run/execute指定、一覧、詳細、停止要求
-- Operations画面のenrich、sync、review設定と直近event/result表示
-- Operations画面のscheduled preset設定、手動発火、定期発火
-  - 通常`enrich --all`、全tracking state対象`enrich --all`後の件数上限なしstalled review一括反映、`sync introduced`、introduced以外のsync一括後`enrich --all --new-only`
-  - presetごとに毎週または第N週の曜日、時刻、time zoneを設定する
-  - Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間のbounded observationを直近4回分保存する
-  - 固定sidecarを更新するdisabled既定の週次`lexicon_publication_weekly`
-    - registry DBと同じdirectoryからsidecarを導出し、任意path / URL / commandは受け付けない
-    - 1 runで固定sealed tipの1 bounded segmentだけを処理し、未完了時は同じtipを次回再開する
-    - 日曜05:00 Asia/Tokyoを既定とし、固定schedule stateで土曜23:00の`sync_sources_then_enrich`成功後48時間以内かを判定する
-    - registryは`mode=ro` + `query_only`、sidecarの観測履歴は直近16回、評価baseline、異なる比較可能週、category集計と再評価gateを別stateで保持する
-- 同じWeb serverから同時に実行するbackground jobを1件へ制限
-- `project_registry_core.application.review`の非対話classification service
+Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは
+[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。
+job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
 
-動作確認済み:
-
-- temp SQLite上の複数project実行
-- project境界での中断とcheckpoint再開
-- checkpointとrequest serializationにAPI key値を残さないこと
-- CLIがevent dataをJSON linesとして出力すること
-- fake workerによるsubprocess完了、競合拒否、SIGINT停止、再開
-- 実workerと空のtemp schema v3 DBによるnetwork-free protocol実行
-- 実workerと空のtemp schema v3 DBによるreview dry-run
-- temp DB Web UIから別process enrichを起動し、完了event/resultを表示すること
-- Web APIのsync/review allowlist、dry-run/execute request変換
-- in-app Browserからschema v3 DBのreview dry-runを起動し、candidate limitと完了resultを確認したこと
-
-未接続:
-
-- sync/reviewのcheckpoint再開
-- server再起動後のprocess job一覧復元。enrich checkpoint発見は接続済み
-- job event履歴の永続化
-
-実外部sourceの確認範囲:
-
-- 2026-07-11にworkerからGitHub、Semble、Bluesky introduced、collection inventory、当時のTangled/UFOsへbounded dry-runを実行した。[確認記録](../notes/registry-maintenance-real-source-smoke-2026-07-11.md)を参照
-- これは当時の外部契約の確認であり、後続のTangled/Jetstream置換や長時間運用まで検証済みとは扱わない
-
-将来の設計目標:
-
-- CLIなど別processとread-only jobの競合方針を定義する
-- Web以外のprocessを含む排他とsource別実行budgetを統一する
+接続・検証範囲は[status](../../status.md#jobとweb運用)、process間競合の将来課題は
+[roadmap](../../roadmap.md#並行する処理から蓄積した情報と判断を守る)を参照してください。
 
 ## Web Runner
 
@@ -171,13 +135,24 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - syncは設定済みsourceだけを選択でき、任意source URLや任意queryはWeb APIへ公開しない
 - anonymous browser verificationはproject keyと、そのprojectに保存済みのconfirmed/candidate service URLだけを受け付ける
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
-- Lexicon publication観測はJetstream 20,000 event / 300秒、inventory 60秒、publisher 12件を固定上限とする。
-  SIGINTは進行中requestを強制終了せず、snapshot、inventory、publisherの境界で反映する
-  通常sync state欠落/failed/未来時刻/48時間超、inventory failure、未完了segmentはvalid週へ加算しない。同一Asia/Tokyo週の
-  manual runや再試行は一度だけ加算する
-  publisher 12件boundの外側と期限切れ成功はverification pendingであり、実際に試行した最新failureとは別categoryにする
+- 同じWeb serverからのbackground jobは同時に1件へ制限する。CLIなど別processのwriter排他は提供しない
+- Lexicon publication観測のSIGINTは進行中requestを強制終了せず、snapshot、inventory、publisherの境界で反映する。
+  source別上限とvalid週の集計条件は[週次観測preset](lexicon-publication-catalog.md#週次観測preset)と
+  [post-sync評価](lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照する
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
 job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しません。
 未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。
+
+## Web serverの診断・再起動
+
+Settingsのreloadは同じ起動引数を保ってpackage entrypointから再起動します。
+active jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続します。
+macOS LaunchAgentはworkspaceのdirenv環境を継承し、plistへsecretを保存しません。SIGTERM時はactive workerを終了します。
+
+HTTP request logはquery/bodyを除くmethod、path、status、所要時間をstderrへ記録します。
+unexpected HTTP exceptionのtracebackはserver側へ残し、job stderrとは分離します。
+scheduled worker起動失敗はqueueを終端し、presetの最終status/messageへ保存します。
+POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化します。
+API tokenはconstant-timeで比較し、HTMLは外部文字列を共通escape/link/JSON helperへ通します。

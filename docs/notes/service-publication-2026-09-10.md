@@ -1,6 +1,6 @@
 # Service publication evaluation — 2026-09-10
 
-作業・検証記録。恒久仕様は[investigation model](../developer/investigation-model.md)。
+作業・検証記録。恒久仕様は[investigation model](../developer/specs/investigation.md)。
 
 ## 結論と適用範囲
 

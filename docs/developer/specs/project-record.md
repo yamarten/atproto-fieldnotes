@@ -1,6 +1,6 @@
 # Project Record Schema
 
-この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)、調査pipelineの責務は[investigation-model.md](investigation-model.md)、現行コードの処理経路は[registry-internals.md](registry-internals.md)を参照してください。
+この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](project-boundaries.md)、調査pipelineの責務は[Investigation](investigation.md)、現行コードの処理経路は[Architecture](../architecture.md)を参照してください。
 
 ## 設計意図
 
@@ -14,11 +14,28 @@ registryの一次目的は、atproto関連projectを継続的に発見し、紹�
 
 app lexiconとの完全互換や即時exportは主目的ではありません。`profile_json.app`は将来再利用しやすい確定情報の置き場ですが、不確かな情報で埋めるより空のままにします。
 
-この文書では、project保存モデルを構成するrelational tableとcolumn、および人が読む`profile_json`を保存契約として明示します。主に機械が読み書きする`state_json`は、内部fieldを網羅せず、責務、正本との境界、保存上のinvariantだけを定めます。projectに属さないsync stateなどのregistry-wide tableは[registry-internals.md](registry-internals.md)の対象です。
+この文書では、project保存モデルを構成するrelational tableとcolumn、および人が読む`profile_json`を保存契約として明示します。主に機械が読み書きする`state_json`は、内部fieldを網羅せず、責務、正本との境界、保存上のinvariantだけを定めます。projectに属さない`sync_state`のwatermark契約は[発見と取り込み](discovery-and-sync.md#sync-state-の更新条件)で扱います。
 
 ## Schema Version
 
-実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBは2026-08-14にreview済みmanifestを適用したversion 3へ切り替えました。
+実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBへの切替と検証結果は[status](../../status.md#登録検索手動編集)を参照してください。
+
+## DB接続と初期化
+
+SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
+
+空のregistry DBの初期化は`project-registry init-db [--db-path PATH]`で明示的に行います。通常CLI、Web、background
+workerは既存のschema version 3 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。version 2 DBも通常openでは暗黙移行しません。
+新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを
+同値upsertせず、open処理由来のwrite transactionを保持しません。
+
+通常起動で旧schemaを変換しません。明示的な比較・新規複製DBへのmaterializationは[Schema Version](#schema-version)の専用経路です。
+
+`repair-db`はschema v3 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
+
+履歴の圧縮codec、監査経路、手動削除の保持条件は
+[Investigation History](#investigation-history)と
+[Retention Policy](#retention-policy)を参照してください。
 
 ## 保存責務
 
@@ -101,18 +118,6 @@ source runだけをalias familyの履歴として維持します。
 - `reject`
   - 登録しようとしている対象そのものが調査範囲外、無関係、または候補として成立しない
 
-CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が
-依存packageとしてcodeへ組み込むpluginは`library`、既存serviceや外部toolへ導入してATProto連携を追加する
-pluginは`infra_tool`です。ATProto自体を扱うCLIや運用componentも`infra_tool`です。既存projectに別物の
-URLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。
-
-停止、削除、archiveはcategoryを変える理由にしません。過去のcategoryを確認できる場合は維持し、削除後に
-初めて発見して元の役割を復元できない古い対象では`name_only`を許容します。
-
-複数の説明が当てはまる場合は、対象外なら`reject`、役割不明なら`name_only`、固定利用者なら
-`personal_tool`、文書化された共有schemaなら`lexicon`、組み込む部品なら`library`、projectの背後で動くか
-ATProto自体を扱う実行物なら`infra_tool`、一般利用者が直接使うものなら`project`の順で確認します。
-
 `auth_only`はcategoryではありません。認証packageは`library`、認証proxyや外部toolへ導入する認証pluginは
 `infra_tool`に分類します。`atproto_auth_only=true`は、独立したappまたはserviceがATProtoをaccountの
 sign-inまたはOAuth認証にだけ利用し、records、schema、repository、protocol dataを扱わない場合に保存します。
@@ -121,6 +126,8 @@ categoryで表します。強いprotocol利用の根拠があれば、`atproto_c
 
 旧`category=auth_only`の正本DB rowは個別移行済みです。読み取り互換は持たず、LLM出力のcategoryとしても
 受け付けません。
+
+分類の選択順序とLLM適用は[Categoryの選択](project-evaluation.md#categoryの選択)を参照してください。
 
 ### `state_json`
 
@@ -136,9 +143,47 @@ categoryで表します。強いprotocol利用の根拠があれば、`atproto_c
 - 候補や機械評価を`profile_json`の確定値と同じ意味で扱わない
 - fieldの欠落をconfirmedな否定として扱わない。未調査、partial failure、証拠なしは調査履歴と評価detailで区別する
 
-代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[registry-internals.md](registry-internals.md)を参照してください。
+代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[project評価](project-evaluation.md)と[帰属・採用](project-boundaries.md#現行の採用規則)を参照してください。
 
 `system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは保存時点で分離し、紹介用profileやoperatorの自由記述には混ぜません。読込時に`notes`本文をpattern判定して`system_notes`へ移す互換処理は行いません。
+
+## URL正規化
+
+canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。`website_url`は代表公開URLであり、service identifierとは独立しています。補助pageは`resource_url_records`に残します。
+
+現行の`normalize_url()`はscheme/host/pathを正規化し、末尾slash、query、fragmentを破棄します。queryや
+fragmentだけが異なるURLは同じidentifierとして扱われます。これは実装済みの現行制約ですが、queryで
+resource identityが変わるserviceに対して妥当かは未検証です。具体例が出るまでは例外や別URL型を追加しません。
+
+## Runtime viewとexact lookup
+
+runtime codecの完全hydrate要件、無変更roundtrip、Websiteとidentifierの分離は
+[project_identifiers](#project_identifiers)を正本とします。実装は`runtime_view.py`が所有します。
+
+exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使う
+NSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。
+collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、
+安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはnormalized indexだけを使います。`did`と`service_url_candidate`はindexで候補を絞った後、
+候補projectをhydrateしてcurrent payloadとの一致を確認します。
+
+`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。派生linkの保存規則は[profile_json](#profile_json)、正本DBへの補正実績は[status](../../status.md)を参照してください。
+
+## NSIDの扱い
+
+NSID は storage / UI / external lookup で観測されたcaseを保持します。authority domain 由来の比較や alias token 化では小文字化した派生値を使うことがありますが、NSID本体、特にname部を正規化目的で小文字化しません。`listReposByCollection` などcase-sensitiveな外部APIへ渡す値も、保存済み値または観測値のcaseを保ちます。
+
+- `input_nsids`
+  - candidate `owned_nsid`のruntime view
+- `resolved_nsids`
+  - confirmed `owned_nsid`のruntime view
+- `confirmed_nsids`
+  - 内部で扱う高信頼 NSID
+- `lexicons`
+  - `resolved_nsids`から導出するcompatibility view
+- `lexicon_namespaces`
+  - project 粒度で記録する namespace
+
+collection inventory import は project 粒度で集約しますが、lexicon 解決用に代表の full NSID を別に保持します。
 
 ## `project_identifiers`
 
@@ -207,7 +252,7 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 - `context_json`: operation、score、bounded extractなどの補助情報
 - `observed_at`
 
-relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。帰属、信頼、採用の責務境界は[登録プロジェクトへの帰属と信頼](project-attribution-and-trust.md)を参照してください。
+relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。帰属、信頼、採用の責務境界は[登録プロジェクトへの帰属と信頼](project-boundaries.md)を参照してください。
 
 主要predicate:
 
@@ -221,7 +266,7 @@ relationの`classification=confirmed`は、保存したpredicateの方向付き�
 - `requests_permission`: OAuth metadataがrepo permissionを要求する
 - `redirects_to`: URL間の実観測redirect/canonical関係
 
-同じproject内でsubject、predicate、object、source、locator、methodが同じrelationは重複保存しません。relationの意味とownershipへの使い方は[investigation-model.md](investigation-model.md)を参照してください。
+同じproject内でsubject、predicate、object、source、locator、methodが同じrelationは重複保存しません。relation生成時の境界は[Relationと採用](investigation.md#relationと採用の境界)、現行ownership判定は[NSID ownership](project-boundaries.md#nsid-ownershipの優先順位)を参照してください。
 
 重複relationを統合する場合は、より強いclassification、より新しい`observed_at`、両方のcontextを残します。DBのunique制約とruntime dedupeは同じkeyを使います。
 
@@ -329,7 +374,7 @@ versionと`collector_runs` projectionは引き続きSQLで監査でき、JSON内
 
 新規runでは、record/failure本文の正本は`investigation_runs.bundle_json`だけです。`collector_runs`は
 `source + operation`単位にまとめたstatus/count projectionで、複数結果のstatusは最も強いproblem状態、request/result
-件数は合計を保持します。`result_json.evidence_storage = "bundle_json"`とrecord/failure countを持ち、
+件数とcache hit数は合計を保持します。`result_json.evidence_storage = "bundle_json"`とrecord/failure countを持ち、
 `records_json` / `failures_json`は空配列です。旧形式の列内payloadを読むfallbackは持たず、現行projectionだけを対象にします。
 
 `projects.state_json`の`service_verification_results`は時系列履歴ではありません。`lane + requested_url`単位の
@@ -345,14 +390,12 @@ payload rewriteを一transactionで行い、commit前にforeign key/integrity ch
 integrity/foreign-key checkを通します。SQLite fileを縮める必要がある場合だけ、別processを止めたうえで明示的に
 `--vacuum`を併用します。
 
-JSON payloadの意味とreplay時の扱いは[investigation-model.md](investigation-model.md)を正本とします。
+JSON payloadの意味とreplay時の扱いは[Investigation](investigation.md)を正本とします。
 
-新しいenrich runでは、`evaluation_json`の予約key `_run_metrics`へrun timingとLLM request metadataを保存します。
-applicationで読む時はsemantic evaluationから`metrics`へ分離するため、replay diffやfixtureの
-`expected_evaluation`には含めません。旧runにはこのkeyが無く、timingは未記録として扱います。
-
-`state_json`の`llm_source.evidence`は、実際にtriageへ渡した24 KiB上限のevidenceです。縮約が発生した
-場合だけ`evidence_budget`を含み、field別の観測件数と採用件数を保持します。prompt本文そのものは保存しません。
+run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtriage入力は
+`state_json`の`llm_source.evidence`へ保存します。計測対象、非secret metadata、semantic evaluationとの分離は
+[Run observability](investigation.md#run-observability)、入力上限と縮約の記録は
+[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
 ### Merge / Splitの履歴
 
@@ -360,9 +403,8 @@ mergeはtarget保存、source alias作成、第三projectの`separate_project`�
 1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの
 investigation runはalias familyとしてtargetのrun一覧へ表示します。
 
-merge後に完了したstale enrichはcurrent projectにもinvestigation historyにも保存しません。enrich applicationが
-project単位transactionをrollbackし、単体runは`failed`、bulk runはcheckpointの`failed_projects`へ例外とsource keyを
-残して再試行対象にします。再試行では旧keyがcanonical keyへ解決され、現在stateから新しい調査を開始します。
+merge後に完了したstale enrichの保存拒否は[project_key_aliases](#project_key_aliases)、
+rollback後の失敗通知・再試行は[Background Job Model](background-jobs.md#中断)を参照してください。
 
 split前のrunは、どのidentifierに属する証拠かを自動分配できないため元projectに残します。
 split後の新しいrunだけを新project keyへ保存します。run snapshotを後から書き換えて
@@ -383,6 +425,49 @@ split後の新しいrunだけを新project keyへ保存します。run snapshot�
 - current project state: 履歴ではなく現在状態の正本
 
 Web job eventはprocess内保持で再起動時に消えます。`sync_state`は最新watermarkだけを保持し、実行履歴として蓄積しません。enrich checkpoint fileの自動削除は未接続です。
+
+## repair-db
+
+`repair-db` の責務:
+
+- `finalize_project_shape()` を通して正規化
+- `duplicate_candidates` / `merge_recommendation` の再計算
+- collision 監査
+
+既定は dry-run です。`--execute` を付けた時だけ正規化と派生フィールド再計算を保存します。collision は報告のみで、自動 merge / separate は行いません。
+
+出力カウンタの意味:
+
+- `normalized_project_count`: `project_from_row()` で復元したpayloadを `ensure_project_shape()` に通しただけでJSON payloadが変わるproject数。
+- `pruned_project_count`: `finalize_project_shape()` 後のpayload、developer account/handle補正、またはatproto contribution保存値補正で、保存対象payloadが変わるproject数。名前は歴史的なものですが、project削除数や削除row数ではありません。
+- `manual_repo_seed_repair_count`: activeなmanual repo seedがconfirmed `project_repository` に存在しない旧shapeを補正する件数。
+- `developer_account_repair_count`: DIDがdeveloper handle/accountのhandle欄に保存された旧shapeの検出件数。payload内のdeveloper account listとidentifier rowの両方を数えます。
+- `refreshed_derived_project_count`: `duplicate_candidates` / `merge_recommendation` の再計算結果が保存済み値と異なるproject数。
+- `collision_count`: 正規化後に同じconfirmed canonical identifierを複数projectが所有する衝突数。candidateとprovider別の派生viewは除外する。
+
+`repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
+
+current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
+
+`repair-db`はschema migrationを行いません。通常openの境界は[データの持ち方](#db接続と初期化)、
+保存schemaは[Schema Version](#schema-version)を参照してください。
+
+新しいsuffix設定時はWebとCLIが同じapplication serviceを呼び、保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定します。staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正し、観測URL、service status、confirmed/candidate identifier、investigation snapshotは変更しません。保存済みEvidenceBundleをcurrent stateへ再適用する場合もsame-site flagを現行policyで再計算します。genericなproject保存や履歴payloadの縮約では再計算しません。
+
+## 登録後の返却と非現行identifier
+
+`ensure_project_for_seed()`は保存後に`fetch_project()`で再読込した完全なruntime viewを返します。
+保存の途中でcanonical payloadへ投影したdictを、そのまま後続enrichの入力にはしません。
+`source_sync.py`のcollection importは非現行NSIDとactive exclusionを既知の抑止対象に含め、
+非現行化した値を新規projectとして再登録しません。通常の復帰・再採用は明示的な採用操作で扱います。
+
+### Identifier保存方式の比較経路
+
+`compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで
+読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。
+`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を
+適用します。schema v2からv3への変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。
+移行判断の根拠と適用記録は[identifier保存方式の記録](../../notes/identifier-storage-shadow-comparison.md)を参照してください。
 
 ## Non-goals
 

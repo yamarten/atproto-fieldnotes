@@ -1,12 +1,12 @@
 # Identity and Ownership Evidence Notes
 
 > 作業用・検討用文書です。現行仕様の正本ではありません。契約は
-> [investigation-model.md](../developer/investigation-model.md)、具体値は
-> [registry-internals.md](../developer/registry-internals.md) を参照してください。
+> [Investigation](../developer/specs/investigation.md)、具体値は
+> [現行規則](../developer/specs/project-boundaries.md#現行の採用規則) を参照してください。
 
 このnoteの以下の実装状況・将来目標は初期検討時点の記録です。現行repository roleは
 `project_repository`で、信頼graphによる評価も接続済みです。旧relationを一括改名したものではありません。現行の判断と接続範囲は
-[帰属と信頼](../developer/project-attribution-and-trust.md)と[Registry Internals](../developer/registry-internals.md)を参照してください。
+[帰属と信頼](../developer/specs/project-boundaries.md)と[現行規則](../developer/specs/project-boundaries.md#現行の採用規則)を参照してください。
 
 ## 初期検討時の保証関係
 

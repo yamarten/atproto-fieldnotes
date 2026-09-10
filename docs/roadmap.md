@@ -1,13 +1,9 @@
 # Project Registry Roadmap
 
-現在の実装状況は[status.md](status.md)、確定済みの保存形や責務分担は
-[project-record.md](developer/project-record.md)、[registry-internals.md](developer/registry-internals.md)、
-[investigation-model.md](developer/investigation-model.md)、
-[project-attribution-and-trust.md](developer/project-attribution-and-trust.md)を正本とします。
-
-この文書には、未完了の作業、着手条件、合意済みの優先関係だけを置きます。検討事項の列挙順は実施順とは扱いません。
-完了した比較結果や移行記録は
-`status.md`または`docs/notes/`へ置き、現行仕様をroadmapへ重複させません。
+この文書は今後到達したい状態、達成の判断、着手・再検討条件、合意済みの依存・優先関係を示します。
+列挙順を実施順とは扱いません。「ここまでできた」を追記せず、部分達成で残る目標が変われば項目を書き直し、
+達成した目標は現役の項目から外します。現在の接続・適用・制約は[status](status.md)、
+仕様と作業記録の更新先は[文書管理方針](documentation-policy.md)を参照してください。
 
 ## 目的の優先順位
 
@@ -42,16 +38,8 @@
 
 検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。
 必要な場合も、人のreviewや通常調査を妨げずに守る範囲を決め、排他方式や全write pathの変更を先に固定しません。
-根拠は[handoffの運用上の注意](thread-handoff.md#運用上の注意)、現行契約は
-[background-jobs.md](developer/background-jobs.md)を参照します。
-
-### 現行仕様を判断の前提として読めるようにする
-
-文書から現在できることと残件を把握でき、過去の制約を前提に実装や調査をやり直さずに済む状態を目指します。
-schema versionの相反する記述や、status内の適用済み・適用待ち・過去の検証記録の混在は、この判断を難しくします。
-
-現行契約と実運用への適用範囲を照合し、現在snapshot、未適用の実装、設計案、履歴の境界を明確にすることが論点です。
-文書全体の整形や用語の統一とは分け、現状の誤認につながる箇所を対象にします。
+根拠は[並行実行の確認範囲](status.md#jobとweb運用)、現行契約は
+[background-jobs.md](developer/specs/background-jobs.md)を参照します。
 
 ### 既存評価を深掘り候補の選定と省力化の判断につなげる
 
@@ -59,8 +47,8 @@ schema versionの相反する記述や、status内の適用済み・適用待ち
 評価の実施自体や計測項目を増やすことを目的にしません。
 
 [source評価](notes/source-lane-evaluation-2026-08-30.md)は固有候補、取得範囲、処理時間等から情報源の価値を、
-[manual gold・紹介実績分析](developer/investigation-model.md#replay-と-benchmark)は判断規則と紹介候補の捕捉を、
-[Lexicon sidecar評価](developer/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)は追加観測の固有価値と
+[manual gold・紹介実績分析](developer/specs/investigation.md#replay-と-benchmark)は判断規則と紹介候補の捕捉を、
+[Lexicon sidecar評価](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)は追加観測の固有価値と
 継続・拡張の必要性を既に扱っています。これらを重複して評価するのではなく、結果が次の問いまで答えているかを確認します。
 
 - 発見・調査した情報が、利用者の深掘り判断に必要な時点で、選べる候補と判断材料として届いたか。
@@ -89,7 +77,7 @@ schema versionの相反する記述や、status内の適用済み・適用待ち
 
 提供終了しても説明を残したいservice、機能が変わったproject、一時的に取得できない対象を例に、読み手に何が
 伝わるべきかを合意します。その内容に基づいて更新規則・保存形・訂正手段の不足を判断し、設計途中の議論は
-`docs/notes/`、確定した説明・時間情報の契約は`project-record.md` / `investigation-model.md`等へ反映します。
+`docs/notes/`、確定した説明の更新規則は[project評価](developer/specs/project-evaluation.md)、時間情報の保存は[project record](developer/specs/project-record.md)へ反映します。
 
 ## 条件付き短期候補
 
@@ -106,15 +94,16 @@ path付きURLや独立したfork等は確認候補であり、取りこぼしを
 足りるか、入口を分けるべきかを判断します。candidate repositoryの内容を確認する必要がある場合も、人の判断材料と
 確定profileへの採用を分け、どの不明点を解消したいかに応じて扱いを決めます。
 
-### Repository analysisの残件
+### Repository analysisの誤解釈を減らす
 
+repositoryの役割とcollection利用を根拠どおり説明できる状態を目指します。
 拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、
 package配布repositoryの役割、fixture Lexiconのdefine扱いは、通常運用で頻度または実害を確認した場合だけ再開します。
 再開時も固定sampleの追加を既定にせず、個別repositoryや既知NSIDに依存しない一般規則を優先します。
 
 ### 信頼・帰属policyの追加接続
 
-判断原則は[project-attribution-and-trust.md](developer/project-attribution-and-trust.md)、現行接続範囲は
+判断原則は[Project境界](developer/specs/project-boundaries.md)、現行接続範囲は
 [status](status.md)を参照します。接続済みのREADME公開先宣言によるservice採用について追加評価する場合は、
 既存の検証結果で判断できない実データ上の効果や残る手動確認を対象にします。全件の再解析・再採用は別判断です。
 
@@ -123,7 +112,7 @@ package配布repositoryの役割、fixture Lexiconのdefine扱いは、通常運
 - 汎用API・AppView独自APIの実在確認。endpoint・引数・応答契約の取得方法を決めてから接続する。
   現在のprotocol確認はorigin rootの標準AT Protocol describeServerに限定する。
 - 代表project_siteの自動採用。serviceとして使えるsurfaceと資料の区別、代表URLの選択条件を検討する。
-- 以下の広いrole-aware policyやLLM relation assessorの接続。今回の限定接続の完了条件へ追加しない。
+- 以下の広いrole-aware policyやLLM relation assessorの接続。公開先宣言による限定接続とは独立した目標として扱う。
 
 広いrole-aware trust policyは、次を説明できる範囲だけproductionへ接続します。
 
@@ -229,42 +218,21 @@ Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public rec
 recordをまだ持たないschema、query / procedure / subscription等の非record Lexicon、Permissioned Data提案の
 space typeとその`collections`宣言の発見を主な価値候補とします。
 
-緊急性は低く、恒久laneへ接続する前にboundedなread-only比較を行います。
+緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。
+現在の観測状態は[status](status.md)、判断材料は
+[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)と
+[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)を参照してください。
+保存、取得上限、publisher検証、periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を正本とします。
 
-- sealed tipまでのcreate / update / deleteをDIDとrkey単位で畳み、現行schema候補を作る
-- recordのrkey、`id`、`lexicon`、主要definition typeを検査し、既存DBとの重複、未知authority group、
-  `sync-collections`で未観測の宣言collectionを数える
-- Jetstream eventだけをownership根拠にせず、exact `_lexicon` DNSが同じDIDを指し、current recordを再取得できる
-  場合だけ正規publisher候補とする
-- space typeはPermissioned Data proposal段階として観測し、`collections`は期待されるcollection集合の宣言として
-  扱う。record活動、現行ownership、projectへの帰属を自動確定しない
-- 未知schemaをすべて新規projectにせず、既存projectへの一意な帰属、独立project候補、schema catalogだけの観測を
-  分けてsample reviewする
+今後は4つの異なる比較可能periodが揃った時、固有候補数、再検証変化、非record表現需要を人が再評価し、
+registryへ新しいrole/relation表現を設計する、sidecar観測を継続する、presetを停止する、のいずれかを決めます。
+4期間前でも検証済みpublisherのdelete / identity置換、具体的な非record利用要求があれば前倒しします。
+判定に使う保存signalは[再評価gate](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。
+新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補reviewにはしません。
 
-space typeの仕様が確定するか、read-only比較で固有候補が確認できた場合に、保存形、watermark、更新・削除追跡、
-promotion signalへの接続を判断します。DNS委譲の変更はJetstream eventに含まれないため、別途再検証します。
-
-2026-09-04のbounded比較では、sealed snapshot 10,201 eventをDID+rkeyで畳み、9,852 current publication、
-5,091 valid unique schema IDを確認しました。query / procedure / subscriptionを含むpublicationは4,099、spaceは
-74 valid unique ID、そのcollections宣言201件中148件は同時点のcollection inventoryで活動未観測でした。
-固有価値が確認できたため、projectやpromotionへ直結しないschema version 1のsidecar publication catalog、
-sealed sequence watermark、update/delete追跡、期限付きDNS/current record検証、Codex向け評価JSONを実装しました。
-2026-09-05の初期運用評価後、恒久pathを`data/lexicon-publication-catalog.db`、更新をCodex評価時の週次目安とし、
-対象schema/DIDを明示する検証入口を追加しました。140 publicationの実検証ではverified 67、DNS DID不一致73、
-current record再取得失敗0で、mirror排除と固有候補抽出の価値を確認しました。一方、verifiedでもproject帰属は確定せず、
-非record Lexiconを現行`owned_nsid`へ表現できないため、sidecarからの自動project作成・identifier採用・promotion変更は
-行いません。record NSIDだけを人が確認後に既存`add-seed`へ渡し、通常enrichでpromotion evidenceを再観測します。
-非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。詳細は
-[sidecar catalog仕様](developer/lexicon-publication-catalog.md)、
-[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)、
-[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)を参照してください。
-
-現在は観測フェイズです。通常sync後の日曜05:00に固定sidecarを使う週次Operations presetで、4つの異なる比較可能periodまで
-増分・fresh inventory・対象限定publisher検証のbounded集計を保持します。新規未登録authority / spaceは週次指標として蓄積し、
-即時の個別候補reviewにはしません。4期間前に検証済みpublisherのdelete / identity置換、具体的な非record利用要求があれば
-前倒しで再評価します。終了時は、registryへ新しいrole/relation表現を
-設計する、sidecar観測を継続する、presetを停止する、のいずれかを人が決めます。全publisherの周期verify、自動project作成、
-identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
+非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。
+その際はprojectへの一意な帰属、独立project候補、catalogだけの観測を区別してsample reviewします。
+全publisherの周期verify、自動project作成、identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
 
 ### 保存済み判断を使うLLM適応
 
@@ -352,14 +320,3 @@ developer node、provider account、native appのbundle / package / store identi
 - plugin-style collector configuration
 - Investigation notebook、Assisted review、LLM triage side panel、multi-project compare、review session
 - bulk maintenance dashboard、source health dashboard
-
-## maintenance commandとして残すもの
-
-通常のWeb操作へ移さず、必要時にCLIで実行します。
-
-- `audit-source-config`によるhosted suffix split監査
-- read-onlyを原則とする`audit-url-fields`
-- 判定feedback後の既存DB cleanup audit
-  - confirmed service URLに補助pageやdefer / block配下URLが残っていないか確認する
-  - repoとNSIDの両方がacceptedではない`defines_schema` relationとowned NSIDを棚卸しする
-  - dry-runで差分を出し、backup後にrepairまたは個別cleanupを実行する

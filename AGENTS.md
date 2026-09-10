@@ -16,7 +16,7 @@
   - `worker.py`: 長時間application serviceを別processで実行する内部entrypoint
 - Web実装は`scripts/project_registry_web/`
   - schema v2 Web API、subprocess job registry、静的UI
-- 詳細なmodule構成と依存方向は`docs/developer/registry-internals.md`を正本にする
+- 詳細なmodule構成と依存方向は`docs/developer/architecture.md`を正本にする
 - 調査結果の正本は SQLite DB `data/survey.db`
 - このリポジトリは個人用のローカル運用を前提にする
   - 他ユーザーや共有 DB は考慮しない
@@ -62,57 +62,33 @@
 - task開始時に、目的、変更対象、非対象、確認方法、文書更新先を明確にする
 - code変更は対象testだけでなく、commit前に`bin/project-registry-test`で全unit testを実行する
 - Web UI変更はPython側のAPI testとJavaScript syntax checkに加え、変更した主要導線を実browserで確認する
-  - 確認環境、DB、bind、port、実運用への反映境界は`docs/developer/change-acceptance.md`に従う
+  - 確認環境、DB、bind、port、実運用への反映境界は`docs/developer/workflows/change-acceptance.md`に従う
 - heuristic変更はunit testだけで完了扱いにせず、既知の実誤判定fixtureまたは人間によるsample reviewで意味上の差分を確認する
   - 特定のproject、URL、source、既知fixtureだけに作用する条件を通常ロジックへ追加しない
   - 新しい分岐を追加する前に、既存規則の修正または置換で同じ問題を解消できないか確認する
   - 一般化できない対応が必要な場合は、operator decision、設定、または期限付きの観測として分離し、適用範囲と廃止条件を示す
 - DB保存契約やcleanupはtemp DB上で実装確認する。正本DBのread-only CLI・SQL・書き捨てスクリプトは直接使用し、書込みを伴う確認や保存前後の比較だけ複製DBを使う。正本DBへの適用は別途承認を得る
 - external source契約を変える場合は、通常testと分けてbounded smoke testの要否を判断する
-- 実施していない確認は未検証としてstatus、roadmap、notes、handoffの適切な場所へ残す
+- 実施していない確認は未検証としてstatusまたは作業固有notesの適切な場所へ残す
 
 ## 参照先
 
-- 利用手順:
-  - [README.md](README.md)
-  - [docs/user/guide.md](docs/user/guide.md)
-  - [docs/user/cli.md](docs/user/cli.md)
-  - [docs/user/web-ui.md](docs/user/web-ui.md)
-- 目的・主要判断:
-  - [docs/brief.md](docs/brief.md)
-- 変更の受入:
-  - [docs/developer/change-acceptance.md](docs/developer/change-acceptance.md)
-- 内部仕様:
-  - [docs/status.md](docs/status.md)
-  - [docs/developer/registry-internals.md](docs/developer/registry-internals.md)
-  - [docs/developer/investigation-model.md](docs/developer/investigation-model.md)
-  - [docs/developer/background-jobs.md](docs/developer/background-jobs.md)
-  - [docs/developer/project-record.md](docs/developer/project-record.md)
-  - [docs/developer/project-attribution-and-trust.md](docs/developer/project-attribution-and-trust.md)
-  - [docs/developer/llm-model-evaluation.md](docs/developer/llm-model-evaluation.md)
-- 設計途中の比較・検討メモ:
-  - [docs/notes/](docs/notes/)
-- 直近の残件・引き継ぎ:
-  - [docs/thread-handoff.md](docs/thread-handoff.md)
+- 目的と方向性: [brief](docs/brief.md)
+- 現在頼ってよい範囲: [status](docs/status.md)
+- 今後の目標: [roadmap](docs/roadmap.md)
+- 文書全体の責務・更新先: [文書管理方針](docs/documentation-policy.md)
+- 実装全体: [architecture](docs/developer/architecture.md)
+- 変更・検証手順: [変更の受入](docs/developer/workflows/change-acceptance.md)
+- 利用手順: [README](README.md)、[利用ガイド](docs/user/guide.md)、[CLI](docs/user/cli.md)、[Web UI](docs/user/web-ui.md)
+- 検討・比較・履歴: [notes](docs/notes/)
 
-## 文書の配置
+## 文書の更新
 
-- `docs/user/` は利用者向けの操作ガイドを置く
-- 利用者向け文書の基本用語は `docs/user/guide.md` の「基本用語」を正本とし、編集上の境界は `docs/notes/user-facing-terminology.md` を参照する
-  - README、brief、`docs/user/`では利用者向け語彙を優先する
-  - 開発文書ではコード、DB、enumと対応する英語を維持してよく、利用者向け語彙への一括置換はしない
-- `docs/developer/` は保存契約、内部仕様、調査・background jobの設計を置く
-- `docs/` 直下は、brief、status、roadmap、handoffなどproject全体の現在地と統治に関する正本文書を置く
-- 開発フェーズ名や一時的な作業単位だけを理由に、`docs/` 直下へ新規文書を増やさない
-- 調査メモ、比較資料、設計途中の論点、作業記録など、会話だけでは失われるが現行仕様や roadmap に直接混ぜるには重い内容は `docs/notes/` に置いてよい
-- `docs/notes/` の文書は作業用・履歴用であることを明確にし、確定した内容は適切な正本文書へ反映する
-- 現状仕様、将来課題、調査途中の仮説を一つの文書に混ぜず、`docs/developer/registry-internals.md` / `docs/roadmap.md` / `docs/thread-handoff.md` / `docs/notes/` の責務に分ける
-- `docs/thread-handoff.md` は次スレッドが読む最短の現在地と未完了作業だけを書く
-  - 完了した実装内容、検証ログ、詳細な変更一覧は置かない
-  - `次に必要な作業` には未完了で実行可能な作業だけを書く
-  - 実装済み・動作確認済みのsnapshotは `docs/status.md` へ置く
-  - 将来候補は `docs/roadmap.md`、設計途中の考え方は `docs/notes/` へ置く
-  - DBへ直接影響した直近のbackupや注意点だけは、次作業の安全に必要な範囲で短く残す
+- 詳細な配置・分割・統合・廃止の判断は[文書管理方針](docs/documentation-policy.md)に従う。
+- 現行仕様、未実現の設計、現在地、今後の目標、作業記録を区別する。notesの確定事項は実装・合意と照合して正本へ反映する。
+- statusは機能ごとの現在の説明を置き換え、roadmapは到達目標を更新する。作業ごとの完了一覧・test件数を追記しない。
+- 常設handoffは持たない。作業固有の有効な保留・再開情報はnotesに置き、必要な間だけstatusから参照する。
+- 利用者向けの基本用語は[利用ガイド](docs/user/guide.md#基本用語)を正本とする。開発文書のコード・DB・enum対応語を一括置換しない。
 
 ## 承認・一時作業の方針
 
@@ -134,9 +110,7 @@
 ## まず読む順番
 
 1. この `AGENTS.md`
-2. `docs/thread-handoff.md`
-3. `docs/status.md`
-4. `docs/developer/registry-internals.md`
-5. `docs/developer/investigation-model.md`
-6. `docs/developer/background-jobs.md`
-7. 必要に応じて `README.md` / `docs/user/` / `docs/notes/`
+2. `docs/brief.md`と`docs/status.md`。作業に関係する有効な保留・注意も確認する
+3. 文書変更では`docs/documentation-policy.md`、実装変更では`docs/developer/architecture.md`
+4. 対象機能の`docs/developer/specs/`と、必要な`docs/developer/workflows/`
+5. 必要に応じて`docs/roadmap.md`、`docs/user/`、関連する`docs/notes/`

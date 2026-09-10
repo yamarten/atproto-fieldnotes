@@ -1,8 +1,8 @@
 # Qwen / Gemma model比較
 
 > 2026-07-25〜26のmodel比較と、2026-08-31のrepository解析契約見直しの作業記録です。再利用する評価手順は
-> [LLM model評価](../developer/llm-model-evaluation.md)、categoryの意味は
-> [project-record.md](../developer/project-record.md#category)を正本とします。
+> [LLM model評価](../developer/workflows/llm-model-evaluation.md)、categoryの意味は
+> [project-record.md](../developer/specs/project-record.md#category)を正本とします。
 
 ## 結論
 

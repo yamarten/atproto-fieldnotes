@@ -1,8 +1,8 @@
 # LLM model評価
 
 この文書は、通常`enrich`または低優先度処理で使うLLMを新しいmodelやversionへ変更する時の確認方法を定めます。
-現在のmodel構成と確認済み範囲は[status.md](../status.md)、直近の比較記録は
-[llm-model-evaluation.md](../notes/llm-model-evaluation.md)を参照してください。
+現在のmodel構成と確認済み範囲は[status.md](../../status.md)、直近の比較記録は
+[llm-model-evaluation.md](../../notes/llm-model-evaluation.md)を参照してください。
 
 ## 目的
 
@@ -52,7 +52,8 @@ requestへreasoning値を送っただけでは適用済みと扱いません。r
 ## 評価データ
 
 `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、保存済みevidenceから固定caseを出力します。
-前回LLM出力だけを根拠とするfieldは、次のmodel入力へ戻しません。現在のprofileはbase evidenceから分けて保持し、
+corpus選抜はprompt長bucketと保存済みcategoryを分け、既定で`category=library`を最低8件優先します。
+保存済み出力は比較referenceでありgold labelではありません。前回LLM出力だけを根拠とするfieldは、次のmodel入力へ戻しません。現在のprofileはbase evidenceから分けて保持し、
 `evaluate-llm-corpus --current-profile-mode without|with`で入力条件を切り替えます。
 
 期待categoryを付ける前に、現在のcategory契約と入力evidenceだけで人が判断できるかを確認します。外部情報を見れば
@@ -65,7 +66,7 @@ repository material、出力内の根拠位置、観測、capability、collectio
 model別suffixはrepository analysisへ適用しません。
 
 比較で実際に使った現行Qwen向けsuffixは
-[`prompts/model-rules/qwen-3.6-35b-a3b.txt`](../../prompts/model-rules/qwen-3.6-35b-a3b.txt)に置きます。
+[`prompts/model-rules/qwen-3.6-35b-a3b.txt`](../../../prompts/model-rules/qwen-3.6-35b-a3b.txt)に置きます。
 現行Qwenのmodel IDでは、通常`enrich`と定期jobがこのファイルを自動選択します。CLIの
 `--llm-triage-prompt-suffix-file`、環境変数`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`、model IDによる既定値の
 順に優先します。別modelにはQwen用規則を適用せず、そのmodelの調整用caseとprompt固定後の確認用caseを経てから
@@ -82,7 +83,7 @@ LLMを使う処理を追加した時、またはそのpromptや後段の利用�
 
 ### 1. category契約を確認する
 
-[project-record.md](project-record.md#category)を正本とし、production prompt、保存処理、評価検査、labelが同じ意味を
+[project-record.md](../specs/project-record.md#category)を正本とし、production prompt、保存処理、評価検査、labelが同じ意味を
 使っていることを確認します。category契約を変えた場合、旧category一致数を新しい選定根拠へ直接使いません。
 
 ### 2. 元profileなし／ありを用意する
@@ -214,11 +215,14 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 適用してよいか、既定modelを変更してよいかは自動決定しません。peak memory、swap、prefill、decodeのrunner自動記録も
 未接続です。
 
+長時間評価は開始時と各request完了時に途中reportを書き出し、正常終了時だけ`status=complete`にします。
+途中reportを完走済みの比較と混同しません。
+
 ## 文書への反映
 
-- 実装済み機能と通常接続: [status.md](../status.md)
-- 未完了の試用や将来作業: [roadmap.md](../roadmap.md)
-- 比較条件、数値、現在の解釈: [llm-model-evaluation.md](../notes/llm-model-evaluation.md)
-- 次スレッドが直ちに行う作業: [thread-handoff.md](../thread-handoff.md)
+- 実装済み機能と通常接続: [status.md](../../status.md)
+- 今後の試用目標と着手条件: [roadmap.md](../../roadmap.md)
+- 比較条件、数値、現在の解釈: [llm-model-evaluation.md](../../notes/llm-model-evaluation.md)
+- 特定の評価作業を再開する情報・保留: その作業の`docs/notes/`。有効な注意がある間だけstatusから参照する
 
-既定modelを変更した場合は、model構成、確認範囲、baselineへ戻す設定を`status.md`へ記録します。
+既定modelを変更した場合は、statusのmodel構成・確認範囲を更新します。詳細な設定とbaselineへ戻す方法は比較・適用記録に残し、有効な試用・保留がある間だけstatusから参照します。

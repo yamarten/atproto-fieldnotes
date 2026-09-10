@@ -57,7 +57,7 @@
 公開候補を作り、その他の候補を診断用の除外入力として残します。projectごとにrequired/optionalの不足、
 根拠不足、変換不能、仕様未確定、公開scopeを分け、`createdAt`をpublication contextとして報告します。
 通常は`.tmp/`へ出力してください。詳細は
-[App Record Export](../developer/app-record-export.md)を参照してください。
+[App Record Export](../developer/specs/app-record-export.md)を参照してください。
 
 `export-app-records`は公開対象のproject keyとUTCの`createdAt`をmanifestで明示します。categoryや追跡状態から
 自動選択しません。`scope_uncertain`はmanifestの別allowlistへ同じkeyを重ねて指定した場合だけ許可し、required

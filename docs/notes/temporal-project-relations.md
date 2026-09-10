@@ -1,6 +1,6 @@
 # Identifierと登録プロジェクトの時間関係の設計メモ
 
-> 作業用・検討用文書です。現行仕様の正本ではありません。改名、移転、後継を信頼グラフやmergeへ暗黙に混ぜず、何が同じまま時間だけ進んだのかを表すための原則案です。以下の「現行実装との差分」「次の確認」は2026-08-11時点の記録です。非現行identifier・採用理由・確定transition・noiseの保存は後続のschema v3で実装・適用済みです。現行契約は[Project Record Schema](../developer/project-record.md)、移行検証は[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)を参照してください。project間の時間関係と未確定sampleは設計途中として残します。
+> 作業用・検討用文書です。現行仕様の正本ではありません。改名、移転、後継を信頼グラフやmergeへ暗黙に混ぜず、何が同じまま時間だけ進んだのかを表すための原則案です。以下の「現行実装との差分」「次の確認」は2026-08-11時点の記録です。非現行identifier・採用理由・確定transition・noiseの保存は後続のschema v3で実装・適用済みです。現行契約は[Project Record Schema](../developer/specs/project-record.md)、移行検証は[Identifier保存方式のshadow比較](identifier-storage-shadow-comparison.md)を参照してください。project間の時間関係と未確定sampleは設計途中として残します。
 
 ## 結論
 

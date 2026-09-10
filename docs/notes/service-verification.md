@@ -1,8 +1,8 @@
 # Service Verification Notes
 
 > 作業用・検討用文書です。現行仕様の正本ではありません。契約は
-> [investigation-model.md](../developer/investigation-model.md)、具体値は
-> [registry-internals.md](../developer/registry-internals.md) を参照してください。
+> [Investigation](../developer/specs/investigation.md)、具体値は
+> [現行規則](../developer/specs/project-evaluation.md#service-statusの評価) を参照してください。
 
 ## 検証方式
 

@@ -4,6 +4,17 @@
 Codex向け評価JSONの保存・更新契約を定めます。project registryへの自動反映、ownership確定、promotion変更は
 このlaneの責務ではありません。
 
+## 独立させている理由と見直し
+
+非record Lexiconを含むpublication観測の価値を評価する暫定の独立機能です。
+registryのproject/owned NSID表現へ未確定な対象を押し込まず、独自の観測DBと評価結果を保持します。
+入力はJetstream publicationと検証先、registryはread-onlyの照合入力です。出力は観測・評価JSONとjob表示で、
+registryへのidentifier・relation・decision追加やpromotion更新は行いません。
+
+再評価の検出条件は[post-sync評価](#post-sync週次評価と再評価gate)、
+継続・統合・停止を決める目標は[roadmap](../../roadmap.md#jetstreamでのlexicon-publication観測)、
+適用・観測状態は[status](../../status.md#lexiconの独立観測)を参照してください。
+
 ## 境界と入口
 
 developer/operator入口は`scripts/lexicon_publication_catalog.py`です。加えてWeb Operationsの固定preset

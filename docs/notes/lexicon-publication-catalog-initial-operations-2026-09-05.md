@@ -2,7 +2,7 @@
 
 この文書は、当時の恒久運用の配置・頻度・trust接続を決めたbounded実データ評価記録です。ここでの
 「scheduler不要」は後続の観測フェイズ設計で置き換えられています。現行契約は
-[developer仕様](../developer/lexicon-publication-catalog.md)を参照してください。
+[developer仕様](../developer/specs/lexicon-publication-catalog.md)を参照してください。
 
 ## 結論
 

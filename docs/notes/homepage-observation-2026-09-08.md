@@ -1,6 +1,6 @@
 # Homepage観測経路の接続とrole判定の検討
 
-作業・比較記録。現在の取得・保存契約は[investigation-model](../developer/investigation-model.md)を正本とする。
+作業・比較記録。現在の取得・保存契約は[Investigation](../developer/specs/investigation.md)を正本とする。
 
 ## 判断
 

@@ -1,5 +1,8 @@
 # Project Registry Brief
 
+この文書はプロジェクトの目的・対象・非目標と、提供したい価値を定めます。方向性を変える合意時に更新し、
+個別の実装判断・作業進捗・検証結果は記録しません。更新先の分担は[文書管理方針](documentation-policy.md)を参照してください。
+
 ## 目的
 
 atproto関連のプロジェクト、サービス、ライブラリ、lexiconを継続的に発見・調査します。
@@ -40,7 +43,7 @@ ATmosphereに関する情報を再利用できるローカルDBへ蓄積しま�
 
 ## 対象の境界
 
-登録プロジェクトは、所有されたLexicon、主要実装、公式repository、提供service、代表project site、native appなどを、一つの説明・追跡対象としてまとめる編集上の単位です。構成要素の完全なinventoryは求めず、同じdeveloper、repository、domainのいずれか一つを共有するだけでは同じ登録プロジェクトとみなしません。詳細な帰属と信頼の判断は[登録プロジェクトへの帰属と信頼](developer/project-attribution-and-trust.md)を正本とします。
+登録プロジェクトは、所有されたLexicon、主要実装、公式repository、提供service、代表project site、native appなどを、一つの説明・追跡対象としてまとめる編集上の単位です。構成要素の完全なinventoryは求めず、同じdeveloper、repository、domainのいずれか一つを共有するだけでは同じ登録プロジェクトとみなしません。詳細な帰属と信頼の判断は[登録プロジェクトへの帰属と信頼](developer/specs/project-boundaries.md)を正本とします。
 
 紹介候補になり得るもの:
 
