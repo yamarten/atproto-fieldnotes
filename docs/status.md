@@ -15,6 +15,8 @@
   未解決分だけの退避modeも実装し、別時点の複製DBで3,216本を退避。全4,722 projectの判定用graph、
   relation・登録URL・採用判断・調査履歴のhash不変を確認。全865 unit test成功。
   正本DB移行と永続退避は未実施。[記録](notes/repository-trust-projection-2026-09-07.md)を参照。
+  復元可能176 relationの複製DB比較も実施済み。132 project / 1,764 URL nodeで自動確定・採用変化0、
+  候補repoの追加調査対象が10件増える。これは現在の入力での差分確認で、過去判断の意味上の正解保証ではない。
 
 - README公開先の候補追加と自動confirmを分離（`repository-analysis-v16` / `repository-homepage-role-v4`）。
   未確定の帰属もcandidateとして保持し、公開先のパスを保存する。確定は現在の公開先宣言または独立運営根拠、

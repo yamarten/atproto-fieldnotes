@@ -140,3 +140,33 @@ archiveは通常の判定に読み込まず、後から必要な観測を調べ�
 これらは検証用。正本DBの永続退避は未実施で、実行時は`data/migration-archives/`等へ新規保存する。
 worktreeの変更をまとめて反映する方針を維持し、master統合・enrich停止・正本DB書込みは行っていない。
 未解決分の退避そのものは判定不変だが、後続のrelation復元の影響まで不変とは主張しない。
+
+### relation復元による通常判定の差分
+
+同じ件数の新しいsnapshot（旧edge 11,489本）で通常移行を複製DBに適用し、保存されるURLが不変である
+こととは別に、復元前後の通常判定を比較した。復元対象は132 projectの176 relationと派生homepage pair 14本。
+復元対象projectの保存URLと前後graphに登場するURLの和集合、1,764 nodeを評価した。
+
+- `trust_auto_confirm_identifier`: 自動確定可否の変化0。
+- `reconcile_trust_supported_url_candidates`: service / repoの採用結果の変化0。
+- `candidate_repo_trust_probe_urls`: 10 projectで各1 candidate repoが追加調査対象へ入る。
+  AT Todo、Seams、Curio、SkyScheduler、cocore.dev、Flashes、onrepeat.fm、Blacksky、checkin、Oolong。
+- 登録URL・採用判断・調査履歴の全行hash不変、foreign key違反0、integrity `ok`。複製DBは削除済み。
+
+追加調査対象の判断理由を確認したところ、sourceへの明示リンクを挙げるものに加え、名前一致・同一project
+という推測だけの理由がある。SkySchedulerには既に採用済みrepoとの大文字小文字違いも含まれる。
+10件が誤ったrepoと判定したわけではないが、保存された判断の再現可能性だけで現在のconfirmed根拠としての
+妥当性を再認定したとは扱わない。通常処理と同じ入力pair・時刻照合は、当時の判断が実在したことの検証。
+
+別途、現在の最新LLM出力と176 pairをread-only照合し、same_project 127、最新出力にpairなし49、
+related / uncertainとの明示的矛盾0だった。未評価49件を否定と読み替えない。
+また、この照合は新しいpage/repoの取得や意味上の正解確認ではない。
+
+推奨案は、復元可能な過去判断も原文・入力pair・理由を履歴として保持し、現役relationへの復元は行わないこと。
+これなら現行判定を変えずに旧edgeを整理できる。一部だけを現役へ復元する場合は、その判断の妥当性を
+追加確認する必要がある。復元可能分の退避は、未解決分だけを退避する既存合意の対象拡大なので未合意。
+この方針変更の実装・正本適用はまだ行っていない。
+
+比較結果は`.tmp/relation-restoration-impact.json`、最新判断の照合は
+`.tmp/relation-restoration-latest-review.json`。DB操作は複製だけで、外部通信・LLM実行は0。
+この追記では通常コードを変更しておらず、全unit testは前回865件成功から再実行していない。

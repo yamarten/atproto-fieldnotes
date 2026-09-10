@@ -29,7 +29,9 @@
 - page↔repositoryのrelation導出コードは実運用へ反映済み。旧保存edgeの明示移行は未実施。
   ユーザーは判定不変を条件に未解決edgeの履歴退避を承認済み。退避単独modeをworktreeで実装・複製検証済み。
   まとめて反映する際にwriter停止・backup後の再計画と、永続archiveへの退避を行う。
-  relation復元は判定根拠を増やすため退避と分け、判定差分の確認・適用判断が残る。
+  relation復元の差分確認は完了。現在の自動確定・採用変化0だが、候補repo 10件が追加調査対象になる。
+  過去判断の理由には名前一致などもあるため、復元可能分も履歴へ退避して現行判定を維持する案を推奨中。
+  この対象拡大は未合意・未実装。復元か退避かを決めてから最終整理を行う。
   [移行評価記録](notes/repository-trust-projection-2026-09-07.md)を参照。
 
 - schema version 3、Website / service / project siteの分離、repositoryの`project_repository`への統一、
