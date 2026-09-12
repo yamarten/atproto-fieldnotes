@@ -30,7 +30,7 @@
 
 定期調査と手動操作を併用しても、後から保存された古い調査結果によって、人の訂正や別の調査成果を失わないことが目的です。単一利用者でも別processの同時実行はあり、重複runの実績があります。ただし、更新消失や中断原因は未確認であり、重複実行そのものと分けて扱います。
 
-検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。必要な場合も、人のreviewや通常調査を妨げずに守る範囲を決め、排他方式や全write pathの変更を先に固定しません。根拠は[並行実行の確認範囲](status.md#jobとweb運用)、現行契約は[background-jobs.md](developer/specs/background-jobs.md)を参照します。
+検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。必要な場合も、人のreviewや通常調査を妨げずに守る範囲を決め、排他方式や全write pathの変更を先に固定しません。根拠は[並行実行の確認範囲](developer/status.md#jobとweb運用)、現行契約は[background-jobs.md](developer/specs/background-jobs.md)を参照します。
 
 ### 既存評価を深掘り候補の選定と省力化の判断につなげる
 
@@ -73,7 +73,7 @@ repositoryの役割とcollection利用を根拠どおり説明できる状態を
 
 ### 信頼・帰属policyの追加接続
 
-判断原則は[Project境界](developer/specs/project-boundaries.md)、現行接続範囲は[status](status.md)を参照します。接続済みのREADME公開先宣言によるservice採用について追加評価する場合は、既存の検証結果で判断できない実データ上の効果や残る手動確認を対象にします。全件の再解析・再採用は別判断です。
+判断原則は[Project境界](developer/specs/project-boundaries.md)、現行接続範囲は[status](developer/status.md)を参照します。接続済みのREADME公開先宣言によるservice採用について追加評価する場合は、既存の検証結果で判断できない実データ上の効果や残る手動確認を対象にします。全件の再解析・再採用は別判断です。
 
 以下は未完了の別課題です。
 
@@ -169,7 +169,7 @@ raw JSON任意path検索は通常のproject探索に必要な具体例が出た�
 
 Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public recordの活動を集計する`sync-collections`では見つからないLexiconの存在検知に使える可能性があります。既存collectionの網羅性改善より、recordをまだ持たないschema、query / procedure / subscription等の非record Lexicon、Permissioned Data提案のspace typeとその`collections`宣言の発見を主な価値候補とします。
 
-緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。現在の観測状態は[status](status.md)、判断材料は[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)と[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)を参照してください。保存、取得上限、publisher検証、periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を正本とします。
+緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。現在の観測状態は[status](developer/status.md)、判断材料は[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)と[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)を参照してください。保存、取得上限、publisher検証、periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を正本とします。
 
 今後は4つの異なる比較可能periodが揃った時、固有候補数、再検証変化、非record表現需要を人が再評価し、registryへ新しいrole/relation表現を設計する、sidecar観測を継続する、presetを停止する、のいずれかを決めます。4期間前でも検証済みpublisherのdelete / identity置換、具体的な非record利用要求があれば前倒しします。判定に使う保存signalは[再評価gate](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補reviewにはしません。
 

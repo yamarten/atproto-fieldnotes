@@ -28,7 +28,7 @@ Agents A1 4Bは、小さいmodelを常駐させる低優先度処理の候補と
 までは試用へ進めません。
 
 旧契約の上記棄却数と、後続のclosed candidate契約での結果は区別します。
-後続評価は「2026-08-31 closed candidate契約」節、現行policyと残件は[status](../status.md)を参照してください。
+後続評価は「2026-08-31 closed candidate契約」節、現行policyと残件は[status](../developer/status.md)を参照してください。
 
 ## 比較した構成
 

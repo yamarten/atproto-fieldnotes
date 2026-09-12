@@ -175,4 +175,4 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 
 ## 文書への反映
 
-評価後は、比較条件、数値、現在の解釈を[比較記録](../../notes/llm-model-evaluation.md)へ残します。既定modelを変更した場合は、[status](../../status.md)のmodel構成・確認範囲を更新し、詳細な設定とbaselineへ戻す方法を比較・適用記録に残します。
+評価後は、比較条件、数値、現在の解釈を[比較記録](../../notes/llm-model-evaluation.md)へ残します。既定modelを変更した場合は、[status](../status.md)のmodel構成・確認範囲を更新し、詳細な設定とbaselineへ戻す方法を比較・適用記録に残します。

@@ -25,7 +25,7 @@ app lexiconとの完全互換や即時exportは主目的ではありません。
 
 ## Schema Version
 
-実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBへの切替と検証結果は[status](../../status.md#登録検索手動編集)を参照してください。
+実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBへの切替と検証結果は[status](../status.md#登録検索手動編集)を参照してください。
 
 ## DB接続と初期化
 

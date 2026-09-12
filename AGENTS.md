@@ -74,7 +74,7 @@
 ## 参照先
 
 - 目的と方向性: [brief](docs/brief.md)
-- 現在頼ってよい範囲: [status](docs/status.md)
+- 現在頼ってよい範囲: [status](docs/developer/status.md)
 - 今後の目標: [roadmap](docs/roadmap.md)
 - 文書全体の責務・更新先: [文書管理方針](docs/documentation-policy.md)
 - 実装全体: [architecture](docs/developer/architecture.md)
@@ -107,7 +107,7 @@
 ## まず読む順番
 
 1. この `AGENTS.md`
-2. `docs/brief.md`と`docs/status.md`。作業に関係する有効な保留・注意も確認する
+2. `docs/brief.md`と`docs/developer/status.md`。作業に関係する有効な保留・注意も確認する
 3. 文書変更では`docs/documentation-policy.md`、実装変更では`docs/developer/architecture.md`
 4. 対象機能の`docs/developer/specs/`と、必要な`docs/developer/workflows/`
 5. 必要に応じて`docs/roadmap.md`、`docs/user/`、関連する`docs/notes/`

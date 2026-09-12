@@ -2,7 +2,7 @@
 
 旧thread-handoffから引き継いだ、特定作業の保留と保全対象です。2026-09-10の記録を保持したもので、
 現在のprocess、queue、設定、backup世代を再監査した結果ではありません。
-機能の現在地は[status](../status.md)、恒久的な仕様・手順は[文書管理方針](../documentation-policy.md)から参照します。
+機能の現在地は[status](../developer/status.md)、恒久的な仕様・手順は[文書管理方針](../documentation-policy.md)から参照します。
 保留を解消したら本記録に結果を残し、statusの有効な注意から参照を外します。
 
 ## 一括enrichの保留

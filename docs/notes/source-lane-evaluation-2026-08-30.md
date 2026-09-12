@@ -1,6 +1,6 @@
 # 外部sourceとanonymous browser laneの評価（2026-08-30）
 
-この文書はlane方針を決めた時点の観測と判断を残す作業記録です。現行仕様は`docs/status.md`と
+この文書はlane方針を決めた時点の観測と判断を残す作業記録です。現行仕様は`docs/developer/status.md`と
 `docs/developer/`以下を正本とします。
 
 ## 採択した方針

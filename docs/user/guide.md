@@ -191,5 +191,5 @@ autoload -Uz compinit && compinit
 
 - Web中心で使う: [Web UIガイド](web-ui.md)
 - CLIやmaintenanceを使う: [CLIガイド](cli.md)
-- 現在の実装状態と制約を確認する: [status.md](../status.md)
+- 現在の実装状態と制約を確認する: [status.md](../developer/status.md)
 - DB保存契約を確認する: [project-record.md](../developer/specs/project-record.md)
