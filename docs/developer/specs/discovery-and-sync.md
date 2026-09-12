@@ -135,7 +135,9 @@
 - 正規化したTangled repo URLだけで既存projectへexact照合します。owner DIDやrecord websiteだけでは照合しません
 - relevant eventのowner handleはDB変更前にDIDごとに解決・cacheし、解決失敗時はrunを適用しません
 - unmatched project作成は既定onです
-- API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しませんenrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
+- API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません。
+
+enrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
 
 ## Source別の外部アクセス
 

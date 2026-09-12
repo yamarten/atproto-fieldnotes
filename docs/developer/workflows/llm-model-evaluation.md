@@ -1,6 +1,6 @@
 # LLM model評価
 
-この文書は、通常`enrich`または低優先度処理で使うLLMを新しいmodelやversionへ変更する時の確認方法を定めます。現在のmodel構成と確認済み範囲は[status.md](../../status.md)、直近の比較記録は[llm-model-evaluation.md](../../notes/llm-model-evaluation.md)を参照してください。
+この文書は、通常`enrich`または低優先度処理で使うLLMを新しいmodelやversionへ変更する時の確認方法を定めます。
 
 ## 目的
 
@@ -175,9 +175,4 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 
 ## 文書への反映
 
-- 実装済み機能と通常接続: [status.md](../../status.md)
-- 今後の試用目標と着手条件: [roadmap.md](../../roadmap.md)
-- 比較条件、数値、現在の解釈: [llm-model-evaluation.md](../../notes/llm-model-evaluation.md)
-- 特定の評価作業を再開する情報・保留: その作業の`docs/notes/`。有効な注意がある間だけstatusから参照する
-
-既定modelを変更した場合は、statusのmodel構成・確認範囲を更新します。詳細な設定とbaselineへ戻す方法は比較・適用記録に残し、有効な試用・保留がある間だけstatusから参照します。
+評価後は、比較条件、数値、現在の解釈を[比較記録](../../notes/llm-model-evaluation.md)へ残します。既定modelを変更した場合は、[status](../../status.md)のmodel構成・確認範囲を更新し、詳細な設定とbaselineへ戻す方法を比較・適用記録に残します。

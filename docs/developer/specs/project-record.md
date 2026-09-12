@@ -23,8 +23,6 @@ registryの一次目的は、atproto関連projectを継続的に発見し、紹�
 
 app lexiconとの完全互換や即時exportは主目的ではありません。`profile_json.app`は将来再利用しやすい確定情報の置き場ですが、不確かな情報で埋めるより空のままにします。
 
-この文書では、project保存モデルを構成するrelational tableとcolumn、および人が読む`profile_json`を保存契約として明示します。主に機械が読み書きする`state_json`は、内部fieldを網羅せず、責務、正本との境界、保存上のinvariantだけを定めます。projectに属さない`sync_state`のwatermark契約は[発見と取り込み](discovery-and-sync.md#sync-state-の更新条件)で扱います。
-
 ## Schema Version
 
 実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBへの切替と検証結果は[status](../../status.md#登録検索手動編集)を参照してください。

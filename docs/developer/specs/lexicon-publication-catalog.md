@@ -1,6 +1,6 @@
 # Lexicon publication sidecar catalog
 
-この文書は、Jetstreamの`com.atproto.lexicon.schema` publicationを発見用途で保持するsidecar SQLiteと、Codex向け評価JSONの保存・更新契約を定めます。project registryへの自動反映、ownership確定、promotion変更はこのlaneの責務ではありません。
+この文書は、Jetstreamの`com.atproto.lexicon.schema` publicationを発見用途で保持するsidecar SQLiteと、Codex向け評価JSONの保存・更新契約を定めます。
 
 ## 独立させている理由と見直し
 
