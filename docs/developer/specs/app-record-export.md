@@ -4,8 +4,9 @@
 契約を定めます。現行実装はread-only validation reportと、明示したpublication manifestからのentry JSON生成を
 提供します。生成したJSONのPDSへの送信は、用途に応じた別ツールが担当します。
 
-この契約は、export候補の根拠とreadinessの意味を実装・review間で揃えるための正本です。将来計画は
-`docs/roadmap.md`、現在接続済みの範囲は`docs/status.md`で管理します。
+処理は二段階です。まず保存済みの確定情報をtarget schemaへ投影し、不足情報と変換上の制約をreportします。
+その結果を確認して公開対象と作成時刻をmanifestで明示すると、検証を通ったentry JSONを生成できます。
+候補identifierの確定やregistryの補正は、この処理では行いません。
 
 ## Target schema
 

@@ -1,6 +1,11 @@
 # Background Job Model
 
-この文書は、長時間operator workflowをCLI、Web worker、テストから同じ業務処理として実行するための恒久的な契約です。個別collectorのevidence契約は[Investigation](investigation.md)を参照してください。
+長時間処理を一つのrequestとして受け取り、進捗eventを返し、最後に完了・中断・失敗のresultを返す契約です。
+CLIとWeb workerは同じapplication serviceを使い、project選択・保存・再開の意味を揃えます。
+
+停止は処理境界で協調的に行い、完了したDB更新は保持します。enrichはcheckpointを使って未完了projectから
+再開できますが、sync/reviewのcheckpoint再開は未接続です。Webのjob一覧・eventはprocess内の表示用情報であり、
+再開の正本はcheckpointです。
 
 ## 目的
 
@@ -15,8 +20,6 @@
 - 一般のjob event履歴をSQLiteへ永続化すること。Lexicon publication観測のboundedな業務集計はsidecarを正本にする
 - 複数の書き込みjobを同時実行すること
 - 任意commandや任意外部URLをWebから実行すること
-
-Webの保持・復元境界は[Web Runner](#web-runner)、operation別の停止境界は[中断](#中断)で定めます。
 
 review executeは先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplan fingerprintとcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
 
@@ -119,9 +122,6 @@ Lexicon publication週次presetの固定sidecar、source、budget、比較可能
 [sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。
 job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
 
-接続・検証範囲は[status](../../status.md#jobとweb運用)、process間競合の将来課題は
-[roadmap](../../roadmap.md#並行する処理から蓄積した情報と判断を守る)を参照してください。
-
 ## Web Runner
 
 Web serverはjobごとに`python -m project_registry_core.worker`を起動します。workerはstdinでDB pathと`OperationRequest`を受け、stdoutをprotocol専用JSON Linesとして使用します。domain codeがstdoutへ出した内容はstderrへ隔離します。
@@ -137,8 +137,6 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 - 任意command、任意worker module、任意checkpoint pathはWeb APIへ公開しない
 - 同じWeb serverからのbackground jobは同時に1件へ制限する。CLIなど別processのwriter排他は提供しない
 - Lexicon publication観測のSIGINTは進行中requestを強制終了せず、snapshot、inventory、publisherの境界で反映する。
-  source別上限とvalid週の集計条件は[週次観測preset](lexicon-publication-catalog.md#週次観測preset)と
-  [post-sync評価](lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照する
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 

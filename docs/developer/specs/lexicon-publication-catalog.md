@@ -11,9 +11,10 @@ registryのproject/owned NSID表現へ未確定な対象を押し込まず、独
 入力はJetstream publicationと検証先、registryはread-onlyの照合入力です。出力は観測・評価JSONとjob表示で、
 registryへのidentifier・relation・decision追加やpromotion更新は行いません。
 
-再評価の検出条件は[post-sync評価](#post-sync週次評価と再評価gate)、
-継続・統合・停止を決める目標は[roadmap](../../roadmap.md#jetstreamでのlexicon-publication観測)、
-適用・観測状態は[status](../../status.md#lexiconの独立観測)を参照してください。
+観測は、publicationの増分を取り込む、選んだpublisherを検証する、registryと照合して発見価値を評価する、
+という流れです。publicationの存在と、そのpublisherの正当性やregistryでの採用は区別します。
+週次presetはこの流れを上限付きで実行し、通常sync後の比較可能なperiodを集計して再評価が必要かを示します。
+この結果から継続・統合・停止を決める目標は[roadmap](../../roadmap.md#jetstreamでのlexicon-publication観測)で管理します。
 
 ## 境界と入口
 

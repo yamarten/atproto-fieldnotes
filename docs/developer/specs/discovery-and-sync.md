@@ -2,8 +2,10 @@
 
 外部sourceから候補を発見し、既存projectへの照合または新規登録へ進める契約です。
 source設定、取得範囲、watermark、未一致・曖昧な一致の扱いを定めます。
-取り込むresourceの帰属と採用は[project境界](project-boundaries.md)、
-登録後の調査は[investigation](investigation.md)を参照してください。
+処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。
+未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。
+未一致・曖昧な一致を無理に同一projectへ結び付けず、sourceごとの進行位置と保留情報を残します。
+取り込みの後に内容を詳しく調べる処理がenrichです。
 
 ## source設定とpolicyの境界
 

@@ -1,7 +1,11 @@
 # Project Registry Status
 
-機能・運用上の関心事ごとに、現在頼ってよい範囲を示します。仕様の詳細は[開発仕様](documentation-policy.md#開発仕様)、
-到達目標は[roadmap](roadmap.md)、利用手順は[利用ガイド](user/guide.md)を参照してください。
+通常導線では、CLI/Webでの登録・検索・手動review、sourceの増分取り込み、enrichによる調査・評価、
+紹介候補の提示と追跡を利用できます。運用はローカルのschema v3 DBを中心に、Web workerと定期presetで行います。
+
+現行機能の適用にも境界があります。新しい判定規則による既存project全件の再評価、非現行identifierの専用編集UI、
+sync/reviewのcheckpoint再開は揃っていません。Lexiconの独立観測やshadow比較も通常の自動採用とは別に扱います。
+以下では機能ごとに、利用できる範囲と、その説明を支える確認・制約を示します。
 
 実運用については2026-09-10までの適用・確認記録に基づきます。この文書の再編で実環境や正本DBを再確認したものではありません。
 以後は該当項目の接続・適用・制約を置き換えて更新し、作業単位の完了一覧は追記しません。
@@ -16,7 +20,7 @@ identifier decisionは`kind + value`全体へ作用し、同じ値のroleごと�
 検索はnormalized fieldの部分一致・構造化filterで、summaryやREADME全文、自然語の概念検索には対応しません。
 保存・mutation・aliasのtestと、schema v3切替後のoperatorによる典型操作・定期sync/enrichを確認した記録があります。
 現在の全データの正しさを保証するものではありません。
-[保存契約](developer/specs/project-record.md)、[schema切替の記録](notes/identifier-storage-shadow-comparison.md)を参照してください。
+[schema切替の記録](notes/identifier-storage-shadow-comparison.md)を参照してください。
 
 ## 発見と取り込み
 
@@ -26,7 +30,7 @@ TangledはJetstream v2を使い、上限で区切った増分実行に対応し�
 
 外部sourceへのbounded smokeとTangledの実適用・照合補正を確認しています。ただし、過去のsmokeを現在の外部APIの
 保証とは扱いません。Tangled full snapshotの初回完走時間・API利用量、長時間運用のretry/cache/budgetは未検証です。
-[取り込み仕様](developer/specs/discovery-and-sync.md)、[source評価](notes/source-lane-evaluation-2026-08-30.md)、
+[source評価](notes/source-lane-evaluation-2026-08-30.md)、
 [workerの外部source確認](notes/registry-maintenance-real-source-smoke-2026-07-11.md)を参照してください。
 
 ## 調査・観測・Replay
@@ -39,7 +43,7 @@ collectorの部分失敗と再試行分類、temp DBのenrich→save→fetch、�
 serviceはstatic/deep probeと匿名browser確認を利用できます。Webから保存済みservice URLを選んで確認する導線も
 接続済みです。認証入力・登録・投稿は行わず、loginへの到達は認証後の機能の保証ではありません。
 検証用HTMLの実Chromium、保存・replay、限定した公開URLを確認していますが、実Playwrightによるlocalhost smokeは未検証です。
-[調査仕様](developer/specs/investigation.md)、[browserの実導線確認](notes/source-lane-evaluation-2026-08-30.md#anonymous-browser-verification)、
+[browserの実導線確認](notes/source-lane-evaluation-2026-08-30.md#anonymous-browser-verification)、
 [page観測の確認](notes/homepage-observation-2026-09-08.md#browser観測の追加検証と修正)を参照してください。
 
 ## Repository解析と公開先の採用
@@ -72,7 +76,7 @@ merge/split/separateの原子的保存と、merge前に始まった古いenrich�
 広いrole-aware trust、merge policy、専用relation assessorのshadow比較は、通常の自動採用・自動mergeとは別の経路です。
 一時的なcollection断片のreview導線は撤去済みで、そこで扱ったのはproject境界までです。
 identifierごとのcurrent/former/non-production/noise選択まで確認済みとは扱いません。
-[境界仕様](developer/specs/project-boundaries.md)、[通常接続の記録](notes/collector-relation-policy-shadow-comparison.md#初期production接続)、
+[通常接続の記録](notes/collector-relation-policy-shadow-comparison.md#初期production接続)、
 [merge reviewの確認範囲](notes/project-merge-policy-shadow-comparison.md#一時導線終了時の監査)を参照してください。
 
 ## 説明・紹介候補・追跡
@@ -84,7 +88,7 @@ Promotionでは根拠確認、期限付き保留、優先度変更・解除を�
 manual goldを通常queue生成へ通す固定評価と、紹介済みprojectを使うread-only分析があります。
 紹介実績分析は現在値に対する評価で、当時の推薦を復元せず、未紹介projectを負例にしません。
 既存profileのsummaryとcategoryの不整合は残り、全件の一括再分類は実施していません。
-[評価仕様](developer/specs/project-evaluation.md)、[評価方法](developer/specs/investigation.md#replay-と-benchmark)を参照してください。
+[評価方法](developer/specs/investigation.md#replay-と-benchmark)を参照してください。
 
 ## LLM構成の評価
 
@@ -107,7 +111,7 @@ sync/reviewのcheckpoint再開と、server再起動後のprocess job一覧・eve
 Web内のmutation lockはCLI等の別processを排他しません。同時writeはSQLiteのlockとbusy timeoutに委ねます。
 並行runの観測はありますが、重複実行が更新消失や中断の原因だったかは未確認です。
 run timingはproject SQL書込みまでで、commit待ち・job全体・operator review時間を含みません。
-[実行管理仕様](developer/specs/background-jobs.md)、[再開記録](notes/homepage-observation-2026-09-08.md#正本適用と一括enrichの再開2026-09-09)、
+[再開記録](notes/homepage-observation-2026-09-08.md#正本適用と一括enrichの再開2026-09-09)、
 [現在有効な保留](#有効な運用上の保留注意)を参照してください。
 
 ## 保存とMaintenance
@@ -116,7 +120,7 @@ schema v3の保存・normalized検索、履歴圧縮、保持policyによる手�
 通常openは既存schema v3を必須とし、旧DBを暗黙変換しません。汎用migration runnerやDB-level data policy markerはありません。
 履歴圧縮の複製DB同値確認・正本適用、merge/splitのtransaction確認の記録があります。
 これらは過去の適用確認で、現在のDB容量・全件整合性を再監査した結果ではありません。
-[保存契約](developer/specs/project-record.md)、[Maintenance手順](developer/workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
+[Maintenance手順](developer/workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
 
 ## App record export
 

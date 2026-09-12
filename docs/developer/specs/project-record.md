@@ -1,6 +1,17 @@
 # Project Record Schema
 
-この文書はregistry schema version 3のproject保存モデルと、各データの意味を定める開発者向けの正本です。帰属と信頼の判断モデルは[登録プロジェクトへの帰属と信頼](project-boundaries.md)、調査pipelineの責務は[Investigation](investigation.md)、現行コードの処理経路は[Architecture](../architecture.md)を参照してください。
+registry schema version 3では、紹介・検索・reviewが読む現在状態と、判断の根拠・履歴を分けて保存します。
+同じSQLite DBに置きますが、観測履歴の保持と、現在のproject情報の更新は役割を分けています。
+
+| 保存するもの | 役割 |
+| --- | --- |
+| `projects` | projectの現在状態。scalar、説明用の`profile_json`、調査・評価用の`state_json`を持つ |
+| `project_identifiers` / `project_relations` | resourceの採用状態と、観測・確定した方向付きの関係 |
+| `project_decisions` | 自動評価が尊重するoperatorの判断 |
+| `investigation_runs` / `collector_runs` | その時点の調査入力・根拠・評価・結果と、sourceごとの成否 |
+
+保存処理は現在状態を正規化し、読み出すときはnormalized rowからruntime viewを組み立てます。
+調査履歴は再評価の材料であり、一覧や詳細が読む現在状態の代わりにはしません。
 
 ## 設計意図
 
@@ -29,13 +40,7 @@ workerは既存のschema version 3 DBを必須とし、missing pathや未初期�
 新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを
 同値upsertせず、open処理由来のwrite transactionを保持しません。
 
-通常起動で旧schemaを変換しません。明示的な比較・新規複製DBへのmaterializationは[Schema Version](#schema-version)の専用経路です。
-
 `repair-db`はschema v3 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
-
-履歴の圧縮codec、監査経路、手動削除の保持条件は
-[Investigation History](#investigation-history)と
-[Retention Policy](#retention-policy)を参照してください。
 
 ## 保存責務
 
@@ -166,7 +171,7 @@ collection namespace、registrable namespace、service host familyなどのfuzzy
 安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはnormalized indexだけを使います。`did`と`service_url_candidate`はindexで候補を絞った後、
 候補projectをhydrateしてcurrent payloadとの一致を確認します。
 
-`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。派生linkの保存規則は[profile_json](#profile_json)、正本DBへの補正実績は[status](../../status.md)を参照してください。
+`audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。
 
 ## NSIDの扱い
 
@@ -449,8 +454,7 @@ Web job eventはprocess内保持で再起動時に消えます。`sync_state`は
 
 current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
 
-`repair-db`はschema migrationを行いません。通常openの境界は[データの持ち方](#db接続と初期化)、
-保存schemaは[Schema Version](#schema-version)を参照してください。
+`repair-db`はschema migrationを行いません。
 
 新しいsuffix設定時はWebとCLIが同じapplication serviceを呼び、保存済みcurrent service probeのrequested/final URLを現在のdomain policyで再判定します。staleな`redirect_same_site_family` flagと対応する集約evidenceだけを修正し、観測URL、service status、confirmed/candidate identifier、investigation snapshotは変更しません。保存済みEvidenceBundleをcurrent stateへ再適用する場合もsame-site flagを現行policyで再計算します。genericなproject保存や履歴payloadの縮約では再計算しません。
 
