@@ -83,8 +83,4 @@ sqlite3 data/survey.db ".backup '.tmp/change-acceptance/survey.db'"
 
 ## Maintenance適用の確認
 
-hosted suffixのsplit監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。
-判定規則の変更を既存DBへ反映する場合は、補助pageやguard対象URLのservice採用、repo/NSIDの採用を満たさない
-`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、
-同じsummaryに含まれる正規化・派生値更新も保存します。
-正本DBへの適用は承認とbackupを経て行い、保存・再監査の確認範囲を作業記録へ残します。
+hosted suffixのsplit監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、補助pageやguard対象URLのservice採用、repo/NSIDの採用を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て行い、保存・再監査の確認範囲を作業記録へ残します。

@@ -1,11 +1,8 @@
 # Background Job Model
 
-長時間処理を一つのrequestとして受け取り、進捗eventを返し、最後に完了・中断・失敗のresultを返す契約です。
-CLIとWeb workerは同じapplication serviceを使い、project選択・保存・再開の意味を揃えます。
+長時間処理を一つのrequestとして受け取り、進捗eventを返し、最後に完了・中断・失敗のresultを返す契約です。CLIとWeb workerは同じapplication serviceを使い、project選択・保存・再開の意味を揃えます。
 
-停止は処理境界で協調的に行い、完了したDB更新は保持します。enrichはcheckpointを使って未完了projectから
-再開できますが、sync/reviewのcheckpoint再開は未接続です。Webのjob一覧・eventはprocess内の表示用情報であり、
-再開の正本はcheckpointです。
+停止は処理境界で協調的に行い、完了したDB更新は保持します。enrichはcheckpointを使って未完了projectから再開できますが、sync/reviewのcheckpoint再開は未接続です。Webのjob一覧・eventはprocess内の表示用情報であり、再開の正本はcheckpointです。
 
 ## 目的
 
@@ -54,15 +51,11 @@ review executeは先にdry-run planを作り、candidate IDを選択してから
 
 bulk enrichの`progress.current`はcheckpoint全体での処理対象ordinalで、処理開始時に通知します。ETAにはこの通算値を使わず、現在のworker processで時間を観測済みの件数`eta_observed_count`と、そのattemptで未処理の件数`eta_remaining_count`を使います。resume前に完了した件数とresume後の経過時間を混ぜません。
 
-`progress.total`は処理開始時点で総数が分かる場合だけ整数を入れ、未知の場合は`null`にします。
-`sync-introduced`は取得済みpage数を`current`、`unit=page`として通知しますが、`max_pages`はpaginationの
-安全上限であって総page数ではないため`total`へ入れません。Web UIはこの場合、比率やETAではなく取得済みpage数だけを表示します。
+`progress.total`は処理開始時点で総数が分かる場合だけ整数を入れ、未知の場合は`null`にします。`sync-introduced`は取得済みpage数を`current`、`unit=page`として通知しますが、`max_pages`はpaginationの安全上限であって総page数ではないため`total`へ入れません。Web UIはこの場合、比率やETAではなく取得済みpage数だけを表示します。
 
 ### ETA
 
-bulk enrichは現在のworker processで時間を観測した処理件数と残件数からETAを計算し、resume前の完了件数を混ぜません。
-その他のjobは直近の`current / total`を開始時からの平均速度へ線形外挿します。総数がないoperationでは表示しません。
-`sync-introduced`は未知の総page数を`null`とし、安全上限を進捗総数にしません。
+bulk enrichは現在のworker processで時間を観測した処理件数と残件数からETAを計算し、resume前の完了件数を混ぜません。その他のjobは直近の`current / total`を開始時からの平均速度へ線形外挿します。総数がないoperationでは表示しません。`sync-introduced`は未知の総page数を`null`とし、安全上限を進捗総数にしません。
 
 ### `OperationResult`
 
@@ -87,17 +80,9 @@ anonymous browser verificationはproject境界で停止します。syncは進行
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
 
-bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へ
-project key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了してもrun全体は
-`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。
-resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。
-障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
+bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へproject key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了してもrun全体は`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
 
-project処理中に対象keyがmergeされてaliasになった場合もproject失敗として扱います。保存境界の
-`StaleProjectWriteError`は古いsource snapshotをalias keyまたはcanonical targetへ保存せず、同じtransactionで
-作成した未commitのinvestigation runとともにrollbackします。bulk checkpointには元のsource keyと例外を残し、
-resume時にalias解決後のcanonical projectを現在stateから再実行します。これはmerge済みkeyの復活防止であり、
-CLI等を含むwriter全体のprocess間排他を提供するものではありません。
+project処理中に対象keyがmergeされてaliasになった場合もproject失敗として扱います。保存境界の`StaleProjectWriteError`は古いsource snapshotをalias keyまたはcanonical targetへ保存せず、同じtransactionで作成した未commitのinvestigation runとともにrollbackします。bulk checkpointには元のsource keyと例外を残し、resume時にalias解決後のcanonical projectを現在stateから再実行します。これはmerge済みkeyの復活防止であり、CLI等を含むwriter全体のprocess間排他を提供するものではありません。
 
 ## Enrich Checkpoint
 
@@ -113,14 +98,9 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 
 ## Scheduled preset
 
-Operationsのscheduled presetは、通常enrich、全tracking stateのenrich後のstalled review一括反映、
-introduced sync、introduced以外のsync後のnew-only enrichを実行します。
-presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。
-Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間のbounded observationを直近4回分保存します。
+Operationsのscheduled presetは、通常enrich、全tracking stateのenrich後のstalled review一括反映、introduced sync、introduced以外のsync後のnew-only enrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間のbounded observationを直近4回分保存します。
 
-Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは
-[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。
-job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
+Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
 
 ## Web Runner
 
@@ -140,17 +120,10 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはそのrunで列挙した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
-job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しません。
-未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。
+job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しません。未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。
 
 ## Web serverの診断・再起動
 
-Settingsのreloadは同じ起動引数を保ってpackage entrypointから再起動します。
-active jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続します。
-macOS LaunchAgentはworkspaceのdirenv環境を継承し、plistへsecretを保存しません。SIGTERM時はactive workerを終了します。
+Settingsのreloadは同じ起動引数を保ってpackage entrypointから再起動します。active jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続します。macOS LaunchAgentはworkspaceのdirenv環境を継承し、plistへsecretを保存しません。SIGTERM時はactive workerを終了します。
 
-HTTP request logはquery/bodyを除くmethod、path、status、所要時間をstderrへ記録します。
-unexpected HTTP exceptionのtracebackはserver側へ残し、job stderrとは分離します。
-scheduled worker起動失敗はqueueを終端し、presetの最終status/messageへ保存します。
-POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化します。
-API tokenはconstant-timeで比較し、HTMLは外部文字列を共通escape/link/JSON helperへ通します。
+HTTP request logはquery/bodyを除くmethod、path、status、所要時間をstderrへ記録します。unexpected HTTP exceptionのtracebackはserver側へ残し、job stderrとは分離します。scheduled worker起動失敗はqueueを終端し、presetの最終status/messageへ保存します。POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化します。API tokenはconstant-timeで比較し、HTMLは外部文字列を共通escape/link/JSON helperへ通します。

@@ -1,7 +1,6 @@
 # Projectの説明・評価・追跡
 
-調査で得た根拠から、projectをどう説明し、紹介候補として扱い、継続して追跡するかを決めます。
-これらを一つの総合判定にまとめず、次の判断を分けて保持します。
+調査で得た根拠から、projectをどう説明し、紹介候補として扱い、継続して追跡するかを決めます。これらを一つの総合判定にまとめず、次の判断を分けて保持します。
 
 | 判断 | 答える問い | 主な結果 |
 | --- | --- | --- |
@@ -10,9 +9,7 @@
 | 紹介候補 | 紹介の前提が揃っているか、どれを先にreviewするか | 昇格ゲート、queue、順位・保留 |
 | 追跡 | 今後も調査を続けるか、どの頻度で扱うか | tracking state、再調査対象 |
 
-たとえばserviceがliveであることだけでは紹介候補にせず、説明や寄与度などの条件も確認します。
-LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。
-resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
+たとえばserviceがliveであることだけでは紹介候補にせず、説明や寄与度などの条件も確認します。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
 
 以下では説明の更新、稼働・寄与度、紹介候補、追跡の順に、各判断の細則を示します。
 
@@ -49,29 +46,15 @@ resourceをそのprojectに属するものとして採用する判断は、こ�
 
 ### 保存済みprofileの更新
 
-LLM triageのevidenceには、現在保存されている`tagline` / `summary` / `features`を
-`current_profile`として含めます。LLMは新しい根拠が以前の説明を実質的に改善する場合だけ内容を変え、
-根拠が変わらない時は現在の文面を維持します。
+LLM triageのevidenceには、現在保存されている`tagline` / `summary` / `features`を`current_profile`として含めます。LLMは新しい根拠が以前の説明を実質的に改善する場合だけ内容を変え、根拠が変わらない時は現在の文面を維持します。
 
-前回の`llm_source.evidence`と今回のevidenceを比較し、新しいsupported service URL、confirmedな
-docs / blog / support URL、confirmed repository、または確認済みwebsiteで新たに観測した実利用面を、
-説明に使える強いsourceの追加とみなします。実利用面はlogin、app shell、browserで確認したformや
-public app surfaceに限り、beta等の文言だけでは認めません。この時だけ非空のsummaryと暫定taglineを
-新しいLLM提案へ更新します。同じsourceの再取得や文章差だけでは置き換えません。暫定でないtaglineは
-強いsourceが増えても自動更新しません。
+前回の`llm_source.evidence`と今回のevidenceを比較し、新しいsupported service URL、confirmedなdocs / blog / support URL、confirmed repository、または確認済みwebsiteで新たに観測した実利用面を、説明に使える強いsourceの追加とみなします。実利用面はlogin、app shell、browserで確認したformやpublic app surfaceに限り、beta等の文言だけでは認めません。この時だけ非空のsummaryと暫定taglineを新しいLLM提案へ更新します。同じsourceの再取得や文章差だけでは置き換えません。暫定でないtaglineは強いsourceが増えても自動更新しません。
 
-比較結果の専用fieldは保存しません。前回LLM入力は既存の`llm_source.evidence`に残り、今回の成功後は
-同fieldが新しい比較基準になります。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、
-内容を確認した上で個別に適用します。schema / serviceなど内容別の専用signalは設けません。
+比較結果の専用fieldは保存しません。前回LLM入力は既存の`llm_source.evidence`に残り、今回の成功後は同fieldが新しい比較基準になります。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、内容を確認した上で個別に適用します。schema / serviceなど内容別の専用signalは設けません。
 
-`llm_output.name`は履歴ではなく、直近に成功したLLM reviewの現在提案です。成功したreviewを適用する時は、
-`name_candidates`に残る以前の`source=llm_output`候補を現在提案で置き換えます。collectorまたはLLM呼び出しが
-失敗して新しいoutputを適用できなかった場合は、直前の現在提案を維持します。operator edit、service title、
-resource title、repository名など、LLM以外をsourceとする名前候補はこの置換の対象外です。
+`llm_output.name`は履歴ではなく、直近に成功したLLM reviewの現在提案です。成功したreviewを適用する時は、`name_candidates`に残る以前の`source=llm_output`候補を現在提案で置き換えます。collectorまたはLLM呼び出しが失敗して新しいoutputを適用できなかった場合は、直前の現在提案を維持します。operator edit、service title、resource title、repository名など、LLM以外をsourceとする名前候補はこの置換の対象外です。
 
-`finalize_project_shape()`も保存済み`llm_output.name`とLLM名候補を同期してから代表名を再評価します。このため、
-旧実装で複数のLLM名候補が蓄積したprojectは、通常の保存または`repair-db`で現在提案だけに補正されます。
-過去のLLM出力を調べる必要がある場合は、current stateの候補配列ではなくinvestigation runを参照します。
+`finalize_project_shape()`も保存済み`llm_output.name`とLLM名候補を同期してから代表名を再評価します。このため、旧実装で複数のLLM名候補が蓄積したprojectは、通常の保存または`repair-db`で現在提案だけに補正されます。過去のLLM出力を調べる必要がある場合は、current stateの候補配列ではなくinvestigation runを参照します。
 
 ### Name候補
 
@@ -100,8 +83,7 @@ resource title、repository名など、LLM以外をsourceとする名前候補�
 
 LLM は discovery の主役ではなく、整理の補助です。
 
-planning/triageの入力上限と縮約規則は
-[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
+planning/triageの入力上限と縮約規則は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
 unconfirmedな`candidate_project_repository_urls`はtriage evidenceから除外します。候補URLを調査対象に含める必要があるinvestigation planningにだけURLを渡し、candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
 
@@ -120,21 +102,13 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
 
 #### Categoryの選択
 
-category値の意味は[Category](project-record.md#category)を正本とします。
-CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が
-依存packageとしてcodeへ組み込むpluginは`library`、既存serviceや外部toolへ導入してATProto連携を追加する
-pluginは`infra_tool`です。ATProto自体を扱うCLIや運用componentも`infra_tool`です。既存projectに別物の
-URLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。
+category値の意味は[Category](project-record.md#category)を正本とします。CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が依存packageとしてcodeへ組み込むpluginは`library`、既存serviceや外部toolへ導入してATProto連携を追加するpluginは`infra_tool`です。ATProto自体を扱うCLIや運用componentも`infra_tool`です。既存projectに別物のURLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。
 
-停止、削除、archiveはcategoryを変える理由にしません。過去のcategoryを確認できる場合は維持し、削除後に
-初めて発見して元の役割を復元できない古い対象では`name_only`を許容します。
+停止、削除、archiveはcategoryを変える理由にしません。過去のcategoryを確認できる場合は維持し、削除後に初めて発見して元の役割を復元できない古い対象では`name_only`を許容します。
 
-複数の説明が当てはまる場合は、対象外なら`reject`、役割不明なら`name_only`、固定利用者なら
-`personal_tool`、文書化された共有schemaなら`lexicon`、組み込む部品なら`library`、projectの背後で動くか
-ATProto自体を扱う実行物なら`infra_tool`、一般利用者が直接使うものなら`project`の順で確認します。
+複数の説明が当てはまる場合は、対象外なら`reject`、役割不明なら`name_only`、固定利用者なら`personal_tool`、文書化された共有schemaなら`lexicon`、組み込む部品なら`library`、projectの背後で動くかATProto自体を扱う実行物なら`infra_tool`、一般利用者が直接使うものなら`project`の順で確認します。
 
-生成したsummaryとcategoryが矛盾する場合は不整合として扱います。`current_profile`は既存の編集文面であり、
-categoryの根拠にはしません。観測から役割を決めた後に、現在の文面を維持するか判断します。
+生成したsummaryとcategoryが矛盾する場合は不整合として扱います。`current_profile`は既存の編集文面であり、categoryの根拠にはしません。観測から役割を決めた後に、現在の文面を維持するか判断します。
 
 #### 紹介候補signal
 
@@ -202,8 +176,7 @@ serviceの利用可否も独立軸として扱います。`category=project / in
 
 #### Service statusの現在値
 
-project直下の`service_status / service_status_confidence / service_status_evidence`は、保存済みの
-`service_verification_results`を初期値なしで再評価するcurrent projectionです。過去scalarのmax / unionは入力にしません。
+project直下の`service_status / service_status_confidence / service_status_evidence`は、保存済みの`service_verification_results`を初期値なしで再評価するcurrent projectionです。過去scalarのmax / unionは入力にしません。
 
 - current resultは`lane + requested_url`ごとに最新1件を使う
 - supporting pageの`follow_up`と、static / deepのsupporting page URLはproject scalarへ入れない
@@ -215,17 +188,13 @@ project直下の`service_status / service_status_confidence / service_status_evi
 projectionはnetwork、browser、trust graph更新を行いません。`repair-db`は変更件数とbefore/after例をdry-runで報告し、investigation runのinput/output/bundle/evaluationは更新しません。
 
 
-probeがprojectを支持し、検証済みauthorityの完全一致hostが正常応答してtitleまたはdescriptionを持つ場合は、
-汎用classifierの`unverified`を`verified_authority_service_surface`付き`live`へ補助更新します。
-`none`、`unreleased`、`beta`等の明示分類は上書きしません。authority hostの一致だけでidentifier採用はしません。
+probeがprojectを支持し、検証済みauthorityの完全一致hostが正常応答してtitleまたはdescriptionを持つ場合は、汎用classifierの`unverified`を`verified_authority_service_surface`付き`live`へ補助更新します。`none`、`unreleased`、`beta`等の明示分類は上書きしません。authority hostの一致だけでidentifier採用はしません。
 
-匿名browserのlogin到達は認証後の利用を保証せず、runtime/network errorだけでは一時障害と恒久停止を区別できません。
-`unverified`は`dead`や`private`の確定結果ではありません。
+匿名browserのlogin到達は認証後の利用を保証せず、runtime/network errorだけでは一時障害と恒久停止を区別できません。`unverified`は`dead`や`private`の確定結果ではありません。
 
 #### Service statusの要レビュー条件
 
-LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`
-は単に `service_status_confidence=low` というだけでは review queue に載せません。
+LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`は単に `service_status_confidence=low` というだけでは review queue に載せません。
 
 `llm_manual_review_recommended` signal を残すのは、手動確認の結果で次のいずれかが変わる時です。
 
@@ -236,14 +205,11 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `conflicting_service_status_evidence`
   - `mixed_launch_signals_detected` があり、status evidence が矛盾している
 
-採用した理由は signal の `details.action_basis` に残します。
-`identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
+採用した理由は signal の `details.action_basis` に残します。`identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
 
 ### Atproto寄与度
 
-`atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` は
-category と独立した derived field です。`ensure_project_shape()` と `save_project()` で
-rule-based に再計算します。
+`atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` はcategory と独立した derived field です。`ensure_project_shape()` と `save_project()` でrule-based に再計算します。
 
 - `core` / `90`
   - resolved NSID または lexicon schema sample がある
@@ -257,11 +223,7 @@ rule-based に再計算します。
 - `unknown` / `0`
   - rule-based evidence が無い
 
-`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。
-review queue は寄与度を sort score に足し、promotion queue も寄与度を補助点として使います。
-曖昧ケースの補助分類は[roadmap](../../roadmap.md#atproto寄与度と紹介候補の順位)の検討対象です。
-既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に
-対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
+`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。review queue は寄与度を sort score に足し、promotion queue も寄与度を補助点として使います。曖昧ケースの補助分類は[roadmap](../../roadmap.md#atproto寄与度と紹介候補の順位)の検討対象です。既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
 
 ## 紹介候補
 
@@ -279,8 +241,7 @@ review queue は寄与度を sort score に足し、promotion queue も寄与度
 - `category` がある
 - `llm_source`がある
 
-Website単独やseedの有無はこのゲートの条件にしません。
-満たさなければ `draft` のまま残し、`promotion_blockers` に理由を残します。
+Website単独やseedの有無はこのゲートの条件にしません。満たさなければ `draft` のまま残し、`promotion_blockers` に理由を残します。
 
 ### 紹介候補の表示・順位・保留
 
@@ -406,5 +367,4 @@ accepted projectは `tracking_state=out_of_scope` になります。この状態
 
 ### 調査対象の選択
 
-`enrich --all`は既定で`tracking_state=active`だけを対象にします。
-`stable`、`stalled`、`out_of_scope`は明示的にincludeした場合だけ調査します。
+`enrich --all`は既定で`tracking_state=active`だけを対象にします。`stable`、`stalled`、`out_of_scope`は明示的にincludeした場合だけ調査します。

@@ -1,16 +1,12 @@
 # Architecture
 
-このツールは、外部sourceから候補を登録し、projectごとに調査した根拠を評価して、紹介・追跡に使う現在状態を
-SQLiteへ保つ仕組みです。CLIとWebは同じapplication serviceを呼び、外部取得とLLMは主に調査時に使います。
-一覧・詳細の表示とExplainは保存済み情報を読みます。
+このツールは、外部sourceから候補を登録し、projectごとに調査した根拠を評価して、紹介・追跡に使う現在状態をSQLiteへ保つ仕組みです。CLIとWebは同じapplication serviceを呼び、外部取得とLLMは主に調査時に使います。一覧・詳細の表示とExplainは保存済み情報を読みます。
 
 ## 全体の流れ
 
 1. **発見・登録** — source別のsyncが候補を既存projectへ照合し、対象commandでは未知の候補を新規登録する。
-2. **調査・判断** — enrichが観測を収集し、resourceの帰属と、説明・分類・稼働状態などをそれぞれ評価する。
-   観測したlinkやLLMの提案が、そのまま採用済みidentifierになるわけではない。
-3. **保存・利用** — projectの現在状態と調査履歴を分けて保存する。CLI/Webで検索・review・手動編集し、
-   次の調査でもoperatorのconfirm・block・deferを尊重する。
+2. **調査・判断** — enrichが観測を収集し、resourceの帰属と、説明・分類・稼働状態などをそれぞれ評価する。観測したlinkやLLMの提案が、そのまま採用済みidentifierになるわけではない。
+3. **保存・利用** — projectの現在状態と調査履歴を分けて保存する。CLI/Webで検索・review・手動編集し、次の調査でもoperatorのconfirm・block・deferを尊重する。
 
 この流れの契約は次の仕様に分かれます。
 
@@ -22,18 +18,13 @@ SQLiteへ保つ仕組みです。CLIとWebは同じapplication serviceを呼び�
 | 根拠から説明・紹介候補・追跡状態をどう決めるか | [Project評価](specs/project-evaluation.md) |
 | 現在状態・関係・手動判断・調査履歴をどう保持するか | [Project record](specs/project-record.md) |
 
-個人がローカルの`data/survey.db`を使う運用を前提とします。同時編集は自分のCLI、Web、worker間の衝突を
-想定します。Web server内ではmutationを直列化しますが、別processとの競合はSQLiteのlockに委ねます。
+個人がローカルの`data/survey.db`を使う運用を前提とします。同時編集は自分のCLI、Web、worker間の衝突を想定します。Web server内ではmutationを直列化しますが、別processとの競合はSQLiteのlockに委ねます。
 
 ## 実行経路
 
-CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をそれぞれtext/JSONとHTTP responseへ
-変換します。長時間処理では、CLIはserviceを呼び、Webは別processの`worker.py`を介して同じserviceを実行します。
-業務処理は進捗eventと終了resultを返し、enrichの保存・checkpoint・再開もapplication serviceが担当します。
-中断可能な境界と再開の保証は[Background jobs](specs/background-jobs.md)で定めます。
+CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をそれぞれtext/JSONとHTTP responseへ変換します。長時間処理では、CLIはserviceを呼び、Webは別processの`worker.py`を介して同じserviceを実行します。業務処理は進捗eventと終了resultを返し、enrichの保存・checkpoint・再開もapplication serviceが担当します。中断可能な境界と再開の保証は[Background jobs](specs/background-jobs.md)で定めます。
 
-独立したLexicon観測は専用sidecar DBへ保存し、registryは照合用に読むだけです。App record exportは
-保存済みprojectから公開用JSONを生成します。いずれも通常のenrichとは別の処理です。
+独立したLexicon観測は専用sidecar DBへ保存し、registryは照合用に読むだけです。App record exportは保存済みprojectから公開用JSONを生成します。いずれも通常のenrichとは別の処理です。
 
 ### 実装の依存境界
 
@@ -43,8 +34,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果を�
 - `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
 - `registry.py`はcollector/evaluation orchestration、finalize、merge/queue policyを所有する。repositoryのprovider別取得や解析素材抽出は所有しない
 
-`source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。
-`project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
+`source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。`project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
 
 ### CLI・Webとapplication service
 
@@ -62,10 +52,7 @@ Webの初期detailは全project hydrateを行わず、merge candidateだけを`/
 
 ### 一覧・詳細の検索経路
 
-Webのproject一覧は`projects`を起点にnormalized identifier、relation、decisionを`EXISTS` queryでfilterします。
-一覧候補作成時に全projectのchildをhydrateせず、detailは選択した1件のchildを取得します。
-自由入力はproject key、name、Website、identifier value、relation subject/object/locator、decision target/noteの
-大小文字を無視した部分一致です。summary、tagline、raw evidence、README/HTML全文は対象外です。
+Webのproject一覧は`projects`を起点にnormalized identifier、relation、decisionを`EXISTS` queryでfilterします。一覧候補作成時に全projectのchildをhydrateせず、detailは選択した1件のchildを取得します。自由入力はproject key、name、Website、identifier value、relation subject/object/locator、decision target/noteの大小文字を無視した部分一致です。summary、tagline、raw evidence、README/HTML全文は対象外です。
 
 ## Module構成と依存方向
 
@@ -122,8 +109,7 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
   - repository revisionと解析policy単位で結果を再利用し、成功結果と最新試行を分けてcurrent stateへ保存する
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
-  - service verification evidenceの縮約と、`lane + requested_url`単位の最新32 surface projectionは
-    `service.py`が所有する
+  - service verification evidenceの縮約と、`lane + requested_url`単位の最新32 surface projectionは`service.py`が所有する
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 
@@ -139,8 +125,7 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 ### 共通の正規化・外部接続
 
 - `project_registry_core/domain_policy.py`
-  - 正式依存`tldextract`へvendored PSLだけを入力し、known/configured multi-tenant suffix、registrable domain、
-    same-site判定を所有する。依存またはvendored PSL欠落時に別の自作policyへfallbackしない
+  - 正式依存`tldextract`へvendored PSLだけを入力し、known/configured multi-tenant suffix、registrable domain、same-site判定を所有する。依存またはvendored PSL欠落時に別の自作policyへfallbackしない
   - suffix設定の読書きもこのmoduleが所有する
 - `project_registry_core/http_transport.py`
   - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
@@ -162,16 +147,10 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 
 現行の依存方向は完全分離後の目標図ではありません。確認済みの境界は次の通りです。
 
-- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportせず、
-  maintenance専用のnormalized roundtrip verifierは`project_record.py`の`fetch_project` / `save_project`を遅延importする
-- `application/`はCLI/Web共通serviceとして分離済みだが、多くのserviceがdomain/storage facadeとして
-  `registry.py`とproject保存用の`project_record.py`を用途別にimportする。`commands/`も同じ境界を使う
-- Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには
-  `registry.py`または`project_record.py`への直接依存が残る
-- `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、
-  identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
-- queue policyとcollector適用の補助処理は`registry.py`に残る。1 projectのenrich本体の分離は完了しているが、
-  `enrichment_pipeline.py`やapplication serviceが`registry.py`から独立済みとは扱わない
+- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportせず、maintenance専用のnormalized roundtrip verifierは`project_record.py`の`fetch_project` / `save_project`を遅延importする
+- `application/`はCLI/Web共通serviceとして分離済みだが、多くのserviceがdomain/storage facadeとして`registry.py`とproject保存用の`project_record.py`を用途別にimportする。`commands/`も同じ境界を使う
+- Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには`registry.py`または`project_record.py`への直接依存が残る
+- `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
+- queue policyとcollector適用の補助処理は`registry.py`に残る。1 projectのenrich本体の分離は完了しているが、`enrichment_pipeline.py`やapplication serviceが`registry.py`から独立済みとは扱わない
 
-resource pageの統合は既存mutatorをproject copy上で実行し、許可fieldのpatchを返す暫定実装です。
-cacheとcircuit breakerはprocess/source単位で、永続policyではありません。
+resource pageの統合は既存mutatorをproject copy上で実行し、許可fieldのpatchを返す暫定実装です。cacheとcircuit breakerはprocess/source単位で、永続policyではありません。

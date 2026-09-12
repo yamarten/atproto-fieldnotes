@@ -1,30 +1,16 @@
 # 発見と取り込み
 
-外部sourceから候補を発見し、既存projectへの照合または新規登録へ進める契約です。
-source設定、取得範囲、watermark、未一致・曖昧な一致の扱いを定めます。
-処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。
-未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。
-未一致・曖昧な一致を無理に同一projectへ結び付けず、sourceごとの進行位置と保留情報を残します。
-取り込みの後に内容を詳しく調べる処理がenrichです。
+外部sourceから候補を発見し、既存projectへの照合または新規登録へ進める契約です。source設定、取得範囲、watermark、未一致・曖昧な一致の扱いを定めます。処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。未一致・曖昧な一致を無理に同一projectへ結び付けず、sourceごとの進行位置と保留情報を残します。取り込みの後に内容を詳しく調べる処理がenrichです。
 
 ## source設定とpolicyの境界
 
-設計上、operatorが運用中に変更するsource URL、enabled状態、query、request budget、取得scopeはconfigへ
-置けます。一方、payloadの解釈、evidence抽出、identity/ownershipの信頼条件、classification、auto-attachや
-promotionの条件はcodeとtestを正本とします。
+設計上、operatorが運用中に変更するsource URL、enabled状態、query、request budget、取得scopeはconfigへ置けます。一方、payloadの解釈、evidence抽出、identity/ownershipの信頼条件、classification、auto-attachやpromotionの条件はcodeとtestを正本とします。
 
-通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。
-sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等のrequest budgetを持ち、
-application sync serviceが解決します。CLI/Web/workerから明示された値はそのrunだけ上書きします。disabled sourceは
-network request前に拒否します。この境界はgeneric plugin frameworkを実装済みという意味ではなく、source追加の
-たびにconfig schemaや抽象interfaceを増やす目標でもありません。builtin lexicon prefix、payload解釈、evidence抽出、
-matching/classification/auto-attachはcodeとtestのままで、config DSL化しません。
+通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等のrequest budgetを持ち、application sync serviceが解決します。CLI/Web/workerから明示された値はそのrunだけ上書きします。disabled sourceはnetwork request前に拒否します。この境界はgeneric plugin frameworkを実装済みという意味ではなく、source追加のたびにconfig schemaや抽象interfaceを増やす目標でもありません。builtin lexicon prefix、payload解釈、evidence抽出、matching/classification/auto-attachはcodeとtestのままで、config DSL化しません。
 
 ## Source別の取り込み
 
-`sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が
-既定 ON です。候補を作らず `unmatched_entries` の棚卸しだけ行う場合は `--no-create-unmatched`
-を付けます。`sync-introduced` は紹介済み判定専用なので、新規 project を作りません。
+`sync-collections` / `sync-github-search` / `sync-semble-collections` は未知候補の project 作成が既定 ON です。候補を作らず `unmatched_entries` の棚卸しだけ行う場合は `--no-create-unmatched`を付けます。`sync-introduced` は紹介済み判定専用なので、新規 project を作りません。
 
 ### `sync-introduced`
 
@@ -149,8 +135,7 @@ matching/classification/auto-attachはcodeとtestのままで、config DSL化し
 - 正規化したTangled repo URLだけで既存projectへexact照合します。owner DIDやrecord websiteだけでは照合しません
 - relevant eventのowner handleはDB変更前にDIDごとに解決・cacheし、解決失敗時はrunを適用しません
 - unmatched project作成は既定onです
-- API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません
-enrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
+- API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しませんenrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
 
 ## Source別の外部アクセス
 

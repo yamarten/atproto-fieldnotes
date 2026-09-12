@@ -1,9 +1,6 @@
 # Investigation Model
 
-調査pipeline、sourceからの取得・観測、evidence、部分失敗とreplayの契約を定めます。
-登録済みprojectを起点に、外部情報を観測として集め、採用できる根拠を現在状態へ反映します。
-sourceごとの失敗を分けて記録し、一部を取得できなくても得られた根拠を保持します。
-保存した調査runは、外部へ再接続せずに現行規則で再評価できます。
+調査pipeline、sourceからの取得・観測、evidence、部分失敗とreplayの契約を定めます。登録済みprojectを起点に、外部情報を観測として集め、採用できる根拠を現在状態へ反映します。sourceごとの失敗を分けて記録し、一部を取得できなくても得られた根拠を保持します。保存した調査runは、外部へ再接続せずに現行規則で再評価できます。
 
 ## Pipeline
 
@@ -51,8 +48,7 @@ Service / ownership reviewも保存済みcurrent state、normalized relation、c
 - `derived`: 他の観測から決定的に導出した query、正規化結果、usage relation
 - `heuristic`: score、文字列類似、community source など誤判定し得る推定
 
-classification は project field の confidence と同義ではありません。integration が guard と project
-文脈を適用し、confirmed field、candidate field、observation のどこへ反映するかを決めます。
+classification は project field の confidence と同義ではありません。integration が guard と project文脈を適用し、confirmed field、candidate field、observation のどこへ反映するかを決めます。
 
 ### EvidenceBundle v2
 
@@ -72,23 +68,17 @@ classification は project field の confidence と同義ではありません�
   - `success | partial | skipped | rate_limited | failed`
   - request/result 数、cursor、stop reason、retry 時刻、cache hit
   - GitHub collectorは実際に送信したHTTP request数を記録し、process-local cache hitはrequest数へ含めない
-  - GitHub API応答に`X-RateLimit-*`または`Retry-After`があれば、最後に観測した
-    `limit`, `remaining`, `used`, `reset`, `resource`, `retry_after`を`rate_limit`へ保存する
+  - GitHub API応答に`X-RateLimit-*`または`Retry-After`があれば、最後に観測した`limit`, `remaining`, `used`, `reset`, `resource`, `retry_after`を`rate_limit`へ保存する
 
 #### Collector history projection
 
-repository homepageとREADME公開先の観測は、未採用URLの取得結果とprojectへの採用判断を分けます。
-URLごとのlaneとassessmentをbundleへ残し、replayでも現在の起点とguardを再評価します。
-取得対象、候補化、browser/protocol確認、衝突検査、旧assessmentの扱いは
-[Repository homepageと公開先の評価](project-boundaries.md#repository-homepageと公開先の評価)を正本とします。
+repository homepageとREADME公開先の観測は、未採用URLの取得結果とprojectへの採用判断を分けます。URLごとのlaneとassessmentをbundleへ残し、replayでも現在の起点とguardを再評価します。取得対象、候補化、browser/protocol確認、衝突検査、旧assessmentの扱いは[Repository homepageと公開先の評価](project-boundaries.md#repository-homepageと公開先の評価)を正本とします。
 
 同じsourceを集約する場合、rate limit観測は最も新しいcollector resultの値を保持します。
 
 通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenとして区別します。
 
-主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`,
-`official_account`, `operates_service`, `project_repository`, `requests_permission`, `redirects_to` です。
-同じ README から複数抽出した claim は独立 source と数えません。
+主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`, `official_account`, `operates_service`, `project_repository`, `requests_permission`, `redirects_to` です。同じ README から複数抽出した claim は独立 source と数えません。
 
 ### 調査状態
 
@@ -106,10 +96,7 @@ URLごとのlaneとassessmentをbundleへ残し、replayでも現在の起点と
 
 ### Relationと採用の境界
 
-collectorの観測からrelationを作ることと、identifierの帰属・採用は別の判断です。
-relationの意味、`defines_schema`の成立条件、candidateの採用規則は
-[project境界](project-boundaries.md#現行の採用規則)を正本とします。service到達の観測自体は、
-採用できるかにかかわらず`service_verification`へ残します。取得失敗を否定や過去観測の消滅へ変換しません。
+collectorの観測からrelationを作ることと、identifierの帰属・採用は別の判断です。relationの意味、`defines_schema`の成立条件、candidateの採用規則は[project境界](project-boundaries.md#現行の採用規則)を正本とします。service到達の観測自体は、採用できるかにかかわらず`service_verification`へ残します。取得失敗を否定や過去観測の消滅へ変換しません。
 
 ## Source別の観測
 
@@ -179,13 +166,7 @@ confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い
 
 repository analysisでは、revisionへ固定したbounded materialを`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、source revision、material hashでそのmaterialを参照します。READMEは先頭・末尾を含む最大6 block、合計6,000文字として元の行番号を保ち、選択数と切り詰め状態をcoverageへ記録します。LLMへ渡すのは本文を持つevidence blockだけで、tree pathは候補抽出やcoverageに使ってもclaimの根拠にはしません。repository metadataはdescriptionだけをclaim可能な本文とし、name、homepage、is_templateはcontextまたは決定的抽出に限ります。観測とcollection利用は、materialから事前生成したclosed candidate IDだけをLLMに選ばせます。README由来のcollection candidateはreverse-domain authorityが小文字でpublic suffixから始まるものに限り、case-sensitiveな最終nameとoperationを一体で固定します。候補が空なら空配列を要求します。
 
-`repository-analysis-v16`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。
-URLは本文中の正確な値を保持し、homepage metadataだけでは宣言候補を作りません。設定ファイル・READMEの
-`declares_documentation_site_url`候補をLLMが返す場合、`applicability`で`current_project` / `negated` /
-`hypothetical` / `third_party` / `obsolete` / `uncertain`を区別します。`current_project`だけを観測へ反映し、
-区分が欠けた回答も棄却します。候補IDの選択だけでは、否定・仮定のURLを公開先と誤認する実例があったためです。
-この観測は従来どおり`role=docs, confidence=candidate`のresource候補へ接続し、project siteやserviceの自動確定、
-独立した運営relationの生成には使いません。v15以前の解析結果はv16のcache hitにはしません。
+`repository-analysis-v16`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。URLは本文中の正確な値を保持し、homepage metadataだけでは宣言候補を作りません。設定ファイル・READMEの`declares_documentation_site_url`候補をLLMが返す場合、`applicability`で`current_project` / `negated` / `hypothetical` / `third_party` / `obsolete` / `uncertain`を区別します。`current_project`だけを観測へ反映し、区分が欠けた回答も棄却します。候補IDの選択だけでは、否定・仮定のURLを公開先と誤認する実例があったためです。この観測は従来どおり`role=docs, confidence=candidate`のresource候補へ接続し、project siteやserviceの自動確定、独立した運営relationの生成には使いません。v15以前の解析結果はv16のcache hitにはしません。
 
 repository analysisはrepo全体を単一`artifact_kind`へ分類しません。出力は短いsummaryとその`summary_evidence`、複数の`observations`、証跡付き`capabilities`、caseを保持したcollection利用です。観測述語はCLI entrypoint、import可能package、service entrypoint、deployment設定、Lexicon定義、host integration、documentation source / generator / site URL / deploymentなどの非排他的な事実です。`basis=declared|observed|inferred`はrepo内の観測方法でありtrust classificationではありません。pathだけのhost integrationは`inferred`に留まり、browser extension宣言にはmanifestまたはREADMEの明示を必要とします。Lexicon JSONの存在はcollection ownershipを確定しません。
 
@@ -199,13 +180,10 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 
 ### Tangledの調査
 
-- confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、
-  `com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
-- accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを
-  `raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
+- confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、`com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
+- accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを`raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
 - owner DID一致や共通websiteは補助根拠ですが、actorやwebsiteは複数projectに対応し得るためproject同一性の照合には使いません
-- Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。
-  GitHubのrecursive tree API相当の完全なcontents取得ではありません
+- Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。GitHubのrecursive tree API相当の完全なcontents取得ではありません
 
 ### Service pageの観測
 
@@ -223,15 +201,13 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
   - service probeから`website_url`は設定・更新しません
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
-- service probeの判定とrelation抽出には取得したresponse全体を使いますが、EvidenceBundleとcurrent stateへ保存する
-  raw surfaceはbounded representativeです。
+- service probeの判定とrelation抽出には取得したresponse全体を使いますが、EvidenceBundleとcurrent stateへ保存するraw surfaceはbounded representativeです。
   - `html_extract`: UTF-8で最大12 KiB。全文のSHA-256と取得時byte数は別に保持
   - `links`: 最大128件かつcompact JSON 64 KiB。1 linkのtextは512 bytes、URLは2 KiB
   - `urls`: 最大192件かつcompact JSON 32 KiB。1 URLは2 KiB
   - repo、Bluesky profile、docs/support/status/privacy/login等の役割を持つlink、同一host系link、その他の順で残す
   - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
-- current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。
-  異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
+- current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 
 ### Static・Deep・Browserの調査範囲
 
@@ -257,21 +233,13 @@ browserの登録・認証入力・投稿と、無制限のevidence保存・表�
 
 browserの`public_app_surface_detected`は、作成・投稿を表すactionと、supporting pageではない二階層以上の同一site link 3件以上が同じpageにある場合だけ成立します。CTA単独やcontent link単独では成立しません。action語彙は現在英語のpost / entry / create / write / compose / publish / uploadに限定し、固有project名による例外は持ちません。
 
-browser pageにはnavigationごとの`requested_url`と到達先`url`を保存します。form、input、auth/service action、
-linkの`visible`、フォーム内の`visible_submit_texts`をChromiumの`checkVisibility`で取得します。
-CSS visibility、opacity、content-visibilityを含めた表示状態であり、操作成功や認証成功の証明ではありません。
-`display: contents`のformにはboxがなくても、表示されたinputとsubmitを根拠として利用できます。
+browser pageにはnavigationごとの`requested_url`と到達先`url`を保存します。form、input、auth/service action、linkの`visible`、フォーム内の`visible_submit_texts`をChromiumの`checkVisibility`で取得します。CSS visibility、opacity、content-visibilityを含めた表示状態であり、操作成功や認証成功の証明ではありません。`display: contents`のformにはboxがなくても、表示されたinputとsubmitを根拠として利用できます。
 
-各pageの`visible_surface_features`は、保存budget適用後の表示済みcontrol/linkだけに既存auth/public surface規則を
-適用した結果です。別pageの肯定材料は合算しません。旧観測の表示状態は不明（`visibility_observed: false`）であり、
-表示済みと推定しません。`positive_surface: false`もserviceが存在しない、またはproject siteであるという判定ではありません。
-これらはURLごとのrole検討材料であり、projectへの帰属やidentifier採用を確定しません。
-run全体の従来の`login_surface_reached`等とcurrent service statusへのprojectionは維持し、新しいpage単位の材料とは区別します。
+各pageの`visible_surface_features`は、保存budget適用後の表示済みcontrol/linkだけに既存auth/public surface規則を適用した結果です。別pageの肯定材料は合算しません。旧観測の表示状態は不明（`visibility_observed: false`）であり、表示済みと推定しません。`positive_surface: false`もserviceが存在しない、またはproject siteであるという判定ではありません。これらはURLごとのrole検討材料であり、projectへの帰属やidentifier採用を確定しません。run全体の従来の`login_surface_reached`等とcurrent service statusへのprojectionは維持し、新しいpage単位の材料とは区別します。
 
 bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2を無効にして1回再試行します。通常接続の失敗全般には適用せず、使用時は`transport_fallback`としてbrowser page evidenceに残します。
 
-観測からprojectの現在の稼働状態へ投影する優先順位は、
-[Service statusの現在値](project-evaluation.md#service-statusの現在値)を参照してください。
+観測からprojectの現在の稼働状態へ投影する優先順位は、[Service statusの現在値](project-evaluation.md#service-statusの現在値)を参照してください。
 
 ### Search collector
 
@@ -339,8 +307,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
   - retry を含む budget は GitHub 6、Bluesky 12 request
 - LLM:
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
-    - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、
-      operatorが設定したtrusted local commandだけを使います
+    - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、operatorが設定したtrusted local commandだけを使います
   - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - investigation plan
     - repository analysis（revision一致の保存済み結果があれば省略）
@@ -349,8 +316,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
   - 実装済み: project data 由来の service / resource URL は同じ `request_bytes()` 系でも内部宛て block の対象です
-    - DNS検証と実fetchは別の名前解決になるため、悪意あるDNS切替まで防ぐaddress pinningではありません。
-      個人用調査toolの脅威モデルにおけるbest-effort SSRF guardとして扱います
+    - DNS検証と実fetchは別の名前解決になるため、悪意あるDNS切替まで防ぐaddress pinningではありません。個人用調査toolの脅威モデルにおけるbest-effort SSRF guardとして扱います
   - 未接続: LLM endpoint 以外の内部 URL を operator が個別 allowlist する設定
 
 ### Cacheとrequest計測
@@ -361,10 +327,8 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
   - 同じ query を同じ run で繰り返す時だけ有効です
 - GitHub repo metadata と service probe も process-local TTL cache を使います
 - cache は永続化しないため、別 process の再実行では再fetchします
-- enrichのGitHub search/repository collectorは、見積もりではなく実際に送信したrequest数とcache hit数を
-  `collector_runs.result_json`へ保存します
-- GitHub APIの`X-RateLimit-*`と`Retry-After`は同じresultへ保存します。rate limitを示す403と、
-  権限などによる通常の403はcollector status上も区別します
+- enrichのGitHub search/repository collectorは、見積もりではなく実際に送信したrequest数とcache hit数を`collector_runs.result_json`へ保存します
+- GitHub APIの`X-RateLimit-*`と`Retry-After`は同じresultへ保存します。rate limitを示す403と、権限などによる通常の403はcollector status上も区別します
 
 ## LLM の位置づけ
 
@@ -376,25 +340,15 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 ### LLM evidence budget
 
-planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に
-適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。
-`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を
-入れます。planningとtriageは調査の異なる時点で同じbudget規則を使い、triageへ渡したevidenceは
-`llm_source.evidence`にも保存します。
+planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。planningとtriageは調査の異なる時点で同じbudget規則を使い、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
 
-これはLLM入力契約であり、service HTMLやEvidenceBundleの保存budgetとは別です。prompt templateの固定文まで24 KiBに
-含める契約ではありません。実requestの最終prompt bytesはrun metricsで別に観測します。
+これはLLM入力契約であり、service HTMLやEvidenceBundleの保存budgetとは別です。prompt templateの固定文まで24 KiBに含める契約ではありません。実requestの最終prompt bytesはrun metricsで別に観測します。
 
 ### LLM transportの失敗境界
 
-OpenAI Responsesの`output`にreasoningとmessageが併存する場合はmessageだけをmodel出力として解析します。
-Harmony control tokenを含むtextではfinal channelだけをJSON候補にします。
+OpenAI Responsesの`output`にreasoningとmessageが併存する場合はmessageだけをmodel出力として解析します。Harmony control tokenを含むtextではfinal channelだけをJSON候補にします。
 
-command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で指定し、既定は`300`秒です。
-auto API styleの別payload/endpoint試行は、HTTP 400/404/405/415/422/501でendpointがrequestを拒否した場合だけ
-行います。timeout、接続失敗、rate limit、server error、response envelope/content JSON不良では、serverが
-処理中または既に生成済みの可能性がある同じpromptを再送しません。明示`chat`はcompletion endpointへ
-fallbackしません。
+command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で指定し、既定は`300`秒です。auto API styleの別payload/endpoint試行は、HTTP 400/404/405/415/422/501でendpointがrequestを拒否した場合だけ行います。timeout、接続失敗、rate limit、server error、response envelope/content JSON不良では、serverが処理中または既に生成済みの可能性がある同じpromptを再送しません。明示`chat`はcompletion endpointへfallbackしません。
 
 ## Run observability
 
@@ -408,19 +362,11 @@ fallbackしません。
 - investigation run historyのserialization + SQL
 - current projectのnormalization、serialization + SQL
 
-collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと
-見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、
-process job全体、複数projectの待ち時間、operator review時間ではありません。
+collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、process job全体、複数projectの待ち時間、operator review時間ではありません。
 
-planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、
-response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、
-endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は
-明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、
-rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
+planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 
-旧runでmetricsが欠落する場合は未記録として扱います。
-保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため
-非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
+旧runでmetricsが欠落する場合は未記録として扱います。保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
 
 ## 正本と保存
 
@@ -432,15 +378,11 @@ rate limit、その他HTTP error、invalid responseと分けます。endpoint互
 - full HTML や README 本文は保存せず、bounded extract、hash、URL、repo path など判断に必要な材料だけを残す
 - raw evidence の自動削除は行わない。手動retention commandで古いrun単位に削除できる
 
-run 保存は project row の代替ではありません。再評価可能な調査成果と、その時点の materialized
-record を対応づける履歴です。
+run 保存は project row の代替ではありません。再評価可能な調査成果と、その時点の materialized record を対応づける履歴です。
 
-runの物理codec、decode失敗、SQL監査の制約は
-[Investigation History](project-record.md#investigation-history)を参照してください。
-replayとexportは共通readerを使い、保存codecを直接扱いません。
+runの物理codec、decode失敗、SQL監査の制約は[Investigation History](project-record.md#investigation-history)を参照してください。replayとexportは共通readerを使い、保存codecを直接扱いません。
 
-履歴の保持・削除条件は[Retention Policy](project-record.md#retention-policy)を正本とします。
-fixtureへexportしたcaseはDB runとは独立して保持します。
+履歴の保持・削除条件は[Retention Policy](project-record.md#retention-policy)を正本とします。fixtureへexportしたcaseはDB runとは独立して保持します。
 
 ## Replay と benchmark
 
@@ -455,10 +397,7 @@ fixtureへexportしたcaseはDB runとは独立して保持します。
 - `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 case、promotionのexclude / queue / deprioritize 14 case、紹介済みのpositive reference 5 caseを持つ
 - `browser-service-calibration-v1.json`は描画後page要約と期待browser evidenceを5 caseに固定する
 
-fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。
-自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、
-local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去します。export結果にはmanual review必須markerを
-付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
+fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去します。export結果にはmanual review必須markerを付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
 
 manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseは`exclude / queue / deprioritize`を保持します。`deprioritize`は保存事実から機械推定せず、operator assertion後だけ`priority_group=lowered`となります。機械policyは`expected_policy`、候補集合全体の順序は`promotion_queue_expectation`、個別判断はfixtureのreasonとevidence summaryを正本とします。地域性など機械化しない基準はmanual contextに留めます。
 
