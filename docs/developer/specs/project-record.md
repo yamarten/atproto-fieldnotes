@@ -1,15 +1,15 @@
 # Project Record Schema
 
-registry schema version 3では、紹介・検索・reviewが読む現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBに置きますが、観測履歴の保持と、現在のproject情報の更新は役割を分けています。
+registry schema version 3では、紹介・検索・要レビュー項目の確認に使う現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBで、観測履歴の保持と現在のproject情報の更新をそれぞれ担います。
 
 | 保存するもの | 役割 |
 | --- | --- |
 | `projects` | projectの現在状態。scalar、説明用の`profile_json`、調査・評価用の`state_json`を持つ |
 | `project_identifiers` / `project_relations` | resourceの採用状態と、観測・確定した方向付きの関係 |
 | `project_decisions` | 自動評価が尊重するoperatorの判断 |
-| `investigation_runs` / `collector_runs` | その時点の調査入力・根拠・評価・結果と、sourceごとの成否 |
+| `investigation_runs` / `collector_runs` | project一件ごとの調査入力・根拠・評価・結果と、収集処理ごとの成否 |
 
-保存処理は現在状態を正規化し、読み出すときはnormalized rowからruntime viewを組み立てます。調査履歴は再評価の材料であり、一覧や詳細が読む現在状態の代わりにはしません。
+保存処理は現在状態を正規化し、識別子・関係・判断などを個別のtableの行（normalized row）へ分けます。読み出すときは、それらの行から調査・評価処理用のproject dict（runtime view）を組み立てます。この復元をhydrate、読み出した内容を変更せず再保存する確認を無変更roundtripと呼びます。調査履歴は過去の入力と結果を再評価する材料、現在状態は一覧や詳細の表示元です。
 
 ## 設計意図
 
@@ -21,7 +21,7 @@ registryの一次目的は、atproto関連projectを継続的に発見し、紹�
 - 不確かな値を紹介用profileへ無理に昇格させない
 - 一覧表示に必要な値と、調査・運用上の詳細を分ける
 
-app lexiconとの完全互換や即時exportは主目的ではありません。`profile_json.app`は将来再利用しやすい確定情報の置き場ですが、不確かな情報で埋めるより空のままにします。
+`profile_json.app`には、表示やexportへ再利用する確定情報を保持し、未確定のfieldは空にします。app lexiconとの変換条件は[App record export](app-record-export.md)で定めます。
 
 ## Schema Version
 
@@ -39,7 +39,7 @@ SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background j
 
 ### `projects`
 
-projectの現在状態を表すmaterialized recordです。
+調査結果と編集を反映したprojectの現在状態を、読み出して使える形に保存するrecord（materialized record）です。
 
 - `project_key`: `proj:...`形式の内部識別子
 - `name`: 表示用の代表名
@@ -55,14 +55,14 @@ scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限�
 
 ### `project_key_aliases`
 
-mergeで削除したsource project keyを、存続するcanonical project keyへ解決するregistry-wide tableです。
+マージで削除した元project（source）のkeyを、存続先project（target）の正規keyへ解決する、registry全体で使うtableです。存続先をcanonical projectと呼びます。
 
 - `alias_project_key`: merge前のsource project key
 - `canonical_project_key`: 現在存続するproject key
 - `reason`: 現状は`merge`
 - `created_at`: alias作成時刻
 
-alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ解決し、canonical projectのInvestigation一覧にはalias元keyで保存されたrunも含めます。`investigation_runs.project_key`とrun内snapshot/bundleは、調査当時のidentityを残すため書き換えません。
+alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ解決し、canonical projectの`Investigation`一覧にはalias元keyで保存された調査実行記録も含めます。`investigation_runs.project_key`と調査実行記録内のsnapshot/bundleは、調査当時のprojectとの対応を残すため書き換えません。存続先と、そこへ解決される旧keyのまとまりをalias familyと呼びます。
 
 `project_key_aliases`に存在するkeyは、`projects`へ再保存できません。merge前に読み込まれたenrich、sync、review等のsnapshotがmerge後に保存へ到達した場合、保存境界は`StaleProjectWriteError`で拒否します。alias先へsnapshotを付け替える処理は行いません。付け替えると、merge後に更新されたcanonical projectを古いsource stateで巻き戻し得るためです。同じtransactionで先に作られたinvestigation runもrollbackし、merge前にcommit済みのsource runだけをalias familyの履歴として維持します。
 
@@ -120,15 +120,15 @@ alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Web�
 
 機械による評価・調査のcurrent stateを保持します。内部は概ね次の責務に分かれます。
 
-- `ops`: classification、review/promotion/merge signal、評価score、errorなど、現在の運用・評価結果
-- `evidence`: 候補値、bounded observation、調査log、`trust_graph`など、project単位で参照する補助材料
+- `ops`: projectの分類、要レビュー・紹介・マージ候補の判定理由（signal）、評価score、errorなど、現在の運用・評価結果
+- `evidence`: 候補値、保存量を制限した観測、調査log、`trust_graph`など、project単位で参照する補助材料
 
-保存上のinvariant:
+保存時に維持する条件（invariant）:
 
 - identifier、typed relation、operator decisionの正本を含めない
 - raw EvidenceBundleやsource別実行履歴の正本にしない。それらは`investigation_runs` / `collector_runs`へ保存する
 - 候補や機械評価を`profile_json`の確定値と同じ意味で扱わない
-- fieldの欠落をconfirmedな否定として扱わない。未調査、partial failure、証拠なしは調査履歴と評価detailで区別する
+- fieldの欠落を否定的事実の確定として扱わない。未調査、部分失敗、証拠なしは調査履歴と評価detailで区別する
 
 代表例として、service statusの根拠、atproto寄与度、review signal、resource page observation、trust graph、summary候補などを保持します。内部fieldはcollectorやheuristicの変更に合わせて変えられる実装detailであり、この文書では網羅的なpayload APIとして固定しません。具体的な現行判定は[project評価](project-evaluation.md)と[帰属・採用](project-boundaries.md#現行の採用規則)を参照してください。
 
@@ -187,7 +187,7 @@ DB列にclassificationのenum制約はなく、runtime codecは既存rowの無�
 - NSID
   - `owned_nsid`: projectが所有するcollection。`confirmed`はsource assignmentまたは採用判断で確定、`candidate`は所有候補としてレビュー対象
 - service
-  - `service`: confirmedまたはcandidateのservice surface
+  - `service`: 機能を利用・操作するURL上の画面やAPI（service surface）。confirmedまたはcandidateで保持する
 - project site
   - `project_site`: projectを説明・提示する代表的なWeb presence。`site_url` kindで保持し、利用・操作する`service`や個別の補助pageとは分ける
 - repository
@@ -198,7 +198,9 @@ DB列にclassificationのenum制約はなく、runtime codecは既存rowの無�
   - `developer_did`: `developer_account` recordから展開したDID成分。DID/schema record/Tangled recordなどDID単位の関係評価に使う
   - `brand_did`: project自身のDID
   - `project_account`: project名義のaccount候補
-  - `project_handle`: project名義のhandle候補`input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`は移行済みの旧roleであり、現行コードは生成・読込・保存しません。観測・参照したNSIDはfactual identifierへ混ぜず、relation、schema sample、collection observationなど元の根拠に保存します。
+  - `project_handle`: project名義のhandle候補
+
+`input_nsid`, `observed_lexicon`, `referenced_nsid`, `recorded_namespace`, `seed`, `manual_seed`は移行済みの旧roleであり、現行コードは生成・読込・保存しません。観測・参照したNSIDは、relation、schema sample、collection observationなど元の根拠に保存します。projectの所有を表すidentifierへの採用には、別途ownership判定が必要です。
 
 `source_repository_record`はrepoを調査した観測記録であり、`state_json.evidence.source_repo_records`に保存します。`authority_domain`はconfirmed `owned_nsid`からruntimeで導出し、identifier rowとして保存しません。いずれもproject構成要素、exact attribution、trusted anchorにはしません。
 
@@ -234,9 +236,9 @@ relationの`classification=confirmed`は、保存したpredicateの方向付き�
 
 主要predicate:
 
-- `defines_schema`: accepted repoやaccountがaccepted schemaを定義する
+- `defines_schema`: project側で帰属を認めたrepoやaccountが、所有を認めたschemaを定義する。repoとNSIDの採用条件は[NSID ownership](project-boundaries.md#nsid-ownershipの優先順位)を参照
 - `uses_collection`: read/write/queryなどでcollectionを利用する
-- `mentions_collection`: docs、example、test、unaccepted schema fileなどで言及するだけ
+- `mentions_collection`: docs、example、test、所有を認めていないschema fileなどでの言及
 - `official_account`: siteやrepoがaccountを公式として示す
 - `operates_service`: identityがserviceを運営する
 - `repository_homepage`: repository metadataのWebsite欄がURLを直接示す。URLのtarget roleやproject帰属は含意しない
@@ -268,9 +270,9 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `confirm_identifier`: operator入力または採用済みsource seedによるidentifier採用判断
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
 - `lower_promotion_priority`: promotion候補を一覧に残したまま通常候補より後ろへ送る。理由は`note`に保存し、clear後は通常優先度へ戻る
-- `dismiss_review`: 特定review signalをdismissする
-- `dismiss_review_target`: fingerprintで特定したrelationまたはcollector failureをdismissする
-- `defer_review_target`: fingerprintで特定したrelationまたはcollector failureを期限付きで保留する
+- `dismiss_review`: 特定の要レビュー理由（review signal）の表示を抑止する
+- `dismiss_review_target`: 内容の変更検出値（fingerprint）で特定したrelationまたはcollector failureのレビュー表示を抑止する
+- `defer_review_target`: fingerprintで特定したrelationまたはcollector failureのレビューを期限付きで保留する
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
@@ -281,7 +283,7 @@ operatorがcandidateをconfirmすると、同じ`kind + value`を対象とする
 
 `project_noncurrent_identifiers`はprojectとの正の関係を保つが現行構成要素ではないclaimを保持します。`standing`は過去に現行だった`former`と、開発・試験用の`non_production`です。exact検索には現行claimより低い優先度で使えますが、trusted anchorにはしません。同一`project_key + kind + value + role`を`project_identifiers`と同時に保持せず、現行へ再採用した時は非現行rowを削除します。
 
-`project_identifier_adoptions`は、現行confirmed構成要素をいつ、どの入口とpolicyで採用したかを保持します。operator、bootstrap、trust policyを区別し、merge後も`origin_project_key`を維持します。これは外部事実そのものではなく採用来歴です。current confirmed claimと有効な採用理由の両方がある場合だけtrusted anchor候補になります。candidate、former、non-productionの採用理由はactiveにしません。
+`project_identifier_adoptions`は、現行confirmed構成要素をいつ、どの入口とpolicyで採用したかという来歴（adoption）を保持します。利用者による採用（operator）、承認済みの収集入口からの登録・割当（bootstrap）、信頼規則による自動採用（trust policy）を区別し、merge後も`origin_project_key`を維持します。現行confirmedの帰属主張と有効な採用理由の両方がある場合だけ、信頼判定の起点（trusted anchor）の候補になります。candidate、former、non-productionの採用理由はactiveにしません。identifierの`confirmed`にはこのように複数の採用経路があり、人間が確認したことだけを表す値ではありません。
 
 `project_identifier_transitions`は、renameやreplacementを外部根拠またはoperator reviewで確定した場合だけ旧claimから新claimへの関係を保持します。新旧identifierが同居するだけでは生成しません。
 
@@ -325,7 +327,7 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 ## Investigation History
 
-`investigation_runs`と`collector_runs`はcurrent stateとは別の履歴・replay用tableであり、project rowの代替ではありません。
+`investigation_runs`と`collector_runs`は、project一件に対する調査実行記録と、その調査内の収集処理別の結果を保持する履歴・replay用tableです。この節のrunは調査実行記録を指します。一括enrichの再開単位とcheckpointは[Background jobs](background-jobs.md#enrich-checkpoint)で扱います。
 
 `investigation_runs`:
 
@@ -347,7 +349,7 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 新規runでは、record/failure本文の正本は`investigation_runs.bundle_json`だけです。`collector_runs`は`source + operation`単位にまとめたstatus/count projectionで、複数結果のstatusは最も強いproblem状態、request/result件数とcache hit数は合計を保持します。`result_json.evidence_storage = "bundle_json"`とrecord/failure countを持ち、`records_json` / `failures_json`は空配列です。旧形式の列内payloadを読むfallbackは持たず、現行projectionだけを対象にします。
 
-`projects.state_json`の`service_verification_results`は時系列履歴ではありません。`lane + requested_url`単位の最新観測を最大32 surface保持するcurrent viewです。過去runは上記history tableで確認します。
+`projects.state_json`の`service_verification_results`は、調査経路と対象URL（`lane + requested_url`）の組ごとに最新観測を持ち、最大32組を保持します。過去の観測は上記の調査履歴tableで確認します。laneの意味は[Service pageの観測](investigation.md#service-pageの観測)を参照してください。
 
 `cleanup-storage-payloads`は既存project current view、run input/output snapshot、EvidenceBundle、collector projectionへ同じbudgetを投影します。run自体やoperator decisionは削除せず、既定dry-runです。`--execute`ではpayload rewriteを一transactionで行い、commit前にforeign key/integrity checkを通します。保存済みevaluationを再計算するoperationではありません。
 
@@ -359,7 +361,7 @@ run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtr
 
 ### Merge / Splitの履歴
 
-mergeはtarget保存、source alias作成、第三projectの`separate_project`参照更新、source削除を1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みのinvestigation runはalias familyとしてtargetのrun一覧へ表示します。
+mergeは存続先targetの保存、マージ元sourceのalias作成、第三projectの`separate_project`参照更新、source削除を1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの調査実行記録はalias familyの履歴としてtargetの調査一覧へ表示します。
 
 merge後に完了したstale enrichの保存拒否は[project_key_aliases](#project_key_aliases)、rollback後の失敗通知・再試行は[Background Job Model](background-jobs.md#中断)を参照してください。
 
@@ -377,7 +379,7 @@ split前のrunは、どのidentifierに属する証拠かを自動分配でき�
 次は自動削除しません。
 
 - `project_decisions`: operator assertionの正本
-- current project state: 履歴ではなく現在状態の正本
+- projectの現在状態: 一覧・詳細・次の調査が読む正本
 
 Web job eventはprocess内保持で再起動時に消えます。`sync_state`は最新watermarkだけを保持し、実行履歴として蓄積しません。enrich checkpoint fileの自動削除は未接続です。
 
@@ -402,7 +404,7 @@ Web job eventはprocess内保持で再起動時に消えます。`sync_state`は
 
 `repair-db --execute` は上記を個別に選択せず、該当する正規化・補正・派生値更新をまとめて保存します。特定の旧shape修正を目的に実行しても、同じdry-run summaryに出ている別の補正やmerge候補再計算も保存対象になります。
 
-current service projectionはJSON payloadだけでなくscalar列だけの差分も保存対象です。
+service観測から現在の稼働状態を算出する処理では、JSON payloadの差分に加え、scalar列だけの差分も保存対象です。
 
 `repair-db`はschema migrationを行いません。
 

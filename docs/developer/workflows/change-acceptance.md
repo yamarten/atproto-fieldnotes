@@ -4,7 +4,7 @@
 
 ## 標準環境
 
-| 用途 | DB | bind / port | 扱い |
+| 用途 | DB | 待受アドレス（bind）/ port | 扱い |
 | --- | --- | --- | --- |
 | 自動test | testごとのtemp DB | testが割り当てるloopback port | 毎回新規。外部API、正本DB、実LLMへ接続しない |
 | 実ブラウザ確認 | `data/survey.dev.db` | `127.0.0.1:8765` | task間で保持してよい開発用DB |
@@ -23,7 +23,7 @@
 - Web UI: Python側の関連API test、`node --check scripts/project_registry_web/static/app.js`、変更した主要導線の実ブラウザ確認
 - heuristic: unit testに加え、既知の実誤判定fixtureまたは人間によるsample review
 - DB保存契約・cleanup: temp DBでの機能確認、正本DBに対するread-only audit、必要な場合だけ複製DBで行う書込み確認
-- external source契約: 通常testと分け、変更内容に応じて件数・page・request budgetを限定したsmoke test
+- 外部情報源の取得契約: 通常testと分け、変更内容に応じて件数・page・request数を限定した疎通・動作確認（bounded smoke test）
 
 実施できなかった確認は成功扱いにせず、未検証の範囲と理由を報告します。
 
@@ -49,7 +49,7 @@ bin/project-registry-web \
 
 `http://127.0.0.1:8765/?token=web-ui-dev`を開き、変更した画面への移動、表示、主要操作を確認します。書込み操作は開発用DBだけに対して行います。画面幅や自動遷移を変えた場合は、対象となるdesktop / mobile幅と遷移前後も確認します。
 
-unit testでしか再現できない内部状態を実ブラウザ上へ無理に作りません。どこをunit test、どこを画面で確認したかを分けて報告します。確認後はserverを停止し、`data/survey.dev.db`は今後も使うなら残します。
+unit testでしか再現できない内部状態はそのtestで確認し、実ブラウザでは利用者の操作経路を確認します。どこをunit test、どこを画面で確認したかを分けて報告します。確認後はserverを停止し、`data/survey.dev.db`は今後も使うなら残します。
 
 ## 正本DBの確認と複製
 
@@ -83,4 +83,4 @@ sqlite3 data/survey.db ".backup '.tmp/change-acceptance/survey.db'"
 
 ## Maintenance適用の確認
 
-hosted suffixのsplit監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、補助pageやguard対象URLのservice採用、repo/NSIDの採用を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て行い、保存・再監査の確認範囲を作業記録へ残します。
+共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て行い、保存・再監査の確認範囲を作業記録へ残します。

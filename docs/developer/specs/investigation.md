@@ -1,6 +1,6 @@
 # Investigation Model
 
-調査pipeline、sourceからの取得・観測、evidence、部分失敗とreplayの契約を定めます。登録済みprojectを起点に、外部情報を観測として集め、採用できる根拠を現在状態へ反映します。sourceごとの失敗を分けて記録し、一部を取得できなくても得られた根拠を保持します。保存した調査runは、外部へ再接続せずに現行規則で再評価できます。
+調査pipeline、外部情報源（source）からの取得・観測、判断材料となる根拠（evidence）、部分失敗とreplayの契約を定めます。登録済みprojectを起点に、外部情報を観測として集め、採用できる根拠を現在状態へ反映します。sourceごとの失敗を分けて記録し、一部を取得できなくても得られた根拠を保持します。保存した調査実行記録（investigation run）は、外部へ再接続せずに現行規則で再評価（replay）できます。以下のrunは、特に指定がなければproject一件に対する調査実行記録を指します。
 
 ## Pipeline
 
@@ -14,7 +14,7 @@
    - relation は subject、predicate、object、locator、抽出方法を持つ
 3. integration
    - evidenceから既存project fieldへの適用を担う責務。実装は`integration.py`だけでなく`registry.py`の適用関数と、project copyからpatchを返すcollector adapterにも分かれる
-   - project 文脈、manual guard、複数 source の corroboration を適用し、operatorのconfirm/defer/blockを自動評価より優先する
+   - projectの既存情報、手動判断による採用の抑止条件（manual guard）、複数の情報源による裏付け（corroboration）を照合し、operatorのconfirm/defer/blockを自動評価より優先する
 4. evaluation
    - ownership、atproto寄与度、service status などを rule-based に計算する
    - network、DB、LLM に依存しない関数を優先する
@@ -24,7 +24,7 @@
 
 Web detailはproject単位のinvestigation run summaryをSQLite rowから一覧し、選択したrunだけbundleをdecodeします。run detailのevidence/failureは上限付きで、raw HTMLやREADME全文を保存・表示しません。Replayは保存runを現行ruleで要求時に再評価するread-only処理で、結果をDBへ永続化しません。
 
-Service / ownership reviewも保存済みcurrent state、normalized relation、collector runだけを読みます。画面表示のためにnetwork collectorを再実行しません。保存根拠がない状態は`not_observed`であり、到達不能・非ownership・permissionなしの確定結果ではありません。
+serviceの稼働状態とNSID ownershipを確認するレビュー表示も、保存済みの現在状態、正規化保存したrelation、collectorごとの実行結果だけを読みます。画面表示のためにnetwork collectorを再実行しません。保存根拠がない状態は`not_observed`であり、到達不能・所有していない・permissionなしの確定結果ではありません。
 
 ### Enrichの実行順序
 
@@ -37,7 +37,7 @@ Service / ownership reviewも保存済みcurrent state、normalized relation、c
 5. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
 6. evidence を project へ統合し、rule-based evaluation / finalize を実行
 7. local LLM による summary / category / status 補完
-8. 再度 finalize し、duplicate / merge / 昇格判定を更新
+8. 再度finalizeし、重複候補・マージ推奨・情報充足の判定（[昇格ゲート](project-evaluation.md#昇格ゲート)）を更新
 
 ## 根拠と調査状態
 
@@ -48,7 +48,7 @@ Service / ownership reviewも保存済みcurrent state、normalized relation、c
 - `derived`: 他の観測から決定的に導出した query、正規化結果、usage relation
 - `heuristic`: score、文字列類似、community source など誤判定し得る推定
 
-classification は project field の confidence と同義ではありません。integration が guard と project文脈を適用し、confirmed field、candidate field、observation のどこへ反映するかを決めます。
+ここでのclassificationはEvidenceRecordの根拠の性質を表します。project fieldのconfidence（評価の確度）やidentifierの採用状態は別に保持します。integrationが採用の抑止条件とprojectの既存情報を照合し、確定値、候補値、観測のどこへ反映するかを決めます。
 
 ### EvidenceBundle v2
 
@@ -74,7 +74,7 @@ classification は project field の confidence と同義ではありません�
 
 repository homepageとREADME公開先の観測は、未採用URLの取得結果とprojectへの採用判断を分けます。URLごとのlaneとassessmentをbundleへ残し、replayでも現在の起点とguardを再評価します。取得対象、候補化、browser/protocol確認、衝突検査、旧assessmentの扱いは[Repository homepageと公開先の評価](project-boundaries.md#repository-homepageと公開先の評価)を正本とします。
 
-同じsourceを集約する場合、rate limit観測は最も新しいcollector resultの値を保持します。
+同じ情報源のcollector結果を集約する場合、rate limit観測は最も新しいcollector resultの値を保持します。
 
 通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenとして区別します。
 
@@ -156,7 +156,7 @@ relationとcandidate生成はsnapshot budget適用前の全取得結果から行
 - 保存snapshotはGitHub API response全体ではなく、integrationで使うrepo fieldだけを保持します
   - source semantic hintはtyped relationへ展開し、snapshotには件数だけを残します
   - README URLは最大64件、JSON 16 KiB、1 URL 2 KiBです
-  - lexicon hintはschema replayに使うため、このcheckpointでは保持します
+  - lexicon hintはschemaの再評価に使うため、このsnapshot縮約時点では保持します
 
 ### Repository analysis
 
@@ -164,11 +164,11 @@ lexicon enrich に成功した場合、LLM evidence には lexicon schema の縮
 
 confirmed repositoryは通常`enrich`中に専用のrepository analysisを行い、結果を`state_json.evidence.repository_analysis_results`へ保存します。candidate repositoryは相互trust確認に必要な限定取得以外では解析せず、confirm後に初めて対象にします。GitHubとCodebergはmetadata、README、tree、主要manifest、documentation / deployment設定、Lexiconを取得し、READMEとdescriptionだけでは目的を説明できない場合に限ってsource候補を最大4 file、各file最大2 excerptへ絞ります。Tangledは現行取得能力に合わせてmetadata、README、限定treeを使い、取得できない範囲を`coverage`で`unavailable`とします。未対応providerも黙って欠落させず`coverage.reason=unsupported_provider`を保存します。
 
-repository analysisでは、revisionへ固定したbounded materialを`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、source revision、material hashでそのmaterialを参照します。READMEは先頭・末尾を含む最大6 block、合計6,000文字として元の行番号を保ち、選択数と切り詰め状態をcoverageへ記録します。LLMへ渡すのは本文を持つevidence blockだけで、tree pathは候補抽出やcoverageに使ってもclaimの根拠にはしません。repository metadataはdescriptionだけをclaim可能な本文とし、name、homepage、is_templateはcontextまたは決定的抽出に限ります。観測とcollection利用は、materialから事前生成したclosed candidate IDだけをLLMに選ばせます。README由来のcollection candidateはreverse-domain authorityが小文字でpublic suffixから始まるものに限り、case-sensitiveな最終nameとoperationを一体で固定します。候補が空なら空配列を要求します。
+repository analysisでは、repositoryのrevisionを固定して量を制限した解析素材（material）を`repository_analysis_material`としてrunへ保存し、解析recordはrepo URL、repositoryの`source_revision`、material hashでその素材を参照します。READMEは先頭・末尾を含む最大6 block、合計6,000文字として元の行番号を保ち、選択数と切り詰め状態をcoverageへ記録します。LLMへ渡すのは本文を持つevidence blockだけで、tree pathは候補抽出やcoverageに使っても解析で述べる事実（claim）の根拠にはしません。repository metadataはdescriptionだけをclaim可能な本文とし、name、homepage、is_templateはcontextまたは決定的抽出に限ります。観測とcollection利用は、素材から事前生成した候補集合（closed candidate）のIDだけをLLMに選ばせます。候補外のIDは保存前検査で棄却します。README由来のcollection candidateはreverse-domain authorityが小文字でpublic suffixから始まるものに限り、case-sensitiveな最終nameとoperationを一体で固定します。候補が空なら空配列を要求します。
 
 `repository-analysis-v16`では、documentation公開の記述があるREADME blockも公開先URL候補の対象にします。URLは本文中の正確な値を保持し、homepage metadataだけでは宣言候補を作りません。設定ファイル・READMEの`declares_documentation_site_url`候補をLLMが返す場合、`applicability`で`current_project` / `negated` / `hypothetical` / `third_party` / `obsolete` / `uncertain`を区別します。`current_project`だけを観測へ反映し、区分が欠けた回答も棄却します。候補IDの選択だけでは、否定・仮定のURLを公開先と誤認する実例があったためです。この観測は従来どおり`role=docs, confidence=candidate`のresource候補へ接続し、project siteやserviceの自動確定、独立した運営relationの生成には使いません。v15以前の解析結果はv16のcache hitにはしません。
 
-repository analysisはrepo全体を単一`artifact_kind`へ分類しません。出力は短いsummaryとその`summary_evidence`、複数の`observations`、証跡付き`capabilities`、caseを保持したcollection利用です。観測述語はCLI entrypoint、import可能package、service entrypoint、deployment設定、Lexicon定義、host integration、documentation source / generator / site URL / deploymentなどの非排他的な事実です。`basis=declared|observed|inferred`はrepo内の観測方法でありtrust classificationではありません。pathだけのhost integrationは`inferred`に留まり、browser extension宣言にはmanifestまたはREADMEの明示を必要とします。Lexicon JSONの存在はcollection ownershipを確定しません。
+repository analysisの出力は、短いsummaryとその`summary_evidence`、複数の`observations`、根拠位置を持つ機能記述（`capabilities`）、大小文字を保持したcollection利用です。観測述語はCLI entrypoint、import可能package、service entrypoint、deployment設定、Lexicon定義、外部hostへの組込み（host integration）、documentation source / generator / site URL / deploymentなど、同じrepository内で併存できる事実を表します。`basis=declared|observed|inferred`は、それぞれ明示された宣言・実装等の観測・推定という解析上の根拠の種類を表し、帰属の信頼度とは分けます。pathだけのhost integrationは`inferred`に留まり、browser extension宣言にはmanifestまたはREADMEの明示を必要とします。Lexicon JSONの存在はcollection ownershipを確定しません。
 
 証跡は別のfact IDを作らず、解析対象`source_revision`へ結び付く`path + line`または`path + json_pointer`を各claimへ直接保存します。同じ根拠本文をclaimごとに複製せず、重複を除いたbounded excerptを結果の`evidence_excerpts`へ最大6件、各600文字で保存します。triageへ渡す時は旧形式のclaim内excerptも同じ形へ縮約します。LLMには、README、metadata、manifest、configuration、Lexicon、source excerptから作った利用可能な根拠位置を、prompt内だけで有効な`E01`のような短い番号とともに渡します。LLMは番号だけを返し、保存前に対応する根拠位置へ戻します。番号自体は保存しません。ファイル一覧のpathだけでは内容を裏付けられないため、LLMが新しいsummaryやclaimの証跡として使うことはできません。tree pathから安全に決められる観測は決定的な抽出処理だけが追加します。summaryにも1件以上の根拠位置を必須とします。repository本文はuntrusted dataとして扱い、READMEやsource内の指示に従わないことを専用promptとtriage promptの両方で明示します。
 
@@ -187,6 +187,8 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 
 ### Service pageの観測
 
+service surfaceは、機能を利用・操作するために到達するURL上の画面やAPIを指します。観測の`lane`は、通常の静的取得（`static`）、追加ページ調査（`deep`）、匿名browser確認（`browser`）などの調査経路を区別します。同じURLでも経路ごとに結果を保持します。
+
 - 各 URL を 1 回 fetch し、HTML から次を見ます
   - HTTP status
   - title / meta description
@@ -201,13 +203,13 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
   - service probeから`website_url`は設定・更新しません
   - cross-host redirect は investigation log に残し、redirect 先が project を支持する場合だけ candidate に入れます
   - cross-host redirect は自動で同一 service として confirmed にはしません
-- service probeの判定とrelation抽出には取得したresponse全体を使いますが、EvidenceBundleとcurrent stateへ保存するraw surfaceはbounded representativeです。
+- service probeの判定とrelation抽出には取得したresponse全体を使い、EvidenceBundleと現在状態へ保存するページ本文・linkは次の上限で代表部分を選びます。
   - `html_extract`: UTF-8で最大12 KiB。全文のSHA-256と取得時byte数は別に保持
   - `links`: 最大128件かつcompact JSON 64 KiB。1 linkのtextは512 bytes、URLは2 KiB
   - `urls`: 最大192件かつcompact JSON 32 KiB。1 URLは2 KiB
   - repo、Bluesky profile、docs/support/status/privacy/login等の役割を持つlink、同一host系link、その他の順で残す
   - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
-- current `service_verification_results`は履歴ではなく、`lane + requested_url`ごとの最新観測を保持します。異なるsurfaceは最大32件です。時系列の確認は`investigation_runs` / `collector_runs`を使います。
+- `service_verification_results`は`lane + requested_url`ごとの最新観測を最大32組保持します。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 
 ### Static・Deep・Browserの調査範囲
 
@@ -229,7 +231,7 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 
 ### Browser観測
 
-browserの登録・認証入力・投稿と、無制限のevidence保存・表示は対象にしません。
+匿名browser確認は、描画後のページで何が表示され、どこへ到達したかを観測します。登録・認証入力・投稿を行わない操作範囲と、保存量の上限は前節までの規則に従います。
 
 browserの`public_app_surface_detected`は、作成・投稿を表すactionと、supporting pageではない二階層以上の同一site link 3件以上が同じpageにある場合だけ成立します。CTA単独やcontent link単独では成立しません。action語彙は現在英語のpost / entry / create / write / compose / publish / uploadに限定し、固有project名による例外は持ちません。
 
@@ -332,7 +334,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 ## LLM の位置づけ
 
-- LLM は query planning、editorial 補助、曖昧な分類候補に使う
+- LLMは調査queryの計画、名前・説明文の編集補助、曖昧な分類候補に使う
 - identifier の新規提案は原則 candidate に留める
 - ownership、高い寄与度、service の到達確認を LLM 単独で確定しない
 - rule-based evaluation と manual guard を優先する
@@ -342,7 +344,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。planningとtriageは調査の異なる時点で同じbudget規則を使い、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
 
-これはLLM入力契約であり、service HTMLやEvidenceBundleの保存budgetとは別です。prompt templateの固定文まで24 KiBに含める契約ではありません。実requestの最終prompt bytesはrun metricsで別に観測します。
+24 KiBは可変evidence JSONの上限です。prompt templateの固定文を加えた最終promptのbyte数はrun metricsで別に観測します。service HTMLやEvidenceBundleの保存量には、それぞれの保存上限を適用します。
 
 ### LLM transportの失敗境界
 
@@ -352,7 +354,7 @@ command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で�
 
 ## Run observability
 
-新規enrich runは、次のwall timeをmillisecondで保存します。
+新しく保存するproject一件のenrich調査履歴には、次の実経過時間をmillisecondで記録します。
 
 - initial collection + integration
 - investigation planning
@@ -360,7 +362,7 @@ command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で�
 - LLM triage + application
 - final evaluation
 - investigation run historyのserialization + SQL
-- current projectのnormalization、serialization + SQL
+- 調査後のproject現在状態の正規化・シリアライズ・SQL書込み
 
 collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、process job全体、複数projectの待ち時間、operator review時間ではありません。
 
@@ -388,16 +390,16 @@ runの物理codec、decode失敗、SQL監査の制約は[Investigation History](
 
 実装済み:
 
-- `replay-investigation`: 保存 run の integration / evaluation を network なしで再実行し semantic diff を出す
+- `replay-investigation`: 保存した調査実行記録のintegration / evaluationをnetworkなしで再実行し、保存済み評価と再評価結果をfieldごとに比較した差分（semantic diff）を出す
 - `benchmark-investigation`: fixture corpus を一括評価し relation/evaluation の退行を報告する
-- manual goldのpromotion evaluator testは全caseを実queue生成処理へ通し、policy、signal、score breakdown、候補集合全体の相対順位を評価する
+- 人が期待判断を定めた固定事例（manual gold）のpromotion evaluator testは、全caseを実際の紹介候補一覧の生成処理へ通し、policy、signal、score breakdown、候補集合全体の相対順位を評価する
 - `scripts/promotion_outcome_analysis.py`はschema v3 DBをread-onlyで開き、紹介済みprojectの`introduced_url`だけを空にした反実仮想を現行promotion policyへ通す。category別捕捉率、signalなしの主因、service / lexicon / technical経路のblocker、紹介投稿単位のproject数をJSONで報告する
 - `export-investigation-fixture`: 保存 run を sanitize 対象の fixture 形式へ出力する
 - executable corpusは通常replay 6 caseに、operator correctionのblock/defer/confirm 3 caseを加えた9 caseを持つ
 - `manual-gold-v1.json`はoperator reviewから固定したidentity / service / repository判断11 case、promotionのexclude / queue / deprioritize 14 case、紹介済みのpositive reference 5 caseを持つ
 - `browser-service-calibration-v1.json`は描画後page要約と期待browser evidenceを5 caseに固定する
 
-fixtureはraw response archiveではありません。誤判定を再現するための最小evidenceと期待評価を保存します。自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、local pathを削除またはredactし、URLのuserinfo/query/fragmentを除去します。export結果にはmanual review必須markerを付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
+fixtureは、誤判定を再現するための最小evidenceと期待評価を保存します。自動exportはsecret、authorization/cookie/header、raw HTML/body/readme/text extract、prompt/command/endpoint、local pathを削除または伏字化し、URLのuserinfo/query/fragmentを除去します。export結果には人による確認が必須であることを示すmarkerを付けます。コミット前に実project/run key、時刻、handle/DID、自由記述を再現に必要な最小範囲へ人が縮約します。
 
 manual gold setはDBのdecision rowを逐次mirrorしません。synthetic project ref、公開identifier、期待actionまたはpromotion disposition、根拠要約だけを保持し、実project key、run ID、decision時刻、有効期限、operator noteを除外します。promotion caseは`exclude / queue / deprioritize`を保持します。`deprioritize`は保存事実から機械推定せず、operator assertion後だけ`priority_group=lowered`となります。機械policyは`expected_policy`、候補集合全体の順序は`promotion_queue_expectation`、個別判断はfixtureのreasonとevidence summaryを正本とします。地域性など機械化しない基準はmanual contextに留めます。
 

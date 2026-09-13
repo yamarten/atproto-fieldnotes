@@ -1,6 +1,6 @@
 # App Record Export
 
-この文書は、保存済みprojectを第三者listingの`community.lexicon.app.entry` JSONへ投影するexport機能の契約を定めます。現行実装はread-only validation reportと、明示したpublication manifestからのentry JSON生成を提供します。生成したJSONのPDSへの送信は、用途に応じた別ツールが担当します。
+この文書は、保存済みprojectを第三者がapp一覧へ掲載するための`community.lexicon.app.entry` JSONへ変換するexport機能の契約を定めます。現行実装は、DBを変更せず出力可否を調べるvalidation reportと、公開対象・作成時刻を明示した入力（publication manifest）からのentry JSON生成を提供します。生成したJSONのPDSへの送信は、用途に応じた別ツールが担当します。
 
 処理は二段階です。まず保存済みの確定情報をtarget schemaへ投影し、不足情報と変換上の制約をreportします。その結果を確認して公開対象と作成時刻をmanifestで明示すると、検証を通ったentry JSONを生成できます。候補identifierの確定やregistryの補正は、この処理では行いません。
 
@@ -8,7 +8,7 @@
 
 targetは`community.lexicon.app.entry`だけです。Lexicon Communityの[canonical repository](https://tangled.org/lexicon.community/lexicons)にあるrevision `c8552ebbf7f2d1cc13e14870f6908cdc29796008`をvalidation contract v1の基準にします。
 
-`community.lexicon.app.profile`はapp自身のDIDが公開するcanonical profileです。必要になる例が非常に稀で、必要なappは小さなrecordを自身で作成できるため、registry側で生成・検証・保守する費用に見合いません。このexportの出力fieldは第三者listingのentry JSONに限定します。profile recordと`entry.profileDid`は、app側が必要に応じて管理する情報です。
+このexportは第三者による掲載用のentry JSONを生成します。app自身のDIDが公開する`community.lexicon.app.profile`と、それを参照する`entry.profileDid`は、app側が必要に応じて管理します。
 
 targetのrequired fieldは`name`、`links`、`createdAt`です。`createdAt`はentry作成時刻であり、projectの`first_seen_at`や外部projectの作成時刻ではありません。validation reportでは`publication_context_required`へ分け、export時にmanifestから供給します。
 
@@ -19,7 +19,7 @@ targetのrequired fieldは`name`、`links`、`createdAt`です。`createdAt`はe
 - `projects.name`、`projects.website_url`、`projects.tracking_state`などのcanonical scalar
 - `profile_json.core.summary`
 - `profile_json.app.tags`、`profile_json.app.platforms`
-- currentかつ`classification=confirmed`のidentifier
+- 現行のrole付き関係として保持する`classification=confirmed`のidentifier
 - confirmedな`resource_url_records`
 - 未確定interop fieldの診断に限るconfirmed relation
 
@@ -28,34 +28,36 @@ targetのrequired fieldは`name`、`links`、`createdAt`です。`createdAt`はe
 - candidate、derived、heuristic identifier
 - former、non-production identifier
 - noise、block済みidentifier
-- current profileへ採用されていないLLM出力
+- 現在の保存済みprofileへ反映されていないLLM出力
 - 調査履歴snapshotだけに残る値
 
 validationとJSON生成はread-onlyで動作し、confirmedへの昇格は既存のreview flowが担当します。
 
 ## Field projection
 
-| target field | source | 扱い |
+| 出力field | 入力元 | 扱い |
 | --- | --- | --- |
 | `name` | `projects.name` | required。targetのbyte/grapheme上限を検査 |
 | `description` | `profile_json.core.summary` | optional。target上限を検査 |
-| `links` | canonical Website、confirmed repository/service/resource | required。source roleを`community.lexicon.app.defs` tokenへ変換 |
+| `links` | canonical Website、confirmed repository/service/resource | required。保存したlinkのroleを`community.lexicon.app.defs` tokenへ変換 |
 | `tags` | `profile_json.app.tags` | optional。件数と文字列上限を検査 |
 | `platforms` | `profile_json.app.platforms` | optional。承認済みの既知platform tokenだけへ変換 |
-| `createdAt` | 将来のpublication context | requiredだがDB不足とは分ける |
-| `updatedAt` | 将来のpublication context | 初回entryでは省略 |
+| `createdAt` | export時にmanifestで指定する`publication_context` | requiredだがDB不足とは分ける |
+| `updatedAt` | 将来の更新時に指定するpublication context | 現行の初回entry生成では省略 |
 
 `webApp`と`distribution`のlinkはURI自体を保持し、target roleを確定できないためroleを省略してlossを報告します。link数や文字列上限を超える値は`unconvertible`として示します。
 
-`images`、`status`、`langs`、`lexicons`、`accountIndicators`はoptionalです。現行reportはsource contractが設定されていないことを`specification_uncertain`として示します。entry JSON生成はrequired fieldを完了条件とし、これらのfieldは生成するJSONから省略します。
+`images`、`status`、`langs`、`lexicons`、`accountIndicators`はoptionalです。現行reportは、DBのどの情報からどう変換するかの契約が未設定であることを`specification_uncertain`として示します。entry JSON生成はrequired fieldを完了条件とし、これらのfieldは生成するJSONから省略します。
 
 Python標準libraryで確実に判定できる範囲として、UTF-8 byte上限とUnicode code point数を検査します。code point数がgrapheme上限以下ならgrapheme上限も満たします。非ASCII文字列でcode point数だけが上限を超える場合は、正確なgrapheme判定が必要な`specification_uncertain`に分類します。
 
 ## Readiness
 
+readinessは、保存済みprojectをentryとして出力するための情報充足・適格性の判定です。公開時に指定する作成時刻の不足と、DBにあるproject情報の不足を分けて返します。
+
 | 値 | 意味 |
 | --- | --- |
-| `needs_publication_context` | 公開scope、`name`、`links`は揃い、将来exportが`createdAt`を供給すればよい |
+| `needs_publication_context` | 公開対象としての条件、`name`、`links`は揃い、export時に`createdAt`を供給すればよい |
 | `missing_required` | `name`またはconfirmed sourceから作れる`links`がない |
 | `insufficient_evidence` | required候補はあるがconfirmedではない。現行reportではmissing reasonにも併記 |
 | `unconvertible` | target上限超過など、値を損失なく変換できない |
@@ -87,7 +89,7 @@ report内容をDB snapshotとcontractだけで決めることで、同じ入力�
 
 ## Publication manifest
 
-export対象をcategoryやtracking stateから暗黙に一括選択しません。operatorがmanifest version 1でproject keyを列挙します。同じmanifestにpublication contextを置くため、同じDB snapshotとmanifestから同じ成果物を再生成できます。
+export対象は、operatorがmanifest version 1で列挙したproject keyです。同じmanifestにpublication contextを置くため、同じDB snapshotとmanifestから同じ成果物を再生成できます。
 
 ```json
 {

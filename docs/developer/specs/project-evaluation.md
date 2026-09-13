@@ -1,12 +1,12 @@
 # Projectの説明・評価・追跡
 
-調査で得た根拠から、projectをどう説明し、紹介候補として扱い、継続して追跡するかを決めます。これらを一つの総合判定にまとめず、次の判断を分けて保持します。
+調査で得た根拠から、projectをどう説明し、紹介候補として扱い、継続して追跡するかを決めます。次の判断をそれぞれ保持します。
 
 | 判断 | 答える問い | 主な結果 |
 | --- | --- | --- |
 | 説明・分類 | 何をするprojectか | 名前、紹介文、category |
 | 稼働・寄与度 | 利用できる状態か、atprotoに何を提供するか | service status、atproto寄与度 |
-| 紹介候補 | 紹介の前提が揃っているか、どれを先にreviewするか | 昇格ゲート、queue、順位・保留 |
+| 紹介候補 | 紹介の前提が揃っているか、どれを先に確認するか | 情報充足の判定、紹介候補一覧、順位・保留 |
 | 追跡 | 今後も調査を続けるか、どの頻度で扱うか | tracking state、再調査対象 |
 
 たとえばserviceがliveであることだけでは紹介候補にせず、説明や寄与度などの条件も確認します。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
@@ -16,6 +16,8 @@
 ## 説明と分類
 
 ### LLM出力の適用境界
+
+project全体の根拠を入力に、説明・分類・調査上の要確認事項を補うLLM処理をtriageと呼びます。観測を収集するcollector、repository一件の内容を解析するrepository analysisとは入力・出力を分けます。
 
 - LLM が直接埋める主な field:
   - `name`
@@ -50,9 +52,9 @@ LLM triageのevidenceには、現在保存されている`tagline` / `summary` /
 
 前回の`llm_source.evidence`と今回のevidenceを比較し、新しいsupported service URL、confirmedなdocs / blog / support URL、confirmed repository、または確認済みwebsiteで新たに観測した実利用面を、説明に使える強いsourceの追加とみなします。実利用面はlogin、app shell、browserで確認したformやpublic app surfaceに限り、beta等の文言だけでは認めません。この時だけ非空のsummaryと暫定taglineを新しいLLM提案へ更新します。同じsourceの再取得や文章差だけでは置き換えません。暫定でないtaglineは強いsourceが増えても自動更新しません。
 
-比較結果の専用fieldは保存しません。前回LLM入力は既存の`llm_source.evidence`に残り、今回の成功後は同fieldが新しい比較基準になります。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、内容を確認した上で個別に適用します。schema / serviceなど内容別の専用signalは設けません。
+成功したtriageを適用すると、そのLLM入力を`llm_source.evidence`へ保存し、次回の比較基準にします。比較結果自体を保存する専用fieldや、schema / serviceなど内容別の専用signalは設けていません。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、内容を確認した上で個別に適用します。
 
-`llm_output.name`は履歴ではなく、直近に成功したLLM reviewの現在提案です。成功したreviewを適用する時は、`name_candidates`に残る以前の`source=llm_output`候補を現在提案で置き換えます。collectorまたはLLM呼び出しが失敗して新しいoutputを適用できなかった場合は、直前の現在提案を維持します。operator edit、service title、resource title、repository名など、LLM以外をsourceとする名前候補はこの置換の対象外です。
+`llm_output.name`は、直近に成功したLLM triageによる名前の提案です。成功したtriageを適用する時は、`name_candidates`に残る以前の`source=llm_output`候補を最新の提案で置き換えます。collectorまたはLLM呼び出しが失敗して新しいoutputを適用できなかった場合は、直前の提案を維持します。operator edit、service title、resource title、repository名など、LLM以外に由来する名前候補はこの置換の対象外です。
 
 `finalize_project_shape()`も保存済み`llm_output.name`とLLM名候補を同期してから代表名を再評価します。このため、旧実装で複数のLLM名候補が蓄積したprojectは、通常の保存または`repair-db`で現在提案だけに補正されます。過去のLLM出力を調べる必要がある場合は、current stateの候補配列ではなくinvestigation runを参照します。
 
@@ -81,7 +83,7 @@ LLM triageのevidenceには、現在保存されている`tagline` / `summary` /
 
 ### 分類と紹介候補signal
 
-LLM は discovery の主役ではなく、整理の補助です。
+LLM triageは収集済みの根拠を整理し、説明と分類候補を補います。
 
 planning/triageの入力上限と縮約規則は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
@@ -205,7 +207,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `conflicting_service_status_evidence`
   - `mixed_launch_signals_detected` があり、status evidence が矛盾している
 
-採用した理由は signal の `details.action_basis` に残します。`identity_resolution` など、service status 以外の LLM manual review kind は従来通りです。
+要レビュー一覧へ載せた理由はsignalの`details.action_basis`に残します。この絞り込みは`service_status_manual_check`に適用し、`identity_resolution`など他の`manual_review_kind`には適用しません。
 
 ### Atproto寄与度
 
@@ -229,7 +231,7 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### 昇格ゲート
 
-本線扱いにする条件:
+`evaluate_promotion()`は次の条件の不足を判定し、`apply_promotion_state()`がその結果を反映します。すべて揃うと`promotion_ready=true`となり、`status=draft`から稼働状態に応じたstatusへ移ります。この情報充足の判定を昇格ゲートと呼びます。紹介候補一覧への表示・順位は次節の規則で評価します。
 
 - 確認済み識別子が1件以上ある
   - `service_urls`
@@ -245,7 +247,7 @@ Website単独やseedの有無はこのゲートの条件にしません。満た
 
 ### 紹介候補の表示・順位・保留
 
-`promotion-queue` は通常表示と interactive の両方で、対象 project 全件から signal と `promotion_queue_sort_score()` を計算し、`priority_group`、`top_priority`、`sort_score`、`project_key` の順でグローバルソートしてから `--limit` を適用します。`priority_group=lowered`は通常候補の後ろへ送り、各group内では従来のsignalとscore順を維持します。紹介候補は上位から見ること自体が目的なので、interactive でも部分バッチ先行にはしません。
+`promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、各group内ではsignalとscore順を維持します。対話操作でも全候補の順位を確定してから上位を表示します。
 
 `lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは8、scoreの`lexicon_publication`は160で、confirmed live serviceの次の優先帯に置きます。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
 
@@ -258,9 +260,9 @@ promotion policyは次を混ぜずに投影します。
 
 したがって`defer_promotion`は個別service signalの評価を下げる操作ではなく、project全体を期限付きで非表示にする操作です。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
 
-WebのPromotion cardはservice group、manual priority、validation理由、scoreの非ゼロ成分を表示します。詳細画面から優先度を下げる時は任意の理由メモを入力でき、保存後は現在cardを外して次候補へ進みます。`Refresh`後も候補自体は残りますが、通常候補より後ろへ並びます。
+Webの`Promotion`（紹介候補）cardはserviceの確認度、手動優先度、追加確認が必要な理由、scoreの非ゼロ成分を表示します。詳細画面から優先度を下げる時は任意の理由メモを入力でき、保存後は表示中のcardを外して次候補へ進みます。`Refresh`後も候補自体は残りますが、通常候補より後ろへ並びます。
 
-merge元とcanonical targetの両方にactiveなpromotion priority判断がある場合はtarget側を維持し、source側をclear済み履歴として残します。
+マージ元（source）と存続先（target）の両方に有効な紹介候補の優先度判断がある場合はtarget側を維持し、source側を解除済み履歴として残します。
 
 `promotion_deferrals` に active な entry がある project は signal 計算前に除外します。未指定時の保留期間は `suggested_promotion_defer_days()` が決めます。初回の若い project は 14 日、通常初回は 30 日、過去の promotion defer 履歴がある場合は 45 / 60 / 90 日へ延ばします。`--days` または API payload の `days` が明示された場合はその値を優先します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
 
@@ -268,16 +270,16 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 ### review-stalled
 
-`review-stalled` は `active -> stalled` の候補だけではなく、
+`review-stalled`は、活動の変化に応じて次の追跡状態への変更候補を返します。
 
+- `active -> stalled`
+  - repositoryとcollectionの活動・調査鮮度・理由の組合せを、以下の条件で評価する
 - `active -> stable`
   - collection は最近動いているが repo 側は止まっている
 - `stalled -> active`
   - repo または collection に最近 activity が戻った
 
-も返します。
-
-`service_status=unknown/none` は単独では落とす根拠にしません。repo activity と collection activity を優先し、`dead/private` だけを強いシグナルとして扱います。
+`service_status=unknown/none`だけでは`stalled`を提案しません。repositoryとcollectionの活動状況を優先し、service statusのうち`dead/private`を強いシグナルとして扱います。
 
 #### activity の見方
 
@@ -301,17 +303,18 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
   - いま `tracking_state=active`
   - repo は recent ではない
   - collection は recent
-- これは「ソースコード更新は止まっているが、collection はまだ実運用されている」ケースを落とし過ぎないためです
+- これは「ソースコード更新は止まっているが、collectionはまだ実運用されている」projectを継続調査の対象に保つためです
+
 #### `active -> stalled`
 
-- まず recent repo activity がある project は何もしません
+- まずrecent repo activityがあるprojectは`stalled`候補の対象外にします
 - そのうえで、collection も recent でない時だけ stalled 判定に進みます
 - `last_enriched_at` が無い、または `max_enrich_age_days` 以上古い場合は、停止を判断する材料が古いため降格候補から外します
 - strong signal (`hard_signal`) として扱うもの:
   - collection が `inactivity_days` 以上止まっていて、しかも `recent_count>0` の observation が無い
   - repo が `inactivity_days` 以上止まっている
   - `service_status` が `dead` または `private`
-- weak signal として理由には出すが、単独では落とさないもの:
+- weak signalとして理由には出すが、単独では`stalled`を提案しないもの:
   - `service_status=unknown` または `none`
   - confirmed identity が 1 件以下
     - `website_url`
@@ -320,11 +323,10 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 - `stalled` を提案するには:
   - `hard_signal` が少なくとも 1 つ必要
   - 理由が 2 件以上必要
-- つまり、単に `unknown` で証拠が薄いだけでは `stalled` にしません
 
 #### 調査鮮度ゲート
 
-- `max_enrich_age_days` は停止の根拠ではなく、降格判定に使える調査結果の最大経過日数です
+- `max_enrich_age_days`は、`stalled`判定に使える調査結果の最大経過日数です
 - 未enrichまたは期限超過の `active` は `stalled` 候補を返しません
 - recent activityによる `stalled -> active` と `active -> stable` は、調査鮮度ゲートより先に判定します
 
@@ -338,7 +340,7 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
 
 ### review-out-of-scope / review-ignore
 
-`review-out-of-scope` は関連性を否定せず、現在のsurvey対象から外す候補を返します。
+`review-out-of-scope`は、atprotoとの関連を保持しつつ、現在の紹介・重点調査対象から外す候補を返します。以下の`owned protocol surface`は、`project_has_owned_protocol_surface()`が見るNSID・NSID候補・namespace・collection活動観測の有無を指します。所有がconfirmedであることだけを条件にする語ではありません。
 
 - `auth_only_without_owned_protocol_surface`
   - `atproto_auth_only=true`
@@ -349,11 +351,11 @@ merge元とcanonical targetの両方にactiveなpromotion priority判断があ�
   - owned protocol surfaceがない
   - `category=lexicon` ではない
 
-accepted projectは `tracking_state=out_of_scope` になります。この状態は通常の enrich/review/promotion対象外ですが、merge候補計算からは除外せず、明示enrichと手動復帰を許します。将来のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
+対象外への変更案を適用したprojectは`tracking_state=out_of_scope`になります。この状態は通常のenrich・追跡状態レビュー・紹介候補一覧の対象外ですが、マージ候補計算には含め、明示enrichと手動復帰を許します。その後のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
 
 `out_of_scope` projectにowned protocol surfaceが見つかった場合、同じコマンドは `owned_protocol_surface_detected` / `suggested_tracking_state=active` を返します。`--execute` なしでは更新せず、復帰も確認可能なqueueとして扱います。sync/enrichの途中で自動復帰する処理は未接続です。
 
-`review-ignore` は inactivity review とは別で、ノイズ整理の候補だけを出します。
+`review-ignore`は、無関係・誤登録・独立した同一性を持たない複製など、追跡不要なprojectの候補を返します。
 
 現状の kind は次です。
 

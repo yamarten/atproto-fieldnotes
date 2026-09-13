@@ -1,12 +1,12 @@
 # 発見と取り込み
 
-外部sourceから候補を発見し、既存projectへの照合または新規登録へ進める契約です。source設定、取得範囲、watermark、未一致・曖昧な一致の扱いを定めます。処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。未一致・曖昧な一致を無理に同一projectへ結び付けず、sourceごとの進行位置と保留情報を残します。取り込みの後に内容を詳しく調べる処理がenrichです。
+外部情報源（source）から候補を発見し、既存projectへの照合または新規登録へ進める契約です。source設定、取得範囲、取り込み済みの境界を示すwatermark、未一致・曖昧な一致の扱いを定めます。処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。未一致・曖昧な一致は、sourceごとの進行位置とともに保留情報へ残します。取り込みの後に内容を詳しく調べる処理がenrichです。
 
 ## source設定とpolicyの境界
 
-設計上、operatorが運用中に変更するsource URL、enabled状態、query、request budget、取得scopeはconfigへ置けます。一方、payloadの解釈、evidence抽出、identity/ownershipの信頼条件、classification、auto-attachやpromotionの条件はcodeとtestを正本とします。
+設計上、operatorが運用中に変更するsource URL、有効・無効、query、request数の上限、取得対象範囲はconfigへ置けます。一方、payloadの解釈、evidence抽出、同一性・所有の信頼条件、identifierやrelationのclassification、既存projectへの自動追加や紹介候補の選定条件はcodeとtestを正本とします。
 
-通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等のrequest budgetを持ち、application sync serviceが解決します。CLI/Web/workerから明示された値はそのrunだけ上書きします。disabled sourceはnetwork request前に拒否します。この境界はgeneric plugin frameworkを実装済みという意味ではなく、source追加のたびにconfig schemaや抽象interfaceを増やす目標でもありません。builtin lexicon prefix、payload解釈、evidence抽出、matching/classification/auto-attachはcodeとtestのままで、config DSL化しません。
+通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等の取得上限・期間を持ち、application sync serviceが解決します。CLI/Web/workerから明示された値は、その取り込み実行中だけ設定値より優先します。disabled sourceはnetwork request前に拒否します。source追加時もこの責務分担に従い、builtin lexicon prefix、payload解釈、evidence抽出、照合・classification・自動追加の規則はcodeとtestで管理します。
 
 ## Source別の取り込み
 
@@ -40,6 +40,8 @@
 
 ### `sync-collections`
 
+この節の親namespaceは、collectionの完全なNSIDから最後のname部を除いたものです。`registrable_namespace`はauthority domainを登録可能domain・tenant境界までまとめて逆順表記にした値、`service_host_family`は同じdomain境界を使うservice hostの照合です。domain境界の規則は[same-site family](project-boundaries.md#trust-graph)を参照してください。
+
 - まず inventory API 全件を取得します
 - 通常の増分実行では、既知 collection の activity refresh を import 対象の選別とは別に毎回行います
   - `count`
@@ -56,7 +58,7 @@
   - `collection_inventory_import`と旧`collection_inventory_url:*`由来のobservationを一旦除去します
   - legacy observationのmember一覧にだけ由来が残る旧seed roleも、通常の採用decisionと区別して削除します
   - payloadから消えた旧observationも再構築時の削除対象です
-- import 前にfull collectionごとに既存projectとの一致を判定します
+- import前にcollectionの完全なNSID（full collection）ごとに既存projectとの一致を判定します
   - `exact_namespace` / `exact_namespace_scan` / `seed_parent_namespace`で一致したcollectionはtarget projectごとに集約します
   - 自動attach対象として一致しないcollectionは、直近の親namespace単位の新規project候補にまとめます
   - 同じregistrable namespaceでも、`site.filae.chorus.*`と`site.filae.agora.*`のように親namespaceが異なるcollectionは別候補です
@@ -71,8 +73,8 @@
   4. `registrable_namespace`
   5. `service_host_family`
 - 自動 attach するのは 1、2、3 だけです
-- 4 と 5 は `suggested_project_key` に落とし、既存 project に自動では吸いません
-- bucket内の全full collectionを`owned_nsid:confirmed`として保存します。これはcollection inventoryの割当契約によるfactual ownershipで、legacy seed roleは作りません
+- 4と5は`suggested_project_key`として既存projectとの関連候補を示し、自動追加は保留します
+- 同じ取込先へまとめた全full collectionを`owned_nsid:confirmed`として保存します。これはcollection inventoryの割当契約による所有判定です
 - 代表collectionは新規projectの初期`seed_value`選択だけに使い、identifier化の範囲を制限しません
 - `collection_observations`は親namespace単位の`count` / `recent_count` / `min` / `max`を保存し、member一覧は永続化しません
 - `--all-history`のsummaryは`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`を返します
@@ -100,7 +102,7 @@
 - `homepage_exact`はproject候補の照合です。GitHub Website欄の`repository_homepage`観測を作り、一致先が一意なconfirmed serviceで、同じserviceからrepositoryへのconfirmed `project_repository`も存在する場合だけ、既存の共通信頼policyでrepositoryをconfirmします
 - 一方向の`homepage_exact`、candidate / non-current serviceへの一致、同順位で複数projectに一致する場合はsuggestionに落とします。複数一致ではproject key順の一件を選びません
 - `homepage_family`もsuggestionに留めます
-- 既存projectへ共通信頼policyで採用したrepositoryは`trust_policy` adoptionになり、GitHub Search用のmanual seedや登録起点にはしません
+- 既存projectへ共通信頼policyで採用したrepositoryには、`trust_policy`の採用来歴（adoption）を記録します。GitHub Searchからの発見だけでは、手動入力や独立した信頼判定の起点として扱いません
 - unmatched を `--screen-unmatched` する場合:
   - repo metadata / README / tree / lexicon candidate JSON を追加で見ます
   - lexicon hint、lexiconらしいpath、derived NSID、lexicon schema sample、repo homepage、service candidate、atproto keyword hitのいずれかがあれば通します
@@ -120,20 +122,20 @@
 
 ### sync state の更新条件
 
-- `sync_state`はsourceごとの運用checkpointで、project recordではありません
+- `sync_state`はsourceごとの取り込み境界と保留情報を保存します
 - introducedはquery、collectionsはinventory URL、GitHubはquery、Sembleはtracked collectionごとにwatermarkを持ちます
 - 上記sourceはsuccessful executeかつ走査完了時だけ更新し、dry-run、例外、page上限到達、未一致を残す`--no-create-unmatched`では更新しません。Tangledのsequence checkpointは次節の契約を使います
-- 境界timestampと同時刻の項目は次回も処理します。exactly-onceではなくat-least-onceです
+- 境界timestampと同時刻の項目は次回も処理するため、同じ項目を複数回取得し得るat-least-once方式です
 
 ### `sync-tangled-repos`
 
-- 公式`@bsky/jetstream` SDKでJetstream v2 snapshotを取得し、plan時点のsealed tipを固定します
+- 公式`@bsky/jetstream` SDKでJetstream v2 snapshotを取得し、plan時点で取得範囲の終端として確定したsequence（sealed tip）を固定します
 - `sh.tangled.repo`のcreate/update/deleteをsequence順に畳み込み、保存済みsequence watermarkから増分再開します
 - event上限で途中終了したexecuteは最後に処理したsequenceを保存し、次回に残りを再開します
-- 通常上限は1,000 eventです。初回archiveも一括完走させず、複数runで進めます
+- 通常上限は1,000 eventです。初回archiveも複数回の取り込みに分けて進めます
 - atproto relevanceを通過した現存recordだけを対象にします
 - 正規化したTangled repo URLだけで既存projectへexact照合します。owner DIDやrecord websiteだけでは照合しません
-- relevant eventのowner handleはDB変更前にDIDごとに解決・cacheし、解決失敗時はrunを適用しません
+- atprotoとの関連条件を満たすeventのowner handleはDB変更前にDIDごとに解決・cacheし、解決失敗時はその取り込み結果をDBへ適用しません
 - unmatched project作成は既定onです
 - API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません。
 

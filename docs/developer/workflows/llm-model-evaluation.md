@@ -4,7 +4,7 @@
 
 ## 目的
 
-model名や単一のscoreではなく、実際に使う構成と保存結果に基づいて次を判断します。
+実際に使う構成と保存結果に基づいて次を判断します。
 
 - 現在のmodelとの比較を続けるか
 - 対象を限定して正本DBで試すか
@@ -20,6 +20,8 @@ model名や単一のscoreではなく、実際に使う構成と保存結果に�
 - prompt固定後の確認用case: そのpromptの文言を決める時に出力を見ていないcase。model選定時のcategory確認に使う
 - 元profileなし: 新規projectに近い条件。保存済みLLM profileを入力へ含めない
 - 元profileあり: 既存projectの更新に近い条件。現在のprofileを入力へ含める
+- triage: project全体の根拠から説明・分類・要確認事項を補うLLM処理。[説明・評価仕様](../specs/project-evaluation.md#llm出力の適用境界)で適用条件を定める
+- corpus: 再利用できる固定入力などを集めた評価caseの集合。人が正しいと判断した期待値をgold labelと呼び、過去のmodel出力は比較用のreferenceとして区別する
 
 調整用caseはlabelの`used_for_prompt_adjustment=true`、prompt固定後の確認用caseは`false`とします。確認用caseの出力を見てpromptを変更した場合、そのcaseは調整用へ移し、次の確認には別caseを用意します。
 
@@ -39,13 +41,13 @@ reportには少なくとも次を記録します。
 - corpus hash、case ID、repeat回数
 - git commitとdirty状態
 
-suffixの内容hashは、UTF-8本文の前後の空白を除いてSHA-256を計算します。固定評価と通常`enrich`は同じ計算方法を使い、requestが失敗した場合も使用したhashをrun metricsへ残します。
+model別の追加規則（prompt suffix）の内容hashは、UTF-8本文の前後の空白を除いてSHA-256を計算します。固定評価と通常`enrich`は同じ計算方法を使い、requestが失敗した場合も使用したhashを評価reportまたは調査実行記録のmetricsへ残します。
 
 requestへreasoning値を送っただけでは適用済みと扱いません。runtime logまたはmodel設定で確認し、`applied`、`ignored`、`not_checked`をreportへ記録します。指定できない構成は、指定なしの別構成として扱います。
 
 ## 評価データ
 
-`export-llm-evaluation-corpus`は指定DBをread-onlyで開き、保存済みevidenceから固定caseを出力します。corpus選抜はprompt長bucketと保存済みcategoryを分け、既定で`category=library`を最低8件優先します。保存済み出力は比較referenceでありgold labelではありません。前回LLM出力だけを根拠とするfieldは、次のmodel入力へ戻しません。現在のprofileはbase evidenceから分けて保持し、`evaluate-llm-corpus --current-profile-mode without|with`で入力条件を切り替えます。
+`export-llm-evaluation-corpus`は指定DBをread-onlyで開き、保存済みevidenceから固定caseを出力します。corpus選抜ではpromptの長さごとの区分（bucket）と保存済みcategoryを分け、既定で`category=library`を最低8件優先します。保存済み出力は比較referenceとして保持します。前回LLM出力だけを根拠とするfieldは、次のmodel入力へ戻しません。現在のprofileは観測由来の根拠（base evidence）から分けて保持し、`evaluate-llm-corpus --current-profile-mode without|with`で入力条件を切り替えます。
 
 期待categoryを付ける前に、現在のcategory契約と入力evidenceだけで人が判断できるかを確認します。外部情報を見れば判断できても固定evidenceから導けないcaseは、modelのcategory成績には使いません。外部情報不足はcollector契約の問題として分けます。
 
@@ -69,7 +71,7 @@ model自体の比較は元profileなしを主に使い、元profileありは現�
 
 ### 3. runtime設定を確認する
 
-短い入力でrequest成功、JSON到達、reasoning対応、最大出力到達の有無を確認します。runtimeが実際に適用したcontextやparallelを取得できる場合は、要求値と分けて記録します。
+短い入力でrequest成功、最終JSONの受信、reasoning対応、出力token上限への到達の有無を確認します。runtimeが実際に適用したcontext長や並列数（parallel）を取得できる場合は、要求値と分けて記録します。
 
 ### 4. 少数caseで候補を絞る
 
@@ -104,7 +106,7 @@ category、identifier集合、検査成否、tagline、summary、featuresの変�
 
 文章はmodel名を伏せ、主要機能の欠落、根拠外の断定、日本語、情報量を人が比較します。入力が長いcaseと以前時間がかかったcaseを含め、最初のrequest、最初を除いた時間、中央値、最長時間を分けます。同じpromptの反復ではruntime cacheが効く可能性があるため、1巡目と2巡目も分けます。
 
-通常処理候補は処理後のfootprintとforeground利用への影響、常駐候補はidle時、連続処理時、他modelとの同居を確認します。package容量だけを常駐memoryや処理速度の代わりにしません。
+通常処理候補は処理後のmemory使用量（footprint）と手元の他アプリ操作への影響、常駐候補は待機時・連続処理時・他modelとの同居時のmemory使用量と挙動を確認します。配布packageの容量、実行中のmemory使用量、処理速度はそれぞれ記録します。
 
 ### 9. 複製DBで通常`enrich`を比較する
 
@@ -121,7 +123,7 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 
 ### 10. 正本DBの少数projectで試す
 
-固定caseと複製DBを通ったcandidateだけを、対象、件数または期間、停止条件を決めて試します。これは評価用copyではなく正本DBへ通常`enrich`を書き込むため、実行前に別途承認を得ます。baselineを直ちに使える設定で残し、candidateを適用するprojectを明示します。
+固定caseと複製DBを通ったcandidateだけを、対象、件数または期間、停止条件を決めて試します。この試用は正本DBへ通常`enrich`を書き込むため、実行前に別途承認を得ます。baselineを直ちに使える設定で残し、candidateを適用するprojectを明示します。
 
 次が起きた場合は試用を止めます。
 
@@ -162,14 +164,14 @@ DBコピーは比較直前に作り、結果を文書へ記録してintegrityと
 - `export-llm-evaluation-corpus`: 固定corpusを作る。DBはread-only
 - `evaluate-llm-corpus`: 一つの実行構成を固定caseへ適用し、構造化reportを作る
 - `compare-llm-evaluation-reports`: 同じcorpus、case、repeatの機械検査結果を比較する
-- `export-repository-analysis-corpus`: 保存済みrunからrevision固定のrepository materialをread-onlyで取り出す
+- `export-repository-analysis-corpus`: 保存済み調査実行記録から、repositoryのrevisionを固定した解析素材をread-onlyで取り出す
 - `evaluate-repository-analysis-corpus`: 一つの実行構成でrepository解析と保存前検査を行う
 - `compare-repository-analysis-reports`: 同じmaterialとrepeatの機械検査結果を比較する
-- `export-relation-assessment-corpus`: 現在`ASSESS`へroutingされるpairと保存済みraw excerptをDBからread-onlyで固定する
-- `export-recollection-relation-assessment-corpus`: bounded再収集reportのreview claimから、exactなconfirmed component由来の意味判定caseだけを固定する。page帰属が未確定のclaimはLLMへ渡さない
+- `export-relation-assessment-corpus`: 関係の意味判定が必要な`ASSESS`区分のpairと保存済みの本文抜粋をDBからread-onlyで固定する
+- `export-recollection-relation-assessment-corpus`: 取得上限付きの再収集reportで要確認となった帰属主張から、confirmed構成要素と完全一致する起点に由来する意味判定caseだけを固定する。page帰属が未確定のclaimはLLMへ渡さない
 - `evaluate-relation-assessment-corpus`: project-level triageと分離した一つの方向付きpredicateを、入力内根拠だけで評価する
 
-機械比較が扱うのは成功、schema、根拠外identifier、確認用caseのcategory一致、所要時間です。文章品質、正本DBへ適用してよいか、既定modelを変更してよいかは自動決定しません。peak memory、swap、prefill、decodeのrunner自動記録も未接続です。
+機械比較が扱うのは成功、schema、根拠外identifier、確認用caseのcategory一致、所要時間です。文章品質と、正本DBへの試用・既定modelの変更可否は、人が結果を読んで判断します。最大memory使用量、swap、入力処理（prefill）、出力生成（decode）のrunnerによる自動記録は未接続です。
 
 長時間評価は開始時と各request完了時に途中reportを書き出し、正常終了時だけ`status=complete`にします。途中reportを完走済みの比較と混同しません。
 
