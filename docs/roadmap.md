@@ -36,7 +36,7 @@
 
 目的は、有用な候補を得るまでのどこに取りこぼしや手戻りがあり、どの改善が日常の予備調査を楽にするかを判断することです。評価の実施自体や計測項目を増やすことを目的にしません。
 
-[source評価](notes/source-lane-evaluation-2026-08-30.md)は固有候補、取得範囲、処理時間等から情報源の価値を、[manual gold・紹介実績分析](developer/specs/investigation.md#replay-と-benchmark)は判断規則と紹介候補の捕捉を、[Lexicon sidecar評価](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)は追加観測の固有価値と継続・拡張の必要性を既に扱っています。これらを重複して評価するのではなく、結果が次の問いまで答えているかを確認します。
+外部sourceの固有候補・取得範囲・処理時間、manual goldによる判断規則の評価、紹介実績との比較、Lexicon sidecarの追加観測価値は、それぞれ確認を進めてきました。これらを重複して評価するのではなく、結果が次の問いまで答えているかを確認します。
 
 - 発見・調査した情報が、利用者の深掘り判断に必要な時点で、選べる候補と判断材料として届いたか。
 - 候補を判断するまでに、人がどの確認・訂正・再調査を行う必要があり、何が負担として残ったか。
@@ -53,6 +53,7 @@
 - summary・tagline等に何を書くか。用途・機能・技術的特徴の説明と、時点を伴う稼働・公開状態をどう分担させるか。
 - 提供終了、主要機能の変化、再活発化があったとき、過去の説明を何のために残し、現在の説明へ何を反映するか。当時は正しかった説明と、もともと誤っていた記述の訂正を区別する。
 - 一時的な取得失敗、古い成功根拠、確認済みの提供終了をどう表すか。取得できないことだけで既知の用途や特徴を消さず、過去の成功も現在の稼働保証にはしない。
+- 定期的な匿名browser確認と過去の観測の比較で、稼働・公開状態の変化をどう把握するか。対象・頻度・比較方法は時間経過の扱いと合わせて検討し、一回の失敗による自動dead/private降格や認証後の機能確認とは分ける。
 - 人の編集意図を保ちながら、事実の変化に伴う見直しをどう判断するか。また、`stable`や`out_of_scope`の追跡方針を見直す条件を、説明文の更新やserviceの状態とどう区別するか。
 
 提供終了しても説明を残したいservice、機能が変わったproject、一時的に取得できない対象を例に、読み手に何が伝わるべきかを合意します。その内容に基づいて更新規則・保存形・訂正手段の不足を判断し、設計途中の議論は`docs/notes/`、確定した説明の更新規則は[project評価](developer/specs/project-evaluation.md)、時間情報の保存は[project record](developer/specs/project-record.md)へ反映します。
@@ -169,15 +170,21 @@ raw JSON任意path検索は通常のproject探索に必要な具体例が出た�
 
 Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public recordの活動を集計する`sync-collections`では見つからないLexiconの存在検知に使える可能性があります。既存collectionの網羅性改善より、recordをまだ持たないschema、query / procedure / subscription等の非record Lexicon、Permissioned Data提案のspace typeとその`collections`宣言の発見を主な価値候補とします。
 
-緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。現在の観測状態は[status](developer/status.md)、判断材料は[比較記録](notes/jetstream-lexicon-publication-comparison-2026-09-04.md)と[初期運用評価](notes/lexicon-publication-catalog-initial-operations-2026-09-05.md)を参照してください。保存、取得上限、publisher検証、periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を正本とします。
+緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。現在の観測状態は[status](developer/status.md#lexiconの独立観測)、保存・取得上限・publisher検証・periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を参照してください。
 
 今後は4つの異なる比較可能periodが揃った時、固有候補数、再検証変化、非record表現需要を人が再評価し、registryへ新しいrole/relation表現を設計する、sidecar観測を継続する、presetを停止する、のいずれかを決めます。4期間前でも検証済みpublisherのdelete / identity置換、具体的な非record利用要求があれば前倒しします。判定に使う保存signalは[再評価gate](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補reviewにはしません。
 
 非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。その際はprojectへの一意な帰属、独立project候補、catalogだけの観測を区別してsample reviewします。全publisherの周期verify、自動project作成、identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
 
+### Model構成の継続評価
+
+年数回程度を目安にmodel構成を見直し、通常enrichの品質・安定性・処理時間・常駐コストに改善の余地があるか評価を続けたいと考えています。具体的な時期と候補は未定です。通常enrichの置換候補と低優先度処理用の候補を分け、既存の[評価手順](developer/workflows/llm-model-evaluation.md)で比較します。個別modelの[試用停止・再開材料](notes/llm-model-evaluation.md)を踏まえ、評価結果から既定modelを維持するか変更するかを判断します。
+
 ### 保存済み判断を使うLLM適応
 
 operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、`project_decisions`の多くはidentifier採否、reviewの保留・dismiss、別project判断などの運用上の正本であり、project-level triageやrepository解析のgold labelとはそのまま扱いません。
+
+保存済みの訂正・保留・除外判断と当時のevidenceから、回帰評価用のfixture候補を自動抽出し、人が期待結果を確認してcorpusへ取り込める状態を目指します。学習用dataの蓄積と、heuristicやprompt変更の評価に再利用します。各候補は当時の根拠と判断理由を人が確認して期待結果を定め、現行の[replay・sanitize契約](developer/specs/investigation.md#replay-と-benchmark)へ接続します。抽出commandの設計は未確定です。
 
 同種の誤りが蓄積し、promptやbounded material契約だけでは十分に減らせず、独立した人手確認済みcaseを訓練用と評価用に分けられる量が揃った場合に、次を検討します。
 

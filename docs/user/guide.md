@@ -53,6 +53,8 @@ project-registry-web --db-path data/survey.dev.db
 | 外部情報の取り込み（`sync`） | 設定済みの外部情報源を走査し、既存の登録プロジェクトとの照合結果や新規登録候補を作る処理。 |
 | 調査実行記録 | 1つの登録プロジェクトに対する`enrich`などの保存済み調査履歴。画面やJSONではinvestigation runまたはrunと表記される。 |
 | 追跡状態 | 継続調査上の扱いを示す状態。コマンドやJSONでは`tracking_state`と表記される。 |
+| 要レビュー一覧 | 人による確認が必要な項目の一覧。CLIでは`review-queue`。 |
+| 紹介候補一覧 | 紹介する候補を選び、優先度や保留を判断する一覧。CLIでは`promotion-queue`。 |
 | 分類 | 主な利用者と利用形態による登録プロジェクトの分類。保存値は`project`、`lexicon`、`library`、`infra_tool`、`personal_tool`、`name_only`、`reject`。詳しい境界は[Project Record Schema](../developer/specs/project-record.md#category)を参照。 |
 | 採用 | 候補の識別子を、その登録プロジェクトに属するものとして利用者が認める操作。保存値は`confirmed`。 |
 | 手動判断 | 採用、除外、保留、別プロジェクト指定など、自動判定より優先される利用者の判断。 |

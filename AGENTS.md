@@ -80,7 +80,7 @@
 - 実装全体: [architecture](docs/developer/architecture.md)
 - 変更・検証手順: [変更の受入](docs/developer/workflows/change-acceptance.md)
 - 利用手順: [README](README.md)、[利用ガイド](docs/user/guide.md)、[CLI](docs/user/cli.md)、[Web UI](docs/user/web-ui.md)
-- 検討・比較・履歴: [notes](docs/notes/)
+- 未決事項・保留・再開材料: [notes](docs/notes/)
 
 ## 文書の更新
 

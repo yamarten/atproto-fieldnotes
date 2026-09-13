@@ -414,7 +414,7 @@ current service projectionはJSON payloadだけでなくscalar列だけの差分
 
 ### Identifier保存方式の比較経路
 
-`compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を適用します。schema v2からv3への変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。移行判断の根拠と適用記録は[identifier保存方式の記録](../../notes/identifier-storage-shadow-comparison.md)を参照してください。
+`compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を適用します。schema v2からv3への変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。移行時のmanifestは当時の判断を再現する入力であり、後続のoperator判断で変わった現在の採否を示すものではありません。
 
 ## Non-goals
 

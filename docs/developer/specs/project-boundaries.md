@@ -443,7 +443,7 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 
 `mirror_of`、replica、対等なGitHub/Tangled hostingも、それだけではprojectへの帰属やTrustを支持しません。双方を公式project repositoryとして扱う場合は、各repoについてprojectからの直接参照を別々に確認します。repo間の複製・同期関係は、系譜表示、同期診断、マージreviewへ使う別relationとして保持できます。
 
-派生project、template/example由来、source-only forkを含む詳しい扱いは[派生関係の設計メモ](../../notes/derivation-relations.md)で保持します。現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。
+現行実装には`fork_of` predicateはなく、providerから得たfork metadataとreview heuristicが近い情報を扱っています。predicateとして保存するか、マージ判断専用の事実として保存するかは未確定です。関係種別・保存・review操作の選択肢は[時間・派生関係の未決事項](../../notes/temporal-project-relations.md#改名継承派生で決めること)で保持します。
 
 ##### 説明・調査用の関係
 
@@ -654,7 +654,7 @@ docs/blog、support/status/privacyPolicy/termsOfService等の同一site補助ペ
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
 
-repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはproject repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。domain、account、DID、NSID、repo、service 間の保証関係と検討中の根拠強度は[identity-ownership-evidence.md](../../notes/identity-ownership-evidence.md) に分離しています。
+repo内にlexicon JSONがあるだけの観測は、accepted repo と accepted NSID が揃うまで `defines_schema` として保存せず、`mentions_collection` に落とします。`defines_schema` は repo と NSID の両方が project 側で受け入れ済みの場合だけ成立する relation です。repo seedはproject repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission` は ownership を確定しません。OAuth `include:` の再帰解決と organization/individual account の委任関係は未接続です。domain、account、DID、NSID、repo、service間の保証関係は[接続マトリクス](#identifier-kind接続マトリクス)と[関係別の静的規則](#関係別の静的規則)で区別します。
 
 ### Identifierの一時保留
 
@@ -712,7 +712,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 - ただし次は最初から除外します
   - 自分自身
   - `separate_project_keys` で相互 block された pair
-- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な弱い派生関係の設計メモは [derivation-relations.md](../../notes/derivation-relations.md) に分離しています
+- fork/template/statusphere 派生のような「別物だが似ている」関係は、現状では `separate_project` で merge 候補から外します。将来的な関係表現の選択肢は[時間・派生関係の未決事項](../../notes/temporal-project-relations.md#改名継承派生で決めること)に分離しています
 
 ### candidate の根拠
 
@@ -855,4 +855,4 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 
 信頼比較は有限graph上の経路を探索し、最短の説明経路を返します。固定の最大3 hopで信頼範囲を定義しません。全起点探索とtrace再利用の同値性を比較しますが、保存済みpathを現在の支持の代用にはしません。merge比較ではconfirmed構成がowned NSIDだけのfragmentについて、exact subset、または同じauthorityとnamespace/alias等の文脈を持つ包括projectを評価します。独立した構成要素や別project判断を同時に確認し、通常mergeのscoreとは区別します。
 
-専用relation assessorの比較は一つの方向付きproposalと限定した根拠を入力とし、`SUPPORTED`、`NOT_SUPPORTED`、`INSUFFICIENT`を返します。提示材料への参照の検査は意味解釈の正しさを保証せず、通常のidentifier自動昇格には未接続です。一般的なproject-level triageの`same_project`と同じ処理として扱いません。比較方法・観測結果は[信頼比較](../../notes/trust-policy-shadow-comparison.md)、[merge比較](../../notes/project-merge-policy-shadow-comparison.md)、[relation比較](../../notes/collector-relation-policy-shadow-comparison.md)を参照してください。
+専用relation assessorは、例えば「このpageのlinkは、そのprojectの公式repositoryを指すか」という一つの関係を、渡された根拠だけで評価します。結果は支持（`SUPPORTED`）、不支持（`NOT_SUPPORTED`）、材料不足（`INSUFFICIENT`）です。回答が入力内の根拠を参照していても、その解釈が正しいとは限りません。この評価はproject全体を扱う通常triageとは別の比較用処理で、結果からidentifierを自動採用する経路は接続していません。
