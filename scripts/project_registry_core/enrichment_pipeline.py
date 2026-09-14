@@ -631,8 +631,8 @@ def enrich_project(
     project = apply_promotion_state(project)
     project = record_promotion_transition(project, previous_status)
     phase_timings["evaluation_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
-    run_id = investigation_storage.save_investigation_run(
-        conn,
+    run_id = investigation_storage.stage_investigation_run(
+        project,
         project_key=str(project.get("project_key") or ""),
         started_at=run_started_at,
         completed_at=iso_now(),

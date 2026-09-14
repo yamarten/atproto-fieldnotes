@@ -15,7 +15,7 @@ from project_registry_core import project_record
 
 def _print(payload: dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 0
+    return 2 if payload.get("operation_status") == "retry_wait" else 0
 
 
 def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
@@ -43,6 +43,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
             item["project_key"],
         )
     )
+    project_snapshots = {str(project["project_key"]): project for project in project_list}
     suggested_state_counts: dict[str, int] = {}
     for item in candidates:
         state = str(item.get("suggested_tracking_state") or "")
@@ -50,6 +51,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
 
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("--interactive requires a TTY")
+    conflicts: list[dict[str, str]] = []
     updated: list[str] = []
     updated_with_state: list[dict[str, str]] = []
     note = str(
@@ -94,7 +96,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
             if answer in {"q", "quit"}:
                 break
             continue
-        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
         project["tracking_state"] = str(
@@ -102,7 +104,12 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
         )
         if note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = note
-        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        try:
+            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        except project_record.StaleProjectWriteError as exc:
+            conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
+            print(f"[retry_wait] {exc}", file=sys.stderr)
+            continue
         updated.append(project["project_key"])
         updated_with_state.append({
             "project_key": project["project_key"],
@@ -111,6 +118,8 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
     conn.commit()
     return _print({
         "mode": "execute",
+        "operation_status": "retry_wait" if conflicts else "completed",
+        "conflicted_projects": conflicts,
         "inactivity_days": inactivity_days,
         "max_enrich_age_days": max_enrich_age_days,
         "updated_count": len(updated),
@@ -145,6 +154,7 @@ def _cmd_review_classification_interactive(
         str(item.get("kind") or ""),
         str(item.get("project_key") or ""),
     ))
+    project_snapshots = {str(project["project_key"]): project for project in project_list}
     kind_counts: dict[str, int] = {}
     for item in candidates:
         kind = str(item.get("kind") or "")
@@ -155,6 +165,7 @@ def _cmd_review_classification_interactive(
     if effective_limit is not None:
         candidates = candidates[:effective_limit]
 
+    conflicts: list[dict[str, str]] = []
     updated: list[str] = []
     noted_project_keys: list[dict[str, str]] = []
     static_note = str(args.note or "").strip()
@@ -194,7 +205,7 @@ def _cmd_review_classification_interactive(
             if answer in {"q", "quit"}:
                 break
             continue
-        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
         next_state = str(item.get("suggested_tracking_state") or target_state)
@@ -230,7 +241,12 @@ def _cmd_review_classification_interactive(
             project["tracking_note"] = "reactivated after owned protocol surface detection"
         elif note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = note
-        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        try:
+            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        except project_record.StaleProjectWriteError as exc:
+            conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
+            print(f"[retry_wait] {exc}", file=sys.stderr)
+            continue
         updated.append(project["project_key"])
         noted_project_keys.append({
             "project_key": project["project_key"],
@@ -239,6 +255,8 @@ def _cmd_review_classification_interactive(
     conn.commit()
     return _print({
         "mode": "execute",
+        "operation_status": "retry_wait" if conflicts else "completed",
+        "conflicted_projects": conflicts,
         "tracking_states": sorted(tracking_states),
         "updated_count": len(updated),
         "updated_project_keys": updated,

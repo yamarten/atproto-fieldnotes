@@ -263,7 +263,7 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project_record.save_project(conn, project)
-            conn.execute("INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+            conn.execute("INSERT INTO investigation_runs(run_id, project_key, started_at, completed_at, evidence_schema_version, evaluation_version, input_project_json, output_project_json, evaluation_json, bundle_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                 "run:historical", project["project_key"], "2026-09-03T09:00:00+00:00", "2026-09-03T10:00:00+00:00",
                 1, "test", "{}", storage.encode_history_json_text(json.dumps(snapshot)), "{}", "{}",
             ))

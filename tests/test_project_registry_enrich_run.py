@@ -337,8 +337,8 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         finally:
             check.close()
 
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.error["type"], "StaleProjectWriteError")
+        self.assertEqual(result.status, "retry_wait")
+        self.assertEqual(result.data["conflicted_project_count"], 1)
         self.assertEqual(str(alias_target[0]), target["project_key"])
         self.assertIsNone(revived_source)
         assert current_target is not None

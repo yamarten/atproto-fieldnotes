@@ -5,6 +5,7 @@ import datetime as dt
 from typing import Any
 
 from .. import registry as core
+from .. import concurrency
 from . import review_targets
 from project_registry_core import project_record
 
@@ -47,7 +48,8 @@ def set_separate(
         other_blocked.add(project["project_key"])
     project["separate_project_keys"] = sorted(project_blocked)
     other["separate_project_keys"] = sorted(other_blocked)
-    with conn:
+    with concurrency.write_transaction(conn):
+        concurrency.check_projects(conn, [project, other])
         for item in (project, other):
             _refresh_merge_state(conn, item)
             project_record.save_project(

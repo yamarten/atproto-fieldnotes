@@ -23,6 +23,8 @@ from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
 from project_registry_core import runtime_view
 from project_registry_core import storage as investigation_storage
+from project_registry_core import concurrency
+from project_registry_core.concurrency import StaleProjectWriteError
 from project_registry_core import trust_graph as trust_graph_core
 
 BUILTIN_LEXICON_PREFIXES = ("app.bsky.", "chat.bsky.", "com.atproto.")
@@ -34,10 +36,6 @@ PDSLS_HOSTS = {"pdsls.dev", "pds.ls"}
 PDSLS_VIEWER_HOSTS = PDSLS_HOSTS | {"pdsls.pages.dev"}
 
 LOOSE_NSID_PATTERN = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:\.[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)+"
-
-
-class StaleProjectWriteError(RuntimeError):
-    """Raised when a stale writer targets a project key that was merged away."""
 
 
 def iso_now() -> str:
@@ -703,6 +701,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
     )
     return {
         "project_key": project_key,
+        runtime_view.RUNTIME_PROJECT_REVISION: 0,
         "status": "draft",
         "category": "",
         "app_category": "",
@@ -1254,9 +1253,11 @@ def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def project_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
-    payload = project_from_row_payload(row)
-    payload = registry_database.hydrate_project_children(conn, payload)
-    return runtime_view.refresh_baselines(ensure_project_shape(payload))
+    # A row supplied by a caller may predate its child rows. Reload atomically.
+    project = fetch_project(conn, str(row["project_key"]))
+    if project is None:
+        raise StaleProjectWriteError(f"project was deleted: {row['project_key']}", project_key=str(row["project_key"]))
+    return project
 
 
 def project_record_payload(project: dict[str, Any]) -> dict[str, Any]:
@@ -1296,6 +1297,7 @@ def project_ops_payload(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@concurrency.consistent_read
 def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] | None:
     row = conn.execute(
         "SELECT * FROM projects WHERE project_key = ?",
@@ -1305,6 +1307,7 @@ def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] 
         return None
     payload = project_from_row_payload(row)
     payload = registry_database.hydrate_project_children(conn, payload)
+    payload[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, project_key)
     return runtime_view.refresh_baselines(ensure_project_shape(payload))
 
 
@@ -1348,6 +1351,7 @@ def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
     return matches[0]
 
 
+@concurrency.consistent_read
 def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
     if tracking_states is None:
         rows = conn.execute(
@@ -1523,6 +1527,27 @@ def find_project_key_by_identifier(conn: sqlite3.Connection, identifier_type: st
 
 
 def save_project(
+    conn: sqlite3.Connection,
+    project: dict[str, Any],
+    enriched: bool = False,
+    *,
+    preserve_timestamps: bool = False,
+    commit: bool = True,
+) -> None:
+    with concurrency.write_transaction(conn, commit=commit):
+        exists = conn.execute("SELECT 1 FROM projects WHERE project_key=?", (project["project_key"],)).fetchone() is not None
+        runtime_view.require_complete_for_update(project, exists=exists)
+        concurrency.check_projects(conn, [project])
+        pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
+        if pending:
+            investigation_storage.save_investigation_run(conn, **pending)
+        _save_project(conn, project, enriched, preserve_timestamps=preserve_timestamps, commit=False)
+        project[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, str(project["project_key"]))
+        runtime_view.mark_complete(project)
+    project.pop(runtime_view.RUNTIME_PENDING_RUN, None)
+
+
+def _save_project(
     conn: sqlite3.Connection,
     project: dict[str, Any],
     enriched: bool = False,

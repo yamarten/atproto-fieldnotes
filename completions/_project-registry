@@ -5,7 +5,8 @@ local -a promotion_kinds
 
 subcommands=(
   'dev-db:Create or reset the fictional CLI/Web database'
-  'init-db:Explicitly initialize a schema v2 registry database'
+  'init-db:Explicitly initialize a schema v4 registry database'
+  'migrate-db-v4:Explicitly migrate an offline schema v3 database'
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
   'show:Show registered projects'
@@ -429,6 +430,10 @@ case "$cmd" in
       '--url[Override the project service URL]:url:' \
       '--lane[Verification method]:method:(static deep browser)' \
       '--execute[Apply the result and save an investigation run]'
+    ;;
+  migrate-db-v4)
+    _arguments -S \
+      '--execute[Apply the schema v3 to v4 migration]'
     ;;
   repair-db)
     _arguments -S \

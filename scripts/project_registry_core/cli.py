@@ -35,9 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
     dev_parser.add_argument("--reset", action="store_true", help="Reset only a generated dev DB; stop its CLI/Web/workers first.")
     dev_parser.set_defaults(func=maintenance_commands.cmd_dev_db)
 
-    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v3 registry database.")
+    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v4 registry database.")
     init_parser.add_argument("--db-path", type=Path, help="SQLite DB path. Defaults to data/survey.db.")
     init_parser.set_defaults(func=maintenance_commands.cmd_init_db)
+
+    migrate_parser = subparsers.add_parser("migrate-db-v4", help="Explicitly migrate an offline schema v3 DB to v4.")
+    migrate_parser.add_argument("--execute", action="store_true", help="Apply the migration; stop other writers first.")
+    migrate_parser.set_defaults(func=maintenance_commands.cmd_migrate_db_v4)
 
     add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
     add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")
@@ -100,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write a read-only community.lexicon.app.entry readiness report.",
     )
     validate_app_record_parser.add_argument(
-        "--db-path", required=True, help="Source schema v3 SQLite database opened read-only."
+        "--db-path", required=True, help="Source schema v4 SQLite database opened read-only."
     )
     validate_app_record_parser.add_argument(
         "--output", required=True, help="JSON report path. Use a path under .tmp for audits."
@@ -114,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export explicitly selected community.lexicon.app.entry records.",
     )
     export_app_record_parser.add_argument(
-        "--db-path", required=True, help="Source schema v3 SQLite database opened read-only."
+        "--db-path", required=True, help="Source schema v4 SQLite database opened read-only."
     )
     export_app_record_parser.add_argument(
         "--manifest", required=True, help="Publication manifest JSON path."
@@ -838,6 +842,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.registry_db_path is not None:
             registry.DB_PATH = args.registry_db_path.expanduser().resolve()
         return int(args.func(args))
+    except project_record.StaleProjectWriteError as exc:
+        print(f"[retry_wait] {exc}", file=sys.stderr)
+        return 2
     except urllib.error.URLError as exc:
         print(f"[error] network request failed: {exc}", file=sys.stderr)
         return 1

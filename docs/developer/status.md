@@ -1,14 +1,14 @@
 # Project Registry Status
 
-通常導線では、CLI/Webでの登録・検索・手動レビュー、外部情報源からの増分取り込み、enrichによる調査・評価、紹介候補の提示と追跡を利用できます。運用はローカルのschema v3 DBを中心に、Webの処理実行用process（worker）と定期実行の設定（preset）で行います。
+通常導線では、CLI/Webでの登録・検索・手動レビュー、外部情報源からの増分取り込み、enrichによる調査・評価、紹介候補の提示と追跡を利用できます。コードはローカルのschema v4 DBを対象とし、Webの処理実行用process（worker）と定期実行の設定（preset）で行います。
 
 現行機能の適用にも境界があります。新しい判定規則による既存project全件の再評価、非現行identifierの専用編集UI、取り込み処理・追跡状態レビューのcheckpoint再開は揃っていません。Lexiconの独立観測や、判定結果をDB更新へ適用せず比較するshadow経路も通常の自動採用とは別に扱います。以下では機能ごとに、利用できる範囲と、その説明を支える確認・制約を示します。
 
-実運用については2026-09-10までの適用・確認記録に基づきます。それ以後の実環境や正本DBの状態は未確認です。
+実運用については2026-09-10までの適用・確認記録に基づきます。それ以後の実環境や正本DBの状態は未確認です。schema v4への正本移行と今回の競合保護の実運用反映は未実施です。
 
 ## 登録・検索・手動編集
 
-CLI/Webからseed登録、一覧・詳細検索、追跡状態の変更、identifierの採用・除外・期限付き保留（confirm/block/defer）、profile編集を利用できます。通常導線はschema v3 DBです。Websiteとservice identifier、resourceの役割（role）と採用状態（classification）を区別して表示します。非現行identifier・採用来歴・移転関係・再登録の抑止情報は保存可能ですが、旧構成要素（`former`）と開発・試験用（`non_production`）の専用編集UIは未接続です。identifierへの判断は`kind + value`全体へ作用し、同じ値のroleごとには分けられません。
+CLI/Webからseed登録、一覧・詳細検索、追跡状態の変更、identifierの採用・除外・期限付き保留（confirm/block/defer）、profile編集を利用できます。新しいコードの通常導線はschema v4 DBです。Websiteとservice identifier、resourceの役割（role）と採用状態（classification）を区別して表示します。非現行identifier・採用来歴・移転関係・再登録の抑止情報は保存可能ですが、旧構成要素（`former`）と開発・試験用（`non_production`）の専用編集UIは未接続です。identifierへの判断は`kind + value`全体へ作用し、同じ値のroleごとには分けられません。
 
 検索は正規化して保存したfieldの部分一致・構造化filterで、summaryやREADME全文、自然語の概念検索には対応しません。保存・変更操作・マージ元keyの解決のtestと、schema v3切替後の利用者による典型操作・定期sync/enrichを確認した記録があります。これらの経路の確認は、現在の全データの正しさを保証するものではありません。保存契約は[project record](specs/project-record.md)を参照してください。
 
@@ -56,13 +56,13 @@ Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理へ�
 
 enrich、sync、追跡状態を見直すreview、匿名browser確認を別processで実行し、進捗表示・処理境界での停止（協調停止）・presetの手動／定期実行に対応します。一括enrichは進行状況を保存したcheckpointから再開できます。Webの手動reloadとmacOS LaunchAgentによる自動起動も利用できます。実worker・一時DBの完了／中断／再開、Webからのjob実行、正本での一括enrich停止・再開の記録があります。
 
-syncと追跡状態レビューのcheckpoint再開、server再起動後のjob一覧・進捗eventの復元は未接続です。Web内の変更操作用lockはCLI等の別processを排他しません。同時書込みはSQLiteのlockと待ち時間上限（busy timeout）に委ねます。調査処理の並行実行は観測されていますが、重複実行が更新消失や中断の原因だったかは未確認です。調査実行記録の時間計測はproject一件のSQL書込みまでで、commit待ち・job全体・人によるレビュー時間を含みません。[現在有効な保留](#有効な運用上の保留注意)を参照してください。
+syncと追跡状態レビューのcheckpoint再開、server再起動後のjob一覧・進捗eventの復元は未接続です。Web内の変更操作用lockはCLI等の別processを排他しません。同時書込みは短いSQLite transaction内でproject更新番号を検査し、古いsnapshotを拒否します。enrichは未反映成果とcheckpointを残して独立した後続を処理します。presetは依存stepを保留し、独立stepを続行できます。競合保護は一時DBの別process・別接続で、変更保持、保存境界の排他、rollback、writer稼働中の読込みを確認しています。開発DBの実Web/workerでは外部取得部分を固定入力へ置き換え、競合後の後続処理、保留再開、依存レビュー、未反映履歴と古い編集フォームの拒否を確認しました。実データ量での応答時間・外部取得/LLMを伴う長時間競合は未検証です。調査処理の並行実行は観測されていますが、重複実行が過去の更新消失や中断の原因だったかは未確認です。調査実行記録の時間計測はproject一件のSQL書込みまでで、commit待ち・job全体・人によるレビュー時間を含みません。[現在有効な保留](#有効な運用上の保留注意)を参照してください。
 
 ## 保存とMaintenance
 
-schema v3の保存・正規化fieldの検索、履歴圧縮、保持規則による手動削除、派生値の修復を通常導線へ接続しています。通常のDB接続は既存schema v3を必須とし、旧DBを暗黙変換しません。汎用的に移行を実行する仕組みや、適用済みのデータ処理規則をDB全体に記録するmarkerはありません。履歴圧縮の複製DB同値確認・正本適用、merge/splitのtransaction確認の記録があります。これらは過去の適用確認で、現在のDB容量・全件整合性を再監査した結果ではありません。[Maintenance手順](workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
+schema v4の保存・正規化fieldの検索、履歴圧縮、保持規則による手動削除、派生値の修復を通常導線へ接続しています。通常接続はschema v4を必須とし、旧DBを暗黙変換しません。v3からv4への明示移行commandを用意しています。更新番号はproject本体・子行・aliasの直接更新でも進み、同値に戻した変更と削除も検出します。汎用的なmigration管理や、適用済みのデータ処理規則をDB全体に記録するmarkerはありません。履歴圧縮の複製DB同値確認・正本適用、merge/splitのtransaction確認の記録があります。これらは過去の適用確認で、現在のDB容量・全件整合性を再監査した結果ではありません。[Maintenance手順](workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
 
-CLI/Webの手動確認には`dev-db`で生成・リセットできる共通ダミーDBを利用できます。架空データからの生成、上書き拒否・lock競合・失敗時rollbackのtemp DB test、通常CLIのDB選択・編集・replayと実ブラウザでの一覧・紹介候補・識別子採用・調査履歴を確認しています。外部取得・実LLM・background jobの実行確認や、実データ固有の監査・件数・容量確認を代替しません。[確認手順と安全境界](workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
+CLI/Webの手動確認には`dev-db`で生成・リセットできる共通ダミーDBを利用できます。架空データからの生成、上書き拒否・lock競合・失敗時rollbackのtemp DB test、通常CLIのDB選択・編集・replayと実ブラウザでの一覧・紹介候補・識別子採用・調査履歴を確認しています。外部取得・実LLMや、実データ固有の監査・件数・容量確認を代替しません。v3からv4への履歴保持と移行失敗時rollbackは一時DBで確認しています。2026-09-14の正本read-only監査はSQLiteの`unable to open database file`で接続できず、schema・件数の再確認は未実施です。[確認手順と安全境界](workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
 ## App record export
 

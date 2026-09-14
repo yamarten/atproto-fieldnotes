@@ -9,7 +9,7 @@ from typing import Any
 from . import runtime_view
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 SQLITE_BUSY_TIMEOUT_SECONDS = 30.0
 SQLITE_BUSY_TIMEOUT_MS = int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
@@ -227,14 +227,47 @@ def migrate_v2_schema(conn: sqlite3.Connection) -> None:
     if "target_role" not in decision_columns:
         conn.execute("ALTER TABLE project_decisions ADD COLUMN target_role TEXT NOT NULL DEFAULT ''")
     ensure_schema(conn)
+    from .concurrency import install_revision_schema
+    install_revision_schema(conn)
+    _migrate_investigation_application_columns(conn)
     conn.execute(
         "UPDATE registry_meta SET value=? WHERE key='schema_version'",
         (str(SCHEMA_VERSION),),
     )
 
 
+def _migrate_investigation_application_columns(conn: sqlite3.Connection) -> None:
+    from .storage import ensure_investigation_tables
+
+    ensure_investigation_tables(conn)
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(investigation_runs)")}
+    for name, definition in (
+        ("application_status", "TEXT NOT NULL DEFAULT 'applied'"),
+        ("conflict_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("resolved_at", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE investigation_runs ADD COLUMN {name} {definition}")
+
+
+def migrate_v3_schema(conn: sqlite3.Connection) -> None:
+    """Explicit, atomic migration. Normal open never calls this function."""
+    from .concurrency import install_revision_schema, write_transaction
+
+    with write_transaction(conn):
+        if database_schema_version(conn) != 3:
+            raise SchemaMismatchError("concurrency migration requires schema version 3")
+        install_revision_schema(conn)
+        _migrate_investigation_application_columns(conn)
+        conn.execute("UPDATE registry_meta SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
     ensure_schema(conn)
+    from .concurrency import install_revision_schema
+    from .storage import ensure_investigation_tables
+    install_revision_schema(conn)
+    ensure_investigation_tables(conn)
     conn.execute(
         "INSERT INTO registry_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -301,7 +334,8 @@ def open_database(path: Path, *, create: bool = False) -> sqlite3.Connection:
         )
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
+    from .concurrency import RegistryConnection
+    conn = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS, factory=RegistryConnection)
     conn.row_factory = sqlite3.Row
     configure_connection(conn)
     version = database_schema_version(conn)
@@ -319,11 +353,18 @@ def open_database(path: Path, *, create: bool = False) -> sqlite3.Connection:
     if version not in {None, SCHEMA_VERSION}:
         conn.close()
         raise SchemaMismatchError(f"unsupported registry schema version {version}: {path}")
+    if version == SCHEMA_VERSION:
+        objects = {str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')")}
+        required_tables = {"project_revisions", "project_key_aliases", "projects", "project_identifiers", "project_relations", "project_decisions", "project_noncurrent_identifiers", "project_identifier_adoptions", "project_identifier_transitions"}
+        required_triggers = {f"revision_{table}_{operation}" for table in required_tables - {"project_revisions"} for operation in ("insert", "update", "delete")}
+        required_tables |= {"investigation_runs", "collector_runs"}
+        history_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(investigation_runs)")}
+        if not (required_tables | required_triggers) <= objects or not {"application_status", "conflict_reason", "resolved_at"} <= history_columns:
+            conn.close()
+            raise SchemaMismatchError(f"incomplete registry schema version {version}: {path}")
     enable_wal_mode(conn)
     if version is None:
         create_schema(conn)
-    else:
-        ensure_schema(conn)
     return conn
 
 

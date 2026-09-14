@@ -75,28 +75,13 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             writer.close()
             reader.close()
 
-    def test_opening_existing_v2_database_adds_project_alias_table(self) -> None:
+    def test_open_rejects_missing_concurrency_schema_without_repair(self) -> None:
         conn = registry.open_db()
-        project = self.make_project("proj:additivev2")
-        project_record.save_project(conn, project)
+        conn.execute("DROP TABLE project_key_aliases")
+        conn.commit()
         conn.close()
-
-        incomplete_v2 = sqlite3.connect(self.db_path)
-        incomplete_v2.execute("DROP TABLE project_key_aliases")
-        incomplete_v2.commit()
-        incomplete_v2.close()
-
-        conn = registry.open_db()
-        try:
-            alias_table = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_key_aliases'"
-            ).fetchone()
-            existing = project_record.fetch_project(conn, project["project_key"])
-        finally:
-            conn.close()
-
-        self.assertIsNotNone(alias_table)
-        self.assertIsNotNone(existing)
+        with self.assertRaisesRegex(database.SchemaMismatchError, "incomplete registry schema"):
+            registry.open_db()
 
     def test_loaded_normalized_rows_roundtrip_losslessly(self) -> None:
         conn = registry.open_db()

@@ -25,7 +25,7 @@
 ## 重要な前提
 
 - `projects` テーブルが主データ
-- 現在の保存構造はschema version 3:
+- 現在の保存構造はschema version 4:
   - `projects`: scalar + `profile_json` + `state_json`
   - `project_identifiers`
   - `project_relations`

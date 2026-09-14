@@ -23,7 +23,7 @@ from project_registry_web.server import (
     main as web_main,
     restart_argv,
 )
-from project_registry_core.application import presentation
+from project_registry_core.application import presentation, projects
 from project_registry_core import project_record
 
 
@@ -1457,6 +1457,25 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(stale["error"]["code"], "stale_project")
+
+    def test_profile_change_between_request_precondition_and_save_returns_conflict(self) -> None:
+        _, detail, _ = self.request("/api/projects/proj:111111111111")
+        apply_edit = projects.apply_profile_edit
+        def competing_edit(conn, **kwargs):
+            other = registry.open_db()
+            try:
+                project = project_record.fetch_project(other, "proj:111111111111")
+                project["notes"] = "Concurrent correction"
+                project_record.save_project(other, project)
+            finally:
+                other.close()
+            return apply_edit(conn, **kwargs)
+        with mock.patch.object(projects, "apply_profile_edit", side_effect=competing_edit):
+            status, result, _ = self.request("/api/projects/proj:111111111111/profile", method="POST", payload={"expected_revision": detail["revision"], "name": "Obsolete", "notes": "Obsolete"}, include_revision=False)
+        self.assertEqual(status, 409)
+        self.assertEqual(result["error"]["code"], "stale_project")
+        _, current, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(current["project"]["profile"]["core"]["notes"], "Concurrent correction")
 
     def test_seed_preview_create_and_queue_endpoints(self) -> None:
         status, preview, _ = self.request("/api/seeds/preview?seed=https%3A%2F%2Fnew.example")

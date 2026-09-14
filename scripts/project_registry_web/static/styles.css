@@ -91,7 +91,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .meta-row { color: var(--muted); font-size: 12px; }
 .pill { display: inline-flex; align-items: center; width: fit-content; min-height: 23px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; }
 .pill.confirmed { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.pill.candidate { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
+.pill.candidate, .pill.retry_wait { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
 .pill.failed, .pill.rate_limited { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .detail-header { display: grid; gap: 8px; }
 .detail-footer { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -147,6 +147,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .job-card { display: grid; gap: 8px; padding: 11px; margin-bottom: 9px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
 .job-card.running, .job-card.queued { border-left-color: var(--accent); }
 .job-card.cancelling { border-left-color: var(--warning); }
+.job-card.retry_wait { border-left-color: var(--warning); }
 .job-card.failed { border-left-color: var(--danger); }
 .job-error { color: var(--danger); }
 .job-details > summary { width: fit-content; cursor: pointer; color: var(--accent); }

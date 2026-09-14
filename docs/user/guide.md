@@ -34,7 +34,7 @@ export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
 project-registry init-db
 ```
 
-既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。通常CLIはcommandの前へ`--db-path PATH`を置くと別DBを使えます。`init-db`と一部の開発補助コマンドはcommandの後の専用`--db-path`を使うため、各`--help`で確認してください。CLI/Webの手動確認には架空データ入りのDBを次のように準備します。
+既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 4ではないDBを指定するとエラーで停止します。通常CLIはcommandの前へ`--db-path PATH`を置くと別DBを使えます。`init-db`と一部の開発補助コマンドはcommandの後の専用`--db-path`を使うため、各`--help`で確認してください。CLI/Webの手動確認には架空データ入りのDBを次のように準備します。
 
 ```bash
 project-registry dev-db

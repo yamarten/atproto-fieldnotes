@@ -160,7 +160,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         def add_run(run_id: str, project_key: str, completed_at: str) -> None:
             conn.execute(
                 """
-                INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO investigation_runs(run_id, project_key, started_at, completed_at, evidence_schema_version, evaluation_version, input_project_json, output_project_json, evaluation_json, bundle_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (run_id, project_key, completed_at, completed_at, 2, "test", "{}", "{}", "{}", "{}"),
             )
@@ -229,7 +229,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         )
         bundle = EvidenceBundle(project_key="proj:compressed", collected_at="2026-07-26T00:00:00+00:00")
         conn.execute(
-            "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO investigation_runs(run_id, project_key, started_at, completed_at, evidence_schema_version, evaluation_version, input_project_json, output_project_json, evaluation_json, bundle_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "run:legacy",
                 "proj:compressed",
@@ -284,7 +284,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         storage.ensure_investigation_tables(conn)
         bad_payload = storage.HISTORY_JSON_COMPRESSION_HEADER + b"not-zlib"
         conn.execute(
-            "INSERT INTO investigation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO investigation_runs(run_id, project_key, started_at, completed_at, evidence_schema_version, evaluation_version, input_project_json, output_project_json, evaluation_json, bundle_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "run:broken", "proj:broken", "2026-07-26", "2026-07-26", 2, "test",
                 bad_payload, "{}", "{}", "{}",

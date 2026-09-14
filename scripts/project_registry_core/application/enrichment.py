@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import database as registry_database
-from .. import enrichment_pipeline, registry as core
+from .. import enrichment_pipeline, registry as core, storage, concurrency
 from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
 from project_registry_core import project_record
 
@@ -133,6 +133,8 @@ def new_checkpoint(projects: list[dict[str, Any]], request: OperationRequest, op
         "selected_project_keys": [str(project.get("project_key") or "") for project in projects if project.get("project_key")],
         "completed_project_keys": [],
         "failed_projects": [],
+        "conflicted_projects": [],
+        "skipped_projects": [],
         "missing_project_keys": [],
         "current_project_key": "",
     }
@@ -229,6 +231,7 @@ def _load_checkpoint_projects(conn: sqlite3.Connection, checkpoint: dict[str, An
     projects_by_key: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
     completed = {str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}
+    completed.update(str(item["project_key"]) for item in checkpoint.get("skipped_projects", []))
     for value in checkpoint.get("selected_project_keys", []):
         project_key = str(value or "").strip()
         if not project_key or project_key in completed:
@@ -246,7 +249,7 @@ def _load_checkpoint_projects(conn: sqlite3.Connection, checkpoint: dict[str, An
         if project_key not in source_keys:
             source_keys.append(project_key)
     checkpoint["missing_project_keys"] = missing
-    return list(projects_by_key.values())
+    return list(projects_by_key.values()) + [{"project_key": key, _CHECKPOINT_SOURCE_KEYS: [key]} for key in missing]
 
 
 def _mark_started(checkpoint: dict[str, Any], project_key: str) -> None:
@@ -264,6 +267,16 @@ def _mark_completed(checkpoint: dict[str, Any], project_key: str) -> None:
         item for item in checkpoint.get("failed_projects", [])
         if isinstance(item, dict) and item.get("project_key") != project_key
     ]
+    checkpoint["conflicted_projects"] = [item for item in checkpoint.get("conflicted_projects", []) if item.get("project_key") != project_key]
+
+
+def _resolve_conflicts(conn: sqlite3.Connection, checkpoint: dict[str, Any] | None, source_keys: list[str]) -> None:
+    if not checkpoint:
+        return
+    run_ids = [str(item.get("run_id") or "") for item in checkpoint.get("conflicted_projects", []) if item.get("project_key") in source_keys]
+    if run_ids:
+        conn.executemany("UPDATE investigation_runs SET resolved_at=? WHERE run_id=? AND application_status='unapplied'", [(project_record.iso_now(), key) for key in run_ids if key])
+        conn.commit()
 
 
 def _mark_failed(checkpoint: dict[str, Any], project_key: str, error: BaseException) -> None:
@@ -363,6 +376,9 @@ def run(
     run_started = dt.datetime.now(dt.timezone.utc)
     promoted_now: list[dict[str, Any]] = []
     failed_projects: list[dict[str, str]] = []
+    conflicted_projects: list[dict[str, str]] = []
+    skipped_projects: list[dict[str, str]] = []
+    processed_keys: set[str] = set()
     if checkpoint:
         publish("started", {"enrich_run": {
             "run_id": checkpoint["run_id"],
@@ -412,7 +428,39 @@ def run(
         if checkpoint:
             _mark_started(checkpoint, project_key)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
+        enriched = None
         try:
+            # Selection fixes ordering, not the snapshot used by a later item.
+            with concurrency.read_snapshot(conn):
+                alias_target = registry_database.project_key_alias_target(conn, project_key)
+                project = project_record.fetch_project(conn, alias_target or project_key)
+            reason = ""
+            if project is None:
+                reason = "project_missing"
+            elif str(project["project_key"]) in processed_keys:
+                reason = "canonical_project_already_processed"
+            elif options.all_projects:
+                states = _tracking_states(options)
+                if states is not None and project.get("tracking_state") not in states:
+                    reason = "tracking_state_changed"
+                elif options.new_only and project.get("last_enriched_at"):
+                    reason = "already_enriched"
+                elif options.retry_failures and not project.get("last_run_errors"):
+                    reason = "no_collector_failures"
+            if reason:
+                _resolve_conflicts(conn, checkpoint, checkpoint_source_keys)
+                for key in checkpoint_source_keys:
+                    skipped = {"project_key": key, "reason": reason}
+                    skipped_projects.append(skipped)
+                    if checkpoint:
+                        _mark_completed(checkpoint, key)
+                        checkpoint["completed_project_keys"].remove(key)
+                        checkpoint.setdefault("skipped_projects", []).append(skipped)
+                if checkpoint:
+                    written_path = write_checkpoint(checkpoint, options.checkpoint_path)
+                publish("item_skipped", {"project_key": project_key, "reason": reason})
+                continue
+            project_key = str(project["project_key"])
             enriched = enrichment_pipeline.enrich_project(
                 conn,
                 project,
@@ -427,6 +475,21 @@ def run(
             )
             project_record.save_project(conn, enriched, enriched=True)
             conn.commit()
+            processed_keys.add(project_key)
+            _resolve_conflicts(conn, checkpoint, checkpoint_source_keys)
+        except project_record.StaleProjectWriteError as exc:
+            conn.rollback()
+            run_id = storage.save_conflicted_investigation(conn, enriched or project, exc) if (enriched or project) else ""
+            conflict = {"project_key": project_key, "error": str(exc), "run_id": run_id, "at": project_record.iso_now()}
+            conflicted_projects.append(conflict)
+            if checkpoint:
+                previous = checkpoint.setdefault("conflicted_projects", [])
+                # Keep earlier unresolved attempt IDs as well as the latest attempt.
+                previous.extend({**conflict, "project_key": key} for key in checkpoint_source_keys)
+                checkpoint["current_project_key"] = ""
+                written_path = write_checkpoint(checkpoint, options.checkpoint_path)
+            publish("item_conflicted", {**conflict, "continuing": options.all_projects})
+            continue
         except Exception as exc:
             conn.rollback()
             failure = {
@@ -455,6 +518,10 @@ def run(
                 "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else 0,
                 "failed_project_count": 1,
                 "failed_projects": failed_projects,
+                "conflicted_projects": conflicted_projects,
+                "conflicted_project_count": len(conflicted_projects),
+                "skipped_projects": skipped_projects,
+                "skipped_project_count": len(skipped_projects),
                 **(
                     {"resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path)}
                     if checkpoint else {}
@@ -504,11 +571,13 @@ def run(
             }
         else:
             payload = {"summary": "enrich", "interrupted": True, "cancel_reason": cancellation.reason}
+        payload.update({"conflicted_projects": conflicted_projects, "conflicted_project_count": len(conflicted_projects),
+                        "skipped_projects": skipped_projects, "skipped_project_count": len(skipped_projects)})
         publish("cancelled", payload)
         return OperationResult(request.operation_id, request.operation, "cancelled", started_at, project_record.iso_now(), payload)
 
     if checkpoint:
-        checkpoint["status"] = "failed" if failed_projects else "completed"
+        checkpoint["status"] = "failed" if failed_projects else "retry_wait" if conflicted_projects else "completed"
         checkpoint["completed_at"] = project_record.iso_now()
         checkpoint["current_project_key"] = ""
         written_path = write_checkpoint(checkpoint, options.checkpoint_path)
@@ -518,9 +587,12 @@ def run(
         "checkpoint_path": str(written_path or "") if checkpoint else "",
         "project_count": len(projects),
         "selected_project_count": selected_total,
-        "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(projects) - len(failed_projects),
+        "completed_project_count": len(checkpoint.get("completed_project_keys", [])) if checkpoint else len(processed_keys),
         "failed_project_count": len(failed_projects),
         "failed_projects": failed_projects,
+        "conflicted_projects": conflicted_projects,
+        "conflicted_project_count": len(conflicted_projects),
+        "skipped_projects": skipped_projects,
         "promoted_now_count": len(promoted_now),
         "promoted_now": promoted_now,
     }
@@ -533,5 +605,10 @@ def run(
         }
         publish("failed", {**summary, "error": error})
         return OperationResult(request.operation_id, request.operation, "failed", started_at, project_record.iso_now(), summary, error)
+    if conflicted_projects:
+        if checkpoint:
+            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path)
+        publish("retry_wait", summary)
+        return OperationResult(request.operation_id, request.operation, "retry_wait", started_at, project_record.iso_now(), summary)
     publish("completed", summary)
     return OperationResult(request.operation_id, request.operation, "completed", started_at, project_record.iso_now(), summary)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import concurrency
+
 import copy
 import datetime as dt
 import json
@@ -936,10 +938,7 @@ def initialize_db(path: Path | None = None) -> sqlite3.Connection:
 
 
 def open_db() -> sqlite3.Connection:
-    conn = registry_database.open_database(DB_PATH, create=False)
-    investigation_storage.ensure_investigation_tables(conn)
-    conn.commit()
-    return conn
+    return registry_database.open_database(DB_PATH, create=False)
 
 
 def sync_scope_key(kind: str, scope: dict[str, Any]) -> str:
@@ -10721,11 +10720,15 @@ def verify_service_project(
     if execute:
         apply_service_evidence(project, bundle)
         project = finalize_project_shape(project)
-        run_id = investigation_storage.save_investigation_run(
-            conn, project_key=str(project["project_key"]), started_at=started_at, completed_at=project_record.iso_now(),
+        run_id = investigation_storage.stage_investigation_run(
+            project, project_key=str(project["project_key"]), started_at=started_at, completed_at=project_record.iso_now(),
             input_project=input_project, output_project=project, bundle=bundle,
         )
-        project_record.save_project(conn, project, enriched=True)
+        try:
+            project_record.save_project(conn, project, enriched=True)
+        except project_record.StaleProjectWriteError as exc:
+            investigation_storage.save_conflicted_investigation(conn, project, exc)
+            raise
         conn.commit()
     else:
         run_id = ""
@@ -10980,7 +10983,7 @@ def refresh_current_same_site_evidence(
         conn.execute("BEGIN IMMEDIATE")
         try:
             for project in projects_to_save:
-                project_record.save_project(conn, project, enriched=False, preserve_timestamps=True)
+                project_record.save_project(conn, project, enriched=False, preserve_timestamps=True, commit=False)
             foreign_key_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
             if foreign_key_issues:
                 raise RuntimeError(f"foreign key check failed: {len(foreign_key_issues)} issue(s)")
@@ -11193,7 +11196,8 @@ def split_project_identifier_group(
     target["duplicate_candidates"] = compute_duplicate_candidates(conn, target)
     target["merge_recommendation"] = compute_merge_recommendation(target)
     if execute:
-        with conn:
+        with concurrency.write_transaction(conn):
+            concurrency.check_projects(conn, [source, target])
             project_record.save_project(conn, source, enriched=bool(source.get("last_enriched_at")), preserve_timestamps=True, commit=False)
             project_record.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
     return {

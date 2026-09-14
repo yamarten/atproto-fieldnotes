@@ -355,6 +355,11 @@ class IdentifierStorageV3Test(TempRegistryDbTestCase):
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute("UPDATE registry_meta SET value='2' WHERE key='schema_version'")
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'revision_%'").fetchall():
+                conn.execute(f"DROP TRIGGER {row[0]}")
+            conn.execute("DROP TABLE project_revisions")
+            for column in ("application_status", "conflict_reason", "resolved_at"):
+                conn.execute(f"ALTER TABLE investigation_runs DROP COLUMN {column}")
             for table in (
                 "project_noncurrent_identifiers",
                 "project_identifier_adoptions",
@@ -393,7 +398,7 @@ class IdentifierStorageV3Test(TempRegistryDbTestCase):
         )
         migrated = database.open_database(target_path)
         try:
-            self.assertEqual(database.database_schema_version(migrated), 3)
+            self.assertEqual(database.database_schema_version(migrated), database.SCHEMA_VERSION)
             fetched = project_record.fetch_project(migrated, project["project_key"])
             project_record.save_project(migrated, fetched, preserve_timestamps=True)
             decision = migrated.execute(

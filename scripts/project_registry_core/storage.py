@@ -8,7 +8,7 @@ import zlib
 from typing import Any
 
 from .evidence import CollectorResult, EvidenceBundle
-from . import database, llm_transport
+from . import database, llm_transport, runtime_view, concurrency
 from .runtime_view import sanitize_runtime_snapshot
 
 
@@ -99,7 +99,10 @@ def ensure_investigation_tables(conn: sqlite3.Connection) -> None:
             input_project_json TEXT NOT NULL,
             output_project_json TEXT NOT NULL,
             evaluation_json TEXT NOT NULL,
-            bundle_json TEXT NOT NULL
+            bundle_json TEXT NOT NULL,
+            application_status TEXT NOT NULL DEFAULT 'applied',
+            conflict_reason TEXT NOT NULL DEFAULT '',
+            resolved_at TEXT NOT NULL DEFAULT ''
         )
         """
     )
@@ -322,6 +325,25 @@ def update_run_metrics_phase(
     )
 
 
+def stage_investigation_run(project: dict[str, Any], **arguments: Any) -> str:
+    """Prepare bounded history in memory; collectors must not open a write transaction."""
+    run_id = f"inv:{uuid.uuid4().hex}"
+    arguments["run_id"] = run_id
+    arguments["input_project"] = sanitize_runtime_snapshot(arguments["input_project"])
+    arguments["output_project"] = sanitize_runtime_snapshot(arguments["output_project"])
+    project[runtime_view.RUNTIME_PENDING_RUN] = arguments
+    project[runtime_view.RUNTIME_INVESTIGATION_RUN_ID] = run_id
+    return run_id
+
+
+def save_conflicted_investigation(conn: sqlite3.Connection, project: dict[str, Any], error: BaseException) -> str:
+    pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
+    if not pending:
+        return ""
+    with concurrency.write_transaction(conn):
+        return save_investigation_run(conn, **pending, application_status="unapplied", conflict_reason=str(error))
+
+
 def save_investigation_run(
     conn: sqlite3.Connection,
     *,
@@ -335,6 +357,8 @@ def save_investigation_run(
     run_metrics: dict[str, Any] | None = None,
     evaluation_version: str = EVALUATION_VERSION,
     run_id: str | None = None,
+    application_status: str = "applied",
+    conflict_reason: str = "",
 ) -> str:
     save_started = time.perf_counter()
     ensure_investigation_tables(conn)
@@ -367,6 +391,13 @@ def save_investigation_run(
         ),
     )
     replace_collector_run_projection(conn, resolved_run_id, bundle)
+    conn.execute("UPDATE investigation_runs SET application_status=?, conflict_reason=? WHERE run_id=?",
+                 (application_status, conflict_reason, resolved_run_id))
+    if application_status == "applied":
+        keys = database.project_key_family(conn, project_key)
+        placeholders = ",".join("?" for _ in keys)
+        conn.execute(f"UPDATE investigation_runs SET resolved_at=? WHERE project_key IN ({placeholders}) AND application_status='unapplied' AND resolved_at='' AND completed_at<=?",
+                     (completed_at, *keys, started_at))
     if metrics_payload:
         save_ms = max(0, round((time.perf_counter() - save_started) * 1000))
         metrics_payload["phases"]["run_history_save_ms"] = save_ms
@@ -390,6 +421,9 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
     metrics = normalize_run_metrics(evaluation.pop(RUN_METRICS_KEY, None))
     return {
         "run_id": str(row["run_id"]),
+        "application_status": str(row["application_status"]),
+        "conflict_reason": str(row["conflict_reason"]),
+        "resolved_at": str(row["resolved_at"]),
         "project_key": str(row["project_key"]),
         "started_at": str(row["started_at"]),
         "completed_at": str(row["completed_at"]),
@@ -414,7 +448,7 @@ def latest_investigation_run(conn: sqlite3.Connection, project_key: str) -> dict
     keys = database.project_key_family(conn, project_key)
     placeholders = ",".join("?" for _ in keys)
     row = conn.execute(
-        f"SELECT run_id FROM investigation_runs WHERE project_key IN ({placeholders}) "
+        f"SELECT run_id FROM investigation_runs WHERE project_key IN ({placeholders}) AND application_status='applied' "
         "ORDER BY completed_at DESC, rowid DESC LIMIT 1",
         keys,
     ).fetchone()
@@ -449,6 +483,7 @@ def list_investigation_run_summaries(
         f"""
         SELECT r.run_id, r.project_key, r.started_at, r.completed_at,
                r.evidence_schema_version, r.evaluation_version, r.evaluation_json,
+               r.application_status, r.conflict_reason, r.resolved_at,
                COUNT(c.ordinal) AS collector_count,
                SUM(CASE WHEN c.status IN ('failed', 'partial', 'rate_limited') THEN 1 ELSE 0 END) AS problem_count
         FROM investigation_runs r
@@ -462,6 +497,9 @@ def list_investigation_run_summaries(
     ).fetchall()
     return [{
         "run_id": str(row["run_id"]),
+        "application_status": str(row["application_status"]),
+        "conflict_reason": str(row["conflict_reason"]),
+        "resolved_at": str(row["resolved_at"]),
         "project_key": str(row["project_key"]),
         "started_at": str(row["started_at"]),
         "completed_at": str(row["completed_at"]),

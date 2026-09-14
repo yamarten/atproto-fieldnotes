@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import database
+from . import database, project_record
 from .application import enrichment, investigation, lexicon_observation, review, sync
 from .jobs import CancellationToken, OperationEvent, OperationRequest, OperationResult, utc_now
 
@@ -214,6 +214,12 @@ def _run_simple(
             payload = _run_lexicon_observation(
                 Path(conn), request, cancel_requested=lambda: cancellation.cancel_requested,
             )
+    except project_record.StaleProjectWriteError as exc:
+        conn.rollback()
+        completed_at = utc_now()
+        data = {"conflicted_projects": [{"project_key": exc.project_key, "error": str(exc)}]}
+        send("retry_wait", data)
+        return OperationResult(request.operation_id, request.operation, "retry_wait", started_at, completed_at, data)
     except Exception as exc:
         completed_at = utc_now()
         error = {"type": type(exc).__name__, "message": str(exc)}
@@ -233,7 +239,7 @@ def _run_simple(
     }
     operation_status = str(payload.get("operation_status") or "completed") if isinstance(payload, dict) else "completed"
     status = "cancelled" if cancellation.cancel_requested or operation_status == "cancelled" else (
-        "failed" if operation_status in {"partial", "failed"} else "completed"
+        "failed" if operation_status in {"partial", "failed"} else "retry_wait" if operation_status == "retry_wait" else "completed"
     )
     send(status, data)
     return OperationResult(

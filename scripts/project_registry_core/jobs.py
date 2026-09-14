@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 
-OperationStatus = Literal["completed", "cancelled", "failed"]
-EventKind = Literal["started", "progress", "item_completed", "cancelled", "failed", "completed"]
+OperationStatus = Literal["completed", "cancelled", "failed", "retry_wait"]
+EventKind = Literal["started", "progress", "item_completed", "item_skipped", "item_conflicted", "cancelled", "failed", "completed", "retry_wait"]
 
 
 def utc_now() -> str:

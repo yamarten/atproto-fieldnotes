@@ -18,7 +18,11 @@ RUNTIME_DECISION_ROWS = "_registry_decision_rows_v2"
 RUNTIME_DECISION_BASELINE = "_registry_decision_baseline_v2"
 RUNTIME_ADOPTION_ROWS = "_registry_identifier_adoption_rows_v3"
 RUNTIME_INVESTIGATION_RUN_ID = "_registry_investigation_run_id_v2"
+RUNTIME_PROJECT_REVISION = "_registry_project_revision_v4"
+RUNTIME_PENDING_RUN = "_registry_pending_run_v4"
 RUNTIME_INTERNAL_FIELDS = {
+    RUNTIME_PROJECT_REVISION,
+    RUNTIME_PENDING_RUN,
     RUNTIME_VIEW_MARKER,
     RUNTIME_IDENTIFIER_ROWS,
     RUNTIME_IDENTIFIER_BASELINE,

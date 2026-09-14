@@ -102,7 +102,7 @@ function status(message, error = false) { $("status").textContent = message || "
 function safeUrl(value) { try { const url = new URL(String(value || "")); return ["http:", "https:"].includes(url.protocol) ? url.href : ""; } catch { return ""; } }
 function link(value) { const href = safeUrl(value); return href ? `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(value)}</a>` : esc(value); }
 function externalLink(href, label) { const safe = safeUrl(href); return safe ? `<a href="${esc(safe)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label); }
-function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value)}</span>` : ""; }
+function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value === "retry_wait" ? "再試行待ち" : value)}</span>` : ""; }
 function json(value) { return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`; }
 function parseTimeZoneOffset(value) {
   const match = String(value || "").trim().match(/^(?:UTC|GMT)?([+-])(\d{1,2})(?::?(\d{2}))?$/i);
@@ -964,7 +964,7 @@ function renderServiceOwnership(data, serviceUrls = []) {
     ? `<div class="controls"><label>Anonymous browser target<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">Verify in anonymous browser</button></div>`
     : `<p class="muted">Add a confirmed or candidate service URL before browser verification.</p>`;
   return `<dl class="kv"><dt>Current service</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
-    ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
+    ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
     ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
     ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
@@ -1019,7 +1019,7 @@ async function loadInvestigationHistory(projectKey) {
   target.innerHTML = `<p class="muted">Loading runs...</p>`;
   try {
     const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/investigation-runs?limit=50`);
-    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.problem_count ? "problems" : "complete", run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors${run.total_ms ? ` · ${esc(formatMilliseconds(run.total_ms))}` : ""}</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
+    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.application_status === "unapplied" ? "未反映（競合）" : run.problem_count ? "problems" : "complete", run.application_status === "unapplied" || run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors${run.total_ms ? ` · ${esc(formatMilliseconds(run.total_ms))}` : ""}</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
     target.querySelectorAll("[data-investigation-run]").forEach((button) => button.onclick = () => loadInvestigationRun(button.dataset.investigationRun));
   } catch (error) { status(error.message, true); }
 }
@@ -1029,7 +1029,7 @@ async function loadInvestigationRun(runId) {
   target.innerHTML = `<p class="muted">Loading run...</p>`;
   try {
     const run = await api(`/api/investigation-runs/${encodeURIComponent(runId)}?evidence_limit=100`);
-    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Timing", renderRunMetrics(run.metrics))}${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
+    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>保存状態</dt><dd>${esc(run.application_status === "unapplied" ? "未反映（競合）" : "反映済み")}</dd>${run.conflict_reason ? `<dt>競合理由</dt><dd>${esc(run.conflict_reason)}</dd>` : ""}<dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Timing", renderRunMetrics(run.metrics))}${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
     $("replay-investigation-run").onclick = async () => {
       try {
         const replay = await api(`/api/investigation-runs/${encodeURIComponent(runId)}/replay`);
@@ -1063,6 +1063,7 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
 
 function editProfile(project, profile) {
   const dialog = $("profile-dialog");
+  const expectedRevision = state.detailRevision;
   $("profile-name").value = project.name || "";
   $("profile-introduced-url").value = project.introduced_url || "";
   $("profile-notes").value = profileValue(profile, "notes");
@@ -1073,7 +1074,7 @@ function editProfile(project, profile) {
     name:$("profile-name").value,
     introduced_url:$("profile-introduced-url").value,
     notes:$("profile-notes").value,
-    expected_revision:state.detailRevision
+    expected_revision:expectedRevision
   });
   $("profile-preview").onclick = async () => {
     try {
@@ -1092,7 +1093,10 @@ function editProfile(project, profile) {
       await loadList();
       status("Profile saved.");
     } catch (error) {
-      if (error.code === "stale_project") await loadDetail(project.project_key, {updateUrl:false});
+      if (error.code === "stale_project") {
+        dialog.close();
+        await loadDetail(project.project_key, {updateUrl:false});
+      }
       status(error.message, true);
     }
   };
@@ -1146,6 +1150,8 @@ function bindDetailActions(projectKey) {
 
 function confirmMutation(title, message, path, payload, note, defaultNote = "", noteLabel = "Reason or note") {
   const dialog = $("confirm-dialog");
+  if (path.startsWith("/api/projects/")) payload.expected_revision = state.detailRevision;
+  if (path.endsWith("/merge-recommendation")) payload.expected_target_revision = state.mergeTargetRevision;
   $("confirm-title").textContent = title;
   $("confirm-message").textContent = message;
   $("confirm-note-label").hidden = !note;
@@ -1157,8 +1163,6 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "", 
     if (note) payload.note = $("confirm-note").value.trim();
     mutationQueue = mutationQueue.then(async () => {
       try {
-        if (path.startsWith("/api/projects/")) payload.expected_revision = state.detailRevision;
-        if (path.endsWith("/merge-recommendation")) payload.expected_target_revision = state.mergeTargetRevision;
         status("Saving...");
         const response = await api(path, {method:"POST", body:JSON.stringify(payload)});
         if (advanceReviewListAfterMutation(response, path)) {
@@ -1452,7 +1456,7 @@ function renderReviewPlan(job) {
 
 function renderCheckpoints(items) {
   if (!items.length) return `<p class="muted">No enrich checkpoints found.</p>`;
-  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
+  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)} · 競合 ${esc(item.conflicted_project_count || 0)} · 対象外 ${esc(item.skipped_project_count || 0)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
 }
 
 function scheduleWeekdayOptions(selected) {
@@ -1506,7 +1510,8 @@ function renderSchedules(data) {
       </div>
       <p class="muted">Next: ${esc(formatTimestamp(item.next_due_at))}</p>
       ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
-      <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">Run now</button></div>
+      ${list(item.pending_steps).length ? `<p>保留: ${list(item.pending_steps).map(step => esc(step.label)).join(" → ")}</p>` : ""}
+      <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">${list(item.pending_steps).length ? "Resume pending steps" : "Run now"}</button></div>
     </article>`;
   }).join("")}</div><div class="actions"><button id="save-schedules" class="primary">Save schedules</button></div>`;
 }

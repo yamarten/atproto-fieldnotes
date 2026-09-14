@@ -22,7 +22,7 @@ from project_registry_core.lexicon_publication_catalog import observation_run_hi
 
 
 ACTIVE_STATUSES = {"queued", "running", "cancelling"}
-TERMINAL_STATUSES = {"completed", "cancelled", "failed"}
+TERMINAL_STATUSES = {"completed", "cancelled", "failed", "retry_wait"}
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
     "enrich_all": {
@@ -57,12 +57,13 @@ class JobConflictError(RuntimeError):
     pass
 
 
-def _step(operation: str, label: str, parameters: dict[str, Any], *, execute: bool = True) -> dict[str, Any]:
+def _step(operation: str, label: str, parameters: dict[str, Any], *, execute: bool = True, requires: tuple[str, ...] = ()) -> dict[str, Any]:
     return {
         "operation": operation,
         "label": label,
         "parameters": dict(parameters),
         "execute": bool(execute),
+        "requires": list(requires),
     }
 
 
@@ -77,7 +78,7 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
                 "inactivity_days": 45,
                 "max_enrich_age_days": 30,
                 "note": "auto-updated by scheduled all-state maintenance",
-            }),
+            }, requires=("enrich --all --all-tracking-states",)),
         ]
     if preset_id == "sync_introduced":
         return [_step("sync", "sync introduced", {
@@ -295,7 +296,7 @@ class JobRecord:
             "can_cancel": self.status in {"queued", "running"},
             "can_resume": (
                 self.request.operation == "enrich"
-                and self.status in {"cancelled", "failed"}
+                and self.status in {"cancelled", "failed", "retry_wait"}
                 and bool(parameters.get("all_projects"))
                 and bool(str(parameters.get("checkpoint_path") or ""))
                 and checkpoint.exists()
@@ -435,7 +436,7 @@ class JobManager:
             "_scheduled_step": label,
         }
         if operation == "enrich":
-            return self._enrich_request(parameters)
+            return self._enrich_request(parameters, operation_id=str(parameters.get("resume_run") or ""))
         if operation == "sync":
             return OperationRequest.create("sync", parameters=parameters, execute=bool(step.get("execute", True)))
         if operation == "review":
@@ -531,6 +532,8 @@ class JobManager:
                 "last_queued_at": str(schedule.get("last_queued_at") or ""),
                 "last_started_at": str(schedule.get("last_started_at") or ""),
                 "last_completed_at": str(schedule.get("last_completed_at") or ""),
+                "pending_steps": list(schedule.get("pending_steps") or []),
+                "last_steps": list(schedule.get("last_steps") or []),
                 "last_status": str(schedule.get("last_status") or ""),
                 "last_message": str(schedule.get("last_message") or ""),
             })
@@ -566,6 +569,11 @@ class JobManager:
             return
         schedules = self._schedule_state.setdefault("schedules", {})
         schedule = schedules.setdefault(preset_id, {"preset_id": preset_id})
+        pending = list(schedule.get("pending_steps") or [])
+        if pending and reason == "schedule":
+            return
+        if any(str(item.get("preset_id") or "") == preset_id for item in queue):
+            return
         status = "deferred" if self._active_job_locked() is not None else "queued"
         schedule.update({
             "last_period": period,
@@ -578,10 +586,11 @@ class JobManager:
             "period": period,
             "reason": reason,
             "queued_at": utc_now(),
-            "remaining_steps": preset_steps(preset_id),
+            "remaining_steps": pending or preset_steps(preset_id),
             "current_step": None,
             "current_job_id": "",
-            "completed_steps": [],
+            "completed_steps": list(schedule.get("last_steps") or []) if pending else [],
+            "retry_steps": [],
         })
         self._save_schedule_state_locked()
 
@@ -615,7 +624,15 @@ class JobManager:
             remaining = list(current.get("remaining_steps") or [])
             if remaining:
                 current["remaining_steps"] = remaining[1:]
-            if job.status != "completed":
+            if job.status == "retry_wait":
+                retry_step = dict(current_step)
+                if job.request.operation == "enrich":
+                    data = (job.result or {}).get("data") or {}
+                    retry_step["parameters"] = {**dict(current_step.get("parameters") or {}),
+                                                "resume_run": data.get("run_id") or job.request.operation_id,
+                                                "checkpoint_path": data.get("checkpoint_path") or ""}
+                current.setdefault("retry_steps", []).append(retry_step)
+            elif job.status != "completed":
                 schedule.update({
                     "last_completed_at": job.completed_at or utc_now(),
                     "last_status": "failed",
@@ -629,11 +646,26 @@ class JobManager:
             self._save_schedule_state_locked()
             return
         remaining = list(current.get("remaining_steps") or [])
+        outcomes = {str(item.get("label") or ""): str(item.get("status") or "") for item in current.get("completed_steps", [])}
+        while remaining and any(outcomes.get(label) != "completed" for label in remaining[0].get("requires", [])):
+            held = remaining.pop(0)
+            current.setdefault("retry_steps", []).append(held)
+            current.setdefault("completed_steps", []).append({"label": held["label"], "status": "deferred", "reason": "prerequisite_incomplete"})
+        current["remaining_steps"] = remaining
         if not remaining:
+            pending = list(current.get("retry_steps") or [])
+            if (preset_id == "sync_sources_then_enrich"
+                    and any(step["operation"] == "sync" for step in pending)
+                    and not any(step["operation"] == "enrich" and not step.get("parameters", {}).get("resume_run") for step in pending)):
+                # A retried source can register new projects after the first enrich.
+                # A resumed checkpoint covers its original selection only.
+                pending.append(preset_steps(preset_id)[-1])
             schedule.update({
                 "last_completed_at": utc_now(),
-                "last_status": "completed",
-                "last_message": "scheduled preset completed",
+                "last_status": "retry_wait" if pending else "completed",
+                "last_message": "resume pending steps manually" if pending else "scheduled preset completed",
+                "pending_steps": pending,
+                "last_steps": list(current.get("completed_steps") or []),
             })
             queue.pop(0)
             self._save_schedule_state_locked()
@@ -718,8 +750,9 @@ class JobManager:
                     continue
                 selected = [str(item) for item in payload.get("selected_project_keys", []) if str(item)]
                 completed = [str(item) for item in payload.get("completed_project_keys", []) if str(item)]
+                skipped = list(payload.get("skipped_projects") or [])
                 status = str(payload.get("status") or "unknown")
-                resumable = status != "completed" and len(completed) < len(selected)
+                resumable = status != "completed" and len(completed) + len(skipped) < len(selected)
                 items.append({
                     "kind": "checkpoint",
                     "run_id": run_id,
@@ -729,6 +762,8 @@ class JobManager:
                     "selected_project_count": len(selected),
                     "completed_project_count": len(completed),
                     "failed_project_count": len(payload.get("failed_projects", [])),
+                    "conflicted_project_count": len({item["project_key"] for item in payload.get("conflicted_projects", [])}),
+                    "skipped_project_count": len(skipped),
                     "can_resume": resumable,
                     "options": dict(payload.get("options") or {}),
                 })

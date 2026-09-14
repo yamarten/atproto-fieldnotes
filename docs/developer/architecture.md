@@ -20,7 +20,7 @@ application serviceは、検索や登録・調査などの処理をCLIとWebか�
 | 根拠から説明・紹介候補・追跡状態をどう決めるか | [Project評価](specs/project-evaluation.md) |
 | 現在状態・関係・手動判断・調査履歴をどう保持するか | [Project record](specs/project-record.md) |
 
-個人がローカルの`data/survey.db`を使う運用を前提とします。同時編集は自分のCLI、Web、worker間の衝突を想定します。Web server内ではmutationを直列化しますが、別processとの競合はSQLiteのlockに委ねます。
+個人がローカルの`data/survey.db`を使う運用を前提とします。同時編集は自分のCLI、Web、worker間の衝突を想定します。Web server内ではmutationを直列化しますが、別processとの競合はproject単位の更新番号と保存transaction内の検査で検出します。
 
 ## 実行経路
 
@@ -120,9 +120,14 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 
 ### 保存と再評価
 
+- `project_registry_core/concurrency.py`
+  - project更新番号のtrigger定義、短いread/write transaction、保存時の競合検査を所有する
+  - 外部取得・LLM中のwrite lockは保持しない。`project_record.py`が読込みsnapshotへ番号を付け、保存時に検査する
+
+
 - `project_registry_core/project_record.py`
   - projectの既定shapeと保存前正規化、scalar/profile/state payloadへの投影を所有する
-  - schema v3 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
+  - schema v4 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
   - `database.py` / `runtime_view.py`と専門moduleを利用し、`registry.py`へ依存しない
 - `project_registry_core/storage.py` / `replay.py`
   - investigation run保存、network-free replay、fixture benchmark

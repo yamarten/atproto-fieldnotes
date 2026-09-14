@@ -1,6 +1,6 @@
 # Background Job Model
 
-長時間処理を一つのrequestとして受け取り、進捗eventを返し、最後に完了・中断・失敗のresultを返す契約です。CLIとWeb workerは同じapplication serviceを使い、project選択・保存・再開の意味を揃えます。
+長時間処理を一つのrequestとして受け取り、進捗eventを返し、最後に完了・再試行待ち・中断・失敗のresultを返す契約です。CLIとWeb workerは同じapplication serviceを使い、project選択・保存・再開の意味を揃えます。
 
 この文書のoperationは一つの処理要求、Web jobはその要求をworkerで実行・表示する単位です。一括enrichは複数projectを処理し、checkpointで同じ一括実行を再開できます。project一件ごとの調査履歴であるinvestigation runは[保存仕様](project-record.md#investigation-history)で扱います。以下のreview処理は、`review-stalled`、`review-out-of-scope`、`review-ignore`による追跡状態の見直しを指します。
 
@@ -45,6 +45,9 @@ review処理で追跡状態を更新する場合は、先にdry-run planを作�
 - `started`
 - `progress`
 - `item_completed`
+- `item_skipped`
+- `item_conflicted`
+- `retry_wait`
 - `cancelled`
 - `failed`
 - `completed`
@@ -61,13 +64,9 @@ bulk enrichは現在のworker processで時間を観測した処理件数と残�
 
 ### `OperationResult`
 
-処理全体の終了状態です。
+処理全体の終了状態は`completed`、`retry_wait`、`cancelled`、`failed`です。想定内のproject競合だけが残る場合は`retry_wait`を返し、一般障害の`failed`と区別します。取消要求があれば`cancelled`、一般障害と競合が混在すれば`failed`を優先します。競合はerrorによる全件失敗として扱わず、`conflicted_projects`へkey・理由・未反映run IDを含めます。SQLiteのbusy timeoutや保存障害は一般障害です。
 
-- `completed`
-- `cancelled`
-- `failed`
-
-現行enrich serviceは正常終了、協調的中断、失敗のいずれもstructured resultを返します。bulkではproject処理中の例外を`failed` eventとcheckpointへ記録して後続を処理しますが、一括実行全体のresultも`failed`です。単体enrichと`--fail-fast`指定時は後続へ進みません。syncはsource内のquery/page/item境界、reviewは候補projectの境界で`progress` eventを返します。
+bulk enrichは一般障害を記録して既定で後続projectを処理し、最終結果を`failed`にします。`--fail-fast`は一般障害の後続処理を停止しますが、想定内の競合は一件を再試行待ちとして続行します。追跡状態レビューも判定snapshotを保存時に検査し、競合した候補を残して独立した後続候補を続行します。syncとservice確認のworkerも保存競合を`retry_wait`として返します。syncの競合では処理中sourceを終了し、未commit変更をrollbackします。既に保存したprojectを巻き戻さず、競合を超えてwatermarkを進めません。
 
 ## 中断
 
@@ -84,23 +83,30 @@ CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保�
 
 bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へproject key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了しても一括実行全体は`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
 
-project処理中に対象keyがmergeされてaliasになった場合もproject失敗として扱います。保存境界の`StaleProjectWriteError`は古いsource snapshotをalias keyまたはcanonical targetへ保存せず、同じtransactionで作成した未commitのinvestigation runとともにrollbackします。bulk checkpointには元のsource keyと例外を残し、resume時にalias解決後のcanonical projectを現在stateから再実行します。これはmerge済みkeyの復活防止であり、CLI等を含むwriter全体のprocess間排他を提供するものではありません。
+project処理中に対象keyがmergeされてaliasになった場合や更新番号が変わった場合は、古いsnapshotの保存を拒否します。現在状態と反映済み履歴のtransactionをrollbackした後、調査成果を`unapplied`として別transactionへ保存します。保存契約・保持期間は[project record](project-record.md#investigation-history)を参照してください。
 
 ## Enrich Checkpoint
 
-`enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。
+`enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。開始時の`selected_project_keys`は対象の順序を固定しますが、処理snapshotは固定しません。各件開始時に最新のcanonical projectを読み直し、tracking state、`new_only`、`retry_failures`の条件を再確認します。条件から外れた対象や削除された対象は理由付きの`skipped_projects`へ記録し、調査成功件数には含めません。同じcanonical projectの処理済み対象を重複実行しません。
 
-- 開始時に`selected_project_keys`を固定する
 - project保存後に`completed_project_keys`を更新する
-- 失敗を`failed_projects`、見つからないproject keyを`missing_project_keys`、処理中のproject keyを`current_project_key`へ記録する
-- 再開時は保存済みoptionを使う
-- LLM API keyの値は保存せず、再開するprocessから再度受け取る
+- 想定内の競合を`conflicted_projects`へ記録し、完了扱いにしない。過去の未解決attemptのrun IDも保持する
+- 一般障害を`failed_projects`、存在しないkeyを`missing_project_keys`、処理中keyを`current_project_key`へ記録する
+- 再開時は保存済みoptionを使い、成功・対象外として処理済みのkeyを除外する
+- 再開は最新状態から外部取得・LLMを再実行する。保存済みの古い成果の差分再適用はしない
+- LLM API keyの値は保存せず、再開processから受け取る
 
-checkpointは再開の正本です。event履歴やWeb表示状態の正本ではありません。
+競合だけが残った一括実行は`retry_wait`で終了します。CLIは終了コード`2`とresume commandを返し、Webは再試行待ちとResumeを表示します。単体enrich・`--no-checkpoint`は競合一覧と未反映履歴を残しますがcheckpointによる再開はなく、同じ対象を明示的に再実行します。自動再試行や再試行時刻の予約はしません。
+
+checkpointは再開の正本です。event履歴やWeb表示状態の正本ではありません。project commitとcheckpoint file更新は一つのtransactionではないため、その間でprocessを失った場合のexactly-once実行は保証しません。
 
 ## Scheduled preset
 
 `Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、全tracking stateのenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
+
+想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害と明示中断では、そのpresetを停止します。
+
+未完了stepと依存待ちstepは`job-schedules.json`の`pending_steps`へ保持し、preset全体を`retry_wait`にして他presetを妨げません。定期実行は未解決の同presetを自動再試行せず、利用者が`Resume pending steps`で再開します。enrichは元checkpoint、sync/reviewは該当stepを最新状態から再実行します。成功済みsourceは繰り返しません。sync再試行が新しいprojectを作り得るため、その後は`new_only` enrichを行います。元checkpointの再開もある場合は、その対象を処理した後に未調査projectを新たに選択します。保留stateはserver再起動後も維持します。
 
 Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
 

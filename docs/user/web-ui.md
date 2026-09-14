@@ -1,6 +1,6 @@
 # Project Registry Web UIガイド
 
-`project-registry-web`はschema version 3のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
+`project-registry-web`はschema version 4のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
 
 ## 起動
 
@@ -13,7 +13,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 | --- | --- |
 | `--host` | 接続を待ち受けるアドレス。既定は同じ端末からだけ接続できるループバックアドレス。 |
 | `--port` | ポート。既定は`8765`。 |
-| `--db-path` | 接続するschema v3 SQLite DB。既定は`data/survey.db`。 |
+| `--db-path` | 接続するschema v4 SQLite DB。既定は`data/survey.db`。 |
 | `--token` | API共有token。`ATPROTO_SURVEY_WEB_TOKEN`でも指定できる。 |
 | `--reload` | Web実装変更時にサーバープロセスを再起動する。 |
 | `--reload-interval` | reload確認間隔。 |
@@ -126,7 +126,7 @@ LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリ�
 
 ### Enrich
 
-単体または一括実行を選び、詳細調査、未`enrich`のみ、前回失敗分のみ、追加の追跡状態を指定できます。一括`enrich`は登録プロジェクト間で停止し、チェックポイントから再開できます。1件の登録プロジェクトの失敗は記録して後続を処理し、一括実行全体を`failed`として再開可能にします。
+単体または一括実行を選び、詳細調査、未`enrich`のみ、前回失敗分のみ、追加の追跡状態を指定できます。一括`enrich`は登録プロジェクト間で停止し、チェックポイントから再開できます。同じ登録プロジェクトへの編集等と競合した場合、現在状態を守り、調査成果をInvestigationへ「未反映（競合）」として残します。他の対象は続行し、競合だけが残ったjobは再試行待ち（`retry_wait`）になります。Resumeは最新状態から再調査するため、外部取得・LLMの処理時間が再びかかります。一般障害は`failed`として区別します。
 
 ### Sync（外部情報の取り込み）
 
@@ -143,6 +143,8 @@ TangledはJetstream v2 snapshotを使います。Webサーバー環境に`ATPROT
 許可済みの定期実行設定だけを手動または定期的に開始できます。任意のコマンドは実行できません。設定できるのは通常の一括`enrich`、全追跡状態の見直し、introduced情報の取り込み、その他の外部情報を取り込んだ後に行う新規登録分だけの`enrich`です。全追跡状態の見直しに続くstalled reviewは、候補件数で打ち切らず全候補を反映します。
 
 各設定は有効・無効、毎週または月の第N週、曜日、時刻、time zoneを持ちます。設定と実行待ち一覧はDBと同じディレクトリの`job-schedules.json`へ保存します。予定から24時間を超えた未実行分は後から実行しません。サーバー再起動時に実行中だった段階は完了扱いにせず、同じ段階から再試行します。
+
+競合後も独立したsourceの取り込みと保存済み新規projectの調査は続行します。全状態enrich後のstalled reviewは調査完了まで保留します。保留stepと理由はScheduled Presetsに表示し、`Resume pending steps`で再開します。成功済みsourceは繰り返さず、再試行したsyncで増えた未調査projectを調査します。保留がある同presetは定期時刻でも自動再試行しません。
 
 ### ジョブ履歴と再起動
 

@@ -80,4 +80,6 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         conn.close()
     if result.status == "cancelled":
         return 130
+    if result.status == "retry_wait":
+        return 2
     return 1 if result.status == "failed" else 0

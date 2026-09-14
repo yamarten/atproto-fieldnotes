@@ -49,8 +49,8 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
-| `validate-app-record-export` | schema v3 DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
-| `export-app-records` | schema v3 DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
+| `validate-app-record-export` | schema v4 DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
+| `export-app-records` | schema v4 DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
 
 `show --seed`は登録済みのシード値から登録プロジェクトを解決します。プロジェクトキーから調べる場合は`--project-key`、シードのURLが曖昧な場合は`--type`を指定してください。
 
@@ -83,11 +83,24 @@ project-registry enrich --all --resume-run weekly-20260714
 
 `--all`は既定で再開可能なチェックポイントを`data/enrich-runs/`へ作ります。開始時の対象プロジェクトキー、完了済みキー、失敗、再開オプションを保存しますが、LLM API keyは保存しません。
 
+調査中に同じ登録プロジェクトが編集・統合・分割された場合は、古い保存を拒否し、調査成果を「未反映」の履歴として残します。他の対象は続行し、競合だけが残れば`retry_wait`、終了コード`2`と再開コマンドを返します。再開すると最新状態から外部取得・LLMも再実行するため、その分の処理時間がかかります。各件開始時に追跡状態などを確認し、対象外になったものは理由を記録して調査しません。`--retry-failures`はcollector失敗の選択条件で、保存競合の再開には`--resume-run`を使います。
+
 1件の登録プロジェクトが失敗しても既定では残りを続行し、一括実行全体は最終的に`failed`、終了コード`1`になります。`--fail-fast`は最初の失敗後に止めます。Ctrl+Cは処理中の登録プロジェクトの完了・保存後に止まり、再開コマンドを出して終了コード`130`を返します。即時停止ではないため、停止までの時間は外部リクエストのタイムアウトに依存します。
 
 既定対象外の追跡状態は`--include-*`、明示列挙は`--tracking-states`、全状態は`--all-tracking-states`で含めます。
 
 `--llm-max-output-tokens`は、調査計画の補助（planning）、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
+
+### schema v3からv4への移行
+
+通常起動は旧DBを自動移行しません。先にWeb・CLI・workerの書込みを停止し、backupを確保してから実行します。正本DBへの適用は開発用DBの検証とは別作業です。
+
+```bash
+project-registry --db-path PATH migrate-db-v4
+project-registry --db-path PATH migrate-db-v4 --execute
+```
+
+最初のcommandはversionと対象pathの確認だけです。`--execute`が更新番号・履歴の適用状態を追加し、既存データを同じDB内でv4へ移行します。旧binaryと新binaryを同じDBへ並行接続しないでください。
 
 ## 要レビュー一覧と紹介候補一覧
 

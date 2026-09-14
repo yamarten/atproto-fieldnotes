@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from .. import identifier_storage, registry as core
+from .. import concurrency
 from project_registry_core import project_record
 
 
@@ -125,7 +126,8 @@ def merge_projects(
         "next_merge_review": next_merge_review,
     }
     if execute:
-        with conn:
+        with concurrency.write_transaction(conn):
+            concurrency.check_projects(conn, [source, target], existing_aliases={source["project_key"]: target["project_key"]})
             project_record.save_project(
                 conn,
                 merged,
@@ -236,7 +238,8 @@ def split_identifier(
         "target_project_repository_urls": target.get("project_repository_urls", []),
     }
     if execute:
-        with conn:
+        with concurrency.write_transaction(conn):
+            concurrency.check_projects(conn, [source, target])
             project_record.save_project(
                 conn,
                 source,

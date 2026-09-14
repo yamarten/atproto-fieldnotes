@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .. import concurrency
+
 import datetime as dt
 import hashlib
 import json
@@ -495,6 +497,9 @@ def investigation_run_detail(
     failures = [item.to_dict() for item in bundle.failures]
     return {
         "run_id": run["run_id"],
+        "application_status": run["application_status"],
+        "conflict_reason": run["conflict_reason"],
+        "resolved_at": run["resolved_at"],
         "project_key": run["project_key"],
         "started_at": run["started_at"],
         "completed_at": run["completed_at"],
@@ -531,7 +536,7 @@ def _service_ownership_review(
 ) -> dict[str, Any]:
     service_rows = conn.execute(
         """
-        SELECT c.run_id, r.completed_at, c.source, c.operation, c.status, c.result_json
+        SELECT c.run_id, r.completed_at, r.application_status, c.source, c.operation, c.status, c.result_json
         FROM collector_runs c
         JOIN investigation_runs r ON r.run_id = c.run_id
         WHERE r.project_key = ? AND c.source LIKE 'service_%'
@@ -542,6 +547,7 @@ def _service_ownership_review(
     ).fetchall()
     service_verifications = [{
         "run_id": str(row["run_id"]),
+        "application_status": str(row["application_status"]),
         "completed_at": str(row["completed_at"]),
         "source": str(row["source"]),
         "operation": str(row["operation"]),
@@ -613,20 +619,7 @@ def project_revision(conn: sqlite3.Connection, project_key: str) -> str:
     row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (project_key,)).fetchone()
     if row is None:
         raise KeyError(project_key)
-    payload = {
-        "project": tuple(row),
-        "identifiers": [tuple(item) for item in conn.execute(
-            "SELECT * FROM project_identifiers WHERE project_key = ? ORDER BY ordinal", (project_key,)
-        )],
-        "relations": [tuple(item) for item in conn.execute(
-            "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
-        )],
-        "decisions": [tuple(item) for item in conn.execute(
-            "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
-        )],
-    }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return str(concurrency.revision(conn, project_key))
 
 
 def require_project_revision(conn: sqlite3.Connection, project_key: str, expected: str) -> None:
@@ -635,8 +628,10 @@ def require_project_revision(conn: sqlite3.Connection, project_key: str, expecte
     actual = project_revision(conn, project_key)
     if actual != expected:
         raise StaleProjectError(f"project changed since it was loaded: {project_key}")
+    conn.expected_project_revisions[project_key] = int(actual)
 
 
+@concurrency.consistent_read
 def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
     resolved = project_record.resolve_project_key_input(conn, project_key)
     project = project_record.fetch_project(conn, resolved)

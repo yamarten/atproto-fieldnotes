@@ -409,6 +409,7 @@ def prune_investigation_history(
             i.run_id,
             i.project_key,
             i.completed_at,
+            i.application_status, i.resolved_at,
             i.rowid AS storage_order,
             (
                 LENGTH(CAST(i.input_project_json AS BLOB)) +
@@ -429,15 +430,20 @@ def prune_investigation_history(
         """
     ).fetchall()
 
-    project_rank: dict[str, int] = {}
+    project_rank: dict[tuple[str, str], int] = {}
     candidates: list[dict[str, Any]] = []
     retained_latest = 0
     retained_recent = 0
     retained_invalid_timestamp = 0
+    retained_unresolved = 0
     for row in rows:
+        if row["application_status"] == "unapplied" and not row["resolved_at"]:
+            retained_unresolved += 1
+            continue
         project_key = str(row["project_key"])
-        rank = project_rank.get(project_key, 0)
-        project_rank[project_key] = rank + 1
+        rank_key = (project_key, str(row["application_status"]))
+        rank = project_rank.get(rank_key, 0)
+        project_rank[rank_key] = rank + 1
         completed_at = str(row["completed_at"])
         completed = project_record.parse_iso(completed_at)
         if rank < keep_latest_per_project:
@@ -484,6 +490,7 @@ def prune_investigation_history(
             "cutoff": cutoff.isoformat(),
         },
         "run_count_before": len(rows),
+        "retained_unresolved_conflict_count": retained_unresolved,
         "candidate_run_count": len(candidates),
         "candidate_collector_run_count": collector_candidates,
         "estimated_payload_bytes": estimated_payload_bytes,

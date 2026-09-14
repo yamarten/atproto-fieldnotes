@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import lexicon_publication_catalog, source_sync, worker
+from project_registry_core import lexicon_publication_catalog, source_sync, worker, runtime_view
 from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
@@ -354,6 +354,80 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
         self.assertEqual(schedule["last_status"], "completed")
 
+    def test_conflicted_enrich_holds_dependent_review_and_resumes_after_restart(self) -> None:
+        queued = self.manager.run_scheduled_preset("enrich_all_states")
+        job_id = queued["queue"][0]["current_job_id"]
+        completed = self.wait_for(job_id, {"completed"})
+        with self.manager._lock:
+            self.manager._jobs[job_id].status = "retry_wait"
+        state = self.manager.run_scheduler_once()
+        self.assertEqual(state["queue"], [])
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
+        self.assertEqual(schedule["last_status"], "retry_wait")
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["enrich", "review"])
+        self.assertEqual(schedule["last_steps"][-1]["status"], "deferred")
+        self.manager.close(timeout=1)
+        self.manager = JobManager(self.db_path, worker_command=[sys.executable, str(self.worker_path)], enable_scheduler=False)
+        state = self.manager.run_scheduled_preset("enrich_all_states")
+        resumed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(resumed["request"]["parameters"]["resume_run"], completed["operation_id"])
+        state = self.manager.run_scheduler_once()
+        reviewed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(reviewed["operation"], "review")
+        state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
+        self.assertEqual(schedule["last_status"], "completed")
+        self.assertEqual(schedule["pending_steps"], [])
+
+    def test_conflicted_source_continues_independent_steps_and_retries_only_pending(self) -> None:
+        queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        job_id = queued["queue"][0]["current_job_id"]
+        self.wait_for(job_id, {"completed"})
+        with self.manager._lock:
+            self.manager._jobs[job_id].status = "retry_wait"
+        operations = []
+        for _ in range(4):
+            state = self.manager.run_scheduler_once()
+            job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+            operations.append(job["request"]["parameters"].get("source") or job["operation"])
+        self.assertEqual(operations, ["collections", "semble", "tangled", "enrich"])
+        state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+        self.assertEqual(schedule["last_status"], "retry_wait")
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["sync", "enrich"])
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(job["request"]["parameters"]["source"], "github")
+        state = self.manager.run_scheduler_once()
+        job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertTrue(job["request"]["parameters"]["new_only"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
+    def test_sync_and_enrich_conflicts_resume_checkpoint_then_select_new_projects(self) -> None:
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        enrich_id = ""
+        for index in range(5):
+            job_id = state["queue"][0]["current_job_id"]
+            job = self.wait_for(job_id, {"completed"})
+            if index in {0, 4}:
+                with self.manager._lock:
+                    self.manager._jobs[job_id].status = "retry_wait"
+            if index == 4:
+                enrich_id = job["operation_id"]
+            state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["sync", "enrich", "enrich"])
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        state = self.manager.run_scheduler_once()
+        resumed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(resumed["request"]["parameters"]["resume_run"], enrich_id)
+        state = self.manager.run_scheduler_once()
+        fresh = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertTrue(fresh["request"]["parameters"]["new_only"])
+        self.assertNotIn("resume_run", fresh["request"]["parameters"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
     def test_scheduled_worker_start_failure_is_recorded_without_retry(self) -> None:
         with (
             mock.patch.object(self.manager, "_spawn_locked", side_effect=OSError("worker unavailable")),
@@ -576,7 +650,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(payload["data"]["summary"]["candidate_count"], 0)
 
     def test_stalled_review_limit_bounds_returned_candidates(self) -> None:
-        projects = [{"project_key": f"proj:{index}"} for index in range(3)]
+        projects = [{"project_key": f"proj:{index}", runtime_view.RUNTIME_PROJECT_REVISION: 1} for index in range(3)]
 
         def entry(project: dict, **_kwargs: object) -> dict:
             return {

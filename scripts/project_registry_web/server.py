@@ -224,7 +224,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json("validation_error", message, HTTPStatus.BAD_REQUEST)
         except JobConflictError as exc:
             self.send_error_json("job_conflict", str(exc), HTTPStatus.CONFLICT)
-        except services.StaleProjectError as exc:
+        except (services.StaleProjectError, project_record.StaleProjectWriteError) as exc:
             self.send_error_json("stale_project", str(exc), HTTPStatus.CONFLICT)
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).lower() or "busy" in str(exc).lower():
@@ -794,7 +794,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="project-registry-web",
-        description="Serve the schema v3 project registry Web UI.",
+        description="Serve the schema v4 project registry Web UI.",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 0.0.0.0 for LAN access.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765.")

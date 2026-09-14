@@ -8,13 +8,13 @@ from collections.abc import Callable
 from typing import Any
 
 from .. import registry as core
-from project_registry_core import project_record
+from project_registry_core import project_record, runtime_view
 
 
 def _candidate_id(item: dict[str, Any]) -> str:
     identity = {
         key: item.get(key)
-        for key in ("project_key", "kind", "suggested_tracking_state", "reason")
+        for key in ("project_key", "kind", "suggested_tracking_state", "reason", "project_revision")
         if key in item
     }
     encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -115,6 +115,9 @@ def stalled(
     suggested_state_counts = _counts(candidates, "suggested_tracking_state")
     if limit is not None:
         candidates = candidates[:max(1, int(limit))]
+    project_snapshots = {str(project["project_key"]): project for project in projects}
+    for item in candidates:
+        item["project_revision"] = project_snapshots[str(item["project_key"])][runtime_view.RUNTIME_PROJECT_REVISION]
     candidates, plan_fingerprint = _select_plan(
         candidates,
         selected_candidate_ids=selected_candidate_ids,
@@ -135,6 +138,7 @@ def stalled(
             "plan_fingerprint": plan_fingerprint,
         }
 
+    conflicts: list[dict[str, str]] = []
     updated: list[str] = []
     updated_projects: list[dict[str, str]] = []
     resolved_note = str(
@@ -147,7 +151,7 @@ def stalled(
     for item in candidates:
         if cancel_requested and cancel_requested():
             break
-        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
         project["tracking_state"] = str(
@@ -155,7 +159,11 @@ def stalled(
         )
         if resolved_note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = resolved_note
-        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        try:
+            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        except project_record.StaleProjectWriteError as exc:
+            conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
+            continue
         updated.append(str(project["project_key"]))
         updated_projects.append({
             "project_key": str(project["project_key"]),
@@ -166,6 +174,8 @@ def stalled(
     conn.commit()
     return {
         "mode": "execute",
+        "operation_status": "retry_wait" if conflicts else "completed",
+        "conflicted_projects": conflicts,
         "inactivity_days": inactivity_days,
         "max_enrich_age_days": max_enrich_age_days,
         "updated_count": len(updated),
@@ -274,6 +284,9 @@ def _classification(
     kind_counts = _counts(candidates, "kind")
     if limit is not None:
         candidates = candidates[:max(1, int(limit))]
+    project_snapshots = {str(project["project_key"]): project for project in projects}
+    for item in candidates:
+        item["project_revision"] = project_snapshots[str(item["project_key"])][runtime_view.RUNTIME_PROJECT_REVISION]
     candidates, plan_fingerprint = _select_plan(
         candidates,
         selected_candidate_ids=selected_candidate_ids,
@@ -293,6 +306,7 @@ def _classification(
             "plan_fingerprint": plan_fingerprint,
         }
 
+    conflicts: list[dict[str, str]] = []
     updated: list[str] = []
     updated_notes: list[dict[str, str]] = []
     static_note = str(note or "").strip()
@@ -300,7 +314,7 @@ def _classification(
     for item in candidates:
         if cancel_requested and cancel_requested():
             break
-        project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
+        project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
         next_state = str(item.get("suggested_tracking_state") or target_state)
@@ -314,7 +328,11 @@ def _classification(
             project["tracking_note"] = "reactivated after owned protocol surface detection"
         elif resolved_note and not str(project.get("tracking_note") or "").strip():
             project["tracking_note"] = resolved_note
-        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        try:
+            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+        except project_record.StaleProjectWriteError as exc:
+            conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
+            continue
         updated.append(str(project["project_key"]))
         updated_notes.append({
             "project_key": str(project["project_key"]),
@@ -325,6 +343,8 @@ def _classification(
     conn.commit()
     return {
         "mode": "execute",
+        "operation_status": "retry_wait" if conflicts else "completed",
+        "conflicted_projects": conflicts,
         "tracking_states": sorted(resolved_states),
         "updated_count": len(updated),
         "total_candidate_count": total_candidate_count,

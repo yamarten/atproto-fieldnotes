@@ -1,6 +1,6 @@
 # Project Record Schema
 
-registry schema version 3では、紹介・検索・要レビュー項目の確認に使う現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBで、観測履歴の保持と現在のproject情報の更新をそれぞれ担います。
+registry schema version 4では、紹介・検索・要レビュー項目の確認に使う現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBで、観測履歴の保持と現在のproject情報の更新をそれぞれ担います。
 
 | 保存するもの | 役割 |
 | --- | --- |
@@ -25,15 +25,15 @@ registryの一次目的は、atproto関連projectを継続的に発見し、紹�
 
 ## Schema Version
 
-実装上の現行schemaはversion 3です。通常起動は`registry_meta.schema_version=3`だけを読み、version 2を暗黙移行しません。version 2からの更新はreview済みmanifestを使って新しい複製DBへmaterializeし、検証後にDBを切り替える明示的な運用です。正本DBへの切替と検証結果は[status](../status.md#登録検索手動編集)を参照してください。
+実装上の現行schemaはversion 4です。通常openはversion 4と変更検出用table/triggerを必須とし、欠落時に補修・暗黙移行しません。既存version 3は`project-registry --db-path PATH migrate-db-v4`で対象を確認し、`--execute`で明示移行します。更新番号の初期化、履歴の適用状態column追加、version更新は一transactionです。既存履歴は`applied`として扱い、過去に実際に消失した更新や保存の正しさを遡って認定するものではありません。正本DBへの移行は別承認・別作業とし、旧processを停止してから適用します。
 
 ## DB接続と初期化
 
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
-空のregistry DBの初期化は`project-registry init-db [--db-path PATH]`で明示的に行います。通常CLI、Web、background workerは既存のschema version 3 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。version 2 DBも通常openでは暗黙移行しません。新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを同値upsertせず、open処理由来のwrite transactionを保持しません。
+空のregistry DBの初期化は`project-registry init-db [--db-path PATH]`で明示的に行います。通常CLI、Web、background workerは既存のschema version 4 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。旧versionのDBも通常openでは暗黙移行しません。新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを同値upsertせず、table/triggerの存在確認だけを行います。open処理由来のwrite transactionを保持しません。
 
-`repair-db`はschema v3 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
+`repair-db`はschema v4 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 CLI/Webの手動確認用の`dev-db`は、既存schema・project保存・調査履歴保存の入口を使って架空データを生成します。`registry_meta.dev_fixture`はこの入口で生成したDBのリセット許可を示すmarkerで、schema versionや運用データの移行状態とは別物です。保存先・排他・リセットの範囲は[共通ダミーDBの手順](../workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
@@ -66,9 +66,31 @@ scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限�
 
 alias chainはmerge時にcanonical keyへ平坦化します。旧keyをCLI/Webへ入力した場合はcanonical projectへ解決し、canonical projectの`Investigation`一覧にはalias元keyで保存された調査実行記録も含めます。`investigation_runs.project_key`と調査実行記録内のsnapshot/bundleは、調査当時のprojectとの対応を残すため書き換えません。存続先と、そこへ解決される旧keyのまとまりをalias familyと呼びます。
 
-`project_key_aliases`に存在するkeyは、`projects`へ再保存できません。merge前に読み込まれたenrich、sync、review等のsnapshotがmerge後に保存へ到達した場合、保存境界は`StaleProjectWriteError`で拒否します。alias先へsnapshotを付け替える処理は行いません。付け替えると、merge後に更新されたcanonical projectを古いsource stateで巻き戻し得るためです。同じtransactionで先に作られたinvestigation runもrollbackし、merge前にcommit済みのsource runだけをalias familyの履歴として維持します。
+`project_key_aliases`に存在するkeyは、`projects`へ再保存できません。保存境界で更新番号とaliasを同時に検査し、merge後の古いsource snapshotを`StaleProjectWriteError`で拒否します。alias先へのsnapshot付け替えは行いません。未反映の調査履歴は調査当時のsource keyのまま保持し、alias familyから参照できます。
 
-このtableはschema version 2で追加され、version 3でも継続利用します。
+### 更新番号と保存transaction
+
+`project_revisions(project_key, revision)`はproject単位の変更検出値です。`projects`、identifier、relation、decision、noncurrent identifier、adoption、transitionのINSERT/UPDATE/DELETEでDB triggerが更新し、alias変更は元keyと存続先keyにも作用します。削除後も番号を保持し、同じkeyの再作成を新規保存として受け付けません。番号は編集回数ではなく、同値UPDATEや子行置換でも進みます。無関係なprojectの変更や調査履歴だけの追加は、そのprojectの番号を進めません。
+
+fetch/listは短いread transactionでscalar・子行・更新番号を一貫して読み、runtime viewの内部fieldへ番号を保持します。読込み終了後にtransactionを保持せず、外部取得・LLM処理はwrite lock外で行います。保存時は`BEGIN IMMEDIATE`でwriterを確保してから更新番号・aliasを検査し、project・子行・反映済み調査履歴を保存します。検査と更新の間へ別writerは入りません。通常保存はこのtransactionだけをcommitし、複数project操作は外側のtransactionへ参加します。例外時は保存単位をrollbackします。
+
+既存projectの保存にはDBから取得した完全なruntime viewと更新番号が必要です。履歴snapshotをhydrateし直しただけの値や、番号なしの既存project更新は受け付けません。新規keyは番号0から開始します。Webの`expected_revision`は同じ番号を文字列で返し、request受付時の検査に加え、保存transaction内で再検査します。編集・確認ダイアログは開いた時点の番号を固定し、処理待ちの間に取得した新しい番号へ付け替えません。profile保存の競合時はダイアログを閉じ、最新状態から編集し直します。
+
+merge/split/separateは入力元と出力先の番号を保存transaction内でまとめて検査します。第三projectのseparate参照更新もtriggerが番号を進めるため、そのprojectの古い調査が後着して判断を戻すことを防ぎます。更新内容を自動で差分再適用する処理はありません。
+
+### 保護する書込み経路
+
+| 経路 | 保存時の保護 |
+| --- | --- |
+| enrich・service確認 | 調査開始時の番号を検査し、競合成果は未反映履歴へ分離 |
+| profile・追跡状態・confirm/block/defer・review操作 | 読込み／判定時の番号を共通保存へ渡す。Webは表示時の番号も検査 |
+| sync・seed登録・repair | 共通保存でproject単位に検査。既にcommit済みの別project成果は維持 |
+| merge/split/separate | 入力元・出力先をまとめて検査し、操作全体をrollback |
+| mergeによる第三project判断更新・identifier storageの直接更新 | DB triggerにより既存snapshotを無効化 |
+| storage cleanup・旧trust archive適用 | 既存のwrite transaction内で読み書きし、更新番号も進む。大量maintenanceのlock時間は短い通常保存と別 |
+| materializer・shadow | 参照元はread-only、保存は新規複製側。実運用への通常保存や自動移行として扱わない |
+
+registry全体のsource設定・watermark・identifier exclusionはproject snapshotの一部ではありません。任意SQL自体に楽観的検査を強制するものでもなく、直接更新を行う処理はtransaction内の最新読込みが必要です。triggerの削除・更新番号の改変、旧binaryの並行使用はこの契約の対象外です。
 
 ### `profile_json`
 
@@ -338,6 +360,8 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `evidence_schema_version`, `evaluation_version`
 - `input_project_json`, `output_project_json`
 - `evaluation_json`, `bundle_json`
+- `application_status`: `applied`（現在状態へ反映）または`unapplied`（競合により未反映）
+- `conflict_reason`, `resolved_at`: 競合理由と再試行解消時刻
 
 4つのJSON列は論理上JSONですが、新規runでは`project-registry:zlib-json:v1` header付きのzlib BLOBとして保存します。通常reader、Investigation viewer、replay、fixture/model evaluation export、storage maintenanceは共通codecでdecodeします。圧縮前のTEXT rowも移行完了までは同じreaderで読めます。header不明、zlib/UTF-8/JSON破損はrun IDと列名を含むdecode errorとして停止し、空payloadや部分的なrunへ置き換えません。
 
@@ -361,17 +385,19 @@ JSON payloadの意味とreplay時の扱いは[Investigation](investigation.md)�
 
 run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtriage入力は`state_json`の`llm_source.evidence`へ保存します。計測対象、非secret metadata、semantic evaluationとの分離は[Run observability](investigation.md#run-observability)、入力上限と縮約の記録は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
+未反映履歴はcurrent stateを変更せず、`latest_investigation_run`の成功結果にも選びません。入力・出力・根拠を通常と同じbudget/codecで保持し、Webの履歴一覧・詳細・service比較で未反映と表示します。保存失敗で履歴も残せなかった場合は一般障害として扱います。再試行は現在状態から再調査し、古い出力を自動再適用しません。
+
 ### Merge / Splitの履歴
 
 mergeは存続先targetの保存、マージ元sourceのalias作成、第三projectの`separate_project`参照更新、source削除を1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの調査実行記録はalias familyの履歴としてtargetの調査一覧へ表示します。
 
-merge後に完了したstale enrichの保存拒否は[project_key_aliases](#project_key_aliases)、rollback後の失敗通知・再試行は[Background Job Model](background-jobs.md#中断)を参照してください。
+merge後に完了したstale enrichの保存拒否は[project_key_aliases](#project_key_aliases)、rollback後の競合通知・再試行は[Background Job Model](background-jobs.md#中断)を参照してください。
 
 split前のrunは、どのidentifierに属する証拠かを自動分配できないため元projectに残します。split後の新しいrunだけを新project keyへ保存します。run snapshotを後から書き換えて現在状態と見せることはしません。
 
 ### Retention Policy
 
-増加量の大きい`investigation_runs` / `collector_runs`だけを定期削除の対象にします。既定policyは次の両方を保持します。
+増加量の大きい`investigation_runs` / `collector_runs`だけを定期削除の対象にします。未解決の`unapplied`履歴は削除対象から外します。再開時に保存または選択対象外として処理を終えた場合に解消し、単体の再調査成功でも開始時点より前の未反映履歴を解消します。解消後は`applied`と`unapplied`を別々に数え、次の両方を保持します。
 
 - 完了から90日以内の全run
 - 日数にかかわらずprojectごとの最新3 run
@@ -418,7 +444,7 @@ service観測から現在の稼働状態を算出する処理では、JSON paylo
 
 ### Identifier保存方式の比較経路
 
-`compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を適用します。schema v2からv3への変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。移行時のmanifestは当時の判断を再現する入力であり、後続のoperator判断で変わった現在の採否を示すものではありません。
+`compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を適用します。schema v2から現行schemaへの変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。移行時のmanifestは当時の判断を再現する入力であり、後続のoperator判断で変わった現在の採否を示すものではありません。
 
 ## Non-goals
 
