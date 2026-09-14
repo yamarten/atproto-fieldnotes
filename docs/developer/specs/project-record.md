@@ -158,6 +158,16 @@ registry全体のsource設定・watermark・identifier exclusionはproject snaps
 
 `system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは保存時点で分離し、紹介用profileやoperatorの自由記述には混ぜません。読込時に`notes`本文をpattern判定して`system_notes`へ移す互換処理は行いません。
 
+### 説明の編集制御と観測時点
+
+schema v4の`state_json.evidence.editorial`に説明の更新方法（`mode=automatic / review`）、現在文面の`profile_hash`、直近の`last_update`、必要な場合だけ更新案`proposal`と見送り案のhashを保存します。更新案は本文3field、比較元のhash、変更種別、理由、最大4件の根拠抜粋、生成時点を持ちます。全文の版履歴や全変更のevent列は作りません。説明本体は従来どおりprofileの`tagline / summary`とstateの`features`です。
+
+Editで説明を変更すると保護側になります。明示的な自動反映の許可も同じpreview／revision検査／保存を通します。採用案と文面が一致した場合は`last_update`へ案の変更種別・理由・根拠を残し、手動で別の文面へ変えた場合はoperator editと記録します。mergeで文面を組み合わせる場合は保護側に戻し、古い案を持ち越しません。来歴未記録の既存文面の作成者や旧観測日時は推定で埋めません。
+
+`service_verification_results`は`lane + requested_url`ごとの最新試行に`observed_at`を保持し、最後に利用面を確認できた観測の時点・lane・statusだけを`last_success`へ残します。失敗してもこの成功情報は消しません。HTMLや画面の過去本文は追加保存しません。同じ組の古い日時の入力は新しい試行を置き換えません。時点未記録の既存観測へ`last_enriched_at`などを流用しません。
+
+`surface_change`は直前の利用面確認との差、`content_changed`は保存範囲の内容hashの差です。いずれも終了・機能変更の確定事実ではありません。これらと説明の編集制御はcurrent stateなので、調査履歴の削除後も保持されます。更新は既存のproject revision検査・transactionを通り、競合成果は既存の未反映履歴へ分離します。
+
 ## URL正規化
 
 canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。`website_url`は代表公開URLであり、service identifierとは独立しています。補助pageは`resource_url_records`に残します。
@@ -340,14 +350,16 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `unknown`: まだ判断材料がない
 - `unverified`: 調査したが到達性や公開状態を確定できない
 - `none`: service surfaceを持たない
-- `dead`: 消滅、parked、404/410など
+- `dead`: 終了・消滅を表す既存の分類値
 - `live`: 一般利用可能なsurfaceを確認した
-- `private`: 認証・権限制限などで一般公開性が低い
+- `private`: 一般公開性が低いことを表す既存の分類値
 - `unreleased`: coming soonなど公開前
 - `beta`: beta公開
 - `invite_only`: 招待・waitlist制
 
 `service_status_confidence`は`none | low | medium | high`です。status値と根拠の強さを別に保持します。
+
+probe単体では404/410やparkedを`dead`、アクセス制限を`private`に分類する場合がありますが、projectの現行評価ではそれだけで恒久的な終了・非公開を確定せず、`unverified`へ投影します。保存済みscalarは評価・保存するまで変わりません。サービス終了の説明には、終了告知など文面を裏付ける材料を別に必要とします。
 
 ## Investigation History
 

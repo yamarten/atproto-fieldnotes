@@ -453,6 +453,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify_service_parser.add_argument("--execute", action="store_true", help="Apply evaluation and save a replayable investigation run.")
     verify_service_parser.set_defaults(func=investigation_commands.cmd_verify_service)
 
+    monitor_parser = subparsers.add_parser("monitor-services", help="Inspect due confirmed services; --execute runs bounded anonymous browser observations.")
+    monitor_parser.add_argument("--min-age-days", type=int, default=30)
+    monitor_parser.add_argument("--limit", type=int, default=20)
+    monitor_parser.add_argument("--execute", action="store_true")
+    monitor_parser.set_defaults(func=investigation_commands.cmd_monitor_services)
+
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)

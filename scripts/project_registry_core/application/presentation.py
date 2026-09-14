@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .. import editorial, service
+
 from .. import concurrency
 
 import datetime as dt
@@ -653,6 +655,11 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "tracking_state": str(row["tracking_state"]),
         "introduced_url": str(row["introduced_url"]),
         "profile": profile,
+        "features": list(prepared.get("features") or []),
+        "editorial": {**dict(prepared.get("editorial") or {}), "automatic": editorial.automatic(prepared)},
+        "service_observations": [service.observation_summary(item) for item in prepared.get("service_verification_results", [])
+                                 if item.get("lane") in {"static", "deep", "authority", "browser"}
+                                 and item.get("requested_url") in prepared.get("service_urls", [])],
         "state": state,
         "system_notes": list(prepared.get("system_notes") or []),
         "first_seen_at": str(row["first_seen_at"]),

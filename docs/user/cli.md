@@ -241,6 +241,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `compare-merge-policy` | 指定DBの現行マージ候補と、役割・直接的な関係・マージを禁止する条件を分けた比較用規則を照合し、`--output`へ構造化reportを出力。DBと同じcheckoutの`config/domain-overrides.json`を自動検出し、別配置なら`--domain-overrides`で指定する | DBはread-only。指定ファイルへ書き込み |
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、調査方法（`static\|deep\|browser`） | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
+| `monitor-services` | `--min-age-days`（既定30）、`--limit`（既定20） | 既定は未確認・古いconfirmed service URLの一覧だけ。`--execute`で匿名browser確認と保存 |
 
 書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
 
@@ -267,6 +268,15 @@ corpusは保存済みプロフィールを根拠と分けて保持します。`-
 後段を確認する場合は、`evaluate-llm-corpus --repository-analysis-report REPORT`で、正規化済み解析結果を同じ登録プロジェクトの固定triage事例へ一時的に追加します。正本DBと元corpusは変更しません。
 
 `verify-service`の`static`はトップページ、`deep`は同一サイトの追加ページを確認します。`browser`はJavaScript描画後の匿名画面を開きます。メニューを展開した事実、認証ページへのリンクを辿った事実、パスワードまたはhandle/email入力を持つフォーム、OAuthの入口、公開コンテンツと作成操作が併存する画面、描画後のネットワーク・コンソールエラーを別々に記録します。
+
+`monitor-services`は`active / stable / stalled / out_of_scope`の確認済みservice URLを対象にします。失敗も含めた最新のbrowser試行からの経過日数で選び、未確認を先にします。`ignore / archived`や未確認の候補URLは対象外です。結果の`due_count / remaining_due_count`で上限による積み残しを確認できます。`--min-age-days`は1〜365、`--limit`は1〜100です。実行は保存と外部接続を伴いますが、説明の生成・追跡状態変更は行いません。失敗・競合を含む実行は終了コード1を返します。
+
+```bash
+project-registry monitor-services --limit 20
+project-registry monitor-services --limit 20 --execute
+```
+
+最後に確認できた利用面と最新の試行は別に保持します。確認結果は現在の利用を保証するものではなく、HTTPエラーだけで提供終了とは判断しません。単独のservice確認で全体調査の鮮度は更新しません。
 
 リンクや作成を促すボタンだけでは、サービスを利用する画面の確認済み判定にはしません。認証の実行、認証入力、フォーム送信、登録、投稿は行いません。`browser`を使う場合はPlaywrightとブラウザーの導入が必要です。
 

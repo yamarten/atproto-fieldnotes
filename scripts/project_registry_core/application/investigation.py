@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import datetime as dt
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from .. import registry as core
 from .. import replay as replay_core
 from .. import storage as investigation_storage
 from project_registry_core import project_record
+from .. import service
 
 
 def verify_service(
@@ -23,6 +25,64 @@ def verify_service(
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type)
     return core.verify_service_project(conn, project, lane=lane, service_url=service_url, execute=execute)
+
+
+def monitor_services(
+    conn: sqlite3.Connection, *, execute: bool = False, min_age_days: int = 30,
+    limit: int = 20, now: str = "", progress: Any = None, cancel_requested: Any = None,
+) -> dict[str, Any]:
+    """Select due confirmed service URLs without fetching during a dry run."""
+    if not 1 <= min_age_days <= 365 or not 1 <= limit <= 100:
+        raise ValueError("min_age_days must be 1..365 and limit must be 1..100")
+    current_time = project_record.parse_iso(now or project_record.iso_now())
+    if current_time is None:
+        raise ValueError("invalid observation selection time")
+    cutoff = current_time - dt.timedelta(days=min_age_days)
+    candidates = []
+    rows = conn.execute("""
+        SELECT DISTINCT p.project_key, p.tracking_state, p.state_json, i.value
+        FROM projects p JOIN project_identifiers i ON i.project_key = p.project_key
+        WHERE p.tracking_state IN ('active','stable','stalled','out_of_scope')
+          AND i.kind = 'service_url' AND i.classification = 'confirmed'
+    """).fetchall()
+    for row in rows:
+        state = json.loads(row["state_json"])
+        observations = state.get("evidence", {}).get("service_verification_results", [])
+        times = [service.observation_time(item) for item in observations
+                 if item.get("lane") == "browser" and item.get("requested_url", "").rstrip("/") == row["value"].rstrip("/")]
+        latest = max((value for value in times if value), default=None)
+        if latest is None or latest <= cutoff:
+            candidates.append({"project_key": row["project_key"], "service_url": row["value"],
+                               "tracking_state": row["tracking_state"],
+                               "last_attempt_at": latest.isoformat() if latest else ""})
+    candidates.sort(key=lambda item: (item["last_attempt_at"], item["project_key"], item["service_url"]))
+    selected = candidates[:limit]
+    results = []
+    for index, item in enumerate(selected if execute else []):
+        if cancel_requested and cancel_requested():
+            break
+        project = project_record.fetch_project(conn, item["project_key"])
+        if not project or project.get("tracking_state") not in {"active", "stable", "stalled", "out_of_scope"} or item["service_url"] not in project.get("service_urls", []):
+            results.append({**item, "status": "skipped"})
+            continue
+        try:
+            result = core.verify_service_project(conn, project, lane="browser", service_url=item["service_url"], execute=True)
+            saved = project_record.fetch_project(conn, item["project_key"])
+            observation = next((service.observation_summary(value) for value in saved.get("service_verification_results", [])
+                                if value.get("lane") == "browser" and value.get("requested_url") == item["service_url"]), {})
+            results.append({**item, "status": "failed" if result["bundle"].get("failures") else "observed",
+                            "run_id": result["run_id"], "observation": observation})
+        except project_record.StaleProjectWriteError:
+            conn.rollback()
+            results.append({**item, "status": "conflicted"})
+        if progress:
+            progress(index + 1, len(selected), {**item, "unit": "service"})
+    statuses = {item["status"] for item in results}
+    return {"mode": "execute" if execute else "dry_run", "eligible_count": len(rows),
+            "due_count": len(candidates), "remaining_due_count": max(0, len(candidates) - len(results)) if execute else len(candidates),
+            "min_age_days": min_age_days, "limit": limit, "selected": selected, "results": results,
+            "operation_status": "cancelled" if cancel_requested and cancel_requested() else
+                                "retry_wait" if "conflicted" in statuses else "partial" if "failed" in statuses else "completed"}
 
 
 def replay(

@@ -25,6 +25,11 @@ ACTIVE_STATUSES = {"queued", "running", "cancelling"}
 TERMINAL_STATUSES = {"completed", "cancelled", "failed", "retry_wait"}
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
+    "service_observation": {
+        "label": "Service observation",
+        "description": "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.",
+        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 5, "time": "03:00", "timezone": "Asia/Tokyo"},
+    },
     "enrich_all": {
         "label": "Enrich all",
         "description": "Run normal enrich --all for active projects.",
@@ -68,6 +73,8 @@ def _step(operation: str, label: str, parameters: dict[str, Any], *, execute: bo
 
 
 def preset_steps(preset_id: str) -> list[dict[str, Any]]:
+    if preset_id == "service_observation":
+        return [_step("monitor_services", "observe due services", {"min_age_days": 30, "limit": 20})]
     if preset_id == "enrich_all":
         return [_step("enrich", "enrich --all", {"all_projects": True})]
     if preset_id == "enrich_all_states":
@@ -441,7 +448,7 @@ class JobManager:
             return OperationRequest.create("sync", parameters=parameters, execute=bool(step.get("execute", True)))
         if operation == "review":
             return OperationRequest.create("review", parameters=parameters, execute=bool(step.get("execute", True)))
-        if operation == "lexicon_publication_observation":
+        if operation in {"lexicon_publication_observation", "monitor_services"}:
             return OperationRequest.create(operation, parameters=parameters, execute=True)
         raise ValueError(f"unsupported scheduled operation: {operation}")
 

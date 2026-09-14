@@ -287,6 +287,7 @@ def apply_service_evidence(
             )
         elif record.kind == "service_verification" and isinstance(record.value, dict):
             value = service.normalize_redirect_same_site_policy(dict(record.value))
+            value["observed_at"] = record.observed_at
             requested_url = str(value.get("requested_url") or "").rstrip("/")
             if requested_url and value.get("lane") in {"static", "deep", "follow_up", "repository_homepage"} and 0 < int(value.get("status_code") or 0) < 400 and not value.get("fetch_error"):
                 page_source = f"service_page:{requested_url}"

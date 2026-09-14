@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import datetime as dt
 import json
 import re
 import urllib.parse
@@ -108,7 +109,37 @@ def merge_service_verification_results(
     value: dict[str, Any],
 ) -> list[dict[str, Any]]:
     combined = [dict(item) for item in existing if isinstance(item, dict)] if isinstance(existing, list) else []
-    combined.append(dict(value))
+    incoming = dict(value)
+    previous = next((item for item in reversed(combined)
+                     if service_verification_result_key(item) == service_verification_result_key(incoming)), {})
+    old_time = observation_time(previous)
+    new_time = observation_time(incoming)
+    if old_time and (not new_time or new_time < old_time):
+        return combined[-SERVICE_VERIFICATION_RESULT_MAX_COUNT:]
+    if service_surface_confirmed(incoming):
+        incoming["last_success"] = {
+            "observed_at": str(incoming.get("observed_at") or ""),
+            "service_status": "live" if incoming.get("lane") == "browser" else incoming.get("service_status"),
+            "lane": str(incoming.get("lane") or "static"),
+        }
+    elif previous.get("last_success"):
+        incoming["last_success"] = dict(previous["last_success"])
+    elif service_surface_confirmed(previous):
+        incoming["last_success"] = {"observed_at": str(previous.get("observed_at") or ""),
+                                    "service_status": previous.get("service_status", "live"),
+                                    "lane": str(previous.get("lane") or "static")}
+    # This is a comparison of observations, not a declaration that the service ended.
+    if previous and incoming != previous:
+        before = service_surface_confirmed(previous)
+        after = service_surface_confirmed(incoming)
+        if before != after:
+            incoming["surface_change"] = "surface_reached" if after else "surface_not_confirmed"
+        elif incoming.get("surface_change") and new_time != old_time:
+            incoming.pop("surface_change", None)
+        old_content, new_content = previous.get("content_sha256"), incoming.get("content_sha256")
+        if old_content and new_content:
+            incoming["content_changed"] = old_content != new_content
+    combined.append(incoming)
     selected: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for ordinal, item in reversed(list(enumerate(combined))):
@@ -120,6 +151,32 @@ def merge_service_verification_results(
         selected.append(item)
     selected.reverse()
     return selected[-SERVICE_VERIFICATION_RESULT_MAX_COUNT:]
+
+
+def observation_time(value: dict[str, Any]) -> dt.datetime | None:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value.get("observed_at") or "").replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def service_surface_confirmed(value: dict[str, Any]) -> bool:
+    if value.get("fetch_error"):
+        return False
+    if value.get("lane") == "browser":
+        return browser_service_observation(value)["positive_surface"]
+    markers = {"login_surface_detected", "app_shell_detected", "verified_authority_service_surface"}
+    return (value.get("service_status") in {"live", "beta", "invite_only"}
+            and bool(value.get("supports_project"))
+            and bool(markers.intersection(value.get("service_status_evidence") or [])))
+
+
+def observation_summary(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: value.get(key, "") for key in (
+        "lane", "requested_url", "observed_at", "status_code", "fetch_error", "surface_change", "content_changed",
+    )} | {"surface_confirmed": service_surface_confirmed(value),
+         "last_success": dict(value.get("last_success") or {})}
 
 
 def bounded_text(value: str, limit: int = 20000) -> str:
@@ -323,6 +380,7 @@ def collect_service_probe_evidence(
     }
     value["requested_url"] = requested_url
     value["lane"] = lane
+    value["observed_at"] = observed_at
     if supports_project is not None:
         value["supports_project"] = bool(supports_project)
     raw_links = result.get("links") if isinstance(result.get("links"), list) else []
@@ -649,6 +707,7 @@ def collect_browser_service_evidence(
         value = {
             "requested_url": service_url,
             "lane": "browser",
+            "observed_at": observed_at,
             "pages": [
                 {
                     "url": str(page.get("url") or ""),
@@ -685,6 +744,12 @@ def collect_browser_service_evidence(
         }
         for page in value["pages"]:
             page["visible_surface_features"] = browser_page_visible_surface_features(page)
+        content = "\n".join(page["text_extract"] for page in value["pages"])
+        value["content_sha256"] = hashlib.sha256(content.encode()).hexdigest() if content else ""
+        value["supports_project"] = bool(service_url in project.get("service_urls", []) and all(
+            domain_policy.is_same_site_family(service_url, str(page.get("url") or service_url))
+            for page in value["pages"]
+        ))
         bundle.add_record(EvidenceRecord(
             kind="service_verification", source=f"service_browser:{service_url}",
             classification="confirmed", observed_at=observed_at, value=value,
@@ -694,6 +759,12 @@ def collect_browser_service_evidence(
             observed_at=observed_at, request_count=len(pages), result_count=len(pages),
         ))
     except Exception as exc:
+        bundle.add_record(EvidenceRecord(
+            kind="service_verification", source=f"service_browser:{service_url}",
+            classification="candidate", observed_at=observed_at,
+            value={"requested_url": service_url, "lane": "browser", "observed_at": observed_at,
+                   "fetch_error": "browser_error", "pages": []},
+        ))
         bundle.add_failure(CollectorFailure(
             source="service_browser", operation="anonymous_navigation", target=service_url,
             category="browser_error", message=f"browser verification failed for {service_url}: {exc}", retryable=False,

@@ -30,7 +30,7 @@ from project_registry_core import project_record
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-DEFAULT_REVIEW_STATES = {"active", "stable", "stalled"}
+DEFAULT_REVIEW_STATES = {"active", "stable", "stalled", "out_of_scope"}
 DEFAULT_PROMOTION_STATES = {"active"}
 
 
@@ -658,6 +658,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 tracking_state=str(payload.get("tracking_state") or ""),
                 note=note,
             )
+        if action == "dismiss-description-proposal":
+            return projects.dismiss_description_proposal(conn, project_key=project_key)
         if action == "profile-preview":
             return projects.preview_profile_edit(
                 conn,
@@ -665,6 +667,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 name=str(payload.get("name") or ""),
                 notes=str(payload.get("notes") or ""),
                 introduced_url=str(payload.get("introduced_url") or ""),
+                description=payload.get("description"),
+                automatic_description=payload.get("automatic_description"),
             )
         if action == "profile":
             return projects.apply_profile_edit(
@@ -673,6 +677,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 name=str(payload.get("name") or ""),
                 notes=str(payload.get("notes") or ""),
                 introduced_url=str(payload.get("introduced_url") or ""),
+                description=payload.get("description"),
+                automatic_description=payload.get("automatic_description"),
             )
         if action == "confirm-candidate":
             return services.confirm_candidate(

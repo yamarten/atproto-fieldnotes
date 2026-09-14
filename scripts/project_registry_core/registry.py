@@ -54,6 +54,7 @@ from project_registry_core import repository_material as repository_material_cor
 from project_registry_core import repository_sources as repository_source_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
+from project_registry_core import editorial
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -72,7 +73,7 @@ REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
-EDITORIAL_SOURCE_POLICY_VERSION = 3
+EDITORIAL_SOURCE_POLICY_VERSION = 4
 BSKY_PUBLIC_API = "https://public.api.bsky.app"
 BSKY_ENTRYWAY = "https://bsky.social"
 BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
@@ -1221,6 +1222,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "watch_reason": str(project.get("watch_reason") or ""),
         "project_repository_url": str(project.get("project_repository_url") or ""),
         "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
+        "editorial": dict(project.get("editorial") or {}),
     }
     list_fields = (
         "dismissed_review_kinds",
@@ -1236,6 +1238,7 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "recorded_lexicon_namespaces",
         "external_lexicons",
         "service_status_evidence",
+        "service_verification_results",
         "service_urls",
         "service_url_candidates",
         "project_site_urls",
@@ -3077,17 +3080,6 @@ def normalize_tagline(value: str) -> str:
     return text[:30].rstrip("・-:：,，、")
 
 
-def set_project_tagline(project: dict[str, Any], value: str, *, provisional: bool) -> None:
-    normalized = normalize_tagline(value)
-    if not normalized:
-        return
-    existing = str(project.get("tagline") or "").strip()
-    if existing and existing == normalized and project.get("tagline_is_provisional") is False and provisional:
-        return
-    project["tagline"] = normalized
-    project["tagline_is_provisional"] = bool(provisional)
-
-
 def add_tagline_candidate(project: dict[str, Any], value: str, source: str, *, provisional: bool | None = None) -> None:
     normalized = normalize_tagline(value)
     if not normalized:
@@ -3110,78 +3102,6 @@ def add_tagline_candidate(project: dict[str, Any], value: str, source: str, *, p
         candidate["provisional"] = bool(provisional)
     candidates.append(candidate)
     project["tagline_candidates"] = candidates
-
-
-def merge_project_tagline(
-    project: dict[str, Any],
-    value: str,
-    *,
-    provisional: bool,
-    replace_provisional: bool = False,
-) -> None:
-    normalized = normalize_tagline(value)
-    if not normalized:
-        return
-    existing = normalize_tagline(str(project.get("tagline") or ""))
-    existing_provisional = bool(project.get("tagline_is_provisional"))
-    if not existing:
-        set_project_tagline(project, normalized, provisional=provisional)
-        return
-    if existing == normalized:
-        if existing_provisional and not provisional:
-            project["tagline_is_provisional"] = False
-        return
-    if not existing_provisional:
-        return
-    if provisional and not replace_provisional:
-        return
-    set_project_tagline(project, normalized, provisional=provisional)
-
-
-def tokenize_human_text(value: str) -> set[str]:
-    text = project_record.normalize_ja_en_mixed_spacing(str(value or "").strip()).lower()
-    if not text:
-        return set()
-    return {token for token in re.findall(r"[a-z0-9]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text) if token}
-
-
-def merge_summary_value(current: str, new_value: str, *, replace_existing: bool = False) -> str:
-    current_text = project_record.normalize_ja_en_mixed_spacing(str(current or "").strip())
-    new_text = project_record.normalize_ja_en_mixed_spacing(str(new_value or "").strip())
-    if not new_text:
-        return current_text
-    if not current_text or replace_existing:
-        return new_text
-    if current_text == new_text:
-        return current_text
-    current_tokens = tokenize_human_text(current_text)
-    new_tokens = tokenize_human_text(new_text)
-    if current_tokens and new_tokens:
-        overlap = len(current_tokens & new_tokens) / max(1, len(current_tokens | new_tokens))
-        if overlap >= 0.6:
-            return current_text
-    if len(new_text) >= len(current_text) + 40 and len(new_tokens) > len(current_tokens):
-        return new_text
-    return current_text
-
-
-def merge_feature_list(current: list[str], new_values: list[str]) -> list[str]:
-    current_values = clean_human_string_list(current, limit=6)
-    candidate_values = clean_human_string_list(new_values, limit=6)
-    if not candidate_values:
-        return current_values
-    if not current_values:
-        return candidate_values
-    current_set = set(current_values)
-    candidate_set = set(candidate_values)
-    if current_set == candidate_set:
-        return current_values
-    overlap = len(current_set & candidate_set) / max(1, len(current_set | candidate_set))
-    if overlap >= 0.6:
-        return current_values
-    if current_set.issubset(candidate_set):
-        return candidate_values
-    return current_values
 
 
 def manual_repo_urls(project: dict[str, Any]) -> set[str]:
@@ -6801,12 +6721,18 @@ def project_current_service_observation(project: dict[str, Any]) -> dict[str, An
 
         base_lane = max(
             (lane for lane in lanes if lane in CURRENT_SERVICE_BASE_LANE_PRIORITY),
-            key=lambda lane: CURRENT_SERVICE_BASE_LANE_PRIORITY[lane],
+            key=lambda lane: (service_core.observation_time(lanes[lane]) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                              CURRENT_SERVICE_BASE_LANE_PRIORITY[lane]),
             default="",
         )
         if base_lane:
             base = dict(lanes[base_lane])
-            if current_service_result_supports_project(project, requested_url, base):
+            confirmed_target = requested_url in {
+                identifier_core.normalize_url(str(url)).rstrip("/") for url in project.get("service_urls", [])
+            }
+            failed_target = bool(base.get("fetch_error") or int(base.get("status_code") or 0) >= 400
+                                 or base.get("service_status") in {"dead", "private"})
+            if current_service_result_supports_project(project, requested_url, base) or (confirmed_target and failed_target):
                 has_supported_observation = True
                 current_status = project_record.normalize_service_status(base.get("service_status"))
                 current_confidence = project_record.normalize_service_status_confidence(
@@ -6815,6 +6741,9 @@ def project_current_service_observation(project: dict[str, Any]) -> dict[str, An
                 current_evidence = project_record.unique_list(
                     [str(item) for item in base.get("service_status_evidence", []) if str(item)]
                 )
+                if failed_target:
+                    current_status = "unverified"
+                    current_confidence = "low"
                 if current_status == "unverified" and verified_authority_live_surface(
                     project, requested_url, base
                 ):
@@ -6828,7 +6757,22 @@ def project_current_service_observation(project: dict[str, Any]) -> dict[str, An
         if browser is not None:
             has_supported_observation = True
             browser_observation = service_core.browser_service_observation(browser)
-            if browser_observation["positive_surface"]:
+            base_time = service_core.observation_time(lanes.get(base_lane, {}))
+            browser_time = service_core.observation_time(browser)
+            newer_base_observation = bool(
+                base_lane and base_time
+                and (not browser_time or base_time > browser_time)
+            )
+            if newer_base_observation and browser_observation["positive_surface"] and current_status not in {"live", "beta", "invite_only"}:
+                current_status, current_confidence = "unverified", "low"
+            newer_browser_failure = bool(
+                not browser_observation["positive_surface"] and browser_time
+                and (not base_time or browser_time >= base_time)
+            )
+            if newer_browser_failure:
+                current_status, current_confidence = "unverified", "low"
+                current_evidence.append("browser_surface_not_confirmed")
+            if browser_observation["positive_surface"] and not newer_base_observation:
                 if current_status not in {"beta", "invite_only"}:
                     current_status = "live"
                 current_confidence = "high"
@@ -6838,7 +6782,7 @@ def project_current_service_observation(project: dict[str, Any]) -> dict[str, An
                     if value not in service_core.SERVICE_BROWSER_POSITIVE_CONTRADICTIONS
                 ]
             current_evidence = project_record.unique_list(
-                current_evidence + list(browser_observation["service_status_evidence"])
+                current_evidence + ([] if newer_base_observation else list(browser_observation["service_status_evidence"]))
             )
 
         aggregate_status = merge_service_status(
@@ -7267,77 +7211,12 @@ def build_llm_evidence_bundle(
             if not is_bsky_post_url(url)
         ],
     }
+    evidence["description_sources"] = editorial.sources({
+        **project, "repository_analysis_results": evidence["repository_analysis_results"],
+    })
     return llm_evidence_core.bounded_llm_evidence(
         llm_evidence_core.without_prior_llm_derived_state(evidence)
     )
-
-
-def profile_update_sources(evidence: Any) -> set[str]:
-    if not isinstance(evidence, dict):
-        return set()
-    sources: set[str] = set()
-    for value in evidence.get("supported_service_urls", []):
-        normalized = identifier_core.normalize_url(str(value or ""))
-        if normalized:
-            sources.add(f"supported_service:{normalized}")
-    for value in evidence.get("project_repository_urls", []):
-        normalized = repo_url_core.canonical_repo_url(str(value or ""))
-        if normalized:
-            sources.add(f"repository:{normalized}")
-    for item in evidence.get("repository_analysis_results", []):
-        if not isinstance(item, dict) or item.get("stale") or not str(item.get("summary") or "").strip():
-            continue
-        normalized = repo_url_core.canonical_repo_url(str(item.get("repo_url") or ""))
-        revision = str(item.get("source_revision") or item.get("revision") or item.get("material_hash") or "").strip()
-        if normalized and revision:
-            policy_version = str(item.get("policy_version") or f"v{item.get('version') or '0'}")
-            sources.add(f"repository_analysis:{policy_version}:{normalized}@{revision}")
-    for record in evidence.get("resource_url_records", []):
-        if not isinstance(record, dict) or str(record.get("confidence") or "") != "confirmed":
-            continue
-        role = str(record.get("role") or "unknown")
-        if role not in {"docs", "blog", "support"}:
-            continue
-        normalized = identifier_core.normalize_url(str(record.get("url") or ""))
-        if normalized:
-            sources.add(f"resource:{role}:{normalized}")
-    service_status = str(evidence.get("service_status_hint") or "unknown")
-    service_status_evidence = {
-        str(value or "") for value in evidence.get("service_status_evidence", [])
-    }
-    usable_surface_markers = {
-        "login_surface_detected",
-        "app_shell_detected",
-        "browser_password_form_detected",
-        "browser_identity_form_detected",
-        "browser_oauth_entry_detected",
-        "browser_public_app_surface_detected",
-    }
-    confirmed_service_urls = {
-        identifier_core.normalize_url(str(value or ""))
-        for value in evidence.get("service_urls", [])
-        if identifier_core.normalize_url(str(value or ""))
-    }
-    supported_service_urls = {
-        identifier_core.normalize_url(str(value or ""))
-        for value in evidence.get("supported_service_urls", [])
-        if identifier_core.normalize_url(str(value or ""))
-    }
-    usable_services = confirmed_service_urls & supported_service_urls
-    if (
-        usable_services
-        and service_status in {"live", "beta", "invite_only"}
-        and service_status_evidence.intersection(usable_surface_markers)
-    ):
-        for service_url in sorted(usable_services):
-            sources.add(f"usable_service:{service_url}")
-    return sources
-
-
-def profile_has_new_strong_source(previous_evidence: Any, current_evidence: Any) -> bool:
-    previous_sources = profile_update_sources(previous_evidence)
-    current_sources = profile_update_sources(current_evidence)
-    return bool(current_sources - previous_sources)
 
 
 def load_triage_prompt_template() -> str:
@@ -8081,12 +7960,6 @@ def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:
     payload = dict(payload)
-    previous_llm_source = project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {}
-    previous_evidence = previous_llm_source.get("evidence") if isinstance(previous_llm_source, dict) else {}
-    if previous_llm_source.get("editorial_source_policy_version") != EDITORIAL_SOURCE_POLICY_VERSION:
-        previous_evidence = dict(previous_evidence) if isinstance(previous_evidence, dict) else {}
-        previous_evidence.pop("repository_analysis_results", None)
-    replace_machine_profile = profile_has_new_strong_source(previous_evidence, evidence)
     project["llm_output"] = payload
     project["llm_source"] = {
         **meta,
@@ -8100,21 +7973,19 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         explicit_provisional = payload.get("tagline_is_provisional")
         resolved_provisional = True if explicit_provisional is None else bool(explicit_provisional)
         add_tagline_candidate(project, str(payload.get("tagline") or ""), "llm_output", provisional=resolved_provisional)
-        merge_project_tagline(
-            project,
-            str(payload.get("tagline") or ""),
-            provisional=resolved_provisional,
-            replace_provisional=replace_machine_profile,
-        )
     llm_summary = project_record.normalize_ja_en_mixed_spacing(str(payload.get("summary") or "").strip())
     if llm_summary:
         add_candidate_text(project, "summary", llm_summary, "llm_output")
-    project["summary"] = merge_summary_value(
-        str(project.get("summary") or ""),
-        llm_summary,
-        replace_existing=replace_machine_profile,
-    )
-    project["features"] = merge_feature_list(list(project.get("features", [])), clean_human_string_list(payload.get("features"), limit=6))
+    proposed = {}
+    if payload.get("tagline"):
+        proposed["tagline"] = normalize_tagline(str(payload["tagline"]))
+    if llm_summary:
+        proposed["summary"] = llm_summary
+    if isinstance(payload.get("features"), list):
+        proposed["features"] = clean_human_string_list(payload["features"], limit=6)
+    editorial.apply_proposal(project, proposed, payload.get("description_change"),
+                            evidence.get("description_sources", []),
+                            generated_at=project["last_llm_review_at"])
     project["inspired_by"] = clean_human_string_list(payload.get("inspired_by"), limit=6)
     llm_category = str(payload.get("category") or "").strip()
     if llm_category in project_record.PROJECT_CATEGORY_VALUES:
@@ -8166,7 +8037,7 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     except (TypeError, ValueError):
         project["confidence"] = 0.0
     llm_service_status = str(payload.get("service_status") or "").strip()
-    if llm_service_status:
+    if llm_service_status and llm_service_status not in {"dead", "private"}:
         project["service_status"] = merge_service_status(str(project.get("service_status") or "unknown"), llm_service_status)
     for url in clean_string_list(payload.get("project_repository_urls")):
         parsed = urllib.parse.urlparse(url)
@@ -8408,6 +8279,21 @@ def compute_review_signals(
         shaped = apply_promotion_state(shaped)
     signals: list[dict[str, Any]] = []
     dismissed_kinds = {str(item).strip() for item in shaped.get("dismissed_review_kinds", []) if str(item).strip()}
+    proposal = (shaped.get("editorial") or {}).get("proposal")
+    if proposal:
+        signals.append({"kind": "editorial_refresh", "priority": 7,
+                        "reason": str(proposal.get("reason") or "説明の更新案があります"),
+                        "details": {"action_basis": ["description_proposal"],
+                                    "change_kind": proposal.get("kind")}})
+    changed_services = [service_core.observation_summary(item) for item in shaped.get("service_verification_results", [])
+                        if item.get("requested_url") in shaped.get("service_urls", [])
+                        and (item.get("surface_change") or item.get("content_changed"))]
+    if changed_services:
+        signals.append({"kind": "service_observation_changed", "priority": 5,
+                        "details": {"observations": changed_services,
+                                    "action_basis": ["review_description_and_tracking_separately"]}})
+    if shaped.get("tracking_state") == "out_of_scope":
+        return [signal for signal in signals if signal["kind"] not in dismissed_kinds]
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
     service_status = str(shaped.get("service_status") or "unknown")
     service_confidence = str(shaped.get("service_status_confidence") or "none")
@@ -8617,6 +8503,7 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         "service_status_unverified_but_promising",
         "external_lexicon_dependency_needs_review",
         "category_recheck_needed",
+        "service_observation_changed",
     }:
         commands.append(f"{command_prefix} enrich -p {project_key} --deep-investigation")
     if "service_candidate_needs_confirmation" in signal_kinds:
@@ -10183,6 +10070,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["summary_candidates"] = list(merged.get("summary_candidates", [])) + list(source.get("summary_candidates", []))
     merged["tagline_candidates"] = list(merged.get("tagline_candidates", [])) + list(source.get("tagline_candidates", []))
     merged["features"] = project_record.unique_list(list(merged.get("features", [])) + list(source.get("features", [])))
+    if editorial.profile(merged) != editorial.profile(target) or not editorial.automatic(source):
+        # A merge can combine two descriptions; it is not permission to auto-edit either author's wording.
+        merged["editorial"] = {"mode": "review", "profile_hash": editorial.fingerprint(editorial.profile(merged))}
     merged["inspired_by"] = project_record.unique_list(list(merged.get("inspired_by", [])) + list(source.get("inspired_by", [])))
 
     merged["website_url"] = choose_editorial_scalar(merged.get("website_url"), source.get("website_url"), prefer_incoming=prefer_source_editorial)
@@ -10725,7 +10615,7 @@ def verify_service_project(
             input_project=input_project, output_project=project, bundle=bundle,
         )
         try:
-            project_record.save_project(conn, project, enriched=True)
+            project_record.save_project(conn, project, enriched=bool(input_project.get("last_enriched_at")), preserve_timestamps=True)
         except project_record.StaleProjectWriteError as exc:
             investigation_storage.save_conflicted_investigation(conn, project, exc)
             raise

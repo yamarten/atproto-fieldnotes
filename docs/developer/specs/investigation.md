@@ -233,6 +233,12 @@ service surfaceは、機能を利用・操作するために到達するURL上�
 
 匿名browser確認は、描画後のページで何が表示され、どこへ到達したかを観測します。登録・認証入力・投稿を行わない操作範囲と、保存量の上限は前節までの規則に従います。
 
+browser例外も対象URLと観測時点を持つ失敗した試行として保存します。最後の成功と最新試行の分離、内容／利用面の比較は[保存契約](project-record.md#説明の編集制御と観測時点)に従います。service確認は調査実行記録を保存しますが、全体調査の`last_enriched_at`を更新しません。
+
+`monitor-services`は`active / stable / stalled / out_of_scope`のconfirmed service URLだけを対象に、最後のbrowser試行が古い順（未記録を先）に選びます。candidate、`ignore / archived`は選びません。既定は前回試行から30日以上、1回20 URLで、CLIは1〜365日・1〜100 URLを指定できます。失敗した試行も次回選択の間隔に含めます。dry-runは対象件数・選択URLを返すだけで外部取得しません。execute時はURLごとに最新projectを読み直し、既存の匿名browser確認・保存・競合処理を使います。キャンセルはURL境界で止め、競合後も独立した後続URLを続けます。結果は選択数、残る候補数、失敗／競合、時点と観測差を返します。
+
+この処理はLLMや追跡状態変更を行いません。確認済みURLの観測差はreviewへ、新しい内容は次回enrichの説明根拠へ接続します。30日は現在利用できると保証する期限ではなく再確認の選択間隔です。batch上限により全対象を30日以内に確認できる保証はありません。
+
 browserの`public_app_surface_detected`は、作成・投稿を表すactionと、supporting pageではない二階層以上の同一site link 3件以上が同じpageにある場合だけ成立します。CTA単独やcontent link単独では成立しません。action語彙は現在英語のpost / entry / create / write / compose / publish / uploadに限定し、固有project名による例外は持ちません。
 
 browser pageにはnavigationごとの`requested_url`と到達先`url`を保存します。form、input、auth/service action、linkの`visible`、フォーム内の`visible_submit_texts`をChromiumの`checkVisibility`で取得します。CSS visibility、opacity、content-visibilityを含めた表示状態であり、操作成功や認証成功の証明ではありません。`display: contents`のformにはboxがなくても、表示されたinputとsubmitを根拠として利用できます。

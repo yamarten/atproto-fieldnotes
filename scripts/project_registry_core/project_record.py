@@ -190,6 +190,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "classification_reason",
         "exclude_reason",
         "watch_reason",
+        "editorial",
         "confidence",
         "relation_evidence",
         "trust_graph",
@@ -779,6 +780,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "manual_review_reason": "",
         "confidence": 0.0,
         "llm_source": {},
+        "editorial": {},
         "llm_output": {},
         "last_llm_review_at": "",
         "promotion_ready": False,
@@ -1048,6 +1050,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         evidence["candidate_developer_accounts"] = normalize_developer_accounts(evidence.get("candidate_developer_accounts", []))
         defaults["llm_source"] = dict(defaults["llm_source"], evidence=evidence)
     defaults["llm_output"] = dict(defaults.get("llm_output") or {})
+    defaults["editorial"] = dict(defaults.get("editorial") or {})
     defaults["duplicate_candidates"] = list(defaults.get("duplicate_candidates") or [])
     defaults["merge_recommendation"] = dict(defaults.get("merge_recommendation") or {})
     defaults["separate_project_keys"] = unique_list(

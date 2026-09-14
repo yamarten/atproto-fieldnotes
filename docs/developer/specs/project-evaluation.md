@@ -48,11 +48,17 @@ project全体の根拠を入力に、説明・分類・調査上の要確認事�
 
 ### 保存済みprofileの更新
 
-LLM triageのevidenceには、現在保存されている`tagline` / `summary` / `features`を`current_profile`として含めます。LLMは新しい根拠が以前の説明を実質的に改善する場合だけ内容を変え、根拠が変わらない時は現在の文面を維持します。
+`tagline / summary / features`は、projectについて蓄積した理解を一つの説明として保ちます。最新の取得結果をそのまま説明にしません。用途、機能、技術的特徴を中心とし、終了が確認できた場合は過去形で残します。機能変更後も理解に役立つ特徴は「当初は」など時点を区別して織り込み、元から誤っていた記述は過去の正しい事実として残さず訂正します。取得失敗と確認日時は別の観測表示で扱います。説明の全文版履歴は新設しません。
 
-前回の`llm_source.evidence`と今回のevidenceを比較し、新しいsupported service URL、confirmedなdocs / blog / support URL、confirmed repository、または確認済みwebsiteで新たに観測した実利用面を、説明に使える強いsourceの追加とみなします。実利用面はlogin、app shell、browserで確認したformやpublic app surfaceに限り、beta等の文言だけでは認めません。この時だけ非空のsummaryと暫定taglineを新しいLLM提案へ更新します。同じsourceの再取得や文章差だけでは置き換えません。暫定でないtaglineは強いsourceが増えても自動更新しません。
+triageへ現在の文面を`current_profile`、内容を持つ根拠を`description_sources`として渡します。根拠は最大8件で、confirmed repositoryの根拠付き・非stale解析、projectを支持する成功したservice page／匿名browser page、resolved Lexiconのschema sampleから作ります。URLや取得時刻が増えただけでは根拠の内容が変わったことにしません。同じURLの内容変更も入力にできます。候補repository、取得失敗、既存の説明文はこの根拠集合に入れません。
 
-成功したtriageを適用すると、そのLLM入力を`llm_source.evidence`へ保存し、次回の比較基準にします。比較結果自体を保存する専用fieldや、schema / serviceなど内容別の専用signalは設けていません。過去に更新機会を逃したprofileはこの規則だけでは遡及更新されないため、内容を確認した上で個別に適用します。
+既存説明を変えるには`description_change.kind=correction / changed_facts / expansion`、具体的な変更理由、入力に存在する根拠IDを1〜4件必要とします。`wording_only / insufficient_evidence`、参照不正、理由欠落では維持します。本文が長くなったこと、source URLの追加、過去の成功だけでは更新しません。初回の空の説明は従来のproject evidenceから生成できます。特徴一覧の変更は追加専用ではなく置換とし、残すべき過去の特徴は時点を明記して提案に含めます。
+
+新規に機械生成した説明は自動反映できます。人が編集した説明、来歴が未記録の既存説明、最後に記録した文面と異なる説明は保護し、根拠と理由付きの更新案1件を保持します。Editで採用・訂正・見送り、または明示的な自動反映の許可ができます。同じ根拠・同じ文面の見送り案は再提示しません。採用した案の理由と根拠は直近の更新来歴に残します。初回生成以外では、LLMが変更の意味と根拠の十分性を判定し、コードは種別・参照・編集保護を検査します。参照が存在することだけで内容の真偽を機械的に証明するものではありません。
+
+更新案は`editorial_refresh`、利用面の到達変化や保存範囲のページ内容変化は`service_observation_changed`としてreviewへ接続します。ページの差分は説明変更や終了の確定ではなく、追加調査の材料です。`out_of_scope`はこの2種の変化を通常Web reviewへ提示し、他の一般signalは提示しません。観測・説明更新はtracking stateを自動変更せず、既存の追跡レビューと手動変更を別に扱います。browser確認だけではtriageを実行せず、保存根拠を次回の明示／通常enrichへ渡します。
+
+成功したtriageの入力は`llm_source.evidence`へ保存します。既存データの自動作成／人の編集を推定して一括移行せず、内容と自動反映の許可を個別に確認します。保存形は[Project record](project-record.md#説明の編集制御と観測時点)を参照してください。
 
 `llm_output.name`は、直近に成功したLLM triageによる名前の提案です。成功したtriageを適用する時は、`name_candidates`に残る以前の`source=llm_output`候補を最新の提案で置き換えます。collectorまたはLLM呼び出しが失敗して新しいoutputを適用できなかった場合は、直前の提案を維持します。operator edit、service title、resource title、repository名など、LLM以外に由来する名前候補はこの置換の対象外です。
 
@@ -155,7 +161,7 @@ serviceの利用可否も独立軸として扱います。`category=project / in
 - `app_shell_detected`
 - `mixed_launch_signals_detected`
 
-現在の扱い:
+単一probeの分類（projectの現在値は次節で別に投影）:
 
 - parked domain, `404/410`
   - `dead`
@@ -182,8 +188,10 @@ project直下の`service_status / service_status_confidence / service_status_evi
 
 - current resultは`lane + requested_url`ごとに最新1件を使う
 - supporting pageの`follow_up`と、static / deepのsupporting page URLはproject scalarへ入れない
-- 同一URLのbase laneは`deep > static > authority`とし、肯定的browser observationをその上へ重ねる
-- browserでloginまたは公開app surfaceを確認したURLは`live / high`とし、同じURLの`docs_only`、`coming_soon`、mixed launch分類を除く。`beta`と`invite_only`は両立するため維持する
+- 同一URLのbase laneは観測日時を優先し、同日時・時点未記録同士では`deep > static > authority`を使う
+- browserでloginまたは公開app surfaceを確認したURLは、そのbrowserより新しいbase観測がない場合に`live / high`とする。同じURLの`docs_only`、`coming_soon`、mixed launch分類を除き、`beta / invite_only`は維持する
+- より新しいbase観測で利用面が確認できない場合、古いbrowser成功で`live`へ戻さない。より新しいbrowser試行で利用面が確認できない場合も`unverified / low`とし、最後の成功時点は別に残す
+- 確認済みservice URLのHTTPエラー・取得失敗・parked判定は現在値を`unverified / low`にする。単一probeの`dead / private`分類やLLMの同値提案だけで、提供終了・非公開を自動確定しない
 - static / deep / authority resultはcollector時点の`supports_project`を保存して利用する。旧resultにこのfieldがない場合は、manual service host、確認済みservice host、またはそこへの確認済みsame-site redirectに限定して復元する
 - 対象となるbase/browser observationがない場合は、LLM等が設定した既存scalarをprojectionで消さない
 

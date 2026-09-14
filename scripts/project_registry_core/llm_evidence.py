@@ -31,6 +31,7 @@ LLM_EVIDENCE_COUNT_LIMITS = {
     "developer_accounts": 24,
     "candidate_developer_accounts": 24,
     "summary_candidates": 16,
+    "description_sources": 8,
     "tagline_candidates": 16,
     "evidence_urls": 32,
 }
@@ -40,6 +41,7 @@ LLM_EVIDENCE_TRIM_ORDER = (
     "summary_candidates",
     "tagline_candidates",
     "resource_url_records",
+    "description_sources",
     "recent_record_samples",
     "lexicon_schema_samples",
     "lexicon_resolution_entries",
@@ -63,6 +65,7 @@ LLM_EVIDENCE_TRIM_ORDER = (
 )
 LLM_EVIDENCE_MIN_COUNTS = {
     "manual_seeds": 1,
+    "description_sources": 1,
     "input_nsids": 1,
     "resolved_nsids": 1,
     "lexicon_schema_samples": 1,

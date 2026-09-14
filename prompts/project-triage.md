@@ -32,6 +32,7 @@ Output schema:
   "tagline": "string",
   "tagline_is_provisional": true,
   "summary": "string",
+  "description_change": {"kind": "initial|correction|changed_facts|expansion|wording_only|insufficient_evidence", "reason": "Japanese explanation", "sources": ["id from description_sources"]},
   "features": ["string"],
   "inspired_by": ["string"],
   "source_code_urls": ["string"],
@@ -75,7 +76,10 @@ Language requirements:
 - `technical_interest_summary`: Japanese short explanation of the specific design pattern, protocol gap, interoperability experiment, architecture, or reference value
 - `manual_review_recommended`: true when a human should inspect rich docs, a usable service, or complicated evidence that the shallow automated pass may not fully digest
 - `manual_review_kind`: choose `editorial_refresh` for weak tagline/summary/features, `deep_source_material` for rich docs/pages worth reading more deeply, `service_status_manual_check` for usable-looking but still uncertain services, `identity_resolution` for conflicting identities or ownership, `category_recheck` for likely category drift, `other` when none of those fit
-- Compare `current_profile` with the strongest current evidence. Keep its wording when the evidence has not materially improved, but update it when stronger sources correct or substantially expand the previous explanation
+- Maintain one useful description of what this project provides or provided and its technical characteristics. `current_profile` contains accumulated editorial understanding, not just the last observation. Preserve known purpose and design details through temporary collection failures. Do not replace them with an access-error report.
+- When confirmed first-party evidence establishes closure, use past tense while retaining purpose and technical value. Integrate significant former characteristics with explicit wording such as "当初は" when useful for understanding a changed project. Correct an originally false claim without portraying it as historical truth. Do not infer closure or privacy from HTTP errors, lack of activity, missing evidence, or old observations.
+- Compare `current_profile` with `description_sources`. Change existing tagline, summary, or features only for a supported correction, changed facts, or substantive expansion. Keep wording for wording-only differences. `description_change` must explain the actual factual difference in Japanese and cite exact source IDs from `description_sources`; a URL or source ID alone does not establish a change. If those sources are insufficient, use `insufficient_evidence` and preserve the description. An initial empty profile may be filled from the available project evidence.
+- A changed feature list replaces the old list: retain still-valid and historically useful features, distinguish former features explicitly, and omit disproven claims. Operational observations and their dates are displayed separately; transient failures should not dominate the description. Never interpret an old successful observation as a current service guarantee.
 - `manual_review_priority`: use `high` for likely high-value manual review, `medium` for useful but not urgent review, `low` for optional review, `none` when no manual review is recommended
 - `manual_review_reason`: Japanese short explanation of what the human should inspect and why
 - `atproto_auth_only`: true only for an independent end-user app or service whose only AT Protocol integration is account sign-in or OAuth and which does not use AT Protocol records, schemas, repositories, or protocol data; false for libraries, plugins, proxies, reference implementations, and developer examples that implement or provide AT Protocol authentication itself

@@ -277,6 +277,16 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(result.data["summary"]["operation_status"], "partial")
         self.assertEqual(emitted[-1].kind, "failed")
 
+    def test_service_observation_preset_dispatches_and_stays_disabled(self) -> None:
+        queued = self.manager.run_scheduled_preset("service_observation")
+        self.assertEqual(queued["queue"][0]["preset_id"], "service_observation")
+        completed = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(completed["operation"], "monitor_services")
+        self.assertEqual(completed["request"]["parameters"]["min_age_days"], 30)
+        self.assertEqual(completed["request"]["parameters"]["limit"], 20)
+        preset = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")
+        self.assertFalse(preset["schedule"]["enabled"])
+
     def test_lexicon_weekly_preset_is_fixed_and_disabled_by_default(self) -> None:
         state = self.manager.list_schedules()
         preset = next(item for item in state["items"] if item["preset_id"] == "lexicon_publication_weekly")

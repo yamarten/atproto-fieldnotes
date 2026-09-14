@@ -1401,6 +1401,27 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             project, "repo_url", "https://github.com/example/second"
         ))
 
+    def test_description_edit_preview_protection_and_stale_guard(self) -> None:
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        revision = detail["revision"]
+        fields = {"tagline": "読書記録共有", "summary": "読書記録を共有していたサービス。独自Lexiconを公開している。",
+                  "features": ["独自Lexicon"]}
+        payload = {"expected_revision": revision, "name": "Example App", "notes": "", "introduced_url": "",
+                   "description": fields, "automatic_description": False}
+        status, preview, _ = self.request("/api/projects/proj:111111111111/profile-preview", method="POST", payload=payload)
+        self.assertEqual(status, 200)
+        self.assertIn("summary", [item["field"] for item in preview["result"]["changes"]])
+        status, saved, _ = self.request("/api/projects/proj:111111111111/profile", method="POST", payload=payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["detail"]["project"]["profile"]["core"]["summary"], fields["summary"])
+        self.assertEqual(saved["detail"]["project"]["features"], fields["features"])
+        self.assertFalse(saved["detail"]["project"]["editorial"]["automatic"])
+        status, rejected, _ = self.request("/api/projects/proj:111111111111/profile", method="POST",
+                                           payload={**payload, "description": {"summary": "古い編集"}}, include_revision=False)
+        self.assertEqual(status, 409)
+        status, current, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(current["project"]["profile"]["core"]["summary"], fields["summary"])
+
     def test_profile_preview_apply_and_stale_guard(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)

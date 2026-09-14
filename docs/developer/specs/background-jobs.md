@@ -102,6 +102,8 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 
 ## Scheduled preset
 
+`service_observation`は`monitor_services` workerを通して、前回browser試行から30日以上経過したconfirmed service URLを最大20件確認します。対象・取消し・競合の扱いは[観測仕様](investigation.md#browser観測)を参照してください。初期設定は無効、毎週土曜03:00 Asia/Tokyoです。この値は有効化前の初期値であり、実データ量での妥当性を確認済みの運用頻度ではありません。既存scheduleを自動有効化・変更しません。
+
 `Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、全tracking stateのenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
 
 想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害と明示中断では、そのpresetを停止します。

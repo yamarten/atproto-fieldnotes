@@ -210,6 +210,13 @@ def _run_simple(
             )
         elif request.operation == "verify_service":
             payload = _run_verify_service(conn, request)
+        elif request.operation == "monitor_services":
+            payload = investigation.monitor_services(
+                conn, execute=request.execute,
+                min_age_days=int(request.parameters.get("min_age_days", 30)),
+                limit=int(request.parameters.get("limit", 20)),
+                progress=progress, cancel_requested=lambda: cancellation.cancel_requested,
+            )
         else:
             payload = _run_lexicon_observation(
                 Path(conn), request, cancel_requested=lambda: cancellation.cancel_requested,
@@ -273,7 +280,7 @@ def run_payload(payload: dict[str, Any]) -> int:
     def emit(event: OperationEvent) -> None:
         _write({"type": "event", "payload": event.to_dict()})
 
-    if request.operation not in {"enrich", "sync", "review", "verify_service", "lexicon_publication_observation"}:
+    if request.operation not in {"enrich", "sync", "review", "verify_service", "monitor_services", "lexicon_publication_observation"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
     if request.operation == "lexicon_publication_observation":
         with contextlib.redirect_stdout(sys.stderr):

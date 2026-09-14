@@ -8,6 +8,17 @@ from .. import registry as core
 from ..application import investigation as services
 
 
+def cmd_monitor_services(args: argparse.Namespace) -> int:
+    conn = core.open_db()
+    try:
+        payload = services.monitor_services(conn, execute=bool(args.execute),
+                                            min_age_days=args.min_age_days, limit=args.limit)
+    finally:
+        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 1 if payload["operation_status"] in {"partial", "failed", "retry_wait"} else 0
+
+
 def cmd_verify_service(args: argparse.Namespace) -> int:
     conn = core.open_db()
     try:

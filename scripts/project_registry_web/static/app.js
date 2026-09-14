@@ -773,6 +773,9 @@ function renderDetail(data) {
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Confirmed services</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "None"}</dd><dt>Repositories</dt><dd>${list(overview.repositories).map(link).join("<br>") || "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
+    ${project.features?.length ? section("Features", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
+    ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。ProfileのEditから確認できます。</p>` : ""}
+    ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${section("Links / Resources", renderProjectLinks(overview))}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>${promotionPriorityActions}`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
@@ -963,7 +966,7 @@ function renderServiceOwnership(data, serviceUrls = []) {
   const browserControls = targets.length
     ? `<div class="controls"><label>Anonymous browser target<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">Verify in anonymous browser</button></div>`
     : `<p class="muted">Add a confirmed or candidate service URL before browser verification.</p>`;
-  return `<dl class="kv"><dt>Current service</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
+  return `<dl class="kv"><dt>Saved service observation</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
     ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
     ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
@@ -1061,10 +1064,46 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
   `).join(""));
 }
 
+function renderProfileFields(profile) {
+  return `<dl class="kv"><dt>Tagline</dt><dd>${esc(profile.tagline || "None")}</dd><dt>Summary</dt><dd>${esc(profile.summary || "None")}</dd><dt>Features</dt><dd>${list(profile.features).map(esc).join("<br>") || "None"}</dd></dl>`;
+}
+
+function renderProfileChanges(changes) {
+  const value = (item) => Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "None");
+  const labels = {tagline:"Tagline", summary:"Summary", features:"Features", name:"Name", notes:"Notes", introduced_url:"Introduced URL", automatic_description:"説明の更新方法"};
+  return changes.map((change) => `<h4>${esc(labels[change.field] || change.field)}</h4><dl class="kv"><dt>変更前</dt><dd>${value(change.before)}</dd><dt>変更後</dt><dd>${value(change.after)}</dd></dl>`).join("");
+}
+
+function renderServiceObservations(observations) {
+  return `<p class="muted">稼働状態は保存済み観測に基づきます。現在の利用や認証後の機能を保証しません。取得失敗だけで提供終了とは判断しません。</p>${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(item.lane)}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化しました。説明への影響は未確認です。</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達。説明や追跡方針の見直し材料です。" : "以前の利用面を今回確認できませんでした。")}</dd>` : ""}</dl></div>`).join("") || `<p class="muted">保存済みの確認記録はありません。</p>`}`;
+}
+
 function editProfile(project, profile) {
   const dialog = $("profile-dialog");
   const expectedRevision = state.detailRevision;
   $("profile-name").value = project.name || "";
+  $("profile-tagline").value = profileValue(profile, "tagline");
+  $("profile-summary").value = profileValue(profile, "summary");
+  $("profile-features").value = list(project.features).join("\n");
+  $("profile-automatic").checked = Boolean(project.editorial?.automatic);
+  const proposal = project.editorial?.proposal;
+  $("profile-proposal").innerHTML = proposal ? section("説明の更新案", `<p>${esc(proposal.reason)}</p><p class="muted">${esc(formatTimestamp(proposal.generated_at))} · ${esc(({correction:"誤記の訂正", changed_facts:"事実の変化", expansion:"説明の補充"})[proposal.kind] || "説明の更新")}</p>${renderProfileFields(proposal.profile)}${list(proposal.sources).map((source) => `<details><summary>${esc(source.locator)}</summary><p>${esc(source.content)}</p></details>`).join("")}<button id="profile-use-proposal" type="button">更新案を編集欄へ読み込む</button><button id="profile-dismiss-proposal" type="button">この更新案を見送る</button>`) : "";
+  $("profile-dismiss-proposal")?.addEventListener("click", async () => {
+    try {
+      const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/dismiss-description-proposal`, {method:"POST", body:JSON.stringify({expected_revision:expectedRevision})});
+      dialog.close();
+      renderDetail(response.detail);
+      await loadList();
+    } catch (error) { status(error.message, true); }
+  });
+  $("profile-use-proposal")?.addEventListener("click", () => {
+    $("profile-tagline").value = proposal.profile.tagline;
+    $("profile-summary").value = proposal.profile.summary;
+    $("profile-features").value = list(proposal.profile.features).join("\n");
+    $("profile-automatic").checked = false;
+    $("profile-apply").disabled = true;
+    preview = null;
+  });
   $("profile-introduced-url").value = project.introduced_url || "";
   $("profile-notes").value = profileValue(profile, "notes");
   $("profile-diff").innerHTML = "";
@@ -1074,13 +1113,24 @@ function editProfile(project, profile) {
     name:$("profile-name").value,
     introduced_url:$("profile-introduced-url").value,
     notes:$("profile-notes").value,
+    description:{tagline:$("profile-tagline").value, summary:$("profile-summary").value,
+      features:$("profile-features").value.split("\n").map((value) => value.trim()).filter(Boolean)},
+    automatic_description:$("profile-automatic").checked,
     expected_revision:expectedRevision
   });
+  for (const id of ["profile-name", "profile-tagline", "profile-summary", "profile-features", "profile-notes", "profile-introduced-url", "profile-automatic"]) {
+    $(id).oninput = () => {
+      preview = null;
+      $("profile-apply").disabled = true;
+      $("profile-diff").innerHTML = "";
+      if (["profile-tagline", "profile-summary", "profile-features"].includes(id)) $("profile-automatic").checked = false;
+    };
+  }
   $("profile-preview").onclick = async () => {
     try {
       const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/profile-preview`, {method:"POST", body:JSON.stringify(values())});
       preview = response.result;
-      $("profile-diff").innerHTML = preview.changed ? section("Changes", json(preview.changes)) : `<p class="muted">No changes.</p>`;
+      $("profile-diff").innerHTML = preview.changed ? section("Changes", renderProfileChanges(preview.changes)) : `<p class="muted">No changes.</p>`;
       $("profile-apply").disabled = !preview.changed;
     } catch (error) { status(error.message, true); }
   };

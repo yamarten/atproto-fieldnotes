@@ -38,6 +38,7 @@ subcommands=(
   'export-recollection-relation-assessment-corpus:Export exact-component cases from a recollection report'
   'evaluate-relation-assessment-corpus:Run the predicate-specific relation assessor against a fixed corpus'
   'verify-service:Verify a service with static, deep-page, or browser checks'
+  'monitor-services:Inspect or observe due confirmed services'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
@@ -421,6 +422,9 @@ case "$cmd" in
     _arguments -S \
       '--report[Bounded project repository recollection JSON report]:path:_files' \
       '--output[Output corpus JSON path]:path:_files'
+    ;;
+  monitor-services)
+    _arguments '--min-age-days[Minimum days since last browser attempt]:days:' '--limit[Maximum service URLs]:count:' '--execute[Observe and save due services]'
     ;;
   verify-service)
     _arguments -S \

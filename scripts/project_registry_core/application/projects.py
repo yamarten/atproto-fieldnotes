@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .. import editorial
+
 import sqlite3
 from typing import Any, Iterable
 
@@ -186,6 +188,14 @@ def set_tracking_state(
     }
 
 
+def dismiss_description_proposal(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
+    project = core.resolve_single_project(conn, project_key=project_key)
+    editorial.dismiss_proposal(project)
+    project_record.save_project(conn, project, preserve_timestamps=True)
+    conn.commit()
+    return {"project_key": project["project_key"], "mode": "dismissed"}
+
+
 def preview_profile_edit(
     conn: sqlite3.Connection,
     *,
@@ -193,6 +203,8 @@ def preview_profile_edit(
     name: str,
     notes: str,
     introduced_url: str,
+    description: dict[str, Any] | None = None,
+    automatic_description: bool | None = None,
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key)
     normalized_introduced_url = identifiers.normalize_url(str(introduced_url or "")) if introduced_url else ""
@@ -202,15 +214,38 @@ def preview_profile_edit(
         "name": str(project.get("name") or ""),
         "notes": str(project.get("notes") or ""),
         "introduced_url": str(project.get("introduced_url") or ""),
+        **editorial.profile(project),
+        "automatic_description": editorial.automatic(project),
     }
     after = {
+        **before,
         "name": str(name or "").strip(),
         "notes": str(notes or "").strip(),
         "introduced_url": normalized_introduced_url,
     }
+    if description is not None:
+        if not isinstance(description, dict) or set(description) - set(editorial.FIELDS):
+            raise ValueError("description must contain only tagline, summary and features")
+        for field in ("tagline", "summary"):
+            if field in description:
+                value = description[field]
+                if not isinstance(value, str) or len(value) > (30 if field == "tagline" else 8000):
+                    raise ValueError(f"invalid {field}")
+                after[field] = project_record.normalize_ja_en_mixed_spacing(value.strip())
+        if "features" in description:
+            values = description["features"]
+            if not isinstance(values, list) or len(values) > 6 or any(not isinstance(v, str) or len(v) > 1000 for v in values):
+                raise ValueError("features must contain at most 6 short strings")
+            after["features"] = core.clean_human_string_list(values, limit=6)
+        if any(before[field] != after[field] for field in editorial.FIELDS):
+            after["automatic_description"] = False
+    if automatic_description is not None:
+        if not isinstance(automatic_description, bool):
+            raise ValueError("automatic_description must be a boolean")
+        after["automatic_description"] = automatic_description
     changes = [
         {"field": field, "before": before[field], "after": after[field]}
-        for field in ("name", "notes", "introduced_url")
+        for field in before
         if before[field] != after[field]
     ]
     return {
@@ -229,6 +264,8 @@ def apply_profile_edit(
     name: str,
     notes: str,
     introduced_url: str,
+    description: dict[str, Any] | None = None,
+    automatic_description: bool | None = None,
 ) -> dict[str, Any]:
     preview = preview_profile_edit(
         conn,
@@ -236,6 +273,8 @@ def apply_profile_edit(
         name=name,
         notes=notes,
         introduced_url=introduced_url,
+        description=description,
+        automatic_description=automatic_description,
     )
     if not preview["changed"]:
         return {**preview, "mode": "no_change"}
@@ -250,6 +289,12 @@ def apply_profile_edit(
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
     project["introduced_url"] = preview["after"]["introduced_url"]
+    if any(item["field"] in (*editorial.FIELDS, "automatic_description") for item in preview["changes"]):
+        for field in editorial.FIELDS:
+            project[field] = preview["after"][field]
+        project["tagline_is_provisional"] = False
+        editorial.record_edit(project, allow_automatic=preview["after"]["automatic_description"],
+                              updated_at=project_record.iso_now())
     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     conn.commit()
     return {**preview, "mode": "updated"}
