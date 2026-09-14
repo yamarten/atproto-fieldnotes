@@ -14,6 +14,7 @@
 
 ## Backupとarchiveの保全
 
+- schema v4移行直前の正本DB backup: `data/backups/schema-v4-rollout-20260914/survey.db`。移行後の通常運用を確認し、保持用途を判断するまで削除しない。
 - 最終反映直前のDB・checkpoint・定期設定backup: `data/backups/final-publication-rollout-20260910T0225Z/`。
 - 旧信頼グラフの全接続（edge）の永続archiveと計画・結果・検証report: `data/migration-archives/repository-trust-20260910T0225Z/`。archiveを一時ファイルとして削除しない。
 - ページ上の限定された範囲から公式リポジトリを判断する規則の最終補正直前backup: `data/backups/project-repository-final-20260828T200038+0900/survey.db`。
@@ -28,4 +29,4 @@
 | homepage role補正・checkpoint | `data/backups/homepage-role-review-20260909T110921Z/`。旧604件の一覧は配下の`coverage-failures-before-resume.json` |
 | Website role復元・checkpoint | `data/backups/website-role-restoration-20260909T124023Z/` |
 
-DB操作前には別のWeb/enrich/CLIによる書き込み処理を確認する。マージ元の旧キーでprojectが再作成されることを防ぐ検査はあるが、異なる登録プロジェクトへの書き込みをプロセス間で排他する仕組みはない。このローカルWeb UIでレビューするためのリンクは`http://127.0.0.1:8888/?project=...`を使う。
+DB操作前には別のWeb/enrich/CLIによる書き込み処理を確認する。現行のproject単位の競合保護は[保存契約](../developer/specs/project-record.md)を参照する。このローカルWeb UIでレビューするためのリンクは`http://127.0.0.1:8888/?project=...`を使う。

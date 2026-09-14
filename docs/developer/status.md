@@ -4,7 +4,7 @@
 
 現行機能の適用にも境界があります。新しい判定規則による既存project全件の再評価、非現行identifierの専用編集UI、取り込み処理・追跡状態レビューのcheckpoint再開は揃っていません。Lexiconの独立観測や、判定結果をDB更新へ適用せず比較するshadow経路も通常の自動採用とは別に扱います。以下では機能ごとに、利用できる範囲と、その説明を支える確認・制約を示します。
 
-実運用については2026-09-10までの適用・確認記録に基づきます。それ以後の実環境や正本DBの状態は未確認です。schema v4への正本移行と今回の競合保護の実運用反映は未実施です。
+競合保護は2026-09-14に正本DBをschema v4へ明示移行し、実運用Webへ反映しました。移行前に存在した全データテーブルの件数・既存列内容の一致、SQLite整合性検査、Webの設定・一覧・job・定期設定API応答を確認しています。その他の実運用確認範囲は各項目の記録に従います。実データ量での競合時性能や実外部取得・LLMを伴う長時間競合は未確認です。
 
 ## 登録・検索・手動編集
 
@@ -62,7 +62,7 @@ syncと追跡状態レビューのcheckpoint再開、server再起動後のjob一
 
 schema v4の保存・正規化fieldの検索、履歴圧縮、保持規則による手動削除、派生値の修復を通常導線へ接続しています。通常接続はschema v4を必須とし、旧DBを暗黙変換しません。v3からv4への明示移行commandを用意しています。更新番号はproject本体・子行・aliasの直接更新でも進み、同値に戻した変更と削除も検出します。汎用的なmigration管理や、適用済みのデータ処理規則をDB全体に記録するmarkerはありません。履歴圧縮の複製DB同値確認・正本適用、merge/splitのtransaction確認の記録があります。これらは過去の適用確認で、現在のDB容量・全件整合性を再監査した結果ではありません。[Maintenance手順](workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
 
-CLI/Webの手動確認には`dev-db`で生成・リセットできる共通ダミーDBを利用できます。架空データからの生成、上書き拒否・lock競合・失敗時rollbackのtemp DB test、通常CLIのDB選択・編集・replayと実ブラウザでの一覧・紹介候補・識別子採用・調査履歴を確認しています。外部取得・実LLMや、実データ固有の監査・件数・容量確認を代替しません。v3からv4への履歴保持と移行失敗時rollbackは一時DBで確認しています。2026-09-14の正本read-only監査はSQLiteの`unable to open database file`で接続できず、schema・件数の再確認は未実施です。[確認手順と安全境界](workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
+CLI/Webの手動確認には`dev-db`で生成・リセットできる共通ダミーDBを利用できます。架空データからの生成、上書き拒否・lock競合・失敗時rollbackのtemp DB test、通常CLIのDB選択・編集・replayと実ブラウザでの一覧・紹介候補・識別子採用・調査履歴を確認しています。外部取得・実LLMや、実データ固有の監査・件数・容量確認を代替しません。v3からv4への履歴保持と移行失敗時rollbackは一時DBで確認しています。正本のv4移行でも既存データの一致と整合性を確認し、移行前backupは[運用保留・再開情報](../notes/operations-resumption-2026-09-10.md#backupとarchiveの保全)に記載しています。[確認手順と安全境界](workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
 ## App record export
 
