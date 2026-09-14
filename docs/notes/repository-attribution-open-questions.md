@@ -14,13 +14,13 @@
 | Written World | 個人portfolio内の紹介とrepository link | 紹介箇所のproject帰属とlinkの意味をどう分けるか |
 | didplc.directory | `go-didplc read replica`、`source of truth this mirrors` | 公式利用repositoryと外部dependency・mirror先の境界 |
 
-最初の4種は当時のreviewでは正しいlinkと考えられたものの、一般化可能な直接表示が足りず保留しました。didplc.directoryは2026-08-27の同じbounded入力への3回評価で`SUPPORTED` 2回、`INSUFFICIENT` 1回でした。この結果を材料に、対象repositoryがそのprojectで果たす役割を人が確認して採用を判断します。
+最初の4種は当時のレビューでは正しいリンクと考えられたものの、一般化可能な直接表示が足りず保留しました。didplc.directoryは2026-08-27の範囲を限定した同一入力への3回評価で`SUPPORTED` 2回、`INSUFFICIENT` 1回でした。この結果を材料に、対象リポジトリがそのprojectで果たす役割を人が確認して採用を判断します。
 
 同じ評価のEventsは`Fair source`表示だけで3回とも`INSUFFICIENT`でした。これは、repositoryの用途を判断するにはlicense表現に加えて根拠が必要な例です。`Open source`や`View source`等の明示表示は静的規則へ反映済みです。
 
 ## Page自体の帰属が先に必要な例
 
-2026-08-27の再収集では、曖昧なlinkの多くがexactなconfirmed componentの外にありました。Tangledの共通pageやat-storeの商品pageのlinkは、表示が強くても対象project自身のcomponentからのlinkとは限りません。project名・既存profileからpage帰属をassessorに補完させると、評価したい帰属を入力側で正しいものとして扱うことになります。
+2026-08-27の再収集では、曖昧なリンクの多くが、URLの完全一致で特定した採用済み構成要素の外にありました。Tangledの共通ページやat-storeの商品ページのリンクは、表示が強くても対象project自身の構成要素からのリンクとは限りません。project名・既存プロフィールからページの帰属をLLMの関係判定処理（assessor）に補完させると、評価したい帰属を入力側で正しいものとして扱うことになります。
 
 再検討する場合は、pageをproject componentとして採用する判断と、採用済みcomponent上のlinkの意味判定を分けます。配下docsを起点にする場合も、そのdocs rootの採用が必要かを現行policyと照合します。
 
@@ -28,4 +28,4 @@
 
 ## 再開時に持ち寄る材料
 
-現在のcomponent採用・operator判断、観測日時、exact URLとrepository identity、link表示と限定DOM context、対象repositoryの役割を揃えます。過去の保留が後の手動判断で解消していれば閉じます。表示の変化と判定規則の問題は、観測時点ごとの入力と結果を照合して切り分けます。一般化した規則を提案する場合は、同じ表示が外部projectやdependencyを指す反例も確認します。
+現在の構成要素の採用状態・利用者の判断、観測日時、正確なURLとリポジトリの識別情報、リンク表示と周辺に限定したHTML構造、対象リポジトリの役割を揃えます。過去の保留が後の手動判断で解消していれば閉じます。表示の変化と判定規則の問題は、観測時点ごとの入力と結果を照合して切り分けます。一般化した規則を提案する場合は、同じ表示が外部projectや依存先を指す反例も確認します。

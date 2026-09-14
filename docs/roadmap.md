@@ -6,7 +6,7 @@
 
 1. 深掘りする価値がある候補を、背景と根拠とともに提示できる
 2. 追加調査と短い紹介文の出発点になる核データを保てる
-3. 運用上必要なreview、merge、evidenceを保てる
+3. 運用上必要なレビュー、登録プロジェクトのマージ、判断根拠を保てる
 4. 公開手段の第一候補であるapp record exportへ、紹介用の情報を再利用できる状態を保つ
 
 ## 非目的
@@ -28,15 +28,15 @@
 
 ### 並行する処理から蓄積した情報と判断を守る
 
-定期調査と手動操作を併用しても、後から保存された古い調査結果によって、人の訂正や別の調査成果を失わないことが目的です。単一利用者でも別processの同時実行はあり、重複runの実績があります。ただし、更新消失や中断原因は未確認であり、重複実行そのものと分けて扱います。
+定期調査と手動操作を併用しても、後から保存された古い調査結果によって、人の訂正や別の調査成果を失わないことが目的です。単一利用者でも別プロセスの同時実行はあり、調査処理が重複して実行された実績があります。ただし、更新消失や中断原因は未確認であり、重複実行そのものと分けて扱います。
 
-検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。必要な場合も、人のreviewや通常調査を妨げずに守る範囲を決め、排他方式や全write pathの変更を先に固定しません。根拠は[並行実行の確認範囲](developer/status.md#jobとweb運用)、現行契約は[background-jobs.md](developer/specs/background-jobs.md)を参照します。
+検討するのは、どの操作の組合せで何を失い得るか、既存の保存時検査でどこまで防げるか、追加の制御が必要かです。必要な場合も、人のレビューや通常調査を妨げずに守る範囲を決め、その範囲に応じて排他方式と変更する書き込み経路を検討します。根拠は[並行実行の確認範囲](developer/status.md#jobとweb運用)、現行契約は[background-jobs.md](developer/specs/background-jobs.md)を参照します。
 
 ### 既存評価を深掘り候補の選定と省力化の判断につなげる
 
-目的は、有用な候補を得るまでのどこに取りこぼしや手戻りがあり、どの改善が日常の予備調査を楽にするかを判断することです。評価の実施自体や計測項目を増やすことを目的にしません。
+目的は、有用な候補を得るまでのどこに取りこぼしや手戻りがあり、どの改善が日常の予備調査を楽にするかを判断することです。
 
-外部sourceの固有候補・取得範囲・処理時間、manual goldによる判断規則の評価、紹介実績との比較、Lexicon sidecarの追加観測価値は、それぞれ確認を進めてきました。これらを重複して評価するのではなく、結果が次の問いまで答えているかを確認します。
+外部情報源ごとの固有候補・取得範囲・処理時間、人が期待判断を定めた固定事例（manual gold）による判断規則の評価、紹介実績との比較、registryと独立した専用DB（sidecar）でのLexicon観測の追加価値は、それぞれ確認を進めてきました。既存の結果が次の問いまで答えているかを確認します。
 
 - 発見・調査した情報が、利用者の深掘り判断に必要な時点で、選べる候補と判断材料として届いたか。
 - 候補を判断するまでに、人がどの確認・訂正・再調査を行う必要があり、何が負担として残ったか。
@@ -64,9 +64,9 @@
 
 目的は、人が調べたい対象を発見した時点で保持でき、帰属が未確定でも次の確認へ進めることです。情報を拾うことと正しいprojectへ確定採用することは必要な根拠が異なるため、誤採用を防ぐ条件が発見自体を失わせていないかが論点です。
 
-有用な対象が既存sourceで拾えない、取込条件で落ちる、または帰属判断の材料が足りず止まる実例がある場合に検討します。path付きURLや独立したfork等は確認候補であり、取りこぼしを断定しません。既存sourceによる補完も踏まえて、追加で拾える価値と増えるnoiseを比較します。
+有用な対象が既存の情報源で拾えない、取り込み条件から外れる、または帰属判断の材料が足りず止まる実例がある場合に検討します。パス付きURLや独立したfork等は、取りこぼしの有無を確認する候補です。既存の情報源による補完も踏まえて、追加で拾える価値と増える無関係な候補を比較します。
 
-手動の`Add seed`は確認済みroleの採用として意味を保ちます。未確定の発見を入れる必要があれば、操作の説明で足りるか、入口を分けるべきかを判断します。candidate repositoryの内容を確認する必要がある場合も、人の判断材料と確定profileへの採用を分け、どの不明点を解消したいかに応じて扱いを決めます。
+手動の`Add seed`は、入力した値を対応する役割で採用する操作として意味を保ちます。未確定の発見を入れる必要があれば、操作の説明で足りるか、入口を分けるべきかを判断します。候補リポジトリの内容を確認する必要がある場合も、人の判断材料と確定プロフィールへの採用を分け、どの不明点を解消したいかに応じて扱いを決めます。
 
 ### Repository analysisの誤解釈を減らす
 
@@ -79,31 +79,31 @@ repositoryの役割とcollection利用を根拠どおり説明できる状態を
 以下は未完了の別課題です。
 
 - 汎用API・AppView独自APIの実在確認。endpoint・引数・応答契約の取得方法を決めてから接続する。現在のprotocol確認はorigin rootの標準AT Protocol describeServerに限定する。
-- 代表project_siteの自動採用。serviceとして使えるsurfaceと資料の区別、代表URLの選択条件を検討する。
+- 代表サイト（`project_site`）の自動採用。サービスを利用する画面と説明資料の区別、代表URLの選択条件を検討する。
 - 以下の広いrole-aware policyやLLM relation assessorの接続。公開先宣言による限定接続とは独立した目標として扱う。
 
-広いrole-aware trust policyは、次を説明できる範囲だけproductionへ接続します。
+役割に応じた信頼規則（role-aware trust policy）の適用を広げる際は、次を説明できる範囲だけ通常の自動判定へ接続します。
 
 - 新policyによって省ける手動確認
 - 新たに必要になるreviewと誤採用の危険
 - project、developer、organization、publisherを推測しない入力契約
-- fixed caseと正本DB sampleでの差分
+- 固定事例と正本DBから選んだ事例での判定差分
 - 現行自動confirmからの切替範囲とrollback境界
 
-candidate生成、信頼判定結果、identifier採用、block / defer、operator判断は別責務のまま維持します。`eligible_for_auto_confirm`をcollectorごとに増やさず、predicate、方向、role、source / methodを中央policyへ照合します。
+候補の生成、信頼判定、識別子の採用、除外・保留、利用者の判断は、それぞれの責務を維持します。自動採用の可否は、関係の種類（predicate）・方向・役割・情報源・取得方法を共通の規則へ照合して決めます。収集処理ごとに`eligible_for_auto_confirm`を増やすことは避けます。
 
 個別に残る設計候補です。
 
-- accepted repositoryからのdocumentation / project site候補について、代表URLとして自動採用するための帰属・役割条件
+- 採用済みリポジトリから見つけた文書・プロジェクトサイト候補を、代表URLとして自動採用するための帰属・役割条件
 - account role、publisher、provider owner、authority domainを構成要素やtrusted anchorと区別する契約
 - collector観測、relation interpretation、semantic relation、検索用inverseの保存分担
 - 同じidentifierの観測更新、新規project登録、既存projectへのidentifier追加、弱いsuggestionの境界監査
 
 ### project間の時間・派生関係
 
-後継、買収、分割、統合、ownership移転、mirror、instance、tenant、forkは、同一project内のidentifier transitionやmergeへ押し込みません。Basker / InfoEnon、DateSky / Nomareなどの実例をreviewし、表示・検索・紹介文で必要になった時だけ保存形を追加します。
+後継、買収、分割、統合、所有権移転、mirror、instance、tenant、forkは、プロジェクト間の関係として扱い、同一プロジェクト内の識別子の移転やマージと区別します。Basker / InfoEnon、DateSky / Nomareなどの実例を確認し、表示・検索・紹介文で必要になった時だけ保存形を追加します。
 
-旧マージ推奨reviewで未完了のidentifier処遇を再開する場合も、名称markerだけで一括補正せず、実在・利用時期・公式な移行根拠を確認できたidentifierを通常の編集経路で扱います。
+旧マージ推奨レビューで未完了の識別子の扱いを再検討する場合も、名前に含まれる目印だけで一括補正せず、実在・利用時期・公式な移行根拠を確認できた識別子を通常の編集経路で扱います。
 
 ### service URLと補助pageの分類
 
@@ -121,7 +121,7 @@ path名だけで恒久的に分類せず、認証後の利用可能性は匿名b
 
 紹介候補には、使えるserviceと、atprotoの設計や実装を知るうえで価値のある対象の両方を含めたいという目的があります。現在の寄与度はNSIDやschema等の根拠を重視するため、独自schemaを持つ付加機能と、独自NSIDを持たずprotocolを深く扱うlibrary / toolの価値を十分に表せない可能性があります。情報を確認しやすい対象だけが上位に並ばないかが論点です。
 
-検討するのは、protocol evidenceの確認度、主要機能に占める利用深度、technical interest、service利用可否をそれぞれ何の判断に使うか、また一つの推薦順位にまとめるとき何を優先するかです。未確認候補を見せる時点や`draft`等の紹介準備の充足との関係も、利用者がどのような候補を選びたいかに照らして整理します。
+検討するのは、プロトコル利用の根拠の確認度、主要機能に占める利用深度、技術的な学習価値（technical interest）、サービス利用可否をそれぞれ何の判断に使うか、また一つの推薦順位にまとめるとき何を優先するかです。未確認候補を見せる時点や`draft`等の紹介準備の充足との関係も、利用者がどのような候補を選びたいかに照らして整理します。
 
 既存の紹介実績分析やmanual goldから不足を確認し、実際の候補選定とずれる場合に評価規則・閾値の変更を検討します。有用候補の捕捉と不要なreviewの増減を併せて判断し、fieldの改名・追加を先に決めません。未紹介projectを負例にしません。
 
@@ -131,14 +131,14 @@ path名だけで恒久的に分類せず、認証後の利用可能性は匿名b
 
 - OAuth `include:` permission setの再帰解決と循環・取得失敗の記録
 - repo contents、PDS、Bluesky sessionを含むcollectorのbudget / cache policy統一
-- investigation viewerのbounded evidenceで不足する具体例の収集
-- 複数projectを跨ぐ永続circuit breaker
+- 調査履歴画面の根拠表示が、保存上限のために不足する具体例の収集
+- 失敗が続く情報源へのアクセスを一時停止する仕組み（circuit breaker）を、複数プロジェクトの調査をまたいで保持すること
 
 ### 内部構造
 
 #### DID exact lookupのcandidate hydration除去
 
-現在はnormalized indexで候補を絞った後、候補projectだけをhydrateしてnormalized-only candidate DIDを除外します。次を満たした時だけindex-onlyへ変更します。
+現在は正規化した検索用データで候補を絞った後、候補projectの保存データから処理用の形を組み立て直し（hydrate）、検索用データにだけ残る候補DIDを除外します。次を満たした時だけ、検索用データのみで結果を返す方式（index-only）へ変更します。
 
 - normalized-only `developer_did`を有効identifierとして扱うかstale rowとして除去するか決める
 - current payloadから表現できない有効rowを失わない保存形またはrepairを用意する
@@ -147,7 +147,7 @@ path名だけで恒久的に分類せず、認証後の利用可能性は匿名b
 
 #### relation normalizeの性能
 
-最大payload runでrelation normalizeが二乗的に長時間化する経路を再現できた場合、storage cleanupとは分けて改善します。
+保存データ量が最大の調査実行記録で、関係の正規化（relation normalize）がデータ量の二乗に応じて長時間化する経路を再現できた場合、保存データの整理とは別の変更として改善します。
 
 ### 開発文書の用語整理
 
@@ -172,7 +172,7 @@ Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public rec
 
 緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。現在の観測状態は[status](developer/status.md#lexiconの独立観測)、保存・取得上限・publisher検証・periodの数え方は[sidecar catalog仕様](developer/specs/lexicon-publication-catalog.md)を参照してください。
 
-今後は4つの異なる比較可能periodが揃った時、固有候補数、再検証変化、非record表現需要を人が再評価し、registryへ新しいrole/relation表現を設計する、sidecar観測を継続する、presetを停止する、のいずれかを決めます。4期間前でも検証済みpublisherのdelete / identity置換、具体的な非record利用要求があれば前倒しします。判定に使う保存signalは[再評価gate](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補reviewにはしません。
+今後は比較条件を満たした週（valid period）が4週分揃った時、固有候補数、再検証での変化、非record Lexiconを表現する需要を人が再評価し、registryへ新しい役割・関係の表現を設計する、専用DBでの観測を継続する、定期実行設定（preset）を停止する、のいずれかを決めます。4週分が揃う前でも、検証済み公開者による公開記録の削除、公開者DIDの置き換わり、具体的な非record利用要求があれば前倒しします。判定に使う保存signalは[再評価gate](developer/specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補レビューにはしません。
 
 非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。その際はprojectへの一意な帰属、独立project候補、catalogだけの観測を区別してsample reviewします。全publisherの周期verify、自動project作成、identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
 
@@ -186,7 +186,7 @@ operator decisionや人が確認した評価labelを、LLMの出力品質改善�
 
 保存済みの訂正・保留・除外判断と当時のevidenceから、回帰評価用のfixture候補を自動抽出し、人が期待結果を確認してcorpusへ取り込める状態を目指します。学習用dataの蓄積と、heuristicやprompt変更の評価に再利用します。各候補は当時の根拠と判断理由を人が確認して期待結果を定め、現行の[replay・sanitize契約](developer/specs/investigation.md#replay-と-benchmark)へ接続します。抽出commandの設計は未確定です。
 
-同種の誤りが蓄積し、promptやbounded material契約だけでは十分に減らせず、独立した人手確認済みcaseを訓練用と評価用に分けられる量が揃った場合に、次を検討します。
+同種の誤りが蓄積し、プロンプトや解析素材の選択・入力上限の規則だけでは十分に減らせず、独立した人手確認済み事例を訓練用と評価用に分けられる量が揃った場合に、次を検討します。
 
 - category、identifier・relation判定、repository解析、紹介文生成など、入力・出力契約が異なる処理を分けて学習対象と成功条件を定義する
 - 判断時点のevidence、実際のoperator action、対象role、判断理由を対応付け、現在stateから結果だけを逆算したdataや、LLM出力を根拠にした派生fieldを教師へ混ぜない
@@ -194,7 +194,7 @@ operator decisionや人が確認した評価labelを、LLMの出力品質改善�
 - retrieval / few-shot example選択、model別prompt、後段の決定規則を先に比較し、その上でfine-tuning、LoRA、adapter等が固定評価、memory、latency、運用コストで実利を持つか確認する
 - 学習済みmodelの出力も現行のschema・evidence検査とoperator reviewを通し、正本DBへの自動確定は別判断にする
 
-手法を先にLoRAへ固定せず、採用判断と再現可能な評価corpusを作れることを着手条件とします。
+採用判断と再現可能な評価用入力の集合（corpus）を作れることを着手条件とし、上記の比較に基づいて手法を選びます。
 
 ### 編集支援の拡張
 
@@ -209,9 +209,9 @@ operator decisionや人が確認した評価labelを、LLMの出力品質改善�
 ### Web UI
 
 - 日常フローと安全境界だけを案内する短いHelp導線
-- sync / reviewのcheckpoint再開
-- server再起動後のprocess job一覧・event復元
-- bounded evidenceで不足が確認された場合の表示上限調整
+- 外部情報の取り込み・追跡状態レビューを、保存した進行状況（checkpoint）から再開すること
+- サーバー再起動後のバックグラウンドジョブ一覧・進捗eventの復元
+- 保存上限付きの根拠では判断材料が不足すると確認された場合の表示上限調整
 - 同じ識別子の一つのroleを否定する操作で、残したい別roleまで失わないためのrole単位identifier decision。別々に採否判断したい実例がある場合に、操作の説明・表示で足りるか、保存契約を変える必要があるか検討する
 - 詳細の前後移動とtab jumpに限ったkeyboard shortcut
 - read-onlyのrelation / ownership graph

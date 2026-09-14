@@ -12,7 +12,7 @@
 - 多くのコマンドはstdoutへJSONを出す。`show`と`explain`はtext/JSON、`enrich`はJSON Lines。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
-通常のregistry操作は`data/survey.db`を使います。例外として`init-db`と、read-onlyの開発補助`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は`--db-path`を取ります。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
+通常の登録・調査操作は`data/survey.db`を使います。`init-db`と一部の開発補助コマンドは`--db-path`で対象DBを指定できます。たとえば`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は指定DBを読み取り専用で参照します。各コマンドの引数は`--help`で確認してください。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -40,30 +40,24 @@
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `init-db` | `--db-path`。既定は`data/survey.db` | 作成したschema情報のJSON | 新規DBを作成。既存DBのmigrationや上書きはしない |
-| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと投影したroleのJSON | 常時書き込み。NSID/service/repositoryは対応roleへconfirmed保存し、採用判断を記録 |
+| `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと入力から決めた役割（`role`）のJSON | 常時書き込み。NSID・サービス・リポジトリを対応する役割で採用済み（`confirmed`）として保存し、採用判断を記録 |
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
-| `validate-app-record-export` | schema v3 DBと`--output` | `community.lexicon.app.entry`向けreadiness report | DBはread-only。指定JSONだけを書き込み |
-| `export-app-records` | schema v3 DB、publication manifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
+| `validate-app-record-export` | schema v3 DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
+| `export-app-records` | schema v3 DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
 
-`show --seed`は登録済みのシード値から登録プロジェクトを解決します。シードをプロジェクトキーとして解釈しません。曖昧なURLは`--type`を指定してください。
+`show --seed`は登録済みのシード値から登録プロジェクトを解決します。プロジェクトキーから調べる場合は`--project-key`、シードのURLが曖昧な場合は`--type`を指定してください。
 
-`add-seed`へ渡したサービスURLはパスを保持します。同じシードを同じ登録プロジェクトへ再適用してもよく、旧データに不足するconfirmed service/repository roleを補えます。operatorが明示したservice URLには、`/about`、`/docs`、`/login`などのpath名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除しますが、親URLに対するguardは他候補向けに残します。
+`add-seed`へ渡したサービスURLはパスを保持します。同じシードを同じ登録プロジェクトへ再適用してもよく、旧データに不足する採用済みサービス・リポジトリの役割を補えます。利用者が明示したサービスURLは、`/about`、`/docs`、`/login`などのパス名だけを理由に補助ページ扱いにしません。同じURLの除外・保留は最新の明示登録で解除しますが、親URLに対する再付着防止・保留の判断は他候補向けに残します。
 
 `explain`のtopicは`all`、`service_status`、`ownership`、`contribution`、`merge_candidate`、`trust`です。保存済み状態と共通評価処理だけを使い、ネットワークやLLMを呼びません。
 
-`validate-app-record-export`は紹介用profile、canonical scalar、confirmedなcurrent identifier/resourceから
-公開候補を作り、その他の候補を診断用の除外入力として残します。projectごとにrequired/optionalの不足、
-根拠不足、変換不能、仕様未確定、公開scopeを分け、`createdAt`をpublication contextとして報告します。
-通常は`.tmp/`へ出力してください。詳細は
-[App Record Export](../developer/specs/app-record-export.md)を参照してください。
+`validate-app-record-export`は紹介用プロフィール、代表値として保存した項目、現行かつ採用済みの識別子・リソースから公開候補を作り、その他の候補を診断用の除外入力として残します。登録プロジェクトごとに必須・任意項目の不足、根拠不足、変換不能、仕様未確定、公開対象としての適否を分け、公開用の作成日時である`createdAt`の指定も案内します。通常は`.tmp/`へ出力してください。詳細は[App Record Export](../developer/specs/app-record-export.md)を参照してください。
 
-`export-app-records`は公開対象のproject keyとUTCの`createdAt`をmanifestで明示します。categoryや追跡状態から
-自動選択しません。`scope_uncertain`はmanifestの別allowlistへ同じkeyを重ねて指定した場合だけ許可し、required
-field不足、変換不能、`not_applicable`は許可しません。1件でも不適格なら出力しません。
-`records`は要素ごとのproject keyやcollection wrapperを持たない裸のrecord配列です。targetは
-`community.lexicon.app.entry`固定のため、成果物のtarget metadataやtarget指定optionもありません。
+`export-app-records`は、manifestに明示したプロジェクトキーを公開対象とし、UTCの`createdAt`もmanifestから使います。公開対象としての適否が未確定な`scope_uncertain`は、manifestの別の許可リストへ同じキーを重ねて指定した場合だけ許可します。必須項目の不足、変換不能、`not_applicable`は許可せず、1件でも不適格なら出力しません。
+
+出力形式は`community.lexicon.app.entry`に固定されています。`records`配列の各要素にはrecord本体だけを入れます。
 
 ```bash
 project-registry export-app-records \
@@ -88,8 +82,7 @@ project-registry enrich --all --resume-run weekly-20260714
 
 既定対象外の追跡状態は`--include-*`、明示列挙は`--tracking-states`、全状態は`--all-tracking-states`で含めます。
 
-`--llm-max-output-tokens`は、1回のplanning、confirmed repository解析、triageの各LLM requestに同じ最大出力token数を指定します。
-省略時はendpoint側の設定を使います。model比較では、固定corpus評価と通常`enrich`で同じ値を明示してください。
+`--llm-max-output-tokens`は、調査計画の補助（planning）、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
 
 ## 要レビュー一覧と紹介候補一覧
 
@@ -110,7 +103,7 @@ project-registry enrich --all --resume-run weekly-20260714
 | kind | 意味 |
 | --- | --- |
 | `service_candidate_needs_confirmation` | サービス候補はあるが、confirmed serviceとして未採用。Websiteの有無とは独立。 |
-| `candidate_repo_needs_confirmation` | リポジトリ候補はあるが、source codeとして未採用。 |
+| `candidate_repo_needs_confirmation` | リポジトリ候補はあるが、ソースコードを保持するリポジトリとして未採用。 |
 | `llm_manual_review_recommended` | LLM評価が、利用者による確認が必要な具体的な種類と理由を返した。 |
 | `service_now_usable_but_needs_editorial_review` | サービスは利用可能だが、summary/tagline/category等が不足。 |
 | `more_evidence_than_current_classification` | 識別子候補やNSIDが増え、現在の分類より根拠が多い。 |
@@ -125,10 +118,10 @@ project-registry enrich --all --resume-run weekly-20260714
 
 | kind | 意味 |
 | --- | --- |
-| `service_surface_confirmed` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`、confidenceがmedium以上で、login、app shell、browser到達などのservice surfaceを確認済み。紹介確定を意味しない。 |
+| `service_surface_confirmed` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`、確度（`confidence`）が`medium`以上で、ログイン画面やアプリ画面の枠組み（app shell）、ブラウザーでの到達などサービスを利用する画面を確認済み。紹介可否は利用者が判断する。 |
 | `service_candidate_needs_validation` | service URLと稼働statusの候補はあるが、confidenceが低いか稼働面が未確認。上記より低い優先度で残す。 |
 | `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
-| `technical_insight_candidate` | 実用性とは別に、設計・相互運用・参照実装として特に見る価値がある。 |
+| `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
 
 `category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後に自動で一覧へ戻り、履歴は残ります。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。
 
@@ -150,11 +143,9 @@ project-registry enrich --all --resume-run weekly-20260714
 
 `--create-unmatched`は未知のシードから登録プロジェクトを作るかを制御します。GitHub、collection一覧、Semble、Tangledは既定onです。詳細な検索条件やURLの一時上書きはCLIで行い、Web UIは設定済みの外部情報源だけを実行します。
 
-Tangled syncにはNode.js 22.15以上、`npm install`で導入する公式`@bsky/jetstream` SDK、
-`ATPROTO_SURVEY_JETSTREAM_API_KEY`が必要です。API keyは環境変数からだけ読み、設定、結果、watermarkへ保存しません。
-`--all-history`はJetstream archiveの先頭から開始し、通常実行は保存済みsequenceから再開します。項目上限で途中終了した
-executeは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。設定上の通常上限は1,000 eventで、
-初回archiveも複数runに分けて進めます。
+Tangledの取り込みにはNode.js 22.15以上、`npm install`で導入する公式`@bsky/jetstream` SDK、`ATPROTO_SURVEY_JETSTREAM_API_KEY`が必要です。APIキーは環境変数からだけ読み、設定、結果、取り込み済みの境界（watermark）へ保存しません。
+
+`--all-history`はJetstream archiveの先頭から開始し、通常実行は保存済みの処理位置（sequence）から再開します。項目上限で途中終了したexecuteは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。設定上の通常上限は1,000イベントで、初回archiveも複数回の取り込み実行に分けて進めます。
 
 外部情報源の有効・無効、既定URL・検索条件、対象範囲、リクエスト上限は`config/sources.json`から読み、CLIオプションはその実行だけ上書きします。無効な情報源はネットワークリクエスト前に拒否されます。照合・分類方針は設定ファイルでは変更できません。
 
@@ -185,46 +176,39 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 
 | コマンド | 確認・変更対象 | 出力 | 副作用 |
 | --- | --- | --- | --- |
-| `audit-url-fields` | URL field利用数と保存invariant違反 | anomalyと例のJSON | なし |
+| `audit-url-fields` | URL項目の利用数と、保存時に満たすべき整合性条件への違反 | 問題と例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
 | `migrate-repository-trust` | 旧ページ・repository信頼根拠の退避計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json> --archive <退避.json>`で旧根拠全体を退避 |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
 | `cleanup-workspace-temp` | `.tmp`内の古いSQLite複製とWAL/SHM | 削除候補、容量、保持件数のJSON | `--execute` |
-| `compress-investigation-history` | 調査履歴JSONのdecode検査と圧縮投影 | 論理bytes・保存bytes・decode failureのJSON | `--execute`、任意の`--vacuum` |
+| `compress-investigation-history` | 調査履歴JSONを読み出せるかの検査と圧縮時の容量見積もり | 圧縮前後のバイト数・読み出し失敗のJSON | `--execute`、任意の`--vacuum` |
 | `prune-investigation-history` | 保持期間外の調査実行記録。ただし登録プロジェクトごとの最新件数を保持 | 削除候補のJSON | `--execute`、任意の`--vacuum` |
-| `audit-source-config` | 独自multi-tenant suffixと既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
+| `audit-source-config` | 複数利用者が使うホストの独自接尾辞と、既存登録プロジェクトの分割候補 | JSONまたは対話候補 | 既定interactive。確認/`--execute`で設定・状態を書き込み。分割は自動適用しない |
 
 正本DBを変更する保守系コマンドはbackupを作り、Web UI、worker、`enrich`、別のCLIを止めてからdry-runとexecuteを分けて実行してください。`--vacuum`は書き込みtransaction後の別処理で、失敗しても先行する書き換えや削除はrollbackされません。
 
-`migrate-repository-trust`は旧根拠を分類した計画を出力します。`--execute-plan`と`--archive`を併用すると、
-旧根拠全体を退避し、現在の保存graphから除去します。過去の判断・理由・入力pairも退避ファイルへ残しますが、
-現役の関係として復元はしません。現在の判定は既存の関係から導出しているため、この退避で判定は変わりません。
+`migrate-repository-trust`は旧根拠を分類した計画を出力します。`--execute-plan`と`--archive`を併用すると、旧根拠全体を退避し、現在保存している信頼グラフから除去します。過去の判断・理由・入力したページとリポジトリの組も退避ファイルへ残しますが、現役の関係として復元はしません。現在の判定は既存の関係から導出しているため、この退避で判定は変わりません。
 
-退避先は`data/migration-archives/`など永続保存する場所を選び、既存ファイルやDB・計画・結果の出力先とは
-別のパスを指定します。元データの保存を確認してからDB側を除去し、既存の退避ファイルは上書きしません。
-失敗時に退避ファイルだけが残る場合があるため、ファイルの存在だけで完了と判断しないでください。
-退避後は新しい計画を生成し、旧根拠が残っていないことを確認します。
+退避先は`data/migration-archives/`など永続保存する場所を選び、既存ファイルやDB・計画・結果の出力先とは別のパスを指定します。元データの保存を確認してからDB側を除去し、既存の退避ファイルは上書きしません。失敗時に退避ファイルだけが残る場合があるため、退避後は新しい計画を生成し、旧根拠がDBに残っていないことまで確認します。
 
-`cleanup-workspace-temp`は正本DBを開かず、workspaceの`.tmp`だけを再帰的に調べます。既定では各SQLite本体とsidecar一式のうち最新更新から24時間以上経過したものをdry-run表示し、`--execute`で削除します。sidecarの一つでも新しければ同じDB一式を保持し、JSON、ログ、review文書、symlinkは対象にしません。作業終了直後の複製も削除する場合は、他processが使用していないことを確認して`--older-than-hours 0 --execute`を使います。全unit testのwrapperは`.tmp`が5GiBを超えるとこのコマンドを案内します。
+`cleanup-workspace-temp`は正本DBを開かず、ワークスペースの`.tmp`だけを再帰的に調べます。既定では各SQLite本体と付随するWAL/SHMファイル一式のうち最新更新から24時間以上経過したものをdry-run表示し、`--execute`で削除します。付随ファイルの一つでも新しければ同じDB一式を保持し、JSON、ログ、レビュー文書、シンボリックリンクは対象にしません。作業終了直後の複製も削除する場合は、他プロセスが使用していないことを確認して`--older-than-hours 0 --execute`を使います。全unit testの起動スクリプトは`.tmp`が5GiBを超えるとこのコマンドを案内します。
 
-`compress-investigation-history`はdry-runでも全履歴JSONをdecodeしてJSONとして検証します。decode failureが1件でも
-ある場合は`--execute`を拒否します。圧縮後の内容確認にはInvestigation viewer、replay、exportを使い、SQLiteの
-JSON functionで4つのhistory列を直接検索しません。
+`compress-investigation-history`はdry-runでも全履歴JSONを読み出してJSONとして検証します。読み出し失敗が1件でもある場合は`--execute`を拒否します。圧縮後の内容確認には調査履歴画面、`replay-investigation`、`export-investigation-fixture`を使います。圧縮した履歴はSQLiteのJSON関数で直接検索できません。
 
-`repair-trust-graph --execute`は通常trust edge/evaluationだけを保存します。採用済み（`confirmed`）識別子の降格には`--downgrade-unsupported`も必要です。
+`repair-trust-graph --execute`は通常、信頼グラフの接続と評価結果だけを保存します。採用済み（`confirmed`）識別子の降格には`--downgrade-unsupported`も必要です。
 
-`audit-source-config`は既定interactiveです。suffix追加を確認した後、保存済みcurrent service probeを新policyで再評価し、split候補を表示します。選んだtenant groupだけを分割します。`--no-interactive`はJSON dry-run、`--execute --no-interactive`はsuffixとcurrent stateを更新しますがsplitは適用しません。
+`audit-source-config`は既定で対話操作を行います。接尾辞の追加を確認した後、現在保存しているサービスの観測結果を新しいドメイン規則で再評価し、分割候補を表示します。ホストの利用者単位にまとめた候補群から、選んだ群だけを分割します。`--no-interactive`はJSONでの候補確認、`--execute --no-interactive`は接尾辞と現在状態の更新を行いますが、分割は適用しません。
 
 ## 調査・開発補助
 
-これらは日常の登録や候補整理には通常不要で、収集処理や評価処理の回帰確認に使います。
+これらのコマンドは、収集処理や評価処理を変更した際の比較・検証に使います。再利用する固定入力の集合をcorpus、再現用に固定したテストデータをfixtureと呼びます。DBへ適用せず新旧規則を比較する経路をshadowと呼びます。
 
 | コマンド | 入力と出力 | 副作用 |
 | --- | --- | --- |
 | `replay-investigation` | 調査実行記録IDまたは登録プロジェクトの最新記録を読み、保存済みの根拠を現行規則で再評価してJSON出力 | なし。ネットワークや収集処理も使わない |
-| `benchmark-investigation` | fixture corpus pathを読み、semantic regressionをJSON出力 | なし |
+| `benchmark-investigation` | 固定したテスト事例の集合を指定パスから読み、再評価結果と期待結果の差をJSON出力 | なし |
 | `export-investigation-fixture` | 保存済み調査実行記録をsanitizationし、stdoutまたは`--output`へ出力 | DB変更なし。`--output`はファイル書き込み |
 | `export-llm-evaluation-corpus` | 指定DBの保存済みLLM evidenceから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
 | `evaluate-llm-corpus` | 固定corpus、任意の`--labels`、LLM接続設定、繰り返し回数、最大出力token数を受け、構造化reportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
@@ -233,43 +217,41 @@ JSON functionで4つのhistory列を直接検索しません。
 | `evaluate-repository-analysis-corpus` | 固定repository materialを一つのmodel構成で解析し、保存前検査を含むreportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-repository-analysis-reports` | 同じrepository caseとrepeatのbaseline/candidate reportを比較 | DB・LLM接続なし。指定ファイルへ書き込み |
 | `export-relation-assessment-corpus` | 指定DBから現在`ASSESS`対象となる方向付きrelationと保存済み限定根拠を固定corpusへ抽出 | DBはread-only。指定ファイルへ書き込み |
-| `export-recollection-relation-assessment-corpus` | bounded再収集reportのreview claimをpage帰属とrelation意味判定へ分け、exactなconfirmed component由来のcaseだけを固定corpusへ抽出 | DB変更なし。指定ファイルへ書き込み |
-| `evaluate-relation-assessment-corpus` | 一つの方向付き`project_repository`提案と限定材料からなる固定corpusを評価する。`--support-evidence-mode both_endpoints|direct_any`で両endpoint参照と、一方の直接的根拠を許容する条件を比較し、期待値・旧判断との一致を`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
+| `export-recollection-relation-assessment-corpus` | 取得範囲を限定した再収集reportの要確認事項を、ページの帰属と関係の意味判定へ分け、URLが採用済み構成要素と完全一致する事例だけを固定corpusへ抽出 | DB変更なし。指定ファイルへ書き込み |
+| `evaluate-relation-assessment-corpus` | 一つの方向付き`project_repository`提案と限定材料からなる固定corpusを評価する。`--support-evidence-mode both_endpoints\|direct_any`で関係の両側への参照を必要とする条件と、一方の直接的根拠を許容する条件を比較し、期待値・旧判断との一致を`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-trust-policy` | 指定DBのidentifier、relation、判断履歴を現行v1とrole付きshadow policyで比較し、`--output`へ構造化reportを出力 | DBはread-only。指定ファイルへ書き込み |
-| `compare-merge-policy` | 指定DBの現行マージ候補と、role・直接relation・hard guardを分けたshadow policyを比較し、`--output`へ構造化reportを出力。DBと同じcheckoutの`config/domain-overrides.json`を自動検出し、別配置なら`--domain-overrides`で指定する | DBはread-only。指定ファイルへ書き込み |
+| `compare-merge-policy` | 指定DBの現行マージ候補と、役割・直接的な関係・マージを禁止する条件を分けた比較用規則を照合し、`--output`へ構造化reportを出力。DBと同じcheckoutの`config/domain-overrides.json`を自動検出し、別配置なら`--domain-overrides`で指定する | DBはread-only。指定ファイルへ書き込み |
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |
-| `verify-service` | 登録プロジェクトまたはシード、任意URL、`static|deep|browser` lane | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
+| `verify-service` | 登録プロジェクトまたはシード、任意URL、調査方法（`static\|deep\|browser`） | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 
-exportのsanitizationは機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
+書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
 
-LLM評価corpusも保存済みevidence、実プロジェクトキー、公開identifier、自由記述を含みます。通常は`.tmp/`へ
-出力し、そのままcommitしません。`reference_output`は保存済みmodel出力との比較用で、正解labelではありません。
-`evaluate-llm-corpus`はJSON/schema、evidence外identifier、`library`とsummaryの役割不整合、日英混在文の空白警告、保存済み出力との差、
-latencyを記録します。`--labels`を指定するとevidence hashを照合してexpected outputとの差とcategory一致数も記録します。
-期待categoryを人が確認したlabelは、そのcaseをprompt調整に使ったかを`used_for_prompt_adjustment`で明示します。reportは調整に使ったcaseと使っていないcaseを別集計します。
-`--prompt-suffix-file`は評価時だけ追加指示を末尾へ付け、`--prompt-variant`と内容hashをreportへ記録します。
-corpusは保存済みprofileをevidenceと分けて保持します。`--current-profile-mode without`では渡さず新規project相当、
-`with`では渡して既存profile更新相当として実行し、条件をreportへ記録します。既定は`without`です。
-`--repeat 2`以上では、同じ入力のcategory、identifier、summary等が実行ごとに変わったcaseをreportへ記録します。
+LLM評価corpusも保存済みの根拠、実プロジェクトキー、公開識別子、自由記述を含みます。通常は`.tmp/`へ出力し、commit前に人が確認します。`reference_output`は保存済みモデル出力との比較用で、正解labelではありません。
 
-`--llm-reasoning-effort`はruntimeへの要求値です。要求しただけでは適用済みと扱いません。runtime logまたはmodel設定で確認した結果を
-`--reasoning-observation applied|ignored|not_checked`へ、短い根拠を`--reasoning-observation-note`へ指定します。
-`applied`または`ignored`ではnoteが必須です。
-endpoint responseは通常、実際に適用したreasoning設定を返さないため、各resultのmetadataだけから適用済みとは判断できません。
+`evaluate-llm-corpus`はJSON/schema、根拠にない識別子、`library`と紹介文の役割不整合、日英混在文の空白警告、保存済み出力との差、応答時間を記録します。`--labels`を指定すると根拠のハッシュ値を照合して期待結果との差とcategory一致数も記録します。
 
-`compare-llm-evaluation-reports`はcorpus hash、case/repeat集合、成功、schema、evidence外identifier、prompt調整に使っていない、期待categoryを人が確認したcaseの
-category結果を比較します。これは通常運用モデルの自動選定commandではありません。文章の人間確認、複製DBで両modelを別々にenrichした結果の比較、少数projectでの試用など、
-reportだけでは完了しない確認を`remaining_checks`へ残します。
-peak memory、swap、prefill/decode内訳の自動取得は未接続です。
+期待categoryを人が確認したlabelは、その事例をプロンプト調整に使ったかを`used_for_prompt_adjustment`で明示します。reportは調整に使った事例と使っていない事例を別集計します。
 
-repository analysis用corpusは、保存済みrunからrevisionへ固定したmaterialを取り出します。実行reportはJSON/schema、
-summaryと各claimの根拠位置、materialに存在しないNSID、保存前の正規化結果、所要時間を記録します。summary、capability、observationの
-内容と、解析結果を受けた後段triageは人が別に確認します。triage用のmodel別suffixはこの解析には適用しません。
-後段を確認する場合は、`evaluate-llm-corpus --repository-analysis-report REPORT`で、正規化済み解析結果を同じprojectの
-固定triage caseへ一時的に追加します。正本DBと元corpusは変更しません。
+`--prompt-suffix-file`は評価時だけ追加指示を末尾へ付け、`--prompt-variant`と内容のハッシュ値をreportへ記録します。
 
-`verify-service`の`static`はtop page、`deep`は同一siteの追加pageを確認します。`browser`はJavaScript描画後の匿名画面を開き、表示中のmenuを展開した事実、auth linkを辿った事実、passwordまたはhandle/email入力を持つform、OAuth入口、公開content itemを伴う作成action、描画後network/console errorを別々に記録します。linkや作成CTAだけではservice surface確認済みにしません。認証actionの実行、認証入力、form送信、登録、投稿は行いません。browser laneにはPlaywrightの任意依存が必要です。
+corpusは保存済みプロフィールを根拠と分けて保持します。`--current-profile-mode without`ではプロフィールを渡さず新規登録プロジェクト相当、`with`では渡して既存プロフィール更新相当として実行し、条件をreportへ記録します。既定は`without`です。
+
+`--repeat 2`以上では、同じ入力に対する分類、識別子、紹介文等が実行ごとに変わった事例をreportへ記録します。
+
+`--llm-reasoning-effort`はモデル実行環境への要求値です。適用の有無は実行環境のログまたはモデル設定で確認し、結果を`--reasoning-observation applied|ignored|not_checked`へ、短い根拠を`--reasoning-observation-note`へ指定します。`applied`または`ignored`ではnoteが必須です。接続先の応答は通常、実際に適用したreasoning設定を返さないため、各結果のmetadataだけから適用済みとは判断できません。
+
+`compare-llm-evaluation-reports`は入力集合のハッシュ値、事例と反復回の集合、成功、schema、根拠にない識別子を比較します。categoryの比較には、プロンプト調整に使っておらず、人が期待categoryを確認した事例を使います。結果は通常運用モデルを選ぶための判断材料です。文章の人間確認、複製DBで両モデルを別々に`enrich`した結果の比較、少数プロジェクトでの試用など、reportだけでは完了しない確認を`remaining_checks`へ残します。
+
+メモリ使用量の最大値、swap、入力処理（prefill）・出力生成（decode）の時間内訳の自動取得は未接続です。
+
+リポジトリ解析用corpusは、保存済み調査実行記録から特定のrevisionに固定した解析素材を取り出します。実行reportはJSON/schema、解析要約と各事実記述（claim）の根拠位置、素材に存在しないNSID、保存前の正規化結果、所要時間を記録します。要約・機能・観測の内容と、解析結果を受けた後段triageは人が別に確認します。triage用のモデル別追加規則はこの解析には適用しません。
+
+後段を確認する場合は、`evaluate-llm-corpus --repository-analysis-report REPORT`で、正規化済み解析結果を同じ登録プロジェクトの固定triage事例へ一時的に追加します。正本DBと元corpusは変更しません。
+
+`verify-service`の`static`はトップページ、`deep`は同一サイトの追加ページを確認します。`browser`はJavaScript描画後の匿名画面を開きます。メニューを展開した事実、認証ページへのリンクを辿った事実、パスワードまたはhandle/email入力を持つフォーム、OAuthの入口、公開コンテンツと作成操作が併存する画面、描画後のネットワーク・コンソールエラーを別々に記録します。
+
+リンクや作成を促すボタンだけでは、サービスを利用する画面の確認済み判定にはしません。認証の実行、認証入力、フォーム送信、登録、投稿は行いません。`browser`を使う場合はPlaywrightとブラウザーの導入が必要です。
 
 ## 現在の整理対象
 
-CLIはWeb UIより低水準な操作や開発補助も公開しています。機能削減の検討中も、削除が確定して実装から外れるまでは、この文書と`--help`で現行の入出力を説明します。削除候補を通常フローへ積極的に案内する意図はありません。
+CLIはWeb UIより低水準な操作や開発補助も公開しています。機能削減の検討中も、削除が確定して実装から外れるまでは、この文書と`--help`で現行の入出力を説明します。日常の操作は[利用ガイドの日常フロー](guide.md#日常フロー)から選んでください。

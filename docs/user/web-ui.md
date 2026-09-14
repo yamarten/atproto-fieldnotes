@@ -11,7 +11,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 
 | オプション | 意味 |
 | --- | --- |
-| `--host` | bind先。既定はloopback。 |
+| `--host` | 接続を待ち受けるアドレス。既定は同じ端末からだけ接続できるループバックアドレス。 |
 | `--port` | ポート。既定は`8765`。 |
 | `--db-path` | 接続するschema v3 SQLite DB。既定は`data/survey.db`。 |
 | `--token` | API共有token。`ATPROTO_SURVEY_WEB_TOKEN`でも指定できる。 |
@@ -63,23 +63,23 @@ LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリ�
 
 `Add seed`はNSID、リポジトリURL、サービスURLをプレビューしてから登録します。自動判定を上書きする場合は`repo_url: https://forge.example/dev/app`のように入力します。既存の登録プロジェクトの詳細画面から追加した値は、その登録プロジェクトの所有NSID、サービス、ソースリポジトリとして採用され、採用判断と入力元を別々に保存します。同じ値を再適用して旧データの不足を補えます。
 
-サービスURLのパスは保持します。`https://example.com/tool-a`と`https://example.com/tool-b`を別プロジェクトの入口として登録できます。operatorが明示したservice URLには、path名による補助ページ判定を適用しません。同じURLのblock/deferは最新の明示登録で解除し、親URLに対するguardは残します。
+サービスURLのパスは保持します。`https://example.com/tool-a`と`https://example.com/tool-b`を別プロジェクトの入口として登録できます。利用者が明示したサービスURLは、パス名だけを理由に補助ページ扱いにしません。同じURLの除外・保留は最新の明示登録で解除し、親URLに対する再付着防止・保留の判断は残します。
 
 フィルターで次を絞り込めます。
 
 - 追跡状態、サービス状態、atprotoへの寄与度、notes・introduced・候補・エラーの有無
-- 識別子の種類、値、分類
-- 関係の種類、subject/objectの種類と値、情報源
+- 識別子の種類、値、採用状態（`classification`）
+- 関係の種類、関係元（`subject`）と関係先（`object`）の種類と値、情報源
 - 手動判断の種類、対象の種類・値、有効・期限切れ・解除済み
 
-追跡状態、サービス状態、atprotoへの寄与度は複数選択です。種類、分類、関係、subject/objectの種類、手動判断・対象の種類は選択肢から指定します。識別子・関係・手動判断の値は部分一致、関係の情報源は候補付き完全一致です。`Notes`の有無はprofileの利用者向け`notes`だけを対象とし、手動判断に付けた理由メモや`system_notes`は含みません。未選択のフィルターは絞り込みません。
+追跡状態、サービス状態、atprotoへの寄与度は複数選択です。識別子の種類・採用状態、関係の種類、関係元・関係先の種類、手動判断・対象の種類は選択肢から指定します。識別子・関係・手動判断の値は部分一致、関係の情報源は候補付き完全一致です。`Notes`の有無はプロフィールの利用者向け`notes`だけを対象とし、手動判断に付けた理由メモや`system_notes`は含みません。未選択のフィルターは絞り込みません。
 
 登録プロジェクトの詳細画面は次のタブに分かれます。
 
 | タブ | 表示内容 |
 | --- | --- |
-| `Overview` | profile、代表websiteとconfirmed service一覧、用途別のLinks / Resources、サービス・所有関係、保存済み結論のExplain、マージ候補、notes |
-| `Identifiers` | 分類とrole付きの識別子、候補への操作 |
+| `Overview` | プロフィール、代表Websiteと採用済みサービス一覧、用途別の`Links / Resources`、サービス・所有関係、保存済み結論の理由を示す`Explain`、マージ候補、メモ |
+| `Identifiers` | 採用状態と役割（`role`）付きの識別子、候補への操作 |
 | `Relations` | 種類付きの関係根拠、除外・保留操作 |
 | `Investigation` | 最新の調査実行記録、収集結果・失敗、履歴、保存済みの根拠、再評価 |
 | `Decisions` | 有効な制御と手動判断の履歴 |
@@ -87,7 +87,7 @@ LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリ�
 
 `Overview`のExplainは保存済み状態を表示し、ネットワークやLLMを使いません。全登録プロジェクトとの比較が必要なマージ候補は詳細本体の後に別リクエストで計算し、DBへ保存しません。保存データがない項目は`not_observed`であり、否定結果ではありません。
 
-`Identifiers`に表示するDIDとhandleは、`https://pds.ls/at://...`形式のアカウント参照へリンクします。表示中の識別子自体は変更しません。
+`Identifiers`に表示するDIDとhandleは、`https://pds.ls/at://...`形式のアカウント参照へリンクします。
 
 `Links / Resources`は、利用・インストール先、プロジェクト情報、補足情報、その他の順にまとめます。App Store、Google Play、F-Droid、配布ページは利用先として先に表示し、changelogやWeb Manifestは補足情報として分けます。未知のroleも削除せず`Other`に表示します。
 
@@ -100,9 +100,7 @@ LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリ�
 
 変更は確認後にSQLiteへ保存します。profile編集はプレビュー後に登録プロジェクトが別プロセスで変わっていた場合、保存を拒否して再読込を促します。`system_notes`は機械生成履歴で、profile編集の対象ではありません。Overviewでは件数だけを表示し、履歴は必要な時に展開できます。
 
-`Overview`のService / Ownershipでは、保存済みのconfirmed/candidate service URLを選び、匿名browser確認を
-background jobとして開始できます。任意URL、認証情報、form入力は受け付けません。実行結果は確認後にSQLiteへ保存され、
-service statusと根拠へ再投影されます。Playwright browser依存が必要です。
+`Overview`の`Service / Ownership`では、保存済みの採用済み・候補（`confirmed` / `candidate`）サービスURLを選び、匿名ブラウザー確認をバックグラウンドジョブとして開始できます。任意URL、認証情報、フォーム入力は受け付けません。実行結果は確認後にSQLiteへ保存され、サービス状態と根拠へ反映されます。実行にはPlaywrightとブラウザーの導入が必要です。
 
 識別子の再付着防止・保留・分割は、同じ値のrole単位ではなく、画面に示す識別子全体へ作用します。保留解除は自動採用ではありません。
 
@@ -116,13 +114,13 @@ service statusと根拠へ再投影されます。Playwright browser依存が必
 
 マージ候補の比較では、マージ元からマージ先へまとめる向きで、両方の登録プロジェクトのprofile、状態、シード、識別子、候補となった理由、マージ結果のプレビューを比較します。マージ先のプロジェクトIDと同優先度の値が残るため、`Reverse source and target`で向きを入れ替えてプレビューできます。`Keep separate`は2件を別の登録プロジェクトとして扱う手動判断を保存します。`Merge projects`は確認後にマージします。統合後の登録プロジェクトに別のマージ候補が残る場合は、一覧全体を再計算せず、その次候補の比較へ進みます。候補一覧にない組み合わせもプロジェクトキーを直接指定して比較できます。
 
-PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾辞候補を表示し、その場で`domain-overrides.json`へ追加できます。接尾辞の追加は今後のドメイン判定を変えるため、プレビュー内容を確認してください。
+複数利用者が使うホスティングサービスの接尾辞がPublic Suffix List（PSL）にないためにマージ候補になったと考えられる組み合わせでは、接尾辞候補を表示し、その場で`domain-overrides.json`へ追加できます。接尾辞の追加は今後のドメイン判定を変えるため、プレビュー内容を確認してください。
 
 ## Operations
 
 バックグラウンドジョブはWebサーバーとは別プロセスで動き、同じWebサーバーでは同時に1件だけ実行できます。CLIなど別プロセスとの排他は行いません。
-総件数が分かるジョブは進捗を`現在 / 総件数`で表示します。総件数が事前に分からないintroduced情報の取り込みは、
-取得済みpage数だけを表示し、paginationの安全上限を総件数として表示しません。
+
+総件数が分かるジョブは進捗を`現在 / 総件数`で表示します。総件数が事前に分からない紹介済み投稿（introduced情報）の取り込みは、取得済みページ数を表示します。
 
 ### Enrich
 
@@ -132,9 +130,7 @@ PSLにないmulti-tenant suffixが原因らしい組み合わせでは、接尾�
 
 設定済みのintroduced、GitHub、collection一覧、Semble、Tangledから外部情報を取り込みます。任意の検索条件やURLはCLIで指定します。dry-runでは取り込み候補を確認でき、外部ネットワークへ接続しますがSQLiteは更新しません。停止要求は現在の情報源のページ・項目境界で反映され、チェックポイントからの再開はありません。
 
-TangledはJetstream v2 snapshotを使います。Web server環境に`ATPROTO_SURVEY_JETSTREAM_API_KEY`とNode.js 22.15以上、
-workspaceに`npm install`済みの公式SDKが必要です。API keyはUI、job設定、結果へ保存しません。通常は1回1,000 eventを
-上限として、途中終了時のsequenceから次回runを再開します。
+TangledはJetstream v2 snapshotを使います。Webサーバー環境に`ATPROTO_SURVEY_JETSTREAM_API_KEY`とNode.js 22.15以上、ワークスペースに`npm install`済みの公式SDKが必要です。APIキーはUI、ジョブ設定、結果へ保存しません。通常は1回1,000イベントを上限として、途中終了時の処理位置（sequence）から次回の取り込みを再開します。
 
 ### Review Ops
 

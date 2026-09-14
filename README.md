@@ -25,7 +25,7 @@ export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
 project-registry-web --host 127.0.0.1 --port 8765
 ```
 
-macOSでログイン時に自動起動する場合は、`.envrc`からtoken等を読み込むLaunchAgentを導入できます。LaunchAgentは実運用向けに`0.0.0.0:8888`へbindし、同じMacからは`http://127.0.0.1:8888/`で開けます。
+macOSでログイン時に自動起動する場合は、`.envrc`からトークン等を読み込むLaunchAgentを導入できます。LaunchAgentは実運用向けに`0.0.0.0:8888`で接続を待ち受け、同じMacからは`http://127.0.0.1:8888/`で開けます。
 
 ```bash
 chmod 600 .envrc
@@ -58,7 +58,7 @@ project-registry show --seed sh.tangled.repo --type nsid
 bin/project-registry-test
 ```
 
-testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite DBをtemp directoryへ作ります。wrapperは現在のcheckoutの`.venv`を優先し、worktreeではGit共通directoryにある本家checkoutの`.venv`も利用します。
+テストは外部API、正本DB、実LLMの接続先へ接続せず、必要なSQLite DBを一時ディレクトリへ作ります。起動スクリプトは現在のチェックアウトの`.venv`を優先し、worktreeではGit共通ディレクトリにある本家チェックアウトの`.venv`も利用します。
 
 ## 文書
 
@@ -84,8 +84,8 @@ testは外部API、正本DB、実LLM endpointへ接続せず、必要なSQLite D
 
 ## 実装
 
-- [scripts/project_registry_core/](scripts/project_registry_core/): CLIとWebで共有するapplication/core
-- [scripts/project_registry_web/](scripts/project_registry_web/): Web API、worker registry、静的UI
+- [scripts/project_registry_core/](scripts/project_registry_core/): CLIとWebで共有する調査・評価・保存などの処理
+- [scripts/project_registry_web/](scripts/project_registry_web/): Web API、バックグラウンドジョブの管理、静的UI
 - [prompts/project-triage.md](prompts/project-triage.md): LLM調査prompt
 
 調査結果の正本は`data/survey.db`です。現行保存形式はregistry schema version 3で、旧schemaは通常導線の対象外です。

@@ -1,6 +1,6 @@
 # Project Registry 利用ガイド
 
-Project Registryは、atproto関連のプロジェクト、サービス、ライブラリ、lexiconをシードから登録し、調査結果と利用者の判断をSQLiteへ蓄積するローカルツールです。この文書は、最初の準備と日常利用の入口だけを扱います。
+Project Registryは、atproto関連のプロジェクト、サービス、ライブラリ、lexiconをシードから登録し、調査結果と利用者の判断をSQLiteへ蓄積するローカルツールです。この文書は、最初の準備と日常利用の入口を案内します。
 
 - 画面ごとの操作: [Web UIガイド](web-ui.md)
 - 全コマンドの入出力とDB変更: [CLIガイド](cli.md)
@@ -34,7 +34,7 @@ export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
 project-registry init-db
 ```
 
-既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。`init-db`以外のCLIにはDBのパスを切り替えるオプションがなく、正本の`data/survey.db`を使います。別DBをWeb UIで使う場合は次のように準備します。
+既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。通常の登録・調査用CLIは正本の`data/survey.db`を使います。`init-db`と一部の開発補助コマンドは`--db-path`で対象DBを指定できます。各コマンドの引数は`--help`で確認してください。別DBをWeb UIで使う場合は次のように準備します。
 
 ```bash
 project-registry init-db --db-path data/survey.dev.db
@@ -46,17 +46,17 @@ project-registry-web --db-path data/survey.dev.db
 | 用語 | この文書での意味 |
 | --- | --- |
 | 登録プロジェクト | Project Registryが1つの調査対象としてDBに保存する単位。コマンドやJSONでは`project`と表記される。 |
-| シード | 登録プロジェクトを作成・特定する入力。NSID、リポジトリURL、サービスURLを指定できる。識別子のroleではなく、由来は情報源と採用判断へ分けて保存する。 |
+| シード | 登録プロジェクトを作成・特定する入力。NSID、リポジトリURL、サービスURLを指定できる。入力した値の役割、情報源、採用判断はそれぞれ保存する。 |
 | Website | 人が登録プロジェクトを知るための代表的な公式URL。紹介、documentation、native appの配布pageでもよく、Websiteであることだけでは識別子や信頼の起点にならない。 |
 | サービスURL | 登録プロジェクトの機能を実際に提供するURL。Web app、API、PDSなどが該当し、1つの登録プロジェクトに複数あってよい。Websiteと同じURLでも別の責務として扱う。 |
 | `enrich` | 登録プロジェクトを調査し、現在の情報と調査履歴を更新する処理。 |
 | 外部情報の取り込み（`sync`） | 設定済みの外部情報源を走査し、既存の登録プロジェクトとの照合結果や新規登録候補を作る処理。 |
-| 調査実行記録 | 1つの登録プロジェクトに対する`enrich`などの保存済み調査履歴。画面やJSONではinvestigation runまたはrunと表記される。 |
+| 調査実行記録 | 1つの登録プロジェクトに対する`enrich`などの保存済み調査履歴。画面やJSONでは`investigation run`または`run`と表記される。 |
 | 追跡状態 | 継続調査上の扱いを示す状態。コマンドやJSONでは`tracking_state`と表記される。 |
 | 要レビュー一覧 | 人による確認が必要な項目の一覧。CLIでは`review-queue`。 |
 | 紹介候補一覧 | 紹介する候補を選び、優先度や保留を判断する一覧。CLIでは`promotion-queue`。 |
 | 分類 | 主な利用者と利用形態による登録プロジェクトの分類。保存値は`project`、`lexicon`、`library`、`infra_tool`、`personal_tool`、`name_only`、`reject`。詳しい境界は[Project Record Schema](../developer/specs/project-record.md#category)を参照。 |
-| 採用 | 候補の識別子を、その登録プロジェクトに属するものとして利用者が認める操作。保存値は`confirmed`。 |
+| 採用 | 候補の識別子を、その登録プロジェクトに属するものとして利用者が認める操作。保存値は`confirmed`。この値は自動判定による採用にも使われ、利用者の操作は手動判断の記録で確認できる。 |
 | 手動判断 | 採用、除外、保留、別プロジェクト指定など、自動判定より優先される利用者の判断。 |
 | マージ | 重複した2つの登録プロジェクトを1つにまとめる操作。 |
 
@@ -107,7 +107,7 @@ project-registry review-queue
 project-registry add-seed https://example.com --project-key 2f2acb
 ```
 
-シードは対応する所有NSID、サービス、ソースリポジトリとして`confirmed`保存し、採用判断も記録します。NSIDの`owned`はprojectによるcollection所有を表し、単なる利用・言及を表しません。サービスURLはパスを保持するため、複数のツールを異なるパスで公開するサイトも指定できます。明示入力には補助ページ名のheuristicを適用しません。`add-seed`で新規登録するサービスURLは、Websiteが空の場合だけ同じURLを初期値にします。その後の候補採用や収集ではWebsiteを自動設定せず、両者は個別に変更できます。
+シードは対応する所有NSID、サービス、ソースリポジトリとして`confirmed`保存し、採用判断も記録します。NSIDの`owned`は登録プロジェクトによるcollection所有を表し、単なる利用・言及を表しません。サービスURLはパスを保持するため、複数のツールを異なるパスで公開するサイトも指定できます。明示入力では、`/docs`などのページ名だけを理由に補助ページ扱いにしません。`add-seed`で新規登録するサービスURLは、Websiteが空の場合だけ同じURLを初期値にします。その後の候補採用や収集ではWebsiteを自動設定せず、両者は個別に変更できます。
 
 正確な引数は`project-registry COMMAND --help`、出力形式と副作用は[CLIガイド](cli.md)を確認してください。
 
@@ -134,7 +134,7 @@ Project Registryの操作は、次の3点を分けて判断します。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。
 - 一括`enrich`をCtrl+Cで協調停止した場合は、処理中の登録プロジェクトを保存してチェックポイントを更新した後、終了コード`130`で終わる。
 
-スクリプトから使う場合は表示文ではなくJSONと終了コードを確認してください。
+スクリプトから使う場合はJSONと終了コードで結果を判定してください。
 
 ## LLMと外部情報源の設定
 
@@ -157,14 +157,11 @@ export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
 export ATPROTO_SURVEY_LLM_API_STYLE='auto'
 ```
 
-特定のmodel構成だけに追加のtriage規則を適用する場合は、`enrich`へ
-`--llm-triage-prompt-suffix-file PATH`を指定するか、定期jobを含む既定値として
-`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`へPATHを設定します。これは共通promptの末尾へUTF-8文書を追加する設定で、
-CLI指定は環境変数より優先します。使用した本文のhashはinvestigation runへ保存されます。
-現行Qwenのmodel IDでは`prompts/model-rules/qwen-3.6-35b-a3b.txt`を自動選択します。別modelにはQwen用規則を
-適用せず、そのmodelで確認した追加規則がある場合だけCLIまたは環境変数で指定します。
-固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。
-この値はplanning、confirmed repositoryの解析、triageの各LLM requestへ共通して適用されます。省略時はendpoint側の設定を使います。
+登録プロジェクトの説明・分類を補うLLM処理をtriageと呼びます。特定のモデル構成に追加のtriage規則を適用する場合は、`enrich`へ`--llm-triage-prompt-suffix-file PATH`を指定するか、定期ジョブを含む既定値として`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`へPATHを設定します。これは共通プロンプトの末尾へUTF-8文書を追加する設定で、CLI指定は環境変数より優先します。使用した本文のハッシュ値は調査実行記録へ保存されます。
+
+現行QwenのモデルIDでは`prompts/model-rules/qwen-3.6-35b-a3b.txt`を自動選択します。別モデルには、そのモデルで確認した追加規則がある場合だけCLIまたは環境変数で指定します。
+
+固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。この値は調査計画の補助（planning）、採用済みリポジトリの解析、triageの各LLMリクエストへ共通して適用されます。省略時は接続先の設定を使います。
 
 Bluesky検索、GitHub検索、Web UI token:
 
@@ -176,9 +173,9 @@ export GITHUB_TOKEN='ghp_...'
 export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 ```
 
-`ATPROTO_SURVEY_LLM_ENDPOINT`は利用者が管理する信頼済みのendpointとして扱い、localhostやLANも許可します。Web UIからLLM接続設定を変更する機能はありません。`DNS_RESOLVER_URL`や`UFOS_API`は現在の環境変数ではありません。
+`ATPROTO_SURVEY_LLM_ENDPOINT`は利用者が管理する信頼済みの接続先として扱い、localhostやLANも許可します。LLMの接続設定は上記の環境変数で行います。Web UIから変更する機能はありません。
 
-候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は`config/sources.json`、PSLにないホスト用接尾辞は`config/domain-overrides.json`で管理します。接尾辞変更の影響確認には`audit-source-config`を使います。
+候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は`config/sources.json`で管理します。ドメインの区切りを判断するPublic Suffix List（PSL）にないホスティングサービスの接尾辞は`config/domain-overrides.json`で補います。接尾辞変更の影響確認には`audit-source-config`を使います。
 
 ## zsh補完
 
