@@ -187,11 +187,16 @@ def normalized_children_unchanged(project: Mapping[str, Any]) -> bool:
 
 def sanitize_runtime_snapshot(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {
+        snapshot = {
             key: sanitize_runtime_snapshot(item)
             for key, item in value.items()
             if key not in RUNTIME_INTERNAL_FIELDS
         }
+        # Replay needs the actual adoption provenance; confirmed state
+        # alone is not an independent trust root.
+        if RUNTIME_ADOPTION_ROWS in value:
+            snapshot["identifier_adoptions"] = sanitize_runtime_snapshot(value[RUNTIME_ADOPTION_ROWS])
+        return snapshot
     if isinstance(value, list):
         return [sanitize_runtime_snapshot(item) for item in value]
     return value

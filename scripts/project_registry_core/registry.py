@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from project_registry_core import CollectorResult, EvidenceBundle
 from project_registry_core import collector_relation_policy
+from project_registry_core import collection_trust
 from project_registry_core import homepage_adoption
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
@@ -2225,6 +2226,12 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
                 allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
                 allowed_predicates=COLLECTION_TRUST_PREDICATES,
             )
+            if evaluation.get("policy_version") == collection_trust.POLICY_VERSION and evaluation.get("auto_confirm"):
+                directional_paths = [{
+                    "anchor": evaluation["anchor"], "candidate": node, "scope": evaluation["scope"],
+                    "anchor_to_candidate": evaluation["forward_path"],
+                    "candidate_to_anchor": evaluation["backward_path"],
+                }]
         elif item.kind in IDENTITY_TRUST_NODE_KINDS:
             evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
             directional_paths = trust_graph_core.directional_paths(
@@ -5126,6 +5133,10 @@ def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str) ->
         allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
         allowed_predicates=COLLECTION_TRUST_PREDICATES,
     )
+    if not evaluation.get("auto_confirm"):
+        publication_evaluation = collection_trust.evaluate_publisher_support(project, normalized)
+        if publication_evaluation.get("auto_confirm"):
+            evaluation = publication_evaluation
     trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
     return evaluation
 
@@ -6253,6 +6264,7 @@ def fetch_lexicon_record(
     return {
         "did": did,
         "did_doc": did_doc,
+        "authority_domain": authority_domain,
         "pds_url": pds_url,
         "record": payload,
     }
@@ -6262,6 +6274,8 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     nsid = identifier_core.normalize_nsid(nsid)
     if not nsid:
         return
+    admitted_candidates = {item.value for item in runtime_view.project_identifiers(project)
+                           if item.kind == "nsid" and item.role == "owned_nsid" and item.classification == "candidate"}
     record = result["record"]
     schema = record.get("value", {})
     resolved_nsid = identifier_core.normalize_nsid(
@@ -6282,10 +6296,11 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             "input_nsid": identifier_core.normalize_nsid(nsid),
             "resolved_nsid": identifier_core.normalize_nsid(resolved_nsid),
             "repo_did": result["did"],
-            "authority_domain": identifier_core.derive_authority_domain(resolved_nsid),
+            "authority_domain": str(result.get("authority_domain") or identifier_core.derive_authority_domain(resolved_nsid)),
             "pds_url": result["pds_url"],
             "record_uri": str(record.get("uri") or ""),
-            "resolved_at": project_record.iso_now(),
+            "resolved_at": str(result.get("resolved_at") or project_record.iso_now()),
+            "publication_validation": collection_trust.publication_validation(nsid, result),
         }
     )
     project_record.record_trust_edge(
@@ -6349,7 +6364,8 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             eligible_for_auto_confirm=True,
             observed_at=project_record.iso_now(),
         )
-    if was_confirmed or trust_collection_ownership_evaluation(project, resolved_nsid).get("auto_confirm"):
+    evaluation = trust_collection_ownership_evaluation(project, resolved_nsid) if not was_confirmed else {}
+    if was_confirmed or (evaluation.get("auto_confirm") and evaluation.get("policy_version") != collection_trust.POLICY_VERSION):
         project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), resolved_nsid)
         project["input_nsids"] = [
             value
@@ -6367,6 +6383,28 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
     upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
+    # All current candidates can now use the newly observed anchor. This also
+    # makes the result independent of A/B collector application order.
+    confirm_collection_candidates_from_publications(project, admitted_candidates)
+
+
+def confirm_collection_candidates_from_publications(project: dict[str, Any], admitted_candidates: set[str]) -> None:
+    candidates = [item.value for item in runtime_view.project_identifiers(project)
+                  if item.kind == "nsid" and item.role == "owned_nsid" and item.classification == "candidate"]
+    for candidate in candidates:
+        if candidate not in admitted_candidates:
+            continue
+        evaluation = collection_trust.evaluate_publisher_support(project, candidate)
+        if not evaluation.get("auto_confirm"):
+            continue
+        project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), candidate)
+        project["input_nsids"] = [value for value in project.get("input_nsids", []) if value != candidate]
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+        add_confirmed_identifier_decision(
+            project, "nsid", candidate, source=collection_trust.ADOPTION_SOURCE, role="owned_nsid",
+            note="collection accepted through authority-scoped publication evidence",
+            source_ref=project_record.dump_json(evaluation), policy_version=collection_trust.POLICY_VERSION,
+        )
 
 
 def enrich_from_lexicon(
@@ -6976,6 +7014,8 @@ def trusted_collection_nsids_for_merge(project: dict[str, Any]) -> set[str]:
     }
     trusted: set[str] = set()
     for nsid in candidates:
+        if collection_trust.publisher_only_adoption(project, nsid):
+            continue
         if project_record.project_trusted_collection_nsid_from_state(project, nsid):
             trusted.add(nsid)
     return trusted

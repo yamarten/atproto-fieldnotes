@@ -19,7 +19,7 @@ def collect_lexicon_result(project_key: str, nsid: str, result: dict[str, Any], 
     bundle.add_record(EvidenceRecord(
         kind="lexicon_resolution_snapshot", source=f"lexicon_resolution:{nsid}",
         classification="confirmed", observed_at=observed_at,
-        value={"nsid": nsid, "result": result},
+        value={"nsid": nsid, "result": {**result, "resolved_at": observed_at}},
     ))
     bundle.add_collector_result(CollectorResult(
         source="lexicon_resolution", operation="resolve", status="success", observed_at=observed_at,

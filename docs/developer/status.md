@@ -38,6 +38,8 @@ README公開先の候補化と、帰属・逆参照・Web/protocol実在確認�
 
 通常のマージレビュー、分割（split）・別project指定（separate）、マージ元keyを存続先へ解決するaliasによる履歴参照を利用できます。merge/split/separateの原子的保存と、merge前に始まった古いenrichによるalias元keyの再作成拒否を確認しています。
 
+Lexiconの既存帰属候補は、同じprojectの独立した採用済みLexiconと直属authority・検証済み発行DIDが一致する場合に、通常の取得結果適用から信頼評価・採用へ接続しています。publisherのaccount採用、別namespaceへの信頼伝播、同じrepositoryディレクトリだけによる採用は行いません。範囲制約・取消し・取得順序の回帰testと一時DBでの保存／replayを確認しています。2026-09-14のSifaの公開4定義を通常のDNS・DID・PDS経路で検証し、既存3候補が採用済みLexiconを起点として支持される差分を確認しました。効果の確認はこの小規模sampleに限り、所要時間の削減や全体の誤採用率は未測定です。旧観測の暗黙昇格、正本DBへの一括適用、実運用serverへの反映はしていません。[適用条件](specs/project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)を参照してください。
+
 roleごとの信頼規則を広げる比較、マージ規則の比較、一つの関係の意味を判定する専用relation assessorのshadow比較は、通常の自動採用・自動mergeとは別の経路です。一時的なcollection断片のマージレビュー導線は撤去済みで、そこで確認したのはproject境界までです。identifierごとの現行・旧構成要素・開発試験用・無関係な誤検出の選択は確認範囲に含めません。判断材料が残る例は[identifier処遇](../notes/temporal-project-relations.md#一時merge-review後に残ったidentifier処遇)と[repository帰属](../notes/repository-attribution-open-questions.md)へ分けています。
 
 ## 説明・紹介候補・追跡

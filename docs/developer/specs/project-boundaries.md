@@ -653,10 +653,25 @@ docs/blog、support/status/privacyPolicy/termsOfService等の同一site補助ペ
 2. source syncが同じprojectへ割り当てた同一collection namespaceのNSID
 3. `trust-graph-v2` で collection と confirmed developer DID の間に相互の強い有向経路がある
 4. `trust-graph-v2` で collection と confirmed root serviceの完全一致domainとの間に、`_lexicon` DNS解決とschema record取得で裏付けられた相互の強い有向経路がある
+5. 既存の`owned_nsid`候補について、独立して採用済みのLexiconと直属authority・検証済み発行DIDが一致し、以下の範囲付きpublication policyを満たす
 
 意図は、「偽 NSID -> 既存サービス -> それっぽい account」という自己強化ループを止めることです。confirmed service host、authority domain、identity token、repo内lexicon JSONのいずれか単独では ownership を確定しません。service経路はactiveなtrusted anchor、root URLとauthority domainの完全一致、`_lexicon`解決、同じcollectionのschema record取得をすべて要求します。collection namespaceからの拡張は、`dev.idiolect.recommendation` から `dev.idiolect.adapter` のように親namespaceが完全一致する場合だけです。`network.comind.memory` から `network.comind.void.memory` のような親子namespaceや深さ違いは自動owned扱いしません。
 
 repo内にlexicon JSONがあるだけの観測は、project側のrepository採用条件と上記のNSID ownership条件を両方満たした場合だけ`defines_schema`として保存し、それ以外は`mentions_collection`として保持します。repo seedはproject repositoryの根拠であり、そのrepoに含まれる全NSIDの所有根拠ではありません。`uses_collection`、`mentions_collection`、OAuth `requests_permission`はownershipを確定しません。OAuth `include:`の再帰解決とorganization/individual accountの委任関係は未接続です。domain、account、DID、NSID、repo、service間の保証関係は[接続マトリクス](#identifier-kind接続マトリクス)と[関係別の静的規則](#関係別の静的規則)で区別します。
+
+#### 承認済みLexiconと同じ発行元による信頼の補強
+
+`accepted-lexicon-publisher-v1`は、同じproject内で既に帰属候補になっているcollection Bの信頼判定に、採用済みcollection Aの発行観測を再利用します。A/Bそれぞれの直属authority（末尾のnameを除いたNSIDを逆順にしたdomain）が完全一致し、そのDNS委譲先DIDとmatching schema recordの公開を検証できる場合に限ります。同じprefixや同じpublisherだけでproject境界を決定したり、新しい候補を生成したりする規則ではありません。
+
+Aはcurrent confirmedの`owned_nsid`で、同じprojectの有効・review不要な独立したadoptionが必要です。通常のtrusted anchorの採用条件を基礎とし、`trust_policy`由来のadoptionは起点から除きます。operatorとbootstrapを区別して根拠へ残し、既存bootstrapを人力承認済みとは表示しません。まだ保存していないprojectは、既存anchor評価と同じく有効なconfirm decisionを要求します。A/Bのblock・deferを優先し、旧構成要素や開発試験用としてcurrentから外れたidentifierは使いません。この規則だけで採用したBを、次の独立した起点にしません。
+
+観測の検証条件と保存は[Lexiconとauthorityの観測](investigation.md#lexiconとauthorityの観測)を参照してください。古い未検証観測を昇格させず、新しい観測を優先します。新しい応答で型・identityが不一致になった場合や、同じauthorityの新しいDNS委譲先が異なる場合、古い観測で支持しません。通信失敗は委譲変更の証拠とはせず、最後の検証済み観測を保持します。観測時点は根拠に含めますが、このpolicy専用の有効期限や一括再取得は設けません。
+
+`collection_trust.py`が対象project・role・authority・publisherに範囲を限定したedge集合を作り、共通の経路評価へ渡します。既存の直接関係`collection_authority_domain`と、DNS委譲＋schema公開を表す`domain_publishes_lexicon_record`を使い、A→Bという推論結果やschema公開の逆向きedgeを直接観測として保存しません。第三者は中継する根拠であり、DID全体の信頼起点やproject/developer accountへ昇格しません。別namespace・別projectへの信頼伝播は行いません。
+
+通常のLexicon結果適用時に候補を再評価し、支持されたBをconfirmして`trust_policy:accepted_lexicon_publisher`の採用来歴を残します。A/Bの取得結果の適用順序に依存しません。Explainと採用decisionの`source_ref`には、起点Aとその採用来歴、scope、schema URI・hash・観測時点を含む双方向経路、policy versionを残します。起点の取消し後は新規支持に使いませんが、過去の採用を自動で一律に取り消す処理は追加しません。このpolicyだけによる採用はmerge用のcollection根拠から除外します。
+
+同じrepositoryの同じディレクトリだけを使う経路は未接続です。現行の`defines_schema`保存条件がownership判定に依存するため、そのrelationをownershipの新しい起点にすると循環します。実際のrecord表示・照合や公式accountの通常record保有も、このpublication policyには含めません。
 
 ### Identifierの一時保留
 

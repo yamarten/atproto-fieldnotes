@@ -395,6 +395,8 @@ probe単体では404/410やparkedを`dead`、アクセス制限を`private`に�
 
 JSON payloadの意味とreplay時の扱いは[Investigation](investigation.md)を正本とします。
 
+調査入力・出力snapshotには、runtimeの採用来歴を`identifier_adoptions`として保存します。currentの`confirmed`だけから信頼起点を推測せず、当時のproject・role・採用source・取消し・review状態をreplayできるようにするためです。正本の採用来歴は引き続き`project_identifier_adoptions`です。古いsnapshotに採用来歴がない場合、classificationだけを新しい独立起点へ格上げしません。
+
 run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtriage入力は`state_json`の`llm_source.evidence`へ保存します。計測対象、非secret metadata、semantic evaluationとの分離は[Run observability](investigation.md#run-observability)、入力上限と縮約の記録は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
 未反映履歴はcurrent stateを変更せず、`latest_investigation_run`の成功結果にも選びません。入力・出力・根拠を通常と同じbudget/codecで保持し、Webの履歴一覧・詳細・service比較で未反映と表示します。保存失敗で履歴も残せなかった場合は一般障害として扱います。再試行は現在状態から再調査し、古い出力を自動再適用しません。

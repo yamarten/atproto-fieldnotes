@@ -1117,27 +1117,35 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[str, str, str]] = set()
+    indexes: dict[tuple[str, str, str], int] = {}
     output: list[dict[str, Any]] = []
+    # Repeated fetches replace the prior witness, including invalidation of a
+    # formerly validated schema. Do not keep the first response indefinitely.
     for entry in entries:
         input_nsid = identifier_core.normalize_nsid(str(entry.get("input_nsid") or ""))
         resolved_nsid = identifier_core.normalize_nsid(str(entry.get("resolved_nsid") or ""))
         repo_did = str(entry.get("repo_did") or "")
         key = (input_nsid, resolved_nsid, repo_did)
-        if not resolved_nsid or key in seen:
+        if not resolved_nsid:
             continue
-        seen.add(key)
-        output.append(
-            {
-                "input_nsid": input_nsid,
-                "resolved_nsid": resolved_nsid,
-                "repo_did": repo_did,
-                "authority_domain": str(entry.get("authority_domain") or identifier_core.derive_authority_domain(resolved_nsid)),
-                "pds_url": str(entry.get("pds_url") or ""),
-                "record_uri": str(entry.get("record_uri") or ""),
-                "resolved_at": str(entry.get("resolved_at") or ""),
-            }
-        )
+        normalized = {
+            "input_nsid": input_nsid,
+            "resolved_nsid": resolved_nsid,
+            "repo_did": repo_did,
+            "authority_domain": str(entry.get("authority_domain") or identifier_core.derive_authority_domain(resolved_nsid)),
+            "pds_url": str(entry.get("pds_url") or ""),
+            "record_uri": str(entry.get("record_uri") or ""),
+            "resolved_at": str(entry.get("resolved_at") or ""),
+            **({"publication_validation": {
+                key: str(entry["publication_validation"].get(key) or "")
+                for key in ("version", "schema_id", "schema_type", "schema_hash")
+            }} if isinstance(entry.get("publication_validation"), dict) else {}),
+        }
+        if key not in indexes:
+            indexes[key] = len(output)
+            output.append(normalized)
+        elif normalized["resolved_at"] >= output[indexes[key]]["resolved_at"]:
+            output[indexes[key]] = normalized
     return output
 
 

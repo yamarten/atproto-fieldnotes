@@ -117,6 +117,8 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
   - service確認結果の縮約と、調査経路・対象URL（`lane + requested_url`）ごとの最新観測を最大32組保持する処理は`service.py`が担当する
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
+- `project_registry_core/collection_trust.py`
+  - Lexicon公開応答の検証と、project・role・authority・publisherに範囲を限定したcollection信頼policy。限定した直接関係を`trust_graph.py`の共通経路評価へ渡し、取得・採用・DB保存は行わない
 - `project_registry_core/editorial.py`
   - 維持する説明、内容を持つ根拠の集合、変更種別と参照検査、編集保護、最新の更新案を扱う。版履歴は作らない
   - 通常triageから呼び、Webのpreview／編集／見送りと同じ状態を使う

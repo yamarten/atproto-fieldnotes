@@ -340,6 +340,7 @@ def evaluate_auto_confirm(
     anchors: Iterable[Mapping[str, Any]],
     allowed_node_kinds: set[str] | None = None,
     allowed_predicates: set[str] | None = None,
+    scoped_edges: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     candidate_node = node(str(candidate.get("kind") or ""), str(candidate.get("value") or ""))
     node_kinds = allowed_node_kinds or URL_NODE_KINDS
@@ -353,7 +354,7 @@ def evaluate_auto_confirm(
     if candidate_node["kind"] == "service_url":
         node_kinds = node_kinds - {"repo_url"}
     normalized_edges = auto_confirm_edges(
-        graph(project).get("edges", []),
+        graph(project).get("edges", []) if scoped_edges is None else scoped_edges,
         allowed_node_kinds=node_kinds,
         allowed_predicates=allowed_predicates,
     )
