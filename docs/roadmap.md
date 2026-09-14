@@ -85,6 +85,16 @@ repositoryの役割とcollection利用を根拠どおり説明できる状態を
 - collector観測、relation interpretation、semantic relation、検索用inverseの保存分担
 - 同じidentifierの観測更新、新規project登録、既存projectへのidentifier追加、弱いsuggestionの境界監査
 
+#### collectionの実利用と既存の採用判断を信頼確認へ使う
+
+人がserviceとcollectionの対応を確認する負担を減らすため、以下を検証候補とします。利用・権限要求・通常recordの保持と、schemaの所有・projectへの帰属は分け、単独で所有を自動確定する規則にはしません。
+
+- serviceが表示するコンテンツと公開recordの対応確認。AT URI、DID、record key、特徴的なfield等を手掛かりに、単なる文面一致や転載・汎用viewerとの区別を検討します。collectionを指定したOAuthの書込み権限要求と、実際の作成・表示の観測も区別します。匿名で確認できる範囲から、`uses_collection`や既存ownership candidateの信頼確認へ使えるか評価します。
+- 採用済みrepository↔collection関係を起点とした、同じprefixの別collectionの帰属確認。どのprefixが同じ直属Lexicon authorityを表すか、起点の採用根拠、対象schemaの実在・repo内の定義位置、複数project同居・vendor・test・共有schema・反対のoperator判断を確認します。候補提示やreview省力化から検証し、prefix一致だけで所有を拡張しません。
+- 確認済みproject/service accountによる通常record保持を、関係の補強へ使う。account roleとserviceへの対応を確認し、developer個人accountや第三者利用を区別します。recordがあることは利用・関連の支持であって、namespace管理やschema所有、主張全体の真正性の証明にはしません。
+
+手動判断済みの少数の正例と、共有viewer・第三者client・複数project同居repo等の反例を用意できた時に、既存観測で判別できる範囲と追加取得が必要な範囲を比較します。通常の自動採用へ進めるかは、省ける確認と誤採用の危険をsample reviewで判断します。現行の関係ごとの保証範囲は[Project境界](developer/specs/project-boundaries.md#関係別の静的規則)を参照します。
+
 ### project間の時間・派生関係
 
 後継、買収、分割、統合、所有権移転、mirror、instance、tenant、forkは、プロジェクト間の関係として扱い、同一プロジェクト内の識別子の移転やマージと区別します。Basker / InfoEnon、DateSky / Nomareなどの実例を確認し、表示・検索・紹介文で必要になった時だけ保存形を追加します。
