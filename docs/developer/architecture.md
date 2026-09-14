@@ -81,6 +81,9 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
   - 長時間処理のrequest/event/resultと協調的cancellation契約
 - `project_registry_core/worker.py`
   - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
+- `project_registry_core/dev_database.py`
+  - `scripts/fixtures/dev-registry.json`の架空定義を既存のproject codec・調査履歴APIで保存する
+  - `dev-db`から各worktreeの固定pathへ生成し、生成元markerのあるDBだけをtransactionでリセットする。通常CLIのDB選択は`cli.py`の起動境界で行う
 - `project_registry_core/registry.py`
   - collector/evaluation orchestration、finalize、merge/queue policyと未分離の補助処理
   - collector適用とfinalize/evaluationの補助処理。1 projectの実行順序は`enrichment_pipeline.py`、transaction・保存・checkpointは`application/enrichment.py`が担当する

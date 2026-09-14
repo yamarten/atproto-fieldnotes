@@ -42,6 +42,14 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dev_db(args: argparse.Namespace) -> int:
+    from .. import dev_database
+
+    payload = dev_database.prepare_database(core.ROOT, reset=bool(args.reset))
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def cmd_repair_db(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.repair_database(conn, execute=bool(args.execute)))
     print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))

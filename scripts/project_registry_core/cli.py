@@ -25,7 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="project-registry",
         description="Register manual atproto project seeds and enrich project records.",
     )
+    parser.add_argument(
+        "--db-path", dest="registry_db_path", type=Path,
+        help="Registry DB for normal commands; put before the command. Default: data/survey.db.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    dev_parser = subparsers.add_parser("dev-db", help="Create the fictional CLI/Web DB at data/dev/survey.db.")
+    dev_parser.add_argument("--reset", action="store_true", help="Reset only a generated dev DB; stop its CLI/Web/workers first.")
+    dev_parser.set_defaults(func=maintenance_commands.cmd_dev_db)
 
     init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v3 registry database.")
     init_parser.add_argument("--db-path", type=Path, help="SQLite DB path. Defaults to data/survey.db.")
@@ -820,10 +828,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.registry_db_path is not None and (hasattr(args, "db_path") or args.command == "dev-db"):
+        parser.error("this command has its own DB selection; do not use --db-path before the command")
+    original_db_path = registry.DB_PATH
     try:
+        if args.registry_db_path is not None:
+            registry.DB_PATH = args.registry_db_path.expanduser().resolve()
         return int(args.func(args))
     except urllib.error.URLError as exc:
         print(f"[error] network request failed: {exc}", file=sys.stderr)
@@ -831,6 +844,8 @@ def main() -> int:
     except Exception as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1
+    finally:
+        registry.DB_PATH = original_db_path
 
 
 if __name__ == "__main__":

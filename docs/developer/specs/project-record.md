@@ -35,6 +35,8 @@ SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background j
 
 `repair-db`はschema v3 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
+CLI/Webの手動確認用の`dev-db`は、既存schema・project保存・調査履歴保存の入口を使って架空データを生成します。`registry_meta.dev_fixture`はこの入口で生成したDBのリセット許可を示すmarkerで、schema versionや運用データの移行状態とは別物です。保存先・排他・リセットの範囲は[共通ダミーDBの手順](../workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
+
 ## 保存責務
 
 ### `projects`

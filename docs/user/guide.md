@@ -34,12 +34,15 @@ export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
 project-registry init-db
 ```
 
-既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。通常の登録・調査用CLIは正本の`data/survey.db`を使います。`init-db`と一部の開発補助コマンドは`--db-path`で対象DBを指定できます。各コマンドの引数は`--help`で確認してください。別DBをWeb UIで使う場合は次のように準備します。
+既定DBは`data/survey.db`です。通常コマンド、Web UI、バックグラウンド処理はDBを暗黙作成しません。存在しないDBやschema version 3ではないDBを指定するとエラーで停止します。通常CLIはcommandの前へ`--db-path PATH`を置くと別DBを使えます。`init-db`と一部の開発補助コマンドはcommandの後の専用`--db-path`を使うため、各`--help`で確認してください。CLI/Webの手動確認には架空データ入りのDBを次のように準備します。
 
 ```bash
-project-registry init-db --db-path data/survey.dev.db
-project-registry-web --db-path data/survey.dev.db
+project-registry dev-db
+project-registry --db-path data/dev/survey.db show --all
+project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db --token web-ui-dev
 ```
+
+既存のダミーDBは再利用し、初期状態へ戻す場合は使用processを停止して`project-registry dev-db --reset`を実行します。安全境界と確認範囲は[共通ダミーDBの手順](../developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
 ## 基本用語
 

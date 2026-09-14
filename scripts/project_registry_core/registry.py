@@ -8598,12 +8598,17 @@ def compute_review_signals(
     return signals
 
 
-def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]]) -> list[str]:
+def registry_command_prefix(conn: sqlite3.Connection) -> str:
+    path = next(str(row[2]) for row in conn.execute("PRAGMA database_list") if row[1] == "main")
+    return f"project-registry --db-path {shlex.quote(path)}" if path else "project-registry"
+
+
+def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]], *, command_prefix: str = "project-registry") -> list[str]:
     commands: list[str] = []
     project_key = str(project.get("project_key") or "")
     if not project_key:
         return commands
-    commands.append(f"project-registry show -p {project_key} --format json")
+    commands.append(f"{command_prefix} show -p {project_key} --format json")
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {
         "llm_manual_review_recommended",
@@ -8614,24 +8619,24 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         "external_lexicon_dependency_needs_review",
         "category_recheck_needed",
     }:
-        commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
+        commands.append(f"{command_prefix} enrich -p {project_key} --deep-investigation")
     if "service_candidate_needs_confirmation" in signal_kinds:
         service_candidates = project_service_hint_urls(project)
         if service_candidates:
             commands.append(
-                f"project-registry add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
+                f"{command_prefix} add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
             )
     if "candidate_repo_needs_confirmation" in signal_kinds:
         repo_candidates = project_repo_hint_urls(project)
         if repo_candidates:
             commands.append(
-                f"project-registry add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
+                f"{command_prefix} add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
             )
     return commands
 
 
-def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]]) -> list[str]:
-    commands = review_queue_suggested_commands(project, signals)
+def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dict[str, Any]], *, command_prefix: str = "project-registry") -> list[str]:
+    commands = review_queue_suggested_commands(project, signals, command_prefix=command_prefix)
     project_key = str(project.get("project_key") or "")
     if not project_key:
         return commands
@@ -8641,7 +8646,7 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
         "service_candidate_needs_validation",
         "lexicon_publisher_confirmed",
     }:
-        commands.append(f"project-registry enrich -p {project_key} --deep-investigation")
+        commands.append(f"{command_prefix} enrich -p {project_key} --deep-investigation")
     return project_record.unique_list(commands)
 
 
@@ -9240,6 +9245,7 @@ def build_showcase_queue_from_projects(
     limit: int | None = 50,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
+    command_prefix: str = "project-registry",
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
     project_list = [project_record.ensure_project_shape(project) for project in projects]
@@ -9282,7 +9288,7 @@ def build_showcase_queue_from_projects(
                 "sort_score": sort_score,
                 **policy,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-                "suggested_commands": showcase_queue_suggested_commands(shaped, signals),
+                "suggested_commands": showcase_queue_suggested_commands(shaped, signals, command_prefix=command_prefix),
             }
         )
     queue.sort(key=lambda item: (
@@ -9307,6 +9313,7 @@ def build_showcase_queue(
         limit=limit,
         kinds=kinds,
         include_personal_tools=include_personal_tools,
+        command_prefix=registry_command_prefix(conn),
     )
 
 
@@ -9325,6 +9332,7 @@ def build_showcase_queue_item(
         limit=None,
         kinds=kinds,
         include_personal_tools=include_personal_tools,
+        command_prefix=registry_command_prefix(conn),
     )
     return queue[0] if queue else None
 
@@ -9363,7 +9371,7 @@ def build_review_queue(
                 "top_priority": top_priority,
                 "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-                "suggested_commands": review_queue_suggested_commands(shaped, signals),
+                "suggested_commands": review_queue_suggested_commands(shaped, signals, command_prefix=registry_command_prefix(conn)),
             }
         )
     queue.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
@@ -9410,7 +9418,7 @@ def build_review_queue_batch(
                 "top_priority": top_priority,
                 "sort_score": sort_score,
                 "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-                "suggested_commands": review_queue_suggested_commands(shaped, signals),
+                "suggested_commands": review_queue_suggested_commands(shaped, signals, command_prefix=registry_command_prefix(conn)),
             }
         )
     batch.sort(key=lambda item: (-int(item.get("sort_score", 0) or 0), str(item.get("project_key") or "")))
@@ -9449,7 +9457,7 @@ def build_review_queue_item(
         "top_priority": top_priority,
         "sort_score": sort_score,
         "signals": sorted(signals, key=lambda item: (-int(item.get("priority", 0) or 0), str(item.get("kind") or ""))),
-        "suggested_commands": review_queue_suggested_commands(shaped, signals),
+        "suggested_commands": review_queue_suggested_commands(shaped, signals, command_prefix=registry_command_prefix(conn)),
     }
 
 

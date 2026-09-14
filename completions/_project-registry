@@ -4,6 +4,7 @@ local -a subcommands tracking_states seed_types llm_api_styles llm_reasoning_eff
 local -a promotion_kinds
 
 subcommands=(
+  'dev-db:Create or reset the fictional CLI/Web database'
   'init-db:Explicitly initialize a schema v2 registry database'
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
@@ -118,6 +119,7 @@ local context state state_descr line
 typeset -A opt_args
 
 _arguments -C -S \
+  '--db-path[Registry DB for normal commands]:database:_files' \
   '1:project-registry command:->command' \
   '*::argument:->args'
 
@@ -136,6 +138,9 @@ esac
 local cmd="${line[1]}"
 
 case "$cmd" in
+  dev-db)
+    _arguments '--reset[Reset the generated dev DB after stopping its processes]'
+    ;;
   init-db)
     _arguments -S \
       '--db-path[SQLite DB path]:path:_files'

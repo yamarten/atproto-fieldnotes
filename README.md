@@ -79,7 +79,7 @@ bin/project-registry-test
 - [Status](docs/developer/status.md): 現在頼ってよい範囲、接続・適用と制約
 - [Architecture](docs/developer/architecture.md): 全体の流れ、実行経路、moduleの責務・依存方向
 - [仕様一覧](docs/documentation-policy.md#開発仕様): 発見、調査、帰属・採用、評価、保存などの担当文書
-- [変更の受入条件と確認手順](docs/developer/workflows/change-acceptance.md): 変更種別ごとの確認、標準環境、DB複製、実運用への反映境界
+- [変更の受入条件と確認手順](docs/developer/workflows/change-acceptance.md): CLI/Web共通ダミーDBの生成・リセット、変更種別ごとの確認、DB複製、実運用への反映境界
 - [設計・調査メモ](docs/notes/): 未決事項、保留、再開に必要な材料
 
 ## 実装

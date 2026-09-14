@@ -62,6 +62,8 @@ syncと追跡状態レビューのcheckpoint再開、server再起動後のjob一
 
 schema v3の保存・正規化fieldの検索、履歴圧縮、保持規則による手動削除、派生値の修復を通常導線へ接続しています。通常のDB接続は既存schema v3を必須とし、旧DBを暗黙変換しません。汎用的に移行を実行する仕組みや、適用済みのデータ処理規則をDB全体に記録するmarkerはありません。履歴圧縮の複製DB同値確認・正本適用、merge/splitのtransaction確認の記録があります。これらは過去の適用確認で、現在のDB容量・全件整合性を再監査した結果ではありません。[Maintenance手順](workflows/change-acceptance.md#maintenance適用の確認)を参照してください。
 
+CLI/Webの手動確認には`dev-db`で生成・リセットできる共通ダミーDBを利用できます。架空データからの生成、上書き拒否・lock競合・失敗時rollbackのtemp DB test、通常CLIのDB選択・編集・replayと実ブラウザでの一覧・紹介候補・識別子採用・調査履歴を確認しています。外部取得・実LLM・background jobの実行確認や、実データ固有の監査・件数・容量確認を代替しません。[確認手順と安全境界](workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
+
 ## App record export
 
 保存済みprojectのread-only validationと、明示manifestからのentry JSON生成を利用できます。不適格recordを含む出力を全件拒否する契約で、PDS送信とrkey生成は担当しません。生成・検査経路があることと、実際にdirectoryを公開・運用していることは区別します。[Export仕様](specs/app-record-export.md)を参照してください。

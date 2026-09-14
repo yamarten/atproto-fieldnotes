@@ -18,12 +18,14 @@ project-registry-web --host 127.0.0.1 --port 8765
 | `--reload` | Web実装変更時にサーバープロセスを再起動する。 |
 | `--reload-interval` | reload確認間隔。 |
 
-別DBは先にCLIで初期化します。
+CLI/Webの手動確認用DBは、先にCLIで架空データから生成します。
 
 ```bash
-project-registry init-db --db-path data/survey.dev.db
-project-registry-web --db-path data/survey.dev.db --token "$ATPROTO_SURVEY_WEB_TOKEN"
+project-registry dev-db
+project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db --token web-ui-dev
 ```
+
+このDBは繰り返し使えます。初期状態へ戻すときはWebとworkerを停止して`project-registry dev-db --reset`を実行します。代表データと安全境界は[共通ダミーDBの手順](../developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。空の別DBが必要なら`project-registry init-db --db-path PATH`で初期化します。
 
 ### macOSでの自動起動
 

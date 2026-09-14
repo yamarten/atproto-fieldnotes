@@ -12,7 +12,11 @@
 - 多くのコマンドはstdoutへJSONを出す。`show`と`explain`はtext/JSON、`enrich`はJSON Lines。
 - 引数エラーは終了コード`2`、処理失敗は通常`1`。一括`enrich`の協調停止は`130`。
 
-通常の登録・調査操作は`data/survey.db`を使います。`init-db`と一部の開発補助コマンドは`--db-path`で対象DBを指定できます。たとえば`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は指定DBを読み取り専用で参照します。各コマンドの引数は`--help`で確認してください。`init-db --db-path`で作った別DBは、主に`project-registry-web --db-path`で参照する検証用です。
+通常の登録・調査操作は既定で`data/survey.db`を使います。別DBを使う場合は`project-registry --db-path PATH COMMAND ...`の順で指定します。一覧・詳細・レビュー・登録・編集・調査は選択したregistry DBへ接続し、存在しないDBは暗黙作成しません。queueの提案コマンドも接続中のDBを引き継ぎます。この指定は設定ファイル・認証・外部アクセスを隔離するものではありません。一括enrichのcheckpointは`--checkpoint-path`で別途指定するか`--no-checkpoint`で無効にしてください。
+
+`init-db`と一部の開発補助コマンドはcommandの後に置く専用`--db-path`を使います。たとえば`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は指定DBを読み取り専用で参照します。これらと共通`--db-path`の併用は引数エラーです。各コマンドの引数は`--help`で確認してください。
+
+CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を生成できます。保存先は各worktreeの`data/dev/survey.db`に固定し、既存fileは上書きしません。利用processを停止して`dev-db --reset`を指定すると、この入口で生成したDBだけを初期状態へ戻します。生成・リセットは外部APIやLLMを呼びません。代表データ、上書き拒否と停止の条件、CLI/Webの確認例は[共通ダミーDBの手順](../developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -40,6 +44,7 @@
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `init-db` | `--db-path`。既定は`data/survey.db` | 作成したschema情報のJSON | 新規DBを作成。既存DBのmigrationや上書きはしない |
+| `dev-db` | 任意の`--reset`。対象pathは固定 | DB path・操作・データ件数のJSON | 架空のCLI/Web確認用DBを生成。明示リセットは生成元markerのある現行schema DBのみ |
 | `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと入力から決めた役割（`role`）のJSON | 常時書き込み。NSID・サービス・リポジトリを対応する役割で採用済み（`confirmed`）として保存し、採用判断を記録 |
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |

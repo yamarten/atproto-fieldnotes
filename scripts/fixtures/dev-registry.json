@@ -1,0 +1,123 @@
+{
+  "description": "架空のCLI/Web表示・編集用データ。観測結果と失敗はすべて作り物で、外部取得・LLMの実行結果ではない。",
+  "observed_at": "2026-09-01T00:00:00+00:00",
+  "projects": [
+    {
+      "project_key": "proj:dddd00000001",
+      "seed_type": "service_url",
+      "seed_value": "https://fieldnotes.example",
+      "fields": {
+        "name": "Demo Field Notes",
+        "summary": "架空の観察ノート共有サービス。紹介候補・詳細・採用済み識別子の確認用。",
+        "tagline": "観察ノートを共有する架空アプリ",
+        "category": "project",
+        "tracking_state": "active",
+        "website_url": "https://fieldnotes.example",
+        "service_urls": ["https://fieldnotes.example"],
+        "service_status": "live",
+        "service_status_confidence": "high",
+        "service_status_evidence": ["http_200", "login_surface_detected"],
+        "input_nsids": ["org.example.fieldnotes.entry"],
+        "last_enriched_at": "2026-09-01T00:00:00+00:00",
+        "confirmed_identifiers": [{"type": "service_url", "value": "https://fieldnotes.example", "source": "operator", "added_at": "2026-09-01T00:00:00+00:00", "note": "架空の採用判断"}]
+      }
+    },
+    {
+      "project_key": "proj:dddd00000002",
+      "seed_type": "nsid",
+      "seed_value": "org.example.sketch.entry",
+      "fields": {
+        "name": "Demo Sketch Board",
+        "summary": "架空のスケッチ共有候補。未確定URL、要レビュー、除外判断、部分失敗の履歴を確認する。",
+        "category": "project",
+        "tracking_state": "active",
+        "input_nsids": ["org.example.sketch.entry"],
+        "service_url_candidates": ["https://sketch.example"],
+        "service_status": "unverified",
+        "manual_review_recommended": true,
+        "manual_review_kind": "identity_resolution",
+        "manual_review_priority": "high",
+        "last_enriched_at": "2026-09-01T00:00:00+00:00",
+        "last_run_errors": ["架空の部分失敗: service probe timeout"],
+        "blocked_identifiers": [{"type": "service_url", "value": "https://unrelated.example", "added_at": "2026-09-01T00:00:00+00:00", "note": "架空の無関係URLを除外"}],
+        "relation_evidence": [{
+          "relation": {
+            "subject": {"type": "service_url", "value": "https://sketch.example"},
+            "predicate": "mentions_collection",
+            "object": {"type": "nsid", "value": "org.example.sketch.entry"},
+            "locator": "https://sketch.example/docs",
+            "method": "fictional_fixture"
+          },
+          "source": "dev_fixture",
+          "classification": "candidate",
+          "observed_at": "2026-09-01T00:00:00+00:00",
+          "context": {"note": "架空の関連。所有関係の確定根拠ではない。"}
+        }]
+      }
+    },
+    {
+      "project_key": "proj:dddd00000003",
+      "seed_type": "service_url",
+      "seed_value": "https://garden.example",
+      "fields": {
+        "name": "Demo Garden Log",
+        "summary": "架空の紹介済みサービス。紹介済み絞り込みと紹介候補からの除外を確認する。",
+        "category": "project",
+        "tracking_state": "stable",
+        "website_url": "https://garden.example",
+        "service_urls": ["https://garden.example"],
+        "service_status": "live",
+        "service_status_confidence": "high",
+        "service_status_evidence": ["http_200", "login_surface_detected"],
+        "introduced_url": "https://journal.example/introductions/garden"
+      }
+    },
+    {
+      "project_key": "proj:dddd00000004",
+      "seed_type": "nsid",
+      "seed_value": "org.example.archive.item",
+      "fields": {
+        "name": "Demo Archive Kit",
+        "summary": "架空の開発用ツール。追跡状態の絞り込み・変更を確認する。",
+        "category": "infra_tool",
+        "tracking_state": "stalled",
+        "tracking_note": "架空の保留。活動再開を確認してから追跡状態を変更する。",
+        "input_nsids": ["org.example.archive.item"],
+        "service_status": "unknown"
+      }
+    },
+    {
+      "project_key": "proj:dddd00000005",
+      "seed_type": "nsid",
+      "seed_value": "org.example.sprout.record",
+      "fields": {
+        "name": "Demo Sprout",
+        "summary": "架空の未調査シード。詳細の空欄・調査履歴なしを確認する。",
+        "category": "name_only",
+        "tracking_state": "active",
+        "input_nsids": ["org.example.sprout.record"],
+        "service_status": "unknown"
+      }
+    }
+  ],
+  "investigations": [
+    {
+      "run_id": "inv:dev-fieldnotes-success",
+      "project_key": "proj:dddd00000001",
+      "bundle": {
+        "records": [{"kind": "fixture_note", "source": "service_static", "classification": "confirmed", "observed_at": "2026-09-01T00:00:00+00:00", "value": "架空の成功観測。実際のHTTP取得は行っていない。"}],
+        "collector_results": [{"source": "service_static", "operation": "probe", "status": "success", "observed_at": "2026-09-01T00:00:00+00:00", "request_count": 0, "result_count": 1}],
+        "failures": []
+      }
+    },
+    {
+      "run_id": "inv:dev-sketch-partial",
+      "project_key": "proj:dddd00000002",
+      "bundle": {
+        "records": [{"kind": "fixture_note", "source": "service_static", "classification": "candidate", "observed_at": "2026-09-01T00:00:00+00:00", "value": "架空の部分観測。帰属・利用可否は未確認。"}],
+        "collector_results": [{"source": "service_static", "operation": "probe", "status": "partial", "observed_at": "2026-09-01T00:00:00+00:00", "request_count": 0, "result_count": 1, "stop_reason": "timeout"}],
+        "failures": [{"source": "service_static", "operation": "probe", "target": "https://sketch.example", "category": "timeout", "message": "架空のtimeout表示サンプル", "retryable": true}]
+      }
+    }
+  ]
+}
