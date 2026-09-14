@@ -104,10 +104,8 @@ sampleは `project_key` 昇順で6 tracking stateから各2件、計12件を読�
 
 ## 保持物・残件・再開条件
 
-母艦の監査と再開材料の処遇判断のため、このworktreeの `.tmp/temporal-validation/` に `audit.json`、`llm-inputs.json`、`llm-<case>-<repeat>.json`（入力evidence・実出力・model情報・各適用結果）、`model-metadata.json`、`services-report.json`（取得素材・run ID・計測）、実行スクリプトを計229,875 bytes保持しています。一時的なレビュー資料で、productionコードでも自動採用済みfixtureでもありません。commitには含めず、このworktreeを削除すると失われます。試験DB2個（計1,236,992 bytes）とWAL/SHMはcleanup済みで、正本複製は作成していません。
+再開材料は母艦checkoutの `.tmp/temporal-validation-20260915/` へ一時保全し、元の子worktreeの `.tmp/temporal-validation/` と全ファイルの一致を確認しました。`audit.json`、`llm-inputs.json`、`llm-<case>-<repeat>.json`（入力evidence・実出力・model情報・各適用結果）、`model-metadata.json`、`services-report.json`（取得素材・run ID・計測）、実行スクリプトを含みます。一時的な再開資料で、productionコードでも自動採用済みfixtureでもありません。commitには含めません。所有者は母艦で、prompt改善または監視方針の再検討時に必要な素材を確認し、恒久fixtureへの採用または破棄を判断します。試験DB2個とWAL/SHMはcleanup済みで、正本複製は作成していません。
 
 残件は、(1)共通prompt改善と追加12生成を再開するか、(2)監視対象・頻度・検出範囲、(3)実観測の恒久保持／破棄と再評価条件です。実験を不採用にする場合も生素材の処遇を人が判断します。監視有効化・設定変更・正本への書込み・全件再調査は未承認です。
 
 文書のみの変更であり、code／prompt／UI変更を対象とするunit全件・API・JS・実browser UI受入は今回実施していません。実LLM・公開URL・通常保存codecという上記経路を確認しています。品質改善へ進む場合は対象testと全unit testを実行し、UIも変更する場合に該当UI受入を追加します。
-
-子タスクIDは `01a0a050-427a-7321-8a85-42235c367a0b`（local）です。成果のhuman-reviewは了承済みで、自分のbranchの文書変更を統合候補として母艦向け集約案へまとめます。集約案の明示的な送信承認を得てから母艦 `01a050d2-495b-7fc0-85f5-3fb214fd1c9f`（local）へ送り、母艦の監査・cherry-pick・可視な記録後にarchiveを依頼します。母艦のcheckoutは変更せず、自動archiveは行いません。
