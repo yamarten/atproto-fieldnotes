@@ -18,6 +18,8 @@ introduced（紹介済み投稿）、collection inventory（collectionの活動�
 
 外部情報源への取得件数・request数を限定した疎通・動作確認（bounded smoke）と、Tangledの実適用・照合補正を確認しています。Tangledの全snapshotの初回完走時間・API利用量、長時間運用の再試行・cache・取得上限の妥当性は未検証です。
 
+Tangled同期のowner確認はBluesky profileからDID・handleの双方向検証へ置換し、解決不能recordを保留して増分実行で再評価します。temp DBで保留とwatermarkの同時保存・復旧・rollbackを確認し、正本の同じwatermarkから1,000 eventのread-only smokeで、停止ownerの保留とprofile未登録ownerを含む正常候補の評価を確認しました。この修正の本番execute・Web反映・定期preset再開は未実施です。[統合・再開材料](../notes/tangled-owner-sync-2026-09-20.md)を参照してください。
+
 ## 調査・観測・Replay
 
 通常enrichは収集処理（collector）の観測を統合し、規則による評価とLLM補助、現在状態と調査履歴の保存を行います。Webから失敗・保存上限内の根拠・処理段階ごとの時間・LLM requestの情報を確認し、保存した調査実行記録（investigation run）を読み取り専用で再評価（replay）できます。collectorの部分失敗と再試行分類、一時DBのenrich→save→fetch、保存した調査実行記録のreplayを確認した記録があります。HTML/READMEの履歴をすべて保存・表示する機能はありません。古い調査実行記録で計測値が欠けている場合は未記録として扱います。

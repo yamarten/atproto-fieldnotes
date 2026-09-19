@@ -2319,7 +2319,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
                     "truncated": False, "cancelled": False,
                 }),
-                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+                mock.patch.object(source_sync.tangled_identity, "resolve_owner_handle", return_value="dev.example"),
             ):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=False)
             state = registry.read_sync_state(conn, "tangled-repos", scope)
@@ -2342,7 +2342,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
                     "truncated": False, "cancelled": False,
                 }),
-                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+                mock.patch.object(source_sync.tangled_identity, "resolve_owner_handle", return_value="dev.example"),
             ):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
             projects = registry.all_projects(conn)
@@ -2378,7 +2378,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
                     "truncated": False, "cancelled": False,
                 }),
-                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+                mock.patch.object(source_sync.tangled_identity, "resolve_owner_handle", return_value="dev.example"),
             ):
                 summary = source_sync.sync_tangled_repos(conn, create_unmatched=False)
         finally:
@@ -2445,7 +2445,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     "event_count": 2, "sealed_tip_seq": 201, "last_event_seq": 201,
                     "truncated": False, "cancelled": False,
                 }),
-                mock.patch.object(source_sync, "fetch_bsky_profile", return_value={"handle": "dev.example"}),
+                mock.patch.object(source_sync.tangled_identity, "resolve_owner_handle", return_value="dev.example"),
             ):
                 summary = source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
             projects = registry.all_projects(conn)
@@ -2471,9 +2471,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                     "event_count": 1, "sealed_tip_seq": 200, "last_event_seq": 200,
                     "truncated": False, "cancelled": False,
                 }),
-                mock.patch.object(source_sync, "fetch_bsky_profile", side_effect=RuntimeError("profile unavailable")),
+                mock.patch.object(source_sync.tangled_identity, "resolve_owner_handle", side_effect=RuntimeError("identity unavailable")),
             ):
-                with self.assertRaisesRegex(RuntimeError, "profile unavailable"):
+                with self.assertRaisesRegex(RuntimeError, "identity unavailable"):
                     source_sync.sync_tangled_repos(conn, execute=True, create_unmatched=True)
             projects = registry.all_projects(conn)
         finally:

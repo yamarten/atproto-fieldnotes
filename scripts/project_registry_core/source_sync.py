@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import datetime as dt
 import json
 import os
@@ -17,6 +18,7 @@ from typing import Any, Callable, Sequence
 from project_registry_core import EvidenceBundle
 from project_registry_core import investigation as investigation_core
 from project_registry_core import tangled as tangled_core
+from project_registry_core import tangled_identity
 from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import identifiers as identifier_core
@@ -50,7 +52,6 @@ from project_registry_core.registry import (
     confirmed_developer_dids,
     enrich_from_github_repo,
     ensure_project_for_seed,
-    fetch_bsky_profile,
     finalize_project_shape,
     find_project_key_by_collection_namespace,
     github_headers,
@@ -1921,90 +1922,125 @@ def sync_tangled_repos(
         cancel_requested=cancel_requested,
     )
     observed_entries = list(snapshot.get("events") or [])
-    latest_by_uri: dict[str, dict[str, Any]] = {}
+
+    def record_uri(entry: dict[str, Any]) -> str:
+        return f"at://{entry.get('owner_did')}/{collection}/{entry.get('rkey')}"
+
+    # Retain unresolved records independently of the sequence checkpoint. Retry a
+    # bounded prefix, then rotate unresolved items behind the unattempted ones.
+    pending = {
+        record_uri(entry): entry
+        for entry in state.get("watermark", {}).get("pending_owner_records", [])
+    } if incremental else {}
+    replay = list(pending.values())[:processing_limit] if not all_history else []
+    latest_by_uri = {record_uri(entry): entry for entry in replay}
     for entry in observed_entries:
-        uri = f"at://{entry.get('owner_did')}/{collection}/{entry.get('rkey')}"
+        uri = record_uri(entry)
+        pending.pop(uri, None)
         if str(entry.get("operation") or "") == "delete":
             latest_by_uri.pop(uri, None)
         else:
             latest_by_uri[uri] = entry
     selected = sorted(latest_by_uri.values(), key=lambda item: int(item.get("seq") or 0))
     owner_handles: dict[str, str] = {}
+    owner_unavailable: dict[str, str] = {}
+    owner_count = len({item["owner_did"] for item in selected if item.get("atproto_relevant")})
+    cancelled = bool(snapshot.get("cancelled"))
     for entry in selected:
+        if cancelled or (cancel_requested and cancel_requested()):
+            cancelled = True
+            break
         if not entry.get("atproto_relevant"):
             continue
         owner_did = str(entry.get("owner_did") or "")
-        if not owner_did or owner_did in owner_handles:
+        if owner_did in owner_handles or owner_did in owner_unavailable:
             continue
-        profile = fetch_bsky_profile(owner_did)
-        handle = str(profile.get("handle") or "").strip().lower()
-        if not handle or handle.startswith("did:"):
-            raise RuntimeError(f"Tangled owner handle could not be resolved: {owner_did}")
-        owner_handles[owner_did] = handle
+        if progress:
+            progress(len(owner_handles) + len(owner_unavailable) + 1, owner_count,
+                     {"kind": "owner_identity", "source": "tangled", "value": owner_did})
+        try:
+            owner_handles[owner_did] = tangled_identity.resolve_owner_handle(owner_did)
+        except tangled_identity.OwnerUnavailable as exc:
+            owner_unavailable[owner_did] = str(exc)
     sealed_tip_seq = int(snapshot.get("sealed_tip_seq") or watermark_before)
     last_event_seq = int(snapshot.get("last_event_seq") or watermark_before)
     bounded_truncated = bool(snapshot.get("truncated"))
-    matched = created = unmatched = skipped_irrelevant = 0
+    matched = created = unmatched = skipped_irrelevant = skipped_owner = 0
     results: list[dict[str, Any]] = []
-    cancelled = bool(snapshot.get("cancelled"))
-    for entry_index, entry in enumerate(selected, 1):
-        if cancel_requested and cancel_requested():
-            cancelled = True
-            break
-        record = dict(entry.get("record") or {})
-        if progress:
-            progress(entry_index, len(selected), {"kind": "source_item", "source": "tangled", "value": str(entry.get("rkey") or "")})
-        relevant = bool(entry.get("atproto_relevant"))
-        if not relevant:
-            skipped_irrelevant += 1
-            continue
-        owner_did = str(entry.get("owner_did") or "")
-        handle = owner_handles[owner_did]
-        repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
-        project = project_for_tangled_entry(conn, repo_url)
-        outcome = "unmatched"
-        if project is not None:
-            matched += 1
-            outcome = "matched"
-        elif create_unmatched:
-            project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_jetstream") if execute else default_project_record("dry-run", "repo_url", repo_url)
-            created += 1
-            outcome = "created"
-        else:
-            unmatched += 1
-        if project is not None:
-            project = ensure_project_shape(project)
-            score = tangled_core.repo_relevance(project, record, handle)
-            bundle = EvidenceBundle(project_key=str(project.get("project_key") or "dry-run"), collected_at=iso_now())
-            bundle.add_record(investigation_core.evidence_record(
-                kind="tangled_repo_snapshot", source="tangled_jetstream", classification="candidate",
-                observed_at=iso_now(),
-                value={"owner_handle": handle, "owner_did": owner_did, "repo_url": repo_url,
-                       "repo_did": str(record.get("repoDid") or ""), "record": record, "score": score},
-            ))
-            if execute:
-                apply_tangled_evidence(project, bundle)
-                project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_jetstream")
-                save_project(conn, finalize_project_shape(project), enriched=False)
-        results.append({
-            "project_key": str(project.get("project_key") or "") if project is not None else "",
-            "repo_url": repo_url,
-            "owner_did": owner_did,
-            "outcome": outcome,
-            "seq": entry["seq"],
-            "observed_at": str(entry.get("time") or ""),
-        })
-    state_updated = bool(
-        execute
-        and not cancelled
-        and incremental
-        and (create_unmatched or unmatched == 0)
-    )
-    if state_updated:
-        next_seq = last_event_seq if bounded_truncated else sealed_tip_seq
-        write_sync_state(conn, "tangled-repos", scope, {"seq": next_seq})
-    if execute:
-        conn.commit()
+    with conn if execute else contextlib.nullcontext():
+        for entry_index, entry in enumerate(selected, 1):
+            if cancelled or (cancel_requested and cancel_requested()):
+                cancelled = True
+                break
+            pending.pop(record_uri(entry), None)
+            record = dict(entry.get("record") or {})
+            if progress:
+                progress(entry_index, len(selected), {"kind": "source_item", "source": "tangled", "value": str(entry.get("rkey") or "")})
+            relevant = bool(entry.get("atproto_relevant"))
+            if not relevant:
+                skipped_irrelevant += 1
+                continue
+            owner_did = str(entry.get("owner_did") or "")
+            if owner_did in owner_unavailable:
+                skipped_owner += 1
+                reason = owner_unavailable[owner_did]
+                pending[record_uri(entry)] = {**entry, "owner_resolution_reason": reason}
+                result = {
+                    "owner_did": owner_did, "record_uri": record_uri(entry),
+                    "seq": entry["seq"], "outcome": "deferred_owner", "reason": reason,
+                }
+                results.append(result)
+                if progress:
+                    progress(entry_index, len(selected), {"kind": "source_item_result", "source": "tangled", **result})
+                continue
+            handle = owner_handles[owner_did]
+            repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
+            project = project_for_tangled_entry(conn, repo_url)
+            outcome = "unmatched"
+            if project is not None:
+                matched += 1
+                outcome = "matched"
+            elif create_unmatched:
+                project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_jetstream", commit=False) if execute else default_project_record("dry-run", "repo_url", repo_url)
+                created += 1
+                outcome = "created"
+            else:
+                unmatched += 1
+            if project is not None:
+                project = ensure_project_shape(project)
+                score = tangled_core.repo_relevance(project, record, handle)
+                bundle = EvidenceBundle(project_key=str(project.get("project_key") or "dry-run"), collected_at=iso_now())
+                bundle.add_record(investigation_core.evidence_record(
+                    kind="tangled_repo_snapshot", source="tangled_jetstream", classification="candidate",
+                    observed_at=iso_now(),
+                    value={"owner_handle": handle, "owner_did": owner_did, "repo_url": repo_url,
+                           "repo_did": str(record.get("repoDid") or ""), "record": record, "score": score},
+                ))
+                if execute:
+                    apply_tangled_evidence(project, bundle)
+                    project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_jetstream")
+                    save_project(conn, finalize_project_shape(project), enriched=False, commit=False)
+            results.append({
+                "project_key": str(project.get("project_key") or "") if project is not None else "",
+                "repo_url": repo_url,
+                "owner_did": owner_did,
+                "outcome": outcome,
+                "seq": entry["seq"],
+                "observed_at": str(entry.get("time") or ""),
+            })
+        state_updated = bool(
+            execute
+            and not cancelled
+            and incremental
+            and (create_unmatched or unmatched == 0)
+        )
+        if state_updated:
+            next_seq = last_event_seq if bounded_truncated else sealed_tip_seq
+            write_sync_state(conn, "tangled-repos", scope, {
+                "seq": next_seq, "pending_owner_records": list(pending.values()),
+            })
+        if execute:
+            conn.commit()
     return {
         "mode": "execute" if execute else "dry_run",
         "source": "jetstream_v2_snapshot",
@@ -2019,6 +2055,11 @@ def sync_tangled_repos(
         "created": created,
         "unmatched": unmatched,
         "skipped_irrelevant": skipped_irrelevant,
+        "skipped_owner": skipped_owner,
+        "unresolved_owners": len(owner_unavailable),
+        "owner_errors": [{"owner_did": did, "reason": reason} for did, reason in owner_unavailable.items()],
+        "retried_owner_records": len(replay),
+        "pending_owner_records": len(pending),
         "cancelled": cancelled,
         "watermark_before": watermark_before,
         "watermark_after": (last_event_seq if bounded_truncated else sealed_tip_seq) if state_updated else watermark_before,

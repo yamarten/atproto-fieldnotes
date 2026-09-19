@@ -115,6 +115,8 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 - `project_registry_core/service.py` / `tangled.py` / `relations.py`
   - service検証、Tangled PDS/UFOs、typed relation
   - service確認結果の縮約と、調査経路・対象URL（`lane + requested_url`）ごとの最新観測を最大32組保持する処理は`service.py`が担当する
+- `project_registry_core/tangled_identity.py`
+  - Tangled同期専用のDID document・handle双方向検証と、対象の解決不能状態／外部取得失敗の分類。既存のDID取得・HTTP transportを使い、projectの帰属や保留一覧の保存は`source_sync.py`へ委ねる
 - `project_registry_core/evaluation.py`
   - ownership、atproto寄与度、service status の純粋評価本体
 - `project_registry_core/collection_trust.py`

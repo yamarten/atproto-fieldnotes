@@ -157,13 +157,15 @@ project-registry --db-path PATH migrate-db-v4 --execute
 | `sync-semble-collections` | 設定済みSemble collection。ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-tangled-repos` | Jetstream v2 snapshot。sequence、項目上限、増分実行 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 
-外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、collection inventory由来の保存済みobservationを現在の全payloadに置き換え、collection identifierと活動統計を再構築します。置換対象は結果JSONの`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`で確認できます。
+外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。Tangledを除き、dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。Tangledの途中checkpoint条件は後述します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、collection inventory由来の保存済みobservationを現在の全payloadに置き換え、collection identifierと活動統計を再構築します。置換対象は結果JSONの`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`で確認できます。
 
 `--create-unmatched`は未知のシードから登録プロジェクトを作るかを制御します。GitHub、collection一覧、Semble、Tangledは既定onです。詳細な検索条件やURLの一時上書きはCLIで行い、Web UIは設定済みの外部情報源だけを実行します。
 
 Tangledの取り込みにはNode.js 22.15以上、`npm install`で導入する公式`@bsky/jetstream` SDK、`ATPROTO_SURVEY_JETSTREAM_API_KEY`が必要です。APIキーは環境変数からだけ読み、設定、結果、取り込み済みの境界（watermark）へ保存しません。
 
 `--all-history`はJetstream archiveの先頭から開始し、通常実行は保存済みの処理位置（sequence）から再開します。項目上限で途中終了したexecuteは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。設定上の通常上限は1,000イベントで、初回archiveも複数回の取り込み実行に分けて進めます。
+
+Tangledのowner確認はBlueskyプロフィールの公開状態に依存せず、DIDとhandleを双方向に確認します。解決できないownerのrecordは帰属を付けず保留し、他の候補を処理します。結果の`skipped_owner`（保留record数）、`unresolved_owners`（owner数）、`owner_errors`（理由）を確認してください。保留一覧は成功した増分executeで処理位置と一緒に保存し、次回以降に件数を限定して再評価します。`pending_owner_records`は処理後の保留候補数で、実際に保存したかは`state_updated`で確認できます。保留だけなら処理位置を進められますが、有効候補の未一致を`--no-create-unmatched`で残す場合は進めません。通信・認証・未知のAPIエラーは実行全体の失敗として扱います。[詳細な保存・再評価条件](../developer/specs/discovery-and-sync.md#ownerのidentityと解決不能record)を参照してください。
 
 外部情報源の有効・無効、既定URL・検索条件、対象範囲、リクエスト上限は`config/sources.json`から読み、CLIオプションはその実行だけ上書きします。無効な情報源はネットワークリクエスト前に拒否されます。照合・分類方針は設定ファイルでは変更できません。
 

@@ -135,11 +135,37 @@
 - 通常上限は1,000 eventです。初回archiveも複数回の取り込みに分けて進めます
 - atproto relevanceを通過した現存recordだけを対象にします
 - 正規化したTangled repo URLだけで既存projectへexact照合します。owner DIDやrecord websiteだけでは照合しません
-- atprotoとの関連条件を満たすeventのowner handleはDB変更前にDIDごとに解決・cacheし、解決失敗時はその取り込み結果をDBへ適用しません
+- atprotoとの関連条件を満たすrecordのowner handleはDB変更前にDIDごとに解決・cacheします。Bluesky `getProfile`には依存せず、DID documentの`id`一致、`alsoKnownAs`の最初の構文上有効なhandle、public AppViewの`com.atproto.identity.resolveHandle`による同じDIDへの逆引きを確認します
 - unmatched project作成は既定onです
 - API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません。
 
 enrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
+
+#### Ownerのidentityと解決不能record
+
+Tangled URLはownerとrepo nameを表し、recordの`repoDid`はowner DIDではありません。公式の[URL例](https://docs.tangled.org/single-page#webhooks)にはowner DID形式もありますが、現行registryはhandle形式のrepo URLで照合・保存します。DID形式への一括変更や未検証handleへの代入は、既存URLとの二重登録・誤帰属につながるため行いません。ownerだけで複数repoを同じprojectへ結び付けることもありません。
+
+Blueskyの停止・profile未登録はATProto identityの無効を意味しません。[DID仕様](https://atproto.com/specs/did)と[handle仕様](https://atproto.com/specs/handle)に従い、プロフィールの有無から独立した双方向検証を使います。`alsoKnownAs`に複数handleがあっても、最初の有効なclaimが逆引き不一致なら次のclaimへ逃げません。
+
+| 解決結果 | 取り込みの扱い |
+| --- | --- |
+| DID document取得の404/410、未対応owner DID、documentのid不一致、handle claimなし／無効、handle逆引きのDID不一致 | そのownerのrecordを帰属未確定として保留し、有効ownerの処理を続ける |
+| resolveHandleの400 `HandleNotFound`、または400 `InvalidRequest`かつmessageが厳密に`Unable to resolve handle` | 同じく保留。後者には上流DNSの一時障害も含み得るため、永久無効と断定しない |
+| 通信例外・timeout、429、5xx | 最大3試行、待機は1回最大2秒。失敗が続けば書込み前に全体を失敗させ、watermarkを進めない |
+| 未知の400、401/403、resolveHandle endpointの404、壊れた成功payload、その他の設定・契約エラー | 全体を失敗させる。job errorにはowner DID・取得段階・HTTP statusまたは例外種別を付ける |
+
+解決不能recordは単純skipで捨てず、projectにもreview queueにも登録せず、`sync_state.watermark_json.pending_owner_records`に元のowner DID・rkey・record・seq・理由を保存します。URLを安全に作れない段階でproject帰属を与えないためです。これは独立したcatalog DBではなく、Tangled source内の保留情報です。
+
+通常の増分実行では、新規event上限とは別に、同じ上限件数まで保留recordを再評価します。未解決の再評価済みrecordは末尾へ回し、未試行recordが先になります。同じURIの新しいupdateは置換、deleteは除去し、同一ownerの解決は実行内で1回です。保存する保留一覧は件数で切り捨てません。保留の蓄積でDB容量は増え得ますが、実行ごとの外部解決数は新規候補＋再評価上限で制限します。`--all-history`は保留の定期再評価をせずarchiveを先頭から処理し、観測したURIの保留状態も更新します。
+
+#### 保存・結果・中断
+
+- 正常に評価を終えたexecuteでは、project変更・保留一覧・sequenceを同じtransactionで保存します。保存例外は全体をrollbackし、次回は同じsequenceから再実行します
+- 保留ownerがいても保存できればwatermarkを進めます。`create_unmatched=false`で有効ownerの未一致候補が残る場合、dry-run、`incremental=false`ではwatermarkと保留一覧を保存しません
+- owner解決中のキャンセルはprojectを書きません。project処理中の協調的キャンセルは処理済みprojectだけをcommitし、watermark・保留一覧を進めません。再実行で同じ範囲を再評価・exact照合します
+- event上限やJetstreamの途中取得エラーで取得済みprefixを処理した場合は、既存の契約どおり`last_event_seq`までcheckpointし、`truncated` / `snapshot_error`で残りの再開が必要なことを示します。全取得時はsealed tipまで進めます
+- `skipped_owner`は今回保留にしたrecord数、`unresolved_owners`はそのowner数、`owner_errors`はownerごとの理由です。`retried_owner_records`は今回選んだ再評価件数、`pending_owner_records`は処理後の保留候補数です。永続化されたかは`state_updated`で確認します。`results`は先頭100件ですが、保留一覧の保存にはこの表示上限を適用しません
+- progressは`owner_identity`段階とrecord処理を分け、保留recordには`outcome=deferred_owner`と理由を付けます。部分成功でもsource処理自体は成功ですが、保留件数は0とは限りません。`complete_history`は走査範囲の指標であり、全候補の登録完了を意味しません
 
 ## Source別の外部アクセス
 
