@@ -106,9 +106,11 @@ checkpointは再開の正本です。event履歴やWeb表示状態の正本で�
 
 `Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、全tracking stateのenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
 
-想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害と明示中断では、そのpresetを停止します。
+想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害（`failed`）、明示中断（`cancelled`）、worker起動失敗では、そのpresetの後続stepを停止します。workerの異常終了もjobが`failed`になれば同じ扱いです。
 
-未完了stepと依存待ちstepは`job-schedules.json`の`pending_steps`へ保持し、preset全体を`retry_wait`にして他presetを妨げません。定期実行は未解決の同presetを自動再試行せず、利用者が`Resume pending steps`で再開します。enrichは元checkpoint、sync/reviewは該当stepを最新状態から再実行します。成功済みsourceは繰り返しません。sync再試行が新しいprojectを作り得るため、その後は`new_only` enrichを行います。元checkpointの再開もある場合は、その対象を処理した後に未調査projectを新たに選択します。保留stateはserver再起動後も維持します。
+未完了stepと依存待ちstepは`job-schedules.json`の`pending_steps`へ保持し、preset全体を`retry_wait`にして他presetを妨げません。停止時は失敗・中断・起動失敗した現在stepを先頭に、先に競合・依存待ちで保留したstep、残りの未実行stepの順で保存します。job自体の`failed` / `cancelled`は変更せず、presetの`last_steps`にも結果を残し、`last_message`へ停止理由を保存します。定期実行は次の週・月も含め未解決の同presetを自動再試行せず、利用者が`Resume pending steps`で再開します。手動実行は保留があればそのstepだけ、なければ`Run now`としてpreset全体を開始します。
+
+enrichは結果または元requestで特定できる実在するcheckpointのpathとrun IDを保持して再開します。checkpoint作成前に失敗した初回stepは、同じ選択条件で新規実行します。起動失敗時はstepに既にある再開指定を保持します。sync/reviewとcheckpointを持たない観測stepは、そのstepを最新状態から再実行します。成功済みstepは繰り返しません。ただしsync再試行が新しいprojectを作り得るため、その後は`new_only` enrichを行います。元checkpointの再開もある場合は、その対象を処理した後に未調査projectを新たに選択します。再開後に再び停止した場合も、その時点の未完了stepだけへ保留を更新します。保留step・結果・停止理由はserver再起動後も維持します。
 
 Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
 
@@ -136,4 +138,4 @@ job一覧は永続化していません。server再起動後にprocess job一覧
 
 Settingsのreloadは同じ起動引数を保ってpackage entrypointから再起動します。active jobへ協調停止を要求し、timeout後はworkerを終了してbrowserを再接続します。macOS LaunchAgentはworkspaceのdirenv環境を継承し、plistへsecretを保存しません。SIGTERM時はactive workerを終了します。
 
-HTTP request logはquery/bodyを除くmethod、path、status、所要時間をstderrへ記録します。unexpected HTTP exceptionのtracebackはserver側へ残し、job stderrとは分離します。scheduled worker起動失敗はqueueを終端し、presetの最終status/messageへ保存します。POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化します。API tokenはconstant-timeで比較し、HTMLは外部文字列を共通escape/link/JSON helperへ通します。
+HTTP request logはquery/bodyを除くmethod、path、status、所要時間をstderrへ記録します。unexpected HTTP exceptionのtracebackはserver側へ残し、job stderrとは分離します。scheduled worker起動失敗は実行queueから外し、未完了stepをpresetの手動再開待ちとして保存します。POST JSON bodyはmutation lock外でparseし、mutation処理だけを直列化します。API tokenはconstant-timeで比較し、HTMLは外部文字列を共通escape/link/JSON helperへ通します。

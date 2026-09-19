@@ -604,6 +604,39 @@ class JobManager:
     def _active_job_locked(self) -> JobRecord | None:
         return next((job for job in self._jobs.values() if job.status in ACTIVE_STATUSES), None)
 
+    def _schedule_retry_step(self, step: dict[str, Any], job: JobRecord) -> dict[str, Any]:
+        retry_step = dict(step)
+        if job.request.operation == "enrich":
+            data = (job.result or {}).get("data") or {}
+            checkpoint_path = data.get("checkpoint_path") or job.request.parameters.get("checkpoint_path")
+            if checkpoint_path and Path(checkpoint_path).is_file():
+                retry_step["parameters"] = {
+                    **dict(step.get("parameters") or {}),
+                    "resume_run": data.get("run_id") or job.request.operation_id,
+                    "checkpoint_path": str(checkpoint_path),
+                }
+        return retry_step
+
+    def _finish_schedule_locked(
+        self, current: dict[str, Any], pending: list[dict[str, Any]], *, message: str = "",
+    ) -> None:
+        preset_id = current["preset_id"]
+        if (preset_id == "sync_sources_then_enrich"
+                and any(step["operation"] == "sync" for step in pending)
+                and not any(step["operation"] == "enrich" and not step.get("parameters", {}).get("resume_run") for step in pending)):
+            # A retried source can register new projects after the first enrich.
+            # A resumed checkpoint covers its original selection only.
+            pending.append(preset_steps(preset_id)[-1])
+        self._schedule_state["schedules"][preset_id].update({
+            "last_completed_at": utc_now(),
+            "last_status": "retry_wait" if pending else "completed",
+            "last_message": message or ("resume pending steps manually" if pending else "scheduled preset completed"),
+            "pending_steps": pending,
+            "last_steps": list(current.get("completed_steps") or []),
+        })
+        self._schedule_state["queue"].pop(0)
+        self._save_schedule_state_locked()
+
     def _advance_schedule_queue_locked(self) -> None:
         queue = self._schedule_state.setdefault("queue", [])
         if not queue:
@@ -632,21 +665,14 @@ class JobManager:
             if remaining:
                 current["remaining_steps"] = remaining[1:]
             if job.status == "retry_wait":
-                retry_step = dict(current_step)
-                if job.request.operation == "enrich":
-                    data = (job.result or {}).get("data") or {}
-                    retry_step["parameters"] = {**dict(current_step.get("parameters") or {}),
-                                                "resume_run": data.get("run_id") or job.request.operation_id,
-                                                "checkpoint_path": data.get("checkpoint_path") or ""}
-                current.setdefault("retry_steps", []).append(retry_step)
+                current.setdefault("retry_steps", []).append(self._schedule_retry_step(current_step, job))
             elif job.status != "completed":
-                schedule.update({
-                    "last_completed_at": job.completed_at or utc_now(),
-                    "last_status": "failed",
-                    "last_message": f"scheduled step failed: {current_step.get('label') or current_job_id}",
-                })
-                queue.pop(0)
-                self._save_schedule_state_locked()
+                self._finish_schedule_locked(
+                    current,
+                    [self._schedule_retry_step(current_step, job),
+                     *current.get("retry_steps", []), *current.get("remaining_steps", [])],
+                    message=f"scheduled step {job.status}: {current_step.get('label') or current_job_id}; resume pending steps manually",
+                )
                 return
         if self._active_job_locked() is not None:
             schedule.update({"last_status": "deferred", "last_message": "waiting for active background job"})
@@ -660,35 +686,23 @@ class JobManager:
             current.setdefault("completed_steps", []).append({"label": held["label"], "status": "deferred", "reason": "prerequisite_incomplete"})
         current["remaining_steps"] = remaining
         if not remaining:
-            pending = list(current.get("retry_steps") or [])
-            if (preset_id == "sync_sources_then_enrich"
-                    and any(step["operation"] == "sync" for step in pending)
-                    and not any(step["operation"] == "enrich" and not step.get("parameters", {}).get("resume_run") for step in pending)):
-                # A retried source can register new projects after the first enrich.
-                # A resumed checkpoint covers its original selection only.
-                pending.append(preset_steps(preset_id)[-1])
-            schedule.update({
-                "last_completed_at": utc_now(),
-                "last_status": "retry_wait" if pending else "completed",
-                "last_message": "resume pending steps manually" if pending else "scheduled preset completed",
-                "pending_steps": pending,
-                "last_steps": list(current.get("completed_steps") or []),
-            })
-            queue.pop(0)
-            self._save_schedule_state_locked()
+            self._finish_schedule_locked(current, list(current.get("retry_steps") or []))
             return
         step = dict(remaining[0])
-        request = self._request_for_schedule_step(step, preset_id)
         try:
+            request = self._request_for_schedule_step(step, preset_id)
             job = self._start_locked(request)
         except Exception as exc:
-            schedule.update({
-                "last_completed_at": utc_now(),
-                "last_status": "failed",
-                "last_message": f"scheduled step could not start: {step.get('label') or step.get('operation')} ({type(exc).__name__}: {exc})",
+            current.setdefault("completed_steps", []).append({
+                "label": str(step.get("label") or ""),
+                "status": "failed",
+                "completed_at": utc_now(),
+                "reason": "worker_start_failed",
             })
-            queue.pop(0)
-            self._save_schedule_state_locked()
+            self._finish_schedule_locked(
+                current, [step, *current.get("retry_steps", []), *remaining[1:]],
+                message=f"scheduled step could not start: {step.get('label') or step.get('operation')} ({type(exc).__name__}: {exc}); resume pending steps manually",
+            )
             traceback.print_exc(file=sys.stderr)
             return
         current["current_job_id"] = job.job_id

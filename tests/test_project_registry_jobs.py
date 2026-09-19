@@ -438,7 +438,136 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertNotIn("resume_run", fresh["request"]["parameters"])
         self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
 
-    def test_scheduled_worker_start_failure_is_recorded_without_retry(self) -> None:
+    def test_failed_sync_resumes_pending_after_restart_without_repeating_successes(self) -> None:
+        preset_id = "sync_sources_then_enrich"
+        state = self.manager.run_scheduled_preset(preset_id)
+        for source in ("github", "collections", "semble"):
+            job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+            self.assertEqual(job["request"]["parameters"]["source"], source)
+            if source != "semble":
+                state = self.manager.run_scheduler_once()
+
+        spawn = self.manager._spawn_locked
+
+        def fail_sync(job):
+            job.request.parameters["fail"] = True
+            spawn(job)
+
+        with mock.patch.object(self.manager, "_spawn_locked", side_effect=fail_sync):
+            state = self.manager.run_scheduler_once()
+        failed = self.wait_for(state["queue"][0]["current_job_id"], {"failed"})
+        self.assertEqual(failed["request"]["parameters"]["source"], "tangled")
+        state = self.manager.run_scheduler_once()
+        self.assertEqual(state["queue"], [])
+        schedule = next(item for item in state["items"] if item["preset_id"] == preset_id)
+        self.assertEqual(schedule["last_status"], "retry_wait")
+        self.assertIn("failed: sync tangled", schedule["last_message"])
+        self.assertEqual([step["label"] for step in schedule["pending_steps"]], ["sync tangled", "enrich --all --new-only"])
+        self.assertEqual([step["status"] for step in schedule["last_steps"]], ["completed"] * 3 + ["failed"])
+
+        self.manager.close(timeout=1)
+        self.manager = JobManager(self.db_path, worker_command=[sys.executable, str(self.worker_path)], enable_scheduler=False)
+        persisted = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == preset_id)
+        self.assertEqual(persisted["pending_steps"], schedule["pending_steps"])
+        self.assertEqual(persisted["last_steps"], schedule["last_steps"])
+        self.manager.update_schedules([{
+            "preset_id": preset_id, "enabled": True, "week_of_month": 0,
+            "weekday": 0, "time": "08:00", "timezone": "Asia/Tokyo",
+        }])
+        state = self.manager.run_scheduler_once(dt.datetime(2026, 6, 29, 0, 0, tzinfo=dt.timezone.utc))
+        self.assertEqual(state["queue"], [])
+        state = self.manager.run_scheduler_once(dt.datetime(2026, 7, 6, 0, 0, tzinfo=dt.timezone.utc))
+        self.assertEqual(state["queue"], [])
+        self.assertEqual(self.manager.list_jobs()["count"], 0)
+        # Keep the rest of this manual-resume test independent of the wall clock.
+        self.manager.update_schedules([{"preset_id": preset_id, "enabled": False}])
+
+        other = self.manager.run_scheduled_preset("sync_introduced")
+        self.wait_for(other["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+        state = self.manager.run_scheduled_preset(preset_id)
+        resumed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(resumed["request"]["parameters"]["source"], "tangled")
+        self.assertNotIn("resume_run", resumed["request"]["parameters"])
+        state = self.manager.run_scheduler_once()
+        enriched = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertTrue(enriched["request"]["parameters"]["new_only"])
+        state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == preset_id)
+        self.assertEqual(schedule["last_status"], "completed")
+        self.assertEqual(schedule["pending_steps"], [])
+        self.assertEqual(self.manager.list_jobs()["count"], 3)
+
+    def test_failed_and_cancelled_enrich_resume_checkpoint_before_dependent_review(self) -> None:
+        for status in ("failed", "cancelled"):
+            with self.subTest(status=status):
+                spawn = self.manager._spawn_locked
+
+                def interrupt_enrich(job):
+                    job.request.parameters["fail" if status == "failed" else "wait_on_first"] = True
+                    spawn(job)
+
+                with mock.patch.object(self.manager, "_spawn_locked", side_effect=interrupt_enrich):
+                    state = self.manager.run_scheduled_preset("enrich_all_states")
+                job_id = state["queue"][0]["current_job_id"]
+                if status == "cancelled":
+                    self.wait_for(job_id, {"running"})
+                    self.manager.cancel(job_id)
+                stopped = self.wait_for(job_id, {status})
+                state = self.manager.run_scheduler_once()
+                self.assertEqual(state["queue"], [])
+                schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
+                self.assertEqual(schedule["last_status"], "retry_wait")
+                self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["enrich", "review"])
+                self.assertEqual(schedule["last_steps"][-1]["status"], status)
+                parameters = schedule["pending_steps"][0]["parameters"]
+                self.assertEqual(parameters["resume_run"], stopped["operation_id"])
+                self.assertEqual(parameters["checkpoint_path"], stopped["request"]["parameters"]["checkpoint_path"])
+                state = self.manager.run_scheduled_preset("enrich_all_states")
+                resumed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+                self.assertEqual(resumed["operation_id"], stopped["operation_id"])
+                self.assertEqual(resumed["request"]["parameters"]["checkpoint_path"], parameters["checkpoint_path"])
+                state = self.manager.run_scheduler_once()
+                reviewed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+                self.assertEqual(reviewed["operation"], "review")
+                self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
+    def test_failed_review_retries_only_review(self) -> None:
+        state = self.manager.run_scheduled_preset("enrich_all_states")
+        self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        state = self.manager.run_scheduler_once()
+        job_id = state["queue"][0]["current_job_id"]
+        self.wait_for(job_id, {"completed"})
+        with self.manager._lock:
+            self.manager._jobs[job_id].status = "failed"
+        state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["review"])
+        state = self.manager.run_scheduled_preset("enrich_all_states")
+        reviewed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(reviewed["operation"], "review")
+        self.assertNotIn("resume_run", reviewed["request"]["parameters"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
+    def test_failure_keeps_earlier_conflicts_and_remaining_steps(self) -> None:
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        for status in ("retry_wait", "failed"):
+            job_id = state["queue"][0]["current_job_id"]
+            self.wait_for(job_id, {"completed"})
+            with self.manager._lock:
+                self.manager._jobs[job_id].status = status
+            state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+        expected = ["sync collections", "sync github", "sync semble", "sync tangled", "enrich --all --new-only"]
+        self.assertEqual([step["label"] for step in schedule["pending_steps"]], expected)
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        for label in expected:
+            completed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+            self.assertEqual(completed["request"]["parameters"]["_scheduled_step"], label)
+            state = self.manager.run_scheduler_once()
+        self.assertEqual(state["queue"], [])
+
+    def test_scheduled_worker_start_failure_is_held_until_manual_resume(self) -> None:
         with (
             mock.patch.object(self.manager, "_spawn_locked", side_effect=OSError("worker unavailable")),
             mock.patch("project_registry_web.jobs.traceback.print_exc"),
@@ -447,16 +576,67 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
 
         self.assertEqual(state["queue"], [])
         schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all")
-        self.assertEqual(schedule["last_status"], "failed")
+        self.assertEqual(schedule["last_status"], "retry_wait")
         self.assertIn("could not start", schedule["last_message"])
         self.assertIn("worker unavailable", schedule["last_message"])
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["enrich"])
+        self.assertNotIn("resume_run", schedule["pending_steps"][0]["parameters"])
+        self.assertEqual(schedule["last_steps"][-1]["reason"], "worker_start_failed")
 
         second = self.manager.run_scheduler_once()
         self.assertEqual(second["queue"], [])
         self.assertEqual(
             next(item for item in second["items"] if item["preset_id"] == "enrich_all")["last_status"],
-            "failed",
+            "retry_wait",
         )
+        state = self.manager.run_scheduled_preset("enrich_all")
+        completed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertNotIn("resume_run", completed["request"]["parameters"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
+    def test_worker_start_failure_during_resume_preserves_only_unfinished_steps(self) -> None:
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        job_id = state["queue"][0]["current_job_id"]
+        self.wait_for(job_id, {"completed"})
+        with self.manager._lock:
+            self.manager._jobs[job_id].status = "retry_wait"
+        for _ in range(4):
+            state = self.manager.run_scheduler_once()
+            self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.manager.run_scheduler_once()
+
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        with (
+            mock.patch.object(self.manager, "_spawn_locked", side_effect=OSError("worker unavailable")),
+            mock.patch("project_registry_web.jobs.traceback.print_exc"),
+        ):
+            state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
+        self.assertEqual([step["operation"] for step in schedule["pending_steps"]], ["enrich"])
+        self.assertEqual(schedule["last_steps"][-2]["label"], "sync github")
+        self.assertEqual(schedule["last_steps"][-2]["status"], "completed")
+        state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
+        completed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(completed["operation"], "enrich")
+        self.assertTrue(completed["request"]["parameters"]["new_only"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
+
+    def test_enrich_worker_exit_before_checkpoint_restarts_step(self) -> None:
+        with mock.patch.object(self.manager, "worker_command", [sys.executable, "-c", "raise SystemExit(1)"]):
+            state = self.manager.run_scheduled_preset("enrich_all")
+        stopped = self.wait_for(state["queue"][0]["current_job_id"], {"failed"})
+        self.assertIsNone(stopped["result"])
+        self.assertFalse(Path(stopped["request"]["parameters"]["checkpoint_path"]).exists())
+        state = self.manager.run_scheduler_once()
+        schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all")
+        self.assertEqual(schedule["last_status"], "retry_wait")
+        self.assertNotIn("resume_run", schedule["pending_steps"][0]["parameters"])
+        state = self.manager.run_scheduled_preset("enrich_all")
+        completed = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
+        self.assertNotEqual(completed["operation_id"], stopped["operation_id"])
+        self.assertNotIn("resume_run", completed["request"]["parameters"])
+        self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
 
     def test_monthly_schedule_is_due_within_24_hours_only(self) -> None:
         schedule = {
