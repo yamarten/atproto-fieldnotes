@@ -12,7 +12,7 @@ from typing import Any
 
 from .. import evaluation, relations, registry as core, runtime_view, storage
 from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
-from project_registry_core import project_record
+from project_registry_core import project_record, promotion_attention
 
 
 WEB_API_VERSION = 2
@@ -424,7 +424,7 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
     return output
 
 
-def _decision_rows(conn: sqlite3.Connection, project_key: str) -> dict[str, list[dict[str, Any]]]:
+def _decision_rows(conn: sqlite3.Connection, project_key: str, project: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     now = dt.datetime.now(dt.timezone.utc)
     rows = conn.execute(
         "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
@@ -435,6 +435,9 @@ def _decision_rows(conn: sqlite3.Connection, project_key: str) -> dict[str, list
         expires = project_record.parse_iso(expires_at) if expires_at else None
         cleared_at = str(row["cleared_at"])
         active = not cleared_at and (expires is None or expires > now)
+        metadata = _json(str(row["metadata_json"]), {})
+        recheck = str(row["kind"]) == "defer_promotion" and metadata.get("fingerprint") and metadata["fingerprint"] != promotion_attention.fingerprint(project)
+        active = active and not recheck
         output.append({
             "kind": str(row["kind"]),
             "target_type": str(row["target_type"]),
@@ -444,7 +447,8 @@ def _decision_rows(conn: sqlite3.Connection, project_key: str) -> dict[str, list
             "expires_at": expires_at,
             "cleared_at": cleared_at,
             "active": active,
-            "metadata": _json(str(row["metadata_json"]), {}),
+            "metadata": metadata,
+            "evidence_changed": bool(recheck),
         })
     return {"active": [item for item in output if item["active"]], "history": output}
 
@@ -685,7 +689,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "project": raw_project,
         "identifiers": _identifier_rows(conn, resolved),
         "relations": _relation_rows(conn, resolved),
-        "decisions": _decision_rows(conn, resolved),
+        "decisions": _decision_rows(conn, resolved, prepared),
         "evaluation": evaluation,
         "promotion_policy": promotion_policy,
         "promotion_signals": promotion_signals,
@@ -856,17 +860,38 @@ def queue_payload(
     kinds: set[str] | None = None,
     limit: int = 50,
     include_personal_tools: bool = False,
+    promotion_view: str = "inbox",
+    reason: str = "",
+    offset: int = 0,
 ) -> dict[str, Any]:
     if queue == "review":
         items = review.review_queue(conn, tracking_states=tracking_states, kinds=kinds, limit=limit)
     elif queue == "promotion":
+        if promotion_view not in {"inbox", "lowered", "waiting", "reviewed", "all"}:
+            raise ValueError("invalid promotion view")
         items = review.promotion_queue(
             conn,
-            tracking_states=tracking_states,
+            tracking_states=tracking_states if promotion_view == "inbox" else None,
             kinds=kinds,
-            limit=limit,
+            limit=None,
             include_personal_tools=include_personal_tools,
+            view=promotion_view,
         )
+        reasons: dict[str, int] = {}
+        for item in items:
+            notes = {item["priority_reason"], item["last_promotion_deferral_reason"]} - {""}
+            for note in notes:
+                reasons[note] = reasons.get(note, 0) + 1
+        if reason.strip():
+            needle = reason.strip().casefold()
+            items = [item for item in items if needle in item["priority_reason"].casefold()
+                     or needle in item["last_promotion_deferral_reason"].casefold()]
+        total = len(items)
+        offset = max(0, offset)
+        items = items[offset:offset + max(1, limit)]
+        return {"queue": queue, "items": items, "count": len(items), "total": total,
+                "offset": offset, "has_more": offset + len(items) < total,
+                "reasons": [{"reason": key, "count": value} for key, value in sorted(reasons.items())]}
     else:
         raise ValueError(f"unknown queue: {queue}")
     return {"queue": queue, "items": items, "count": len(items)}

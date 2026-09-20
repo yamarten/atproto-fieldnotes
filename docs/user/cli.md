@@ -141,7 +141,7 @@ project-registry --db-path PATH migrate-db-v4 --execute
 | `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
 | `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
 
-`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後に自動で一覧へ戻り、履歴は残ります。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。
+`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。古い保留は期限だけの契約を維持します。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。Webで「確認済み」にした候補は、根拠が同じ30日間、CLIでも同じ優先度の未確認候補より後ろへ並びます。専用一覧・理由検索・確認済みの設定解除はWebのPromotionを使います。
 
 ## インポートと外部情報の取り込み
 

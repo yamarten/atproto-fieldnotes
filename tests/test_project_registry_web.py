@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import contextlib
 import json
 import signal
 import sqlite3
@@ -1539,6 +1540,40 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(item["service_evidence_group"], "confirmed")
         self.assertEqual(item["priority_group"], "normal")
         self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
+
+    def test_promotion_attention_api_views_search_and_stale_mutations(self) -> None:
+        key = "proj:111111111111"
+        with contextlib.closing(registry.open_db()) as conn:
+            project = project_record.fetch_project(conn, key)
+            project.update(category="project", service_status="live")
+            registry.confirm_service_seed(project, "https://app.example.com", source="fixture")
+            project_record.save_project(conn, project)
+        _, detail, _ = self.request(f"/api/projects/{key}")
+        revision = detail["revision"]
+        status, result, _ = self.request(f"/api/projects/{key}/review-promotion", method="POST", payload={"expected_revision": revision})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["detail"]["promotion_policy"]["attention"]["group"], "reviewed")
+        status, _, _ = self.request(f"/api/projects/{key}/clear-promotion-review", method="POST", payload={"expected_revision": revision})
+        self.assertEqual(status, 409)
+        _, payload, _ = self.request("/api/promotion-queue?view=reviewed&limit=1")
+        self.assertEqual(payload["items"][0]["project_key"], key)
+        _, payload, _ = self.request("/api/promotion-queue")
+        self.assertNotIn(key, [item["project_key"] for item in payload["items"]])
+        status, lowered, _ = self.request(f"/api/projects/{key}/lower-promotion-priority", method="POST",
+            payload={"expected_revision":result["detail"]["revision"], "note":"OAuth feature"})
+        self.assertEqual(status, 200)
+        _, payload, _ = self.request("/api/promotion-queue?view=lowered&reason=oauth")
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["reasons"], [{"reason":"OAuth feature", "count":1}])
+        _, payload, _ = self.request("/api/promotion-queue?view=lowered&reason=oauth&offset=1")
+        self.assertEqual(payload["count"], 0)
+        status, result, _ = self.request(f"/api/projects/{key}/defer-promotion", method="POST",
+            payload={"expected_revision":lowered["detail"]["revision"], "note":"waiting for release"})
+        self.assertEqual(status, 200)
+        _, payload, _ = self.request("/api/promotion-queue?view=waiting&reason=release")
+        self.assertEqual(payload["items"][0]["project_key"], key)
+        status, _, _ = self.request("/api/promotion-queue?view=unknown")
+        self.assertEqual(status, 400)
 
     def test_validation_not_found_and_database_busy_error_shapes(self) -> None:
         status, payload, _ = self.request("/api/projects?introduced=maybe")

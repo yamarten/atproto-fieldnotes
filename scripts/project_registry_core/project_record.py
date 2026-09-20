@@ -133,6 +133,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "blocked_identifiers",
         "deferred_identifiers",
         "promotion_deferrals",
+        "promotion_attention",
         "collection_observations",
         "promotion_events",
         "last_run_errors",
@@ -973,6 +974,8 @@ def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
             "added_at": str(item.get("added_at") or ""),
             "expires_at": expires.isoformat(),
         }
+        if item.get("fingerprint"):
+            normalized["fingerprint"] = str(item["fingerprint"])
         cleared_at = str(item.get("cleared_at") or "").strip()
         if cleared_at:
             normalized["cleared_at"] = cleared_at

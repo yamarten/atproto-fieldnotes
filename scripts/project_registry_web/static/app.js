@@ -47,6 +47,9 @@ const state = {
   screen: "review",
   reviewView: "queue",
   reviewSignalKind: "",
+  promotionView: "inbox",
+  promotionReason: "",
+  promotionOffset: 0,
   selected: "",
   detailTab: "overview",
   detailBackTarget: null,
@@ -191,6 +194,9 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const view = query.get("view");
   if (["queue", "promotion", "merge"].includes(view)) state.reviewView = view;
   state.reviewSignalKind = query.get("review_kind") || "";
+  state.promotionView = query.get("promotion_view") || "inbox";
+  state.promotionReason = query.get("promotion_reason") || "";
+  state.promotionOffset = Math.max(0, Number(query.get("promotion_offset")) || 0);
   state.selected = query.get("project") || "";
   const tab = query.get("tab");
   if (["overview", "identifiers", "relations", "investigation", "decisions", "raw"].includes(tab)) state.detailTab = tab;
@@ -218,6 +224,11 @@ function syncUrl({replace = false} = {}) {
   const query = new URLSearchParams();
   if (state.screen !== "review") query.set("screen", state.screen);
   if (state.screen === "review" && state.reviewView !== "queue") query.set("view", state.reviewView);
+  if (state.screen === "review" && state.reviewView === "promotion") {
+    query.set("promotion_view", state.promotionView);
+    if (state.promotionReason) query.set("promotion_reason", state.promotionReason);
+    if (state.promotionOffset) query.set("promotion_offset", state.promotionOffset);
+  }
   if (state.screen === "review" && state.reviewView === "queue" && state.reviewSignalKind) {
     query.set("review_kind", state.reviewSignalKind);
   }
@@ -279,12 +290,17 @@ function listControls() {
     const reviewFilter = state.reviewView === "queue"
       ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
       : "";
+    const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
+      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "Lowered / 特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
+      <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
+      <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
+      </div><div id="promotion-reasons" class="actions"></div>` : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
       <button id="refresh-review-list" class="secondary">Refresh</button>
-    </div>${reviewFilter}${explicitMerge}</div>`;
+    </div>${reviewFilter}${promotionFilter}${explicitMerge}</div>`;
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
@@ -324,7 +340,7 @@ async function loadList() {
   try {
     let data;
     if (state.screen === "projects") data = await api(projectSearchPath());
-    else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?limit=${state.settings.reviewLimit}&include_personal_tools=${state.settings.includePersonalTools}`);
+    else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?${new URLSearchParams({limit:state.settings.reviewLimit, include_personal_tools:state.settings.includePersonalTools, view:state.promotionView, reason:state.promotionReason, offset:state.promotionOffset})}`);
     else if (state.reviewView === "merge") data = await api(`/api/merge-batch?mode=${encodeURIComponent(state.settings.mergeMode)}&limit=${state.settings.mergeLimit}`);
     else {
       const query = new URLSearchParams({limit: state.settings.reviewLimit});
@@ -418,6 +434,19 @@ function captureProjectSearch() {
 }
 
 function bindControls() {
+  const applyPromotionFilter = () => {
+    state.promotionView = $("promotion-view").value;
+    state.promotionReason = $("promotion-reason").value.trim();
+    state.promotionOffset = 0;
+    state.selected = "";
+    syncUrl(); loadList();
+  };
+  $("promotion-view")?.addEventListener("change", applyPromotionFilter);
+  $("apply-promotion-filter")?.addEventListener("click", applyPromotionFilter);
+  $("promotion-reason")?.addEventListener("keydown", (event) => { if (event.key === "Enter") applyPromotionFilter(); });
+  $("clear-promotion-filter")?.addEventListener("click", () => {
+    $("promotion-reason").value = ""; applyPromotionFilter();
+  });
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
   const applyReviewFilter = () => {
@@ -544,6 +573,9 @@ function promotionCardDetails(item) {
   const serviceGroup = item.service_evidence_group || "not_applicable";
   const priorityGroup = item.priority_group || "normal";
   return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(`Ranking score ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
+    <span class="meta-row">${pill(promotionLabel({unreviewed:"確認記録なし", recorded:"判断記録あり", reviewed:"確認済み", changed:"根拠変化・再確認", due:"再確認時期"}, item.attention?.group))}${pill(promotionLabel(promotionVisibilityLabels, item.candidate_visibility?.group))}</span>
+    ${item.active_deferral ? `<span class="muted">情報待ち: ${esc(item.active_deferral.reason)} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
+    ${!item.active_deferral && item.last_promotion_deferral_reason ? `<span class="muted">前回の保留理由: ${esc(item.last_promotion_deferral_reason)}</span>` : ""}
     ${item.priority_reason ? `<span class="muted">Priority note: ${esc(item.priority_reason)}</span>` : ""}
     ${validationReasons.length ? `<span class="muted">Needs validation: ${esc(validationReasons.join(", "))}</span>` : ""}
     ${components.length ? `<span class="muted">${esc(components.join(" · "))}</span>` : ""}`;
@@ -552,6 +584,13 @@ function promotionCardDetails(item) {
 function renderList(data) {
   const items = list(data.items);
   const count = data.count ?? items.length;
+  const isPromotion = state.screen === "review" && state.reviewView === "promotion";
+  if (isPromotion) {
+    $("promotion-reasons").innerHTML = list(data.reasons).length ? `<details><summary>理由別の候補数 (${data.reasons.length})</summary>${data.reasons.map((item) => `<button class="small secondary" data-promotion-reason="${esc(item.reason)}">${esc(item.reason)} (${esc(item.count)})</button>`).join("")}</details>` : "";
+    document.querySelectorAll("[data-promotion-reason]").forEach((button) => button.onclick = () => {
+      state.promotionReason = button.dataset.promotionReason; state.promotionOffset = 0; syncUrl(); loadList();
+    });
+  }
   $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> results</div>` + (items.length ? items.map((item, index) => {
     const project = normalizeQueueItem(item);
     const key = project.project_key || item.project_key || item.source_project_key || "";
@@ -571,6 +610,11 @@ function renderList(data) {
       ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
   }).join("") : `<div class="empty-state"><p>No matching projects.</p></div>`);
+  if (isPromotion) {
+    $("list").insertAdjacentHTML("beforeend", `<div id="promotion-pages" class="actions"><span>${esc(data.offset + items.length)} / ${esc(data.total)} 件</span><button id="promotion-prev" ${!data.offset ? "disabled" : ""}>前のページ</button><button id="promotion-next" ${!data.has_more ? "disabled" : ""}>次のページ</button></div>`);
+    $("promotion-prev").onclick = () => { state.promotionOffset = Math.max(0, state.promotionOffset - state.settings.reviewLimit); syncUrl(); loadList(); };
+    $("promotion-next").onclick = () => { state.promotionOffset += Number(state.settings.reviewLimit); syncUrl(); loadList(); };
+  }
   document.querySelectorAll("[data-project-key]").forEach((card) => card.onclick = () => {
     const source = card.dataset.projectKey;
     const target = card.dataset.mergeTarget;
@@ -632,6 +676,10 @@ function insertMergeReviewContinuation(sourceKey, targetKey, anchorIndex) {
 }
 
 function advanceReviewListAfterMutation(response, path) {
+  if (state.screen === "review" && state.reviewView === "promotion") {
+    state.promotionOffset = 0;
+    if ($("promotion-pages")) $("promotion-pages").innerHTML = `<span class="muted">保存により候補が変わりました。Refreshで先頭から再取得します。</span>`;
+  }
   if (path === "/api/merge-batch/action" && response.mode === "execute") {
     return advanceMergeReviewAfterMerge(response);
   }
@@ -755,7 +803,7 @@ function renderDetail(data) {
   const explanations = data.explanations?.topics || {};
   state.detailRevision = data.revision || "";
   state.mergeTargetRevision = data.merge_target_revision || "";
-  const hasPromotionHold = list(decisions.active).some((item) => item.kind === "defer_promotion");
+  const hasPromotionHold = Boolean(promotionPolicy.active_deferral);
   const promotionDefer = overview.promotion_defer || {};
   const promotionDeferDays = Number(promotionDefer.suggested_days || 30);
   const promotionDeferAction = actionButton(
@@ -764,12 +812,17 @@ function renderDetail(data) {
     {days: promotionDeferDays, "default-note": promotionDefer.last_reason || ""}
   );
   const priorityGroup = promotionPolicy.priority_group || "normal";
-  const promotionPriorityActions = `<div class="actions">
+  const promotionPriorityActions = `
     ${priorityGroup === "lowered"
-      ? actionButton("Restore normal priority", "clear-promotion-priority")
-      : actionButton("Lower priority", "lower-promotion-priority")}
-  </div>`;
+      ? actionButton("Restore normal priority", "clear-promotion-priority") + actionButton("理由を編集", "lower-promotion-priority", {"default-note":promotionPolicy.priority_reason || ""})
+      : actionButton("Lower priority / 特集候補", "lower-promotion-priority")}`;
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
+  const promotionActions = `<div class="promotion-actions"><strong>Promotionの判断</strong>
+    <div class="actions">${promotionPolicy.attention?.group === "reviewed" ? actionButton("確認対象へ戻す", "clear-promotion-review") : actionButton("確認済み・次へ", "review-promotion")}
+    ${hasPromotionHold ? actionButton("情報待ちを解除", "clear-promotion-deferral") : promotionDeferAction}${promotionPriorityActions}${reviewSkipAction}</div>
+    <p class="muted">確認済みは30日後または根拠変化で再確認。情報待ちも期限または根拠変化で戻ります。Skipは今回だけ。</p>
+    ${promotionPolicy.priority_reason ? `<p>特集候補・優先度の理由: ${esc(promotionPolicy.priority_reason)}</p>` : ""}
+    ${hasPromotionHold ? `<p>情報待ち: ${esc(promotionPolicy.active_deferral.reason)}</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
     ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Confirmed services</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "None"}</dd><dt>Repositories</dt><dd>${list(overview.repositories).map(link).join("<br>") || "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
@@ -777,7 +830,7 @@ function renderDetail(data) {
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。ProfileのEditから確認できます。</p>` : ""}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${section("Links / Resources", renderProjectLinks(overview))}
-    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>${promotionPriorityActions}`)}
+    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
     ${section("Service / Ownership", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("Merge Candidate", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
@@ -790,7 +843,8 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button>${hasPromotionHold ? "" : promotionDeferAction}<span id="merge-analysis-action"></span>${reviewSkipAction}</div>
+      <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button><span id="merge-analysis-action"></span></div>
+      ${promotionActions}
     </div>
     <nav class="detail-tabs" aria-label="Project detail">
       ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -1178,12 +1232,12 @@ function bindDetailActions(projectKey) {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
     const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
-    const title = action === "lower-promotion-priority"
+    const title = action === "review-promotion" ? "確認済み・次へ" : action === "clear-promotion-review" ? "確認対象へ戻す" : action === "lower-promotion-priority"
       ? "Lower candidate priority"
       : action === "clear-promotion-priority"
         ? "Restore normal candidate priority"
         : action.replaceAll("-", " ");
-    const message = ["lower-promotion-priority", "clear-promotion-priority"].includes(action)
+    const message = action === "review-promotion" ? "この候補を確認済みにします。30日間は確認対象から外し、根拠が変われば再表示します。確認済み一覧からいつでも戻せます。" : ["lower-promotion-priority", "clear-promotion-priority"].includes(action)
       ? `${title} for ${projectKey}?`
       : `${title} ${payload.value || payload.other_project_key || projectKey}?`;
     confirmMutation(
@@ -1193,7 +1247,7 @@ function bindDetailActions(projectKey) {
       payload,
       needsNote,
       button.dataset.defaultNote || "",
-      action === "lower-promotion-priority" ? "Reason or note (optional)" : "Reason or note",
+      action === "lower-promotion-priority" ? "特集の共通理由・優先度のメモ（任意・あとで検索できます）" : "Reason or note",
     );
   });
 }

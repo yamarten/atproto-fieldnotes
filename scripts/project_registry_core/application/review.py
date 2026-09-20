@@ -62,6 +62,7 @@ def promotion_queue(
     kinds: set[str] | None = None,
     limit: int | None = 50,
     include_personal_tools: bool = False,
+    view: str = "queue",
 ) -> list[dict[str, Any]]:
     return core.build_showcase_queue(
         conn,
@@ -69,6 +70,7 @@ def promotion_queue(
         kinds=kinds,
         limit=limit,
         include_personal_tools=include_personal_tools,
+        view=view,
     )
 
 

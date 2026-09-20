@@ -8,6 +8,7 @@ from .. import registry as core
 from .. import concurrency
 from . import review_targets
 from project_registry_core import project_record
+from project_registry_core import promotion_attention
 
 
 UNAMBIGUOUS_COMPONENT_ROLES = {
@@ -193,6 +194,7 @@ def set_promotion_defer(
     project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     if clear:
         core.clear_active_promotion_deferrals(project)
+        promotion_attention.record(project, "restore")
         entry = None
     else:
         entry = core.defer_promotion_on_project(project, reason=reason.strip(), days=days)
@@ -227,6 +229,7 @@ def set_promotion_priority(
         lowered=lowered,
         reason=reason,
     )
+    promotion_attention.record(project, "lower" if lowered else "restore")
     project_record.save_project(
         conn,
         project,
@@ -240,6 +243,15 @@ def set_promotion_priority(
         "priority_reason": str((entry or {}).get("reason") or ""),
         "promotion_priority_adjustments": project.get("promotion_priority_adjustments", []),
     }
+
+
+def set_promotion_reviewed(
+    conn: sqlite3.Connection, *, project_key: str, clear: bool = False,
+) -> dict[str, Any]:
+    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key))
+    promotion_attention.record(project, "restore" if clear else "reviewed")
+    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
+    return {"project_key": project_key, "attention": promotion_attention.projection(project)}
 
 
 def dismiss_review_kind(

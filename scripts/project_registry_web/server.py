@@ -347,6 +347,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     kinds=_set(query.get("kinds", [])) or None,
                     limit=_int(query.get("limit", [50])[0], 50),
                     include_personal_tools=str(query.get("include_personal_tools", [""])[0]).lower() in {"1", "true", "yes"},
+                    promotion_view=query.get("view", ["inbox"])[0],
+                    reason=query.get("reason", [""])[0],
+                    offset=_int(query.get("offset", [0])[0], 0, minimum=0, maximum=1000000),
                 ))
             return
         if path == "/api/merge-batch":
@@ -707,6 +710,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 days=_int(payload.get("days"), 30, maximum=365),
                 clear=action.startswith("clear-"),
             )
+        if action in {"review-promotion", "clear-promotion-review"}:
+            return decisions.set_promotion_reviewed(conn, project_key=project_key, clear=action.startswith("clear-"))
         if action in {"defer-promotion", "clear-promotion-deferral"}:
             raw_days = payload.get("days")
             return decisions.set_promotion_defer(

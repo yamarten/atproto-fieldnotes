@@ -26,6 +26,7 @@ from typing import Any, Callable
 from project_registry_core import CollectorResult, EvidenceBundle
 from project_registry_core import collector_relation_policy
 from project_registry_core import collection_trust
+from project_registry_core import promotion_attention
 from project_registry_core import homepage_adoption
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
@@ -630,6 +631,7 @@ def active_promotion_deferral(project: dict[str, Any]) -> dict[str, str] | None:
         item
         for item in project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
         if not item.get("cleared_at") and (project_record.parse_iso(item.get("expires_at")) or now) > now
+        and (not item.get("fingerprint") or item["fingerprint"] == promotion_attention.fingerprint(project))
     ]
     return active[-1] if active else None
 
@@ -669,10 +671,13 @@ def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", day
         "reason": effective_reason,
         "added_at": project_record.iso_now(),
         "expires_at": expires_at,
+        "fingerprint": promotion_attention.fingerprint(project),
     }
+    clear_active_promotion_deferrals(project)
     project["promotion_deferrals"] = project_record.normalize_promotion_deferrals(
         list(project.get("promotion_deferrals", [])) + [entry]
     )
+    promotion_attention.record(project, "defer")
     return entry
 
 
@@ -9032,6 +9037,8 @@ def promotion_policy_projection(
     priority_adjustment = active_promotion_priority_adjustment(project)
     return {
         "candidate_visibility": promotion_candidate_visibility(project),
+        "attention": promotion_attention.projection(project),
+        "active_deferral": active_promotion_deferral(project),
         "service_evidence_group": promotion_service_evidence_group(signals),
         "priority_group": "lowered" if priority_adjustment else "normal",
         "priority_reason": str((priority_adjustment or {}).get("reason") or ""),
@@ -9172,18 +9179,37 @@ def build_showcase_queue_from_projects(
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
     command_prefix: str = "project-registry",
+    view: str = "queue",
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
     project_list = [project_record.ensure_project_shape(project) for project in projects]
     for project in project_list:
         shaped = apply_promotion_state(dict(project))
-        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools)
+        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools, include_ineligible=True)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
-        if not signals:
-            continue
-        top_priority = max(int(item.get("priority", 0) or 0) for item in signals)
         policy = promotion_policy_projection(shaped, signals)
+        eligible = policy["candidate_visibility"]["group"] == "eligible"
+        lowered = policy["priority_group"] == "lowered"
+        reviewed = policy["attention"]["group"] == "reviewed"
+        waiting = bool(policy["active_deferral"])
+        included = {
+            "queue": eligible,
+            "inbox": eligible and not lowered and not reviewed,
+            "lowered": lowered,
+            "waiting": waiting,
+            "reviewed": reviewed,
+            "all": eligible or lowered or waiting or reviewed,
+        }
+        if view not in included:
+            raise ValueError(f"unknown promotion view: {view}")
+        if not included[view]:
+            continue
+        if not signals and (view in {"queue", "inbox"} or kinds is not None):
+            continue
+        if not signals and not (lowered or waiting or reviewed):
+            continue
+        top_priority = max((int(item.get("priority", 0) or 0) for item in signals), default=0)
         sort_score = int(policy["score_breakdown"]["total"])
         queue.append(
             {
@@ -9219,6 +9245,7 @@ def build_showcase_queue_from_projects(
         )
     queue.sort(key=lambda item: (
         1 if item.get("priority_group") == "lowered" else 0,
+        1 if item["attention"]["group"] == "reviewed" else 0,
         -int(item.get("top_priority", 0) or 0),
         -int(item.get("sort_score", 0) or 0),
         str(item.get("project_key") or ""),
@@ -9233,6 +9260,7 @@ def build_showcase_queue(
     limit: int | None = 50,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
+    view: str = "queue",
 ) -> list[dict[str, Any]]:
     return build_showcase_queue_from_projects(
         project_record.list_projects(conn, tracking_states=tracking_states),
@@ -9240,6 +9268,7 @@ def build_showcase_queue(
         kinds=kinds,
         include_personal_tools=include_personal_tools,
         command_prefix=registry_command_prefix(conn),
+        view=view,
     )
 
 

@@ -255,7 +255,7 @@ Website単独やseedの有無はこのゲートの条件にしません。満た
 
 ### 紹介候補の表示・順位・保留
 
-`promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、各group内ではsignalとscore順を維持します。対話操作でも全候補の順位を確定してから上位を表示します。
+`promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、確認済みかどうか、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、同じgroup内では未確認・再確認対象を確認済みより先にします。品質score自体は確認履歴で増減しません。
 
 `lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは8、scoreの`lexicon_publication`は160で、confirmed live serviceの次の優先帯に置きます。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
 
@@ -265,14 +265,29 @@ promotion policyは次を混ぜずに投影します。
 - `service_evidence_group`: `confirmed / needs_validation / not_applicable`。service signalだけの確認度を表し、単独紹介の可否は含めない
 - `priority_group`: `normal / lowered`。`lowered`はnormalized decisionの明示判断だけから投影し、project名・説明文・service evidenceから自動推定しない。理由メモは任意
 - `score_breakdown`: service、lexicon、technical interest、profile、activityなど既存scoreの加減点を成分別に返し、`total`を従来の`sort_score`として使う
+- `attention`: 明示した確認記録から`unreviewed / recorded / reviewed / changed / due`を投影する。未記録・判断記録あり・確認済み・根拠変化・期限到来を区別する。有用性や実際の未閲覧を表さない
 
-したがって`defer_promotion`は個別service signalの評価を下げる操作ではなく、project全体を期限付きで非表示にする操作です。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
+`defer_promotion`はproject全体を期限または根拠変化まで通常の候補表示から外します。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
 
-Webの`Promotion`（紹介候補）cardはserviceの確認度、手動優先度、追加確認が必要な理由、scoreの非ゼロ成分を表示します。詳細画面から優先度を下げる時は任意の理由メモを入力でき、保存後は表示中のcardを外して次候補へ進みます。`Refresh`後も候補自体は残りますが、通常候補より後ろへ並びます。
+Webの`Promotion`は既定の「確認対象」でeligible・通常優先度・確認済みでない候補を表示します。「確認済み」「情報待ち」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
+
+cardはservice確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で確認済み・Defer・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
+
+Lower priorityは単体で先に扱わない判断であり、同じ理由をまとめて特集する候補にも使います。理由の編集は旧decisionを解除済みとして残し、新decisionを追加します。通常優先度へ戻す操作も履歴を消しません。明示したloweringは根拠が変わっても自動解除せず、専用一覧で再評価できます。
+
+設計比較では、既存Lower priority＋検索可能な理由を特集backlogとして採用しました。例えば「認証のみ」の対象を複数保存し、同じ理由で検索してまとめる運用は既存の1操作で足ります。独立topicなら通常優先度のまま複数テーマに属させられますが、今回の単独紹介を後に回す用途では管理項目が増えます。順位を保った複数テーマ分類が必要になれば分離を再検討します。
 
 マージ元（source）と存続先（target）の両方に有効な紹介候補の優先度判断がある場合はtarget側を維持し、source側を解除済み履歴として残します。
 
-`promotion_deferrals` に active な entry がある project は signal 計算前に除外します。未指定時の保留期間は `suggested_promotion_defer_days()` が決めます。初回の若い project は 14 日、通常初回は 30 日、過去の promotion defer 履歴がある場合は 45 / 60 / 90 日へ延ばします。`--days` または API payload の `days` が明示された場合はその値を優先します。過去履歴は消さないため、再保留では直近理由を既定値として再利用できます。理由から「未実装機能が実装された」などの復活条件を自動判定する処理は将来候補で、現状は期限だけを見ます。
+`promotion_deferrals`の未解除・期限内entryは、fingerprintが無いか現在値と一致する間だけ保留として効きます。未指定時の保留期間は`suggested_promotion_defer_days()`が決めます。初回の若いprojectは14日、通常初回は30日、過去のdefer履歴がある場合は45 / 60 / 90日へ延ばします。`--days`またはAPIの`days`を優先し、直近理由は再保留時に再利用できます。理由文の条件を機械的に理解して実装完了等を確定する処理はありません。
+
+### 確認済み候補と根拠変化
+
+「確認済み・次へ」は現時点の材料を確認したという可逆的な操作です。30日間はWebの確認対象から外し、CLIでは同じ優先度groupの後ろへ並べます。根拠変化、30日期限、明示解除で再評価対象へ戻ります。例えば55件中先頭50件を確認済みにすると、残る5件を先に確認できます。長期表示だけからの自動減衰は、表示履歴がなく未利用と区別できないため採用しません。無操作では順序が変わらない代わりに、未閲覧の恒久判断を作りません。
+
+fingerprintのversionは`promotion-attention-v1`です。category、service状態・confidence・利用面を示すevidence、atproto寄与度、technical interestのlevel/reasons、lexicon scope、確認済みservice/repository/NSID、resolved NSIDのschema内容、features、summary/tagline/featuresの有無を比較します。集合の順序、取得時刻、activity件数、HTML/README本文hash、summary/taglineの言い換えだけでは復活させません。featuresの文言変更は意味が同じでも再提示し得るため、精密な意味判定ではなく保守的な再確認条件です。未収集の機能変化、これらのfieldへ反映されない変化は検知できず、期限と手動復帰が補います。
+
+保存するのは直近の判断材料・操作・累積操作件数であり、過去の順位や表示session全体ではありません。未確認・変化は有用性そのものではなく、既知の無変化候補による占有を避ける条件です。既存の品質signal・scoreを同じ再評価group内で維持します。保存契約は[確認記録](project-record.md#promotionの確認記録)を参照してください。
 
 ## 追跡と再調査
 

@@ -311,7 +311,20 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
 
+新しい`defer_promotion`のmetadataには判断時点の`fingerprint`を保存します。期限前でも現在の根拠が異なれば紹介候補の保留効果を解除し、元のdecision rowは履歴として維持します。再保留では期限内の旧entryをclearして新しい基準を保存します。fingerprintがない既存decisionは期限だけで判定し、読込み時の推測補完・移行はしません。Lower priorityの保存形、理由、解除済み履歴、merge時のtarget優先は維持します。
+
 operatorがcandidateをconfirmすると、同じ`kind + value`を対象とするexactなblock/deferを解除して`confirm_identifier`を追加します。operatorがblock/deferすると、同じ対象のactiveなconfirmと採用理由を終了させます。現行mutationは同じ値を持つ全roleへ作用し、`target_role`は判断対象のroleを記録しますがrole単位のguardにはまだ使いません。古い矛盾したdecisionを併存させて優先順位を毎回推測せず、最新の明示的判断をactiveな状態として保存します。
+
+### Promotionの確認記録
+
+`state_json.ops.promotion_attention`は一覧の再評価用current stateです。`確認済み・次へ`、Defer、Lower priority、それらの解除の明示操作だけで更新し、一覧取得、詳細取得、Refresh、Skipでは保存しません。自動表示回数や未紹介を負例とするlabelは作りません。
+
+- `snapshot` / `fingerprint`: 直近操作時の構造化判断材料とversion付きhash。対象は[再評価条件](project-evaluation.md#確認済み候補と根拠変化)を参照
+- `last_action_at` / `last_outcome`: 直近操作時刻と`reviewed / defer / lower / restore`
+- `outcome_counts`: 上記操作別の累積件数。閲覧回数・紹介採用率を表さない
+- `reviewed_fingerprint` / `reviewed_until`: 明示した確認済みの対象と30日間の期限。解除で削除
+
+snapshotは直近1件、確認済みのhashと期限は最大1件で、全event・順位・session履歴を追加しません。紹介の結果は既存`introduced_url`で参照できますが、判断当時の全profileや履歴遷移を復元する用途には使えません。schema v4の既存JSONへ保存し、新tableや正本DBのmigrationは不要です。保存は既存revision検査を通ります。mergeではtargetのcurrent stateを保持し、sourceの確認記録は集計しません。合成後の根拠が異なれば確認済み効果は外れます。
 
 ## 非現行identifier、採用理由、移転、noise
 
