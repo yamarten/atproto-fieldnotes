@@ -1,6 +1,6 @@
 # Identifierのmerge後欠落と限定復元の保留
 
-sourceのconfirm判断がmergeで統合されない一般不具合は再現・修正した一方、Substratum Passportのroot URLが実際に消えた操作は未確定です。今回のコード修正を、その過去事象の完全解明や正本復元として扱いません。正本への書込み・実運用serverへの反映は未実施です。
+sourceのconfirm判断がmergeで統合されない一般不具合は再現・修正し、masterへ統合後も全unit testの成功を確認しました。一方、Substratum Passportのroot URLが実際に消えた操作は未確定です。今回のコード修正を、その過去事象の完全解明や正本復元として扱いません。正本への書込み・実運用serverへの反映は未実施です。
 
 ## 確認した範囲
 
