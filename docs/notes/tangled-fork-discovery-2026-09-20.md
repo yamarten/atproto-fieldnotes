@@ -1,6 +1,6 @@
 # Tangled fork選別の統合と既存候補
 
-通常の新規発見から、Tangled recordがfork元を宣言しているrepoを除外する変更です。既存projectの処遇と実運用への反映は未実施です。現在の選別条件と明示登録経路は[取り込み仕様](../developer/specs/discovery-and-sync.md#forkの新規発見と明示登録)を参照してください。
+通常の新規発見から、Tangled recordがfork元を宣言しているrepoを除外する変更はmasterへ統合済みです。既存projectの処遇と統合後の本番syncでの除外実績は未確認・未実施です。現在の選別条件と明示登録経路は[取り込み仕様](../developer/specs/discovery-and-sync.md#forkの新規発見と明示登録)を参照してください。
 
 ## 確認範囲
 
@@ -14,7 +14,7 @@ temp DBのtestは、作成と除外の混在、独立forkの明示登録後のex
 
 ## 残る作業と反映境界
 
-母艦でcommitを統合して検証した後、必要な運用手順で反映します。このworktreeでは正本DB、Web server、preset/jobを変更していません。165件の削除・ignore・mergeも行っていません。
+Webはsyncごとにcheckoutのscriptsを参照してworkerを新規起動するため、次回syncから変更を読み込みます。今回のためのWeb再起動・正本補正は不要です。通常syncで除外件数とsequence進行を確認する余地は残りますが、その確認目的でjobを追加実行していません。165件の削除・ignore・mergeも行っていません。
 
 既存44件は新規除外規則があってもexact一致で更新されます。個別処遇を進める場合は、fork元と独立したサービス・技術的追加価値を候補ごとにreviewしてから判断してください。44件を一括ignoreする根拠ではありません。`repair-db`は新規発見条件の変更を既存projectの削除・ignoreへ変換する手段ではなく、今回のための正本適用は不要です。
 

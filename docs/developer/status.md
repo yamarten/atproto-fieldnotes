@@ -18,7 +18,7 @@ introduced（紹介済み投稿）、collection inventory（collectionの活動�
 
 外部情報源への取得件数・request数を限定した疎通・動作確認（bounded smoke）と、Tangledの実適用・照合補正を確認しています。Tangledの全snapshotの初回完走時間・API利用量、長時間運用の再試行・cache・取得上限の妥当性は未検証です。
 
-Tangledの通常新規発見は、recordの`source`が宣言するfork元を使い、GitHubの通常検索`fork:false`に合わせてforkを除外します。既存URLへの一致・更新と明示登録は維持します。公式のfork保存契約、保存実例4件、独立forkの明示登録を含むtemp DB testで確認しています。欠落・不正・未知形式の`source`からcloneを検出する機能、親との差分から独立性を自動判定する機能はありません。正本の既存候補の処遇と実運用への反映は行っていません。[統合時の確認範囲と既存候補](../notes/tangled-fork-discovery-2026-09-20.md)を参照してください。
+Tangledの通常新規発見は、recordの`source`が宣言するfork元を使い、GitHubの通常検索`fork:false`に合わせてforkを除外します。既存URLへの一致・更新と明示登録は維持します。公式のfork保存契約、保存実例4件、独立forkの明示登録を含むtemp DB testで確認しています。欠落・不正・未知形式の`source`からcloneを検出する機能、親との差分から独立性を自動判定する機能はありません。masterへ統合済みで、次回起動するCLI・sync workerはこの実装を読み込みます。Webの再起動は不要です。統合後の本番syncでの除外実績と正本の既存候補の処遇は未確認・未実施です。[確認範囲と既存候補](../notes/tangled-fork-discovery-2026-09-20.md)を参照してください。
 
 Tangled同期のowner確認はBluesky profileからDID・handleの双方向検証へ置換し、解決不能recordを保留して増分実行で再評価します。temp DBで保留とwatermarkの同時保存・復旧・rollbackを確認し、正本の同じwatermarkから1,000 eventのread-only smokeで、停止ownerの保留とprofile未登録ownerを含む正常候補の評価を確認しました。この修正の本番execute・Web反映・定期preset再開は未実施です。[統合・再開材料](../notes/tangled-owner-sync-2026-09-20.md)を参照してください。
 
