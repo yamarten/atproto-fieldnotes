@@ -75,7 +75,7 @@ def insert_adoption(
     effective_kind = adoption_kind or adoption_kind_for_source(source)
     adoption_id = _row_id(
         "adoption",
-        project_key,
+        origin_project_key or project_key,
         kind,
         value,
         role,
@@ -197,19 +197,35 @@ def reconcile_project_adoptions(conn: sqlite3.Connection, project_key: str, *, n
         if not kind or role not in COMPONENT_ROLES or claim not in current:
             continue
         metadata = _json(str(row["metadata_json"]))
-        source = str(metadata.get("source") or "")
+        source = str(metadata.get("source") or "") or "unspecified_confirm"
+        origin = str(metadata.get("origin_project_key") or "")
+        # Merge changes the owning project, not the adoption event identity.
+        # Its original ID/origin must survive both this save and later saves.
+        if conn.execute(
+            """
+            SELECT 1 FROM project_identifier_adoptions
+            WHERE project_key=? AND kind=? AND value=? AND role=?
+              AND adoption_kind=? AND source=? AND source_ref=? AND created_at=?
+              AND (?='' OR origin_project_key=?)
+            LIMIT 1
+            """,
+            (*claim, adoption_kind_for_source(source), source,
+             str(metadata.get("source_ref") or ""), str(row["created_at"]), origin, origin),
+        ).fetchone():
+            continue
         insert_adoption(
             conn,
             project_key=project_key,
             kind=kind,
             value=value,
             role=role,
-            source=source or "unspecified_confirm",
+            source=source,
             created_at=str(row["created_at"]),
             registration_origin=bool(metadata.get("registration_origin")),
             source_ref=str(metadata.get("source_ref") or ""),
             policy_version=str(metadata.get("policy_version") or ""),
             input_fingerprint=str(metadata.get("input_fingerprint") or ""),
+            origin_project_key=origin,
         )
         inserted += int(conn.execute(
             "SELECT changes()"

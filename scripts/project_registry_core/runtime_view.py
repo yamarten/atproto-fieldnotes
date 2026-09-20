@@ -374,6 +374,32 @@ def project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdentifier]:
     return output
 
 
+def merge_identifier_rows(project: dict[str, Any], target: Mapping[str, Any], source: Mapping[str, Any]) -> None:
+    """Retain exact claims that the merged flat fields cannot fully represent.
+
+    A confirmed claim wins over a candidate for the same kind/value/role;
+    otherwise the target row wins. Distinct roles remain distinct claims.
+    Capture the merged baseline before finalize applies any explicit removals.
+    """
+    rows: dict[tuple[str, str, str], ProjectIdentifier] = {}
+    for item in project_identifiers(target) + project_identifiers(source):
+        key = _identifier_key(item)
+        previous = rows.get(key)
+        if previous is None or (item.classification == "confirmed" and previous.classification != "confirmed"):
+            rows[key] = item
+    project[RUNTIME_IDENTIFIER_ROWS] = [asdict(item) for item in rows.values()]
+    project[RUNTIME_IDENTIFIER_BASELINE] = [asdict(item) for item in _derive_project_identifiers(project)]
+    # Adoption rows are a read view here; their SQL ownership is moved by the
+    # merge transaction before saving, without changing the original event.
+    if RUNTIME_ADOPTION_ROWS in target or RUNTIME_ADOPTION_ROWS in source:
+        project[RUNTIME_ADOPTION_ROWS] = [
+            dict(copy.deepcopy(row), project_key=project["project_key"],
+                 origin_project_key=row.get("origin_project_key") or owner.get("project_key", ""))
+            for owner in (target, source)
+            for row in owner.get(RUNTIME_ADOPTION_ROWS, [])
+        ]
+
+
 def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
     output: list[ProjectDecision] = []
     for item in project.get("blocked_identifiers", []):
@@ -663,8 +689,10 @@ def hydrate(
         elif kind == "separate_project":
             project["separate_project_keys"].append(str(row["target_value"]))
         elif kind == "confirm_identifier":
-            project["confirmed_identifiers"].append(metadata or {
+            project["confirmed_identifiers"].append({
+                **metadata,
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
+                "role": str(row["target_role"]),
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "cleared_at": str(row["cleared_at"]),
             })

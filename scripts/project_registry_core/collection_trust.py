@@ -67,6 +67,8 @@ def adoption_evidence(project: Mapping[str, Any], nsid: str) -> list[dict[str, A
             and not any(item.get("type") == "nsid" and item.get("value") == nsid
                         and item.get("source") == row.get("source")
                         and item.get("added_at") == row.get("created_at") and item.get("cleared_at")
+                        and (not item.get("origin_project_key")
+                             or item.get("origin_project_key") == row.get("origin_project_key"))
                         for item in project.get("confirmed_identifiers", []))
         )]
     # Unsaved projects have decisions but no adoption rows yet, as in the

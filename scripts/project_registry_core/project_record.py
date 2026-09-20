@@ -925,9 +925,9 @@ def normalize_deferred_identifiers(entries: list[Any]) -> list[dict[str, str]]:
     return output
 
 
-def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
-    output: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
+def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in entries:
         if not isinstance(item, dict):
             continue
@@ -938,25 +938,24 @@ def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, str]]:
         if not normalized_value:
             continue
         cleared_at = str(item.get("cleared_at") or "").strip()
-        key = (identifier_type, normalized_value, cleared_at)
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(
-            {
-                "type": identifier_type,
-                "value": normalized_value,
-                "role": str(item.get("role") or "").strip(),
-                "note": str(item.get("note") or "").strip(),
-                "source": str(item.get("source") or "").strip(),
-                "added_at": str(item.get("added_at") or ""),
-                "cleared_at": cleared_at,
-                "registration_origin": "1" if bool(item.get("registration_origin")) else "",
-                "source_ref": str(item.get("source_ref") or "").strip(),
-                "policy_version": str(item.get("policy_version") or "").strip(),
-                "input_fingerprint": str(item.get("input_fingerprint") or "").strip(),
-            }
-        )
+        normalized = {
+            **copy.deepcopy(item),
+            "type": identifier_type,
+            "value": normalized_value,
+            "role": str(item.get("role") or "").strip(),
+            "note": str(item.get("note") or "").strip(),
+            "source": str(item.get("source") or "").strip(),
+            "added_at": str(item.get("added_at") or ""),
+            "cleared_at": cleared_at,
+            "registration_origin": "1" if bool(item.get("registration_origin")) else "",
+            "source_ref": str(item.get("source_ref") or "").strip(),
+            "policy_version": str(item.get("policy_version") or "").strip(),
+            "input_fingerprint": str(item.get("input_fingerprint") or "").strip(),
+        }
+        key = dump_json(normalized)
+        if key not in seen:
+            seen.add(key)
+            output.append(normalized)
     return output
 
 

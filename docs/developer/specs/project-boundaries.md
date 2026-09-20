@@ -696,6 +696,8 @@ Webのmerge候補planは保守的です。曖昧な一致は、2件のprojectを
 
 merge/split/separateはoperation単位のtransactionで実行します。aliasと調査履歴の扱いは[Merge / Splitの履歴](project-record.md#merge--splitの履歴)を参照してください。
 
+merge時に、一方のconfirmed identifierが他方のblockまたは有効なdeferに当たる場合は、どちらの判断も黙って上書きせず操作を拒否します。同じ`kind + value + role`が現行identifierと非現行identifierに分かれている場合も、先に状態を解消する必要があります。`force`はこれらのidentifier判断を無効化しません。block/deferの適用単位は現行の`kind + value`です。異なるroleの現行identifierを同じclaimへまとめたり、採用来歴から非現行identifierを再採用したりしません。
+
 merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置換前targetを比較集合から除外し、統合後targetを加えた同一snapshot上で再計算します。Web APIはその保存済み結果の先頭候補を`next_merge_review`として返し、Merge reviewは一覧全体の再計算を挟まず次のpairへ進みます。この導線は候補scoreやbatch mergeの判定基準を変更しません。
 
 `review-queue` は表示のたびに `duplicate_candidates` / `merge_recommendation` を再計算しません。通常導線では保存済みの派生値を使い、再計算は `repair-db`、seed 追加、merge / split / block / separate など identifier を変える操作に寄せます。

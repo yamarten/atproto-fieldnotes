@@ -5,6 +5,7 @@ from typing import Any
 
 from .. import identifier_storage, registry as core
 from .. import concurrency
+from .. import runtime_view
 from project_registry_core import project_record
 
 
@@ -66,6 +67,17 @@ def merge_projects(
         raise ValueError("source and target resolve to the same project")
     if core.merge_is_blocked(source, target) and not force:
         raise ValueError("merge is manually blocked for this project pair; pass force only to override that guard")
+    current_claims = {
+        (item.kind, item.value, item.role)
+        for project in (source, target)
+        for item in runtime_view.project_identifiers(project)
+    }
+    for row in conn.execute(
+        "SELECT kind, value, role FROM project_noncurrent_identifiers WHERE project_key IN (?, ?)",
+        (source["project_key"], target["project_key"]),
+    ):
+        if (row["kind"], row["value"], row["role"]) in current_claims:
+            raise ValueError(f"merge conflicts with a noncurrent identifier: {row['kind']} {row['value']} ({row['role']}); resolve the identifier standing first")
     merged = core.merge_project_records(target, source)
     merged["separate_project_keys"] = [
         key for key in merged.get("separate_project_keys", [])
@@ -128,17 +140,20 @@ def merge_projects(
     if execute:
         with concurrency.write_transaction(conn):
             concurrency.check_projects(conn, [source, target], existing_aliases={source["project_key"]: target["project_key"]})
+            identifier_storage.merge_project_storage(
+                conn,
+                str(source["project_key"]),
+                str(target["project_key"]),
+            )
+            # Inputs were checked under this writer lock. Only our own storage
+            # transfer has advanced the target revision before the shared save.
+            merged[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, str(target["project_key"]))
             project_record.save_project(
                 conn,
                 merged,
                 enriched=bool(merged.get("last_enriched_at")),
                 preserve_timestamps=True,
                 commit=False,
-            )
-            identifier_storage.merge_project_storage(
-                conn,
-                str(source["project_key"]),
-                str(target["project_key"]),
             )
             core.register_project_merge_alias(
                 conn,

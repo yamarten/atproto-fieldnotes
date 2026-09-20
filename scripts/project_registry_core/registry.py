@@ -3906,7 +3906,7 @@ def add_resource_url(
     project_record.sync_resource_url_records(project)
 
 
-def prune_project_urls(project: dict[str, Any]) -> None:
+def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: bool = True) -> None:
     blocked_guesses = unverified_authority_service_guesses(project)
     prunable_authority_guesses = prunable_nsid_authority_service_guesses(project)
     prune_nsid_authority_service_url_guesses(project)
@@ -3948,6 +3948,8 @@ def prune_project_urls(project: dict[str, Any]) -> None:
         project["website_url"] = website_url
 
     active_manual_repos = active_manual_repo_urls(project)
+    if not restore_manual_repositories:
+        active_manual_repos.intersection_update(project.get("project_repository_urls", []))
     cleaned_records: list[dict[str, Any]] = []
     for record in project_record.normalize_source_repo_records(project.get("source_repo_records", [])):
         url = str(record.get("url") or "")
@@ -10083,6 +10085,29 @@ def merge_timestamp(current: str, incoming: str, *, prefer: str) -> str:
 def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     merged = project_record.ensure_project_shape(dict(target))
     source = project_record.ensure_project_shape(source)
+    for current, other in ((target, source), (source, target)):
+        for item in runtime_view.project_identifiers(current):
+            if item.classification == "confirmed" and (
+                identifier_is_blocked(other, item.kind, item.value)
+                or identifier_is_deferred(other, item.kind, item.value)
+            ):
+                raise ValueError(f"merge conflicts with an identifier block/defer: {item.kind} {item.value}; resolve the identifier decision first")
+    confirmations = []
+    for owner in (target, source):
+        for entry in owner.get("confirmed_identifiers", []):
+            entry = copy.deepcopy(entry)
+            if not entry.get("origin_project_key"):
+                origins = {
+                    row.get("origin_project_key") or owner["project_key"]
+                    for row in owner.get(runtime_view.RUNTIME_ADOPTION_ROWS, [])
+                    if row.get("kind") == entry.get("type") and row.get("value") == entry.get("value")
+                    and (not entry.get("role") or row.get("role") == entry.get("role"))
+                    and row.get("source") == entry.get("source") and row.get("created_at") == entry.get("added_at")
+                }
+                if len(origins) <= 1:
+                    entry["origin_project_key"] = next(iter(origins), owner["project_key"])
+            confirmations.append(entry)
+    merged["confirmed_identifiers"] = project_record.normalize_confirmed_identifiers(confirmations)
     target_editorial_preference = project_editorial_preference(merged)
     source_editorial_preference = project_editorial_preference(source)
     prefer_source_editorial = source_editorial_preference > target_editorial_preference
@@ -10238,7 +10263,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["last_run_errors"] = []
     merged["duplicate_candidates"] = []
     merged["merge_recommendation"] = {}
-    return finalize_project_shape(merged)
+    confirmed_nsids = set(merged.get("resolved_nsids", []))
+    merged["input_nsids"] = [value for value in merged.get("input_nsids", []) if value not in confirmed_nsids]
+    runtime_view.merge_identifier_rows(merged, target, source)
+    return finalize_project_shape(merged, restore_manual_repositories=False)
 
 
 def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
@@ -10281,7 +10309,7 @@ def register_project_merge_alias(
     )
 
 
-def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
+def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositories: bool = True) -> dict[str, Any]:
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
     remove_related_repository_service_surfaces(project)
@@ -10356,7 +10384,7 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)
 
     project_record.normalize_website_and_service_urls(project)
-    prune_project_urls(project)
+    prune_project_urls(project, restore_manual_repositories=restore_manual_repositories)
     prune_stale_service_trust_evaluations(project)
     purge_supporting_page_service_observations(project)
     project["developer_accounts"] = [
@@ -10411,7 +10439,8 @@ def finalize_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     project["source_repo_records"] = project_record.normalize_source_repo_records(project.get("source_repo_records", []))
     project["project_repository_urls"] = repo_url_core.normalize_repo_collection(
         project_record.unique_list(
-            project.get("project_repository_urls", []) + sorted(active_manual_repo_urls(project))
+            project.get("project_repository_urls", [])
+            + (sorted(active_manual_repo_urls(project)) if restore_manual_repositories else [])
         )
     )
     project["project_repository_urls"] = [

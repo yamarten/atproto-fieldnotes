@@ -1250,6 +1250,37 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIsNone(project_record.fetch_project(conn, split_key))
         conn.close()
 
+    def test_confirm_then_merge_preserves_source_identifier_and_adoption(self) -> None:
+        url = "https://example.com/docs"
+        status, _, _ = self.request(
+            "/api/projects/proj:111111111111/confirm-candidate",
+            method="POST",
+            payload={"identifier_type": "service_url", "value": url},
+        )
+        self.assertEqual(status, 200)
+        conn = registry.open_db()
+        before = dict(conn.execute(
+            "SELECT * FROM project_identifier_adoptions WHERE project_key=? AND value=?",
+            ("proj:111111111111", url),
+        ).fetchone())
+        conn.close()
+        status, _, _ = self.request(
+            "/api/merge-batch/action", method="POST",
+            payload={"action": "merge", "source_project_key": "proj:111111111111", "target_project_key": "proj:222222222222"},
+        )
+        self.assertEqual(status, 200)
+        status, detail, _ = self.request("/api/projects/proj:222222222222")
+        self.assertEqual(status, 200)
+        self.assertTrue(any(item["value"] == url and item["classification"] == "confirmed" for item in detail["identifiers"]))
+        self.assertTrue(any(item["kind"] == "confirm_identifier" and item["target_value"] == url for item in detail["decisions"]["active"]))
+        conn = registry.open_db()
+        after = [dict(row) for row in conn.execute(
+            "SELECT * FROM project_identifier_adoptions WHERE project_key=? AND value=?",
+            ("proj:222222222222", url),
+        )]
+        conn.close()
+        self.assertEqual(after, [dict(before, project_key="proj:222222222222")])
+
     def test_merge_action_returns_next_review_for_merged_project(self) -> None:
         conn = registry.open_db()
         source = self.make_project("proj:mergechain01", "service_url", "https://merge-source.example")

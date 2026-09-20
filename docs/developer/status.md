@@ -40,7 +40,7 @@ README公開先の候補化と、帰属・逆参照・Web/protocol実在確認�
 
 現在のpage↔repositoryの関係（relation）から信頼グラフの接続（edge）を導出し、候補URLの確認、信頼評価、Explain（判定理由の表示）、shadow比較へ接続しています。serviceの採用には、公開先が担う役割を検証するrole policyを通します。旧保存edgeのarchive・除去は実運用反映済みで、保存済みの過去採用を新規評価だけで一律に取り消しません。適用時に判定用graph・現行relation・登録URL・採用判断・調査履歴が変わらないことと、DB整合性・Web API応答を確認しています。
 
-通常のマージレビュー、分割（split）・別project指定（separate）、マージ元keyを存続先へ解決するaliasによる履歴参照を利用できます。merge/split/separateの原子的保存と、merge前に始まった古いenrichによるalias元keyの再作成拒否を確認しています。
+通常のマージレビュー、分割（split）・別project指定（separate）、マージ元keyを存続先へ解決するaliasによる履歴参照を利用できます。merge/split/separateの原子的保存と、merge前に始まった古いenrichによるalias元keyの再作成拒否を確認しています。merge時のsourceのconfirm判断・identifier metadata・採用来歴の保持、連続merge／再保存での採用originの維持、明示判断・非現行状態の衝突拒否を架空DBの通常入口で確認しています。過去に失われたidentifierを自動復元する変更ではなく、実運用serverへの反映とSubstratumの限定復元は未実施です。[復元の保留と未解明部分](../notes/identifier-merge-recovery.md)を参照してください。
 
 Lexiconの既存帰属候補は、同じprojectの独立した採用済みLexiconと直属authority・検証済み発行DIDが一致する場合に、通常の取得結果適用から信頼評価・採用へ接続しています。publisherのaccount採用、別namespaceへの信頼伝播、同じrepositoryディレクトリだけによる採用は行いません。範囲制約・取消し・取得順序の回帰testと一時DBでの保存／replayを確認しています。2026-09-14のSifaの公開4定義を通常のDNS・DID・PDS経路で検証し、既存3候補が採用済みLexiconを起点として支持される差分を確認しました。効果の確認はこの小規模sampleに限り、所要時間の削減や全体の誤採用率は未測定です。旧観測の暗黙昇格、正本DBへの一括適用、実運用serverへの反映はしていません。[適用条件](specs/project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)を参照してください。
 
