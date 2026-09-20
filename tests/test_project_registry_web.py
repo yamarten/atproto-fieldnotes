@@ -1575,6 +1575,33 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         status, _, _ = self.request("/api/promotion-queue?view=unknown")
         self.assertEqual(status, 400)
 
+    def test_lowered_api_matches_full_scan_for_saved_candidates_and_pages(self) -> None:
+        keys = ("proj:111111111111", "proj:222222222222")
+        with contextlib.closing(registry.open_db()) as conn:
+            for key in keys:
+                project = project_record.fetch_project(conn, key)
+                project.update(tracking_state="out_of_scope", service_status="unknown",
+                               introduced_url="https://example.com/introduced")
+                project_record.save_project(conn, project)
+        for key in keys:
+            status, _, _ = self.request(f"/api/projects/{key}/lower-promotion-priority",
+                method="POST", payload={"note": "Straße"})
+            self.assertEqual(status, 200)
+        recovered = []
+        for offset in (0, 1, 2):
+            path = f"/api/promotion-queue?view=lowered&reason=STRASSE&limit=1&offset={offset}"
+            actual = self.request(path)
+            with mock.patch.object(project_record, "list_projects_with_decision",
+                    side_effect=lambda conn, kind, **kw: project_record.list_projects(conn, **kw)):
+                self.assertEqual(actual, self.request(path))
+            status, payload, _ = actual
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["total"], 2)
+            self.assertEqual(payload["reasons"], [{"reason": "Straße", "count": 2}])
+            self.assertEqual(payload["has_more"], offset == 0)
+            recovered.extend(item["project_key"] for item in payload["items"])
+        self.assertCountEqual(recovered, keys)
+
     def test_validation_not_found_and_database_busy_error_shapes(self) -> None:
         status, payload, _ = self.request("/api/projects?introduced=maybe")
         self.assertEqual(status, 400)

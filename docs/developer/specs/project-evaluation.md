@@ -271,6 +271,8 @@ promotion policyは次を混ぜずに投影します。
 
 Webの`Promotion`は既定の「確認対象」でeligible・通常優先度・確認済みでない候補を表示します。「確認済み」「情報待ち」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
+`lowered`一覧は完全なproject復元の前に、normalized decisionに`lower_promotion_priority`の履歴を持つprojectへ読込み対象を絞ります。解除済み履歴も含めて選び、有効な判断・metadataの解釈は既存の復元とpolicyへ委ねます。key選択とproject・子行の復元は同じread snapshot内で行います。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持し、応答cacheは持ちません。他のviewはこの先行絞込みを使いません。
+
 cardはservice確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で確認済み・Defer・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 
 Lower priorityは単体で先に扱わない判断であり、同じ理由をまとめて特集する候補にも使います。理由の編集は旧decisionを解除済みとして残し、新decisionを追加します。通常優先度へ戻す操作も履歴を消しません。明示したloweringは根拠が変わっても自動解除せず、専用一覧で再評価できます。

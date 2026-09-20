@@ -1392,6 +1392,32 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
     return [project_from_row(conn, row) for row in rows]
 
 
+@concurrency.consistent_read
+def list_projects_with_decision(
+    conn: sqlite3.Connection,
+    decision_kind: str,
+    *,
+    tracking_states: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    # Select a superset, including cleared history. Hydration and domain policy
+    # remain responsible for interpreting the decision's metadata/current effect.
+    conditions = ["project_key IN (SELECT project_key FROM project_decisions WHERE kind = ?)"]
+    params: list[str] = [decision_kind]
+    if tracking_states is not None:
+        requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not requested:
+            return []
+        conditions.append(f"tracking_state IN ({', '.join('?' for _ in requested)})")
+        params.extend(requested)
+    rows = conn.execute(
+        f"SELECT project_key FROM projects WHERE {' AND '.join(conditions)} "
+        "ORDER BY last_seen_at DESC, project_key ASC",
+        params,
+    ).fetchall()
+    # Keep key selection and complete project reads in the same snapshot.
+    return [project_from_row(conn, row) for row in rows]
+
+
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
     normalized = canonical_seed_value(identifier_type, identifier_value)
     if (

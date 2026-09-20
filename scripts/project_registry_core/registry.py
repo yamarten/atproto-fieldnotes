@@ -9262,8 +9262,15 @@ def build_showcase_queue(
     include_personal_tools: bool = False,
     view: str = "queue",
 ) -> list[dict[str, Any]]:
+    projects = (
+        project_record.list_projects_with_decision(
+            conn, "lower_promotion_priority", tracking_states=tracking_states,
+        )
+        if view == "lowered"
+        else project_record.list_projects(conn, tracking_states=tracking_states)
+    )
     return build_showcase_queue_from_projects(
-        project_record.list_projects(conn, tracking_states=tracking_states),
+        projects,
         limit=limit,
         kinds=kinds,
         include_personal_tools=include_personal_tools,
