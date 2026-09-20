@@ -114,6 +114,14 @@ sqlite3 data/survey.db ".backup '.tmp/change-acceptance/survey.db'"
 
 複製をWebで使う場合も`127.0.0.1:8765`へ起動します。確認後は使用processを停止し、複製DBとWAL/SHMを削除します。再利用する小さな`data/dev/survey.db`と、容量の大きい正本DB複製を区別し、後者はtaskをまたいで残しません。
 
+### sandboxでの読み取り計測
+
+正本の読み取りが許可された計測は、まず通常権限で実行します。Pythonは既存の`bin/_project-registry-python`が選ぶ環境を使い、SQLite接続は`mode=ro`を維持します。書き捨て計測や旧コードとの比較では、不要なbytecode出力を`PYTHONDONTWRITEBYTECODE=1`で止め、計測結果と依存ライブラリの書込みcacheを作業中のworktreeの`.tmp/`へ置きます。読取対象のDB・設定・vendoredデータと、書込先を区別します。準備処理と追加権限が必要な計測を一つのshell commandへまとめません。
+
+WAL形式では、`mode=ro`でも`-wal`・`-shm`が存在しない場合に補助ファイルの作成が必要になります。読取が失敗したら、エラーと補助ファイルの状態を確認し、必要な接続だけを一時的な昇格対象にします。一度の通常のSQLite接続で補助ファイルが揃えば、以後は書込権限なしで読める場合があります。次の計測では通常権限へ戻して確認し、補助ファイルが削除された場合などは、その時点の状態から再判断します。昇格後に成功したことだけで、以後も昇格が必要とは扱いません。
+
+承認省略のために`data/`やWAL補助ファイルへ恒久的な書込権限を追加しません。WALは未反映のcommit済みデータを持つため、単なるcacheとして扱いません。稼働中の正本に`immutable=1`やロック無効化を指定したり、journal modeを変更したり、補助ファイルを手作業で作成・削除したりして回避しません。通常権限での再実行が失敗した場合は、その経路を未解決として報告します。
+
 ## 実運用への反映
 
 変更の受入確認と実運用serverへの反映は別作業です。通常は利用者がWeb UIのSettingsにある`Reload server`を押します。明示的な反映依頼がない限り、変更を実装したagentは`project-registry-web-service restart`、reload API、正本DBへの変更を実行しません。
