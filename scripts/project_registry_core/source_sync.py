@@ -7,6 +7,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -67,6 +68,7 @@ from project_registry_core.registry import (
     write_sync_state,
 )
 from project_registry_core.project_record import (
+    DID_RE,
     add_unique,
     default_project_record,
     ensure_project_shape,
@@ -1894,6 +1896,41 @@ def project_for_tangled_entry(
     return None
 
 
+def tangled_fork_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    """Interpret a declared parent, without resolving it or inferring clone history.
+
+    Tangled's ForkRepo writes the parent's repo DID, or its sh.tangled.repo
+    AT-URI for older repositories. An external clone URI is not that contract.
+    Missing/unrecognized data must never become a confirmed non-fork.
+    """
+    source = record.get("source")
+    status = "missing" if source is None or source == "" else "invalid"
+    if isinstance(source, str) and source and source == source.strip():
+        if DID_RE.fullmatch(source) and not re.search(r"%(?![0-9a-fA-F]{2})", source):
+            status = "repo_did"
+        elif source.startswith("at://"):
+            try:
+                parsed = urllib.parse.urlsplit(source)
+            except ValueError:
+                parsed = None
+            if (parsed and DID_RE.fullmatch(parsed.netloc)
+                    and not re.search(r"%(?![0-9a-fA-F]{2})", parsed.netloc)
+                    and re.fullmatch(r"/sh\.tangled\.repo/[A-Za-z0-9._~:-]{1,512}", parsed.path)
+                    and parsed.path.rsplit("/", 1)[-1] not in {".", ".."}
+                    and not parsed.query and not parsed.fragment
+                    and source == urllib.parse.urlunsplit(parsed)):
+                status = "repo_at_uri"
+        elif not source.startswith("did:"):
+            # Includes external import/mirror URIs: their relationship is unknown.
+            status = "unrecognized"
+    declared_fork = status in {"repo_did", "repo_at_uri"}
+    return {
+        "fork": True if declared_fork else None,
+        "fork_source": source if declared_fork else "",
+        "fork_source_status": status,
+    }
+
+
 def sync_tangled_repos(
     conn: sqlite3.Connection,
     *,
@@ -1965,7 +2002,7 @@ def sync_tangled_repos(
     sealed_tip_seq = int(snapshot.get("sealed_tip_seq") or watermark_before)
     last_event_seq = int(snapshot.get("last_event_seq") or watermark_before)
     bounded_truncated = bool(snapshot.get("truncated"))
-    matched = created = unmatched = skipped_irrelevant = skipped_owner = 0
+    matched = created = unmatched = skipped_irrelevant = skipped_owner = skipped_forks = 0
     results: list[dict[str, Any]] = []
     with conn if execute else contextlib.nullcontext():
         for entry_index, entry in enumerate(selected, 1):
@@ -1996,10 +2033,18 @@ def sync_tangled_repos(
             handle = owner_handles[owner_did]
             repo_url = tangled_core.tangled_repo_url(handle, record, str(entry.get("rkey") or ""))
             project = project_for_tangled_entry(conn, repo_url)
+            fork_metadata = tangled_fork_metadata(record)
             outcome = "unmatched"
+            reason = ""
             if project is not None:
                 matched += 1
                 outcome = "matched"
+            elif fork_metadata["fork"]:
+                # Match first: explicit registration and existing projects remain
+                # eligible for updates. Only automatic new discovery excludes forks.
+                skipped_forks += 1
+                outcome = "skipped_fork"
+                reason = "tangled_fork_excluded_from_discovery"
             elif create_unmatched:
                 project = ensure_project_for_seed(conn, "repo_url", repo_url, source="tangled_jetstream", commit=False) if execute else default_project_record("dry-run", "repo_url", repo_url)
                 created += 1
@@ -2020,14 +2065,19 @@ def sync_tangled_repos(
                     apply_tangled_evidence(project, bundle)
                     project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "tangled_jetstream")
                     save_project(conn, finalize_project_shape(project), enriched=False, commit=False)
-            results.append({
+            result = {
                 "project_key": str(project.get("project_key") or "") if project is not None else "",
                 "repo_url": repo_url,
                 "owner_did": owner_did,
                 "outcome": outcome,
                 "seq": entry["seq"],
                 "observed_at": str(entry.get("time") or ""),
-            })
+                **fork_metadata,
+                **({"reason": reason} if reason else {}),
+            }
+            results.append(result)
+            if outcome == "skipped_fork" and progress:
+                progress(entry_index, len(selected), {"kind": "source_item_result", "source": "tangled", **result})
         state_updated = bool(
             execute
             and not cancelled
@@ -2056,6 +2106,7 @@ def sync_tangled_repos(
         "unmatched": unmatched,
         "skipped_irrelevant": skipped_irrelevant,
         "skipped_owner": skipped_owner,
+        "skipped_forks": skipped_forks,
         "unresolved_owners": len(owner_unavailable),
         "owner_errors": [{"owner_did": did, "reason": reason} for did, reason in owner_unavailable.items()],
         "retried_owner_records": len(replay),

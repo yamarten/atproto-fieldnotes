@@ -1,0 +1,53 @@
+{
+  "observed_at": "2026-09-20",
+  "provenance": "Read-only investigation bundles; record projections retain the fields used for relevance and fork classification. Fork ancestry is declared; code identity and independent deployment are not verified.",
+  "cases": [
+    {
+      "repo_url": "https://tangled.org/veryroundbird.house/witchsky.app",
+      "run_id": "inv:714b16ef5a9c49f68ecfabc33dadd1a2",
+      "owner_did": "did:plc:2sqok7oqqrhtmmmb5sulkrw2",
+      "record": {
+        "$type": "sh.tangled.repo",
+        "name": "witchsky.app",
+        "description": "Bluesky app fork with some witchin' additions 💫 ",
+        "repoDid": "did:plc:eq66fpnwh4jzpy3aonbxsqnf",
+        "source": "at://did:plc:lwckcyzhyrufq4ytg2abji7d/sh.tangled.repo/3m66yykkd2a22"
+      }
+    },
+    {
+      "repo_url": "https://tangled.org/maelstrom.dev/witchsky.app-fork",
+      "run_id": "inv:51ce00944e574d46854e1cc7d2056061",
+      "owner_did": "did:plc:6wqx3ljitvdfssvsldzzzyp5",
+      "record": {
+        "$type": "sh.tangled.repo",
+        "description": "Bluesky app fork with some witchin' additions 💫 ",
+        "repoDid": "did:plc:zhnawkjsropl5lo7j6wapyiw",
+        "source": "did:plc:o32gsn3jolddqna6w4kdzuv2"
+      }
+    },
+    {
+      "repo_url": "https://tangled.org/callie.on-her.computer/witchsky.app",
+      "run_id": "inv:ff7022de78864b87900188caebc837b5",
+      "owner_did": "did:plc:wl4wyug27klcee5peb3xkeut",
+      "record": {
+        "$type": "sh.tangled.repo",
+        "name": "witchsky.app",
+        "description": "Bluesky app fork with some witchin' additions 💫 ",
+        "repoDid": "did:plc:estp2soad66k4fuxwst353iq",
+        "source": "at://did:plc:lwckcyzhyrufq4ytg2abji7d/sh.tangled.repo/3m66yykkd2a22"
+      }
+    },
+    {
+      "repo_url": "https://tangled.org/ellioth.co/witchsky.app",
+      "run_id": "inv:5563bce0e0b54dde935a72645887f783",
+      "owner_did": "did:plc:6kqpljoz4r7ttyhofw6sg2km",
+      "record": {
+        "$type": "sh.tangled.repo",
+        "name": "witchsky.app",
+        "description": "Bluesky app fork with some witchin' additions 💫 ",
+        "repoDid": "did:plc:vzfoqoryzala47xj6ygr2ggu",
+        "source": "did:plc:o32gsn3jolddqna6w4kdzuv2"
+      }
+    }
+  ]
+}

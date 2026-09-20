@@ -137,9 +137,30 @@
 - 正規化したTangled repo URLだけで既存projectへexact照合します。owner DIDやrecord websiteだけでは照合しません
 - atprotoとの関連条件を満たすrecordのowner handleはDB変更前にDIDごとに解決・cacheします。Bluesky `getProfile`には依存せず、DID documentの`id`一致、`alsoKnownAs`の最初の構文上有効なhandle、public AppViewの`com.atproto.identity.resolveHandle`による同じDIDへの逆引きを確認します
 - unmatched project作成は既定onです
+- 既存URLに一致しないrecordは、`source`にTangled fork元の宣言がある場合、新規作成から除外します。GitHubの通常検索の`fork:false`に合わせるもので、独立性screeningを通常発見の例外にはしません
 - API keyは`ATPROTO_SURVEY_JETSTREAM_API_KEY`環境変数からだけ読み、request、event、設定、stateへ保存しません。
 
 enrich時のPDS・repository inspectionは[調査仕様](investigation.md#tangledの調査)を参照してください。
+
+#### Forkの新規発見と明示登録
+
+公式[`sh.tangled.repo` lexicon](https://tangled.org/tangled.org/core/blob/master/lexicons/repo/repo.json)の`source`は任意のURI文字列です。公式[`ForkRepo`処理](https://tangled.org/tangled.org/core/blob/master/appview/repo/repo.go)は親repositoryの`repoDid`を、未割当なら親の`sh.tangled.repo` AT-URIを保存します。`repoDid`はrepositoryの識別子で、owner DIDではありません。この保存契約に該当する`source`をfork元の宣言として扱い、親の取得・生存確認や内容比較は行いません。
+
+| `source`の状態 | 結果の`fork` / `fork_source_status` | 未登録URLの扱い |
+| --- | --- | --- |
+| DID構文に合うrepository DID | `true` / `repo_did` | `skipped_fork`。新規projectを作らない |
+| DID authority、collection=`sh.tangled.repo`、有効なrkeyを持つAT-URI | `true` / `repo_at_uri` | 同上 |
+| 欠落、null、空文字 | `null` / `missing` | fork不明として従来の関連性・作成条件を使う |
+| 外部HTTP/git URIなど上記の形式に該当しない文字列 | `null` / `unrecognized` | 同上。mirror/import/cloneとforkを同一視しない |
+| 型不正、空白混入、壊れたDID/AT-URI、別collection | `null` / `invalid` | 同上。不正な宣言からforkを確定しない |
+
+構文検査は参照先の実在や所有の検証ではありません。親が消失・参照不能でも宣言の解釈は変わりません。`source`を持たないcloneや、未知形式で親を示すrepoは検出できません。fork元を同じprojectへの照合・merge根拠には使いません。
+
+owner解決と既存repo URLへのexact照合を先に行います。owner解決不能なら従来の保留へ進み、fork除外で保留を捨てません。既存projectへ一致したforkは通常どおり更新します。独立したforkを調査対象にしたい場合は、従来の`add-seed`等で明示登録でき、その後の同期更新も継続します。website、READMEやLexiconがあるだけでは通常の新規発見のfork除外を解除しません。GitHubの明示的なfork検索＋`--screen-unmatched`にある候補受入判定とは別の経路です。
+
+結果の`skipped_forks`は新規作成から除外した件数です。各`results`とprogressには`outcome=skipped_fork`、`reason=tangled_fork_excluded_from_discovery`、`fork_source`とその形式を返します。解決済みownerの通常結果にも`fork`と`fork_source_status`を返し、不明を`false`にしません。`results`の既存の先頭100件制限は維持します。
+
+除外は追跡不要のoperator判断ではなく、取り込み対象の選別です。`--no-create-unmatched`や`--all-history`でも選別し、除外だけなら未一致の保留とは数えずsequenceを進められます。除外候補の専用再試行queueは作りません。新しいrecord updateや明示的な履歴再走査で再評価しますが、再走査も同じ選別規則を使います。登録したいforkは明示登録してください。既存projectの削除、ignore化、mergeは行いません。
 
 #### Ownerのidentityと解決不能record
 

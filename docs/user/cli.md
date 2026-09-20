@@ -161,6 +161,8 @@ project-registry --db-path PATH migrate-db-v4 --execute
 
 `--create-unmatched`は未知のシードから登録プロジェクトを作るかを制御します。GitHub、collection一覧、Semble、Tangledは既定onです。詳細な検索条件やURLの一時上書きはCLIで行い、Web UIは設定済みの外部情報源だけを実行します。
 
+TangledはGitHubの通常検索に合わせ、fork元をrecordで確認できる未登録リポジトリを新規作成から除外します。件数は`skipped_forks`、理由とfork元は`results`で確認できます。既存リポジトリへの一致・更新は続けます。独立したforkを登録したい場合は`add-seed`を使います。fork元の欠落・不正・未知形式は非forkの証明ではなく、判定不能のまま従来の取り込み条件を使います。`--all-history`でもfork除外は解除されません。[判定と再評価の範囲](../developer/specs/discovery-and-sync.md#forkの新規発見と明示登録)を参照してください。
+
 Tangledの取り込みにはNode.js 22.15以上、`npm install`で導入する公式`@bsky/jetstream` SDK、`ATPROTO_SURVEY_JETSTREAM_API_KEY`が必要です。APIキーは環境変数からだけ読み、設定、結果、取り込み済みの境界（watermark）へ保存しません。
 
 `--all-history`はJetstream archiveの先頭から開始し、通常実行は保存済みの処理位置（sequence）から再開します。項目上限で途中終了したexecuteは最後に処理したsequenceを保存するため、次回実行で続きから処理できます。設定上の通常上限は1,000イベントで、初回archiveも複数回の取り込み実行に分けて進めます。
