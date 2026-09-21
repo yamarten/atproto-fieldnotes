@@ -1,6 +1,6 @@
-# Identifierのmerge後欠落と限定復元の保留
+# Identifierのmerge後欠落・限定復元と未解明部分
 
-sourceのconfirm判断がmergeで統合されない一般不具合は再現・修正し、masterへ統合後も全unit testの成功を確認しました。一方、Substratum Passportのroot URLが実際に消えた操作は未確定です。今回のコード修正を、その過去事象の完全解明や正本復元として扱いません。正本への書込み・実運用serverへの反映は未実施です。
+sourceのconfirm判断がmergeで統合されない一般不具合は再現・修正し、masterへ統合後も全unit testの成功を確認しました。2026-09-21に承認済みの実運用Web再起動とSubstratum Passportの1claimの限定復元を実施しました。一方、root URLが実際に消えた過去の操作は未確定で、通常fetch→save時の`lexicon_count`投影にも未修正の問題が残ります。このメモはその再開材料と復旧backupの所在を保持します。
 
 ## 確認した範囲
 
@@ -23,13 +23,20 @@ alias familyの保存済み調査履歴49件には、9月20日のconfirm/merge�
 
 母艦で確認できた操作には該当時刻後の正本identifier直接修正・repair等は含まれませんが、ユーザーGUI・別タスク・定期workerを含む全操作の不存在を保証するものではありません。追加の当時snapshotや限定操作記録が見つかった場合に、消失時点を再調査します。過去の完全解明を一般不具合修正の前提にはしません。
 
-## 正本の限定復元
+## 限定復元の確認と保持するbackup
 
-元の2採用来歴は同じservice claimの復元根拠になります。現在の状態を再確認し、以下の手順を正本適用の別承認へ提示します。
+2026-09-21 01:25 UTCに実行中jobがないことを確認し、標準`bin/project-registry-web-service restart`で再起動しました。認証済みGETでbuild `7c64af149190`（修正統合済み・clean）、health正常、同じ正本DB、instanceの更新を確認しています。jobの中断・新規実行・定期設定変更はしていません。
 
-1. read-onlyで対象のrevision、元2採用、同値のidentifier・否定判断・非現行状態・別所有者を再確認し、追加する1claimと今回の復元判断の差分を用意する。
-2. 過去decisionの完全metadataは不明なので再現したことにしない。元採用IDを理由に記した今回の復元判断を新しい日時で記録し、元の採用ID・時刻・originはそのまま維持する。新規の採用eventを残す場合も、今回の復元操作として明示する。
-3. 正本適用の承認後にbackupを取得し、競合のない短いtransactionとrevision検査で限定適用する。通常の`repair-db`による全件再評価は復元手段にしない。
-4. 保存後の再読込でidentifier・判断・元2採用来歴と新規復元eventの対応を確認し、同型監査を再実行する。復元が済んだらこの保留とstatusの導線を更新する。
+同日01:27:05 UTC（10:27:05 JST）に、`https://substratum.cloud`の`service_url / service / confirmed`を1行追加しました。元の2採用ID・日時・originを参照する今回のconfirm判断と、新しい復元採用event `adoption:2529206b49196d7dbe568475`（source=`operator_review:identifier_recovery`）を各1行記録しています。過去decisionの再現とはしていません。対象revisionをtransaction内で再検査し、81→122へ更新、write transactionは約8msでした。
 
-確認済みの一般不具合と限定復元の残件は分離します。実運用への反映、正本復元、当時の全操作追跡、実データに対する修正後のmergeは未実施です。
+SQLite online backupによる一時DBへの実保存と、正本適用後の全table差分・対象外row hashの監査を実施しました。identifier・decision・adoption各1行の追加、既知のlegacy NSID confirm2件の同値metadata正規化、対象revision以外に変更はありません。元の全採用行、他role、project本体のprofile/state・時刻、他projectの全rowを保持しました。対象URLの採用来歴は元2件と今回1件の計3件で、いずれも未解除です。Web GETでもconfirmed serviceと今回の判断を確認しました。05:33 UTCの事後監査で同型の有効adoptionとconfirmed identifierの不整合は0件でした。
+
+復元直前の一貫したbackupは`data/backups/identifier-recovery-20260921T012600Z/survey.db`に保持しています。取得時revisionは81、`PRAGMA quick_check`は`ok`でした。復元確認用の一時DBは削除し、このbackupは通常の一時cleanup対象にしません。保持用途を判断するまで削除しないでください。
+
+当時の全操作追跡、実データでの修正後mergeは未実施です。通常経路の再発防止は架空DB・APIの回帰testで確認し、運用確認のための追加mergeや全件repairは行っていません。
+
+## 未修正の周辺問題：lexicon_countの投影
+
+一時DBへの初回保存で、対象の`state_json.evidence.lexicon_count`が12→0になる想定外差分を検出し、正本適用前に停止しました。現行fetchのruntimeは`resolved_nsids`に12件を持つ一方、`lexicons`が空で、通常saveが`lexicon_count=len(lexicons)`として再投影するためです。identifierのNSID行自体の消失とは区別します。
+
+今回の限定復元では、母艦確認済みの既存finalize契約どおり、保存前にruntimeの`lexicons`を`unique_list(resolved_nsids)`へ同期しました。再検証で`lexicon_count=12`を含むstate全体の不変を確認してから正本へ適用しています。これは復旧手順の補正であり、一般codecは変更していません。通常fetch→変更→saveで派生件数を維持する契約は未修正です。再開時は、candidate NSIDとconfirmed NSIDを持つ一時DBで同経路を再現し、hydrate/saveの責務と無変更roundtripを検証してください。
