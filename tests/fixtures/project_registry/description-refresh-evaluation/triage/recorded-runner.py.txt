@@ -1,0 +1,124 @@
+"""Bounded, synthetic triage evaluation; no collectors or production DB writes."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import urllib.request
+
+from project_registry_core import database, editorial, enrichment_pipeline, llm_transport, project_record, registry
+
+OUT = Path(__file__).resolve().parent
+ROOT = OUT.parents[1]
+
+def write(name, data):
+    (OUT / name).write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+def digest(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+settings = {}
+allowed = {'ATPROTO_SURVEY_LLM_ENDPOINT', 'ATPROTO_SURVEY_LLM_MODEL', 'ATPROTO_SURVEY_LLM_API_KEY'}
+for line in Path('.envrc').read_text().splitlines():
+    parts = shlex.split(line, comments=True)
+    if len(parts) == 2 and parts[0] == 'export' and '=' in parts[1]:
+        key, value = parts[1].split('=', 1)
+        if key in allowed:
+            settings[key] = value
+assert settings['ATPROTO_SURVEY_LLM_MODEL'] == 'qwen/qwen3.6-35b-a3b', 'Model changed; do not migrate implicitly'
+os.environ['ATPROTO_SURVEY_LLM_TIMEOUT'] = '180'
+os.environ.pop('ATPROTO_SURVEY_LLM_COMMAND', None)
+
+phase = sys.argv[1]
+if phase == 'metadata':
+    endpoint = settings['ATPROTO_SURVEY_LLM_ENDPOINT'].removesuffix('/v1') + '/api/v0/models'
+    request = urllib.request.Request(endpoint, headers={'Authorization': 'Bearer ' + settings['ATPROTO_SURVEY_LLM_API_KEY']})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        data = json.load(response)
+    selected = [m for m in data['data'] if m['id'] == settings['ATPROTO_SURVEY_LLM_MODEL']]
+    write('model-metadata.json', selected)
+    print(json.dumps(selected))
+    raise SystemExit
+
+assert phase in ('baseline', 'candidate', 'holdout')
+cases = json.loads((OUT / ('holdout-inputs.json' if phase == 'holdout' else 'tuning-inputs.json')).read_text())
+schedule = [(c, 0) for c in cases if phase != 'baseline' or c['id'] in ('closure', 'feature_change')]
+if phase == 'candidate':
+    schedule += [(c, 1) for c in cases if c['id'] in ('closure', 'feature_change')]
+template = (ROOT / 'prompts/project-triage.md').read_text()
+snapshot = 'baseline-prompt.md' if phase == 'baseline' else 'candidate-prompt.md'
+assert template == (OUT / snapshot).read_text(), 'Prompt must match frozen snapshot'
+suffix = (ROOT / 'prompts/model-rules/qwen-3.6-35b-a3b.txt').read_text()
+assert suffix == (OUT / 'suffix.txt').read_text()
+ledger_path = OUT / 'attempts.json'
+ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else []
+conn = database.open_database(OUT / 'application.db', create=True)
+for case, repeat in schedule:
+    key = f'{phase}-{case["id"]}-{repeat}'
+    if (OUT / f'{key}.json').exists():
+        continue
+    assert not any(a['key'] == key for a in ledger), 'Uncertain previous attempt; inspect before retrying'
+    assert len(ledger) < 12, 'Generation budget exhausted'
+    p = copy.deepcopy(case['project'])
+    prompt, evidence = registry.build_triage_prompt(p)
+    prompt, suffix_hash = enrichment_pipeline.append_triage_prompt_suffix(prompt, suffix)
+    (OUT / f'{key}-prompt.txt').write_text(prompt)
+    ledger.append({'key': key, 'status': 'started'})
+    write('attempts.json', ledger)
+    metrics = []
+    try:
+        payload, meta = llm_transport.run_llm_with_metrics(prompt, purpose='triage', requests=metrics,
+            llm_endpoint=settings['ATPROTO_SURVEY_LLM_ENDPOINT'], llm_model=settings['ATPROTO_SURVEY_LLM_MODEL'],
+            llm_api_key=settings['ATPROTO_SURVEY_LLM_API_KEY'], llm_api_style='responses',
+            llm_reasoning_effort='none', llm_max_output_tokens=2048, prompt_suffix_hash=suffix_hash)
+    except Exception as exc:
+        ledger[-1].update(status='failed', error_type=type(exc).__name__, metrics=metrics)
+        write('attempts.json', ledger)
+        print(json.dumps(ledger[-1]), flush=True)
+        raise SystemExit(1)
+    # The transport metadata is already non-secret except for its endpoint URL.
+    meta.pop('endpoint', None)
+    meta.pop('resolved_endpoint', None)
+    applied = {}
+    for protection in ('automatic', 'unknown', 'operator', 'modified_after_automatic', 'unknown_matching_prior_output'):
+        q = copy.deepcopy(p)
+        q['project_key'] += '-' + key + '-' + protection
+        if protection.startswith('unknown'):
+            q.pop('editorial', None)
+        if protection == 'unknown_matching_prior_output':
+            q['llm_output'] = editorial.profile(q)
+        if protection == 'operator':
+            editorial.record_edit(q, allow_automatic=False, updated_at='2026-09-22T00:00:00+00:00')
+        if protection == 'modified_after_automatic':
+            q['editorial']['profile_hash'] = 'previous-different-profile-hash'
+        before = editorial.profile(q)
+        registry.apply_llm_output(q, payload, meta, evidence)
+        project_record.save_project(conn, q)
+        conn.commit()
+        loaded = project_record.fetch_project(conn, q['project_key'])
+        assert editorial.profile(loaded) == editorial.profile(q)
+        assert loaded['editorial'] == q['editorial']
+        assert loaded['tracking_state'] == p['tracking_state']
+        if protection != 'automatic':
+            assert editorial.profile(loaded) == before
+            assert not editorial.automatic(loaded)
+        applied[protection] = {'before': before, 'after': editorial.profile(loaded),
+            'editorial': loaded['editorial'], 'tracking_state': loaded['tracking_state'],
+            'category': loaded['category']}
+    result = {'case': case['id'], 'phase': phase, 'repeat': repeat, 'real_llm': True,
+        'evidence': evidence, 'template_sha256': digest(template), 'prompt_sha256': digest(prompt),
+        'suffix_sha256': suffix_hash, 'output': payload, 'meta': meta, 'metrics': metrics, 'applied': applied,
+        'git_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+        'git_status': subprocess.check_output(['git', 'status', '--short'], text=True),
+        'input_sha256': digest(json.dumps(case, ensure_ascii=False, sort_keys=True))}
+    write(f'{key}.json', result)
+    ledger[-1]['status'] = 'complete'
+    write('attempts.json', ledger)
+    print(json.dumps({'key': key, 'profile': editorial.profile(payload),
+        'change': payload.get('description_change'), 'usage': meta.get('usage'), 'metrics': metrics}, ensure_ascii=False), flush=True)
+assert conn.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+assert not conn.execute('PRAGMA foreign_key_check').fetchall()
+conn.close()

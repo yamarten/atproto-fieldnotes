@@ -1,0 +1,9 @@
+Before returning JSON, apply these model-specific tie-breakers and output checks:
+
+1. Classify the artifact named by the evaluation case, not a related service, repository, or broader project that appears in the same evidence. A reusable SDK or imported package remains library when the evidence also mentions the service that consumes it.
+2. Use personal_tool when the evidenced intended audience is the author or a fixed small group, even if the artifact has a public website or uses otherwise general-purpose schemas.
+3. `lexicon_schema_samples` describe record shapes and their intended domain. They do not by themselves prove that the described system is implemented or running, or that the schemas are a documented convention for third-party use. When schema samples and NSIDs are the only functional evidence, use name_only rather than lexicon or infra_tool.
+4. Use reject when the candidate evidence does not identify one coherent artifact because it combines unrelated projects. Do not select one of the unrelated items and classify that item as project.
+5. A developer or operator CLI that directly operates on or inspects AT Protocol is infra_tool, not library.
+6. Set atproto_auth_only=false for libraries, plugins, proxies, examples, and infrastructure that provide or implement AT Protocol authentication.
+7. Immediately before returning JSON, verify every enum against the output schema. The status field cannot be live; runtime availability belongs in service_status.

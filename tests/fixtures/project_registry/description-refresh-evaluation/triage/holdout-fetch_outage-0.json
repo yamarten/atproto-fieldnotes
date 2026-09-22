@@ -1,0 +1,280 @@
+{
+  "case": "fetch_outage",
+  "phase": "holdout",
+  "repeat": 0,
+  "real_llm": true,
+  "evidence": {
+    "project_key": "proj:holdout-fetch_outage",
+    "name_hint": "Pocket Garden",
+    "current_profile": {
+      "tagline": "栽培記録共有",
+      "tagline_is_provisional": false,
+      "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+      "features": [
+        "植物成長記録",
+        "観察日・写真の独自Lexicon",
+        "利用者のPDS保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://pocket-garden.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [
+      "https://pocket-garden.example"
+    ],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unverified",
+    "service_status_confidence": "none",
+    "service_status_evidence": [
+      "http_504"
+    ],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": []
+  },
+  "template_sha256": "7387f2c81e4c11ad697032b7b6084c122a23c633990cec8a6ddbc919bd28a81e",
+  "prompt_sha256": "6e3d89c09d91bc232bfde2f4c2f0db75c2c94f89c306fd4c60d56c03633d529d",
+  "suffix_sha256": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+  "output": {
+    "category": "name_only",
+    "atproto_auth_only": false,
+    "lexicon_scope": "unknown",
+    "status": "inactive",
+    "name": "Pocket Garden",
+    "tagline": "栽培記録",
+    "tagline_is_provisional": true,
+    "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。現在はサービスが利用不可。",
+    "description_change": {
+      "kind": "correction",
+      "reason": "サービスURLが504エラーで応答せず、稼働していないことを反映してステータスをinactiveとし、taglineを暫定から確定へ修正。",
+      "sources": [
+        "http_504"
+      ]
+    },
+    "features": [
+      "植物成長記録",
+      "観察日・写真の独自Lexicon",
+      "利用者のPDS保存"
+    ],
+    "inspired_by": [],
+    "source_code_urls": [],
+    "service_urls": [
+      "https://pocket-garden.example"
+    ],
+    "service_status": "dead",
+    "lexicons": [],
+    "why_keep": "プロジェクト名と設計意図が記録されており、技術的な参考として保持する価値があるため。",
+    "why_reject": "",
+    "watch_reason": "サービス再開の可能性や、関連するソースコードの公開に備えるため。",
+    "technical_interest_level": "none",
+    "technical_interest_reasons": [],
+    "technical_interest_summary": "",
+    "manual_review_recommended": false,
+    "manual_review_kind": "other",
+    "manual_review_priority": "none",
+    "manual_review_reason": "",
+    "repository_link_assessments": [],
+    "confidence": 0.9
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "project-triage-v5",
+    "generated_at": "2026-09-22T16:42:27+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 3936,
+      "output_tokens": 424,
+      "total_tokens": 4360,
+      "input_tokens_details": {
+        "cached_tokens": 2048
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "triage",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 18563,
+      "prompt_bytes": 18709,
+      "response_bytes": 1419,
+      "timeout_seconds": 180.0,
+      "prompt_suffix_hash": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "project-triage-v5",
+      "duration_ms": 8289
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "operator": {
+      "before": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "3c66c3728512a6a96a2e82188596a4fdae4b6738179b7a91695b21b36241af0c"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "栽培記録共有",
+        "summary": "植物の成長記録を共有するサービス。独自Lexiconで観察日と写真を表し、利用者のPDSに保存する。",
+        "features": [
+          "植物成長記録",
+          "観察日・写真の独自Lexicon",
+          "利用者のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "git_status": " M prompts/project-triage.md\n M scripts/project_registry_core/llm_transport.py\n",
+  "input_sha256": "87e970600e9a7fb82cbd0cc7eacd6a8566ad863498e9a536af6a624d9060a29a"
+}

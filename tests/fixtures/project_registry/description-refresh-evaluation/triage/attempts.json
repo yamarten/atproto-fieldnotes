@@ -1,0 +1,50 @@
+[
+  {
+    "key": "baseline-closure-0",
+    "status": "complete"
+  },
+  {
+    "key": "baseline-feature_change-0",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-closure-0",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-feature_change-0",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-original_error-0",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-temporary_failure-0",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-closure-1",
+    "status": "complete"
+  },
+  {
+    "key": "candidate-feature_change-1",
+    "status": "complete"
+  },
+  {
+    "key": "holdout-partial_closure-0",
+    "status": "complete"
+  },
+  {
+    "key": "holdout-feature_addition-0",
+    "status": "complete"
+  },
+  {
+    "key": "holdout-maintainer_correction-0",
+    "status": "complete"
+  },
+  {
+    "key": "holdout-fetch_outage-0",
+    "status": "complete"
+  }
+]

@@ -1,0 +1,38 @@
+{
+  "baseline": {
+    "count": 2,
+    "seconds": 24.327,
+    "median_seconds": 12.163499999999999,
+    "min_seconds": 9.038,
+    "max_seconds": 15.289,
+    "input_tokens": 7528,
+    "output_tokens": 1046
+  },
+  "candidate": {
+    "count": 6,
+    "seconds": 55.965,
+    "median_seconds": 9.440999999999999,
+    "min_seconds": 6.695,
+    "max_seconds": 13.23,
+    "input_tokens": 24402,
+    "output_tokens": 3130
+  },
+  "holdout": {
+    "count": 4,
+    "seconds": 36.986,
+    "median_seconds": 9.365,
+    "min_seconds": 8.289,
+    "max_seconds": 9.967,
+    "input_tokens": 16228,
+    "output_tokens": 1938
+  },
+  "all": {
+    "count": 12,
+    "seconds": 117.278,
+    "median_seconds": 9.392,
+    "min_seconds": 6.695,
+    "max_seconds": 15.289,
+    "input_tokens": 48158,
+    "output_tokens": 6114
+  }
+}

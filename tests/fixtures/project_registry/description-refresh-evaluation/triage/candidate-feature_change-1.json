@@ -1,0 +1,397 @@
+{
+  "case": "feature_change",
+  "phase": "candidate",
+  "repeat": 1,
+  "real_llm": true,
+  "evidence": {
+    "project_key": "proj:validation-feature_change",
+    "name_hint": "Reading Loom",
+    "current_profile": {
+      "tagline": "読書記録共有",
+      "tagline_is_provisional": false,
+      "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+      "features": [
+        "読書記録共有",
+        "独自Lexiconによる書籍・読書メモ表現",
+        "利用者のPDSへの保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unknown",
+    "service_status_confidence": "none",
+    "service_status_evidence": [],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": [
+      {
+        "id": "376a2222ad4ac127d137",
+        "type": "service_page",
+        "locator": "https://reading-loom.example",
+        "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+        "observed_at": "2026-09-14T00:00:00+00:00"
+      }
+    ]
+  },
+  "template_sha256": "7387f2c81e4c11ad697032b7b6084c122a23c633990cec8a6ddbc919bd28a81e",
+  "prompt_sha256": "fe982f326748fc6f51ac74d2a7f843bebeb1dcfb9808ef7fc759776840d3c424",
+  "suffix_sha256": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+  "output": {
+    "category": "project",
+    "atproto_auth_only": false,
+    "lexicon_scope": "service_specific",
+    "status": "beta",
+    "name": "Reading Loom",
+    "tagline": "読書検索サービス",
+    "tagline_is_provisional": true,
+    "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+    "description_change": {
+      "kind": "changed_facts",
+      "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+      "sources": [
+        "376a2222ad4ac127d137"
+      ]
+    },
+    "features": [
+      "書籍検索",
+      "読書ジャーナル機能終了",
+      "旧Lexicon定義の公開"
+    ],
+    "inspired_by": [],
+    "source_code_urls": [],
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "service_status": "live",
+    "lexicons": [
+      "org.readingloom.book"
+    ],
+    "why_keep": "AT Protocol上の読書関連データ処理の歴史的経緯と、現在の検索サービスへの移行状況を示すため。",
+    "why_reject": "",
+    "watch_reason": "読書ジャーナル機能の終了と検索機能への移行というサービス変更の経緯が明確であるため。",
+    "technical_interest_level": "notable",
+    "technical_interest_reasons": [],
+    "technical_interest_summary": "",
+    "manual_review_recommended": true,
+    "manual_review_kind": "editorial_refresh",
+    "manual_review_priority": "medium",
+    "manual_review_reason": "機能終了と新しい提供内容の整合性を確認し、タグラインと概要の更新が必要。",
+    "repository_link_assessments": [],
+    "confidence": 0.9
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "project-triage-v5",
+    "generated_at": "2026-09-22T16:41:18+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 4096,
+      "output_tokens": 508,
+      "total_tokens": 4604,
+      "input_tokens_details": {
+        "cached_tokens": 4096
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "triage",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 19138,
+      "prompt_bytes": 19294,
+      "response_bytes": 1705,
+      "timeout_seconds": 180.0,
+      "prompt_suffix_hash": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "project-triage-v5",
+      "duration_ms": 6695
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書検索サービス",
+        "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+        "features": [
+          "書籍検索",
+          "読書ジャーナル機能終了",
+          "旧Lexicon定義の公開"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic",
+        "last_update": {
+          "kind": "changed_facts",
+          "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+          "sources": [
+            {
+              "id": "376a2222ad4ac127d137",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:41:18+00:00"
+        },
+        "profile_hash": "743fc544ce08703019002f82504a0b41f41735ac93999abdc9d8577c61c795e1"
+      },
+      "tracking_state": "stable",
+      "category": "project"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書検索サービス",
+            "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+            "features": [
+              "書籍検索",
+              "読書ジャーナル機能終了",
+              "旧Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+          "sources": [
+            {
+              "id": "376a2222ad4ac127d137",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:41:18+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "project"
+    },
+    "operator": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+        "proposal": {
+          "profile": {
+            "tagline": "読書検索サービス",
+            "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+            "features": [
+              "書籍検索",
+              "読書ジャーナル機能終了",
+              "旧Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+          "sources": [
+            {
+              "id": "376a2222ad4ac127d137",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:41:18+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "project"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash",
+        "proposal": {
+          "profile": {
+            "tagline": "読書検索サービス",
+            "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+            "features": [
+              "書籍検索",
+              "読書ジャーナル機能終了",
+              "旧Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+          "sources": [
+            {
+              "id": "376a2222ad4ac127d137",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:41:18+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "project"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書検索サービス",
+            "summary": "読書ジャーナル機能を終了し、書籍検索サービスを提供する。旧読書メモ用Lexicon定義は公開されているが、検索機能では使用していない。",
+            "features": [
+              "書籍検索",
+              "読書ジャーナル機能終了",
+              "旧Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "読書ジャーナル機能（書籍・メモのPDS保存）が2026-09-01に終了し、書籍検索機能のみが提供されている事実を反映。旧Lexicon定義の公開状態と検索機能での非使用を明記。",
+          "sources": [
+            {
+              "id": "376a2222ad4ac127d137",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom originally provided a reading journal with book records stored in each user's AT Protocol PDS using the custom org.readingloom.book Lexicon. Since 2026-09-01 the hosted service provides book search only; new journal entries and sharing are no longer available. The former reading journal Lexicon definitions remain publicly available for developers. No claim is made that book search uses that Lexicon.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:41:18+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "project"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "git_status": " M prompts/project-triage.md\n M scripts/project_registry_core/llm_transport.py\n",
+  "input_sha256": "4239c6c90e85357a92665eab1b9d5b4a2c7d7ee414d00982a714e8d3573c7434"
+}

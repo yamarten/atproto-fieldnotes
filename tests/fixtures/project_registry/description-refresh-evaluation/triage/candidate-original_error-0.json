@@ -1,0 +1,395 @@
+{
+  "case": "original_error",
+  "phase": "candidate",
+  "repeat": 0,
+  "real_llm": true,
+  "evidence": {
+    "project_key": "proj:validation-original_error",
+    "name_hint": "Reading Loom",
+    "current_profile": {
+      "tagline": "読書記録共有",
+      "tagline_is_provisional": false,
+      "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+      "features": [
+        "読書記録共有",
+        "独自Lexiconによる書籍・読書メモ表現",
+        "利用者のPDSへの保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unknown",
+    "service_status_confidence": "none",
+    "service_status_evidence": [],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": [
+      {
+        "id": "2e283591ea2e016fd797",
+        "type": "service_page",
+        "locator": "https://reading-loom.example",
+        "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+        "observed_at": "2026-09-14T00:00:00+00:00"
+      }
+    ]
+  },
+  "template_sha256": "7387f2c81e4c11ad697032b7b6084c122a23c633990cec8a6ddbc919bd28a81e",
+  "prompt_sha256": "9e52d20d909be11d57e4bd9c98ff3b0d1ca20d673c600ed101e1748b53fc9fca",
+  "suffix_sha256": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+  "output": {
+    "category": "lexicon",
+    "atproto_auth_only": false,
+    "lexicon_scope": "unknown",
+    "status": "candidate",
+    "name": "Reading Loom",
+    "tagline": "読書メモ用スキーマ定義",
+    "tagline_is_provisional": true,
+    "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+    "description_change": {
+      "kind": "correction",
+      "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+      "sources": [
+        "2e283591ea2e016fd797"
+      ]
+    },
+    "features": [
+      "書籍データスキーマ定義",
+      "読書メモデータスキーマ定義",
+      "PDSレコード用AT Protocolスキーマ"
+    ],
+    "inspired_by": [],
+    "source_code_urls": [],
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "service_status": "none",
+    "lexicons": [],
+    "why_keep": "開発者がAT Protocol上で書籍および読書メモのデータを構造化するために利用可能な、明確なスキーマ定義セットを提供しているため。",
+    "why_reject": "",
+    "watch_reason": "独立したエンドユーザーサービスではなく、開発者向けライブラリまたはスキーマ定義集としての性質が明確になったため。",
+    "technical_interest_level": "notable",
+    "technical_interest_reasons": [],
+    "technical_interest_summary": "特定のドメイン（書籍・読書メモ）におけるAT Protocolレコードのデータ構造設計例。",
+    "manual_review_recommended": false,
+    "manual_review_kind": "other",
+    "manual_review_priority": "none",
+    "manual_review_reason": "",
+    "repository_link_assessments": [],
+    "confidence": 0.9
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "project-triage-v5",
+    "generated_at": "2026-09-22T16:40:55+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 4089,
+      "output_tokens": 519,
+      "total_tokens": 4608,
+      "input_tokens_details": {
+        "cached_tokens": 2048
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "triage",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 19148,
+      "prompt_bytes": 19304,
+      "response_bytes": 1985,
+      "timeout_seconds": 180.0,
+      "prompt_suffix_hash": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "project-triage-v5",
+      "duration_ms": 9709
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書メモ用スキーマ定義",
+        "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+        "features": [
+          "書籍データスキーマ定義",
+          "読書メモデータスキーマ定義",
+          "PDSレコード用AT Protocolスキーマ"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic",
+        "last_update": {
+          "kind": "correction",
+          "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+          "sources": [
+            {
+              "id": "2e283591ea2e016fd797",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:40:55+00:00"
+        },
+        "profile_hash": "f808b22d8fb6266375634e637e5df4c99cad6c607353fe373df0aa06bc2e1b9c"
+      },
+      "tracking_state": "stable",
+      "category": "lexicon"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモ用スキーマ定義",
+            "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+            "features": [
+              "書籍データスキーマ定義",
+              "読書メモデータスキーマ定義",
+              "PDSレコード用AT Protocolスキーマ"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "correction",
+          "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+          "sources": [
+            {
+              "id": "2e283591ea2e016fd797",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:40:55+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "lexicon"
+    },
+    "operator": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモ用スキーマ定義",
+            "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+            "features": [
+              "書籍データスキーマ定義",
+              "読書メモデータスキーマ定義",
+              "PDSレコード用AT Protocolスキーマ"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "correction",
+          "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+          "sources": [
+            {
+              "id": "2e283591ea2e016fd797",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:40:55+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "lexicon"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモ用スキーマ定義",
+            "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+            "features": [
+              "書籍データスキーマ定義",
+              "読書メモデータスキーマ定義",
+              "PDSレコード用AT Protocolスキーマ"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "correction",
+          "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+          "sources": [
+            {
+              "id": "2e283591ea2e016fd797",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:40:55+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "lexicon"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモ用スキーマ定義",
+            "summary": "書籍および読書メモのデータ構造を定義するLexicon定義セット。ホストされたサービスやエンドユーザー向けアプリケーションは提供せず、開発者が自身のアプリケーションで利用することを目的としている。",
+            "features": [
+              "書籍データスキーマ定義",
+              "読書メモデータスキーマ定義",
+              "PDSレコード用AT Protocolスキーマ"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "correction",
+          "reason": "既存の「読書記録共有サービス」という記述は、維持者からの修正により「ホストサービスや共有機能は存在せず、スキーマ定義のみ」であることが判明したため、誤った記述を削除し、実際の性質（スキーマ提供）に修正した。",
+          "sources": [
+            {
+              "id": "2e283591ea2e016fd797",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom is a set of Lexicon definitions for representing books and reading notes in AT Protocol PDS records. Correction from the maintainers: Reading Loom has never operated a hosted reading journal service and has never implemented sharing, search, or an end-user application. Descriptions of it as a reading-sharing service were incorrect from the start. Developers may use these definitions in their own applications.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T16:40:55+00:00"
+        }
+      },
+      "tracking_state": "stable",
+      "category": "lexicon"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "git_status": " M prompts/project-triage.md\n M scripts/project_registry_core/llm_transport.py\n",
+  "input_sha256": "f35caabef330b5018ff57db862d9245adfbea58a083643dd8f4c6c9a8e7c2d01"
+}

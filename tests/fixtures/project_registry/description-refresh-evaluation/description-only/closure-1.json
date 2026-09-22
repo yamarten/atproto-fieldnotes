@@ -1,0 +1,379 @@
+{
+  "case": "closure",
+  "repeat": 1,
+  "real_llm": true,
+  "experimental_path": true,
+  "evidence": {
+    "current_profile": {
+      "tagline": "読書記録共有",
+      "tagline_is_provisional": false,
+      "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+      "features": [
+        "読書記録共有",
+        "独自Lexiconによる書籍・読書メモ表現",
+        "利用者のPDSへの保存"
+      ]
+    },
+    "description_sources": [
+      {
+        "id": "549a091b2607558ee63c",
+        "type": "service_page",
+        "locator": "https://reading-loom.example",
+        "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+        "observed_at": "2026-09-14T00:00:00+00:00"
+      }
+    ],
+    "name": "Reading Loom"
+  },
+  "full_triage_evidence": {
+    "project_key": "proj:validation-closure",
+    "name_hint": "Reading Loom",
+    "current_profile": {
+      "tagline": "読書記録共有",
+      "tagline_is_provisional": false,
+      "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+      "features": [
+        "読書記録共有",
+        "独自Lexiconによる書籍・読書メモ表現",
+        "利用者のPDSへの保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unknown",
+    "service_status_confidence": "none",
+    "service_status_evidence": [],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": [
+      {
+        "id": "549a091b2607558ee63c",
+        "type": "service_page",
+        "locator": "https://reading-loom.example",
+        "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+        "observed_at": "2026-09-14T00:00:00+00:00"
+      }
+    ]
+  },
+  "prompt_sha256": "40d6b428fbad7b3e1a5940a431f6c99e9463fe1b8aedbbc3dc2e1818784871a9",
+  "template_sha256": "376ef2db303aefe42b149aac08441ee2a74396f124e6231204aa539a2a908cf2",
+  "suffix": "",
+  "output": {
+    "tagline": "読書メモLexicon提供",
+    "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+    "features": [
+      "読書記録共有サービス終了",
+      "org.readingloom.book Lexicon定義の公開"
+    ],
+    "description_change": {
+      "kind": "changed_facts",
+      "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+      "sources": [
+        "549a091b2607558ee63c"
+      ]
+    }
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "description-only-experiment-v1",
+    "generated_at": "2026-09-22T17:00:07+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 1084,
+      "output_tokens": 172,
+      "total_tokens": 1256,
+      "input_tokens_details": {
+        "cached_tokens": 1024
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "description_only_experiment",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 4785,
+      "prompt_bytes": 4941,
+      "response_bytes": 529,
+      "timeout_seconds": 180.0,
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "description-only-experiment-v1",
+      "duration_ms": 2421
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書メモLexicon提供",
+        "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+        "features": [
+          "読書記録共有サービス終了",
+          "org.readingloom.book Lexicon定義の公開"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic",
+        "last_update": {
+          "kind": "changed_facts",
+          "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+          "sources": [
+            {
+              "id": "549a091b2607558ee63c",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:07+00:00"
+        },
+        "profile_hash": "6bded379a4aaa64ec814049f597f3bcd7f9251022ca846935e43f348175de5a7"
+      },
+      "tracking_state": "stable"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモLexicon提供",
+            "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+            "features": [
+              "読書記録共有サービス終了",
+              "org.readingloom.book Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+          "sources": [
+            {
+              "id": "549a091b2607558ee63c",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:07+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "operator": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモLexicon提供",
+            "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+            "features": [
+              "読書記録共有サービス終了",
+              "org.readingloom.book Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+          "sources": [
+            {
+              "id": "549a091b2607558ee63c",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:07+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモLexicon提供",
+            "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+            "features": [
+              "読書記録共有サービス終了",
+              "org.readingloom.book Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+          "sources": [
+            {
+              "id": "549a091b2607558ee63c",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:07+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "読書メモLexicon提供",
+            "summary": "読書記録共有サービスは2026年8月31日に終了した。開発者は公開されたorg.readingloom.book Lexicon定義を利用できる。",
+            "features": [
+              "読書記録共有サービス終了",
+              "org.readingloom.book Lexicon定義の公開"
+            ]
+          },
+          "base_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76",
+          "kind": "changed_facts",
+          "reason": "サービス提供が終了し、Lexicon定義の公開のみとなったため、役割と機能リストを更新した。",
+          "sources": [
+            {
+              "id": "549a091b2607558ee63c",
+              "type": "service_page",
+              "locator": "https://reading-loom.example",
+              "content": "Reading Loom was a book reading journal service. Users stored book records and reading notes in their own AT Protocol PDS using the custom org.readingloom.book Lexicon. Official closure announcement: the hosted reading journal service permanently ended on 2026-08-31. The Lexicon definitions remain publicly available for developers. This announcement does not describe any replacement hosted service.",
+              "observed_at": "2026-09-14T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:07+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "input_sha256": "638044bedaada3dd4a0ac08eb59527be98a13aa42ac9d829dec460225c7987a2"
+}

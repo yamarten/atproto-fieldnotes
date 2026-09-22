@@ -1,0 +1,17 @@
+[
+  {
+    "id": "qwen/qwen3.6-35b-a3b",
+    "object": "model",
+    "type": "vlm",
+    "publisher": "qwen",
+    "arch": "qwen3_5_moe",
+    "compatibility_type": "mlx",
+    "quantization": "4bit",
+    "state": "loaded",
+    "max_context_length": 262144,
+    "loaded_context_length": 183296,
+    "capabilities": [
+      "tool_use"
+    ]
+  }
+]

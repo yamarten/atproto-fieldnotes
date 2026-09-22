@@ -1,0 +1,278 @@
+{
+  "case": "temporary_failure",
+  "phase": "candidate",
+  "repeat": 0,
+  "real_llm": true,
+  "evidence": {
+    "project_key": "proj:validation-temporary_failure",
+    "name_hint": "Reading Loom",
+    "current_profile": {
+      "tagline": "読書記録共有",
+      "tagline_is_provisional": false,
+      "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+      "features": [
+        "読書記録共有",
+        "独自Lexiconによる書籍・読書メモ表現",
+        "利用者のPDSへの保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [
+      "https://reading-loom.example"
+    ],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unverified",
+    "service_status_confidence": "none",
+    "service_status_evidence": [
+      "http_503"
+    ],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": []
+  },
+  "template_sha256": "7387f2c81e4c11ad697032b7b6084c122a23c633990cec8a6ddbc919bd28a81e",
+  "prompt_sha256": "6042dee1c4b07f3feaec1dd24404cb88098c55a073db64e9783a70c84a588dca",
+  "suffix_sha256": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+  "output": {
+    "category": "name_only",
+    "atproto_auth_only": false,
+    "lexicon_scope": "unknown",
+    "status": "rejected",
+    "name": "Reading Loom",
+    "tagline": "読書記録共有",
+    "tagline_is_provisional": true,
+    "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+    "description_change": {
+      "kind": "initial",
+      "reason": "既存のプロファイルが空のため、利用可能な証拠から初期化。",
+      "sources": []
+    },
+    "features": [
+      "読書記録の共有",
+      "独自Lexiconによる書籍・読書メモの表現",
+      "利用者のPDSへのデータ保存"
+    ],
+    "inspired_by": [],
+    "source_code_urls": [],
+    "service_urls": [
+      "https://reading-loom.example"
+    ],
+    "service_status": "dead",
+    "lexicons": [],
+    "why_keep": "プロジェクト名と概要の記録価値。",
+    "why_reject": "サービスURLは503エラーで応答せず、稼働していない。ソースコード、リポジトリ、開発者アカウント、Lexicon解決エントリ、レコードサンプル、リポジトリ分析結果など、実装や運用を示す証拠が一切存在しない。単なる名前と、実装されていないスキーマ定義の提案のみであり、有効なアーティファクトとして分類するには証拠が不十分である。",
+    "watch_reason": "将来、実装されたサービスやリポジトリが公開された場合に備え、名前のみを記録しておく。",
+    "technical_interest_level": "none",
+    "technical_interest_reasons": [],
+    "technical_interest_summary": "",
+    "manual_review_recommended": false,
+    "manual_review_kind": "other",
+    "manual_review_priority": "none",
+    "manual_review_reason": "証拠が不足しており、手動レビューの必要はない。",
+    "repository_link_assessments": [],
+    "confidence": 0.95
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "project-triage-v5",
+    "generated_at": "2026-09-22T16:41:04+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 3941,
+      "output_tokens": 494,
+      "total_tokens": 4435,
+      "input_tokens_details": {
+        "cached_tokens": 2048
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "triage",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 18585,
+      "prompt_bytes": 18741,
+      "response_bytes": 1820,
+      "timeout_seconds": 180.0,
+      "prompt_suffix_hash": "832e6fef543699438cc364220866d001a83466e3fd949c10b133e033de8a6490",
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "project-triage-v5",
+      "duration_ms": 9173
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "operator": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "00f6d57ba9e76209183dbdc59f1acdf8d3906f90dc871e8caf15be55270e2f76"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "after": {
+        "tagline": "読書記録共有",
+        "summary": "読書記録を共有するサービス。独自Lexiconで書籍と読書メモを表し、利用者のAT Protocol PDSに保存する。",
+        "features": [
+          "読書記録共有",
+          "独自Lexiconによる書籍・読書メモ表現",
+          "利用者のPDSへの保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review"
+      },
+      "tracking_state": "stable",
+      "category": "name_only"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "git_status": " M prompts/project-triage.md\n M scripts/project_registry_core/llm_transport.py\n",
+  "input_sha256": "fd190c85035b2a5bb3d9815172001819b3752ef1fb7fe3196cef39cf14fc4b0b"
+}

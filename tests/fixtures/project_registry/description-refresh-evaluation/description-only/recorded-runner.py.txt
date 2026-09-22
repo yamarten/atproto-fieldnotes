@@ -1,0 +1,101 @@
+"""Bounded, synthetic triage evaluation; no collectors or production DB writes."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import urllib.request
+
+from project_registry_core import database, editorial, enrichment_pipeline, llm_transport, project_record, registry
+
+OUT = Path(__file__).resolve().parent
+ROOT = OUT.parents[1]
+
+def write(name, data):
+    (OUT / name).write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+def digest(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+settings = {}
+allowed = {'ATPROTO_SURVEY_LLM_ENDPOINT', 'ATPROTO_SURVEY_LLM_MODEL', 'ATPROTO_SURVEY_LLM_API_KEY'}
+for line in Path('.envrc').read_text().splitlines():
+    parts = shlex.split(line, comments=True)
+    if len(parts) == 2 and parts[0] == 'export' and '=' in parts[1]:
+        key, value = parts[1].split('=', 1)
+        if key in allowed:
+            settings[key] = value
+assert settings['ATPROTO_SURVEY_LLM_MODEL'] == 'qwen/qwen3.6-35b-a3b', 'Model changed; do not migrate implicitly'
+os.environ['ATPROTO_SURVEY_LLM_TIMEOUT'] = '180'
+os.environ.pop('ATPROTO_SURVEY_LLM_COMMAND', None)
+
+cases = {c['id']: c for c in json.loads((OUT/'inputs.json').read_text())}
+schedule = json.loads((OUT/'schedule.json').read_text())
+template = (OUT/'prompt.txt').read_text()
+ledger_path = OUT/'attempts.json'
+ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else []
+conn = database.open_database(OUT/'application.db',create=True)
+for case_id, repeat in schedule:
+    key = f'{case_id}-{repeat}'
+    if (OUT/f'{key}.json').exists(): continue
+    assert len(ledger)<6 and not any(a['key']==key for a in ledger)
+    case=cases[case_id]
+    p=copy.deepcopy(case['project'])
+    _, full_evidence=registry.build_triage_prompt(p)
+    evidence={k: full_evidence[k] for k in ('current_profile','description_sources')}
+    evidence['name']=p['name']
+    prompt=template.replace('{{evidence_json}}',json.dumps(evidence,ensure_ascii=False,indent=2))
+    (OUT/f'{key}-prompt.txt').write_text(prompt)
+    ledger.append(dict(key=key,status='started'))
+    write('attempts.json',ledger)
+    metrics=[]
+    try:
+        payload,meta=llm_transport.run_llm_with_metrics(prompt,purpose='description_only_experiment',requests=metrics,
+            prompt_version='description-only-experiment-v1',
+            llm_endpoint=settings['ATPROTO_SURVEY_LLM_ENDPOINT'],llm_model=settings['ATPROTO_SURVEY_LLM_MODEL'],
+            llm_api_key=settings['ATPROTO_SURVEY_LLM_API_KEY'],llm_api_style='responses',
+            llm_reasoning_effort='none',llm_max_output_tokens=2048)
+    except Exception as exc:
+        ledger[-1].update(status='failed',error_type=type(exc).__name__,metrics=metrics)
+        write('attempts.json',ledger)
+        print(json.dumps(ledger[-1]),flush=True)
+        raise SystemExit(1)
+    meta.pop('endpoint',None);meta.pop('resolved_endpoint',None)
+    assert set(payload)=={'tagline','summary','features','description_change'}
+    proposed={
+        'tagline':registry.normalize_tagline(payload['tagline']),
+        'summary':project_record.normalize_ja_en_mixed_spacing(payload['summary'].strip()),
+        'features':registry.clean_human_string_list(payload['features'],limit=6)}
+    applied={}
+    for protection in ('automatic','unknown','operator','modified_after_automatic','unknown_matching_prior_output'):
+        q=copy.deepcopy(p);q['project_key']+='-'+key+'-'+protection
+        if protection.startswith('unknown'):q.pop('editorial',None)
+        if protection=='unknown_matching_prior_output':q['llm_output']=editorial.profile(q)
+        if protection=='operator':editorial.record_edit(q,allow_automatic=False,updated_at='2026-09-22T00:00:00+00:00')
+        if protection=='modified_after_automatic':q['editorial']['profile_hash']='previous-different-profile-hash'
+        before=editorial.profile(q)
+        before_other={k:copy.deepcopy(v) for k,v in q.items() if k not in (*editorial.FIELDS,'editorial','tagline_is_provisional')}
+        editorial.apply_proposal(q,proposed,payload['description_change'],evidence['description_sources'],generated_at=meta['generated_at'])
+        assert before_other=={k:v for k,v in q.items() if k in before_other}
+        project_record.save_project(conn,q);conn.commit()
+        loaded=project_record.fetch_project(conn,q['project_key'])
+        assert editorial.profile(loaded)==editorial.profile(q)
+        assert loaded['editorial']==q['editorial']
+        assert loaded['tracking_state']==p['tracking_state']
+        if protection!='automatic':
+            assert editorial.profile(loaded)==before and not editorial.automatic(loaded)
+        applied[protection]=dict(before=before,after=editorial.profile(loaded),editorial=loaded['editorial'],tracking_state=loaded['tracking_state'])
+    result=dict(case=case_id,repeat=repeat,real_llm=True,experimental_path=True,evidence=evidence,
+        full_triage_evidence=full_evidence,prompt_sha256=digest(prompt),template_sha256=digest(template),suffix='',
+        output=payload,meta=meta,metrics=metrics,applied=applied,
+        git_head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+        input_sha256=digest(json.dumps(case,ensure_ascii=False,sort_keys=True)))
+    write(f'{key}.json',result)
+    ledger[-1]['status']='complete';write('attempts.json',ledger)
+    print(json.dumps(dict(key=key,output=payload,usage=meta.get('usage'),metrics=metrics),ensure_ascii=False),flush=True)
+assert conn.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+assert not conn.execute('PRAGMA foreign_key_check').fetchall()
+conn.close()

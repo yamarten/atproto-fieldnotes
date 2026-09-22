@@ -1,0 +1,385 @@
+{
+  "case": "workshop_transition",
+  "repeat": 0,
+  "real_llm": true,
+  "experimental_path": true,
+  "evidence": {
+    "current_profile": {
+      "tagline": "工作室予約・工具案内",
+      "tagline_is_provisional": false,
+      "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+      "features": [
+        "工作室予約",
+        "工具カタログ",
+        "独自Lexiconによる予約のPDS保存"
+      ]
+    },
+    "description_sources": [
+      {
+        "id": "bf2a5a4c2fef04514c4a",
+        "type": "service_page",
+        "locator": "https://workshop-atlas.example",
+        "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+        "observed_at": "2026-09-22T00:00:00+00:00"
+      }
+    ],
+    "name": "Workshop Atlas"
+  },
+  "full_triage_evidence": {
+    "project_key": "proj:description-only-workshop_transition",
+    "name_hint": "Workshop Atlas",
+    "current_profile": {
+      "tagline": "工作室予約・工具案内",
+      "tagline_is_provisional": false,
+      "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+      "features": [
+        "工作室予約",
+        "工具カタログ",
+        "独自Lexiconによる予約のPDS保存"
+      ]
+    },
+    "manual_seeds": [],
+    "input_nsids": [],
+    "resolved_nsids": [],
+    "recorded_lexicon_namespaces": [],
+    "lexicon_resolution_entries": [],
+    "lexicon_schema_samples": [],
+    "recent_record_samples": [],
+    "record_creators": [],
+    "authority_domains": [],
+    "website_url": "",
+    "service_urls": [
+      "https://workshop-atlas.example"
+    ],
+    "resource_url_records": [],
+    "service_url_candidates": [],
+    "failed_service_urls": [],
+    "supported_service_urls": [],
+    "lexicon_scope": "unknown",
+    "lexicon_scope_evidence": [],
+    "service_status_hint": "unknown",
+    "service_status_confidence": "none",
+    "service_status_evidence": [],
+    "project_repository_urls": [],
+    "repository_analysis_results": [],
+    "candidate_project_repository_urls": [],
+    "repository_link_candidates": [],
+    "bluesky_handles": [],
+    "tangled_handles": [],
+    "developer_accounts": [],
+    "candidate_developer_accounts": [],
+    "summary_candidates": [],
+    "tagline_candidates": [],
+    "evidence_urls": [],
+    "description_sources": [
+      {
+        "id": "bf2a5a4c2fef04514c4a",
+        "type": "service_page",
+        "locator": "https://workshop-atlas.example",
+        "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+        "observed_at": "2026-09-22T00:00:00+00:00"
+      }
+    ]
+  },
+  "prompt_sha256": "88f9d7dacabbd1178b18085cd41da0bccc703fcf73cefe7c36113e0b03281012",
+  "template_sha256": "376ef2db303aefe42b149aac08441ee2a74396f124e6231204aa539a2a908cf2",
+  "suffix": "",
+  "output": {
+    "tagline": "工具カタログとCSVエクスポート",
+    "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+    "features": [
+      "工具カタログ",
+      "ブラウザ内CSVエクスポート",
+      "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+    ],
+    "description_change": {
+      "kind": "changed_facts",
+      "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+      "sources": [
+        "bf2a5a4c2fef04514c4a"
+      ]
+    }
+  },
+  "meta": {
+    "transport": "openai_compatible_endpoint",
+    "api_style": "responses",
+    "requested_api_style": "responses",
+    "model": "qwen/qwen3.6-35b-a3b",
+    "reasoning_effort": "none",
+    "reasoning_effort_requested": "none",
+    "reasoning_effort_applied": "",
+    "reasoning_effort_application_status": "not_reported_by_endpoint",
+    "prompt_version": "description-only-experiment-v1",
+    "generated_at": "2026-09-22T17:00:10+00:00",
+    "max_output_tokens": 2048,
+    "usage": {
+      "input_tokens": 1089,
+      "output_tokens": 195,
+      "total_tokens": 1284,
+      "input_tokens_details": {
+        "cached_tokens": 768
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "metrics": [
+    {
+      "purpose": "description_only_experiment",
+      "status": "success",
+      "error_category": "",
+      "prompt_chars": 4840,
+      "prompt_bytes": 5000,
+      "response_bytes": 743,
+      "timeout_seconds": 180.0,
+      "transport": "openai_compatible_endpoint",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "api_style": "responses",
+      "reasoning_effort": "none",
+      "prompt_version": "description-only-experiment-v1",
+      "duration_ms": 3197
+    }
+  ],
+  "applied": {
+    "automatic": {
+      "before": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "工具カタログとCSVエクスポート",
+        "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+        "features": [
+          "工具カタログ",
+          "ブラウザ内CSVエクスポート",
+          "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+        ]
+      },
+      "editorial": {
+        "mode": "automatic",
+        "last_update": {
+          "kind": "changed_facts",
+          "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+          "sources": [
+            {
+              "id": "bf2a5a4c2fef04514c4a",
+              "type": "service_page",
+              "locator": "https://workshop-atlas.example",
+              "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+              "observed_at": "2026-09-22T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:10+00:00"
+        },
+        "profile_hash": "889be11217600aa0a8995dd03b7559245ad91998ab97d7594e514f02eb593863"
+      },
+      "tracking_state": "stable"
+    },
+    "unknown": {
+      "before": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "工具カタログとCSVエクスポート",
+            "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+            "features": [
+              "工具カタログ",
+              "ブラウザ内CSVエクスポート",
+              "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+            ]
+          },
+          "base_hash": "66bd76e485c357c402ac66b6cba419392faca8abf9be95f2099d4932e231cf1e",
+          "kind": "changed_facts",
+          "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+          "sources": [
+            {
+              "id": "bf2a5a4c2fef04514c4a",
+              "type": "service_page",
+              "locator": "https://workshop-atlas.example",
+              "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+              "observed_at": "2026-09-22T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:10+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "operator": {
+      "before": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "last_update": {
+          "kind": "operator_edit",
+          "generated_at": "2026-09-22T00:00:00+00:00"
+        },
+        "profile_hash": "66bd76e485c357c402ac66b6cba419392faca8abf9be95f2099d4932e231cf1e",
+        "proposal": {
+          "profile": {
+            "tagline": "工具カタログとCSVエクスポート",
+            "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+            "features": [
+              "工具カタログ",
+              "ブラウザ内CSVエクスポート",
+              "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+            ]
+          },
+          "base_hash": "66bd76e485c357c402ac66b6cba419392faca8abf9be95f2099d4932e231cf1e",
+          "kind": "changed_facts",
+          "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+          "sources": [
+            {
+              "id": "bf2a5a4c2fef04514c4a",
+              "type": "service_page",
+              "locator": "https://workshop-atlas.example",
+              "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+              "observed_at": "2026-09-22T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:10+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "modified_after_automatic": {
+      "before": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "profile_hash": "previous-different-profile-hash",
+        "proposal": {
+          "profile": {
+            "tagline": "工具カタログとCSVエクスポート",
+            "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+            "features": [
+              "工具カタログ",
+              "ブラウザ内CSVエクスポート",
+              "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+            ]
+          },
+          "base_hash": "66bd76e485c357c402ac66b6cba419392faca8abf9be95f2099d4932e231cf1e",
+          "kind": "changed_facts",
+          "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+          "sources": [
+            {
+              "id": "bf2a5a4c2fef04514c4a",
+              "type": "service_page",
+              "locator": "https://workshop-atlas.example",
+              "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+              "observed_at": "2026-09-22T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:10+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    },
+    "unknown_matching_prior_output": {
+      "before": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "after": {
+        "tagline": "工作室予約・工具案内",
+        "summary": "工作室の予約と工具カタログを提供するサービス。予約を独自Lexiconで表現し、利用者のPDSに保存する。",
+        "features": [
+          "工作室予約",
+          "工具カタログ",
+          "独自Lexiconによる予約のPDS保存"
+        ]
+      },
+      "editorial": {
+        "mode": "review",
+        "proposal": {
+          "profile": {
+            "tagline": "工具カタログとCSVエクスポート",
+            "summary": "工作室の工具カタログを提供するサービス。予約機能は終了したが、旧機能のLexiconとPDS保存のスキーマ定義は公開されたまま。現在はサーバーデータベースからカタログ情報を取得し、ブラウザ内でCSVエクスポート機能を追加した。",
+            "features": [
+              "工具カタログ",
+              "ブラウザ内CSVエクスポート",
+              "旧予約機能のLexiconとPDSスキーマ定義の公開維持"
+            ]
+          },
+          "base_hash": "66bd76e485c357c402ac66b6cba419392faca8abf9be95f2099d4932e231cf1e",
+          "kind": "changed_facts",
+          "reason": "予約機能が終了し、代わりにブラウザ内でのCSVエクスポート機能が追加されたため。",
+          "sources": [
+            {
+              "id": "bf2a5a4c2fef04514c4a",
+              "type": "service_page",
+              "locator": "https://workshop-atlas.example",
+              "content": "Workshop Atlas release announcement, 2026-09-22. Room booking ended on September 10. The former booking function represented reservations with a custom Lexicon and stored them in each user's AT Protocol PDS. Those schema definitions remain public. The tool catalogue continues; its entries come from our server database. Today we added CSV export of the catalogue, generated locally in the browser. This announcement does not discuss a successor booking service.",
+              "observed_at": "2026-09-22T00:00:00+00:00"
+            }
+          ],
+          "generated_at": "2026-09-22T17:00:10+00:00"
+        }
+      },
+      "tracking_state": "stable"
+    }
+  },
+  "git_head": "f7eff882fe18d846f7ac8c2efbdeabc5da363a69",
+  "input_sha256": "5d5bd57aabb498ae1d1df07ba458b7bd71cb1e005a20dec6bc4024c285d6f335"
+}
