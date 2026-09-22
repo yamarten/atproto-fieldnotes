@@ -54,6 +54,7 @@ button.active, button.primary { background: var(--accent); border-color: var(--a
 button.secondary { background: transparent; }
 button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 button.small { min-height: 30px; padding: 4px 8px; font-size: 12px; }
+input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; margin: 0; flex: 0 0 16px; }
 a { color: var(--accent); overflow-wrap: anywhere; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: 21px; line-height: 1.1; }
@@ -85,6 +86,9 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .filter-grid input, .filter-grid select { width: 100%; min-width: 0; }
 .card { width: 100%; height: max-content; min-height: max-content; display: grid; gap: 6px; text-align: left; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
 .card > * { min-width: 0; }
+.promotion-card { gap: 8px; box-shadow: none; }
+.promotion-card .pill:not(.candidate):not(.failed):not(.rate_limited) { padding: 2px 0; border-color: transparent; background: transparent; }
+.promotion-card .meta-row { gap: 6px 12px; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
 .card-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .card-title strong { overflow-wrap: anywhere; }
@@ -101,7 +105,10 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .detail-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); background: transparent; font-weight: 700; }
 .detail-tab-panel { min-width: 0; }
 .detail-section { display: grid; gap: 8px; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
+.detail-section > h3, .detail-section > .kv { margin: 0; }
 .identifier, .relation, .decision, .collector { display: grid; gap: 6px; padding: 9px; border-left: 3px solid var(--line); border-radius: 7px; background: var(--panel-soft); }
+.collector > p, .relation > p { margin-bottom: 0; }
+.collector > h4 { margin: 0; }
 .identifier.confirmed, .relation.confirmed { border-left-color: var(--accent); }
 .identifier.candidate, .relation.candidate { border-left-color: var(--warning); }
 .identifier-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
@@ -136,13 +143,15 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .operation-card .controls > label input[type="checkbox"] { flex: 0 0 auto; }
 .operation-card .controls > details { min-width: 0; align-self: center; }
 .operation-card .controls > button { min-width: 0; align-self: end; }
+.check-options { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; min-width: 0; }
+.check-option { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; color: var(--text); cursor: pointer; }
 .operation-enrich { grid-column: 1 / -1; }
-.operation-enrich .controls { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); align-items: end; }
+.operation-enrich .controls { grid-template-columns: minmax(0, 240px) minmax(0, 1fr); align-items: end; }
+.operation-enrich .check-options { grid-column: 1 / -1; }
 .tracking-state-options { grid-column: 1 / -1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
 .tracking-state-options > summary { cursor: pointer; color: var(--muted); }
 .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px 12px; margin-top: 8px; }
 .checkbox-grid label > span { min-height: 30px; display: flex; align-items: center; gap: 7px; color: var(--text); }
-.checkbox-grid input[type="checkbox"], .settings-toggle input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; padding: 0; flex: 0 0 16px; }
 .settings-toggle > span:last-child { min-height: 38px; display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 14px; }
 .job-card { display: grid; gap: 8px; padding: 11px; margin-bottom: 9px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
 .job-card.running, .job-card.queued { border-left-color: var(--accent); }
@@ -155,6 +164,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .system-notes > summary { width: fit-content; cursor: pointer; }
 .system-notes > ol { margin: 8px 0 0; padding-left: 22px; }
 .system-notes li { margin-top: 4px; overflow-wrap: anywhere; }
+.score-breakdown > summary { cursor: pointer; color: var(--muted); }
 .merge-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; margin-top: 12px; }
 .merge-project { min-width: 0; display: grid; align-content: start; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
 .merge-project .kv { grid-template-columns: minmax(0, 1fr); gap: 3px; }
@@ -190,6 +200,7 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
   .kv { grid-template-columns: 1fr; }
   .merge-comparison { grid-template-columns: 1fr; }
   .identifier-entry { grid-template-columns: 1fr; }
+  .operation-enrich .controls { grid-template-columns: 1fr; }
   .suffix-suggestion { grid-template-columns: 1fr; }
   .suffix-suggestion .actions { justify-content: stretch; }
   .suffix-suggestion .actions button { width: 100%; }
