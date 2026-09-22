@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
-    promotion_queue_parser.add_argument("--view", choices=["queue", "inbox", "technical", "reviewed", "waiting", "lowered", "all"], default="queue", help="technical shows high/exceptional technical candidates independently of service ranking.")
+    promotion_queue_parser.add_argument("--view", choices=["queue", "inbox", "technical", "waiting", "lowered", "all"], default="queue", help="technical shows high/exceptional technical candidates independently of service ranking.")
     promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_surface_confirmed",
@@ -791,13 +791,13 @@ def build_parser() -> argparse.ArgumentParser:
     defer_parser.add_argument("--clear", action="store_true", help="Remove the defer guard instead of adding it. This does not confirm the identifier.")
     defer_parser.set_defaults(func=decision_commands.cmd_defer_identifier)
 
-    defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue while recording the reason.")
+    defer_promotion_parser = subparsers.add_parser("defer-promotion", help="Temporarily hide one project from promotion-queue with an optional reason.")
     defer_promotion_target = defer_promotion_parser.add_mutually_exclusive_group(required=True)
     defer_promotion_target.add_argument("-p", "--project-key", help="Target one project key.")
     defer_promotion_target.add_argument("-s", "--seed", help="Target by known seed value.")
     defer_promotion_parser.add_argument("--project-type", choices=["nsid", "repo_url", "service_url"], help="Required when --seed is ambiguous.")
-    defer_promotion_parser.add_argument("--days", type=int, default=None, help="How many days to hide the project from promotion-queue. Default: automatic based on project age and prior deferrals.")
-    defer_promotion_parser.add_argument("--reason", help="Why promotion is deferred. Omit to reuse the most recent reason.")
+    defer_promotion_parser.add_argument("--days", type=int, default=None, help="How many days to hide the project from promotion-queue. Default: 30 days.")
+    defer_promotion_parser.add_argument("--reason", help="Optional reason for the hold. Omit to leave it blank.")
     defer_promotion_parser.add_argument("--clear", action="store_true", help="Clear active promotion deferrals while retaining their history.")
     defer_promotion_parser.set_defaults(func=decision_commands.cmd_defer_promotion)
 

@@ -61,6 +61,7 @@ project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db -
 | 要レビュー一覧 | 人による確認が必要な項目の一覧。CLIでは`review-queue`。 |
 | 主機能でのatproto利用 | 主機能のデータ・基盤、補助的な利用、Bluesky専用操作、認証のみ、利用範囲は不明という理由付きの手動判断。サービスを利用できるか、技術的な学びがあるかとは別に記録し、LLMでは自動確定しない。 |
 | 技術候補 | 具体的なprotocol設計・相互運用・実装上の学びを理由に選ぶ紹介候補。サービスの有無と独立した入口でも確認できる。 |
+| 紹介候補の保留 | 確認対象から一時的に外す判断。理由は任意、既定30日。期限・根拠変化・明示解除で再評価できる。 |
 | 紹介候補一覧 | 紹介する候補を選び、優先度や保留を判断する一覧。CLIでは`promotion-queue`。 |
 | 分類 | 主な利用者と利用形態による登録プロジェクトの分類。保存値は`project`、`lexicon`、`library`、`infra_tool`、`personal_tool`、`name_only`、`reject`。詳しい境界は[Project Record Schema](../developer/specs/project-record.md#category)を参照。 |
 | 採用 | 候補の識別子を、その登録プロジェクトに属するものとして利用者が認める操作。保存値は`confirmed`。この値は自動判定による採用にも使われ、利用者の操作は手動判断の記録で確認できる。 |

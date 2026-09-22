@@ -628,45 +628,23 @@ def clear_confirmed_identifier_decision(project: dict[str, Any], identifier_type
     project["confirmed_identifiers"] = confirmations
 
 
-def active_promotion_deferral(project: dict[str, Any]) -> dict[str, str] | None:
-    now = dt.datetime.now(dt.timezone.utc)
-    active = [
-        item
-        for item in project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
-        if not item.get("cleared_at") and (project_record.parse_iso(item.get("expires_at")) or now) > now
-        and (not item.get("fingerprint") or item["fingerprint"] == promotion_attention.fingerprint(project))
-    ]
-    return active[-1] if active else None
+def active_promotion_deferral(project: dict[str, Any]) -> dict[str, Any] | None:
+    return promotion_attention.active_deferral(project)
 
 
 def latest_promotion_deferral_reason(project: dict[str, Any]) -> str:
-    deferrals = project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
-    return str(deferrals[-1].get("reason") or "") if deferrals else ""
-
-
-def suggested_promotion_defer_days(project: dict[str, Any]) -> int:
-    previous_count = len(project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", []))))
-    if previous_count >= 3:
-        return 90
-    if previous_count >= 2:
-        return 60
-    if previous_count >= 1:
-        return 45
-    first_seen = project_record.parse_iso(str(project.get("first_seen_at") or ""))
-    if first_seen is not None:
-        now = dt.datetime.now(dt.timezone.utc)
-        if first_seen.tzinfo is None:
-            first_seen = first_seen.replace(tzinfo=dt.timezone.utc)
-        if first_seen > now - dt.timedelta(days=14):
-            return 14
-    return DEFAULT_PROMOTION_DEFER_DAYS
+    # Converted reviews had no reason input. Do not let them hide an existing
+    # defer reason from search or the next hold's editable initial value.
+    deferrals = [item for item in project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+                 if not item.get("legacy_review")]
+    latest = max(reversed(deferrals), key=lambda item: project_record.parse_iso(item.get("added_at"))
+                 or dt.datetime.min.replace(tzinfo=dt.timezone.utc)) if deferrals else {}
+    return str(latest.get("reason") or "")
 
 
 def defer_promotion_on_project(project: dict[str, Any], *, reason: str = "", days: int | None = None) -> dict[str, str]:
-    effective_reason = str(reason or latest_promotion_deferral_reason(project)).strip()
-    if not effective_reason:
-        raise ValueError("promotion deferral reason is required")
-    effective_days = max(1, min(365, int(days) if days is not None else suggested_promotion_defer_days(project)))
+    effective_reason = str(reason or "").strip()
+    effective_days = max(1, min(365, int(days) if days is not None else DEFAULT_PROMOTION_DEFER_DAYS))
     expires_at = (
         dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=effective_days)
     ).replace(microsecond=0).isoformat()
@@ -9228,18 +9206,16 @@ def build_showcase_queue_from_projects(
         policy = promotion_policy_projection(shaped, signals)
         eligible = policy["candidate_visibility"]["group"] == "eligible"
         lowered = policy["priority_group"] == "lowered"
-        reviewed = policy["attention"]["group"] == "reviewed"
         waiting = bool(policy["active_deferral"])
         included = {
             "queue": eligible,
-            "inbox": eligible and not lowered and not reviewed,
-            "technical": eligible and not lowered and not reviewed and any(
+            "inbox": eligible and not lowered,
+            "technical": eligible and not lowered and any(
                 signal["kind"] == "technical_insight_candidate" for signal in signals
             ),
             "lowered": lowered,
             "waiting": waiting,
-            "reviewed": reviewed,
-            "all": eligible or lowered or waiting or reviewed,
+            "all": eligible or lowered or waiting,
         }
         if view not in included:
             raise ValueError(f"unknown promotion view: {view}")
@@ -9247,7 +9223,7 @@ def build_showcase_queue_from_projects(
             continue
         if not signals and (view in {"queue", "inbox", "technical"} or kinds is not None):
             continue
-        if not signals and not (lowered or waiting or reviewed):
+        if not signals and not (lowered or waiting):
             continue
         top_priority = max((int(item.get("priority", 0) or 0) for item in signals), default=0)
         sort_score = int(policy["score_breakdown"]["total"])
@@ -9285,7 +9261,6 @@ def build_showcase_queue_from_projects(
         )
     queue.sort(key=lambda item: (
         1 if item.get("priority_group") == "lowered" else 0,
-        1 if item["attention"]["group"] == "reviewed" else 0,
         -int(item.get("technical_interest_score", 0) if view == "technical" else item.get("top_priority", 0) or 0),
         0 if view == "technical" else -int(item.get("sort_score", 0) or 0),
         str(item.get("project_key") or ""),

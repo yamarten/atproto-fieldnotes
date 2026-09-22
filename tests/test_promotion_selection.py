@@ -58,7 +58,7 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
             key = p["project_key"]
             restored = project_record.fetch_project(conn, key)
             self.assertEqual(atproto_usage.projection(restored)["role"], "main_data")
-            decisions.set_promotion_reviewed(conn, project_key=key)
+            decisions.set_promotion_defer(conn, project_key=key)
             decisions.set_atproto_usage(conn, project_key=key, role="supporting", reason="Main data is elsewhere")
             restored = project_record.fetch_project(conn, key)
             self.assertEqual(promotion_attention.projection(restored)["group"], "changed")
@@ -85,7 +85,7 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
             self.assertNotEqual(first["items"][0]["project_key"], second["items"][0]["project_key"])
             decisions.set_promotion_priority(conn, project_key="fixture:idiolect", lowered=True, reason="暗号")
             decisions.set_promotion_defer(conn, project_key="fixture:standard-site", reason="材料待ち")
-            decisions.set_promotion_reviewed(conn, project_key="fixture:bluesky")
+            decisions.set_promotion_defer(conn, project_key="fixture:bluesky")
             self.assertEqual(presentation.queue_payload(conn, **query)["total"], 0)
             lowered = presentation.queue_payload(conn, queue="promotion", tracking_states={"active"}, promotion_view="lowered", reason="暗号")
             self.assertEqual(lowered["items"][0]["project_key"], "fixture:idiolect")

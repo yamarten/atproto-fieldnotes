@@ -2246,28 +2246,25 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertFalse(adjustments[0].get("cleared_at"))
         self.assertTrue(adjustments[1].get("cleared_at"))
 
-    def test_promotion_deferral_reuses_last_reason_and_clear_keeps_history(self) -> None:
+    def test_promotion_deferral_allows_empty_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
 
         registry.defer_promotion_on_project(project, reason="中核機能が未実装")
         registry.clear_active_promotion_deferrals(project)
         entry = registry.defer_promotion_on_project(project)
 
-        self.assertEqual(entry["reason"], "中核機能が未実装")
+        self.assertEqual(entry["reason"], "")
         self.assertEqual(len(project["promotion_deferrals"]), 2)
         self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
-        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "中核機能が未実装")
+        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "")
 
-    def test_promotion_deferral_days_are_suggested_from_age_and_history(self) -> None:
+    def test_promotion_deferral_default_is_thirty_days_regardless_of_age_and_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
         project["first_seen_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
-
-        self.assertEqual(registry.suggested_promotion_defer_days(project), 14)
-        registry.defer_promotion_on_project(project, reason="young project")
-        self.assertEqual(registry.suggested_promotion_defer_days(project), 45)
-        registry.clear_active_promotion_deferrals(project)
-        registry.defer_promotion_on_project(project)
-        self.assertEqual(registry.suggested_promotion_defer_days(project), 60)
+        for _ in range(5):
+            entry = registry.defer_promotion_on_project(project)
+            duration = project_record.parse_iso(entry["expires_at"]) - project_record.parse_iso(entry["added_at"])
+            self.assertAlmostEqual(duration.total_seconds(), 30 * 86400, delta=1)
 
     def test_promotion_deferral_uses_explicit_days_when_provided(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import copy
+import datetime as dt
 import re
 from typing import Any, Iterable, Mapping
 
@@ -526,6 +527,32 @@ def relation_rows(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _legacy_review_decision(project: dict[str, Any]) -> ProjectDecision | None:
+    """Read old review suppression as a hold, without writing during hydration.
+
+    Only the last review deadline survives in the old format. Keep the complete
+    available state as provenance; do not invent earlier review events.
+    """
+    state = dict(project.get("promotion_attention") or {})
+    raw_until = state.get("reviewed_until")
+    fingerprint = state.get("reviewed_fingerprint")
+    if not raw_until or not fingerprint:
+        return None
+    until = dt.datetime.fromisoformat(raw_until)
+    entry = {
+        "reason": "",
+        "added_at": (until - dt.timedelta(days=30)).isoformat(),
+        "expires_at": raw_until,
+        "fingerprint": fingerprint,
+        "legacy_review": copy.deepcopy(state),
+    }
+    state.pop("reviewed_until")
+    state.pop("reviewed_fingerprint")
+    project["promotion_attention"] = state
+    return ProjectDecision("defer_promotion", created_at=entry["added_at"],
+                           expires_at=raw_until, metadata=entry)
+
+
 def hydrate(
     project: dict[str, Any],
     *,
@@ -580,6 +607,9 @@ def hydrate(
         }
         for row in decision_rows
     ]
+    legacy_review = _legacy_review_decision(project)
+    if legacy_review is not None:
+        decision_payload.append(asdict(legacy_review))
     project.update({
         "input_nsids": [], "resolved_nsids": [], "lexicons": [], "external_lexicons": [],
         "recorded_lexicon_namespaces": [], "authority_domains": [], "service_urls": [],

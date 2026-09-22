@@ -426,18 +426,16 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
     return output
 
 
-def _decision_rows(conn: sqlite3.Connection, project_key: str, project: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def _decision_rows(project: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     now = dt.datetime.now(dt.timezone.utc)
-    rows = conn.execute(
-        "SELECT * FROM project_decisions WHERE project_key = ? ORDER BY ordinal", (project_key,)
-    ).fetchall()
+    rows = [vars(item) for item in runtime_view.project_decisions(project)]
     output: list[dict[str, Any]] = []
     for row in rows:
         expires_at = str(row["expires_at"])
         expires = project_record.parse_iso(expires_at) if expires_at else None
         cleared_at = str(row["cleared_at"])
         active = not cleared_at and (expires is None or expires > now)
-        metadata = _json(str(row["metadata_json"]), {})
+        metadata = row["metadata"] or {}
         recheck = str(row["kind"]) == "defer_promotion" and metadata.get("fingerprint") and metadata["fingerprint"] != promotion_attention.fingerprint(project)
         active = active and not recheck
         output.append({
@@ -693,7 +691,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "project": raw_project,
         "identifiers": _identifier_rows(conn, resolved),
         "relations": _relation_rows(conn, resolved),
-        "decisions": _decision_rows(conn, resolved, prepared),
+        "decisions": _decision_rows(prepared),
         "evaluation": evaluation,
         "promotion_policy": promotion_policy,
         "promotion_signals": promotion_signals,
@@ -720,7 +718,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         ),
         "active_guards": payload["decisions"]["active"],
         "promotion_defer": {
-            "suggested_days": core.suggested_promotion_defer_days(project),
+            "default_days": core.DEFAULT_PROMOTION_DEFER_DAYS,
             "last_reason": core.latest_promotion_deferral_reason(project),
         },
     }
@@ -871,7 +869,7 @@ def queue_payload(
     if queue == "review":
         items = review.review_queue(conn, tracking_states=tracking_states, kinds=kinds, limit=limit)
     elif queue == "promotion":
-        if promotion_view not in {"inbox", "technical", "lowered", "waiting", "reviewed", "all"}:
+        if promotion_view not in {"inbox", "technical", "lowered", "waiting", "all"}:
             raise ValueError("invalid promotion view")
         items = review.promotion_queue(
             conn,

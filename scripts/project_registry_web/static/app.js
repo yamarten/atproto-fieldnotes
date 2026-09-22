@@ -83,8 +83,8 @@ const displayLabels = {
   "split-project": "識別子を別プロジェクトへ分割",
   "clear-block-identifier": "識別子の除外を解除",
   "clear-defer-identifier": "識別子の保留を解除",
-  "defer-promotion": "紹介候補を情報待ちにする",
-  "clear-promotion-deferral": "紹介候補の情報待ちを解除",
+  "defer-promotion": "紹介候補を保留にする",
+  "clear-promotion-deferral": "紹介候補の保留を解除",
   "dismiss-review-target": "レビュー対象から除外",
   "defer-review-target": "レビュー対象を30日保留",
   "clear-review-target": "レビュー対象の手動判断を解除",
@@ -177,10 +177,9 @@ const displayLabels = {
   "confirm_identifier": "識別子の採用",
   "block_identifier": "識別子の除外",
   "defer_identifier": "識別子の保留",
-  "defer_promotion": "紹介候補の情報待ち",
+  "defer_promotion": "紹介候補の保留",
   "lower_promotion_priority": "紹介候補の優先度を下げる",
   "promotion_priority": "紹介候補の優先度",
-  "review_promotion": "紹介候補の確認済み判断",
   "defer_review_target": "個別のレビュー対象を保留",
   "dismiss_review": "要レビューの種類を除外",
   "dismiss_review_target": "個別のレビュー対象を除外",
@@ -690,7 +689,7 @@ function listControls() {
       ? `<div class="toolbar"><label>要レビューの種類<input id="review-signal-kind" placeholder="例: candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">適用</button><button id="clear-review-filter" class="secondary">解除</button></div>`
       : "";
     const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
-      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "低優先度・特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
+      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["waiting", "保留"], ["lowered", "低優先度・特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
       <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
@@ -993,10 +992,10 @@ function promotionCardDetails(item) {
   const attention = item.attention?.group || "unreviewed";
   const technicalView = state.promotionView === "technical";
   return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
-    <span class="meta-row">${pill(item.atproto_usage?.source === "operator" ? promotionLabel(atprotoUsageLabels, item.atproto_usage.role) : "atproto利用 未評価")}${pill(promotionLabel({unreviewed:"未確認", recorded:"判断記録あり", reviewed:"確認済み", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
+    <span class="meta-row">${pill(item.atproto_usage?.source === "operator" ? promotionLabel(atprotoUsageLabels, item.atproto_usage.role) : "atproto利用 未評価")}${pill(promotionLabel({unreviewed:"未確認", recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
     ${item.atproto_usage?.source === "operator" && item.atproto_usage.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
     ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
-    ${item.active_deferral ? `<span class="muted">情報待ち: ${esc(item.active_deferral.reason)} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
+    ${item.active_deferral ? `<span class="muted">保留: ${esc(item.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
     ${!item.active_deferral && item.last_promotion_deferral_reason ? `<span class="muted">前回の保留理由: ${esc(item.last_promotion_deferral_reason)}</span>` : ""}
     ${item.priority_reason ? `<span class="muted">優先度のメモ: ${esc(item.priority_reason)}</span>` : ""}
     ${validationReasons.length ? `<span class="muted">追加確認: ${esc(validationReasons.join("、"))}</span>` : ""}`;
@@ -1226,7 +1225,7 @@ function renderDetail(data) {
   state.mergeTargetRevision = data.merge_target_revision || "";
   const hasPromotionHold = Boolean(promotionPolicy.active_deferral);
   const promotionDefer = overview.promotion_defer || {};
-  const promotionDeferDays = Number(promotionDefer.suggested_days || 30);
+  const promotionDeferDays = Number(promotionDefer.default_days || 30);
   const promotionDeferAction = actionButton(
     `${promotionDeferDays}日間保留`,
     "defer-promotion",
@@ -1239,10 +1238,9 @@ function renderDetail(data) {
       : actionButton("優先度を下げる", "lower-promotion-priority")}`;
   const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="small secondary">今回は先送り</button>` : "";
   const promotionActions = `<div class="promotion-actions"><strong>紹介候補の判断</strong>
-    <div class="actions">${promotionPolicy.attention?.group === "reviewed" ? actionButton("確認対象へ戻す", "clear-promotion-review") : actionButton("確認済みにする", "review-promotion")}
-    ${hasPromotionHold ? actionButton("情報待ちを解除", "clear-promotion-deferral") : promotionDeferAction}${promotionPriorityActions}${reviewSkipAction}</div>
+    <div class="actions">${hasPromotionHold ? actionButton("保留を解除", "clear-promotion-deferral") : promotionDeferAction}${promotionPriorityActions}${reviewSkipAction}</div>
     ${promotionPolicy.priority_reason ? `<p>特集候補・優先度の理由: ${esc(promotionPolicy.priority_reason)}</p>` : ""}
-    ${hasPromotionHold ? `<p>情報待ち: ${esc(promotionPolicy.active_deferral.reason)}</p>` : ""}</div>`;
+    ${hasPromotionHold ? `<p>保留: ${esc(promotionPolicy.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(promotionPolicy.active_deferral.expires_at))}まで</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
     ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>採用済みサービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介済み</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>短い説明</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`)}
@@ -1730,13 +1728,13 @@ function bindDetailActions(projectKey) {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
     const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
-    const title = action === "defer-promotion" ? `紹介候補を${payload.days}日間、情報待ちにする` : action === "review-promotion" ? "確認済みにする" : action === "clear-promotion-review" ? "確認対象へ戻す" : action === "lower-promotion-priority"
+    const title = action === "defer-promotion" ? `紹介候補を${payload.days}日間、保留にする` : action === "lower-promotion-priority"
       ? "紹介候補の優先度を下げる"
       : action === "clear-promotion-priority"
         ? "紹介候補の優先度を通常へ戻す"
         : displayLabel(action);
-    const message = action === "review-promotion" ? "この候補を確認済みにします。30日間は確認対象から外し、根拠が変われば再表示します。確認済み一覧からいつでも戻せます。" : action === "defer-promotion"
-      ? `この候補を${payload.days}日間、情報待ちにします。期限または根拠の変化で再表示します。「情報待ち」からいつでも解除できます。`
+    const message = action === "defer-promotion"
+      ? `この候補を${payload.days}日間、保留にします。期限または根拠の変化で再表示します。「保留」からいつでも解除できます。`
       : ["lower-promotion-priority", "clear-promotion-priority"].includes(action)
       ? `${projectKey}: ${title}。よろしいですか？`
       : `${payload.value || payload.other_project_key || projectKey}: ${title}。よろしいですか？`;
@@ -1747,7 +1745,7 @@ function bindDetailActions(projectKey) {
       payload,
       needsNote,
       button.dataset.defaultNote || "",
-      action === "lower-promotion-priority" ? "特集の共通理由・優先度のメモ（任意・あとで検索できます）" : "理由・メモ",
+      action === "lower-promotion-priority" ? "特集の共通理由・優先度のメモ（任意・あとで検索できます）" : action === "defer-promotion" ? "保留の理由（任意）" : "理由・メモ",
     );
   });
 }

@@ -287,15 +287,15 @@ promotion policyは次を混ぜずに投影します。
 - `service_evidence_group`: `confirmed / needs_validation / not_applicable`。service signalだけの確認度を表し、単独紹介の可否は含めない
 - `priority_group`: `normal / lowered`。`lowered`はnormalized decisionの明示判断だけから投影し、project名・説明文・service evidenceから自動推定しない。理由メモは任意
 - `score_breakdown`: service、lexicon、technical interest、profile、activityなど既存scoreの加減点を成分別に返し、`total`を従来の`sort_score`として使う
-- `attention`: 明示した確認記録から`unreviewed / recorded / reviewed / changed / due`を投影する。未記録・判断記録あり・確認済み・根拠変化・期限到来を区別する。有用性や実際の未閲覧を表さない
+- `attention`: 明示した確認記録から`unreviewed / recorded / held / changed / due`を投影する。未記録・判断記録あり・保留中・根拠変化・期限到来を区別する。有用性や実際の未閲覧を表さない
 
 `defer_promotion`はproject全体を期限または根拠変化まで通常の候補表示から外します。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
 
-Webの`Promotion`は既定の「確認対象」でeligible・通常優先度・確認済みでない候補を表示します。「技術候補」「確認済み」「情報待ち」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
+Webの`Promotion`は既定の「確認対象」でeligible・通常優先度の候補を表示します。「技術候補」「保留」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
 `lowered`一覧は完全なproject復元の前に、normalized decisionに`lower_promotion_priority`の履歴を持つprojectへ読込み対象を絞ります。解除済み履歴も含めて選び、有効な判断・metadataの解釈は既存の復元とpolicyへ委ねます。key選択とproject・子行の復元は同じread snapshot内で行います。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持し、応答cacheは持ちません。他のviewはこの先行絞込みを使いません。
 
-cardは主機能での利用範囲と理由・技術的価値の説明・service確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で確認済み・Defer・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
+cardは主機能での利用範囲と理由・技術的価値の説明・service確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で保留・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 
 Lower priorityは単体で先に扱わない判断であり、同じ理由をまとめて特集する候補にも使います。理由の編集は旧decisionを解除済みとして残し、新decisionを追加します。通常優先度へ戻す操作も履歴を消しません。明示したloweringは根拠が変わっても自動解除せず、専用一覧で再評価できます。
 
@@ -303,11 +303,11 @@ Lower priorityは単体で先に扱わない判断であり、同じ理由をま
 
 マージ元（source）と存続先（target）の両方に有効な紹介候補の優先度判断がある場合はtarget側を維持し、source側を解除済み履歴として残します。
 
-`promotion_deferrals`の未解除・期限内entryは、fingerprintが無いか現在値と一致する間だけ保留として効きます。未指定時の保留期間は`suggested_promotion_defer_days()`が決めます。初回の若いprojectは14日、通常初回は30日、過去のdefer履歴がある場合は45 / 60 / 90日へ延ばします。`--days`またはAPIの`days`を優先し、直近理由は再保留時に再利用できます。理由文の条件を機械的に理解して実装完了等を確定する処理はありません。
+`promotion_deferrals`の未解除・期限内entryは、fingerprintが無いか現在値と一致する間だけ保留として効きます。未指定時の保留期間は一律30日です。`--days`またはAPIの`days`を優先し、理由は省略・空文字を許可します。Webは前回理由を編集可能な初期値にしますが、空欄で確定すれば理由なしとして保存します。理由文の条件を機械的に理解して実装完了等を確定する処理はありません。
 
-### 確認済み候補と根拠変化
+### 保留候補と根拠変化
 
-「確認済み・次へ」は現時点の材料を確認したという可逆的な操作です。30日間はWebの確認対象から外し、CLIでは同じ優先度groupの後ろへ並べます。根拠変化、30日期限、明示解除で再評価対象へ戻ります。例えば55件中先頭50件を確認済みにすると、残る5件を先に確認できます。長期表示だけからの自動減衰は、表示履歴がなく未利用と区別できないため採用しません。無操作では順序が変わらない代わりに、未閲覧の恒久判断を作りません。
+保留は、見終えた候補や追加情報を待つ候補を通常一覧から一時的に外す可逆的な操作です。CLI・Webとも期限到来、根拠変化、明示解除で通常の選別対象へ戻します。他の除外条件やLower priorityは独立に維持します。例えば55件中先頭50件を保留すると、通常一覧は残る5件となり、50件は保留一覧から回収できます。長期表示だけからの自動減衰は、表示履歴がなく未利用と区別できないため採用しません。無操作では順序が変わらない代わりに、未閲覧の恒久判断を作りません。
 
 fingerprintのversionは`promotion-attention-v1`です。category、service状態・confidence・利用面を示すevidence、atproto寄与度、technical interestのlevel/reasons、lexicon scope、確認済みservice/repository/NSID、resolved NSIDのschema内容、features、summary/tagline/featuresの有無を比較します。集合の順序、取得時刻、activity件数、HTML/README本文hash、summary/taglineの言い換えだけでは復活させません。featuresの文言変更は意味が同じでも再提示し得るため、精密な意味判定ではなく保守的な再確認条件です。未収集の機能変化、これらのfieldへ反映されない変化は検知できず、期限と手動復帰が補います。
 

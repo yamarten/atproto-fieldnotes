@@ -715,8 +715,6 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 days=_int(payload.get("days"), 30, maximum=365),
                 clear=action.startswith("clear-"),
             )
-        if action in {"review-promotion", "clear-promotion-review"}:
-            return decisions.set_promotion_reviewed(conn, project_key=project_key, clear=action.startswith("clear-"))
         if action in {"defer-promotion", "clear-promotion-deferral"}:
             raw_days = payload.get("days")
             return decisions.set_promotion_defer(

@@ -1216,7 +1216,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 200)
         self.assertFalse(any(item["kind"] == "defer_promotion" for item in payload["detail"]["decisions"]["active"]))
         self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["last_reason"], "wait for editorial review")
-        self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["suggested_days"], 45)
+        self.assertEqual(payload["detail"]["overview"]["promotion_defer"]["default_days"], 30)
 
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/lower-promotion-priority",
@@ -1647,12 +1647,12 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
         _, detail, _ = self.request(f"/api/projects/{key}")
         revision = detail["revision"]
-        status, result, _ = self.request(f"/api/projects/{key}/review-promotion", method="POST", payload={"expected_revision": revision})
+        status, result, _ = self.request(f"/api/projects/{key}/defer-promotion", method="POST", payload={"expected_revision": revision})
         self.assertEqual(status, 200)
-        self.assertEqual(result["detail"]["promotion_policy"]["attention"]["group"], "reviewed")
-        status, _, _ = self.request(f"/api/projects/{key}/clear-promotion-review", method="POST", payload={"expected_revision": revision})
+        self.assertEqual(result["detail"]["promotion_policy"]["attention"]["group"], "held")
+        status, _, _ = self.request(f"/api/projects/{key}/clear-promotion-deferral", method="POST", payload={"expected_revision": revision})
         self.assertEqual(status, 409)
-        _, payload, _ = self.request("/api/promotion-queue?view=reviewed&limit=1")
+        _, payload, _ = self.request("/api/promotion-queue?view=waiting&limit=1")
         self.assertEqual(payload["items"][0]["project_key"], key)
         _, payload, _ = self.request("/api/promotion-queue")
         self.assertNotIn(key, [item["project_key"] for item in payload["items"]])
@@ -1671,6 +1671,11 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(payload["items"][0]["project_key"], key)
         status, _, _ = self.request("/api/promotion-queue?view=unknown")
         self.assertEqual(status, 400)
+        status, _, _ = self.request("/api/promotion-queue?view=reviewed")
+        self.assertEqual(status, 400)
+        for action in ("review-promotion", "clear-promotion-review"):
+            status, _, _ = self.request(f"/api/projects/{key}/{action}", method="POST", payload={})
+            self.assertEqual(status, 400)
 
     def test_lowered_api_matches_full_scan_for_saved_candidates_and_pages(self) -> None:
         keys = ("proj:111111111111", "proj:222222222222")

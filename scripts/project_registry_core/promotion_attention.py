@@ -58,13 +58,21 @@ def record(project: dict[str, Any], outcome: str, *, now: dt.datetime | None = N
     state.update(outcome_counts=counts, last_outcome=outcome,
                  last_action_at=now.isoformat(), snapshot=snapshot(project),
                  fingerprint=fingerprint(project))
-    if outcome == "reviewed":
-        state["reviewed_fingerprint"] = fingerprint(project)
-        state["reviewed_until"] = (now + dt.timedelta(days=30)).isoformat()
-    elif outcome == "restore":
-        state.pop("reviewed_fingerprint", None)
-        state.pop("reviewed_until", None)
     project["promotion_attention"] = state
+
+
+def active_deferral(project: dict[str, Any], *, now: dt.datetime | None = None) -> dict[str, Any] | None:
+    now = now or dt.datetime.now(dt.timezone.utc)
+    deferrals = project_record.normalize_promotion_deferrals(list(project.get("promotion_deferrals", [])))
+    if not deferrals:
+        return None
+    current = fingerprint(project)
+    active = [item for item in deferrals
+              if not item.get("cleared_at") and (project_record.parse_iso(item["expires_at"]) or now) > now
+              and (not item.get("fingerprint") or item["fingerprint"] == current)]
+    # Coexisting legacy review/defer decisions keep both deadlines. The hold
+    # ends only once neither decision applies, so show the latest active expiry.
+    return max(reversed(active), key=lambda item: project_record.parse_iso(item["expires_at"])) if active else None
 
 
 def projection(project: dict[str, Any], *, now: dt.datetime | None = None) -> dict[str, Any]:
@@ -72,16 +80,13 @@ def projection(project: dict[str, Any], *, now: dt.datetime | None = None) -> di
     state = project.get("promotion_attention") or {}
     current = fingerprint(project)
     previous = state.get("fingerprint")
-    raw_until = state.get("reviewed_until")
-    until = project_record.parse_iso(raw_until)
-    reviewed = bool(state.get("reviewed_fingerprint") == current and until and until > now)
     changed = bool(previous and previous != current)
-    last_defer = (project.get("promotion_deferrals") or [{}])[-1]
-    defer_expiry = project_record.parse_iso(last_defer.get("expires_at"))
-    due = bool(raw_until or (state.get("last_outcome") == "defer" and defer_expiry and defer_expiry <= now))
+    holds = [item for item in project.get("promotion_deferrals", []) if not item.get("cleared_at")]
+    held = active_deferral(project, now=now) is not None
+    changed = changed or any(item.get("fingerprint") and item["fingerprint"] != current for item in holds)
+    due = any((project_record.parse_iso(item.get("expires_at")) or now) <= now for item in holds)
     return {
-        "group": "reviewed" if reviewed else "changed" if changed else "due" if due else "recorded" if previous else "unreviewed",
-        "reviewed_until": raw_until or "",
+        "group": "held" if held else "changed" if changed else "due" if due else "recorded" if previous else "unreviewed",
         "last_action_at": state.get("last_action_at", ""),
         "last_outcome": state.get("last_outcome", ""),
     }

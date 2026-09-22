@@ -964,14 +964,14 @@ def normalize_confirmed_identifiers(entries: list[Any]) -> list[dict[str, Any]]:
     return output
 
 
-def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
-    output: list[dict[str, str]] = []
+def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
     for item in entries:
         if not isinstance(item, dict):
             continue
         reason = str(item.get("reason") or "").strip()
         expires = parse_iso(str(item.get("expires_at") or "").strip())
-        if not reason or expires is None:
+        if expires is None:
             continue
         normalized = {
             "reason": reason,
@@ -980,6 +980,8 @@ def normalize_promotion_deferrals(entries: list[Any]) -> list[dict[str, str]]:
         }
         if item.get("fingerprint"):
             normalized["fingerprint"] = str(item["fingerprint"])
+        if isinstance(item.get("legacy_review"), dict):
+            normalized["legacy_review"] = copy.deepcopy(item["legacy_review"])
         cleared_at = str(item.get("cleared_at") or "").strip()
         if cleared_at:
             normalized["cleared_at"] = cleared_at

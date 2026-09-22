@@ -256,15 +256,6 @@ def set_promotion_priority(
     }
 
 
-def set_promotion_reviewed(
-    conn: sqlite3.Connection, *, project_key: str, clear: bool = False,
-) -> dict[str, Any]:
-    project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key))
-    promotion_attention.record(project, "restore" if clear else "reviewed")
-    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
-    return {"project_key": project_key, "attention": promotion_attention.projection(project)}
-
-
 def dismiss_review_kind(
     conn: sqlite3.Connection,
     *,
