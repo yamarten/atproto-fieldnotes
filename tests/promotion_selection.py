@@ -1,4 +1,4 @@
-"""Reduced operator-reviewed cases shared by queue tests and bounded LLM checks."""
+"""Constructed reference cases for operator decisions and technical selection."""
 import json
 from pathlib import Path
 
@@ -31,7 +31,7 @@ def cases():
         yield {**case, "ref": subject["ref"], "project": p, "evidence": evidence}
 
 
-def apply_fixed_assessment(case):
+def apply_fixed_assessment(case, *, operator=True):
     p = case["project"]
     payload = {"atproto_usage": {
         "role": case["expected_role"], "reason": case["content"],
@@ -40,4 +40,7 @@ def apply_fixed_assessment(case):
         "technical_interest_reasons": ["implementation_reference"],
         "technical_interest_summary": case["content"]}
     registry.apply_llm_output(p, payload, {"generated_at": "2026-09-22T00:00:00Z"}, case["evidence"])
+    if operator:
+        atproto_usage.set_override(p, role=case["expected_role"], reason=case["content"],
+                                  assessed_at="2026-09-22T00:00:00Z")
     return project_record.ensure_project_shape(p)

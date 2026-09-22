@@ -446,4 +446,4 @@ bin/_project-registry-python promotion-outcome-analysis scripts/promotion_outcom
 
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
 
-主機能でのatproto利用はtriage prompt v3の`atproto_usage`で評価します。固定素材による選定回帰は`tests/fixtures/project_registry/promotion-selection-v1.json`を使い、既存manual goldの紹介好例5件、利用が限定的な2件、schemaしかない反例を通常の適用・queue・保存経路へ通します。素材は意味を切り分けた構成文で、実ページの再取得snapshotや実運用精度測定ではありません。固定出力testと実LLMの判定能力は別に確認します。
+triage prompt v4は主機能でのatproto利用の総括を要求しません。固定素材による選定回帰は`tests/fixtures/project_registry/promotion-selection-v1.json`を使い、技術評価と理由付き手動判断をqueue・保存経路へ通します。同じ素材でLLM出力だけでは利用範囲・順位が変わらないことも確認します。素材は意味を切り分けた構成文で、実ページの再取得snapshotや実運用精度測定ではありません。実資料を使う限定的な意味抽出の試行は通常triageと分け、採否と速度を[選定評価](../../notes/promotion-selection-validation.md)に記録しています。

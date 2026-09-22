@@ -1629,7 +1629,7 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(status, 409)
         status, result, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST", payload={"clear": True})
         self.assertEqual(status, 200)
-        self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["role"], "supporting")
+        self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["role"], "unknown")
 
     def test_promotion_attention_api_views_search_and_stale_mutations(self) -> None:
         key = "proj:111111111111"

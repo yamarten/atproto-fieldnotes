@@ -12,7 +12,7 @@ from project_registry_core.cli import build_parser
 
 
 class PromotionSelectionTest(TempRegistryDbTestCase):
-    def test_positive_references_and_counterexamples_through_normal_queue(self):
+    def test_operator_references_and_counterexamples_through_normal_queue(self):
         projects = [apply_fixed_assessment(c) for c in cases()]
         queue = registry.build_showcase_queue_from_projects(projects, limit=None)
         ranks = {p["project_key"]: i for i, p in enumerate(queue)}
@@ -31,23 +31,24 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
         self.assertEqual([p["project_key"] for p in technical], [p["project_key"] for p in
             registry.build_showcase_queue_from_projects(modified, view="technical", limit=None)])
 
-    def test_roles_need_context_and_current_sources_not_nsid_or_prior_prose(self):
-        case = list(cases())[-1]
-        p = case["project"]
-        p["summary"] = "Main function definitely uses AT Protocol"
-        for role in ("main_data", "supporting", "bluesky_client"):
-            atproto_usage.apply_assessment(p, {"role": role, "reason": "schema exists",
-                "sources": [s["id"] for s in case["evidence"]["description_sources"]]},
-                case["evidence"]["description_sources"], assessed_at="")
-            self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
-        case = next(c for c in cases() if c["ref"] == "squire")
-        p = apply_fixed_assessment(case)
-        self.assertEqual(atproto_usage.projection(p)["role"], "supporting")
-        p["service_verification_results"][0]["html_extract"] = "New architecture"
-        self.assertTrue(atproto_usage.projection(p)["stale"])
-        atproto_usage.apply_assessment(p, {"role": "main_data", "reason": "bad ref", "sources": ["invented"]},
-                                       case["evidence"]["description_sources"], assessed_at="")
-        self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
+    def test_llm_roles_never_change_usage_ranking_even_with_current_sources(self):
+        for case in cases():
+            with self.subTest(case=case["ref"]):
+                p = apply_fixed_assessment(case, operator=False)
+                self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
+                self.assertEqual(atproto_usage.projection(p)["source"], "none")
+                queue = registry.build_showcase_queue_from_projects([p], limit=None)
+                self.assertEqual(queue[0]["score_breakdown"]["components"]["atproto_usage"], 0)
+                # A plausible reference can still have the wrong meaning.
+                # Old automatic state must not revive that ranking in read-only views.
+                fingerprint = promotion_attention.projection(p)
+                p["atproto_usage"] = {"automatic": {
+                    "role": "main_data", "reason": "Requested scope proves main storage",
+                    "sources": case["evidence"]["description_sources"],
+                }}
+                self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
+                self.assertEqual(promotion_attention.projection(p), fingerprint)
+                self.assertEqual(registry.build_showcase_queue_from_projects([p], limit=None), queue)
 
     def test_normal_save_override_reassessment_clear_and_rediscovery(self):
         case = next(c for c in cases() if c["ref"] == "rolld")
@@ -99,14 +100,19 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
         self.assertEqual(len(registry.build_showcase_queue_from_projects([p], view="technical")), 1)
         self.assertEqual(atproto_usage.projection(p)["role"], "bluesky_client")
 
-    def test_malformed_assessments_fall_back_to_unknown(self):
+    def test_llm_usage_output_is_not_saved_as_assessment(self):
         case = next(c for c in cases() if c["ref"] == "squire")
-        for value in (None, [], {"role": []}, {"role": {}, "reason": "bad"},
-                      {"role": "main_data", "reason": "bad", "sources": {}}):
-            p = apply_fixed_assessment(copy.deepcopy(case))
-            atproto_usage.apply_assessment(p, value, case["evidence"]["description_sources"], assessed_at="")
+        for index, value in enumerate((None, [], {"role": []}, {"role": {}, "reason": "bad"},
+                                      {"role": "main_data", "reason": "bad", "sources": {}})):
+            p = apply_fixed_assessment(copy.deepcopy(case), operator=False)
+            p["project_key"] += f"-{index}"
+            registry.apply_llm_output(p, {"atproto_usage": value}, {}, case["evidence"])
             self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
-        self.assertEqual(atproto_usage.normalize({"automatic": {"role": "main_data", "reason": "bad", "sources": None}}), {})
+            with contextlib.closing(registry.open_db()) as conn:
+                project_record.save_project(conn, p)
+                state = json.loads(conn.execute("SELECT state_json FROM projects WHERE project_key=?", (p["project_key"],)).fetchone()[0])
+                self.assertNotIn("atproto_usage", state.get("ops", {}))
+                self.assertEqual(atproto_usage.projection(project_record.fetch_project(conn, p["project_key"]))["role"], "unknown")
 
     def test_merge_conflicting_operator_roles_requires_resolution(self):
         left, right = {}, {}
@@ -130,7 +136,7 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
             merge.merge_projects(conn, project_key="fixture:squire", target_project_key="fixture:rolld", execute=True)
             restored = project_record.fetch_project(conn, "fixture:rolld")
             self.assertEqual(atproto_usage.projection(restored)["role"], "supporting")
-            self.assertNotIn("automatic", restored["atproto_usage"])
+            self.assertNotIn("atproto_usage", restored)
 
     def test_cli_uses_same_technical_queue_and_operator_mutation(self):
         with contextlib.closing(registry.open_db()) as conn:

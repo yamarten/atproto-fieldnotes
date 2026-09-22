@@ -8035,9 +8035,6 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         "editorial_source_policy_version": EDITORIAL_SOURCE_POLICY_VERSION,
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
-    atproto_usage.apply_assessment(project, payload.get("atproto_usage"),
-                                  evidence.get("description_sources", []),
-                                  assessed_at=project["last_llm_review_at"])
     apply_repository_link_assessments(project, payload, evidence)
     sync_current_llm_name_candidate(project)
     if payload.get("tagline"):
@@ -10266,8 +10263,6 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["app_category"] = choose_preferred_scalar(merged.get("app_category"), source.get("app_category"))
     merged["category"] = choose_preferred_scalar(merged.get("category"), source.get("category"))
     merged["atproto_auth_only"] = bool(merged.get("atproto_auth_only") or source.get("atproto_auth_only"))
-    # A merged identity changes the scope of automatic claims; reassess it.
-    merged["atproto_usage"] = {}
     merged["atproto_usage_decisions"] = atproto_usage.merge_decisions(
         merged.get("atproto_usage_decisions"), source.get("atproto_usage_decisions"),
         cleared_at=project_record.iso_now(),

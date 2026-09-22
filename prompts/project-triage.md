@@ -8,6 +8,7 @@ You are classifying newly discovered AT Protocol projects.
 Return JSON only.
 Be conservative.
 Do not invent facts that are not present in the evidence.
+Permission requests and schema definitions alone do not establish actual data operations or an implemented application. Preserve conditions, negation, plans, and third-party attribution in descriptions.
 For human-readable text fields, write in Japanese.
 Keep schema enums, URLs, handles, DIDs, and NSIDs unchanged.
 Do not insert spaces between Japanese text and adjacent English words or digits.
@@ -43,7 +44,6 @@ Output schema:
   "why_reject": "string",
   "watch_reason": "string",
   "technical_interest_level": "none | notable | high | exceptional",
-  "atproto_usage": {"role": "main_data | supporting | bluesky_client | auth_only | unknown", "reason": "Japanese explanation of the main function and exactly what AT Protocol does", "sources": ["description_sources ID"]},
   "technical_interest_reasons": ["novel_design_pattern | protocol_gap_exposed | interoperability_experiment | unusual_architecture | implementation_reference"],
   "technical_interest_summary": "string",
   "manual_review_recommended": true,
@@ -75,11 +75,7 @@ Language requirements:
 - `technical_interest_level`: evaluate technical learning value independently from service usability or introduction readiness; use `high` or `exceptional` only with concrete evidence
 - `technical_interest_reasons`: choose only supported enum values; use an empty list when there is no concrete technical insight
 - `technical_interest_summary`: Japanese short explanation of the specific design pattern, protocol gap, interoperability experiment, architecture, or reference value
-- `atproto_usage`: use only `description_sources`, with 1-4 exact source IDs for known roles. Do not infer from current_profile, prior generated text, NSIDs, DNS verification, or login screens.
-  - First distinguish an implemented application/infrastructure from a specification. A schema or design specification with no implemented application/infrastructure is `unknown`, even when its subject is entirely AT Protocol. Do not turn a described record design into a claim that an application already stores those records.
-  - For an implemented artifact: `bluesky_client` if its main purpose is viewing/managing existing Bluesky data; `auth_only` if sign-in is its only integration; `supporting` if evidence explicitly limits integration to an ancillary part of an otherwise external service; `main_data` if the application's main data or core protocol infrastructure is actually implemented on AT Protocol. Custom NSIDs are not required. Otherwise `unknown`.
-  - A lone schema sample cannot establish either main use or ancillary-only use. Explain what is known and what is missing, without inventing absence of other integration.
-- Calibrate `technical_interest_level` using this rubric, independently of usage role, deployment and service usability:
+- Calibrate `technical_interest_level` using this rubric, independently of deployment and service usability:
   - `high`: the material identifies a concrete protocol/interoperability mechanism or reusable infrastructure implementation worth explaining to developers. This includes protocol infrastructure implementing signing/synchronization/indexing, shared schema designs that explain how independent applications exchange records, and designs that explain how independently signed claims resolve an interoperability problem. A published design can qualify without a deployed application. Do not downgrade these to `notable` merely because they reuse AT Protocol or are not unprecedented.
   - `notable`: ordinary application record storage, login, CRUD, API calls or a programming-language choice, without such a mechanism or reusable implementation lesson.
   - `none`: no evidenced technical lesson. Reserve `exceptional` for evidence beyond the `high` standard.

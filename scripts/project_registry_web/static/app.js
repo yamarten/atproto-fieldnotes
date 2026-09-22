@@ -563,10 +563,10 @@ const atprotoUsageLabels = {
 };
 
 function renderAtprotoUsage(usage = {}) {
-  return `<p>${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · ${usage.source === "operator" ? "手動判断" : usage.source === "llm" ? "根拠に基づく自動評価" : "未評価"}</p>
+  return `<p>${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · ${usage.source === "operator" ? "手動判断" : "未評価"}</p>
     <p>${esc(usage.reason || "主機能でのatproto利用は未評価です。")}</p>
     ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(s.type)}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
-    <details><summary>利用範囲を訂正</summary><p class="muted">稼働状態や技術的価値とは別の判断です。手動判断は自動調査で上書きしません。</p>
+    <details><summary>利用範囲の判断を記録</summary><p class="muted">OAuth宣言と関連記述を参考に、根拠を添えて記録します。自動調査で上書きせず、解除すると未評価へ戻ります。</p>
     <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
     <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
     <div class="actions"><button id="save-atproto-usage">判断を保存</button>${usage.source === "operator" ? `<button id="clear-atproto-usage" class="secondary">手動判断を解除</button>` : ""}</div></details>`;
@@ -1285,7 +1285,7 @@ function bindDetailActions(projectKey) {
       `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {role:$("atproto-usage-role").value, reason}, false);
   });
   $("clear-atproto-usage")?.addEventListener("click", () => confirmMutation(
-    "手動判断を解除", "有効な自動評価があれば使用し、なければ不明へ戻します。",
+    "手動判断を解除", "利用範囲を未評価へ戻します。解除した判断は履歴に残ります。",
     `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {clear:true}, false));
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;

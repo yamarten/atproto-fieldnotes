@@ -145,7 +145,7 @@ project-registry --db-path PATH migrate-db-v4 --execute
 
 技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された未確認候補を、サービスの確認度と独立して並べます。通常一覧にも同じ技術候補が含まれます。
 
-主機能でのatproto利用を手動で補正するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると自動評価へ戻ります。Lower priorityは個別の編集判断として別に維持されます。
+主機能でのatproto利用を判断するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると未評価へ戻ります。LLMによる利用範囲の自動確定は行いません。Lower priorityは個別の編集判断として別に維持されます。
 
 ```bash
 bin/project-registry set-atproto-usage -p PROJECT_KEY --role supporting --reason 'プロフィールだけをatprotoに保存し、主機能のデータは別基盤'

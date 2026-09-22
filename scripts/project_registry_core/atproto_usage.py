@@ -1,79 +1,21 @@
-"""Evidence-backed role of AT Protocol in a project's main function.
+"""Reasoned operator decisions about AT Protocol usage.
 
 This is independent of service availability, schema ownership and technical
-interest. Missing assessments never inherit a role from NSIDs or profile text.
+interest. LLM output and observations never establish a role automatically.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from . import editorial, repository_analysis
-
 ROLES = {"main_data", "supporting", "bluesky_client", "auth_only", "unknown"}
 LIMITED_ROLES = {"supporting", "bluesky_client", "auth_only"}
 
 
-def normalize(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    entry = value.get("automatic")
-    if not isinstance(entry, dict) or not isinstance(entry.get("role"), str) or entry["role"] not in ROLES:
-        return {}
-    reason = str(entry.get("reason") or "").strip()[:1000]
-    if not reason:
-        return {}
-    clean = {"role": entry["role"], "reason": reason,
-             "assessed_at": str(entry.get("assessed_at") or ""), "sources": [
-                 {k: str(source.get(k) or "") for k in ("id", "type", "locator")}
-                 for source in (entry.get("sources") if isinstance(entry.get("sources"), list) else [])
-                 if isinstance(source, dict) and isinstance(source.get("id"), str) and source["id"]
-             ][:4]}
-    if clean["role"] != "unknown" and not clean["sources"]:
-        return {}
-    return {"automatic": clean}
-
-
-def material(project: dict[str, Any]) -> list[dict[str, Any]]:
-    return editorial.sources({
-        **project, "repository_analysis_results": repository_analysis.select_for_triage(project),
-    })
-
-
-def apply_assessment(project: dict[str, Any], value: Any, sources: list[dict[str, Any]], *, assessed_at: str) -> None:
-    state = normalize(project.get("atproto_usage"))
-    # Each completed triage replaces the automatic assessment, including unknown.
-    # Unsupported new output must not silently retain an earlier positive role.
-    state.pop("automatic", None)
-    value = value if isinstance(value, dict) else {}
-    role = value.get("role")
-    reason = str(value.get("reason") or "").strip()[:1000]
-    ids = value.get("sources")
-    catalog = {s["id"]: s for s in sources if isinstance(s, dict) and s.get("id")}
-    valid_ids = (isinstance(ids, list) and len(ids) <= 4
-                 and all(isinstance(i, str) and i in catalog for i in ids))
-    # Schema shape alone cannot establish where the app's main function runs,
-    # nor prove that a profile is its *only* use of the protocol.
-    contextual = valid_ids and any(catalog[i].get("type") != "lexicon" for i in ids)
-    if isinstance(role, str) and role in ROLES and reason and (role == "unknown" or contextual):
-        state["automatic"] = {"role": role, "reason": reason, "assessed_at": assessed_at,
-                              "sources": [catalog[i] for i in dict.fromkeys(ids)] if valid_ids else []}
-    project["atproto_usage"] = normalize(state)
-
-
 def projection(project: dict[str, Any]) -> dict[str, Any]:
-    state = normalize(project.get("atproto_usage"))
     override = active_override(project.get("atproto_usage_decisions"))
     if override:
         return {**override, "source": "operator", "sources": [], "stale": False}
-    automatic = state.get("automatic")
-    if automatic:
-        current_ids = {s["id"] for s in material(project)}
-        stale = any(s["id"] not in current_ids for s in automatic["sources"])
-        if not stale:
-            return {**automatic, "source": "llm", "stale": False}
-        return {"role": "unknown", "reason": "評価に使った根拠が変わりました。再調査が必要です。",
-                "source": "llm", "sources": automatic["sources"], "stale": True}
-    return {"role": "unknown", "reason": "主機能でのatproto利用は未評価です。",
+    return {"role": "unknown", "reason": "利用範囲の手動判断は未記録です。OAuth宣言と関連記述を確認してください。",
             "source": "none", "sources": [], "stale": False}
 
 

@@ -142,7 +142,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "service_status_confidence",
         "service_status_evidence",
         "atproto_auth_only",
-        "atproto_usage",
         "atproto_contribution_level",
         "atproto_contribution_score",
         "atproto_contribution_evidence",
@@ -755,7 +754,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "service_status_confidence": "none",
         "service_status_evidence": [],
         "atproto_auth_only": False,
-        "atproto_usage": {},
         "atproto_usage_decisions": [],
         "atproto_contribution_level": "unknown",
         "atproto_contribution_score": 0,
@@ -1018,7 +1016,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_status_confidence"] = normalize_service_status_confidence(defaults.get("service_status_confidence"))
     defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["atproto_auth_only"] = bool(defaults.get("atproto_auth_only"))
-    defaults["atproto_usage"] = atproto_usage.normalize(defaults.get("atproto_usage"))
     defaults["atproto_usage_decisions"] = atproto_usage.normalize_decisions(defaults.get("atproto_usage_decisions"))
     defaults["status"] = str(defaults.get("status") or "draft")
     defaults["dismissed_review_kinds"] = unique_list([str(item).strip() for item in defaults.get("dismissed_review_kinds", []) if str(item).strip()])
