@@ -43,6 +43,7 @@ from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
+from project_registry_core import oauth_metadata
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
@@ -7984,11 +7985,26 @@ def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) 
         metadata = http_transport.request_json(metadata_url, timeout=REQUEST_TIMEOUT_SHORT)
         if not isinstance(metadata, dict):
             raise ValueError("OAuth client metadata must be a JSON object")
-        for record in relation_core.oauth_metadata_relation_records(metadata_url, metadata, observed_at):
-            bundle.add_record(record)
+        observation = oauth_metadata.observe(metadata_url, metadata, observed_at)
+        bundle.add_record(EvidenceRecord(
+            kind="oauth_client_metadata", source=f"oauth_client_metadata:{metadata_url}",
+            classification="derived", observed_at=observed_at, value=observation,
+        ))
+        if observation["analysis"]["status"] == "unavailable":
+            bundle.add_failure(investigation_core.collector_failure(
+                source="oauth_client_metadata", operation="parse", target=metadata_url,
+                message=observation["analysis"]["error"],
+                error=RuntimeError(observation["analysis"]["error"]),
+            ))
         bundle.add_collector_result(CollectorResult(
             source="oauth_client_metadata", operation="fetch", status="success", observed_at=observed_at,
             request_count=1, result_count=len(bundle.records),
+        ))
+        parse_status = observation["analysis"]["status"]
+        bundle.add_collector_result(CollectorResult(
+            source="oauth_client_metadata", operation="parse", observed_at=observed_at,
+            status="success" if parse_status == "parsed" else ("failed" if parse_status == "unavailable" else "partial"),
+            result_count=len(observation["analysis"]["permissions"]), stop_reason=parse_status,
         ))
     except Exception as exc:
         bundle.add_failure(investigation_core.collector_failure(
@@ -10232,6 +10248,9 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["repository_analysis_results"] = repository_analysis_core.normalize_results(
         list(merged.get("repository_analysis_results", []))
         + list(source.get("repository_analysis_results", []))
+    )
+    merged["oauth_client_metadata"] = oauth_metadata.normalize_results(
+        list(merged.get("oauth_client_metadata", [])) + list(source.get("oauth_client_metadata", []))
     )
     project_record.sync_source_repo_provider_views(merged)
 

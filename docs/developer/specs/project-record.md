@@ -158,6 +158,8 @@ registry全体のsource設定・watermark・identifier exclusionはproject snaps
 
 `system_notes` は、merge/split/importなどの機械生成された運用履歴を保持する補助fieldです。人間が編集するprofile `notes` とは保存時点で分離し、紹介用profileやoperatorの自由記述には混ぜません。読込時に`notes`本文をpattern判定して`system_notes`へ移す互換処理は行いません。
 
+`evidence.oauth_client_metadata`はmetadata URLごとの最新のscope宣言と解析を保持します。履歴の正本はEvidenceBundleです。`repo`と未解決`include`から作る`requests_permission` relationはこの観測から再構成し、scope削減時に古いrelationを除きます。読込・保存時の再構成は通信やparser実行を伴いません。[観測の意味と上限](investigation.md#oauth-client-metadataの観測)を参照してください。
+
 ### 説明の編集制御と観測時点
 
 schema v4の`state_json.evidence.editorial`に説明の更新方法（`mode=automatic / review`）、現在文面の`profile_hash`、直近の`last_update`、必要な場合だけ更新案`proposal`と見送り案のhashを保存します。更新案は本文3field、比較元のhash、変更種別、理由、最大4件の根拠抜粋、生成時点を持ちます。全文の版履歴や全変更のevent列は作りません。説明本体は従来どおりprofileの`tagline / summary`とstateの`features`です。
@@ -277,7 +279,7 @@ relationの`classification=confirmed`は、保存したpredicateの方向付き�
 - `operates_service`: identityがserviceを運営する
 - `repository_homepage`: repository metadataのWebsite欄がURLを直接示す。URLのtarget roleやproject帰属は含意しない
 - `project_repository`: app/siteとrepoの間に公式project repositoryとしての直接参照がある
-- `requests_permission`: OAuth metadataがrepo permissionを要求する
+- `requests_permission`: OAuth metadataが個別repo collectionまたは未解決permission setへの権限を宣言する。grant、実利用、所有を示さない
 - `redirects_to`: URL間の実観測redirect/canonical関係
 
 同じproject内でsubject、predicate、object、source、locator、methodが同じrelationは重複保存しません。relation生成時の境界は[Relationと採用](investigation.md#relationと採用の境界)、現行ownership判定は[NSID ownership](project-boundaries.md#nsid-ownershipの優先順位)を参照してください。

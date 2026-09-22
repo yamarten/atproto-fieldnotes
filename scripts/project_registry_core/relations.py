@@ -125,42 +125,35 @@ def classify_lexicon_path(path: str, schema: dict[str, Any]) -> tuple[str, str]:
     return "mentions_collection", "candidate"
 
 
-def parse_oauth_scope(scope: str) -> list[dict[str, str]]:
-    relations: list[dict[str, str]] = []
-    for token in re.split(r"\s+", str(scope or "").strip()):
-        if token.startswith("repo:"):
-            nsid = token[5:].strip()
-            if nsid:
-                relations.append({"predicate": "requests_permission", "nsid": nsid, "kind": "repo"})
-        elif token.startswith("repo?"):
-            query = urllib.parse.parse_qs(token.split("?", 1)[1])
-            for nsid in query.get("collection", []):
-                if nsid:
-                    relations.append({"predicate": "requests_permission", "nsid": nsid, "kind": "repo"})
-        elif token.startswith("include:"):
-            nsid = token[8:].strip()
-            if nsid:
-                relations.append({"predicate": "requests_permission", "nsid": nsid, "kind": "include"})
-    return relations
-
-
 def oauth_metadata_relation_records(metadata_url: str, metadata: dict[str, Any], observed_at: str) -> list[EvidenceRecord]:
-    client_uri = str(metadata.get("client_uri") or metadata_url).strip()
-    records: list[EvidenceRecord] = []
-    for permission in parse_oauth_scope(str(metadata.get("scope") or "")):
-        records.append(relation_record(
-            source=f"oauth_client_metadata:{metadata_url}",
-            classification="candidate" if permission["kind"] == "include" else "derived",
-            observed_at=observed_at,
-            subject_type="oauth_client",
-            subject_value=client_uri,
-            predicate="requests_permission",
-            object_type="nsid",
-            object_value=permission["nsid"],
-            locator=metadata_url,
-            method=f"oauth_scope:{permission['kind']}",
-        ))
-    return records
+    from .oauth_metadata import analyze_scope
+    return oauth_analysis_relation_records(metadata_url, analyze_scope(metadata.get("scope")), observed_at)
+
+
+def oauth_analysis_relation_records(metadata_url: str, analysis: dict[str, Any], observed_at: str) -> list[EvidenceRecord]:
+    by_target: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for permission in analysis.get("permissions", []):
+        kind = permission["kind"]
+        # Preserve the existing relation surface. RPCs and wildcards are not
+        # collection NSIDs; an include NSID denotes an unresolved permission set.
+        targets = permission.get("collection", []) if kind == "repo" else ([permission["nsid"]] if kind == "include" else [])
+        for target in targets:
+            if target == "*":
+                continue
+            by_target.setdefault((kind, target), []).append(permission)
+    return [relation_record(
+        source=f"oauth_client_metadata:{metadata_url}",
+        classification="candidate" if kind == "include" else "derived",
+        observed_at=observed_at,
+        subject_type="oauth_client",
+        subject_value=metadata_url,
+        predicate="requests_permission",
+        object_type="nsid",
+        object_value=target,
+        locator=metadata_url,
+        method=f"oauth_scope:{kind}",
+        context={"declaration": True, "scope_permissions": permissions},
+    ) for (kind, target), permissions in by_target.items()]
 
 
 def oauth_metadata_candidates(base_url: str, links: Any, html: str = "") -> list[str]:

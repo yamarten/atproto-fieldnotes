@@ -1030,10 +1030,27 @@ function renderRunMetrics(metrics) {
   return `<dl class="kv"><dt>Total</dt><dd>${esc(formatMilliseconds(metrics.total_ms))}</dd>${phases.map(([key, label]) => `<dt>${esc(label)}</dt><dd>${esc(formatMilliseconds(metrics.phases[key]))}</dd>`).join("")}</dl>${requests.length ? `<details><summary>LLM requests (${requests.length})</summary>${requests.map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.purpose)}</strong> · ${esc(formatMilliseconds(item.duration_ms))}</div><div class="muted">${esc(item.prompt_bytes || 0)} prompt bytes · ${esc(item.response_bytes || 0)} response bytes · timeout ${esc(item.timeout_seconds)}s${item.error_category ? ` · ${esc(item.error_category)}` : ""}${item.model ? ` · ${esc(item.model)}` : ""}</div></div>`).join("")}</details>` : `<p class="muted">No LLM request was observed.</p>`}`;
 }
 
+function renderOAuthClient(item) {
+  const analysis = item.analysis || {};
+  const status = {parsed: "解析済み", partial: "一部未解釈", empty: "scope が空", missing: "scope の記載なし", invalid_type: "scope の形式不正", too_large: "scope が上限超過", unavailable: "解析できませんでした"}[analysis.status] || analysis.status;
+  return `<div class="collector"><div>${link(item.metadata_url)} · ${esc(formatTimestamp(item.observed_at))} ${pill(status)}</div>
+    ${item.declared_client_uri ? `<div class="muted">申告されたサービスURL: ${link(item.declared_client_uri)}</div>` : ""}
+    ${analysis.atproto_only ? `<p>認証用の atproto scope のみ。公開データの読取りは可能です。</p>` : ""}
+    ${list(analysis.permissions).map((p) => {
+      const target = list(p.collection || p.lxm || p.accept).join(", ") || p.nsid || p.attr || p.raw;
+      return `<div class="relation"><strong>${esc(p.kind)}: ${esc(target)}</strong>${p.kind === "include" ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${p.action ? `操作: ${esc(p.action.join(", "))}` : ""}${p.aud ? ` · 宛先: ${esc(p.aud)}` : ""}${p.kind === "transition" ? "移行用の権限。これだけでは用途を特定できません。" : ""}</div></div>`;
+    }).join("")}
+    ${list(analysis.unrecognized).length ? `<p>未解釈: ${esc(analysis.unrecognized.join(" "))}</p>` : ""}
+    ${analysis.error ? `<p>${esc(analysis.error)}</p>` : ""}
+    <details><summary>元のscope${item.scope_truncated ? "（長さ上限で省略）" : ""}</summary><pre>${esc(item.scope ?? "記載なし／文字列以外")}</pre></details></div>`;
+}
+
 function renderServiceOwnership(data, serviceUrls = []) {
   const service = list(data.service_verifications);
   const ownership = list(data.nsid_ownership);
   const permissions = list(data.oauth_permissions);
+  const clients = list(data.oauth_clients);
+  const historicalPermissions = permissions.filter((p) => !clients.some((c) => c.metadata_url === p.locator));
   const aliases = list(data.url_aliases);
   const targets = uniqueValues(serviceUrls);
   const browserControls = targets.length
@@ -1042,7 +1059,8 @@ function renderServiceOwnership(data, serviceUrls = []) {
   return `<dl class="kv"><dt>Saved service observation</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
     ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
-    ${permissions.length ? `<details><summary>OAuth permissions (${permissions.length})</summary>${permissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
+    ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求できる権限の宣言です。実際に許可された権限や利用状況、サービスの所有を示すものではありません。</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
+    ${historicalPermissions.length ? `<details><summary>OAuth permissions・従来の保存情報 (${historicalPermissions.length})</summary>${historicalPermissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
     ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
 }
 

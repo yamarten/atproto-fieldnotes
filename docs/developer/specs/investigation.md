@@ -214,6 +214,20 @@ service surfaceは、機能を利用・操作するために到達するURL上�
   - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
 - `service_verification_results`は`lane + requested_url`ごとの最新観測を最大32組保持します。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 
+### OAuth client metadataの観測
+
+service pageから発見したmetadata候補（1 pageあたり最大3 URL）を従来のHTTP collectorで取得し、`scope`を公式`@atproto/oauth-scopes@0.5.12`で解析します。`oauth_metadata.py`がNode bridgeを呼び、構文・対象・操作・audienceの検証はSDKへ任せます。追加HTTP、LLM、ソースコード探索は行いません。Node処理は1回5秒まで、scopeは16,384文字まで。同一processではscope文字列ごとに成功した解析結果を128件までcacheし、DB読込・表示・replayでは保存済み解析だけを使います。
+
+`repo`のcollectionとcreate/update/delete、`rpc`のmethodとaudience、`blob`、`account`、`identity`、基本scope、移行用scopeを分けます。操作の省略時や複数指定、percent encodingもSDKで扱います。`include`はpermission setのNSIDとaudienceを保存しますが、参照先の取得・展開は未実装で、常に未解決と表示します。未対応／不正なtokenは捨てず`unrecognized`へ残し、部分解析とします。
+
+`oauth_client_metadata` EvidenceRecordは取得URL、取得時刻、申告されたclient_id/client_uri、元のscope、parser versionと解析状態を持ちます。client_uriをサービスの所有確認に使いません。scope欠落・空・非文字列・長さ上限・parser利用不可を区別し、未取得や`atproto`のみと混同しません。長さ超過時は先頭16,384文字と省略flagを保存し、部分文字列を解析しません。HTTP成功と解析失敗はcollectorのfetch/parseに分けます。
+
+metadataは要求できる権限の上限の宣言であり、実際のgrantや操作実績ではありません。`atproto`のみでも公開データを読め、他のclient・server accountの書込み有無も分からないため、`atproto_auth_only`や主機能での利用範囲を自動確定しません。個別のrepo NSIDと未解決includeは従来どおり`requests_permission` relationへ射影し、contextに元のtoken・操作を残します。wildcard、RPC、その他scopeをcollection NSIDや所有根拠へ変換しません。既存の寄与度評価規則と紹介順位規則は変更していません。
+
+metadata URLごとの最新観測をcurrent stateに保持します。scopeが減った場合は同じURL由来の古いpermission relationを置き換え、古い観測のreplayやmergeで復活させません。取得失敗だけなら前回観測を維持し、失敗は調査履歴へ残します。従来のrelationだけでは元のscope全体を復元できないので、新しい解析への更新にはmetadataの再取得が必要です。
+
+仕様根拠: [OAuth](https://atproto.com/specs/oauth)、[Permissions](https://atproto.com/specs/permission)、[段階的なscope要求](https://atproto.com/guides/oauth-patterns#progressive-scope-requests)。主機能との対応や寄与度の再設計は、公式の保存先説明・schema・record等を合わせて評価する別段階です。
+
 ### Static・Deep・Browserの調査範囲
 
 - 通常 enrich は service top page と same-site follow-up を軽量 probe します

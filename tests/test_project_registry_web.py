@@ -1021,6 +1021,22 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertFalse(detail["explanations"]["network_used"])
         self.assertIn("merge_candidate", detail["explanations"]["topics"])
 
+    def test_oauth_base_only_declaration_is_observed_in_detail(self) -> None:
+        from project_registry_core import oauth_metadata
+        with contextlib.closing(registry.open_db()) as conn:
+            project = project_record.fetch_project(conn, "proj:111111111111")
+            project["oauth_client_metadata"] = [oauth_metadata.observe(
+                "https://example.com/client.json", {"scope": "atproto"}, "2026-09-22T01:00:00+00:00",
+            )]
+            project_record.save_project(conn, project)
+        with mock.patch.object(oauth_metadata, "_parse_json", side_effect=AssertionError("API must use saved facts")):
+            status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        review = detail["service_ownership_review"]
+        self.assertEqual(review["oauth_status"], "observed")
+        self.assertEqual(review["oauth_permissions"], [])
+        self.assertTrue(review["oauth_clients"][0]["analysis"]["atproto_only"])
+
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (
             ("identifier_kind=repo_url&identifier_value=example/candidate&identifier_classification=candidate", 1),

@@ -25,6 +25,7 @@ from project_registry_core import runtime_view
 from project_registry_core import storage as investigation_storage
 from project_registry_core import concurrency
 from project_registry_core import atproto_usage
+from project_registry_core import oauth_metadata
 from project_registry_core.concurrency import StaleProjectWriteError
 from project_registry_core import trust_graph as trust_graph_core
 
@@ -188,6 +189,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "tangled_handles",
         "source_repo_records",
         "repository_analysis_results",
+        "oauth_client_metadata",
         "llm_source",
         "llm_output",
         "classification_reason",
@@ -769,6 +771,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "candidate_project_repository_urls": [],
         "source_repo_records": [],
         "repository_analysis_results": [],
+        "oauth_client_metadata": [],
         "bluesky_handles": [],
         "tangled_handles": [],
         "developer_accounts": [],
@@ -1086,6 +1089,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
     defaults["relation_evidence"] = relation_core.normalize_relation_records(defaults.get("relation_evidence", []))
+    oauth_metadata.reconcile_relations(defaults)
     defaults["service_verification_results"] = [
         dict(item) for item in defaults.get("service_verification_results", []) if isinstance(item, dict)
     ]
@@ -1653,6 +1657,7 @@ def _save_project(
     project["project_repository_urls"] = repo_url_core.normalize_repo_collection(project.get("project_repository_urls", []))
     project["candidate_project_repository_urls"] = repo_url_core.normalize_repo_collection(project.get("candidate_project_repository_urls", []))
     project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
+    oauth_metadata.reconcile_relations(project)
     project["repository_analysis_results"] = repository_analysis_core.normalize_results(
         project.get("repository_analysis_results", [])
     )

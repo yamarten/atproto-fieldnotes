@@ -10,6 +10,8 @@ Project Registryは、atproto関連のプロジェクト、サービス、ライ
 
 Python 3.10以上の隔離環境を使います。公開wrapperは`.venv/bin/python`を優先し、無ければ`python3`を使います。
 
+Tangledの取得とOAuth scopeの解析にはNode.js 22.15以上と以下のNode依存が必要です。OAuthの解析はローカルで行い、追加のLLM呼出しはありません。
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate

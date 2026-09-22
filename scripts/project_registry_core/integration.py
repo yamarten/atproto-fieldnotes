@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from . import collector_relation_policy
 from . import service
+from . import oauth_metadata
 from .evidence import EvidenceBundle
 from .relations import normalize_relation_records
 
@@ -321,6 +322,12 @@ def apply_investigation_evidence(
         raise ValueError("evidence project_key does not match target project")
 
     for record in bundle.records:
+        if record.kind == "oauth_client_metadata" and isinstance(record.value, dict):
+            project["oauth_client_metadata"] = oauth_metadata.normalize_results(
+                list(project.get("oauth_client_metadata", [])) + [record.value]
+            )
+            oauth_metadata.reconcile_relations(project)
+            continue
         if record.kind == "relation" and isinstance(record.value, dict):
             relation = dict(record.value)
             if relation.get("predicate") == "operates_service" and str(record.source).startswith("service_"):
@@ -376,6 +383,9 @@ def apply_investigation_evidence(
                     evidence_url=url,
                 )
 
+    # Legacy relation-only replay must not resurrect an older declaration when
+    # a complete metadata snapshot is already available for the same source.
+    oauth_metadata.reconcile_relations(project)
     for failure in bundle.failures:
         dependencies.note_failure(project, failure.message)
 

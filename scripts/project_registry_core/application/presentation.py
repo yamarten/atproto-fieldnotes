@@ -617,7 +617,8 @@ def _service_ownership_review(
         "ownership_signal": str(prepared.get("ownership_signal") or "unknown"),
         "nsid_ownership": ownership,
         "oauth_permissions": permissions,
-        "oauth_status": "observed" if permissions else "not_observed",
+        "oauth_clients": list(prepared.get("oauth_client_metadata", [])),
+        "oauth_status": "observed" if permissions or prepared.get("oauth_client_metadata") else "not_observed",
         "url_aliases": aliases,
         "url_alias_status": "observed" if aliases else "not_observed",
     }

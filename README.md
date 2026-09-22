@@ -6,7 +6,7 @@
 
 ## Quick start
 
-Python 3.10以上の隔離環境を用意します。
+Python 3.10以上の隔離環境とNode.js 22.15以上を用意します。Node依存はTangledの取得とOAuth scopeの解析に使います。
 
 ```bash
 python3 -m venv .venv
